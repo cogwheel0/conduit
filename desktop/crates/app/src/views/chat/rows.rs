@@ -4,10 +4,16 @@
 //! Every message is a labelled `Role::Article` carrying its text (a bare
 //! TextView is invisible to VoiceOver). Actions:
 //!
-//! * answers: copy, regenerate (`turns.regenerate`), thumbs up/down
-//!   (`turns.rate`, shown at once and rolled back if refused), the version
-//!   arrows (`n / N`), and the sources pill once the answer is finished;
-//! * questions: copy and edit in place (`turns.edit`).
+//! * answers: the message actions ([`super::actions`]: Copy, Regenerate,
+//!   Retry Without Reasoning Effort, Merge Responses, Info, Branch in New
+//!   Chat, Share and Delete, inline or in More as Settings › Chat says),
+//!   Regenerate With, Copy as Markdown and the thumbs (`turns.rate`) in
+//!   More, the version arrows and their list (`n / N`, switching the
+//!   chat's branch on the server), and the sources pill once finished;
+//!   a Compare Models answer draws each model's answer as a column, with
+//!   Continue from Here on the others, and a merged response under them;
+//! * questions: copy, edit in place (`turns.edit`), their versions, and
+//!   Delete in More.
 //!
 //! The action row shows on hover, and always under the newest answer; it
 //! is drawn transparent otherwise, so VoiceOver still reaches it.
@@ -32,6 +38,7 @@ use gpui_kit::{
     percentage, px, relative,
 };
 
+use super::actions::{MessageAction, RowCommand, RowContext, RunRowCommand};
 use super::blocks::{ACTIVITY_GAP, error_text, file_list, spinner};
 use super::pace::Pace;
 use crate::l10n::ActiveL10n as _;
@@ -92,6 +99,22 @@ pub struct RowHost {
 }
 
 impl RowHost {
+    /// The models on offer, by id and name (Regenerate With).
+    pub fn models(&self, cx: &App) -> Vec<(String, String)> {
+        self.composer
+            .as_ref()
+            .and_then(WeakEntity::upgrade)
+            .and_then(|c| {
+                c.read(cx).models.as_ref().map(|m| {
+                    m.models
+                        .iter()
+                        .map(|m| (m.id.clone(), m.name.clone()))
+                        .collect()
+                })
+            })
+            .unwrap_or_default()
+    }
+
     /// `model` (an id) as the picker names it, else as it is.
     pub fn model_name(&self, model: &str, cx: &App) -> String {
         self.composer
@@ -111,12 +134,19 @@ impl RowHost {
 }
 
 /// Per-row flags from the chat.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct RowFlags {
     /// Edit, regenerate and rate apply (a stored chat, nothing streaming).
     pub can_branch: bool,
     /// Follow-ups are offered (never in a read-only chat).
     pub can_follow_up: bool,
+    /// What the chat offers (fork, delete, merge, branch, ...).
+    pub abilities: conduit_protocol::ChatAbilities,
+    /// A merge runs in the chat.
+    pub merging: bool,
+    /// Settings › Chat › Message Actions: the actions shown inline, in
+    /// order, or `None` for Automatic.
+    pub actions: Option<Vec<String>>,
 }
 
 /// The answer's More menu: rate it (`turns.rate`). Carries the chat's
@@ -142,6 +172,9 @@ pub struct CopyAnswerMarkdown {
 
 /// Registers the rows' menu actions on the app.
 pub fn register_actions(cx: &mut App) {
+    super::actions::register(cx);
+    super::share_sheet::register(cx);
+    super::composer::register_actions(cx);
     cx.on_action(|a: &RateAnswer, cx| {
         let (key, rating) = (a.key.clone(), a.rating);
         let _ = a.store.update(cx, |s, cx| s.rate(&key, rating, cx));
@@ -194,10 +227,13 @@ fn small_action(
 /// Which of an answer's actions it offers.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct AnswerActions {
-    pub copy: bool,
-    pub regenerate: bool,
+    /// The message actions it offers, in Settings' order (laid out inline
+    /// or in More by [`super::actions::layout`]).
+    pub available: Vec<MessageAction>,
     /// Good Answer / Bad Answer in More.
     pub rate: bool,
+    /// More › Regenerate With, beside Regenerate.
+    pub regenerate_with: bool,
     /// More › Copy Error Details, with what it copies.
     pub copy_error: Option<String>,
     /// More › Copy as Markdown.
@@ -205,30 +241,127 @@ pub(super) struct AnswerActions {
 }
 
 impl AnswerActions {
-    /// A failed answer's banner has Retry, which is the way on: its row
-    /// keeps only More (to copy what went wrong, and what was written before
-    /// it failed, if anything), never a second Retry (Regenerate), a Copy
-    /// of nothing or a rating. Any other answer: Copy, Regenerate where it
-    /// can branch, and More with Copy as Markdown and the rating.
-    pub fn of(item: &RowItem, flags: RowFlags, l10n: &crate::l10n::L10n) -> Self {
+    /// What an answer offers. A failed answer's banner has Retry, which is
+    /// the way on: its row keeps no second Retry (Regenerate), no Copy of
+    /// nothing and no rating; More copies what went wrong (and what was
+    /// written before it failed). Retry Without Reasoning Effort, Info,
+    /// Branch in New Chat and Delete still apply. `pane` is the main
+    /// window's chat (Quick Ask keeps to copying and regenerating).
+    pub fn of(item: &RowItem, flags: &RowFlags, pane: bool, l10n: &crate::l10n::L10n) -> Self {
+        use MessageAction as A;
         let error = item
             .blocks
             .iter()
             .find(|b| b.kind == MessageBlockKind::Error)
             .map(|b| error_text(b, l10n));
-        if let Some(error) = error {
-            return Self {
-                copy_error: Some(error),
-                copy_markdown: !answer_markdown(item).is_empty(),
-                ..Self::default()
-            };
+        let ab = &flags.abilities;
+        let stored = item.stored && !item.streaming;
+        let mut available = vec![];
+        if error.is_none() {
+            available.push(A::Copy);
+            if flags.can_branch {
+                available.push(A::Regenerate);
+            }
         }
+        if item.retry_without_effort && flags.can_branch {
+            available.push(A::RetryWithoutEffort);
+        }
+        let mergeable = item.columns.len() > 1 && item.mergeable.len() > 1;
+        if pane && error.is_none() && ((ab.merge && mergeable && !flags.merging) || item.merging) {
+            available.push(A::Merge);
+        }
+        if super::popovers::has_usage(item.usage.as_ref()) {
+            available.push(A::Usage);
+        }
+        if pane && ab.fork && stored && flags.can_branch {
+            available.push(A::Fork);
+        }
+        if error.is_none() && !answer_markdown(item).is_empty() && !item.streaming {
+            available.push(A::Share);
+        }
+        if pane && ab.delete_messages && stored && flags.can_branch {
+            available.push(A::Delete);
+        }
+        let current = item.version.is_none_or(|(s, n)| s == n) || !item.siblings.is_empty();
         Self {
-            copy: true,
-            regenerate: flags.can_branch,
-            rate: flags.can_branch && item.version.is_none_or(|(s, n)| s == n),
-            copy_error: None,
-            copy_markdown: true,
+            available,
+            rate: error.is_none() && flags.can_branch && current,
+            regenerate_with: error.is_none() && flags.can_branch,
+            copy_markdown: error.is_none() || !answer_markdown(item).is_empty(),
+            copy_error: error,
+        }
+    }
+}
+
+/// An action's glyph.
+fn action_icon(a: MessageAction, merging: bool) -> IconName {
+    match a {
+        MessageAction::Copy => IconName::Copy,
+        MessageAction::ReadAloud => IconName::AudioLines,
+        MessageAction::Regenerate => IconName::RotateCcw,
+        MessageAction::RetryWithoutEffort => IconName::CircleSlash,
+        MessageAction::Merge if merging => IconName::Square,
+        MessageAction::Merge => IconName::GitMerge,
+        MessageAction::Usage => IconName::Info,
+        MessageAction::Fork => IconName::GitBranch,
+        MessageAction::Share => IconName::Share,
+        MessageAction::Delete => IconName::Trash,
+    }
+}
+
+/// An action's label (its tooltip, VoiceOver's name, its menu item).
+fn action_label(a: MessageAction, merging: bool, menu: bool, l10n: &crate::l10n::L10n) -> String {
+    match a {
+        MessageAction::Copy => l10n.copy(),
+        MessageAction::ReadAloud => l10n.tts_listen(),
+        MessageAction::Regenerate => l10n.regenerate(),
+        MessageAction::RetryWithoutEffort => l10n.retry_without_reasoning_effort(),
+        MessageAction::Merge if merging => l10n.chat_merge_stop_action(),
+        MessageAction::Merge => l10n.chat_merge_responses_action(),
+        MessageAction::Usage => l10n.usage_info(),
+        MessageAction::Fork => l10n.chat_branch_fork_chat(),
+        MessageAction::Share => l10n.share_system_sheet(),
+        MessageAction::Delete if menu => l10n.desktop_delete_ellipsis(),
+        MessageAction::Delete => l10n.delete(),
+    }
+}
+
+/// What choosing `a` does for `item`.
+fn action_command(a: MessageAction, item: &RowItem) -> RowCommand {
+    match a {
+        MessageAction::Copy | MessageAction::ReadAloud => RowCommand::Copy(item.text.clone()),
+        MessageAction::Regenerate => RowCommand::Regenerate(None),
+        MessageAction::RetryWithoutEffort => RowCommand::RetryWithoutEffort,
+        MessageAction::Merge if item.merging => RowCommand::StopMerge,
+        MessageAction::Merge => RowCommand::Merge,
+        MessageAction::Usage => RowCommand::Usage,
+        MessageAction::Fork => RowCommand::Fork,
+        MessageAction::Share => RowCommand::Share(answer_markdown(item)),
+        MessageAction::Delete => RowCommand::Delete,
+    }
+}
+
+impl RowHost {
+    /// The context an action on `item` runs in, asked at `position`.
+    pub fn context(
+        &self,
+        item: &RowItem,
+        position: gpui_kit::Point<gpui_kit::Pixels>,
+    ) -> RowContext {
+        let target = item
+            .version
+            .and_then(|(at, _)| item.siblings.get(at.wrapping_sub(1)).cloned())
+            .unwrap_or_else(|| item.key.clone());
+        RowContext {
+            store: self.store.clone(),
+            pane: match &self.pane {
+                RowSink::Pane(p) => Some(p.clone()),
+                _ => None,
+            },
+            key: item.key.clone(),
+            target,
+            mergeable: item.mergeable.clone(),
+            position,
         }
     }
 }
@@ -315,6 +448,19 @@ pub struct AssistantRow {
     leaving: Option<Leaving>,
     /// The whole row's focus scope (not a stop): which row Tab is in.
     row_focus: Option<gpui_kit::FocusHandle>,
+    /// A Compare Models answer's columns: one view each, by answer id.
+    compare: Vec<(String, Entity<AssistantRow>)>,
+    /// This view draws one column of a comparison.
+    column_of: Option<ColumnOf>,
+}
+
+/// One column of a Compare Models answer.
+#[derive(Clone, Debug, PartialEq)]
+struct ColumnOf {
+    /// The answer the chat goes on from.
+    current: bool,
+    /// The message the comparison belongs to.
+    message: String,
 }
 
 /// What a regenerate's old answer showed, drawn while it crossfades into
@@ -351,6 +497,8 @@ impl AssistantRow {
             stale_follow_ups: None,
             leaving: None,
             row_focus: None,
+            compare: vec![],
+            column_of: None,
         }
     }
 
@@ -605,6 +753,280 @@ impl AssistantRow {
     }
 }
 
+impl AssistantRow {
+    /// The merged response (Merge Responses) under a comparison: its title
+    /// and text, with a spinner while it is written.
+    fn merged_panel(
+        &mut self,
+        item: &RowItem,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let t = cx.conduit().clone();
+        let l10n = cx.l10n().clone();
+        let (r, m) = (t.roles, t.metrics);
+        let key = item.key.clone();
+        let md = item.merged.clone().unwrap_or_default();
+        let state = (!md.trim().is_empty()).then(|| self.text_state("merged", &md, window, cx));
+        let title = l10n.chat_merged_response_title();
+        div()
+            .id(ElementId::Name(format!("merged-{key}").into()))
+            .role(Role::Group)
+            .aria_label(SharedString::from(title.clone()))
+            .rounded(t.card_radius())
+            .border_1()
+            .border_color(r.border)
+            .px(px(12.))
+            .py(px(10.))
+            .flex()
+            .flex_col()
+            .gap(px(6.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(icon(IconName::GitMerge, 13., r.text_subtle))
+                    .child(
+                        div()
+                            .text_size(px(m.small))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(r.text_subtle)
+                            .child(SharedString::from(title)),
+                    )
+                    .when(item.merging, |d| {
+                        d.child(spinner(
+                            ElementId::Name(format!("merging-{key}").into()),
+                            12.,
+                            r.text_faint,
+                        ))
+                    }),
+            )
+            .children(state.map(|state| {
+                div()
+                    .text_size(px(m.body))
+                    .line_height(relative(m.leading))
+                    .text_color(r.text)
+                    .child(super::markdown::chat_text(&state, key.clone().into()))
+            }))
+            .into_any_element()
+    }
+
+    /// A Compare Models answer's columns, side by side: each model's answer
+    /// in a view of its own (so its text, disclosures and pace are its
+    /// own), a hairline between them.
+    fn columns(&mut self, item: &RowItem, _: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let r = cx.conduit().roles;
+        let mut next = vec![];
+        for col in &item.columns {
+            let col_item = RowItem {
+                key: col.answer_id.clone(),
+                role: MessageRole::Assistant,
+                text: col.text.clone(),
+                blocks: col.blocks.clone(),
+                model: col.model.clone(),
+                streaming: col.streaming,
+                stored: item.stored,
+                ..Default::default()
+            };
+            let mut flags = self.flags.clone();
+            flags.can_follow_up = false;
+            let of = ColumnOf {
+                current: col.current,
+                message: item.key.clone(),
+            };
+            let view = match self.compare.iter().find(|(id, _)| *id == col.answer_id) {
+                Some((_, view)) => {
+                    view.update(cx, |row, cx| {
+                        if row.column_of.as_ref() != Some(&of) {
+                            row.column_of = Some(of.clone());
+                            cx.notify();
+                        }
+                        row.set(col_item.clone(), flags.clone(), cx)
+                    });
+                    view.clone()
+                }
+                None => {
+                    let host = self.host.clone();
+                    cx.new(|_| {
+                        let mut row = AssistantRow::new(host, col_item.clone(), flags.clone());
+                        row.column_of = Some(of.clone());
+                        row
+                    })
+                }
+            };
+            next.push((col.answer_id.clone(), view));
+        }
+        self.compare = next;
+        div()
+            .id(ElementId::Name(format!("compare-{}", item.key).into()))
+            .role(Role::Group)
+            .aria_label(SharedString::from(cx.l10n().chat_compare_models_action()))
+            .w_full()
+            .flex()
+            .gap(px(14.))
+            .children(self.compare.iter().enumerate().map(|(i, (_, view))| {
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .when(i > 0, |d| d.pl(px(14.)).border_l_1().border_color(r.border))
+                    .child(view.clone())
+            }))
+            .into_any_element()
+    }
+
+    /// A column's own actions: Copy, and Continue from Here on an answer
+    /// the chat does not go on from.
+    fn column_actions(&self, item: &RowItem, of: &ColumnOf, cx: &App) -> AnyElement {
+        let t = cx.conduit().clone();
+        let l10n = cx.l10n().clone();
+        let (r, m) = (t.roles, t.metrics);
+        let key = item.key.clone();
+        let copy = item.text.clone();
+        let host = self.host.clone();
+        let continues = !of.current
+            && self.flags.abilities.branch
+            && self.flags.can_branch
+            && item.stored
+            && !item.streaming;
+        let (store, message, answer) = (host.store.clone(), of.message.clone(), key.clone());
+        let pane = host.pane.clone();
+        div()
+            .ml(px(-6.))
+            .mt(px(rhythm::ACTIONS_GAP - 10.))
+            .h(px(rhythm::ACTIONS_HEIGHT))
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            // The current answer's Copy is the row's own, under the columns.
+            .when(!of.current, |d| {
+                d.child(
+                    small_action(
+                        format!("copy-{key}"),
+                        IconName::Copy,
+                        l10n.copy().into(),
+                        false,
+                        &t,
+                    )
+                    .on_click(std::rc::Rc::new(move |_, _, cx| {
+                        copy_text(&copy, &pane, cx)
+                    })),
+                )
+            })
+            .when(continues, |d| {
+                let label = l10n.chat_branch_continue_from_response();
+                d.child(
+                    div()
+                        .id(ElementId::Name(format!("continue-{key}").into()))
+                        .role(Role::Button)
+                        .aria_label(SharedString::from(label.clone()))
+                        .h(px(24.))
+                        .px(px(9.))
+                        .flex()
+                        .items_center()
+                        .gap(px(5.))
+                        .rounded_full()
+                        .border_1()
+                        .border_color(r.border)
+                        .hover(|s| s.bg(r.hover))
+                        .active(|s| {
+                            s.bg(conduit_components::views::focus::pressed_fill(r.hover, &t))
+                        })
+                        .cursor_pointer()
+                        .keyboard_border(cx)
+                        .text_size(px(m.small))
+                        .text_color(r.text)
+                        .child(icon(IconName::CornerDownLeft, 12., r.text_subtle))
+                        .child(SharedString::from(label))
+                        .on_click(move |_, _, cx| {
+                            let _ = store.update(cx, |s, cx| {
+                                s.set_current(&answer, Some(&message), cx).detach();
+                            });
+                        }),
+                )
+            })
+            .into_any_element()
+    }
+}
+
+/// An answer's or a question's `n / N` with its arrows: each arrow makes
+/// the version before or after the chat's (on the server); the label opens
+/// the list of every version.
+fn version_pager(
+    key: &str,
+    shown: usize,
+    total: usize,
+    host: &RowHost,
+    item: &RowItem,
+    t: &ConduitTheme,
+    l10n: &crate::l10n::L10n,
+) -> AnyElement {
+    let r = t.roles;
+    let m = t.metrics;
+    let (prev_store, next_store) = (host.store.clone(), host.store.clone());
+    let (prev_key, next_key) = (key.to_string(), key.to_string());
+    let (list_host, list_item) = (host.clone(), item.clone());
+    let label = l10n.desktop_version_of(shown as i64, total as i64);
+    div()
+        .id(ElementId::Name(format!("versions-{key}").into()))
+        .role(Role::Group)
+        .aria_label(SharedString::from(label.clone()))
+        .flex()
+        .items_center()
+        .gap(px(1.))
+        .child(
+            IconButton::new(
+                ElementId::Name(format!("prev-version-{key}").into()),
+                IconName::ChevronLeft,
+                l10n.desktop_previous_answer(),
+            )
+            .size(24., 14.)
+            .color(r.text_faint)
+            .disabled(shown <= 1)
+            .on_click(std::rc::Rc::new(move |_, _, cx| {
+                let _ = prev_store.update(cx, |s, cx| s.step_version(&prev_key, -1, cx));
+            })),
+        )
+        .child(
+            div()
+                .id(ElementId::Name(format!("version-list-{key}").into()))
+                .role(Role::Button)
+                .aria_label(SharedString::from(l10n.chat_branch_sheet_title()))
+                .h(px(22.))
+                .px(px(4.))
+                .flex()
+                .items_center()
+                .rounded(px(5.))
+                .cursor_pointer()
+                .hover(|s| s.bg(r.hover))
+                .text_size(px(m.small))
+                .text_color(r.text_subtle)
+                .child(SharedString::from(format!("{shown} / {total}")))
+                .tooltip(conduit_components::views::focus::tooltip_builder(
+                    l10n.chat_branch_sheet_title().into(),
+                    None,
+                ))
+                .on_click(move |e, window, cx| {
+                    let ctx = list_host.context(&list_item, e.position());
+                    super::actions::run(ctx, RowCommand::Versions, window, cx);
+                }),
+        )
+        .child(
+            IconButton::new(
+                ElementId::Name(format!("next-version-{key}").into()),
+                IconName::ChevronRight,
+                l10n.desktop_next_answer(),
+            )
+            .size(24., 14.)
+            .color(r.text_faint)
+            .disabled(shown >= total)
+            .on_click(std::rc::Rc::new(move |_, _, cx| {
+                let _ = next_store.update(cx, |s, cx| s.step_version(&next_key, 1, cx));
+            })),
+        )
+        .into_any_element()
+}
+
 /// The sources an answer cites, as a list of links.
 pub fn source_list(id: &str, sources: &[ChatSourceDto], cx: &App) -> AnyElement {
     let t = cx.conduit().clone();
@@ -719,8 +1141,6 @@ impl AssistantRow {
     ) -> AnyElement {
         let t = cx.conduit().clone();
         let l10n = cx.l10n().clone();
-        let r = t.roles;
-        let m = t.metrics;
         let item = self.item.clone();
         let key = item.key.clone();
         let mk = if leaving {
@@ -751,6 +1171,9 @@ impl AssistantRow {
             }
         }
         let mut body: Vec<AnyElement> = group_activity(parts);
+        if !leaving && item.columns.len() > 1 {
+            body = vec![self.columns(&item, window, cx)];
+        }
         // A regenerate's old answer dims while the new one is on its way.
         let dim = if leaving {
             0.35
@@ -781,7 +1204,13 @@ impl AssistantRow {
         // header, until something is drawn.
         // (Not while a regenerate's old answer crossfades into the first
         // words: they are what comes in.)
-        if item.streaming && !stale && self.leaving.is_none() && !self.draws_anything(&item) {
+        // (A comparison's columns say it for themselves.)
+        if item.streaming
+            && !stale
+            && self.leaving.is_none()
+            && item.columns.len() < 2
+            && !self.draws_anything(&item)
+        {
             body.push(waiting_line(&mk, &t, &l10n, window, cx));
         }
         // Suggestions open under the last answer once it is done (150 ms,
@@ -849,7 +1278,10 @@ impl AssistantRow {
             self.follow_ups_shown = follow_ups.clone().filter(|_| !stale && open > 0.5);
         }
         let sources = item.sources.clone();
-        let offer = AnswerActions::of(&item, self.flags, &l10n);
+        let pane_row = matches!(self.host.pane, RowSink::Pane(_));
+        let offer = AnswerActions::of(&item, &self.flags, pane_row, &l10n);
+        let (inline, more) =
+            super::actions::layout(&offer.available, self.flags.actions.as_deref());
         let show_actions = !item.streaming;
         let hovered = self.hovered;
         let host = self.host.clone();
@@ -872,11 +1304,14 @@ impl AssistantRow {
         // so (Quick Ask has no such chords).
         let chords = (item.last_answer && matches!(host.pane, RowSink::Pane(_)))
             .then(|| conduit_components::views::focus::hints(cx));
+        let models = self.host.models(cx);
+        let column_actions = self
+            .column_of
+            .clone()
+            .filter(|_| show_actions && !item.streaming)
+            .map(|of| self.column_actions(&item, &of, cx));
+        let show_actions = show_actions && self.column_of.is_none();
         let actions = show_actions.then(|| {
-            let copy_text_value = item.text.clone();
-            let pane = host.pane.clone();
-            let store_regen = host.store.clone();
-            let regen_key = key.clone();
             div()
                 .track_focus(&actions_focus)
                 .on_mouse_down(gpui_kit::MouseButton::Left, |_, window, _| {
@@ -892,94 +1327,39 @@ impl AssistantRow {
                 .gap(px(2.))
                 .opacity(if actions_visible { actions_in } else { 0. })
                 .when_some(item.version, |d, (shown, total)| {
-                    let (prev_store, next_store) = (host.store.clone(), host.store.clone());
-                    let (prev_key, next_key) = (key.clone(), key.clone());
-                    d.child(
-                        div()
-                            .id(ElementId::Name(format!("versions-{key}").into()))
-                            .role(Role::Group)
-                            .aria_label(SharedString::from(
-                                l10n.desktop_version_of(shown as i64, total as i64),
-                            ))
-                            .flex()
-                            .items_center()
-                            .gap(px(1.))
-                            .child(
-                                IconButton::new(
-                                    ElementId::Name(format!("prev-version-{key}").into()),
-                                    IconName::ChevronLeft,
-                                    l10n.desktop_previous_answer(),
-                                )
-                                .size(24., 14.)
-                                .color(r.text_faint)
-                                .on_click(std::rc::Rc::new(
-                                    move |_, _, cx| {
-                                        let _ = prev_store
-                                            .update(cx, |s, cx| s.step_version(&prev_key, -1, cx));
-                                    },
-                                )),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(m.small))
-                                    .text_color(r.text_subtle)
-                                    .child(SharedString::from(format!("{shown} / {total}"))),
-                            )
-                            .child(
-                                IconButton::new(
-                                    ElementId::Name(format!("next-version-{key}").into()),
-                                    IconName::ChevronRight,
-                                    l10n.desktop_next_answer(),
-                                )
-                                .size(24., 14.)
-                                .color(r.text_faint)
-                                .on_click(std::rc::Rc::new(
-                                    move |_, _, cx| {
-                                        let _ = next_store
-                                            .update(cx, |s, cx| s.step_version(&next_key, 1, cx));
-                                    },
-                                )),
-                            ),
-                    )
+                    d.child(version_pager(&key, shown, total, &host, &item, &t, &l10n))
                 })
-                .when(offer.copy, |d| {
-                    d.child(
-                        small_action(
-                            format!("copy-{key}"),
-                            IconName::Copy,
-                            l10n.copy().into(),
-                            false,
-                            &t,
-                        )
-                        .shortcut(chords.as_ref().and_then(|k| k.copy_last_reply.clone()))
-                        .on_click(std::rc::Rc::new(move |_, _, cx| {
-                            copy_text(&copy_text_value, &pane, cx)
-                        })),
-                    )
-                })
-                .when(offer.regenerate, |d| {
-                    d.child(
-                        small_action(
-                            format!("regen-{key}"),
-                            IconName::RotateCcw,
-                            l10n.regenerate().into(),
-                            false,
-                            &t,
-                        )
-                        .shortcut(chords.as_ref().and_then(|k| k.regenerate.clone()))
-                        .on_click(std::rc::Rc::new(move |_, _, cx| {
-                            let _ =
-                                store_regen.update(cx, |s, cx| s.regenerate(&regen_key, None, cx));
-                        })),
-                    )
-                })
+                .children(inline.iter().map(|a| {
+                    let a = *a;
+                    let command = action_command(a, &item);
+                    let (host, it) = (host.clone(), item.clone());
+                    let mut button = small_action(
+                        format!("{}-{key}", a.id()),
+                        action_icon(a, item.merging),
+                        action_label(a, item.merging, false, &l10n).into(),
+                        a == MessageAction::Merge && item.merging,
+                        &t,
+                    );
+                    if let Some(k) = &chords {
+                        button = match a {
+                            MessageAction::Copy => button.shortcut(k.copy_last_reply.clone()),
+                            MessageAction::Regenerate => button.shortcut(k.regenerate.clone()),
+                            _ => button,
+                        };
+                    }
+                    button.on_click(std::rc::Rc::new(
+                        move |e: &gpui_kit::ClickEvent, window, cx| {
+                            let ctx = host.context(&it, e.position());
+                            super::actions::run(ctx, command.clone(), window, cx);
+                        },
+                    ))
+                }))
                 .when(!sources.is_empty(), |d| {
                     d.child(self.sources_pill(&sources, &t, cx))
                 })
-                // More: Copy as Markdown, and the rating (as the phone keeps
-                // its row to copy, read aloud, regenerate and More).
+                // More: what is not inline, Regenerate With, Copy as Markdown
+                // and the rating, then Delete… on its own.
                 .child({
-                    let can_rate = offer.rate;
                     let rating = item.rating;
                     let (store, more_key) = (host.store.clone(), key.clone());
                     let (good, bad) = (l10n.desktop_good_response(), l10n.desktop_bad_response());
@@ -989,7 +1369,15 @@ impl AssistantRow {
                         .copy_error
                         .clone()
                         .map(|e| (l10n.desktop_copy_error_details(), e));
-                    let copy_markdown = offer.copy_markdown;
+                    let offer = offer.clone();
+                    let more = more.clone();
+                    let models = models.clone();
+                    let (host, it) = (host.clone(), item.clone());
+                    let labels: Vec<String> = more
+                        .iter()
+                        .map(|a| action_label(*a, it.merging, true, &l10n))
+                        .collect();
+                    let regenerate_with = l10n.desktop_regenerate_with();
                     let (pane, quick_ask) = match &host.pane {
                         RowSink::Pane(p) => (Some(p.clone()), None),
                         RowSink::QuickAsk(q) => (None, Some(q.clone())),
@@ -1005,6 +1393,13 @@ impl AssistantRow {
                     .on_click(std::rc::Rc::new(
                         move |e: &gpui_kit::ClickEvent, window, cx| {
                             use gpui_kit::component::native_menu::NativeMenu;
+                            let ctx = host.context(&it, e.position());
+                            let run = |command: RowCommand| -> Box<dyn gpui_kit::Action> {
+                                Box::new(RunRowCommand {
+                                    ctx: ctx.clone(),
+                                    command,
+                                })
+                            };
                             let rate = |value: i64| -> Box<dyn gpui_kit::Action> {
                                 Box::new(RateAnswer {
                                     store: store.clone(),
@@ -1020,17 +1415,42 @@ impl AssistantRow {
                                 })
                             };
                             let mut menu = NativeMenu::new();
+                            let mut delete = None;
+                            for (a, label) in more.iter().zip(&labels) {
+                                if *a == MessageAction::Delete {
+                                    delete = Some(label.clone());
+                                    continue;
+                                }
+                                menu = menu.menu(label.clone(), run(action_command(*a, &it)));
+                            }
+                            if offer.regenerate_with && models.len() > 1 {
+                                let mut sub = NativeMenu::new();
+                                for (id, name) in &models {
+                                    sub = sub.menu_with_check(
+                                        name.clone(),
+                                        it.model.as_deref() == Some(id.as_str()),
+                                        run(RowCommand::Regenerate(Some(id.clone()))),
+                                    );
+                                }
+                                menu = menu.submenu(regenerate_with.clone(), sub);
+                            }
+                            if !menu.is_empty() {
+                                menu = menu.separator();
+                            }
                             if let Some((label, error)) = &copy_error {
                                 menu = menu.menu(label.clone(), copy(error.clone()));
                             }
-                            if copy_markdown {
+                            if offer.copy_markdown {
                                 menu = menu.menu(copy_md.clone(), copy(markdown.clone()));
                             }
-                            if can_rate {
+                            if offer.rate {
                                 menu = menu
                                     .separator()
                                     .menu_with_check(good.clone(), rating == Some(1), rate(1))
                                     .menu_with_check(bad.clone(), rating == Some(-1), rate(-1));
+                            }
+                            if let Some(label) = delete {
+                                menu = menu.separator().menu(label, run(RowCommand::Delete));
                             }
                             menu.show(e.position(), window, cx);
                         },
@@ -1061,12 +1481,16 @@ impl AssistantRow {
                 .child(waiting_line(&mk, &t, &l10n, window, cx))
         });
 
+        let merged = (!leaving && (item.merged.is_some() || item.merging))
+            .then(|| self.merged_panel(&item, window, cx));
         div()
             .flex()
             .flex_col()
             .gap(px(rhythm::BLOCK_GAP))
             .children(body)
+            .children(merged)
             .children(actions)
+            .children(column_actions)
             .children(waiting_slot)
             .when(!leaving && self.sources_open && !sources.is_empty(), |d| {
                 d.child(
@@ -1214,11 +1638,15 @@ impl Render for AssistantRow {
         };
 
         let spoken = self.spoken(cx);
-        let name = if model.is_empty() {
+        let compared = item.columns.len() > 1;
+        let name = if compared {
+            l10n.chat_compare_models_action()
+        } else if model.is_empty() {
             "Assistant".to_string()
         } else {
             model.clone()
         };
+        let current_column = self.column_of.as_ref().is_some_and(|c| c.current);
         let label = if item.streaming {
             format!("{}: {spoken}", l10n.desktop_writing(&name))
         } else {
@@ -1272,13 +1700,29 @@ impl Render for AssistantRow {
                     .flex()
                     .items_center()
                     .gap(px(5.))
-                    .child(icon(IconName::Sparkles, 15., r.text_subtle))
+                    .child(icon(
+                        if compared {
+                            IconName::Columns2
+                        } else {
+                            IconName::Sparkles
+                        },
+                        15.,
+                        r.text_subtle,
+                    ))
                     .child(
                         div()
                             .text_size(px(m.small))
                             .text_color(r.text_subtle)
                             .child(SharedString::from(name)),
-                    ),
+                    )
+                    .when(current_column, |d| {
+                        d.child(
+                            div()
+                                .text_size(px(m.caption))
+                                .text_color(r.text_faint)
+                                .child(SharedString::from(l10n.desktop_compare_current())),
+                        )
+                    }),
             )
             .child(content)
     }
@@ -1676,7 +2120,46 @@ impl Render for UserRow {
                         let _ = this.update(cx, |row, cx| row.start_editing(window, cx));
                     })),
                 )
-            });
+            })
+            // More: Delete… (the question takes its answers with it).
+            .when(
+                matches!(self.host.pane, RowSink::Pane(_))
+                    && self.flags.abilities.delete_messages
+                    && self.flags.can_branch
+                    && item.stored,
+                |d| {
+                    let (host, it) = (self.host.clone(), item.clone());
+                    let delete = l10n.desktop_delete_ellipsis();
+                    d.child(
+                        small_action(
+                            format!("more-{key}"),
+                            IconName::Ellipsis,
+                            l10n.more().into(),
+                            false,
+                            &t,
+                        )
+                        .on_click(std::rc::Rc::new(
+                            move |e: &gpui_kit::ClickEvent, window, cx| {
+                                let ctx = host.context(&it, e.position());
+                                gpui_kit::component::native_menu::NativeMenu::new()
+                                    .menu(
+                                        delete.clone(),
+                                        Box::new(RunRowCommand {
+                                            ctx,
+                                            command: RowCommand::Delete,
+                                        }),
+                                    )
+                                    .show(e.position(), window, cx);
+                            },
+                        )),
+                    )
+                },
+            );
+        // An edited question's versions, under it (its answers follow it).
+        let versions = item
+            .version
+            .filter(|_| item.stored)
+            .map(|(shown, total)| version_pager(&key, shown, total, &self.host, &item, &t, &l10n));
         let bubble = (!item.text.is_empty()).then(|| {
             div()
                 .min_w_0()
@@ -1701,18 +2184,21 @@ impl Render for UserRow {
                         })),
                 )
         });
-        article.children(files).child(
-            div()
-                .w_full()
-                .flex()
-                .justify_end()
-                .items_end()
-                .gap(px(4.))
-                // Level with a one-line bubble; by its last line on a longer
-                // one.
-                .child(div().mb(px(5.)).child(actions))
-                .children(bubble),
-        )
+        article
+            .children(files)
+            .child(
+                div()
+                    .w_full()
+                    .flex()
+                    .justify_end()
+                    .items_end()
+                    .gap(px(4.))
+                    // Level with a one-line bubble; by its last line on a longer
+                    // one.
+                    .child(div().mb(px(5.)).child(actions))
+                    .children(bubble),
+            )
+            .children(versions.map(|v| div().opacity(if visible { 1. } else { 0.6 }).child(v)))
     }
 }
 
@@ -1902,6 +2388,13 @@ mod activity_tests {
 
     fn answer(blocks: Vec<conduit_protocol::MessageBlockDto>, text: &str) -> RowItem {
         RowItem {
+            usage: None,
+            merged: None,
+            merging: false,
+            retry_without_effort: false,
+            columns: vec![],
+            mergeable: vec![],
+            siblings: vec![],
             key: "a1".into(),
             role: MessageRole::Assistant,
             text: text.into(),
@@ -1937,43 +2430,118 @@ mod activity_tests {
     #[test]
     fn a_failed_answer_offers_only_more_beside_its_retry() {
         use crate::stores::chat::empty_block;
+        use MessageAction as A;
         let l10n = crate::l10n::L10n::new("en");
         let flags = RowFlags {
             can_branch: true,
             can_follow_up: true,
+            ..Default::default()
         };
         let error = conduit_protocol::MessageBlockDto {
             error: Some("The tide service did not answer in time.".into()),
             ..empty_block(MessageBlockKind::Error)
         };
         // Nothing written before it failed: More copies the error alone.
-        let offer = AnswerActions::of(&answer(vec![error.clone()], ""), flags, &l10n);
+        let offer = AnswerActions::of(&answer(vec![error.clone()], ""), &flags, true, &l10n);
+        assert!(offer.available.is_empty() && !offer.rate && !offer.copy_markdown);
         assert_eq!(
-            offer,
-            AnswerActions {
-                copy_error: Some("The tide service did not answer in time.".into()),
-                ..AnswerActions::default()
-            }
+            offer.copy_error.as_deref(),
+            Some("The tide service did not answer in time.")
         );
         // Some words, then the error: they can be copied from More too.
         let text = conduit_protocol::MessageBlockDto {
             markdown: Some("High water is at".into()),
             ..empty_block(MessageBlockKind::Text)
         };
-        let offer = AnswerActions::of(&answer(vec![text.clone(), error], ""), flags, &l10n);
-        assert!(!offer.copy && !offer.regenerate && !offer.rate);
+        let failed = answer(vec![text.clone(), error], "");
+        let offer = AnswerActions::of(&failed, &flags, true, &l10n);
+        assert!(offer.available.is_empty() && !offer.rate);
         assert!(offer.copy_markdown && offer.copy_error.is_some());
+        // A rejected reasoning effort: the retry that drops it.
+        let effort = RowItem {
+            retry_without_effort: true,
+            ..failed
+        };
+        let offer = AnswerActions::of(&effort, &flags, true, &l10n);
+        assert_eq!(offer.available, vec![A::RetryWithoutEffort]);
         // A server that gave no words: a plain sentence.
         let bare = empty_block(MessageBlockKind::Error);
-        let offer = AnswerActions::of(&answer(vec![bare], ""), flags, &l10n);
+        let offer = AnswerActions::of(&answer(vec![bare], ""), &flags, true, &l10n);
         assert_eq!(
             offer.copy_error.as_deref(),
             Some(l10n.desktop_something_went_wrong().as_str())
         );
-        // A finished answer keeps Copy, Regenerate and the rating.
-        let offer = AnswerActions::of(&answer(vec![text], "High water is at"), flags, &l10n);
-        assert!(offer.copy && offer.regenerate && offer.rate && offer.copy_markdown);
+        // A finished answer keeps Copy, Regenerate, Share and the rating.
+        let finished = answer(vec![text], "High water is at");
+        let offer = AnswerActions::of(&finished, &flags, true, &l10n);
+        assert_eq!(offer.available, vec![A::Copy, A::Regenerate, A::Share]);
+        assert!(offer.rate && offer.copy_markdown && offer.regenerate_with);
         assert_eq!(offer.copy_error, None);
+    }
+
+    #[test]
+    fn what_the_chat_offers_decides_the_rest() {
+        use MessageAction as A;
+        let l10n = crate::l10n::L10n::new("en");
+        let text = conduit_protocol::MessageBlockDto {
+            markdown: Some("Two coats.".into()),
+            ..crate::stores::chat::empty_block(MessageBlockKind::Text)
+        };
+        let mut item = answer(vec![text], "Two coats.");
+        item.usage = Some(conduit_protocol::ChatUsageDto {
+            generation_per_second: None,
+            generation_tokens: Some(12),
+            prompt_per_second: None,
+            prompt_tokens: None,
+            reasoning_tokens: None,
+            total_tokens: None,
+            total_seconds: None,
+            queue_seconds: None,
+            load_seconds: None,
+            context_length: None,
+            context_tokens: None,
+            incomplete: false,
+        });
+        item.columns = vec![Default::default(), Default::default()];
+        item.mergeable = vec!["a".into(), "b".into()];
+        let flags = RowFlags {
+            can_branch: true,
+            can_follow_up: true,
+            abilities: conduit_protocol::ChatAbilities {
+                fork: true,
+                merge: true,
+                delete_messages: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let all = vec![
+            A::Copy,
+            A::Regenerate,
+            A::Merge,
+            A::Usage,
+            A::Fork,
+            A::Share,
+            A::Delete,
+        ];
+        assert_eq!(AnswerActions::of(&item, &flags, true, &l10n).available, all);
+        // Quick Ask: no merging, branching or deleting there.
+        let quick = AnswerActions::of(&item, &flags, false, &l10n).available;
+        assert_eq!(quick, vec![A::Copy, A::Regenerate, A::Usage, A::Share]);
+        // A merge running elsewhere in the chat: not a second one.
+        let busy = RowFlags {
+            merging: true,
+            ..flags.clone()
+        };
+        assert!(
+            !AnswerActions::of(&item, &busy, true, &l10n)
+                .available
+                .contains(&A::Merge)
+        );
+        // Automatic: three inline, the rest in More.
+        let (inline, more) = super::super::actions::layout(&all, None);
+        assert_eq!(inline, vec![A::Copy, A::Regenerate, A::Merge]);
+        assert_eq!(more, vec![A::Usage, A::Fork, A::Share, A::Delete]);
     }
 }
 

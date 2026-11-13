@@ -3,15 +3,21 @@
 //! picker, and the code-block Preview window. [`crate::views::chat_pane`]
 //! puts them together.
 
+pub mod actions;
 pub mod blocks;
+pub mod branches;
 pub mod composer;
 pub mod composer_panels;
 pub mod diagram;
+pub mod export;
 pub mod markdown;
 pub mod pace;
+pub mod popovers;
 pub mod preview;
 pub mod queue;
 pub mod rows;
+pub mod share_sheet;
+pub mod sheets;
 pub mod transcript;
 
 use gpui_kit::{Global, WeakEntity};

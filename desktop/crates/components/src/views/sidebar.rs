@@ -255,6 +255,10 @@ pub fn chat_row(
         label.push_str(", ");
         label.push_str(note);
     }
+    if chat.unread && !chat.streaming && !state.selected {
+        label.push_str(", ");
+        label.push_str(chat.unread_spoken.as_ref().map_or("unread", |s| s.as_ref()));
+    }
     if chat.streaming {
         label.push_str(", ");
         label.push_str(
@@ -277,17 +281,33 @@ pub fn chat_row(
         .w(px(ROW_STATUS_GUTTER))
         .flex()
         .items_center()
-        .child(div().w(px(FOLDER_GLYPH)).flex().justify_center().when(
-            chat.streaming && state.checked.is_none(),
-            |d| {
-                d.child(
-                    div()
-                        .size(px(6.))
-                        .rounded_full()
-                        .bg(on_selection(r.sidebar_text, t, key)),
-                )
-            },
-        ));
+        .child(
+            div()
+                .w(px(FOLDER_GLYPH))
+                .flex()
+                .justify_center()
+                .when(chat.streaming && state.checked.is_none(), |d| {
+                    d.child(div().size(px(6.)).rounded_full().bg(on_selection(
+                        r.sidebar_text,
+                        t,
+                        key,
+                    )))
+                })
+                // Unread: a slightly larger dot, as Mail's, until it is read
+                // (none on the open chat, which is being read).
+                .when(
+                    chat.unread && !chat.streaming && !state.selected && state.checked.is_none(),
+                    |d| {
+                        d.child(
+                            div()
+                                .id(ElementId::Name(format!("unread-{}", chat.id).into()))
+                                .size(px(8.))
+                                .rounded_full()
+                                .bg(r.sidebar_text),
+                        )
+                    },
+                ),
+        );
     div()
         .id(ElementId::Name(format!("chat-{}", chat.id).into()))
         // A row of the sidebar's outline (Finder's and Mail's source lists).

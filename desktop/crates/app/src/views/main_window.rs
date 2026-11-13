@@ -36,10 +36,11 @@ use gpui_kit::{
 };
 
 use crate::actions::{
-    AllowRequest, ArchiveChat, CloseWindow, DeleteChat, DenyRequest, FindChats, FindInChat,
-    FindNext, FindPrevious, GoBack, GoForward, GoToSection, MoveChatTo, NewChat, NewFolder,
-    NewTemporaryChat, NextChat, OpenPalette, PreviousChat, RegenerateLastAnswer, RenameChat,
-    ShareChat, TogglePinChat,
+    AllowRequest, ArchiveChat, CloseWindow, DeleteChat, DenyRequest, ExportChatAs, FindChats,
+    FindInChat, FindNext, FindPrevious, GenerateChatTitle, GoBack, GoForward, GoToSection,
+    MarkChatUnread, MoveChatTo, NewChat, NewFolder, NewTemporaryChat, NextChat, OpenPalette,
+    PreviousChat, RegenerateLastAnswer, RenameChat, SaveTemporaryChat, ShareChat, ShowBranches,
+    TogglePinChat,
 };
 use crate::l10n::ActiveL10n as _;
 use crate::stores::Stores;
@@ -678,6 +679,31 @@ impl Render for MainWindow {
                 .on_action(cx.listener(|this, _: &ShareChat, window, cx| {
                     this.chat_command(|_| ChatCommand::Share, window, cx)
                 }))
+                .on_action(cx.listener(|this, _: &MarkChatUnread, window, cx| {
+                    this.chat_command(
+                        |c| {
+                            if c.unread {
+                                ChatCommand::MarkRead
+                            } else {
+                                ChatCommand::MarkUnread
+                            }
+                        },
+                        window,
+                        cx,
+                    )
+                }))
+                .on_action(cx.listener(|this, _: &GenerateChatTitle, window, cx| {
+                    this.chat_command(|_| ChatCommand::GenerateTitle, window, cx)
+                }))
+                .on_action(cx.listener(|this, a: &ExportChatAs, window, cx| {
+                    let format = a.format;
+                    this.chat_command(move |_| ChatCommand::Export(format), window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &ShowBranches, window, cx| {
+                    this.chat_pane.update(cx, |p, cx| {
+                        p.show_branches(window, cx);
+                    });
+                }))
                 .on_action(cx.listener(|this, a: &MoveChatTo, window, cx| {
                     let folder = a.folder_id.clone();
                     this.chat_command(
@@ -694,6 +720,13 @@ impl Render for MainWindow {
                         this.chat_pane.update(cx, |p, cx| p.regenerate_last(cx));
                     },
                 ))
+            })
+            // Save Chat: a temporary chat with messages is open.
+            .when(self.chat_pane.read(cx).can_save_temporary(cx), |d| {
+                d.on_action(cx.listener(|this, _: &SaveTemporaryChat, window, cx| {
+                    this.chat_pane
+                        .update(cx, |p, cx| p.save_temporary(window, cx));
+                }))
             })
             .relative()
             .size_full()

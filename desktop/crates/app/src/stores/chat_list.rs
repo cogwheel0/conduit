@@ -29,7 +29,7 @@ use conduit_protocol::{
     FolderSummary, MoveChat, NoParams, RenameChat, RenameFolder, SetChatFlag, SyncState, events,
     methods,
 };
-use gpui_kit::{App, AsyncApp, Context, EventEmitter, Task, WeakEntity};
+use gpui_kit::{App, AppContext as _, AsyncApp, Context, EventEmitter, Task, WeakEntity};
 
 use super::Stores;
 use super::connection::ConnectionEvent;
@@ -62,6 +62,10 @@ pub enum ChatAction {
     NewFolder,
     RenameFolder,
     DeleteFolder,
+    /// Mark as Unread (or read, `false`).
+    MarkUnread(bool),
+    GenerateTitle,
+    Export,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -81,6 +85,9 @@ pub enum ChatListEvent {
 }
 
 pub struct ChatListStore {
+    /// Chats marked unread here while they were open: leaving them keeps
+    /// the dot.
+    pub marked_unread_here: std::collections::HashSet<String>,
     rpc: Rpc,
     /// `None` until the daemon has answered once (for this account).
     pub list: Option<ChatList>,
@@ -119,6 +126,7 @@ impl EventEmitter<ChatListEvent> for ChatListStore {}
 impl ChatListStore {
     pub fn new(rpc: Rpc) -> Self {
         Self {
+            marked_unread_here: Default::default(),
             rpc,
             list: None,
             load_error: None,
@@ -830,11 +838,22 @@ impl ChatListStore {
         })
     }
 
-    /// `chats.share`: the share id the link is built from.
-    pub fn share(&mut self, id: &str, cx: &mut Context<Self>) -> Task<Result<ChatShare, RpcError>> {
+    /// `chats.share`: makes or updates the link (`publish`), or reads it,
+    /// and sets who may open it when `audience` is given.
+    pub fn share(
+        &mut self,
+        id: &str,
+        publish: bool,
+        audience: Option<conduit_protocol::ShareAudience>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<ChatShare, RpcError>> {
         let call = self
             .rpc
-            .call::<methods::ChatsShare>(&ChatRef { id: id.into() });
+            .call::<methods::ChatsShare>(&conduit_protocol::ShareChat {
+                id: id.into(),
+                publish,
+                audience,
+            });
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             if let Err(error) = &result {
@@ -849,6 +868,110 @@ impl ChatListStore {
             }
             result
         })
+    }
+
+    /// Leaving a chat reads it (what arrived while it was open), unless it
+    /// was marked unread while it was open.
+    pub fn mark_left(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.marked_unread_here.remove(id) {
+            return;
+        }
+        self.mark_read(id, cx);
+    }
+
+    /// `chats.unshare`: deletes the chat's link.
+    pub fn unshare(
+        &mut self,
+        id: &str,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<ChatShare, RpcError>> {
+        let call = self
+            .rpc
+            .call::<methods::ChatsUnshare>(&ChatRef { id: id.into() });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            if let Err(error) = &result {
+                this.update(cx, |_, cx| {
+                    cx.emit(ChatListEvent::Failed {
+                        action: ChatAction::Share,
+                        error: error.clone(),
+                        retry: None,
+                    })
+                })
+                .ok();
+            }
+            result
+        })
+    }
+
+    /// Marks `id` unread (a dot in the sidebar), or read again.
+    pub fn mark_unread(
+        &mut self,
+        id: &str,
+        unread: bool,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), RpcError>> {
+        // The dot follows at once; the list the daemon answers with confirms.
+        if let Some(list) = &mut self.list
+            && let Some(chat) = list.chats.iter_mut().find(|c| c.id == id)
+            && chat.unread != unread
+        {
+            chat.unread = unread;
+            self.changed(cx);
+        }
+        self.mutate::<methods::ChatsMarkUnread>(
+            &conduit_protocol::MarkUnread {
+                chat_id: id.into(),
+                unread,
+            },
+            ChatAction::MarkUnread(unread),
+            cx,
+        )
+    }
+
+    /// Opening `id` reads it: its dot goes, here and on the server. Nothing
+    /// is asked of the daemon for a chat that has none.
+    pub fn mark_read(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.marked_unread_here.remove(id);
+        if self.find(id).is_some_and(|c| c.unread) {
+            self.mark_unread(id, false, cx).detach();
+        }
+    }
+
+    /// Generate Title: the server's model titles the chat.
+    pub fn generate_title(
+        &mut self,
+        id: &str,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<conduit_protocol::GeneratedTitle, RpcError>> {
+        let call = self
+            .rpc
+            .call::<methods::ChatsGenerateTitle>(&ChatRef { id: id.into() });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            this.update(cx, |s, cx| match &result {
+                Ok(_) => s.refresh(cx),
+                Err(error) => log::warn!("chats.generateTitle: {error}"),
+            })
+            .ok();
+            result
+        })
+    }
+
+    /// Export: the chat as a file to save, read from its stored copy.
+    pub fn export(
+        &self,
+        id: &str,
+        format: conduit_protocol::ChatExportFormat,
+        cx: &App,
+    ) -> Task<Result<conduit_protocol::ChatExportFile, RpcError>> {
+        let call = self
+            .rpc
+            .call::<methods::ChatsExport>(&conduit_protocol::ExportChat {
+                chat_id: id.into(),
+                format,
+            });
+        cx.background_spawn(call)
     }
 
     /// `chats.tree`: every branch of a chat (the chat view's overview).
@@ -967,7 +1090,7 @@ mod tests {
     use std::rc::Rc;
 
     use conduit_protocol::{BulkChatsResult, ChatSearchHit, FolderContents, FolderSummary};
-    use gpui_kit::{AppContext as _, Entity, TestAppContext};
+    use gpui_kit::{Entity, TestAppContext};
     use serde_json::json;
 
     use super::*;
@@ -975,6 +1098,7 @@ mod tests {
 
     fn chat(id: &str, folder: Option<&str>) -> ChatSummary {
         ChatSummary {
+            unread: false,
             read_only: false,
             id: id.into(),
             title: format!("Chat {id}"),

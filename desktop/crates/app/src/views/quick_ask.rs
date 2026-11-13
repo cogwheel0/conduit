@@ -117,6 +117,8 @@ impl QuickAskView {
             // No temporary switch: Quick Ask chats are ordinary chats, so
             // "Open in Conduit" can show them.
             c.new_chat = false;
+            // Two answers side by side need the main window's room.
+            c.compare_ui = false;
             c
         });
         let subscriptions = vec![

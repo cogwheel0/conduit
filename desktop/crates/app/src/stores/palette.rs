@@ -379,6 +379,7 @@ mod tests {
 
     fn summary(id: &str, at: i64) -> ChatSummary {
         ChatSummary {
+            unread: false,
             read_only: false,
             id: id.into(),
             title: format!("Chat {id}"),

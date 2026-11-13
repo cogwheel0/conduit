@@ -91,6 +91,7 @@ pub fn synthetic(n: usize) -> ChatList {
                 _ => None,
             };
             ChatSummary {
+                unread: false,
                 read_only: false,
                 id: format!("c{i:05}"),
                 title: format!("{} {}", TOPICS[i % TOPICS.len()], i / TOPICS.len() + 1),

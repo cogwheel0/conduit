@@ -63,10 +63,13 @@ pub fn search_chats_stroke() -> KeyStroke {
 /// Chat menu, the sidebar's context menu and the toolbar's More menu.
 /// `MoveTo` stands for the Move To submenu; a menu leaves out what does not
 /// apply (Remove from Folder for a chat in none, Select in the menu bar).
-pub const CHAT_COMMAND_ORDER: [ChatCommandSlot; 8] = [
+pub const CHAT_COMMAND_ORDER: [ChatCommandSlot; 11] = [
     ChatCommandSlot::Pin,
+    ChatCommandSlot::MarkUnread,
     ChatCommandSlot::Rename,
+    ChatCommandSlot::GenerateTitle,
     ChatCommandSlot::Share,
+    ChatCommandSlot::Export,
     ChatCommandSlot::MoveTo,
     ChatCommandSlot::RemoveFromFolder,
     ChatCommandSlot::Archive,
@@ -79,8 +82,13 @@ pub const CHAT_COMMAND_ORDER: [ChatCommandSlot; 8] = [
 pub enum ChatCommandSlot {
     /// Pin or Unpin.
     Pin,
+    /// Mark as Unread or Mark as Read.
+    MarkUnread,
     Rename,
+    GenerateTitle,
     Share,
+    /// The Export submenu (Backup, Transcript).
+    Export,
     MoveTo,
     RemoveFromFolder,
     /// Archive or Unarchive.
@@ -95,6 +103,9 @@ impl ChatCommandSlot {
         match command {
             ChatCommand::Pin | ChatCommand::Unpin => Self::Pin,
             ChatCommand::Rename => Self::Rename,
+            ChatCommand::MarkUnread | ChatCommand::MarkRead => Self::MarkUnread,
+            ChatCommand::GenerateTitle => Self::GenerateTitle,
+            ChatCommand::Export(_) => Self::Export,
             ChatCommand::Share => Self::Share,
             ChatCommand::MoveTo(_) => Self::MoveTo,
             ChatCommand::RemoveFromFolder => Self::RemoveFromFolder,
@@ -335,6 +346,10 @@ pub struct ChatMenuState {
     pub folder_id: Option<String>,
     /// It can be shared (an account's server holds it).
     pub can_share: bool,
+    /// It has an unread dot (Mark as Read offered instead).
+    pub unread: bool,
+    /// The server holds it: Mark as Unread, Generate Title and Export.
+    pub served: bool,
 }
 
 /// What the menu bar follows.
@@ -420,6 +435,8 @@ pub fn menu_state(cx: &App) -> MenuState {
             archived: c.archived,
             folder_id: c.folder_id.clone(),
             can_share,
+            unread: c.unread,
+            served: can_share && !c.id.starts_with("local:"),
         });
     let mut folders: Vec<(String, String)> = chat_list
         .list
@@ -639,6 +656,7 @@ fn go_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
 fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
     let no_chat = state.chat.is_none();
     let chat = state.chat.clone();
+    let served = chat.as_ref().is_some_and(|c| c.served);
     let filed = chat.as_ref().is_some_and(|c| c.folder_id.is_some());
     let move_to = state
         .folders
@@ -672,8 +690,39 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
             ChatCommandSlot::Rename => items.push(
                 MenuItem::action(l10n.desktop_menu_rename_chat(), RenameChat).disabled(no_chat),
             ),
+            ChatCommandSlot::MarkUnread => items.push(
+                MenuItem::action(
+                    if chat.as_ref().is_some_and(|c| c.unread) {
+                        l10n.desktop_mark_as_read()
+                    } else {
+                        l10n.mark_as_unread()
+                    },
+                    MarkChatUnread,
+                )
+                .disabled(!served),
+            ),
+            ChatCommandSlot::GenerateTitle => items
+                .push(MenuItem::action(l10n.generate_title(), GenerateChatTitle).disabled(!served)),
+            ChatCommandSlot::Export => items.push(MenuItem::submenu(
+                Menu::new(l10n.chat_export_action())
+                    .items(vec![
+                        MenuItem::action(
+                            format!("{}…", l10n.chat_export_json()),
+                            ExportChatAs {
+                                format: conduit_protocol::ChatExportFormat::Json,
+                            },
+                        ),
+                        MenuItem::action(
+                            format!("{}…", l10n.chat_export_markdown()),
+                            ExportChatAs {
+                                format: conduit_protocol::ChatExportFormat::Markdown,
+                            },
+                        ),
+                    ])
+                    .disabled(!served),
+            )),
             ChatCommandSlot::Share => items.push(
-                MenuItem::action(l10n.desktop_share_chat(), ShareChat)
+                MenuItem::action(l10n.desktop_share_chat_sheet(), ShareChat)
                     .disabled(!chat.as_ref().is_some_and(|c| c.can_share)),
             ),
             ChatCommandSlot::MoveTo => items.push(MenuItem::submenu(
@@ -728,6 +777,9 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
         MenuItem::action(l10n.desktop_shortcut_focus_composer(), FocusComposer),
         MenuItem::action(l10n.desktop_expand_editor(), crate::actions::ExpandEditor),
         MenuItem::action(l10n.ask_conduit_action(), crate::actions::AskConduit).disabled(no_chat),
+        MenuItem::separator(),
+        MenuItem::action(l10n.desktop_menu_show_branches(), ShowBranches).disabled(no_chat),
+        MenuItem::action(l10n.save_chat(), SaveTemporaryChat),
         MenuItem::separator(),
         MenuItem::action(l10n.regenerate(), RegenerateLastAnswer).disabled(no_chat),
         MenuItem::action(l10n.desktop_stop_generating(), StopGenerating),
@@ -787,6 +839,8 @@ mod tests {
                 archived: false,
                 folder_id: folder.map(str::to_string),
                 can_share: true,
+                unread: false,
+                served: true,
             }),
             folders: vec![("f1".into(), "Garden".into()), ("f2".into(), "Work".into())],
             ..MenuState::default()
@@ -881,7 +935,7 @@ mod tests {
             "Go to Message Field",
             "Regenerate",
             "Stop Generating",
-            "Share Chat",
+            "Share Chat…",
         ] {
             assert!(chat.iter().any(|t| t == item), "{item} in {chat:?}");
         }
@@ -898,11 +952,14 @@ mod tests {
             "Rename…",
             "Delete…",
             "Regenerate",
-            "Share Chat",
+            "Share Chat…",
             "Pin",
             "Ask Conduit",
             "Chat Settings…",
             "Tool Settings…",
+            "Mark as Unread",
+            "Generate Title",
+            "Show Branches…",
         ] {
             assert!(disabled(chat_menu, name), "{name}");
         }
@@ -936,8 +993,11 @@ mod tests {
             items,
             [
                 "Unpin",
+                "Mark as Unread",
                 "Rename…",
-                "Share Chat",
+                "Generate Title",
+                "Share Chat…",
+                "Export Chat ▸",
                 "Move to ▸",
                 "Remove from Folder",
                 "Archive",
@@ -953,6 +1013,9 @@ mod tests {
                 "Go to Message Field",
                 "Expand Editor",
                 "Ask Conduit",
+                "—",
+                "Show Branches…",
+                "Save Chat",
                 "—",
                 "Regenerate",
                 "Stop Generating",
@@ -977,7 +1040,7 @@ mod tests {
         local.chat.as_mut().unwrap().can_share = false;
         assert!(disabled(
             menu(&build_menus(&l, &local), "Chat"),
-            "Share Chat"
+            "Share Chat…"
         ));
     }
 
@@ -990,6 +1053,10 @@ mod tests {
             ChatCommand::Pin,
             ChatCommand::Unpin,
             ChatCommand::Rename,
+            ChatCommand::MarkUnread,
+            ChatCommand::MarkRead,
+            ChatCommand::GenerateTitle,
+            ChatCommand::Export(conduit_protocol::ChatExportFormat::Json),
             ChatCommand::Share,
             ChatCommand::MoveTo("f".into()),
             ChatCommand::RemoveFromFolder,
@@ -1006,8 +1073,11 @@ mod tests {
         let names = titles(menu(&filed, "Chat"));
         let slot = |t: &str| match t {
             "Pin" | "Unpin" => Some(ChatCommandSlot::Pin),
+            "Mark as Unread" | "Mark as Read" => Some(ChatCommandSlot::MarkUnread),
             "Rename…" => Some(ChatCommandSlot::Rename),
-            "Share Chat" => Some(ChatCommandSlot::Share),
+            "Generate Title" => Some(ChatCommandSlot::GenerateTitle),
+            "Share Chat…" => Some(ChatCommandSlot::Share),
+            "Export Chat ▸" => Some(ChatCommandSlot::Export),
             "Move to ▸" => Some(ChatCommandSlot::MoveTo),
             "Remove from Folder" => Some(ChatCommandSlot::RemoveFromFolder),
             "Archive" | "Unarchive" => Some(ChatCommandSlot::Archive),
@@ -1019,7 +1089,7 @@ mod tests {
             .filter_map(|t| slot(t))
             .map(|s| s.rank())
             .collect();
-        assert_eq!(order.len(), 7);
+        assert_eq!(order.len(), 10);
         assert!(order.windows(2).all(|w| w[0] < w[1]), "{names:?}");
     }
 

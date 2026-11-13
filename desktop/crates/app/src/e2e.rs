@@ -44,6 +44,10 @@
 //! * `settings`: Settings' phone pages (Profile, Personalization, Chat,
 //!   Connection, Audio, Data Controls behind Advanced, Accounts' Sign Out,
 //!   About) and the after-update release notes ([`settings`]).
+//! * `actions`: message and chat actions: Info, Regenerate With, versions
+//!   and branches kept on the server, Branch in New Chat, Delete, Compare
+//!   Models with Continue from Here and Merge Responses, Export, Share
+//!   Chat, Generate Title, Mark as Unread and Save Chat ([`actions`]).
 //! * `offline-setup`, `offline`: a signed-in account whose server is out of
 //!   reach at launch, with conduitd restarted once while the window opens;
 //!   two launches, run by `crates/app/e2e-offline.sh` ([`offline`]).
@@ -54,6 +58,7 @@
 //! ([`crate::views::privacy`]), and the forms are captured before values are
 //! typed.
 
+mod actions;
 mod chat;
 mod chat_settings;
 mod composer;
@@ -716,6 +721,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "offline-setup" => offline::setup(&inputs, &dir, cx).await,
         "offline" => offline::run(&inputs, &dir, cx).await,
         "settings" => settings::run(&inputs, &dir, cx).await,
+        "actions" => actions::run(&inputs, &dir, cx).await,
         other => ok(&format!("unknown scenario {other}"), false),
     }
 }
@@ -1857,7 +1863,7 @@ async fn sidebar(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         [
             "Pin",
             "Rename…",
-            "Share Chat",
+            "Share Chat…",
             "Remove from Folder",
             "Archive",
             "Select Chats…",

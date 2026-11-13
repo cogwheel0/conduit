@@ -564,7 +564,8 @@ async fn local(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     settle(cx, 400).await;
     shoot_main(dir, "chat-versions", cx).await;
 
-    // 6. Rate the newest answer.
+    // 6. Back to the newest answer (a switch on the server, which the row
+    // follows once it lands), then rate it.
     cx.update(|cx| {
         if let Some(s) = chat_store(cx) {
             s.update(cx, |s, cx| {
@@ -572,6 +573,29 @@ async fn local(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
                     && let Some(item) = s.item(last)
                 {
                     s.step_version(&item.key, 1, cx);
+                }
+            });
+        }
+    });
+    let newest = wait_until(cx, Duration::from_secs(30), |cx| {
+        chat_store(cx).is_some_and(|s| {
+            let s = s.read(cx);
+            s.rows()
+                .last()
+                .and_then(|r| s.item(*r))
+                // The newest is the chat's own again (not a version shown in
+                // its place while the switch is on its way).
+                .is_some_and(|i| i.stored && i.siblings.last() == Some(&i.key))
+        })
+    })
+    .await;
+    pass &= ok("the arrow went back to the newest answer", newest);
+    cx.update(|cx| {
+        if let Some(s) = chat_store(cx) {
+            s.update(cx, |s, cx| {
+                if let Some(last) = s.rows().last().copied()
+                    && let Some(item) = s.item(last)
+                {
                     s.rate(&item.key, 1, cx);
                 }
             });

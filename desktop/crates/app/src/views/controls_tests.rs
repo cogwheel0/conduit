@@ -398,6 +398,8 @@ impl Render for Rows {
             streaming: false,
             status: None,
             note: None,
+            unread: false,
+            unread_spoken: None,
         };
         let hovered = RowState {
             hovered: true,

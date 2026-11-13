@@ -347,6 +347,9 @@ pub struct ComposerStore {
     filters_touched: bool,
     /// `@`: the model for the next message only.
     pub mention: Option<ModelSummary>,
+    /// Compare Models: the second model to answer the next message, beside
+    /// the one it goes to.
+    pub compare_with: Option<ModelSummary>,
     /// `#`: knowledge bases for the next message.
     pub knowledge: Vec<KnowledgeSummary>,
     /// `#` notes and knowledge files, and web pages: context for the next
@@ -417,6 +420,7 @@ impl ComposerStore {
             filter_ids: BTreeSet::new(),
             filters_touched: false,
             mention: None,
+            compare_with: None,
             knowledge: vec![],
             context: vec![],
             draft_params: serde_json::Value::Null,
@@ -1313,7 +1317,21 @@ impl ComposerStore {
             image_generation: self.image_generation,
             code_interpreter: self.code_interpreter,
             file_ids: self.file_ids(),
-            compare_models: vec![],
+            compare_models: match (&self.compare_with, self.next_model()) {
+                (Some(other), Some(first)) if other.id != first.id => {
+                    vec![first.id.clone(), other.id.clone()]
+                }
+                _ => vec![],
+            },
+        }
+    }
+
+    /// Compare Models: the next message is also answered by `model`, side by
+    /// side (`None`: by the one model only).
+    pub fn set_compare_with(&mut self, model: Option<ModelSummary>, cx: &mut Context<Self>) {
+        if self.compare_with != model {
+            self.compare_with = model;
+            cx.notify();
         }
     }
 
@@ -1433,6 +1451,7 @@ impl ComposerStore {
     /// attachments.
     pub fn clear_message(&mut self, cx: &mut Context<Self>) {
         self.mention = None;
+        self.compare_with = None;
         self.knowledge.clear();
         self.context.clear();
         self.attachments.clear();

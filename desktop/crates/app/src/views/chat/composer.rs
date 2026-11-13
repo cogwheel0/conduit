@@ -255,9 +255,8 @@ pub struct ChatComposer {
     pub expanded: bool,
     /// Enter sends (the Chats setting, as the field was last told).
     send_on_enter: bool,
-    /// The + menu offers Compare Models. Off until a window draws two
-    /// answers side by side; the daemon already runs a comparison
-    /// (`turns.send` with `compareModels`).
+    /// The + menu offers Compare Models (where the daemon says it can run
+    /// one); a window that cannot draw two answers turns it off.
     pub compare_ui: bool,
     /// Queue, Steer, Send Next and Save as Note: the main window's. Quick
     /// Ask, which only asks and answers, turns them off.
@@ -268,6 +267,24 @@ pub struct ChatComposer {
 }
 
 impl EventEmitter<ChatComposerEvent> for ChatComposer {}
+
+/// Compare Models' menu chose `model` to answer beside the first.
+#[derive(Clone, Debug, PartialEq, gpui_kit::Action)]
+#[action(namespace = conduit_composer, no_json)]
+pub struct CompareWith {
+    pub composer: gpui_kit::WeakEntity<ComposerStore>,
+    pub model: ModelSummary,
+}
+
+/// Registers the composer's menu actions on the app.
+pub fn register_actions(cx: &mut App) {
+    cx.on_action(|a: &CompareWith, cx: &mut App| {
+        let model = a.model.clone();
+        let _ = a
+            .composer
+            .update(cx, |c, cx| c.set_compare_with(Some(model), cx));
+    });
+}
 
 impl Focusable for ChatComposer {
     fn focus_handle(&self, _: &App) -> FocusHandle {
@@ -421,7 +438,7 @@ impl ChatComposer {
             queue_offer: false,
             expanded: false,
             send_on_enter,
-            compare_ui: false,
+            compare_ui: true,
             panel: None,
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
@@ -1560,7 +1577,8 @@ impl ChatComposer {
         // Features.
         let code_shown = options.code_interpreter || code;
         let draft_note = notes_button && options.notes && has_text && !self.streaming;
-        let compare = options.compare_models && self.compare_ui;
+        // Not for a temporary chat, which the server never stores.
+        let compare = options.compare_models && self.compare_ui && !self.temporary;
         if options.web_search || options.image_generation || code_shown || compare || draft_note {
             entries.push(None);
             menu = menu.separator();
@@ -1719,7 +1737,7 @@ impl ChatComposer {
             ComposerMenu::CodeInterpreter => {
                 composer.update(cx, |c, cx| c.toggle_code_interpreter(cx))
             }
-            ComposerMenu::CompareModels => cx.emit(ChatComposerEvent::CompareModels),
+            ComposerMenu::CompareModels => self.choose_compare_model(window, cx),
             ComposerMenu::SaveAsNote => {
                 let text = self.text(cx);
                 if !text.trim().is_empty() {
@@ -1730,6 +1748,46 @@ impl ChatComposer {
             ComposerMenu::Filter(id) => composer.update(cx, |c, cx| c.toggle_filter(id, cx)),
             ComposerMenu::Heading => {}
         }
+    }
+
+    /// Compare Models…: a menu of the other models, from the + button; the
+    /// one chosen answers the next message too, side by side.
+    fn choose_compare_model(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let store = self.composer.read(cx);
+        let first = store.next_model().map(|m| m.id.clone());
+        let others: Vec<ModelSummary> = store
+            .models
+            .as_ref()
+            .map(|l| {
+                l.models
+                    .iter()
+                    .filter(|m| Some(&m.id) != first.as_ref())
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        if others.is_empty() {
+            return;
+        }
+        let chosen = store.compare_with.as_ref().map(|m| m.id.clone());
+        let weak = self.composer.downgrade();
+        let mut menu = gpui_kit::component::native_menu::NativeMenu::new();
+        for m in others {
+            menu = menu.menu_with_check(
+                model_label(&m),
+                chosen.as_deref() == Some(m.id.as_str()),
+                Box::new(CompareWith {
+                    composer: weak.clone(),
+                    model: m.clone(),
+                }),
+            );
+        }
+        let at = self
+            .plus_bounds
+            .get()
+            .map(|b| gpui_kit::point(b.left(), b.top() - px(4.)))
+            .unwrap_or_default();
+        menu.show(at, window, cx);
     }
 
     /// Clears the field after its text was kept as a note.
@@ -3169,8 +3227,19 @@ impl Render for ChatComposer {
                 .into_any_element()
         };
 
-        // Chips for this message's `@` model and `#` knowledge.
+        // Chips for this message's `@` model, its Compare Models model and
+        // `#` knowledge.
         let mut chips: Vec<AnyElement> = vec![];
+        if let Some(other) = composer.read(cx).compare_with.clone() {
+            let composer = composer.clone();
+            chips.push(chip(
+                "compare-with".into(),
+                l10n.desktop_compare_with_chip(&model_label(&other)),
+                &t,
+                Rc::new(move |_, cx| composer.update(cx, |c, cx| c.set_compare_with(None, cx))),
+                l10n.desktop_stop_comparing(),
+            ));
+        }
         if let Some(model) = &mention {
             let composer = composer.clone();
             chips.push(chip(

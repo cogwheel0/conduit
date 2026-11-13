@@ -24,6 +24,11 @@ pub struct ChatRow {
     /// What VoiceOver always adds after the title ("Read-only" for another
     /// user's chat in a shared folder).
     pub note: Option<SharedString>,
+    /// Something arrived since it was read, or it was marked unread: a dot
+    /// in the status column, as the phone's unread column has (never on the
+    /// open chat). VoiceOver hears `unread_spoken` after the title.
+    pub unread: bool,
+    pub unread_spoken: Option<SharedString>,
 }
 
 impl ChatRow {
