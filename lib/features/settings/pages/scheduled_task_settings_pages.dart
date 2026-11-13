@@ -2199,10 +2199,17 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
     );
     // Open again (Scheduled Tasks available once more): a Days or Advanced
     // Schedule page still open over the form shows the schedule again.
-    if (editor.pagesClosed && editor.draft != null) {
+    // Asked again before each page: closed or switched meanwhile, the redraw
+    // that did so has the last word.
+    bool stillOpen() =>
+        identical(_editors[editor.key], editor) &&
+        _gateOpen &&
+        !_stale(editor.owner);
+    if (editor.pagesClosed && editor.draft != null && stillOpen()) {
       editor.pagesClosed = false;
       // Sent as pages of their own: one already open learns of it only so.
       await _surface.applyDetail(_buildDaysPage(l10n, clock, editor));
+      if (!stillOpen()) return;
       await _surface.applyDetail(_buildRulePage(l10n, clock, editor));
     }
   }
