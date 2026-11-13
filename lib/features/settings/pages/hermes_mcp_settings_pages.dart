@@ -819,6 +819,8 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       // A read a newer one overtook says nothing of how loading went.
       if (!await _readServers(service)) return false;
       _failed = false;
+      // Read again: the word that it could not be is no longer true.
+      if (_notice == l10n.hermesMcpLoadFailed) _notice = null;
       read = true;
     } catch (error) {
       DebugLogger.warning(

@@ -2356,9 +2356,15 @@ class HermesSettingsPages extends SettingsPageModule {
         ?.where((candidate) => candidate.id == sessionId)
         .firstOrNull;
     if (session == null || !_unhiding.add(sessionId)) return;
+    final connection = _ref.read(hermesActiveConnectionIdProvider);
     _hiddenNotice = null;
     await _applyHidden(l10n);
     try {
+      // Another connection in use since the list was drawn: the chat is the
+      // last one's, and is not sent to this one.
+      if (_ref.read(hermesActiveConnectionIdProvider) != connection) {
+        throw StateError('Hermes connection changed.');
+      }
       await _ref
           .read(hermesSessionsProvider.notifier)
           .setHidden(session, false);
@@ -2385,8 +2391,12 @@ class HermesSettingsPages extends SettingsPageModule {
         .firstOrNull;
     if (session == null) return;
     // The chat opens over the app, so Settings closes first.
+    final connection = _ref.read(hermesActiveConnectionIdProvider);
     final bridge = NativeSheetBridge.instance;
     if (bridge.settingsSheetOpen) await bridge.dismiss();
+    // Another connection made active meanwhile (by a notification): the
+    // chat is the last one's, and is not asked of this one.
+    if (_ref.read(hermesActiveConnectionIdProvider) != connection) return;
     final context = NavigationService.context;
     if (context == null || !context.mounted) return;
     await openHermesSessionReading(

@@ -700,6 +700,36 @@ void main() {
         .not((ids) => ids.contains('$hermesMcpPageId-loading'));
     check(rig.rows(hermesMcpPageId).map((row) => row.title))
         .contains(_l10n.hermesMcpLoadFailed);
+  });
+
+  testWidgets('a list read again that fails keeps the list, with word that '
+      'it could not be read', (tester) async {
+    final hermes = _Hermes();
+    hermes.servers.add({
+      'name': 'tide-notes',
+      'transport': 'http',
+      'url': 'https://tides.example/mcp',
+      'enabled': true,
+    });
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [hermesApiServiceProvider.overrideWithValue(hermes.service)],
+    );
+    addTearDown(container.dispose);
+    final rig = _Rig(tester, container);
+    await rig.open(hermesMcpPageId);
+
+    hermes.failListOnceAdded = true;
+    await rig.open(hermesMcpPageId);
+
+    final ids = rig.rows(hermesMcpPageId).map((row) => row.id);
+    check(ids).contains('$hermesMcpPageId-notice');
+    check(rig.titles(hermesMcpPageId)).contains('tide-notes');
+
+    hermes.failListOnceAdded = false;
+    await rig.open(hermesMcpPageId);
+    check(rig.rows(hermesMcpPageId).map((row) => row.id))
+        .not((ids) => ids.contains('$hermesMcpPageId-notice'));
     await hermes.dispose();
   });
 

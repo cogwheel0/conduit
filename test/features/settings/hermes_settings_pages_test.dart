@@ -917,8 +917,6 @@ final class _BlockingCookieJar extends NullCookieJarPort {
   Future<bool> clearForOrigin(String origin) => release.future;
 }
 
-/// A Desktop Gateway connection whose Sign Out cannot end its dashboard
-/// session.
 /// Settings whose next page update waits on [gate] when it is set.
 final class _GatedSurface extends SettingsSurface {
   _GatedSurface(super.ref);
@@ -938,6 +936,8 @@ final class _GatedSurface extends SettingsSurface {
   }
 }
 
+/// A Desktop Gateway connection whose Sign Out cannot end its dashboard
+/// session.
 class _SignOutFails extends HermesConfigController {
   var signOuts = 0;
 
