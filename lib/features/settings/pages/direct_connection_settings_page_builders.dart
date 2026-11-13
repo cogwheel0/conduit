@@ -1262,10 +1262,20 @@ NativeSheetDetailConfig buildDirectMcpServerPage(
   NativeSheetDetailConfig only(NativeSheetItemConfig item) =>
       NativeSheetDetailConfig(id: pageId, title: title, items: [item]);
   if (!editor.initialized) {
-    return only(
-      loadFailed
-          ? _notice(pageId, l10n.directMcpLoadFailed)
-          : buildNativeLoadingItem(l10n, id: '$pageId-loading'),
+    if (!loadFailed) {
+      return only(buildNativeLoadingItem(l10n, id: '$pageId-loading'));
+    }
+    return NativeSheetDetailConfig(
+      id: pageId,
+      title: title,
+      sections: [
+        NativeSheetSectionConfig(
+          items: [
+            _notice(pageId, l10n.directMcpLoadFailed),
+            _retryRow(directMcpRowId('retry', serverKey), l10n),
+          ],
+        ),
+      ],
     );
   }
   if (editor.missing) return only(_notice(pageId, l10n.directMcpMissing));

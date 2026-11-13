@@ -1,8 +1,4 @@
 import 'dart:async';
-
-import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
-
 import 'dart:io';
 
 import 'package:conduit/core/services/native_sheet_bridge.dart';
@@ -10,6 +6,7 @@ import 'package:conduit/core/utils/native_sheet_utils.dart';
 import 'package:conduit/features/settings/pages/direct_connection_page_ids.dart';
 import 'package:conduit/features/settings/pages/direct_connection_settings_page_builders.dart';
 import 'package:conduit/features/settings/pages/direct_connection_settings_pages.dart';
+import 'package:conduit/features/settings/settings_controller.dart';
 import 'package:conduit/features/settings/settings_page_module.dart';
 import 'package:conduit/features/settings/settings_pages.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -34,12 +31,13 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/services/secure_credential_storage.dart';
-import 'package:conduit/features/settings/settings_controller.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 import '../direct_connections/direct_connections_ui_test_support.dart';
 
@@ -840,7 +838,7 @@ void main() {
 
       await rig.change(directConnectionRowId('header-name', key), 'Bad Name');
       await rig.change(directConnectionRowId('header-add', key));
-      expect(rig.page(header).announcement, isNotNull);
+      expect(rig.page(header).announcement, _l10n.headerNameInvalidChars);
       expect(rig.closed, isEmpty);
 
       await rig.change(directConnectionRowId('header-name', key), 'X-Tenant');
@@ -2083,6 +2081,83 @@ void main() {
       expect(persisted.endpoint, 'http://127.0.0.1:1/other-mcp');
       expect(persisted.authMode, DirectMcpAuthMode.none);
       expect(persisted.bearerToken, isNull);
+      expect(persisted.customHeaders, isEmpty);
+    });
+
+    testWidgets('a server page whose servers cannot be read offers Retry, '
+        'which reads them again', (tester) async {
+      FlutterSecureStorage.setMockInitialValues({});
+      store = DirectMcpServerStore(
+        SecureCredentialStorage(instance: FlutterSecureKeyValueStore()),
+      );
+      // The first read fails; a read made again goes to the store.
+      final rig = await _pump(
+        tester,
+        overrides: [
+          directMcpServerStoreProvider.overrideWithValue(store),
+          directMcpServersProvider.overrideWithBuild(
+            (ref, _) async => throw StateError('locked'),
+          ),
+        ],
+      );
+      const key = 'new';
+      final page = directMcpPageId(null);
+      await rig.open(page);
+      await rig.until(
+        () =>
+            rig.rows(page).any((row) => row.title == _l10n.directMcpLoadFailed),
+      );
+      expect(
+        rig.rows(page).map((row) => row.id),
+        contains(directMcpRowId('retry', key)),
+      );
+
+      await rig.change(directMcpRowId('retry', key));
+      await rig.until(() => rig.rows(page).length > 2);
+
+      expect(
+        rig.rows(page).map((row) => row.title),
+        isNot(contains(_l10n.directMcpLoadFailed)),
+      );
+    });
+
+    testWidgets('a browser sign-in after the address changed asks before '
+        'taking credentials along', (tester) async {
+      final rig = await pumpMcp(
+        tester,
+        client: MockClient((_) async => throw http.ClientException('offline')),
+      );
+      final server = DirectMcpServer(
+        id: 'oauth-move',
+        name: 'OAuth Move',
+        endpoint: 'https://resource.example/mcp',
+        authMode: DirectMcpAuthMode.oauth,
+        customHeaders: const {'X-Tenant': 'tenant-secret'},
+      );
+      await store.upsert(server);
+      final page = directMcpPageId(server.id);
+      final key = Uri.encodeComponent(server.id);
+      await rig.open(page);
+      await rig.until(() => rig.rows(page).length > 1);
+      rig.surface.answer = 'cancel';
+
+      await rig.change(
+        directMcpRowId('endpoint', key),
+        'https://resource.example/other-mcp',
+      );
+      // The sign-in itself fails in the browser step; the server is saved
+      // before it, which is what this checks.
+      await rig.settle(
+        rig.module.handleChange(
+          directMcpRowId('oauth-connect', key),
+          true,
+          _l10n,
+        ),
+      );
+
+      expect(rig.surface.asked, contains('Use credentials with new server?'));
+      final persisted = (await store.load()).single;
+      expect(persisted.endpoint, 'https://resource.example/other-mcp');
       expect(persisted.customHeaders, isEmpty);
     });
 

@@ -22,6 +22,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart' show TextInput;
 import 'package:flutter/widgets.dart';
 
 import '../../core/services/native_sheet_bridge.dart';
@@ -1154,6 +1155,10 @@ class SettingsController {
         outcome = l10n.errorMessage;
       }
     }
+    // AutoFill (Android's, through the Flutter fields) offers to save the
+    // new password once its fields' context ends with the change made; a
+    // refused change saves nothing.
+    TextInput.finishAutofillContext(shouldSave: outcome == null);
     // The page was left, or opened again, while the change was sent: the
     // outcome is not put over what that visit shows.
     if (visit != _passwordVisit) return;

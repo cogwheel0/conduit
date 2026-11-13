@@ -762,7 +762,8 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
 const nativeAccountsAddItemId = 'accounts-add';
 
 /// The Add Account page: each kind of account or connection there is to
-/// add. Choosing one closes the sheet and opens its sign-in or editor.
+/// add. An account's sign-in closes the sheet and opens as a flow of its
+/// own; a provider's editor opens in Settings, the sheet staying open.
 NativeSheetDetailConfig buildNativeAddAccountDetail(
   AppLocalizations l10n, {
   required bool libreChatEnabled,

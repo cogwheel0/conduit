@@ -138,7 +138,7 @@ void main() {
     check(hints('new-password'))
         .isNotNull()
         .deepEquals([AutofillHints.newPassword]);
-    check(hints('api-key') ?? const <String>[]).isEmpty();
+    check(hints('api-key')).isNull();
   });
 
   testWidgets('a choice in use is marked, as iOS marks it', (tester) async {

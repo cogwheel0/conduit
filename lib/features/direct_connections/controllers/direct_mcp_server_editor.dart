@@ -416,7 +416,11 @@ final class DirectMcpServerEditor extends ChangeNotifier {
     }
     final confirmedDraft = await _confirmInsecureTransport(draft, confirm);
     if (confirmedDraft == null || _disposed) return;
-    draft = confirmedDraft;
+    // The sign-in saves the server first; credentials go with a new
+    // address only once agreed to, as Save and Test ask.
+    final transfer = await _confirmCredentialTransfer(confirmedDraft, confirm);
+    if (_disposed) return;
+    draft = transfer.server;
     final previous = _previous;
     DirectMcpServer? interim;
     var oauthCompleted = false;
@@ -441,7 +445,11 @@ final class DirectMcpServerEditor extends ChangeNotifier {
     _message = l10n.directMcpOAuthPending;
     _changed();
     try {
-      final saved = await servers.upsert(draft, expectedPrevious: _previous);
+      final saved = await servers.upsert(
+        draft,
+        expectedPrevious: _previous,
+        endpointCredentialsConfirmed: transfer.confirmed,
+      );
       final persisted = saved.firstWhere((server) => server.id == draft.id);
       interim = persisted;
       if (!_disposed && previous == null) {

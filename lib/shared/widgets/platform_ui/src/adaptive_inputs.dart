@@ -25,7 +25,7 @@ class AdaptiveTextField extends StatelessWidget {
     this.obscureText = false,
     this.autocorrect = true,
     this.enableSuggestions = true,
-    this.autofillHints,
+    this.autofillHints = const <String>[],
     this.autofocus = false,
     this.enabled = true,
     this.readOnly = false,
@@ -57,8 +57,9 @@ class AdaptiveTextField extends StatelessWidget {
   final bool autocorrect;
   final bool enableSuggestions;
 
-  /// What AutoFill may fill or offer to save in the field. Null keeps it
-  /// out of AutoFill.
+  /// What AutoFill may fill or offer to save in the field. Empty (the
+  /// default) lets the platform judge from the field; null keeps it out of
+  /// AutoFill altogether.
   final Iterable<String>? autofillHints;
   final bool autofocus;
   final bool enabled;

@@ -313,13 +313,19 @@ class DirectConnectionSettingsPages extends SettingsPageModule {
   }
 
   /// Redraws the pages followed, once for changes that land together.
+  /// The redraw under way, which the next one waits for.
+  Future<void> _redrawing = Future<void>.value();
+
   void _queueRedraw() {
     if (_redrawQueued) return;
     _redrawQueued = true;
     scheduleMicrotask(() {
       _redrawQueued = false;
       final l10n = _l10n;
-      if (l10n != null) unawaited(_redraw(l10n));
+      // One redraw at a time, in the order asked for.
+      if (l10n != null) {
+        _redrawing = _redrawing.then((_) => _redraw(l10n));
+      }
     });
   }
 
@@ -1013,6 +1019,17 @@ class DirectConnectionSettingsPages extends SettingsPageModule {
     final entry = _mcpEditors[key];
     if (entry == null || entry.saving) return;
     final editor = entry.editor;
+    // The servers could not be read: read them again, and the page with
+    // them.
+    if (row.field == 'retry') {
+      try {
+        await _ref.read(directMcpServersProvider.notifier).reload();
+      } catch (_) {
+        // Still unread: the page says so again, with Retry.
+      }
+      await _applyMcp(l10n, key, entry);
+      return;
+    }
     if (row.field == 'oauth-cancel') {
       await editor.cancelOAuth();
       await _applyMcp(l10n, key, entry);

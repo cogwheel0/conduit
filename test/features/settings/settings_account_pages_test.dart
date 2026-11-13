@@ -21,6 +21,7 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -479,6 +480,41 @@ void main() {
       // Done left to tap.
       check(rig.rows('password').single.title).equals(_l10n.passwordUpdated);
       check(rig.page('password')!.confirmActionId).isNull();
+    });
+
+    testWidgets('a change made lets AutoFill save the new password; a '
+        'refused one saves nothing', (tester) async {
+      final saves = <Object?>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.textInput,
+        (call) async {
+          if (call.method == 'TextInput.finishAutofillContext') {
+            saves.add(call.arguments);
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.textInput,
+          null,
+        ),
+      );
+      final rig = await _pump(tester);
+      rig.pages.register([
+        buildNativePasswordDetail(_l10n, passwordChangeEnabled: true),
+      ]);
+
+      await rig.change('current-password', 'old');
+      await rig.change('new-password', 'next');
+      await rig.change('confirm-password', 'other');
+      await rig.change(nativePasswordSaveActionId, true);
+      await rig.change('current-password', 'old');
+      await rig.change('new-password', 'next');
+      await rig.change('confirm-password', 'next');
+      await rig.change(nativePasswordSaveActionId, true);
+
+      check(saves).deepEquals([false, true]);
     });
 
     testWidgets('a Done with nothing typed leaves what the page says', (
