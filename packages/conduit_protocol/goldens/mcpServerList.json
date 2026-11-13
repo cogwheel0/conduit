@@ -9,6 +9,7 @@
       "hasBearerToken": false,
       "customHeaderNames": [],
       "oauthConnected": false,
+      "oauthScopes": [],
       "allowInsecureCredentials": false,
       "approvals": []
     }

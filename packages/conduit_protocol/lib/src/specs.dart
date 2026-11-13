@@ -36,6 +36,7 @@ import 'valves.dart';
 import 'speech.dart';
 import 'calls.dart';
 import 'voice.dart';
+import 'web_search.dart';
 import 'workspace.dart';
 
 /// Decodes a JSON object into a DTO: a `fromJson` factory.
@@ -847,6 +848,26 @@ abstract final class ConduitMethodSpecs {
         params: OllamaModelAction.fromJson,
         result: OllamaModelList.fromJson,
       );
+  static const directReload = ConduitMethodSpec<void, DirectConnectionList>(
+    ConduitMethods.directReload,
+    result: DirectConnectionList.fromJson,
+  );
+  static const directOptions = ConduitMethodSpec<void, DirectOptions>(
+    ConduitMethods.directOptions,
+    result: DirectOptions.fromJson,
+  );
+  static const directSetImagesPerRequest =
+      ConduitMethodSpec<DirectImagesPerRequest, DirectOptions>(
+        ConduitMethods.directSetImagesPerRequest,
+        params: DirectImagesPerRequest.fromJson,
+        result: DirectOptions.fromJson,
+      );
+  static const directSetContextLimit =
+      ConduitMethodSpec<DirectContextLimit, DirectOptions>(
+        ConduitMethods.directSetContextLimit,
+        params: DirectContextLimit.fromJson,
+        result: DirectOptions.fromJson,
+      );
 
   // mcp.*
 
@@ -911,6 +932,19 @@ abstract final class ConduitMethodSpecs {
         ConduitMethods.mcpReadResource,
         params: McpReadResource.fromJson,
         result: McpContentPreview.fromJson,
+      );
+
+  // webSearch.*
+
+  static const webSearchGet = ConduitMethodSpec<void, WebSearchSettings>(
+    ConduitMethods.webSearchGet,
+    result: WebSearchSettings.fromJson,
+  );
+  static const webSearchSet =
+      ConduitMethodSpec<WebSearchSettingsPatch, WebSearchSettings>(
+        ConduitMethods.webSearchSet,
+        params: WebSearchSettingsPatch.fromJson,
+        result: WebSearchSettings.fromJson,
       );
 
   // turns.*
@@ -1789,6 +1823,10 @@ abstract final class ConduitMethodSpecs {
         directOllamaUnload,
         directOllamaKeepAlive,
         directOllamaThinking,
+        directReload,
+        directOptions,
+        directSetImagesPerRequest,
+        directSetContextLimit,
         mcpList,
         mcpSave,
         mcpRemove,
@@ -1801,6 +1839,8 @@ abstract final class ConduitMethodSpecs {
         mcpContent,
         mcpGetPrompt,
         mcpReadResource,
+        webSearchGet,
+        webSearchSet,
         turnsSend,
         turnsStop,
         turnsRegenerate,

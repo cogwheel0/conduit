@@ -274,6 +274,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
       ModelSummary(
         id: 'direct:home:bGxhbWEz',
         name: 'llama3',
+        logo: 'meta',
         connection: 'Home Ollama',
       ),
     ],
@@ -451,6 +452,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     openWebUiAvailable: true,
     preferred: true,
     usable: true,
+    openWebUiLoadFailed: true,
   ),
   'directPreferred': const DirectPreferred(preferred: true),
   'directConnectionEdit': const DirectConnectionEdit(
@@ -475,6 +477,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     name: 'llama3.2:1b',
     loaded: true,
     keepAlive: '30m',
+    logo: 'meta',
   ),
   'ollamaModelList': const OllamaModelList(
     models: <OllamaModelStatus>[
@@ -491,6 +494,51 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     model: 'llama3.2:1b',
     value: '-1',
   ),
+  // direct.options, webSearch.* (1.62.0)
+  'directContextModel': const DirectContextModel(
+    id: 'ollama/llama3.2:1b',
+    name: 'llama3.2:1b',
+    connection: 'Home Ollama',
+    limit: 8192,
+    ollama: true,
+    logo: 'meta',
+  ),
+  'directOptions': const DirectOptions(
+    imagesPerRequest: 4,
+    imagesPerRequestChoices: <int>[1, 2, 4, 10],
+    contextModels: <DirectContextModel>[
+      DirectContextModel(id: 'gateway/tiny', name: 'tiny', limit: 4096),
+    ],
+    contextLimitChoices: <int>[4096, 8192, 16384],
+  ),
+  'directImagesPerRequest': const DirectImagesPerRequest(count: 4),
+  'directContextLimit': const DirectContextLimit(
+    modelId: 'gateway/tiny',
+    tokens: 16384,
+  ),
+  'webSearchEngineDto': const WebSearchEngineDto(
+    id: 'duckduckgo',
+    name: 'DuckDuckGo',
+  ),
+  'webSearchRegionDto': const WebSearchRegionDto(
+    code: 'de-de',
+    name: 'Deutschland',
+  ),
+  'webSearchSettings': const WebSearchSettings(
+    engine: 'brave',
+    engines: <WebSearchEngineDto>[
+      WebSearchEngineDto(id: 'auto'),
+      WebSearchEngineDto(id: 'brave', name: 'Brave'),
+    ],
+    safeSearch: 'strict',
+    region: 'fr-fr',
+    effectiveRegion: 'fr-fr',
+    regions: <WebSearchRegionDto>[
+      WebSearchRegionDto(code: 'wt-wt'),
+      WebSearchRegionDto(code: 'fr-fr', name: 'France'),
+    ],
+  ),
+  'webSearchSettingsPatch': const WebSearchSettingsPatch(region: 'auto'),
   'mcpApprovalSummary': const McpApprovalSummary(
     digest: 'sha256:1f2e',
     toolName: 'search',
@@ -502,6 +550,8 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     endpoint: 'https://mcp.example.com/mcp',
     auth: McpAuth.oauth,
     oauthConnected: true,
+    oauthIssuerHost: 'auth.example.com',
+    oauthScopes: <String>['tools.read'],
     customHeaderNames: <String>['X-Team'],
     approvals: <McpApprovalSummary>[
       McpApprovalSummary(
@@ -3164,6 +3214,14 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'ollamaModelStatus': OllamaModelStatus.fromJson,
       'ollamaModelList': OllamaModelList.fromJson,
       'ollamaModelAction': OllamaModelAction.fromJson,
+      'directContextModel': DirectContextModel.fromJson,
+      'directOptions': DirectOptions.fromJson,
+      'directImagesPerRequest': DirectImagesPerRequest.fromJson,
+      'directContextLimit': DirectContextLimit.fromJson,
+      'webSearchEngineDto': WebSearchEngineDto.fromJson,
+      'webSearchRegionDto': WebSearchRegionDto.fromJson,
+      'webSearchSettings': WebSearchSettings.fromJson,
+      'webSearchSettingsPatch': WebSearchSettingsPatch.fromJson,
       'mcpApprovalSummary': McpApprovalSummary.fromJson,
       'mcpServerSummary': McpServerSummary.fromJson,
       'mcpServerList': McpServerList.fromJson,

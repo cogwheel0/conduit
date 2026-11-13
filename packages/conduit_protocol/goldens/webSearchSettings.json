@@ -1,0 +1,26 @@
+{
+  "engine": "brave",
+  "engines": [
+    {
+      "id": "auto",
+      "name": ""
+    },
+    {
+      "id": "brave",
+      "name": "Brave"
+    }
+  ],
+  "safeSearch": "strict",
+  "region": "fr-fr",
+  "effectiveRegion": "fr-fr",
+  "regions": [
+    {
+      "code": "wt-wt",
+      "name": ""
+    },
+    {
+      "code": "fr-fr",
+      "name": "France"
+    }
+  ]
+}

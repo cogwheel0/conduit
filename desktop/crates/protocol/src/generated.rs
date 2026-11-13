@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.61.0";
+pub const PROTOCOL_VERSION: &str = "1.62.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: folders now, notes and Workspace items reuse it.
@@ -3625,6 +3625,11 @@ pub struct DirectConnectionList {
     /// app can be used with no server at all.
     #[serde(default)]
     pub usable: bool,
+    /// The connections kept in the Open WebUI account could not be read
+    /// this time (`direct.reload` tries again). The ones listed, if any,
+    /// are the last that were.
+    #[serde(default)]
+    pub open_web_ui_load_failed: bool,
 }
 
 /// Params for `direct.save` and `direct.test`.
@@ -3742,6 +3747,9 @@ pub struct OllamaModelStatus {
     /// leaves it to the model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking: Option<String>,
+    /// Its maker's bundled models.dev logo, as `ModelSummary.logo`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logo: Option<String>,
 }
 
 /// Reply to `direct.ollamaModels` and to each Ollama action.
@@ -3774,6 +3782,77 @@ pub struct OllamaModelAction {
 #[serde(rename_all = "camelCase")]
 pub struct DirectPreferred {
     pub preferred: bool,
+}
+
+/// One model that reports no context window, with the limit the app
+/// compacts its chats at.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectContextModel {
+    /// The picker's id.
+    pub id: String,
+    pub name: String,
+    /// The connection that offers it, by name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
+    /// Tokens: the user's choice, or the default.
+    pub limit: i64,
+    /// A model on the user's own Ollama server, where the limit is also
+    /// the context window it is loaded with (`num_ctx`).
+    #[serde(default)]
+    pub ollama: bool,
+    /// Its maker's bundled models.dev logo, as `ModelSummary.logo`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logo: Option<String>,
+}
+
+/// Reply to `direct.options` and its setters: what applies to every
+/// connection's models.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectOptions {
+    /// How many of a chat's newest images one request carries.
+    #[serde(default = "default_direct_options_images_per_request")]
+    pub images_per_request: i64,
+    #[serde(default)]
+    pub images_per_request_choices: Vec<i64>,
+    /// Models with no reported context window; empty when every model
+    /// reports one.
+    #[serde(default)]
+    pub context_models: Vec<DirectContextModel>,
+    /// The limits a model may be given, in tokens.
+    #[serde(default)]
+    pub context_limit_choices: Vec<i64>,
+}
+
+impl Default for DirectOptions {
+    fn default() -> Self {
+        Self {
+            images_per_request: default_direct_options_images_per_request(),
+            images_per_request_choices: Default::default(),
+            context_models: Default::default(),
+            context_limit_choices: Default::default(),
+        }
+    }
+}
+
+fn default_direct_options_images_per_request() -> i64 {
+    10
+}
+
+/// Params for `direct.setImagesPerRequest`: one of the choices.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectImagesPerRequest {
+    pub count: i64,
+}
+
+/// Params for `direct.setContextLimit`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectContextLimit {
+    pub model_id: String,
+    pub tokens: i64,
 }
 
 /// Wrapper around every notification payload.
@@ -5016,6 +5095,12 @@ pub struct McpServerSummary {
     /// Whether an OAuth sign-in has been completed and is still held.
     #[serde(default)]
     pub oauth_connected: bool,
+    /// For a held OAuth sign-in: the authorization server's host, and the
+    /// scopes it granted (empty when it reported none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth_issuer_host: Option<String>,
+    #[serde(default)]
+    pub oauth_scopes: Vec<String>,
     /// The user agreed to send credentials over plain HTTP to this
     /// endpoint.
     #[serde(default)]
@@ -5512,6 +5597,11 @@ pub struct ModelSummary {
     /// and the server may too.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection: Option<String>,
+    /// A direct model's maker (or provider): the id of a logo in the
+    /// app's bundled models.dev catalog (`openai`, `ollama-cloud`). Null
+    /// draws the model's initial.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logo: Option<String>,
 }
 
 /// Reply to `models.list`.
@@ -8527,6 +8617,94 @@ pub struct VoiceModelRef {
     pub id: String,
 }
 
+/// A search engine on-device web search can use.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebSearchEngineDto {
+    /// What is stored: `auto` (try each in turn), `duckduckgo`, `brave`,
+    /// `bing` or `mojeek`.
+    pub id: String,
+    /// The engine's own name; empty for `auto`, which the window names.
+    #[serde(default)]
+    pub name: String,
+}
+
+/// A region on-device searches can ask for results from.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebSearchRegionDto {
+    /// A `country-language` code (`de-de`); `wt-wt` is worldwide.
+    pub code: String,
+    /// The region's own name for itself, so it needs no translating;
+    /// empty for worldwide, which the window names.
+    #[serde(default)]
+    pub name: String,
+}
+
+/// Reply to `webSearch.get` and `webSearch.set`: how the web search the
+/// app runs itself (for direct models with no search of their own) is
+/// set up.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebSearchSettings {
+    /// An `WebSearchEngineDto.id`.
+    #[serde(default = "default_web_search_settings_engine")]
+    pub engine: String,
+    #[serde(default)]
+    pub engines: Vec<WebSearchEngineDto>,
+    /// `strict`, `moderate` or `off`.
+    #[serde(default = "default_web_search_settings_safe_search")]
+    pub safe_search: String,
+    /// The region chosen; null follows this Mac's language and region.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    /// The region searches use now: `region`, or the one this Mac's
+    /// settings give (`wt-wt` when none matches).
+    #[serde(default = "default_web_search_settings_effective_region")]
+    pub effective_region: String,
+    /// Worldwide first, then every region by name.
+    #[serde(default)]
+    pub regions: Vec<WebSearchRegionDto>,
+}
+
+impl Default for WebSearchSettings {
+    fn default() -> Self {
+        Self {
+            engine: default_web_search_settings_engine(),
+            engines: Default::default(),
+            safe_search: default_web_search_settings_safe_search(),
+            region: None,
+            effective_region: default_web_search_settings_effective_region(),
+            regions: Default::default(),
+        }
+    }
+}
+
+fn default_web_search_settings_engine() -> String {
+    "auto".to_owned()
+}
+
+fn default_web_search_settings_safe_search() -> String {
+    "moderate".to_owned()
+}
+
+fn default_web_search_settings_effective_region() -> String {
+    "wt-wt".to_owned()
+}
+
+/// Params for `webSearch.set`: what changes; null leaves a setting as it
+/// is. `region` `auto` goes back to following this Mac.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WebSearchSettingsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safe_search: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+}
+
 /// The five sections of the workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum WorkspaceKind {
@@ -11101,6 +11279,56 @@ pub mod methods {
         type Result = super::OllamaModelList;
     }
 
+    /// Reads the Open WebUI account's connections again; answers with the
+    /// list.
+    ///
+    /// `direct.reload`: no params -> DirectConnectionList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DirectReload;
+
+    impl RpcMethod for DirectReload {
+        const NAME: &'static str = "direct.reload";
+        type Params = NoParams;
+        type Result = super::DirectConnectionList;
+    }
+
+    /// What applies to every connection's models: images per request and the
+    /// context limits of models that report none.
+    ///
+    /// `direct.options`: no params -> DirectOptions.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DirectOptions;
+
+    impl RpcMethod for DirectOptions {
+        const NAME: &'static str = "direct.options";
+        type Params = NoParams;
+        type Result = super::DirectOptions;
+    }
+
+    /// Sets how many of a chat's newest images one request carries.
+    ///
+    /// `direct.setImagesPerRequest`: DirectImagesPerRequest -> DirectOptions.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DirectSetImagesPerRequest;
+
+    impl RpcMethod for DirectSetImagesPerRequest {
+        const NAME: &'static str = "direct.setImagesPerRequest";
+        type Params = super::DirectImagesPerRequest;
+        type Result = super::DirectOptions;
+    }
+
+    /// Sets the context limit chats with a model are compacted at.
+    ///
+    /// `direct.setContextLimit`: DirectContextLimit -> DirectOptions.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DirectSetContextLimit;
+
+    impl RpcMethod for DirectSetContextLimit {
+        const NAME: &'static str = "direct.setContextLimit";
+        type Params = super::DirectContextLimit;
+        type Result = super::DirectOptions;
+    }
+
     /// Every MCP server, secrets reported only as present.
     ///
     /// `mcp.list`: no params -> McpServerList.
@@ -11246,6 +11474,30 @@ pub mod methods {
         const NAME: &'static str = "mcp.readResource";
         type Params = super::McpReadResource;
         type Result = super::McpContentPreview;
+    }
+
+    /// The engine, safe search and region on-device searches use.
+    ///
+    /// `webSearch.get`: no params -> WebSearchSettings.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct WebSearchGet;
+
+    impl RpcMethod for WebSearchGet {
+        const NAME: &'static str = "webSearch.get";
+        type Params = NoParams;
+        type Result = super::WebSearchSettings;
+    }
+
+    /// Changes them; answers with all of them.
+    ///
+    /// `webSearch.set`: WebSearchSettingsPatch -> WebSearchSettings.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct WebSearchSet;
+
+    impl RpcMethod for WebSearchSet {
+        const NAME: &'static str = "webSearch.set";
+        type Params = super::WebSearchSettingsPatch;
+        type Result = super::WebSearchSettings;
     }
 
     /// Sends a message and starts generation.
@@ -13495,6 +13747,26 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("OllamaModelList"),
     },
     MethodSpec {
+        name: "direct.reload",
+        params: None,
+        result: Some("DirectConnectionList"),
+    },
+    MethodSpec {
+        name: "direct.options",
+        params: None,
+        result: Some("DirectOptions"),
+    },
+    MethodSpec {
+        name: "direct.setImagesPerRequest",
+        params: Some("DirectImagesPerRequest"),
+        result: Some("DirectOptions"),
+    },
+    MethodSpec {
+        name: "direct.setContextLimit",
+        params: Some("DirectContextLimit"),
+        result: Some("DirectOptions"),
+    },
+    MethodSpec {
         name: "mcp.list",
         params: None,
         result: Some("McpServerList"),
@@ -13553,6 +13825,16 @@ pub const METHODS: &[MethodSpec] = &[
         name: "mcp.readResource",
         params: Some("McpReadResource"),
         result: Some("McpContentPreview"),
+    },
+    MethodSpec {
+        name: "webSearch.get",
+        params: None,
+        result: Some("WebSearchSettings"),
+    },
+    MethodSpec {
+        name: "webSearch.set",
+        params: Some("WebSearchSettingsPatch"),
+        result: Some("WebSearchSettings"),
     },
     MethodSpec {
         name: "turns.send",
@@ -14977,8 +15259,12 @@ pub mod conformance {
         "DirectConnectionEdit",
         "DirectConnectionList",
         "DirectConnectionSummary",
+        "DirectContextLimit",
+        "DirectContextModel",
         "DirectEnable",
         "DirectHistory",
+        "DirectImagesPerRequest",
+        "DirectOptions",
         "DirectPreferred",
         "DirectRef",
         "DirectTestResult",
@@ -15256,6 +15542,10 @@ pub mod conformance {
         "VoiceSpeech",
         "VoiceTranscript",
         "VoiceVoices",
+        "WebSearchEngineDto",
+        "WebSearchRegionDto",
+        "WebSearchSettings",
+        "WebSearchSettingsPatch",
         "WorkspaceAccess",
         "WorkspaceAccessEdit",
         "WorkspaceChanged",
@@ -15430,8 +15720,12 @@ pub mod conformance {
             "DirectConnectionEdit" => roundtrip::<super::DirectConnectionEdit>(json),
             "DirectConnectionList" => roundtrip::<super::DirectConnectionList>(json),
             "DirectConnectionSummary" => roundtrip::<super::DirectConnectionSummary>(json),
+            "DirectContextLimit" => roundtrip::<super::DirectContextLimit>(json),
+            "DirectContextModel" => roundtrip::<super::DirectContextModel>(json),
             "DirectEnable" => roundtrip::<super::DirectEnable>(json),
             "DirectHistory" => roundtrip::<super::DirectHistory>(json),
+            "DirectImagesPerRequest" => roundtrip::<super::DirectImagesPerRequest>(json),
+            "DirectOptions" => roundtrip::<super::DirectOptions>(json),
             "DirectPreferred" => roundtrip::<super::DirectPreferred>(json),
             "DirectRef" => roundtrip::<super::DirectRef>(json),
             "DirectTestResult" => roundtrip::<super::DirectTestResult>(json),
@@ -15709,6 +16003,10 @@ pub mod conformance {
             "VoiceSpeech" => roundtrip::<super::VoiceSpeech>(json),
             "VoiceTranscript" => roundtrip::<super::VoiceTranscript>(json),
             "VoiceVoices" => roundtrip::<super::VoiceVoices>(json),
+            "WebSearchEngineDto" => roundtrip::<super::WebSearchEngineDto>(json),
+            "WebSearchRegionDto" => roundtrip::<super::WebSearchRegionDto>(json),
+            "WebSearchSettings" => roundtrip::<super::WebSearchSettings>(json),
+            "WebSearchSettingsPatch" => roundtrip::<super::WebSearchSettingsPatch>(json),
             "WorkspaceAccess" => roundtrip::<super::WorkspaceAccess>(json),
             "WorkspaceAccessEdit" => roundtrip::<super::WorkspaceAccessEdit>(json),
             "WorkspaceChanged" => roundtrip::<super::WorkspaceChanged>(json),

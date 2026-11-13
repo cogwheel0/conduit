@@ -1,5 +1,5 @@
 {
-  "protocolVersion": "1.61.0",
+  "protocolVersion": "1.62.0",
   "appOrigin": "app://conduit",
   "subprotocol": "conduit.v1",
   "subprotocolsExample": {
@@ -707,6 +707,26 @@
       "result": "OllamaModelList"
     },
     {
+      "name": "direct.reload",
+      "params": null,
+      "result": "DirectConnectionList"
+    },
+    {
+      "name": "direct.options",
+      "params": null,
+      "result": "DirectOptions"
+    },
+    {
+      "name": "direct.setImagesPerRequest",
+      "params": "DirectImagesPerRequest",
+      "result": "DirectOptions"
+    },
+    {
+      "name": "direct.setContextLimit",
+      "params": "DirectContextLimit",
+      "result": "DirectOptions"
+    },
+    {
       "name": "mcp.list",
       "params": null,
       "result": "McpServerList"
@@ -765,6 +785,16 @@
       "name": "mcp.readResource",
       "params": "McpReadResource",
       "result": "McpContentPreview"
+    },
+    {
+      "name": "webSearch.get",
+      "params": null,
+      "result": "WebSearchSettings"
+    },
+    {
+      "name": "webSearch.set",
+      "params": "WebSearchSettingsPatch",
+      "result": "WebSearchSettings"
     },
     {
       "name": "turns.send",

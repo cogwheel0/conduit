@@ -7,7 +7,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.61.0",
+  "protocolVersion": "1.62.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -16,7 +16,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.61.0",
+  "protocolVersion": "1.62.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -546,7 +546,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "name": "llama3",
       "pinned": false,
       "capabilities": [],
-      "connection": "Home Ollama"
+      "connection": "Home Ollama",
+      "logo": "meta"
     }
   ],
   "selectedId": "gpt-4o",
@@ -855,7 +856,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "localHistory": true,
   "openWebUiAvailable": true,
   "preferred": true,
-  "usable": true
+  "usable": true,
+  "openWebUiLoadFailed": true
 }''',
 
   'directPreferred': r'''
@@ -915,7 +917,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "id": "llama3.2:1b",
   "name": "llama3.2:1b",
   "loaded": true,
-  "keepAlive": "30m"
+  "keepAlive": "30m",
+  "logo": "meta"
 }''',
 
   'ollamaModelList': r'''
@@ -938,6 +941,96 @@ const Map<String, String> protocolGoldens = <String, String>{
   "value": "-1"
 }''',
 
+  'directContextModel': r'''
+{
+  "id": "ollama/llama3.2:1b",
+  "name": "llama3.2:1b",
+  "connection": "Home Ollama",
+  "limit": 8192,
+  "ollama": true,
+  "logo": "meta"
+}''',
+
+  'directOptions': r'''
+{
+  "imagesPerRequest": 4,
+  "imagesPerRequestChoices": [
+    1,
+    2,
+    4,
+    10
+  ],
+  "contextModels": [
+    {
+      "id": "gateway/tiny",
+      "name": "tiny",
+      "limit": 4096,
+      "ollama": false
+    }
+  ],
+  "contextLimitChoices": [
+    4096,
+    8192,
+    16384
+  ]
+}''',
+
+  'directImagesPerRequest': r'''
+{
+  "count": 4
+}''',
+
+  'directContextLimit': r'''
+{
+  "modelId": "gateway/tiny",
+  "tokens": 16384
+}''',
+
+  'webSearchEngineDto': r'''
+{
+  "id": "duckduckgo",
+  "name": "DuckDuckGo"
+}''',
+
+  'webSearchRegionDto': r'''
+{
+  "code": "de-de",
+  "name": "Deutschland"
+}''',
+
+  'webSearchSettings': r'''
+{
+  "engine": "brave",
+  "engines": [
+    {
+      "id": "auto",
+      "name": ""
+    },
+    {
+      "id": "brave",
+      "name": "Brave"
+    }
+  ],
+  "safeSearch": "strict",
+  "region": "fr-fr",
+  "effectiveRegion": "fr-fr",
+  "regions": [
+    {
+      "code": "wt-wt",
+      "name": ""
+    },
+    {
+      "code": "fr-fr",
+      "name": "France"
+    }
+  ]
+}''',
+
+  'webSearchSettingsPatch': r'''
+{
+  "region": "auto"
+}''',
+
   'mcpApprovalSummary': r'''
 {
   "digest": "sha256:1f2e",
@@ -957,6 +1050,10 @@ const Map<String, String> protocolGoldens = <String, String>{
     "X-Team"
   ],
   "oauthConnected": true,
+  "oauthIssuerHost": "auth.example.com",
+  "oauthScopes": [
+    "tools.read"
+  ],
   "allowInsecureCredentials": false,
   "approvals": [
     {
@@ -979,6 +1076,7 @@ const Map<String, String> protocolGoldens = <String, String>{
       "hasBearerToken": false,
       "customHeaderNames": [],
       "oauthConnected": false,
+      "oauthScopes": [],
       "allowInsecureCredentials": false,
       "approvals": []
     }

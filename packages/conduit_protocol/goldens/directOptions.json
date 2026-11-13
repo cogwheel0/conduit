@@ -1,0 +1,22 @@
+{
+  "imagesPerRequest": 4,
+  "imagesPerRequestChoices": [
+    1,
+    2,
+    4,
+    10
+  ],
+  "contextModels": [
+    {
+      "id": "gateway/tiny",
+      "name": "tiny",
+      "limit": 4096,
+      "ollama": false
+    }
+  ],
+  "contextLimitChoices": [
+    4096,
+    8192,
+    16384
+  ]
+}
