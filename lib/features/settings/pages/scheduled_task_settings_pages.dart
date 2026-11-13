@@ -729,6 +729,10 @@ final class _TaskEditor {
   String? error;
   bool shownEdited = false;
 
+  /// Whether its Days and Advanced Schedule pages were last drawn closed:
+  /// open again, they show the schedule once more.
+  bool pagesClosed = false;
+
   /// Keeps the editor's terminal's coding agents read while it is open.
   ProviderSubscription<AsyncValue<List<Model>?>>? agents;
   AutomationAgentQuery? agentsQuery;
@@ -2178,6 +2182,7 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
           closed ? _gatePage(l10n, pageId) : _accountChangedPage(l10n, pageId),
         );
       }
+      editor.pagesClosed = true;
       return;
     }
     _followData();
@@ -2192,6 +2197,14 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
         ],
       ],
     );
+    // Open again (Scheduled Tasks available once more): a Days or Advanced
+    // Schedule page still open over the form shows the schedule again.
+    if (editor.pagesClosed && editor.draft != null) {
+      editor.pagesClosed = false;
+      // Sent as pages of their own: one already open learns of it only so.
+      await _surface.applyDetail(_buildDaysPage(l10n, clock, editor));
+      await _surface.applyDetail(_buildRulePage(l10n, clock, editor));
+    }
   }
 
   /// The editor's draft changed to [next]: the server's last word goes, and

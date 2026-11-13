@@ -1064,6 +1064,15 @@ void main() {
           _l10n.advancedRequiredMessage(_l10n.scheduledTasksTitle),
         ], reason: '$page shown again');
       }
+
+      // On again, with both pages still open: the schedule is back on them.
+      await session.settle(
+        session.container
+            .read(appSettingsProvider.notifier)
+            .setAdvancedFeaturesEnabled(true),
+      );
+      expect(session.row(days, _row('day', 'MO'))?.checked, isTrue);
+      expect(session.row(rule, _row('rule')), isNotNull);
     });
 
     testWidgets("the list follows the device's clock style once the app is "
