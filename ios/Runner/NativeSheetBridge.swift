@@ -5670,11 +5670,12 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     /// The query Dart last put in the search bar; text typed since stays
     /// until Dart sends another.
     private var shownSearchValue: String?
-    /// The query the search bar last sent; Dart echoing it back leaves the
-    /// text typed since alone.
     /// Queries sent that the page has not echoed yet, oldest first,
     /// trimmed as the page echoes them.
     private var unechoedSearchQueries: [String] = []
+    /// The query the search bar last sent, trimmed: what the page was last
+    /// asked for since it last showed a query of its own.
+    private var lastSentSearchQuery: String?
     private var searchDebounce: Timer?
     /// Set as the page is popped or its sheet closes: it sends no search.
     private var leaving = false
@@ -5819,10 +5820,13 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
                 navigationItem.searchController = nil
                 searchController = nil
                 shownSearchValue = nil
-                // A search bar made again shows the query it is given.
+                // A search bar made again shows the query it is given, and
+                // nothing typed into this one is searched for later.
                 unechoedSearchQueries.removeAll()
+                lastSentSearchQuery = nil
                 searchDebounce?.invalidate()
                 searchDebounce = nil
+                pendingSearchQuery = nil
             }
             return
         }
@@ -5854,11 +5858,18 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
                 // Only this one: an earlier query answered later is still
                 // known as an echo.
                 unechoedSearchQueries.remove(at: echo)
-            } else if trimmed(controller.searchBar.text) != trimmed(search.value) {
-                searchDebounce?.invalidate()
-                searchDebounce = nil
-                unechoedSearchQueries.removeAll()
-                controller.searchBar.text = search.value
+            } else {
+                // The page's own query: it is what the page was last asked.
+                lastSentSearchQuery = nil
+                if trimmed(controller.searchBar.text) != trimmed(search.value) {
+                    // What was typed and not yet sent is dropped with it, so
+                    // coming back to the page does not search for it.
+                    searchDebounce?.invalidate()
+                    searchDebounce = nil
+                    pendingSearchQuery = nil
+                    unechoedSearchQueries.removeAll()
+                    controller.searchBar.text = search.value
+                }
             }
         }
     }
@@ -5875,9 +5886,16 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
                   "kind": "search",
               ])
         else { return }
-        unechoedSearchQueries.append(
-            query.trimmingCharacters(in: .whitespaces)
-        )
+        let asked = query.trimmingCharacters(in: .whitespaces)
+        let previous = lastSentSearchQuery
+            ?? (shownSearchValue ?? "").trimmingCharacters(in: .whitespaces)
+        lastSentSearchQuery = asked
+        // The page draws nothing for a query it was already asked for (a
+        // field typed into and cleared before it searched, say), so no echo
+        // of it is waited for: Show All's empty query is not taken for one.
+        if asked != previous {
+            unechoedSearchQueries.append(asked)
+        }
         sendControlChange(item, query)
     }
 

@@ -70,6 +70,60 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(sent.compactMap { $0 as? String }, ["lamp"])
   }
 
+  private func searchAnswer(_ value: String) -> [String: Any] {
+    [
+      "id": "test-tasks", "title": "Tasks", "items": [],
+      "search": ["id": "test-search", "placeholder": "Search", "value": value],
+    ]
+  }
+
+  @MainActor
+  func testNativeSheetSearchShowAllAfterAClearedDraftEmptiesTheField() throws {
+    var sent: [Any?] = []
+    let page = try searchPage { sent.append($0) }
+    let search = try XCTUnwrap(page.navigationItem.searchController)
+    let delegate = try XCTUnwrap(search.searchBar.delegate)
+    // Typed and cleared before it searched: "" goes, which the unfiltered
+    // page was already asked for, so it draws nothing.
+    search.searchBar.text = "q"
+    delegate.searchBar?(search.searchBar, textDidChange: "q")
+    search.searchBar.text = ""
+    delegate.searchBar?(search.searchBar, textDidChange: "")
+    // A search that matches nothing, answered.
+    search.searchBar.text = "zz-no-match"
+    delegate.searchBarSearchButtonClicked?(search.searchBar)
+    applyNativeDetailPageForTesting(page, searchAnswer("zz-no-match"))
+    XCTAssertEqual(sent.compactMap { $0 as? String }, ["", "zz-no-match"])
+
+    // Show All: the page's own empty query, not an echo of the cleared draft.
+    applyNativeDetailPageForTesting(page, searchAnswer(""))
+
+    XCTAssertEqual(search.searchBar.text, "")
+  }
+
+  @MainActor
+  func testNativeSheetSearchShowAllDropsTheDraftWaitingToBeSent() throws {
+    var sent: [Any?] = []
+    let page = try searchPage { sent.append($0) }
+    let search = try XCTUnwrap(page.navigationItem.searchController)
+    let delegate = try XCTUnwrap(search.searchBar.delegate)
+    search.searchBar.text = "zz-no-match"
+    delegate.searchBarSearchButtonClicked?(search.searchBar)
+    applyNativeDetailPageForTesting(page, searchAnswer("zz-no-match"))
+    // A new draft, then Show All before typing pauses.
+    search.searchBar.text = "lamp"
+    delegate.searchBar?(search.searchBar, textDidChange: "lamp")
+    applyNativeDetailPageForTesting(page, searchAnswer(""))
+    XCTAssertEqual(search.searchBar.text, "")
+
+    // A back swipe let go of brings the page back: the draft stays dropped.
+    leaveNativeDetailPageForTesting(page)
+    resumeNativeDetailPageForTesting(page)
+    spin(0.35)
+
+    XCTAssertEqual(sent.compactMap { $0 as? String }, ["zz-no-match"])
+  }
+
   @MainActor
   func testNativeSheetSearchCancelEmptiesTheField() throws {
     var sent: [Any?] = []
