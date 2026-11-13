@@ -1,0 +1,346 @@
+//! `conduit://` links, and what the window is asked to open.
+//!
+//! A link comes from anywhere on the system (a web page, another app, a notification), so it
+//! is parsed into one of a few shapes here, and only those shapes reach the
+//! app. Nothing in a link becomes a path or a method call unchecked.
+//!
+//! Files the system hands the app ("Open with Conduit", a drop on the Dock
+//! icon) arrive through the same `on_open_urls` call as `file://` URLs;
+//! [`classify`] splits them from links.
+
+use std::path::PathBuf;
+
+/// The scheme the app registers (`CFBundleURLTypes`). The iOS app registers
+/// it too; the user chose to keep the same links on both.
+pub const SCHEME: &str = "conduit";
+
+/// The longest text a `conduit://new?q=` link prefills.
+pub const MAX_TEXT: usize = 8000;
+
+/// What a link (or "Open with") asks the app to open.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OpenRequest {
+    /// `conduit://chat/<id>`.
+    Chat { id: String },
+    /// `conduit://new?q=<text>`, or files from "Open with": a new chat with
+    /// the composer prefilled (never sent).
+    NewChat {
+        text: Option<String>,
+        files: Vec<PathBuf>,
+    },
+    /// `conduit://channel/<id>`: after v1.
+    Channel { id: String },
+    /// `conduit://note/<id>`: after v1.
+    Note { id: String },
+    /// `conduit://settings[/<tab>]`.
+    Settings { tab: Option<String> },
+}
+
+impl OpenRequest {
+    /// Whether the request needs the main frame (signed in, routed to
+    /// Main). Settings opens in its own window whatever is routed.
+    pub fn needs_main(&self) -> bool {
+        !matches!(self, Self::Settings { .. })
+    }
+}
+
+/// A chat, channel or note id a link may carry: what the daemon and Open
+/// WebUI hand out (uuids, `local:` ids), and nothing that could climb out
+/// of a path.
+pub fn valid_id(id: &str) -> bool {
+    (1..=128).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b':' | b'_' | b'.' | b'-'))
+}
+
+fn valid_tab(tab: &str) -> bool {
+    (1..=32).contains(&tab.len()) && tab.bytes().all(|b| b.is_ascii_lowercase())
+}
+
+/// What `url` asks for, or `None` when it is not a link this app opens.
+pub fn parse(url: &str) -> Option<OpenRequest> {
+    // A URL parser would resolve dot segments into some other, valid-looking
+    // link; one that needs them is not one to open.
+    let before_query = url.split(['?', '#']).next().unwrap_or_default();
+    if before_query.split('/').any(|s| s == "." || s == "..") {
+        return None;
+    }
+    let parsed = url::Url::parse(url).ok()?;
+    if parsed.scheme() != SCHEME {
+        return None;
+    }
+    // `conduit://chat/abc` puts `chat` in the host; `conduit:chat/abc` in
+    // the path. Both are seen in the wild.
+    let mut segments = vec![];
+    for raw in parsed
+        .host_str()
+        .into_iter()
+        .chain(parsed.path().split('/'))
+    {
+        if raw.is_empty() {
+            continue;
+        }
+        let decoded = percent_decode(raw)?;
+        if !decoded.is_empty() {
+            segments.push(decoded);
+        }
+    }
+    let mut parts = segments.into_iter();
+    let kind = parts.next()?;
+    let id = parts.next();
+    if parts.next().is_some() {
+        return None;
+    }
+    match kind.as_str() {
+        "chat" => id
+            .filter(|i| valid_id(i))
+            .map(|id| OpenRequest::Chat { id }),
+        "new" => {
+            if id.is_some() {
+                return None;
+            }
+            let query = |key: &str| {
+                parsed
+                    .query_pairs()
+                    .find(|(k, _)| k == key)
+                    .map(|(_, v)| v.into_owned())
+            };
+            let text = query("q")
+                .or_else(|| query("prompt"))
+                .filter(|t| !t.trim().is_empty())
+                .map(|t| t.chars().take(MAX_TEXT).collect());
+            Some(OpenRequest::NewChat {
+                text,
+                files: vec![],
+            })
+        }
+        "channel" | "channels" => id
+            .filter(|i| valid_id(i))
+            .map(|id| OpenRequest::Channel { id }),
+        "note" | "notes" => id
+            .filter(|i| valid_id(i))
+            .map(|id| OpenRequest::Note { id }),
+        "settings" => match id {
+            None => Some(OpenRequest::Settings { tab: None }),
+            Some(tab) if valid_tab(&tab) => Some(OpenRequest::Settings { tab: Some(tab) }),
+            Some(_) => None,
+        },
+        _ => None,
+    }
+}
+
+/// `%XX` escapes decoded; `None` when they don't make UTF-8 (a broken link
+/// is refused rather than guessed at).
+fn percent_decode(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = bytes.get(i + 1..i + 3)?;
+            let hex = std::str::from_utf8(hex).ok()?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// What one `on_open_urls` call brought.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Incoming {
+    /// The links this app opens, in order.
+    pub requests: Vec<OpenRequest>,
+    /// Local files ("Open with Conduit"), in order.
+    pub files: Vec<PathBuf>,
+    /// Everything else, for the log.
+    pub ignored: Vec<String>,
+}
+
+/// Splits what the system handed the app into links, files and the rest.
+pub fn classify(urls: &[String]) -> Incoming {
+    let mut incoming = Incoming::default();
+    for raw in urls {
+        let file = url::Url::parse(raw)
+            .ok()
+            .filter(|u| u.scheme() == "file")
+            .and_then(|u| u.to_file_path().ok());
+        if let Some(path) = file {
+            incoming.files.push(path);
+        } else if let Some(request) = parse(raw) {
+            incoming.requests.push(request);
+        } else {
+            incoming.ignored.push(raw.clone());
+        }
+    }
+    incoming
+}
+
+/// A link for the log: the scheme and the kind, never ids or text.
+pub fn redacted(url: &str) -> String {
+    match url::Url::parse(url) {
+        Ok(u) if u.scheme() == SCHEME => {
+            let kind = u
+                .host_str()
+                .map(str::to_string)
+                .or_else(|| u.path().split('/').next().map(str::to_string))
+                .unwrap_or_default();
+            format!("{SCHEME}://{kind}/…")
+        }
+        Ok(u) => format!("{}:…", u.scheme()),
+        Err(_) => "(not a URL)".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chat(id: &str) -> Option<OpenRequest> {
+        Some(OpenRequest::Chat { id: id.into() })
+    }
+
+    fn new_chat(text: Option<&str>) -> Option<OpenRequest> {
+        Some(OpenRequest::NewChat {
+            text: text.map(String::from),
+            files: vec![],
+        })
+    }
+
+    #[test]
+    fn opens_a_chat_a_channel_a_note_or_a_settings_tab() {
+        assert_eq!(parse("conduit://chat/abc-123"), chat("abc-123"));
+        assert_eq!(parse("conduit:chat/abc"), chat("abc"));
+        assert_eq!(
+            parse("conduit://channels/c1"),
+            Some(OpenRequest::Channel { id: "c1".into() })
+        );
+        assert_eq!(
+            parse("conduit://note/n1"),
+            Some(OpenRequest::Note { id: "n1".into() })
+        );
+        assert_eq!(
+            parse("conduit://settings/audio"),
+            Some(OpenRequest::Settings {
+                tab: Some("audio".into())
+            })
+        );
+        assert_eq!(
+            parse("conduit://settings"),
+            Some(OpenRequest::Settings { tab: None })
+        );
+        // Ids the daemon hands out: uuids and local (temporary) ids.
+        assert_eq!(
+            parse("conduit://chat/local:6f1c2b9e-0d2a-4c1e-9a77-1b2c3d4e5f60"),
+            chat("local:6f1c2b9e-0d2a-4c1e-9a77-1b2c3d4e5f60")
+        );
+        // A trailing slash is the same link.
+        assert_eq!(parse("conduit://chat/abc/"), chat("abc"));
+    }
+
+    #[test]
+    fn starts_a_new_chat_with_text_when_given() {
+        assert_eq!(parse("conduit://new"), new_chat(None));
+        assert_eq!(
+            parse("conduit://new?q=Hello%20there"),
+            new_chat(Some("Hello there"))
+        );
+        assert_eq!(parse("conduit://new?q=a+b"), new_chat(Some("a b")));
+        assert_eq!(parse("conduit://new?prompt=Hi"), new_chat(Some("Hi")));
+        assert_eq!(parse("conduit://new?q=%20%20"), new_chat(None));
+        assert_eq!(
+            parse("conduit://new?q=%E2%9C%93%20done"),
+            new_chat(Some("\u{2713} done"))
+        );
+        // Long text is cut, by characters.
+        let long = format!("conduit://new?q={}", "\u{e9}".repeat(MAX_TEXT + 5));
+        match parse(&long) {
+            Some(OpenRequest::NewChat { text: Some(t), .. }) => {
+                assert_eq!(t.chars().count(), MAX_TEXT)
+            }
+            other => panic!("{other:?}"),
+        }
+        // `new` takes no id.
+        assert_eq!(parse("conduit://new/abc"), None);
+    }
+
+    #[test]
+    fn refuses_what_is_not_a_link_this_app_opens() {
+        for rejected in [
+            "https://example.com/chat/1",
+            "app://conduit/settings",
+            "conduit://chat",
+            "conduit://chat/../../etc",
+            "conduit://chat/a/b",
+            "conduit://chat/%E0%A4%A",
+            "conduit://settings/Audio<script>",
+            "conduit://unknown/1",
+            "not a url",
+            "",
+            "conduit://chat/./x",
+            "conduit:chat/..",
+            "conduit://chat/a%2Fb",
+            "conduit://chat/has space",
+            "conduit://settings/tab1",
+            &format!("conduit://chat/{}", "a".repeat(129)),
+        ] {
+            assert_eq!(parse(rejected), None, "{rejected}");
+        }
+    }
+
+    // A notification's target is re-checked with the same id rule.
+    #[test]
+    fn ids_are_checked() {
+        assert!(valid_id("c1"));
+        assert!(valid_id("local:abc_1.2-3"));
+        assert!(!valid_id("../x"));
+        assert!(!valid_id(""));
+        assert!(!valid_id("a/b"));
+        assert!(!valid_id("é"));
+    }
+
+    #[test]
+    fn classifies_links_files_and_the_rest() {
+        let incoming = classify(&[
+            "conduit://chat/c1".into(),
+            "file:///Users/someone/Documents/notes%20v2.md".into(),
+            "https://example.org".into(),
+            "file:///tmp/photo.png".into(),
+            "conduit://unknown".into(),
+        ]);
+        assert_eq!(incoming.requests, vec![chat("c1").unwrap()]);
+        assert_eq!(
+            incoming.files,
+            vec![
+                PathBuf::from("/Users/someone/Documents/notes v2.md"),
+                PathBuf::from("/tmp/photo.png")
+            ]
+        );
+        assert_eq!(
+            incoming.ignored,
+            vec![
+                "https://example.org".to_string(),
+                "conduit://unknown".into()
+            ]
+        );
+    }
+
+    #[test]
+    fn only_main_frame_requests_wait_for_main() {
+        assert!(chat("c").unwrap().needs_main());
+        assert!(new_chat(None).unwrap().needs_main());
+        assert!(!OpenRequest::Settings { tab: None }.needs_main());
+    }
+
+    #[test]
+    fn the_log_never_sees_ids_or_text() {
+        assert_eq!(redacted("conduit://chat/secret-id"), "conduit://chat/…");
+        assert_eq!(redacted("conduit://new?q=private"), "conduit://new/…");
+        assert_eq!(redacted("https://example.org/x"), "https:…");
+        assert_eq!(redacted("nope"), "(not a URL)");
+    }
+}

@@ -1,0 +1,915 @@
+//! The rebindable shortcuts: the table, its matching rules, the stored form
+//! of a chord, and conflict detection, plus the bridge to GPUI key bindings.
+//!
+//! The table has 13 bindings; a 14th, `toggleSidePane`, waits for the
+//! right-hand pane, which is post-v1. Only [`ShortcutAction::is_live`] ones
+//! are bound to GPUI actions today; the rest keep their chords (rebindable
+//! and conflict-checked) until a view binds them.
+
+use std::collections::BTreeMap;
+
+/// What a shortcut does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ShortcutAction {
+    NewChat,
+    OpenPalette,
+    FocusComposer,
+    FocusModelPicker,
+    StopGenerating,
+    OpenSettings,
+    ShowShortcuts,
+    CopyLastResponse,
+    CopyLastCodeBlock,
+    AllowRequest,
+    DenyRequest,
+    Dictate,
+    ToggleSidebar,
+}
+
+impl ShortcutAction {
+    pub const ALL: [Self; 13] = [
+        Self::NewChat,
+        Self::OpenPalette,
+        Self::FocusComposer,
+        Self::FocusModelPicker,
+        Self::StopGenerating,
+        Self::OpenSettings,
+        Self::ShowShortcuts,
+        Self::CopyLastResponse,
+        Self::CopyLastCodeBlock,
+        Self::AllowRequest,
+        Self::DenyRequest,
+        Self::Dictate,
+        Self::ToggleSidebar,
+    ];
+
+    /// The stored name (`ShortcutAction.name` in Dart).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::NewChat => "newChat",
+            Self::OpenPalette => "openPalette",
+            Self::FocusComposer => "focusComposer",
+            Self::FocusModelPicker => "focusModelPicker",
+            Self::StopGenerating => "stopGenerating",
+            Self::OpenSettings => "openSettings",
+            Self::ShowShortcuts => "showShortcuts",
+            Self::CopyLastResponse => "copyLastResponse",
+            Self::CopyLastCodeBlock => "copyLastCodeBlock",
+            Self::AllowRequest => "allowRequest",
+            Self::DenyRequest => "denyRequest",
+            Self::Dictate => "dictate",
+            Self::ToggleSidebar => "toggleSidebar",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|a| a.name() == name)
+    }
+
+    /// Whether the app can carry this out yet. The others are listed in
+    /// Settings › Keyboard as "not available yet" and are not bound.
+    ///
+    /// Only dictate (voice) is not live yet.
+    pub fn is_live(self) -> bool {
+        matches!(
+            self,
+            Self::NewChat
+                | Self::OpenPalette
+                | Self::OpenSettings
+                | Self::ShowShortcuts
+                | Self::ToggleSidebar
+                | Self::AllowRequest
+                | Self::DenyRequest
+                | Self::FocusComposer
+                | Self::FocusModelPicker
+                | Self::StopGenerating
+                | Self::CopyLastResponse
+                | Self::CopyLastCodeBlock
+        )
+    }
+}
+
+/// A chord as the user describes it. `primary` is ⌘ on macOS and Ctrl
+/// elsewhere; `ctrl` is macOS's ⌃ beside it (⌃⌘S), and unused elsewhere.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct KeyStroke {
+    /// `KeyboardEvent.key`, lower-cased: `k`, `.`, `escape`, `enter`.
+    pub key: String,
+    pub primary: bool,
+    pub shift: bool,
+    pub alt: bool,
+    pub ctrl: bool,
+}
+
+impl KeyStroke {
+    pub fn new(key: &str) -> Self {
+        Self {
+            key: key.to_string(),
+            primary: false,
+            shift: false,
+            alt: false,
+            ctrl: false,
+        }
+    }
+    pub fn primary(mut self) -> Self {
+        self.primary = true;
+        self
+    }
+    pub fn ctrl(mut self) -> Self {
+        self.ctrl = true;
+        self
+    }
+    /// Has a modifier that keeps it from typing a character (⌘, ⌥ or ⌃), so
+    /// it can fire while a field is being typed in.
+    pub fn is_chord(&self) -> bool {
+        self.primary || self.alt || self.ctrl
+    }
+    pub fn shift(mut self) -> Self {
+        self.shift = true;
+        self
+    }
+    pub fn alt(mut self) -> Self {
+        self.alt = true;
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Shortcut {
+    pub action: ShortcutAction,
+    pub stroke: KeyStroke,
+    /// Fires with the caret in a field. A bare letter must not, or it would
+    /// eat that character out of the message being typed.
+    pub while_typing: bool,
+}
+
+/// New Chat's second chord (Open WebUI's), bound beside ⌘N while no other
+/// command has it, so hands that learned it keep working. Menus show ⌘N.
+pub fn new_chat_alias() -> KeyStroke {
+    KeyStroke::new("o").primary().shift()
+}
+
+/// The defaults: the macOS conventions (⌘N, ⌃⌘S as in Finder and Mail),
+/// else Open WebUI's, for what the app does.
+pub fn default_shortcuts() -> Vec<Shortcut> {
+    use ShortcutAction as A;
+    let s = |action, stroke| Shortcut {
+        action,
+        stroke,
+        while_typing: true,
+    };
+    vec![
+        s(A::NewChat, KeyStroke::new("n").primary()),
+        s(A::OpenPalette, KeyStroke::new("k").primary()),
+        // Shift+Esc: plain Esc stops a running turn.
+        s(A::FocusComposer, KeyStroke::new("escape").shift()),
+        s(A::FocusModelPicker, KeyStroke::new("m").primary().shift()),
+        s(A::StopGenerating, KeyStroke::new("escape")),
+        // ⌘, (the macOS standard), not ⌘.
+        s(A::OpenSettings, KeyStroke::new(",").primary()),
+        s(A::ShowShortcuts, KeyStroke::new("/").primary()),
+        s(A::CopyLastResponse, KeyStroke::new("c").primary().shift()),
+        s(A::AllowRequest, KeyStroke::new("enter").primary().alt()),
+        s(A::DenyRequest, KeyStroke::new("backspace").primary().alt()),
+        s(A::CopyLastCodeBlock, KeyStroke::new(";").primary().shift()),
+        s(A::Dictate, KeyStroke::new("l").primary().shift()),
+        s(A::ToggleSidebar, KeyStroke::new("s").primary().ctrl()),
+    ]
+}
+
+/// The action `pressed` invokes, if any. `typing`: the event came from a
+/// field being edited.
+pub fn resolve(table: &[Shortcut], pressed: &KeyStroke, typing: bool) -> Option<ShortcutAction> {
+    let s = table.iter().find(|s| &s.stroke == pressed)?;
+    (!typing || s.while_typing).then_some(s.action)
+}
+
+/// How the chord reads: in Apple's modifier order on macOS (⌃⌥⇧⌘, so
+/// `⇧⌘O`, `⌃⌘S`, `⌥⌘↩`), `Ctrl+Shift+O` elsewhere.
+pub fn describe(stroke: &KeyStroke, mac: bool) -> String {
+    let mut parts: Vec<String> = vec![];
+    if mac {
+        if stroke.ctrl {
+            parts.push("⌃".into());
+        }
+        if stroke.alt {
+            parts.push("⌥".into());
+        }
+        if stroke.shift {
+            parts.push("⇧".into());
+        }
+        if stroke.primary {
+            parts.push("⌘".into());
+        }
+        parts.push(describe_key(&stroke.key, mac));
+        return parts.concat();
+    }
+    if stroke.primary || stroke.ctrl {
+        parts.push("Ctrl".into());
+    }
+    if stroke.shift {
+        parts.push("Shift".into());
+    }
+    if stroke.alt {
+        parts.push("Alt".into());
+    }
+    parts.push(describe_key(&stroke.key, mac));
+    parts.join("+")
+}
+
+fn describe_key(key: &str, mac: bool) -> String {
+    match key {
+        "escape" => if mac { "⎋" } else { "Esc" }.into(),
+        "enter" => if mac { "↩" } else { "Enter" }.into(),
+        "backspace" => if mac { "⌫" } else { "Backspace" }.into(),
+        "arrowup" => "↑".into(),
+        "arrowdown" => "↓".into(),
+        "arrowleft" => "←".into(),
+        "arrowright" => "→".into(),
+        "tab" => if mac { "⇥" } else { "Tab" }.into(),
+        "delete" => if mac { "⌦" } else { "Delete" }.into(),
+        " " | "space" => "Space".into(),
+        k if k.chars().count() == 1 => k.to_uppercase(),
+        k => k.into(),
+    }
+}
+
+/// The stored form, e.g. `mod+shift+o` (`ctrl+mod+s` with ⌃).
+pub fn encode(stroke: &KeyStroke) -> String {
+    let mut parts = vec![];
+    if stroke.ctrl {
+        parts.push("ctrl");
+    }
+    if stroke.primary {
+        parts.push("mod");
+    }
+    if stroke.shift {
+        parts.push("shift");
+    }
+    if stroke.alt {
+        parts.push("alt");
+    }
+    parts.push(&stroke.key);
+    parts.join("+")
+}
+
+/// The inverse of [`encode`]; `None` for anything it did not write.
+pub fn decode(encoded: &str) -> Option<KeyStroke> {
+    // The key itself may be `+`, which ends the string after its separator.
+    let plus = encoded.ends_with("++");
+    let body = if plus {
+        &encoded[..encoded.len() - 2]
+    } else {
+        encoded
+    };
+    let mut parts: Vec<&str> = body.split('+').filter(|p| !p.is_empty()).collect();
+    let key = if plus {
+        "+".to_string()
+    } else {
+        parts.pop()?.to_string()
+    };
+    if key.is_empty() || key.chars().count() > 12 {
+        return None;
+    }
+    let mut stroke = KeyStroke::new(&key);
+    for m in parts {
+        match m {
+            "mod" => stroke.primary = true,
+            "shift" => stroke.shift = true,
+            "alt" => stroke.alt = true,
+            "ctrl" => stroke.ctrl = true,
+            _ => return None,
+        }
+    }
+    Some(stroke)
+}
+
+/// The defaults with the user's keys (by action name) in place. An override
+/// that cannot be read keeps the default.
+pub fn apply_overrides(overrides: &BTreeMap<String, String>) -> Vec<Shortcut> {
+    default_shortcuts()
+        .into_iter()
+        .map(
+            |s| match overrides.get(s.action.name()).and_then(|e| decode(e)) {
+                Some(stroke) => Shortcut {
+                    action: s.action,
+                    // A chord keeps working while typing; a bare key must not.
+                    while_typing: stroke.is_chord(),
+                    stroke,
+                },
+                None => s,
+            },
+        )
+        .collect()
+}
+
+/// A command whose chord is fixed: the menus' standard ones and the app's
+/// Find, zoom and chat commands (`menus::bind_keys` binds them). Settings ›
+/// Keyboard lists the app's own read-only ([`FixedCommand::listed`]), and
+/// no rebindable command, nor Quick Ask, may take one of their chords.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FixedCommand {
+    NewTemporaryChat,
+    SearchChats,
+    DeleteChat,
+    NextChat,
+    PreviousChat,
+    Regenerate,
+    FindInChat,
+    FindNext,
+    FindPrevious,
+    ActualSize,
+    ZoomIn,
+    ZoomOut,
+    /// ⌘, opens Settings whatever Open Settings is rebound to.
+    Settings,
+    Quit,
+    Hide,
+    HideOthers,
+    CloseWindow,
+    Minimize,
+    FullScreen,
+}
+
+impl FixedCommand {
+    /// Listed in Settings › Keyboard. The standard app and window chords
+    /// (⌘Q, ⌘H, ⌘W, ⌘M, ⌃⌘F) are every Mac app's and are not; ⌘, is
+    /// listed as Open Settings' own row.
+    pub fn listed(self) -> bool {
+        !matches!(
+            self,
+            Self::Settings
+                | Self::Quit
+                | Self::Hide
+                | Self::HideOthers
+                | Self::CloseWindow
+                | Self::Minimize
+                | Self::FullScreen
+        )
+    }
+
+    /// The rebindable command this one stands beside (⌘, is Open
+    /// Settings' default too), so that command may keep its own chord.
+    fn same_as(self, action: ShortcutAction) -> bool {
+        self == Self::Settings && action == ShortcutAction::OpenSettings
+    }
+}
+
+/// The fixed chords, as `menus::bind_keys` binds them (Zoom In's ⌘= alias
+/// included: it is taken too).
+pub fn fixed_shortcuts() -> Vec<(FixedCommand, KeyStroke)> {
+    use FixedCommand as F;
+    let k = KeyStroke::new;
+    vec![
+        (F::NewTemporaryChat, k("n").primary().shift()),
+        (F::SearchChats, k("f").primary().alt()),
+        (F::DeleteChat, k("backspace").primary()),
+        (F::NextChat, k("tab").ctrl()),
+        (F::PreviousChat, k("tab").ctrl().shift()),
+        (F::Regenerate, k("r").primary()),
+        (F::FindInChat, k("f").primary()),
+        (F::FindNext, k("g").primary()),
+        (F::FindPrevious, k("g").primary().shift()),
+        (F::ActualSize, k("0").primary()),
+        (F::ZoomIn, k("+").primary()),
+        (F::ZoomIn, k("=").primary()),
+        (F::ZoomOut, k("-").primary()),
+        (F::Settings, k(",").primary()),
+        (F::Quit, k("q").primary()),
+        (F::Hide, k("h").primary()),
+        (F::HideOthers, k("h").primary().alt()),
+        (F::CloseWindow, k("w").primary()),
+        (F::Minimize, k("m").primary()),
+        (F::FullScreen, k("f").primary().ctrl()),
+    ]
+}
+
+/// The chord a fixed command shows (its first, as the menus show it).
+pub fn fixed_stroke(command: FixedCommand) -> KeyStroke {
+    fixed_shortcuts()
+        .into_iter()
+        .find(|(c, _)| *c == command)
+        .map(|(_, s)| s)
+        .unwrap_or_else(|| KeyStroke::new(""))
+}
+
+/// The fixed command `stroke` belongs to, unless it stands beside `action`
+/// (`None` for Quick Ask, which stands beside none).
+pub fn fixed_conflict(stroke: &KeyStroke, action: Option<ShortcutAction>) -> Option<FixedCommand> {
+    fixed_shortcuts()
+        .into_iter()
+        .find(|(c, s)| s == stroke && !action.is_some_and(|a| c.same_as(a)))
+        .map(|(c, _)| c)
+}
+
+/// A row of Settings › Keyboard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyRow {
+    /// Recorded and rebound in place.
+    Rebindable(ShortcutAction),
+    /// Shown, not changed.
+    Fixed(FixedCommand),
+    /// Quick Ask's global shortcut (also in General, with its switch).
+    QuickAsk,
+}
+
+/// Settings › Keyboard's groups, as the menus group the commands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyGroup {
+    Chats,
+    Messages,
+    FindAndView,
+    Window,
+}
+
+/// Every shortcut the app has, grouped: the rebindable ones the app can
+/// carry out, the fixed ones it lists, and Quick Ask's.
+pub fn keyboard_groups() -> Vec<(KeyGroup, Vec<KeyRow>)> {
+    use FixedCommand as F;
+    use KeyRow::{Fixed, QuickAsk, Rebindable as R};
+    use ShortcutAction as A;
+    vec![
+        (
+            KeyGroup::Chats,
+            vec![
+                R(A::NewChat),
+                Fixed(F::NewTemporaryChat),
+                R(A::OpenPalette),
+                Fixed(F::SearchChats),
+                Fixed(F::PreviousChat),
+                Fixed(F::NextChat),
+                Fixed(F::DeleteChat),
+            ],
+        ),
+        (
+            KeyGroup::Messages,
+            vec![
+                R(A::FocusComposer),
+                R(A::FocusModelPicker),
+                R(A::StopGenerating),
+                Fixed(F::Regenerate),
+                R(A::CopyLastResponse),
+                R(A::CopyLastCodeBlock),
+                R(A::AllowRequest),
+                R(A::DenyRequest),
+            ],
+        ),
+        (
+            KeyGroup::FindAndView,
+            vec![
+                Fixed(F::FindInChat),
+                Fixed(F::FindNext),
+                Fixed(F::FindPrevious),
+                R(A::ToggleSidebar),
+                Fixed(F::ActualSize),
+                Fixed(F::ZoomIn),
+                Fixed(F::ZoomOut),
+            ],
+        ),
+        (
+            KeyGroup::Window,
+            vec![QuickAsk, R(A::OpenSettings), R(A::ShowShortcuts)],
+        ),
+    ]
+}
+
+/// The action other than `action` that `stroke` already fires.
+pub fn conflict(
+    table: &[Shortcut],
+    action: ShortcutAction,
+    stroke: &KeyStroke,
+) -> Option<ShortcutAction> {
+    table
+        .iter()
+        .find(|s| s.action != action && &s.stroke == stroke)
+        .map(|s| s.action)
+}
+
+/// The user's overrides, with the edits Settings › Keyboard makes.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Keymap {
+    pub overrides: BTreeMap<String, String>,
+}
+
+impl Keymap {
+    pub fn new(overrides: BTreeMap<String, String>) -> Self {
+        Self { overrides }
+    }
+
+    pub fn table(&self) -> Vec<Shortcut> {
+        apply_overrides(&self.overrides)
+    }
+
+    pub fn stroke(&self, action: ShortcutAction) -> KeyStroke {
+        self.table()
+            .into_iter()
+            .find(|s| s.action == action)
+            .map(|s| s.stroke)
+            .unwrap_or_else(|| KeyStroke::new(""))
+    }
+
+    /// Rebinds `action`, unless another action has `stroke`. A stroke equal
+    /// to the default drops the override.
+    pub fn set(&mut self, action: ShortcutAction, stroke: KeyStroke) -> Result<(), ShortcutAction> {
+        if let Some(other) = conflict(&self.table(), action, &stroke) {
+            return Err(other);
+        }
+        let default = default_shortcuts()
+            .into_iter()
+            .find(|s| s.action == action)
+            .map(|s| s.stroke);
+        if default.as_ref() == Some(&stroke) {
+            self.overrides.remove(action.name());
+        } else {
+            self.overrides.insert(action.name().into(), encode(&stroke));
+        }
+        Ok(())
+    }
+
+    pub fn reset(&mut self, action: ShortcutAction) {
+        self.overrides.remove(action.name());
+    }
+
+    pub fn reset_all(&mut self) {
+        self.overrides.clear();
+    }
+}
+
+/// GPUI's keystroke syntax for `stroke` (`cmd-shift-o`, `cmd-alt-enter`).
+pub fn to_gpui(stroke: &KeyStroke) -> String {
+    let mut parts = vec![];
+    if stroke.ctrl && cfg!(target_os = "macos") {
+        parts.push("ctrl");
+    }
+    if stroke.primary {
+        parts.push(if cfg!(target_os = "macos") {
+            "cmd"
+        } else {
+            "ctrl"
+        });
+    }
+    if stroke.alt {
+        parts.push("alt");
+    }
+    if stroke.shift {
+        parts.push("shift");
+    }
+    let key = match stroke.key.as_str() {
+        "arrowup" => "up",
+        "arrowdown" => "down",
+        "arrowleft" => "left",
+        "arrowright" => "right",
+        " " => "space",
+        k => k,
+    };
+    parts.push(key);
+    parts.join("-")
+}
+
+/// A captured GPUI keystroke as a [`KeyStroke`]; `None` for a bare modifier
+/// or a chord using Fn (which the table cannot store).
+pub fn from_gpui(ks: &gpui_kit::Keystroke) -> Option<KeyStroke> {
+    let m = &ks.modifiers;
+    if m.function {
+        return None;
+    }
+    let key = match ks.key.as_str() {
+        "up" => "arrowup".to_string(),
+        "down" => "arrowdown".to_string(),
+        "left" => "arrowleft".to_string(),
+        "right" => "arrowright".to_string(),
+        "space" => " ".to_string(),
+        "" | "shift" | "alt" | "cmd" | "control" | "fn" | "platform" => return None,
+        k => k.to_ascii_lowercase(),
+    };
+    Some(KeyStroke {
+        key,
+        primary: if cfg!(target_os = "macos") {
+            m.platform
+        } else {
+            m.control
+        },
+        shift: m.shift,
+        alt: m.alt,
+        ctrl: cfg!(target_os = "macos") && m.control,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ShortcutAction as A;
+
+    #[test]
+    fn matches_a_chord_exactly() {
+        let t = default_shortcuts();
+        assert_eq!(
+            resolve(&t, &KeyStroke::new("k").primary(), false),
+            Some(A::OpenPalette)
+        );
+        // Cmd+Shift+K is not Cmd+K.
+        assert_eq!(
+            resolve(&t, &KeyStroke::new("k").primary().shift(), false),
+            None
+        );
+        assert_eq!(resolve(&t, &KeyStroke::new("q"), false), None);
+    }
+
+    #[test]
+    fn while_typing() {
+        let t = default_shortcuts();
+        // Cmd+K reaches the palette from the composer.
+        assert_eq!(
+            resolve(&t, &KeyStroke::new("k").primary(), true),
+            Some(A::OpenPalette)
+        );
+        // Esc reaches the running turn from inside the composer.
+        assert_eq!(
+            resolve(&t, &KeyStroke::new("escape"), true),
+            Some(A::StopGenerating)
+        );
+        let bare = vec![Shortcut {
+            action: A::NewChat,
+            stroke: KeyStroke::new("n"),
+            while_typing: false,
+        }];
+        assert_eq!(
+            resolve(&bare, &KeyStroke::new("n"), false),
+            Some(A::NewChat)
+        );
+        assert_eq!(resolve(&bare, &KeyStroke::new("n"), true), None);
+    }
+
+    #[test]
+    fn every_default_is_reachable_and_unique() {
+        let t = default_shortcuts();
+        assert_eq!(t.len(), 13);
+        let mut seen = std::collections::HashSet::new();
+        for s in &t {
+            assert!(
+                seen.insert(s.stroke.clone()),
+                "{:?} is bound twice",
+                s.stroke
+            );
+            assert_eq!(resolve(&t, &s.stroke, false), Some(s.action));
+        }
+        // Every action has exactly one row.
+        let actions: std::collections::HashSet<_> = t.iter().map(|s| s.action).collect();
+        assert_eq!(actions.len(), ShortcutAction::ALL.len());
+    }
+
+    #[test]
+    fn describes_with_the_platform_accelerator() {
+        let s = KeyStroke::new("o").primary().shift();
+        assert_eq!(describe(&s, true), "⇧⌘O");
+        assert_eq!(describe(&s, false), "Ctrl+Shift+O");
+        assert_eq!(describe(&KeyStroke::new("escape"), false), "Esc");
+        assert_eq!(
+            describe(&KeyStroke::new("enter").primary().alt(), true),
+            "⌥⌘↩"
+        );
+    }
+
+    #[test]
+    fn mac_modifiers_read_in_apple_order() {
+        // ⌃ ⌥ ⇧ ⌘, as every menu writes them.
+        let all = KeyStroke::new("k").primary().shift().alt().ctrl();
+        assert_eq!(describe(&all, true), "⌃⌥⇧⌘K");
+        assert_eq!(describe(&KeyStroke::new("s").primary().ctrl(), true), "⌃⌘S");
+        assert_eq!(
+            describe(&KeyStroke::new("backspace").primary().alt(), true),
+            "⌥⌘⌫"
+        );
+        assert_eq!(
+            describe(&KeyStroke::new(" ").primary().shift(), true),
+            "⇧⌘Space"
+        );
+    }
+
+    #[test]
+    fn mac_defaults_follow_the_system_conventions() {
+        let t = default_shortcuts();
+        let find = |a| t.iter().find(|s| s.action == a).unwrap().stroke.clone();
+        assert_eq!(find(A::NewChat), KeyStroke::new("n").primary());
+        assert_eq!(find(A::ToggleSidebar), KeyStroke::new("s").primary().ctrl());
+        assert_eq!(find(A::OpenSettings), KeyStroke::new(",").primary());
+        // ⇧⌘O stays free for New Chat's alias.
+        assert!(t.iter().all(|s| s.stroke != new_chat_alias()));
+    }
+
+    #[test]
+    fn control_chords_are_stored_and_bound() {
+        let s = KeyStroke::new("s").primary().ctrl();
+        assert_eq!(encode(&s), "ctrl+mod+s");
+        assert_eq!(decode("ctrl+mod+s"), Some(s.clone()));
+        if cfg!(target_os = "macos") {
+            assert_eq!(to_gpui(&s), "ctrl-cmd-s");
+            let parsed = gpui_kit::Keystroke::parse("ctrl-cmd-s").unwrap();
+            assert_eq!(from_gpui(&parsed), Some(s));
+        }
+        // A ⌃ chord fires while typing, as a ⌘ one does.
+        let t = apply_overrides(&BTreeMap::from([("newChat".into(), "ctrl+n".into())]));
+        assert_eq!(
+            resolve(&t, &KeyStroke::new("n").ctrl(), true),
+            Some(A::NewChat)
+        );
+    }
+
+    #[test]
+    fn strokes_are_stored_and_read_back() {
+        let s = KeyStroke::new("o").primary().shift();
+        assert_eq!(encode(&s), "mod+shift+o");
+        assert_eq!(decode("mod+shift+o"), Some(s));
+        assert_eq!(decode("alt++"), Some(KeyStroke::new("+").alt()));
+        assert_eq!(decode("hyper+o"), None);
+        assert_eq!(decode(""), None);
+        for s in default_shortcuts() {
+            assert_eq!(decode(&encode(&s.stroke)), Some(s.stroke));
+        }
+    }
+
+    #[test]
+    fn an_override_replaces_one_default_and_keeps_the_rest() {
+        let overrides = BTreeMap::from([
+            ("newChat".to_string(), "mod+j".to_string()),
+            ("openPalette".to_string(), "nonsense+k".to_string()),
+        ]);
+        let t = apply_overrides(&overrides);
+        let find = |a| t.iter().find(|s| s.action == a).unwrap().clone();
+        assert_eq!(find(A::NewChat).stroke, KeyStroke::new("j").primary());
+        assert_eq!(
+            find(A::OpenPalette),
+            default_shortcuts()
+                .into_iter()
+                .find(|s| s.action == A::OpenPalette)
+                .unwrap()
+        );
+        assert_eq!(t.len(), default_shortcuts().len());
+    }
+
+    #[test]
+    fn a_bare_key_override_does_not_fire_while_typing() {
+        let t = apply_overrides(&BTreeMap::from([("newChat".into(), "n".into())]));
+        assert_eq!(resolve(&t, &KeyStroke::new("n"), true), None);
+        assert_eq!(resolve(&t, &KeyStroke::new("n"), false), Some(A::NewChat));
+    }
+
+    #[test]
+    fn a_key_another_command_has_is_a_conflict() {
+        let t = default_shortcuts();
+        assert_eq!(
+            conflict(&t, A::NewChat, &KeyStroke::new("k").primary()),
+            Some(A::OpenPalette)
+        );
+        assert_eq!(
+            conflict(&t, A::OpenPalette, &KeyStroke::new("k").primary()),
+            None,
+            "its own key is no conflict"
+        );
+    }
+
+    #[test]
+    fn keymap_edits_persist_as_overrides() {
+        let mut k = Keymap::default();
+        assert_eq!(
+            k.set(A::NewChat, KeyStroke::new("k").primary()),
+            Err(A::OpenPalette)
+        );
+        assert!(k.overrides.is_empty());
+        k.set(A::NewChat, KeyStroke::new("j").primary()).unwrap();
+        assert_eq!(
+            k.overrides.get("newChat").map(String::as_str),
+            Some("mod+j")
+        );
+        // Survives a store/load through the prefs map.
+        let reloaded = Keymap::new(k.overrides.clone());
+        assert_eq!(reloaded.stroke(A::NewChat), KeyStroke::new("j").primary());
+        // Setting the default back drops the override.
+        k.set(A::NewChat, KeyStroke::new("n").primary()).unwrap();
+        assert!(k.overrides.is_empty());
+        // The freed chord can be taken by another action.
+        k.set(A::ToggleSidebar, KeyStroke::new("b").primary())
+            .unwrap();
+        k.reset(A::ToggleSidebar);
+        assert!(k.overrides.is_empty());
+        k.set(A::Dictate, KeyStroke::new("d").primary()).unwrap();
+        k.reset_all();
+        assert_eq!(k, Keymap::default());
+    }
+
+    #[test]
+    fn gpui_keystroke_syntax() {
+        assert_eq!(
+            to_gpui(&KeyStroke::new("o").primary().shift()),
+            "cmd-shift-o"
+        );
+        assert_eq!(
+            to_gpui(&KeyStroke::new("enter").primary().alt()),
+            "cmd-alt-enter"
+        );
+        assert_eq!(to_gpui(&KeyStroke::new("escape").shift()), "shift-escape");
+        for s in default_shortcuts() {
+            // `Keystroke::parse` wants a 'static source (its error borrows it).
+            let source: &'static str = Box::leak(to_gpui(&s.stroke).into_boxed_str());
+            let parsed = gpui_kit::Keystroke::parse(source).unwrap();
+            assert_eq!(from_gpui(&parsed), Some(s.stroke.clone()), "{:?}", s.stroke);
+        }
+    }
+
+    #[test]
+    fn only_working_shortcuts_are_live() {
+        let live: Vec<_> = ShortcutAction::ALL
+            .into_iter()
+            .filter(|a| a.is_live())
+            .collect();
+        assert_eq!(
+            live,
+            vec![
+                A::NewChat,
+                A::OpenPalette,
+                A::FocusComposer,
+                A::FocusModelPicker,
+                A::StopGenerating,
+                A::OpenSettings,
+                A::ShowShortcuts,
+                A::CopyLastResponse,
+                A::CopyLastCodeBlock,
+                A::AllowRequest,
+                A::DenyRequest,
+                A::ToggleSidebar
+            ]
+        );
+        for a in ShortcutAction::ALL {
+            assert_eq!(ShortcutAction::from_name(a.name()), Some(a));
+        }
+    }
+
+    #[test]
+    fn the_keyboard_pane_lists_every_shortcut_once() {
+        let rows: Vec<KeyRow> = keyboard_groups()
+            .into_iter()
+            .flat_map(|(_, rows)| rows)
+            .collect();
+        // Every command the app carries out, once; Dictate waits for voice.
+        for a in ShortcutAction::ALL {
+            let n = rows.iter().filter(|r| **r == KeyRow::Rebindable(a)).count();
+            assert_eq!(n, usize::from(a.is_live()), "{a:?}");
+        }
+        let mut listed: Vec<FixedCommand> = fixed_shortcuts()
+            .into_iter()
+            .map(|(c, _)| c)
+            .filter(|c| c.listed())
+            .collect();
+        listed.dedup();
+        for c in &listed {
+            let n = rows.iter().filter(|r| **r == KeyRow::Fixed(*c)).count();
+            assert_eq!(n, 1, "{c:?}");
+        }
+        assert_eq!(rows.iter().filter(|r| **r == KeyRow::QuickAsk).count(), 1);
+        // About twenty: 12 rebindable, 12 fixed, Quick Ask.
+        assert_eq!(rows.len(), 25);
+        // Next and Previous Chat are ⌃⇥ and ⌃⇧⇥, as Safari's tabs.
+        assert_eq!(describe(&fixed_stroke(FixedCommand::NextChat), true), "⌃⇥");
+        assert_eq!(
+            describe(&fixed_stroke(FixedCommand::PreviousChat), true),
+            "⌃⇧⇥"
+        );
+    }
+
+    #[test]
+    fn fixed_chords_are_taken_but_settings_keeps_its_own() {
+        let k = KeyStroke::new;
+        assert_eq!(
+            fixed_conflict(&k("r").primary(), Some(A::NewChat)),
+            Some(FixedCommand::Regenerate)
+        );
+        assert_eq!(
+            fixed_conflict(&k("=").primary(), None),
+            Some(FixedCommand::ZoomIn)
+        );
+        assert_eq!(
+            fixed_conflict(&k("q").primary(), Some(A::OpenPalette)),
+            Some(FixedCommand::Quit)
+        );
+        // ⌘, is Open Settings' default as well as the fixed chord.
+        assert_eq!(
+            fixed_conflict(&k(",").primary(), Some(A::OpenSettings)),
+            None
+        );
+        assert_eq!(
+            fixed_conflict(&k(",").primary(), Some(A::NewChat)),
+            Some(FixedCommand::Settings)
+        );
+        assert_eq!(fixed_conflict(&k("j").primary(), Some(A::NewChat)), None);
+        // No default takes another command's fixed chord.
+        for s in default_shortcuts() {
+            assert_eq!(
+                fixed_conflict(&s.stroke, Some(s.action)),
+                None,
+                "{:?}",
+                s.action
+            );
+        }
+        assert_eq!(fixed_stroke(FixedCommand::ZoomIn), k("+").primary());
+    }
+}
