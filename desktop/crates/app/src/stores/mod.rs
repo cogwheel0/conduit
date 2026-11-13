@@ -36,6 +36,7 @@ pub mod composer;
 pub mod connection;
 pub mod dictation;
 pub mod files;
+pub mod hermes_work;
 pub mod layout;
 pub mod navigation;
 pub mod palette;

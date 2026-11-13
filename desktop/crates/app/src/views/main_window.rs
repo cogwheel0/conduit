@@ -784,6 +784,13 @@ impl Render for MainWindow {
                         p.show_branches(window, cx);
                     });
                 }))
+                .on_action(
+                    cx.listener(|this, _: &crate::actions::ShowContextUsage, window, cx| {
+                        this.chat_pane.update(cx, |p, cx| {
+                            p.show_context_usage(window, cx);
+                        });
+                    }),
+                )
                 .on_action(cx.listener(|this, a: &MoveChatTo, window, cx| {
                     let folder = a.folder_id.clone();
                     this.chat_command(

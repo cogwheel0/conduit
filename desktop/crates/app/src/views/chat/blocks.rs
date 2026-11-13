@@ -346,6 +346,66 @@ pub(super) fn embed_ids(blocks: &[MessageBlockDto]) -> std::collections::HashSet
 }
 
 impl AssistantRow {
+    /// The one fix a Hermes failure's card offers here: the first of the
+    /// daemon's that this chat can perform, with what pressing it does.
+    fn hermes_error_action(
+        &self,
+        error: &conduit_protocol::HermesErrorDto,
+        key: &str,
+        l10n: &L10n,
+        cx: &App,
+    ) -> Option<(String, super::hermes_blocks::Run)> {
+        let idle = !self.item.streaming;
+        let store = self.host.store.clone();
+        let pane = self.host.pane.clone();
+        let key = key.to_string();
+        for action in &error.actions {
+            let Some(label) = super::hermes_blocks::action_label(action, error, l10n) else {
+                continue;
+            };
+            let run: super::hermes_blocks::Run = match action.as_str() {
+                "retry" if idle && self.flags.can_branch => {
+                    let (store, key) = (store.clone(), key.clone());
+                    std::rc::Rc::new(move |_, cx| {
+                        let _ = store.update(cx, |s, cx| s.regenerate(&key, None, cx));
+                    })
+                }
+                "switchModel" if idle && self.flags.can_branch => {
+                    let model = error.switch_to.as_ref()?.model_id.clone();
+                    let (store, key) = (store.clone(), key.clone());
+                    std::rc::Rc::new(move |_, cx| {
+                        let _ =
+                            store.update(cx, |s, cx| s.regenerate(&key, Some(model.clone()), cx));
+                    })
+                }
+                "continueReply" if idle && self.flags.can_follow_up => {
+                    let pane = pane.clone();
+                    std::rc::Rc::new(move |window, cx| pane.send("continue".into(), window, cx))
+                }
+                "compact" if self.flags.abilities.hermes_context => {
+                    let chat = store.upgrade()?.read(cx).chat_id().to_string();
+                    std::rc::Rc::new(move |window, cx| {
+                        crate::views::hermes_context_sheet::open(chat.clone(), window, cx)
+                    })
+                }
+                "openBilling" => {
+                    let url = error.billing_url.clone()?;
+                    std::rc::Rc::new(move |_, cx| super::markdown::open_web_link(&url, cx))
+                }
+                "openProviderSettings" => {
+                    let url = error.provider_settings_url.clone()?;
+                    std::rc::Rc::new(move |_, cx| super::markdown::open_web_link(&url, cx))
+                }
+                "newChat" => std::rc::Rc::new(|window, cx| {
+                    window.dispatch_action(Box::new(crate::actions::NewChat), cx)
+                }),
+                _ => continue,
+            };
+            return Some((label, run));
+        }
+        None
+    }
+
     /// How much of text block `ordinal` (`md`) to draw while the answer
     /// streams, and for a moment after: what has arrived, released at a
     /// steady rate ([`Pace`]). Moves the release on when `advance` (once a
@@ -885,6 +945,58 @@ impl AssistantRow {
                     cx,
                 )
                 .into_any_element()
+            }
+            MessageBlockKind::Error if block.hermes_error.is_some() => {
+                let error = block.hermes_error.clone().unwrap_or_else(|| unreachable!());
+                let action = self.hermes_error_action(&error, &key, &l10n, cx);
+                super::hermes_blocks::error_card(
+                    &format!("{key}-{i}"),
+                    &error,
+                    block.error.as_deref().unwrap_or_default(),
+                    action,
+                    &l10n,
+                    &t,
+                )
+            }
+            MessageBlockKind::ChangedFiles => {
+                let files = block.changed_files.clone().unwrap_or_default();
+                let store = self.host.store.upgrade()?;
+                // Paths from the chat's working directory, in a Hermes
+                // chat (an Open WebUI chat's turns can run in several).
+                let directory = (self.flags.abilities.hermes_context)
+                    .then(|| {
+                        store
+                            .read(cx)
+                            .hermes
+                            .read(cx)
+                            .work
+                            .as_ref()
+                            .and_then(|w| w.working_directory.clone())
+                    })
+                    .flatten();
+                let open: super::hermes_blocks::OpenDiff = {
+                    let files = files.clone();
+                    let directory = directory.clone();
+                    std::rc::Rc::new(move |index, window, cx| {
+                        crate::views::hermes_diff_sheet::open(
+                            files.clone(),
+                            index,
+                            directory.clone(),
+                            window,
+                            cx,
+                        )
+                    })
+                };
+                super::hermes_blocks::changed_files(
+                    &format!("{key}-{i}"),
+                    &files,
+                    directory.as_deref(),
+                    open,
+                    &l10n,
+                    &t,
+                    window,
+                    cx,
+                )?
             }
             MessageBlockKind::Error => {
                 let text = error_text(block, &l10n);

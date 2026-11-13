@@ -4,16 +4,22 @@
 //!
 //! [`card`] reads a request into what its card shows ([`Card`]): a plain
 //! confirmation, a tool approval, a text, password or select prompt, an MCP
-//! tool approval, a Hermes decision with the agent's own choices, or, for a
-//! kind this window cannot answer, [`Card::Unsupported`], which says to
-//! answer it on mobile or the web and only dismisses (with the request's
-//! conservative default). [`allow`] and [`deny`] are what ⌥⌘↩ and ⌥⌘⌫ send
-//! for the request on top.
+//! tool approval, a Hermes decision with the agent's own choices (and a paid
+//! tool's cost), a Hermes clarify form, sudo password, secret or MCP set-up,
+//! or, for a kind this window cannot answer, [`Card::Unsupported`], which
+//! says to answer it on mobile or the web and only dismisses (with the
+//! request's conservative default). [`allow`] and [`deny`] are what ⌥⌘↩ and
+//! ⌥⌘⌫ send for the request on top; a Hermes question is answered with
+//! `hermes.decisions.answer` instead ([`UiRequestsStore::answer_hermes`]),
+//! which waits for Hermes to take it.
 
 use std::collections::HashSet;
 
 use conduit_daemon::RpcError;
-use conduit_protocol::{UiInputOption, UiInputType, UiRequest, UiRequestKind, UiResponse, methods};
+use conduit_protocol::{
+    HermesClarifyAnswer, HermesDecisionAnswer, HermesDecisionStatus, UiInputOption, UiInputType,
+    UiRequest, UiRequestKind, UiResponse, methods,
+};
 use gpui_kit::{AsyncApp, Context, EventEmitter, WeakEntity};
 use serde_json::Value;
 
@@ -48,11 +54,23 @@ pub enum Card {
         tool: String,
         arguments: String,
     },
-    /// A Hermes agent asking to go on, with the choices it offers.
+    /// A Hermes agent asking to go on, with the choices it offers, and a
+    /// paid tool's price.
     Hermes {
         summary: String,
         choices: Vec<String>,
+        cost: Option<HermesCost>,
     },
+    /// A Hermes agent's questions, answered as one form.
+    HermesClarify {
+        prompt: String,
+        questions: Vec<ClarifyQuestion>,
+    },
+    /// A Hermes agent needs the sudo password (`sudo`) or a secret: typed
+    /// masked, never kept.
+    HermesSecret { prompt: String, sudo: bool },
+    /// A Hermes agent wants to set up an MCP server.
+    HermesSetup { server: String, action: String },
     /// An MCP App in a chat wants to call one of its server's tools.
     McpAppTool {
         server: String,
@@ -63,6 +81,43 @@ pub enum Card {
     OpenLink { url: String },
     /// A kind this window does not host: answer on mobile or the web.
     Unsupported,
+}
+
+/// What a paid MCP tool's call costs, as Hermes stated it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HermesCost {
+    /// "5 credits".
+    pub price: Option<String>,
+    pub approximate: bool,
+    /// "per poster".
+    pub note: Option<String>,
+    /// What the chat spent so far, and its limit.
+    pub spent: Option<String>,
+    pub limit: Option<String>,
+    pub server: Option<String>,
+    /// The call would pass the chat's spend limit.
+    pub over_limit: bool,
+}
+
+/// One question of a Hermes clarify form.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClarifyQuestion {
+    pub id: String,
+    /// Empty for a plain reply asked without question text.
+    pub text: String,
+    pub choices: Vec<ClarifyChoice>,
+    pub multi: bool,
+    /// Answered elsewhere already: shown, not asked.
+    pub locked: bool,
+    pub locked_answer: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClarifyChoice {
+    /// What goes back.
+    pub value: String,
+    pub label: String,
+    pub recommended: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -118,8 +173,27 @@ pub fn card(request: &UiRequest) -> Card {
                 Some(other) => other.to_string(),
             },
         },
-        // The daemon hosts Hermes run approvals; the agent's other questions
-        // (clarify, sudo, secrets) are answered where the agent runs.
+        UiRequestKind::HermesDecision if request.message_code == "hermes.mcpSetup" => {
+            Card::HermesSetup {
+                server: arg(request, "server").unwrap_or_default(),
+                action: arg(request, "action").unwrap_or_default(),
+            }
+        }
+        UiRequestKind::HermesClarify => {
+            let questions = clarify_questions(&request.detail);
+            if questions.is_empty() {
+                Card::Unsupported
+            } else {
+                Card::HermesClarify {
+                    prompt: arg(request, "prompt").unwrap_or_default(),
+                    questions,
+                }
+            }
+        }
+        UiRequestKind::HermesSudo | UiRequestKind::HermesSecret => Card::HermesSecret {
+            prompt: arg(request, "prompt").unwrap_or_default(),
+            sudo: request.kind == UiRequestKind::HermesSudo,
+        },
         UiRequestKind::HermesDecision if request.message_code == "hermes.approval" => {
             let choices: Vec<String> = request
                 .detail
@@ -138,6 +212,7 @@ pub fn card(request: &UiRequest) -> Card {
                 } else {
                     choices
                 },
+                cost: request.detail.get("cost").and_then(hermes_cost),
             }
         }
         UiRequestKind::McpAppToolCall => Card::McpAppTool {
@@ -155,6 +230,65 @@ pub fn card(request: &UiRequest) -> Card {
         },
         UiRequestKind::HermesDecision | UiRequestKind::Unknown => Card::Unsupported,
     }
+}
+
+fn text_of(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// A Hermes approval's `detail.cost`.
+fn hermes_cost(raw: &Value) -> Option<HermesCost> {
+    let cost = HermesCost {
+        price: text_of(raw.get("price")),
+        approximate: raw.get("approximate").and_then(Value::as_bool) == Some(true),
+        note: text_of(raw.get("note")),
+        spent: text_of(raw.get("spent")),
+        limit: text_of(raw.get("limit")),
+        server: text_of(raw.get("server")),
+        over_limit: raw.get("overLimit").and_then(Value::as_bool) == Some(true),
+    };
+    (cost != HermesCost::default()).then_some(cost)
+}
+
+/// A `hermesClarify` request's questions (`detail.questions`).
+pub fn clarify_questions(detail: &Value) -> Vec<ClarifyQuestion> {
+    let Some(rows) = detail.get("questions").and_then(Value::as_array) else {
+        return vec![];
+    };
+    rows.iter()
+        .filter_map(|q| {
+            let id = text_of(q.get("id"))?;
+            let choices = q
+                .get("choices")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|c| {
+                            let value = text_of(c.get("value"))?;
+                            Some(ClarifyChoice {
+                                label: text_of(c.get("label")).unwrap_or_else(|| value.clone()),
+                                value,
+                                recommended: c.get("recommended").and_then(Value::as_bool)
+                                    == Some(true),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(ClarifyQuestion {
+                id,
+                text: text_of(q.get("text")).unwrap_or_default(),
+                choices,
+                multi: q.get("multiSelect").and_then(Value::as_bool) == Some(true),
+                locked: q.get("locked").and_then(Value::as_bool) == Some(true),
+                locked_answer: text_of(q.get("lockedAnswer")),
+            })
+        })
+        .collect()
 }
 
 /// An answer: `choice`, plus the text for a prompt.
@@ -199,8 +333,21 @@ pub fn allow(request: &UiRequest, text: Option<String>) -> Option<Answer> {
             let first = choices.iter().find(|c| *c != "deny");
             once.or(first).map(|c| Answer::new(c))
         }
-        Card::Unsupported => None,
+        // Answered with `hermes.decisions.answer`, from the card.
+        Card::HermesClarify { .. }
+        | Card::HermesSecret { .. }
+        | Card::HermesSetup { .. }
+        | Card::Unsupported => None,
     }
+}
+
+/// Whether `request` is a Hermes question answered with
+/// `hermes.decisions.answer` (not `ui.respond`).
+pub fn is_hermes_question(request: &UiRequest) -> bool {
+    matches!(
+        card(request),
+        Card::HermesClarify { .. } | Card::HermesSecret { .. } | Card::HermesSetup { .. }
+    )
 }
 
 /// What ⌥⌘⌫ answers: deny, cancel a prompt, or dismiss with the request's
@@ -217,6 +364,9 @@ pub fn deny(request: &UiRequest) -> Answer {
 pub enum UiRequestsEvent {
     /// A request arrived (the window raises itself and announces it).
     Arrived(String),
+    /// A Hermes question was answered elsewhere or expired before this
+    /// window's answer arrived: it was not sent.
+    HermesSettledElsewhere,
 }
 
 pub struct UiRequestsStore {
@@ -226,6 +376,9 @@ pub struct UiRequestsStore {
     /// Requests answered here whose `ui.settled` has not arrived yet.
     pub answering: HashSet<String>,
     pub error: Option<RpcError>,
+    /// Hermes questions whose answer did not arrive (the card says so and
+    /// stays, to be answered again).
+    pub hermes_failed: HashSet<String>,
 }
 
 impl EventEmitter<UiRequestsEvent> for UiRequestsStore {}
@@ -237,6 +390,7 @@ impl UiRequestsStore {
             queue: vec![],
             answering: HashSet::new(),
             error: None,
+            hermes_failed: HashSet::new(),
         }
     }
 
@@ -269,6 +423,7 @@ impl UiRequestsStore {
     /// `ui.settled`.
     pub fn on_settled(&mut self, request_id: &str, cx: &mut Context<Self>) {
         self.answering.remove(request_id);
+        self.hermes_failed.remove(request_id);
         let before = self.queue.len();
         self.queue.retain(|r| r.request_id != request_id);
         if self.queue.len() != before {
@@ -311,6 +466,62 @@ impl UiRequestsStore {
                         log::warn!("ui.respond: {e}");
                         s.answering.remove(&id);
                         s.error = Some(e);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// `hermes.decisions.answer`: a clarify form's `answers`, or the
+    /// `value` of a password, secret, reply or set-up card. The card stays
+    /// (answering) until `ui.settled`; an answer that did not arrive leaves
+    /// it to be given again, saying so. A password or secret is passed on
+    /// and not kept.
+    pub fn answer_hermes(
+        &mut self,
+        request_id: &str,
+        answers: Vec<HermesClarifyAnswer>,
+        value: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        // Settled (or never here): there is nothing to answer.
+        if !self.queue.iter().any(|r| r.request_id == request_id) {
+            return;
+        }
+        if !self.answering.insert(request_id.to_string()) {
+            return;
+        }
+        self.hermes_failed.remove(request_id);
+        self.error = None;
+        let id = request_id.to_string();
+        let call = self
+            .rpc
+            .call::<methods::HermesDecisionsAnswer>(&HermesDecisionAnswer {
+                request_id: id.clone(),
+                answers,
+                value,
+            });
+        cx.notify();
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| {
+                match result {
+                    // `ui.settled` takes the card away.
+                    Ok(r) if r.status == HermesDecisionStatus::Answered => {}
+                    Ok(r) if r.status == HermesDecisionStatus::Settled => {
+                        cx.emit(UiRequestsEvent::HermesSettledElsewhere);
+                        s.on_settled(&id, cx);
+                    }
+                    Ok(_) => {
+                        s.answering.remove(&id);
+                        s.hermes_failed.insert(id.clone());
+                    }
+                    Err(e) => {
+                        log::warn!("hermes.decisions.answer: {e}");
+                        s.answering.remove(&id);
+                        s.hermes_failed.insert(id.clone());
                     }
                 }
                 cx.notify();
@@ -453,13 +664,14 @@ mod tests {
                     "session".into(),
                     "always".into(),
                     "deny".into()
-                ]
+                ],
+                cost: None,
             }
         );
-        // A Hermes question the daemon does not host.
-        let mut clarify = hermes.clone();
-        clarify.message_code = "hermes.clarify".into();
-        assert_eq!(card(&clarify), Card::Unsupported);
+        // A Hermes decision code this build does not know.
+        let mut other = hermes.clone();
+        other.message_code = "hermes.other".into();
+        assert_eq!(card(&other), Card::Unsupported);
         let unknown = request("6", UiRequestKind::Unknown, &[]);
         assert_eq!(card(&unknown), Card::Unsupported);
     }
@@ -534,6 +746,111 @@ mod tests {
             daemon.calls::<methods::UiRespond>()[1],
             json!({"requestId": "b", "choice": "deny", "remember": false})
         );
+    }
+
+    #[test]
+    fn hermes_questions_read_into_their_cards() {
+        let mut clarify = request("c", UiRequestKind::HermesClarify, &[("prompt", "")]);
+        clarify.detail = json!({
+            "chatId": "local:hermes_s",
+            "questions": [
+                {"id": "q0", "text": "Which cuisine?", "multiSelect": false, "locked": false,
+                 "choices": [{"value": "Japanese", "label": "Japanese", "recommended": true}]},
+                {"id": "q1", "text": "Courses?", "multiSelect": true, "locked": true,
+                 "lockedAnswer": "Main", "choices": []},
+            ],
+        });
+        let Card::HermesClarify { questions, .. } = card(&clarify) else {
+            panic!("a clarify card");
+        };
+        assert_eq!(questions.len(), 2);
+        assert!(questions[0].choices[0].recommended);
+        assert!(questions[1].multi && questions[1].locked);
+        assert_eq!(questions[1].locked_answer.as_deref(), Some("Main"));
+        // A form with no question it can read cannot be answered here.
+        clarify.detail = json!({"questions": []});
+        assert_eq!(card(&clarify), Card::Unsupported);
+
+        let secret = request(
+            "s",
+            UiRequestKind::HermesSecret,
+            &[("prompt", "Paste the key")],
+        );
+        assert_eq!(
+            card(&secret),
+            Card::HermesSecret {
+                prompt: "Paste the key".into(),
+                sudo: false
+            }
+        );
+        let sudo = request("u", UiRequestKind::HermesSudo, &[]);
+        assert!(matches!(card(&sudo), Card::HermesSecret { sudo: true, .. }));
+        let mut setup = request(
+            "m",
+            UiRequestKind::HermesDecision,
+            &[("server", "demo_shop"), ("action", "Install")],
+        );
+        setup.message_code = "hermes.mcpSetup".into();
+        assert!(matches!(card(&setup), Card::HermesSetup { .. }));
+        // Answered from the card, not with ⌥⌘↩'s `ui.respond`.
+        for r in [&secret, &sudo, &setup] {
+            assert!(is_hermes_question(r));
+            assert_eq!(allow(r, Some("x".into())), None);
+        }
+
+        let mut paid = request("p", UiRequestKind::HermesDecision, &[("summary", "Render")]);
+        paid.message_code = "hermes.approval".into();
+        paid.detail = json!({
+            "choices": ["once", "deny"],
+            "cost": {"price": "5 credits", "approximate": true, "spent": "10 credits",
+                     "limit": "20 credits", "server": "demo_shop", "overLimit": false},
+        });
+        let Card::Hermes {
+            cost: Some(cost), ..
+        } = card(&paid)
+        else {
+            panic!("a paid approval");
+        };
+        assert_eq!(cost.price.as_deref(), Some("5 credits"));
+        assert!(cost.approximate && !cost.over_limit);
+    }
+
+    #[gpui_kit::test]
+    fn a_hermes_answer_waits_for_hermes(cx: &mut TestAppContext) {
+        use conduit_protocol::{HermesDecisionResult, HermesDecisionStatus};
+        let daemon = FakeDaemon::new();
+        daemon.once::<methods::HermesDecisionsAnswer>(Ok(HermesDecisionResult {
+            status: HermesDecisionStatus::Failed,
+        }));
+        daemon.returns::<methods::HermesDecisionsAnswer>(HermesDecisionResult {
+            status: HermesDecisionStatus::Answered,
+        });
+        let store = cx.new(|_| UiRequestsStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.on_request(request("s", UiRequestKind::HermesSecret, &[]), cx);
+            s.answer_hermes("s", vec![], Some("synthetic-value".into()), cx);
+        });
+        cx.run_until_parked();
+        // Not taken: the card stays, saying so, to be answered again.
+        store.read_with(cx, |s, _| {
+            assert!(s.hermes_failed.contains("s"));
+            assert!(!s.answering.contains("s"));
+            assert_eq!(s.queue.len(), 1);
+        });
+        store.update(cx, |s, cx| {
+            s.answer_hermes("s", vec![], Some("again".into()), cx)
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(!s.hermes_failed.contains("s"));
+            assert!(s.answering.contains("s"), "until ui.settled");
+        });
+        assert_eq!(
+            daemon.calls::<methods::HermesDecisionsAnswer>()[1],
+            json!({"requestId": "s", "answers": [], "value": "again"})
+        );
+        store.update(cx, |s, cx| s.on_settled("s", cx));
+        assert!(store.read_with(cx, |s, _| s.queue.is_empty()));
     }
 
     #[gpui_kit::test]

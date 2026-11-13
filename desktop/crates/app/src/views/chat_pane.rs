@@ -122,6 +122,9 @@ pub struct ChatPane {
     /// (Open WebUI chats with something to show or edit) and Tool Settings
     /// (the tools, filters and pipe with personal valves).
     pub settings_offer: SettingsOffer,
+    /// Chat › Context & Usage… was last offered (the menus refresh when it
+    /// changes).
+    context_offered: std::cell::Cell<bool>,
     settings_key: Option<OfferKey>,
     _offer: Option<gpui_kit::Task<()>>,
     _subscriptions: Vec<Subscription>,
@@ -424,6 +427,7 @@ impl ChatPane {
             temporary_chosen: false,
             temporary_hand_chosen: false,
             settings_offer: SettingsOffer::default(),
+            context_offered: std::cell::Cell::new(false),
             settings_key: None,
             _offer: None,
             _subscriptions: subscriptions,
@@ -971,6 +975,15 @@ impl ChatPane {
         }
         let subscriptions = vec![
             cx.observe(&store, |this, store, cx| {
+                // Chat › Context & Usage… comes with a Hermes chat.
+                let context = store
+                    .read(cx)
+                    .detail
+                    .as_ref()
+                    .is_some_and(|d| d.abilities.hermes_context);
+                if this.context_offered.replace(context) != context {
+                    cx.defer(crate::menus::refresh_menus);
+                }
                 let streaming = store.read(cx).is_streaming();
                 let offer = store.read(cx).queue_offered();
                 this.composer.update(cx, |c, cx| {
@@ -1770,7 +1783,37 @@ impl ChatPane {
                 Box::new(crate::actions::ShowBranches),
             ));
         }
+        if self.hermes_context(cx) {
+            items.push((
+                l10n.desktop_hermes_context_usage_menu(),
+                Box::new(crate::actions::ShowContextUsage),
+            ));
+        }
         items
+    }
+
+    /// The open chat is a Hermes session whose context window can be read.
+    pub fn hermes_context(&self, cx: &App) -> bool {
+        self.chat.as_ref().is_some_and(|chat| {
+            chat.store
+                .read(cx)
+                .detail
+                .as_ref()
+                .is_some_and(|d| d.abilities.hermes_context)
+        })
+    }
+
+    /// Chat › Context & Usage…: the open Hermes chat's context window,
+    /// usage and Compact Now.
+    pub fn show_context_usage(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.hermes_context(cx) {
+            return;
+        }
+        let Some(chat) = self.chat.as_ref() else {
+            return;
+        };
+        let chat_id = chat.store.read(cx).chat_id().to_string();
+        crate::views::hermes_context_sheet::open(chat_id, window, cx);
     }
 
     /// Ask Conduit: the text selected in an answer goes into the composer,
@@ -2128,9 +2171,46 @@ impl ChatPane {
             .into_any_element()
     }
 
+    /// A Hermes agent's work over the composer: the chip naming what runs
+    /// (it opens the background work sheet), then the plan.
+    fn hermes_docked(&self, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let Some(chat) = self.chat.as_ref() else {
+            return vec![];
+        };
+        let hermes = chat.store.read(cx).hermes.clone();
+        let (agents, processes) = hermes.read(cx).running();
+        let plan = hermes.read(cx).work.as_ref().and_then(|w| w.plan.clone());
+        let chat_id = hermes.read(cx).chat_id().to_string();
+        let t = cx.conduit().clone();
+        let l10n = cx.l10n().clone();
+        let open_work: crate::views::chat::hermes_work::Action = {
+            let hermes = hermes.clone();
+            std::rc::Rc::new(move |window, cx| {
+                crate::views::hermes_work_sheet::open(hermes.clone(), window, cx)
+            })
+        };
+        let chip = crate::views::chat::hermes_work::work_chip(
+            agents, processes, open_work, &l10n, &t, window, cx,
+        );
+        let plan = plan.and_then(|plan| {
+            let folded = crate::stores::hermes_work::plan_folded(&chat_id, plan.active, cx);
+            let pane = cx.entity().downgrade();
+            let toggle: crate::views::chat::hermes_work::Action = {
+                let chat_id = chat_id.clone();
+                std::rc::Rc::new(move |_, cx| {
+                    crate::stores::hermes_work::set_plan_folded(&chat_id, !folded, cx);
+                    let _ = pane.update(cx, |_, cx| cx.notify());
+                })
+            };
+            crate::views::chat::hermes_work::plan_card(&plan, folded, toggle, &l10n, &t, window, cx)
+        });
+        chip.into_iter().chain(plan).collect()
+    }
+
     /// What docks above the composer: the messages queued behind the
     /// answer, and an approval card.
     fn docked(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let hermes = self.hermes_docked(window, cx);
         let queue = self.chat.as_ref().and_then(|chat| {
             let t = cx.conduit().clone();
             let queue = chat.store.read(cx).queue.clone();
@@ -2169,6 +2249,7 @@ impl ChatPane {
             div()
                 .flex()
                 .flex_col()
+                .children(hermes)
                 .children(tasks)
                 .children(queue)
                 .children(speech)

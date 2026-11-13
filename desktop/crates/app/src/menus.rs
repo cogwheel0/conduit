@@ -388,6 +388,8 @@ pub struct MenuState {
     pub tool_settings: bool,
     /// Chat › Save Chat: a temporary chat with messages is open.
     pub save_chat: bool,
+    /// The open chat is a Hermes session: Chat › Context & Usage….
+    pub hermes_context: bool,
     /// The composer is dictating: Chat › Stop Dictation.
     pub dictating: bool,
     /// Something is being read aloud (Chat › Stop Speaking).
@@ -409,6 +411,7 @@ impl Default for MenuState {
             chat_settings: false,
             tool_settings: false,
             save_chat: false,
+            hermes_context: false,
             dictating: false,
             speaking: false,
         }
@@ -524,6 +527,11 @@ pub fn menu_state(cx: &App) -> MenuState {
         chat_settings: offer.chat_settings,
         tool_settings: !offer.tool_targets.is_empty(),
         save_chat,
+        hermes_context: state
+            .main_view
+            .as_ref()
+            .filter(|_| main)
+            .is_some_and(|v| v.read(cx).chat_pane.read(cx).hermes_context(cx)),
         dictating,
         speaking: state.stores.speech.read(cx).is_active(),
     }
@@ -843,6 +851,15 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
                     .disabled(!state.tool_settings),
                     MenuItem::action(l10n.desktop_menu_show_branches(), ShowBranches)
                         .disabled(no_chat),
+                ]);
+                // Only a Hermes chat has a context window to show.
+                if state.hermes_context {
+                    items.push(MenuItem::action(
+                        l10n.desktop_hermes_context_usage_menu(),
+                        crate::actions::ShowContextUsage,
+                    ));
+                }
+                items.extend([
                     MenuItem::action(l10n.save_chat(), SaveTemporaryChat)
                         .disabled(!state.save_chat),
                     MenuItem::separator(),
