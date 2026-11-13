@@ -547,6 +547,10 @@ abstract final class ConduitMethodSpecs {
     ConduitMethods.dataConnection,
     result: ConnectionHealth.fromJson,
   );
+  static const dataReconnect = ConduitMethodSpec<void, ConnectionHealth>(
+    ConduitMethods.dataReconnect,
+    result: ConnectionHealth.fromJson,
+  );
 
   // chats.*, sync.*
 
@@ -2489,6 +2493,7 @@ abstract final class ConduitMethodSpecs {
         dataUnshareAll,
         dataDeleteAll,
         dataConnection,
+        dataReconnect,
         chatsList,
         chatsLoadMore,
         chatsGet,

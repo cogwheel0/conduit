@@ -1,5 +1,5 @@
 {
-  "protocolVersion": "1.66.0",
+  "protocolVersion": "1.67.0",
   "appOrigin": "app://conduit",
   "subprotocol": "conduit.v1",
   "subprotocolsExample": {
@@ -418,6 +418,11 @@
     },
     {
       "name": "data.connection",
+      "params": null,
+      "result": "ConnectionHealth"
+    },
+    {
+      "name": "data.reconnect",
       "params": null,
       "result": "ConnectionHealth"
     },
