@@ -801,7 +801,9 @@ class WorkspaceSettingsPages extends SettingsPageModule {
     // have signed in while the row was drawn busy, and may hold an item by
     // the same id.
     if (_account() != account) {
+      // The row was drawn busy; draw it ready again.
       busy.remove(itemId);
+      if (_listsShown.contains(section)) await _applyList(l10n, section);
       return;
     }
     try {

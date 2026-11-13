@@ -685,6 +685,10 @@ void main() {
       await rig.settle(deleting);
 
       check(models.deleted).isEmpty();
+      // Its row, drawn busy, is ready again.
+      final row = rig.row(modelsPage, workspaceModelPageId('model-1'))!;
+      check(row.pending).not((it) => it.equals(true));
+      check(row.rowActions).isNotEmpty();
     });
 
     testWidgets('a row menu deletes or switches off its model', (tester) async {
@@ -1627,6 +1631,61 @@ void main() {
           .not((it) => it.contains(_l10n.workspacePromptHistoryRestore));
       check(rig.titles(version))
           .not((it) => it.contains(_l10n.workspacePromptHistorySetProduction));
+    });
+
+    testWidgets("a prompt's own pages kept from another account are closed, "
+        'and its editor read afresh', (tester) async {
+      final rig = await pump(
+        tester,
+        promptDetails: {'prompt-1': _prompt()},
+        prompts: _Prompts()
+          ..versions = const [
+            WorkspacePromptHistoryEntry(
+              id: 'v1',
+              promptId: 'prompt-1',
+              snapshot: {'content': 'Old'},
+              userId: 'u',
+              createdAt: 1,
+            ),
+          ],
+      );
+      final history = '$workspacePromptHistoryPagePrefix$_prompt1Key';
+      final version = workspacePromptVersionPageId(_prompt1Key, 'v1');
+      final access = workspaceAccessPageId(
+        WorkspaceSection.prompts,
+        _prompt1Key,
+      );
+      await rig.open(_prompt1);
+      await rig.change(_promptRow('content', _prompt1Key), 'Private notes');
+      await rig.open(access);
+      await rig.open(history);
+      await rig.open(version);
+
+      rig.container
+          .read(_signedInProvider.notifier)
+          .use(
+            const User(
+              id: 'user-2',
+              username: 'grace',
+              email: 'grace@example.com',
+              role: 'user',
+            ),
+          );
+      // Settings forgets what it drew once another account signs in, and
+      // the pages still on screen ask for themselves again.
+      rig.container.read(settingsPagesProvider.notifier).clear();
+      await rig.open(version);
+      await rig.open(history);
+      await rig.open(access);
+
+      for (final page in [version, history, access]) {
+        check(rig.rows(page).map((row) => row.id))
+            .deepEquals(['$page-loading']);
+      }
+      check(rig.closed).deepEquals([version, history, access]);
+      await rig.open(_prompt1);
+      check(rig.row(_prompt1, _promptRow('content', _prompt1Key))?.value)
+          .equals('List what to pack for {{destination}}.');
     });
 
     testWidgets('a save is not sent once another account signed in while '

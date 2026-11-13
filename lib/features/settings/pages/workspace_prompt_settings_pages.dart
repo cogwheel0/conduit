@@ -712,11 +712,35 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     );
   }
 
+  /// Drops the editor [key] names when it was opened for an account since
+  /// gone, unseen, with its access draft; returns whether it did.
+  bool _dropStale(String? key) {
+    final editor = key == null ? null : _editors[key];
+    if (key == null || editor == null || _current(editor)) return false;
+    _editors.remove(key);
+    _access.forget(key);
+    return true;
+  }
+
+  /// The editor a page of [key]'s shows, or null once it is gone or was
+  /// opened for an account since gone. The page is then closed, never drawn
+  /// for the account there is now.
+  Future<WorkspacePromptEditor?> _ownerOf(String key, String detailId) async {
+    final editor = _dropStale(key) ? null : _editors[key];
+    if (editor == null) await _surface.closeDetail(detailId);
+    return editor;
+  }
+
   @override
   Future<void> hydrate(String detailId, AppLocalizations l10n) async {
     _l10n = l10n;
     if (_access.ownsPage(detailId)) {
       final key = _access.editorKeyOf(detailId);
+      // A page of another account's editor: closed, never drawn for this one.
+      if (_dropStale(key)) {
+        await _surface.closeDetail(detailId);
+        return;
+      }
       final editor = key == null ? null : _editors[key];
       if (editor != null && editor.ready) {
         _access.open(
@@ -731,8 +755,10 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
       return;
     }
     if (detailId.startsWith(workspacePromptHistoryPagePrefix)) {
-      final editor =
-          _editors[detailId.substring(workspacePromptHistoryPagePrefix.length)];
+      final editor = await _ownerOf(
+        detailId.substring(workspacePromptHistoryPagePrefix.length),
+        detailId,
+      );
       if (editor == null) return;
       // Back from a version, the list stays where it was.
       if (editor.history == null) {
@@ -747,7 +773,7 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
       final rest = detailId.substring(workspacePromptDiffPagePrefix.length);
       final colon = rest.indexOf(':');
       if (colon < 0) return;
-      final editor = _editors[rest.substring(0, colon)];
+      final editor = await _ownerOf(rest.substring(0, colon), detailId);
       if (editor == null) return;
       final versionId = Uri.decodeComponent(rest.substring(colon + 1));
       final comparison = editor.comparisons[versionId];
@@ -757,16 +783,19 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     }
     if (detailId.startsWith(workspacePromptVersionPagePrefix)) {
       final version = _versionOf(detailId);
-      final editor = version == null ? null : _editors[version.key];
+      if (version == null) return;
+      final editor = await _ownerOf(version.key, detailId);
       final entry = editor?.history
-          ?.where((candidate) => candidate.id == version!.versionId)
+          ?.where((candidate) => candidate.id == version.versionId)
           .firstOrNull;
       if (editor == null || entry == null) return;
       await _applyVersion(l10n, editor, entry);
       return;
     }
     final key = detailId.substring(workspacePromptPagePrefix.length);
-    final open = _editors[key];
+    // Another account's editor, kept from before it signed in: dropped
+    // unseen, with its access draft, and this account's prompt read afresh.
+    final open = _dropStale(key) ? null : _editors[key];
     if (open != null) {
       await _applyEditor(l10n, open);
       return;
