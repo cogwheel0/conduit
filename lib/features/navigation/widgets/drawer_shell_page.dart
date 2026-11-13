@@ -177,16 +177,6 @@ class _SidebarOverlayDismissListenerState
   }
 }
 
-/// Hardware keyboard shortcuts: Command-N starts something new for the
-/// sidebar's backend or tab, Command-K searches, Command-1 to Command-5 pick
-/// a sidebar tab, Command-comma opens Settings, and Escape closes search,
-/// then an overlay sidebar, then leaves the focused field.
-///
-/// On every iOS device: an iPad or iPhone with a keyboard attached, and the
-/// iPad app on a Mac. None of these keys edits text, so a focused field
-/// keeps its own editing shortcuts. Escape is left to whatever in front
-/// owns it: an input method still composing text cancels the composition,
-/// and a dialog, sheet or menu dismisses itself.
 /// Takes focus from a field into the app's keyboard shortcuts, as Escape
 /// does, so Command-K and the rest still reach them once something native,
 /// such as the Settings sheet, takes over. Unfocusing instead hands focus to
@@ -201,6 +191,16 @@ void restFocusInAppShortcuts() {
   }
 }
 
+/// Hardware keyboard shortcuts: Command-N starts something new for the
+/// sidebar's backend or tab, Command-K searches, Command-1 to Command-5 pick
+/// a sidebar tab, Command-comma opens Settings, and Escape closes search,
+/// then an overlay sidebar, then leaves the focused field.
+///
+/// On every iOS device: an iPad or iPhone with a keyboard attached, and the
+/// iPad app on a Mac. None of these keys edits text, so a focused field
+/// keeps its own editing shortcuts. Escape is left to whatever in front
+/// owns it: an input method still composing text cancels the composition,
+/// and a dialog, sheet or menu dismisses itself.
 class AppKeyboardShortcuts extends ConsumerStatefulWidget {
   const AppKeyboardShortcuts({super.key, required this.child});
 
