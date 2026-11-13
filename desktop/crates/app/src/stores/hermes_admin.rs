@@ -25,9 +25,9 @@ use std::time::Duration;
 
 use conduit_daemon::RpcError;
 use conduit_protocol::{
-    Event, HermesCatalog, HermesConnections, HermesJobNotice, HermesJobRef, HermesJobs,
-    HermesMcpServers, HermesRef, HermesSessionDto, HermesStatus, HermesToggle, NoParams,
-    NoticeLevel, events, methods,
+    Event, HermesCatalog, HermesConnectionRef, HermesConnections, HermesJobNotice, HermesJobRef,
+    HermesJobs, HermesMcpServers, HermesRef, HermesSessionDto, HermesStatus, HermesToggle,
+    HermesToolsetToggle, NoParams, NoticeLevel, events, methods,
 };
 use gpui_kit::{App, AsyncApp, Context, EventEmitter, Task, WeakEntity};
 
@@ -74,6 +74,9 @@ pub enum HermesAdminEvent {
     /// Another connection is in use, or Hermes was turned on or off:
     /// `enabled` is the switch now.
     Switched { enabled: bool },
+    /// The gateway read its skills again (Reload Skills): a Hermes chat's
+    /// `/` list is read again.
+    SkillsReloaded,
 }
 
 #[derive(Default)]
@@ -93,6 +96,10 @@ pub struct HermesAdminStore {
     pub busy: HashSet<String>,
     /// MCP servers with an action in flight.
     pub mcp_busy: HashSet<String>,
+    /// Toolsets being turned on or off: their switches wait.
+    pub toolsets_busy: HashSet<String>,
+    /// Reload Skills is in flight.
+    pub skills_reloading: bool,
     /// The Scheduled Agents pane is shown: the list is polled.
     watching_jobs: bool,
     poll: Option<Task<()>>,
@@ -240,6 +247,8 @@ impl HermesAdminStore {
         self.generation += 1;
         // Lists asked before the reset are not taken; those asked after are.
         self.list_order.forget();
+        self.toolsets_busy.clear();
+        self.skills_reloading = false;
         self.changed(cx);
     }
 
@@ -396,12 +405,48 @@ impl HermesAdminStore {
         // a launch, a reconnect or another account).
         let left = self.connections.is_some() && switched;
         let enabled = list.enabled;
+        // The connection in use now reaches its server another way (signed
+        // in or out, another profile, other headers): what was read of it
+        // through the old way is read again.
+        let reached_anew = !switched && self.connections.is_some() && {
+            let way = |l: &HermesConnections| {
+                let id = l.active_id.as_deref()?;
+                let c = l.connections.iter().find(|c| c.id == id)?;
+                Some((
+                    c.desktop_signed_in,
+                    c.dashboard_signed_in,
+                    c.desktop_auth_kind.clone(),
+                    c.desktop_profile.clone(),
+                    c.access_header_names.clone(),
+                ))
+            };
+            self.connections.as_ref().and_then(way) != way(&list)
+        };
         self.connections = Some(list);
         // A page shown before any list was read is the connection's this
         // first list names.
         let now = self.in_use();
         if let Some((_, owner @ None)) = &mut self.shown_page {
             *owner = Some(now);
+        }
+        if reached_anew {
+            let (status, catalog, mcp) = (
+                self.status.is_some(),
+                self.catalog.is_some(),
+                self.mcp.is_some(),
+            );
+            self.status = None;
+            self.catalog = None;
+            self.mcp = None;
+            if status {
+                self.refresh_status(cx);
+            }
+            if catalog {
+                self.refresh_catalog(cx);
+            }
+            if mcp {
+                self.refresh_mcp(cx);
+            }
         }
         if left {
             cx.emit(HermesAdminEvent::Switched { enabled });
@@ -420,6 +465,8 @@ impl HermesAdminStore {
             self.pending_notices.clear();
             self.busy.clear();
             self.mcp_busy.clear();
+            self.toolsets_busy.clear();
+            self.skills_reloading = false;
             self.generation += 1;
             if mcp_shown {
                 self.refresh_mcp(cx);
@@ -475,6 +522,104 @@ impl HermesAdminStore {
                     Ok(catalog) => Loaded::Ready(catalog),
                     Err(e) => Loaded::Failed(e.to_string()),
                 });
+                s.changed(cx);
+            });
+        })
+        .detach();
+    }
+
+    /// Turns toolset `name` on or off for new sessions (a Desktop
+    /// Gateway's), as the phone's switch: the switch waits meanwhile, and a
+    /// refusal is the phone's toast.
+    pub fn set_toolset(
+        &mut self,
+        stores: &Stores,
+        name: &str,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(rpc) = self.rpc() else { return };
+        if !self.toolsets_busy.insert(name.to_string()) {
+            return;
+        }
+        self.changed(cx);
+        // Made on the connection in use now, or not at all; the catalog it
+        // answers with follows the order catalogs were asked in.
+        let call = rpc.call::<methods::HermesToolsetsSet>(&HermesToolsetToggle {
+            name: name.to_string(),
+            enabled,
+            connection: self.connection(),
+        });
+        let seq = self.catalog_order.ask();
+        let ticket = self.ticket(seq);
+        let name = name.to_string();
+        let toasts = stores.toasts.downgrade();
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| {
+                // After a switch the marks are the next connection's.
+                if s.is_current(ticket.generation) {
+                    s.toolsets_busy.remove(&name);
+                }
+                match result {
+                    Ok(catalog) => {
+                        if s.answers(ticket, |s| &mut s.catalog_order) {
+                            s.catalog = Some(Loaded::Ready(catalog));
+                        }
+                    }
+                    Err(e) => {
+                        log::info!("hermes.toolsets.set: {e}");
+                        let text = cx.l10n().hermes_toolset_update_failed();
+                        let _ = toasts.update(cx, |t, cx| t.show(NoticeLevel::Error, text, cx));
+                    }
+                }
+                s.changed(cx);
+            });
+        })
+        .detach();
+    }
+
+    /// Reload Skills: the gateway reads its skills again; the catalog it
+    /// answers with is shown, and Hermes chats read their `/` list again
+    /// ([`HermesAdminEvent::SkillsReloaded`]). A refusal is the phone's
+    /// toast.
+    pub fn reload_skills(&mut self, stores: &Stores, cx: &mut Context<Self>) {
+        let Some(rpc) = self.rpc() else { return };
+        if self.skills_reloading {
+            return;
+        }
+        self.skills_reloading = true;
+        self.changed(cx);
+        let call = rpc.call::<methods::HermesSkillsReload>(&HermesConnectionRef {
+            connection: self.connection(),
+        });
+        let seq = self.catalog_order.ask();
+        let ticket = self.ticket(seq);
+        let toasts = stores.toasts.downgrade();
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| {
+                if !s.is_current(ticket.generation) {
+                    // Another connection's: its chats' `/` lists are their own.
+                    if let Err(e) = &result {
+                        log::info!("hermes.skills.reload: {e}");
+                    }
+                    return;
+                }
+                s.skills_reloading = false;
+                match result {
+                    Ok(catalog) => {
+                        if s.answers(ticket, |s| &mut s.catalog_order) {
+                            s.catalog = Some(Loaded::Ready(catalog));
+                        }
+                        cx.emit(HermesAdminEvent::SkillsReloaded);
+                    }
+                    Err(e) => {
+                        log::info!("hermes.skills.reload: {e}");
+                        let text = cx.l10n().hermes_action_failed();
+                        let _ = toasts.update(cx, |t, cx| t.show(NoticeLevel::Error, text, cx));
+                    }
+                }
                 s.changed(cx);
             });
         })
@@ -1600,6 +1745,39 @@ mod tests {
             ],
         }))
         .unwrap()
+    }
+
+    #[gpui_kit::test]
+    fn a_sign_in_reads_the_status_and_catalog_again(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        let with = |signed_in: bool| -> HermesConnections {
+            serde_json::from_value(json!({
+                "enabled": true,
+                "activeId": "a",
+                "connections": [{
+                    "id": "a", "name": "Shed", "mode": "desktop",
+                    "desktopAuthKind": "dashboardCookie",
+                    "dashboardSignedIn": signed_in,
+                }],
+            }))
+            .unwrap()
+        };
+        store.update(cx, |s, cx| {
+            s.adopt_connections(with(false), cx);
+            s.status = Some(Loaded::Failed("not signed in".into()));
+            s.catalog = Some(Loaded::Failed("not signed in".into()));
+        });
+        // The same list again reads nothing.
+        store.update(cx, |s, cx| s.adopt_connections(with(false), cx));
+        cx.run_until_parked();
+        assert!(daemon.calls::<methods::HermesStatus>().is_empty());
+        // Signed in to its dashboard: what was read without the session is
+        // read again, and no switch is said.
+        store.update(cx, |s, cx| s.adopt_connections(with(true), cx));
+        cx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::HermesStatus>().len(), 1);
+        assert_eq!(daemon.calls::<methods::HermesCatalog>().len(), 1);
     }
 
     #[test]

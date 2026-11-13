@@ -97,6 +97,7 @@ mod dictation;
 mod direct;
 mod hermes_admin;
 mod hermes_cards;
+mod hermes_extras;
 mod hermes_rooms;
 mod hermes_sessions;
 mod integration;
@@ -794,6 +795,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "hermes-rooms" => hermes_rooms::run_scenario(&inputs, &dir, cx).await,
         "hermes-cards" => hermes_cards::run(&inputs, &dir, cx).await,
         "hermes-admin" => hermes_admin::run(&inputs, &dir, cx).await,
+        "hermes-extras" => hermes_extras::run(&inputs, &dir, cx).await,
         "sidebar" => sidebar(&inputs, &dir, cx).await,
         "chat" | "chat-direct" | "chat-smoke" | "chat-read-only" => {
             chat::run(&inputs, &dir, cx).await

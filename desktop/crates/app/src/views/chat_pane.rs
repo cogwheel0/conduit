@@ -346,6 +346,20 @@ impl ChatPane {
             cx.subscribe(&stores.connection, |this, _, event, cx| {
                 this.on_connection(event, cx)
             }),
+            // Reload Skills: a Hermes chat's `/` lists the skills read again.
+            cx.subscribe(
+                &stores.hermes_admin,
+                |this, admin, event: &crate::stores::hermes_admin::HermesAdminEvent, cx| {
+                    if matches!(
+                        event,
+                        crate::stores::hermes_admin::HermesAdminEvent::SkillsReloaded
+                    ) {
+                        let connection = admin.read(cx).connection();
+                        this.composer_store
+                            .update(cx, |c, cx| c.reload_hermes_prompts(connection, cx));
+                    }
+                },
+            ),
             cx.subscribe(&stores.router, |this, _, event: &RouterEvent, cx| {
                 let RouterEvent::Remapped { from, to } = event;
                 if let Some(chat) = &this.chat {
