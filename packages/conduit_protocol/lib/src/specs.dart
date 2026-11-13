@@ -1,7 +1,9 @@
+import 'access.dart';
 import 'accounts.dart';
 import 'auth.dart';
 import 'capabilities.dart';
 import 'channels.dart';
+import 'chat_settings.dart';
 import 'chats.dart';
 import 'composer.dart';
 import 'data.dart';
@@ -23,6 +25,7 @@ import 'settings.dart';
 import 'system.dart';
 import 'terminal.dart';
 import 'turns.dart';
+import 'valves.dart';
 import 'voice.dart';
 import 'workspace.dart';
 
@@ -235,11 +238,12 @@ abstract final class ConduitMethodSpecs {
     ConduitMethods.settingsGet,
     result: AppSettingsDto.fromJson,
   );
-  static const settingsSet = ConduitMethodSpec<AppSettingsPatch, AppSettingsDto>(
-    ConduitMethods.settingsSet,
-    params: AppSettingsPatch.fromJson,
-    result: AppSettingsDto.fromJson,
-  );
+  static const settingsSet =
+      ConduitMethodSpec<AppSettingsPatch, AppSettingsDto>(
+        ConduitMethods.settingsSet,
+        params: AppSettingsPatch.fromJson,
+        result: AppSettingsDto.fromJson,
+      );
   static const settingsGetAccount = ConduitMethodSpec<void, AccountSettingsDto>(
     ConduitMethods.settingsGetAccount,
     result: AccountSettingsDto.fromJson,
@@ -499,6 +503,22 @@ abstract final class ConduitMethodSpecs {
     params: FolderRef.fromJson,
     result: ChatList.fromJson,
   );
+  static const foldersGet = ConduitMethodSpec<FolderRef, FolderSettings>(
+    ConduitMethods.foldersGet,
+    params: FolderRef.fromJson,
+    result: FolderSettings.fromJson,
+  );
+  static const foldersUpdate = ConduitMethodSpec<FolderUpdate, FolderSettings>(
+    ConduitMethods.foldersUpdate,
+    params: FolderUpdate.fromJson,
+    result: FolderSettings.fromJson,
+  );
+  static const foldersDraftModel =
+      ConduitMethodSpec<FolderRef, FolderDraftModel>(
+        ConduitMethods.foldersDraftModel,
+        params: FolderRef.fromJson,
+        result: FolderDraftModel.fromJson,
+      );
   static const chatsSetPinned = ConduitMethodSpec<SetChatFlag, ChatList>(
     ConduitMethods.chatsSetPinned,
     params: SetChatFlag.fromJson,
@@ -546,6 +566,82 @@ abstract final class ConduitMethodSpecs {
     params: SelectModel.fromJson,
     result: ModelList.fromJson,
   );
+  static const modelsSetPinned = ConduitMethodSpec<SetModelPinned, ModelList>(
+    ConduitMethods.modelsSetPinned,
+    params: SetModelPinned.fromJson,
+    result: ModelList.fromJson,
+  );
+  static const modelsOptions =
+      ConduitMethodSpec<ModelOptionsQuery, ModelOptionsDto>(
+        ConduitMethods.modelsOptions,
+        params: ModelOptionsQuery.fromJson,
+        result: ModelOptionsDto.fromJson,
+      );
+  static const modelsSetReasoningEffort =
+      ConduitMethodSpec<SetReasoningEffort, ModelOptionsDto>(
+        ConduitMethods.modelsSetReasoningEffort,
+        params: SetReasoningEffort.fromJson,
+        result: ModelOptionsDto.fromJson,
+      );
+  static const modelsSetFastTier =
+      ConduitMethodSpec<SetFastTier, ModelOptionsDto>(
+        ConduitMethods.modelsSetFastTier,
+        params: SetFastTier.fromJson,
+        result: ModelOptionsDto.fromJson,
+      );
+
+  // chatSettings.*, valves.*, access.*
+
+  static const chatSettingsGet =
+      ConduitMethodSpec<ChatSettingsQuery, ChatSettingsState>(
+        ConduitMethods.chatSettingsGet,
+        params: ChatSettingsQuery.fromJson,
+        result: ChatSettingsState.fromJson,
+      );
+  static const chatSettingsCheck =
+      ConduitMethodSpec<ChatSettingsEdit, ChatSettingsState>(
+        ConduitMethods.chatSettingsCheck,
+        params: ChatSettingsEdit.fromJson,
+        result: ChatSettingsState.fromJson,
+      );
+  static const chatSettingsSave =
+      ConduitMethodSpec<ChatSettingsEdit, ChatSettingsState>(
+        ConduitMethods.chatSettingsSave,
+        params: ChatSettingsEdit.fromJson,
+        result: ChatSettingsState.fromJson,
+      );
+  static const valvesTargets =
+      ConduitMethodSpec<ValveTargetsQuery, ValveTargets>(
+        ConduitMethods.valvesTargets,
+        params: ValveTargetsQuery.fromJson,
+        result: ValveTargets.fromJson,
+      );
+  static const valvesGet = ConduitMethodSpec<ValvesRef, ValvesDocument>(
+    ConduitMethods.valvesGet,
+    params: ValvesRef.fromJson,
+    result: ValvesDocument.fromJson,
+  );
+  static const valvesSave = ConduitMethodSpec<ValvesSave, ValvesDocument>(
+    ConduitMethods.valvesSave,
+    params: ValvesSave.fromJson,
+    result: ValvesDocument.fromJson,
+  );
+  static const accessGet = ConduitMethodSpec<AccessRef, AccessState>(
+    ConduitMethods.accessGet,
+    params: AccessRef.fromJson,
+    result: AccessState.fromJson,
+  );
+  static const accessSet = ConduitMethodSpec<AccessEdit, AccessState>(
+    ConduitMethods.accessSet,
+    params: AccessEdit.fromJson,
+    result: AccessState.fromJson,
+  );
+  static const accessPrincipals =
+      ConduitMethodSpec<AccessPrincipalQuery, AccessPrincipals>(
+        ConduitMethods.accessPrincipals,
+        params: AccessPrincipalQuery.fromJson,
+        result: AccessPrincipals.fromJson,
+      );
   static const composerOptions = ConduitMethodSpec<void, ComposerOptions>(
     ConduitMethods.composerOptions,
     result: ComposerOptions.fromJson,
@@ -1321,6 +1417,9 @@ abstract final class ConduitMethodSpecs {
         foldersCreate,
         foldersRename,
         foldersDelete,
+        foldersGet,
+        foldersUpdate,
+        foldersDraftModel,
         chatsSetPinned,
         chatsSetArchived,
         chatsDelete,
@@ -1330,6 +1429,19 @@ abstract final class ConduitMethodSpecs {
         chatsUnshare,
         modelsList,
         modelsSelect,
+        modelsSetPinned,
+        modelsOptions,
+        modelsSetReasoningEffort,
+        modelsSetFastTier,
+        chatSettingsGet,
+        chatSettingsCheck,
+        chatSettingsSave,
+        valvesTargets,
+        valvesGet,
+        valvesSave,
+        accessGet,
+        accessSet,
+        accessPrincipals,
         composerOptions,
         composerKnowledge,
         draftsGet,

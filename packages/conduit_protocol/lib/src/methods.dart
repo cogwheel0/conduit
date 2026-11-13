@@ -190,6 +190,17 @@ abstract final class ConduitMethods {
   /// engine's own folder delete leaves them.
   static const String foldersDelete = 'folders.delete';
 
+  /// A folder's settings: name, icon, system prompt, default models and
+  /// project knowledge, read from the server as its page shows them.
+  static const String foldersGet = 'folders.get';
+
+  /// Changes what [FolderUpdate] names; answers with the settings after.
+  static const String foldersUpdate = 'folders.update';
+
+  /// What a new chat in the folder starts on: its default models this
+  /// server offers. Selects nothing.
+  static const String foldersDraftModel = 'folders.draftModel';
+
   /// Pins or unpins it.
   static const String chatsSetPinned = 'chats.setPinned';
 
@@ -220,6 +231,62 @@ abstract final class ConduitMethods {
   /// Chooses the model new turns use. Persisted with the account, so the
   /// choice survives a restart and agrees with the mobile app.
   static const String modelsSelect = 'models.select';
+
+  /// Pins a model to the top of the picker, or unpins it, in the account's
+  /// settings (as mobile's picker does).
+  static const String modelsSetPinned = 'models.setPinned';
+
+  /// The picker's extras for one model: reasoning effort (an Ollama
+  /// model's thinking level) and Hermes' Fast tier.
+  static const String modelsOptions = 'models.options';
+
+  /// Picks a reasoning effort for a model. For an Open WebUI model it is
+  /// also saved on the chat, as mobile's picker saves it.
+  static const String modelsSetReasoningEffort = 'models.setReasoningEffort';
+
+  /// Turns Hermes' Fast tier on or off.
+  static const String modelsSetFastTier = 'models.setFastTier';
+
+  // ---------------------------------------------------------------------
+  // chatSettings.* -- a chat's own system prompt and parameters (Open
+  // WebUI's `chat.params`), as mobile's Chat Settings sheet edits them.
+  // ---------------------------------------------------------------------
+
+  /// The form for a chat, or for a new chat's draft.
+  static const String chatSettingsGet = 'chatSettings.get';
+
+  /// The form with an edit applied, its errors marked; writes nothing.
+  static const String chatSettingsCheck = 'chatSettings.check';
+
+  /// Saves an edit: only what changed is written.
+  static const String chatSettingsSave = 'chatSettings.save';
+
+  // ---------------------------------------------------------------------
+  // valves.* -- the user's own settings ("personal valves") for the tools,
+  // filters and pipe a chat uses.
+  // ---------------------------------------------------------------------
+
+  /// What a chat's model, tools and filters offer personal valves for.
+  static const String valvesTargets = 'valves.targets';
+
+  /// One tool's or function's personal valves.
+  static const String valvesGet = 'valves.get';
+
+  /// Saves them; answers with what the server stored.
+  static const String valvesSave = 'valves.save';
+
+  // ---------------------------------------------------------------------
+  // access.* -- who may read or write a resource (users and groups). One
+  // API for folders now, and notes and Workspace items later.
+  // ---------------------------------------------------------------------
+
+  static const String accessGet = 'access.get';
+
+  /// Replaces the named grants; answers with the server's own result.
+  static const String accessSet = 'access.set';
+
+  /// Users and groups to grant access to.
+  static const String accessPrincipals = 'access.principals';
 
   /// What the composer may offer: web search, image generation, the
   /// server's tools. Re-asked when the model or the session changes.
@@ -758,6 +825,9 @@ abstract final class ConduitMethods {
   static const String memoriesPrefix = 'memories.';
   static const String releaseNotesPrefix = 'releaseNotes.';
   static const String dataPrefix = 'data.';
+  static const String chatSettingsPrefix = 'chatSettings.';
+  static const String valvesPrefix = 'valves.';
+  static const String accessPrefix = 'access.';
 
   /// Every namespace the protocol reserves. A method outside these prefixes
   /// is a typo, and the daemon's fallback handler says so.
@@ -796,6 +866,9 @@ abstract final class ConduitMethods {
     memoriesPrefix,
     releaseNotesPrefix,
     dataPrefix,
+    chatSettingsPrefix,
+    valvesPrefix,
+    accessPrefix,
   };
 
   /// Whether [method] sits in a namespace this protocol version defines.

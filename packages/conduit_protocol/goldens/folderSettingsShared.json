@@ -1,0 +1,15 @@
+{
+  "id": "folder-9",
+  "name": "Club",
+  "systemPrompt": "",
+  "modelIds": [],
+  "knowledge": [],
+  "shared": true,
+  "ownerName": "Rowan Vale",
+  "canRename": false,
+  "canWrite": false,
+  "canEditSystemPrompt": false,
+  "canShare": false,
+  "iconChoices": [],
+  "modelChoices": []
+}

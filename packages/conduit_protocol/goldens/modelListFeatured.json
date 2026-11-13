@@ -1,0 +1,24 @@
+{
+  "models": [
+    {
+      "id": "fake-model",
+      "name": "Kestrel 8B",
+      "pinned": true,
+      "capabilities": []
+    }
+  ],
+  "selectedId": "fake-model",
+  "featuredIds": [
+    "fake-model"
+  ],
+  "moreSections": [
+    {
+      "label": "",
+      "ids": [
+        "fake-other"
+      ]
+    }
+  ],
+  "canPin": true,
+  "defaultId": "fake-model"
+}

@@ -65,6 +65,10 @@ abstract class FolderSummary with _$FolderSummary {
     /// Whether chats may be put in it: always for the account's own folders,
     /// and for a [shared] one only with a write grant.
     @Default(true) bool canWrite,
+
+    /// Its icon as the sidebar draws it (an emoji), from the folder's
+    /// settings; null draws the plain folder.
+    String? icon,
   }) = _FolderSummary;
 
   factory FolderSummary.fromJson(Map<String, dynamic> json) =>
@@ -313,6 +317,132 @@ abstract class FolderRef with _$FolderRef {
 
   factory FolderRef.fromJson(Map<String, dynamic> json) =>
       _$FolderRefFromJson(json);
+}
+
+/// One of the icons a folder may take.
+@freezed
+abstract class FolderIconChoice with _$FolderIconChoice {
+  const factory FolderIconChoice({
+    /// The shortcode alias the folder saves.
+    required String alias,
+
+    /// What it draws as.
+    required String emoji,
+  }) = _FolderIconChoice;
+
+  factory FolderIconChoice.fromJson(Map<String, dynamic> json) =>
+      _$FolderIconChoiceFromJson(json);
+}
+
+/// A model a folder may start its chats on.
+@freezed
+abstract class FolderModelChoice with _$FolderModelChoice {
+  const factory FolderModelChoice({required String id, required String name}) =
+      _FolderModelChoice;
+
+  factory FolderModelChoice.fromJson(Map<String, dynamic> json) =>
+      _$FolderModelChoiceFromJson(json);
+}
+
+/// One item of a folder's project knowledge.
+@freezed
+abstract class FolderKnowledgeItem with _$FolderKnowledgeItem {
+  const factory FolderKnowledgeItem({
+    /// `collection`, `file` or `note`.
+    @Default('file') String type,
+    required String id,
+    @Default('') String name,
+
+    /// The server says the file is gone.
+    @Default(false) bool missing,
+  }) = _FolderKnowledgeItem;
+
+  factory FolderKnowledgeItem.fromJson(Map<String, dynamic> json) =>
+      _$FolderKnowledgeItemFromJson(json);
+}
+
+/// Reply to `folders.get` and `folders.update`: a folder's settings, as
+/// its page and settings sheet edit them.
+@freezed
+abstract class FolderSettings with _$FolderSettings {
+  const factory FolderSettings({
+    required String id,
+    required String name,
+    String? icon,
+
+    /// Applied by the server to every chat in the folder.
+    @Default('') String systemPrompt,
+
+    /// The models new chats in the folder start on, in slot order.
+    @Default(<String>[]) List<String> modelIds,
+
+    /// Knowledge applied to every chat in the folder.
+    @Default(<FolderKnowledgeItem>[]) List<FolderKnowledgeItem> knowledge,
+
+    /// Owned by another user and shared with this account.
+    @Default(false) bool shared,
+    String? ownerName,
+
+    /// The name and icon may be changed (the account owns the folder).
+    @Default(false) bool canRename,
+
+    /// The system prompt, models and knowledge may be changed (the owner, or
+    /// a write grant).
+    @Default(false) bool canWrite,
+
+    /// The system prompt may be changed too (a write grant, and the
+    /// account's chat permissions allow system prompts).
+    @Default(false) bool canEditSystemPrompt,
+
+    /// Its access may be changed (Share Folder).
+    @Default(false) bool canShare,
+
+    /// The icons to choose from.
+    @Default(<FolderIconChoice>[]) List<FolderIconChoice> iconChoices,
+
+    /// The models a folder may start its chats on: the server's own, not
+    /// this computer's Direct or Hermes ones.
+    @Default(<FolderModelChoice>[]) List<FolderModelChoice> modelChoices,
+  }) = _FolderSettings;
+
+  factory FolderSettings.fromJson(Map<String, dynamic> json) =>
+      _$FolderSettingsFromJson(json);
+}
+
+/// Params for `folders.update`: what changed; a null field stays as it is.
+@freezed
+abstract class FolderUpdate with _$FolderUpdate {
+  const factory FolderUpdate({
+    required String id,
+    String? name,
+
+    /// An empty alias clears the icon.
+    String? icon,
+    String? systemPrompt,
+    List<String>? modelIds,
+    List<FolderKnowledgeItem>? knowledge,
+  }) = _FolderUpdate;
+
+  factory FolderUpdate.fromJson(Map<String, dynamic> json) =>
+      _$FolderUpdateFromJson(json);
+}
+
+/// Reply to `folders.draftModel`: what a new chat in the folder starts on.
+@freezed
+abstract class FolderDraftModel with _$FolderDraftModel {
+  const factory FolderDraftModel({
+    required String folderId,
+
+    /// The folder's default models this server offers, in slot order; the
+    /// first is the new chat's. Empty: the account's own default applies.
+    @Default(<String>[]) List<String> modelIds,
+
+    /// The folder saved models, but the server offers none of them.
+    @Default(false) bool missing,
+  }) = _FolderDraftModel;
+
+  factory FolderDraftModel.fromJson(Map<String, dynamic> json) =>
+      _$FolderDraftModelFromJson(json);
 }
 
 /// Reply to `chats.folder`: every conversation in a folder, newest first.

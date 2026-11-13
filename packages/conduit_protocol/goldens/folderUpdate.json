@@ -1,0 +1,15 @@
+{
+  "id": "folder-1",
+  "name": "Work",
+  "icon": "",
+  "systemPrompt": "Keep answers short.",
+  "modelIds": [],
+  "knowledge": [
+    {
+      "type": "note",
+      "id": "note-1",
+      "name": "Plan",
+      "missing": false
+    }
+  ]
+}

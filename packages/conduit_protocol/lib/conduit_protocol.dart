@@ -8,11 +8,13 @@
 /// that suddenly misreads a payload.
 library;
 
+export 'src/access.dart';
 export 'src/accounts.dart';
 export 'src/auth.dart';
 export 'src/blocks.dart';
 export 'src/capabilities.dart';
 export 'src/channels.dart';
+export 'src/chat_settings.dart';
 export 'src/chats.dart';
 export 'src/composer.dart';
 export 'src/data.dart';
@@ -37,6 +39,7 @@ export 'src/servers.dart';
 export 'src/settings.dart';
 export 'src/specs.dart';
 export 'src/turns.dart';
+export 'src/valves.dart';
 export 'src/voice.dart';
 export 'src/workspace.dart';
 export 'src/subprotocol.dart';

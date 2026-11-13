@@ -1,5 +1,5 @@
 {
-  "protocolVersion": "1.58.0",
+  "protocolVersion": "1.59.0",
   "appOrigin": "app://conduit",
   "subprotocol": "conduit.v1",
   "subprotocolsExample": {
@@ -407,6 +407,21 @@
       "result": "ChatList"
     },
     {
+      "name": "folders.get",
+      "params": "FolderRef",
+      "result": "FolderSettings"
+    },
+    {
+      "name": "folders.update",
+      "params": "FolderUpdate",
+      "result": "FolderSettings"
+    },
+    {
+      "name": "folders.draftModel",
+      "params": "FolderRef",
+      "result": "FolderDraftModel"
+    },
+    {
       "name": "chats.setPinned",
       "params": "SetChatFlag",
       "result": "ChatList"
@@ -450,6 +465,71 @@
       "name": "models.select",
       "params": "SelectModel",
       "result": "ModelList"
+    },
+    {
+      "name": "models.setPinned",
+      "params": "SetModelPinned",
+      "result": "ModelList"
+    },
+    {
+      "name": "models.options",
+      "params": "ModelOptionsQuery",
+      "result": "ModelOptionsDto"
+    },
+    {
+      "name": "models.setReasoningEffort",
+      "params": "SetReasoningEffort",
+      "result": "ModelOptionsDto"
+    },
+    {
+      "name": "models.setFastTier",
+      "params": "SetFastTier",
+      "result": "ModelOptionsDto"
+    },
+    {
+      "name": "chatSettings.get",
+      "params": "ChatSettingsQuery",
+      "result": "ChatSettingsState"
+    },
+    {
+      "name": "chatSettings.check",
+      "params": "ChatSettingsEdit",
+      "result": "ChatSettingsState"
+    },
+    {
+      "name": "chatSettings.save",
+      "params": "ChatSettingsEdit",
+      "result": "ChatSettingsState"
+    },
+    {
+      "name": "valves.targets",
+      "params": "ValveTargetsQuery",
+      "result": "ValveTargets"
+    },
+    {
+      "name": "valves.get",
+      "params": "ValvesRef",
+      "result": "ValvesDocument"
+    },
+    {
+      "name": "valves.save",
+      "params": "ValvesSave",
+      "result": "ValvesDocument"
+    },
+    {
+      "name": "access.get",
+      "params": "AccessRef",
+      "result": "AccessState"
+    },
+    {
+      "name": "access.set",
+      "params": "AccessEdit",
+      "result": "AccessState"
+    },
+    {
+      "name": "access.principals",
+      "params": "AccessPrincipalQuery",
+      "result": "AccessPrincipals"
     },
     {
       "name": "composer.options",

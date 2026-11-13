@@ -1,0 +1,11 @@
+{
+  "key": "top_k",
+  "kind": "integer",
+  "mode": "custom",
+  "text": "1.5",
+  "choices": [],
+  "allowsCustom": false,
+  "min": 0.0,
+  "max": 1000.0,
+  "error": "notAWholeNumber"
+}

@@ -1,0 +1,34 @@
+{
+  "id": "folder-1",
+  "name": "Work",
+  "icon": "briefcase",
+  "systemPrompt": "Keep answers short.",
+  "modelIds": [
+    "fake-model"
+  ],
+  "knowledge": [
+    {
+      "type": "file",
+      "id": "file-1",
+      "name": "notes.txt",
+      "missing": true
+    }
+  ],
+  "shared": false,
+  "canRename": true,
+  "canWrite": true,
+  "canEditSystemPrompt": false,
+  "canShare": true,
+  "iconChoices": [
+    {
+      "alias": "memo",
+      "emoji": "M"
+    }
+  ],
+  "modelChoices": [
+    {
+      "id": "fake-model",
+      "name": "Kestrel 8B"
+    }
+  ]
+}

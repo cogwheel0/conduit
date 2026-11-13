@@ -7,7 +7,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.58.0",
+  "protocolVersion": "1.59.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -16,7 +16,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.58.0",
+  "protocolVersion": "1.59.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -549,7 +549,10 @@ const Map<String, String> protocolGoldens = <String, String>{
       "connection": "Home Ollama"
     }
   ],
-  "selectedId": "gpt-4o"
+  "selectedId": "gpt-4o",
+  "featuredIds": [],
+  "moreSections": [],
+  "canPin": false
 }''',
 
   'selectModel': r'''
@@ -3919,6 +3922,530 @@ const Map<String, String> protocolGoldens = <String, String>{
   "reconnects": 1,
   "allowPolling": false,
   "allowWebsocket": true
+}''',
+
+  'chatSettingsQuery': r'''
+{
+  "chatId": "chat-1",
+  "modelId": "fake-model",
+  "draft": {}
+}''',
+
+  'chatSettingsQueryDraft': r'''
+{
+  "draft": {
+    "temperature": 0.4
+  }
+}''',
+
+  'chatSettingField': r'''
+{
+  "key": "temperature",
+  "kind": "decimal",
+  "mode": "custom",
+  "text": "0.4",
+  "choices": [],
+  "allowsCustom": false,
+  "min": 0.0,
+  "max": 2.0
+}''',
+
+  'chatSettingFieldError': r'''
+{
+  "key": "top_k",
+  "kind": "integer",
+  "mode": "custom",
+  "text": "1.5",
+  "choices": [],
+  "allowsCustom": false,
+  "min": 0.0,
+  "max": 1000.0,
+  "error": "notAWholeNumber"
+}''',
+
+  'chatSettingFieldChoice': r'''
+{
+  "key": "reasoning_effort",
+  "kind": "choice",
+  "mode": "modelDefault",
+  "text": "",
+  "choices": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "allowsCustom": true
+}''',
+
+  'chatSettingApplied': r'''
+{
+  "key": "temperature",
+  "value": "0.4"
+}''',
+
+  'chatSettingsState': r'''
+{
+  "chatId": "chat-1",
+  "entry": "editor",
+  "advanced": true,
+  "canEditSystemPrompt": true,
+  "canEditParameters": true,
+  "systemPrompt": {
+    "key": "system",
+    "kind": "text",
+    "mode": "custom",
+    "text": "Answer in haiku.",
+    "choices": [],
+    "allowsCustom": false
+  },
+  "parameters": [
+    {
+      "key": "seed",
+      "kind": "integer",
+      "mode": "inherit",
+      "text": "",
+      "choices": [],
+      "allowsCustom": false
+    }
+  ],
+  "otherKept": false,
+  "applied": [
+    {
+      "key": "system",
+      "value": "Answer in haiku."
+    }
+  ],
+  "params": {
+    "system": "Answer in haiku."
+  },
+  "dirty": false,
+  "hasErrors": false,
+  "saved": true
+}''',
+
+  'chatSettingFieldEdit': r'''
+{
+  "key": "seed",
+  "mode": "custom",
+  "text": "42"
+}''',
+
+  'chatSettingsEdit': r'''
+{
+  "chatId": "chat-1",
+  "draft": {},
+  "fields": [
+    {
+      "key": "system",
+      "mode": "inherit",
+      "text": ""
+    }
+  ]
+}''',
+
+  'valveTarget': r'''
+{
+  "kind": "tool",
+  "id": "tool-weather",
+  "label": "Weather"
+}''',
+
+  'valveTargetsQuery': r'''
+{
+  "modelId": "fake-model",
+  "toolIds": [
+    "tool-weather"
+  ],
+  "filterIds": []
+}''',
+
+  'valveTargets': r'''
+{
+  "targets": [
+    {
+      "kind": "function",
+      "id": "filter-1",
+      "label": ""
+    }
+  ],
+  "advanced": true
+}''',
+
+  'valvesRef': r'''
+{
+  "kind": "tool",
+  "id": "tool-weather",
+  "label": "Weather"
+}''',
+
+  'valveField': r'''
+{
+  "key": "units",
+  "title": "Units",
+  "description": "Metric or imperial",
+  "type": "choice",
+  "isRequired": true,
+  "password": false,
+  "options": [
+    "metric",
+    "imperial"
+  ],
+  "isDefault": false,
+  "hasDefault": true,
+  "text": "metric",
+  "seed": "metric"
+}''',
+
+  'valvesDocument': r'''
+{
+  "kind": "tool",
+  "id": "tool-weather",
+  "label": "Weather",
+  "phase": "ready",
+  "fields": [
+    {
+      "key": "verbose",
+      "title": "Verbose",
+      "type": "boolean",
+      "isRequired": false,
+      "password": false,
+      "options": [],
+      "isDefault": true,
+      "hasDefault": false,
+      "text": "",
+      "seed": ""
+    }
+  ]
+}''',
+
+  'valvesDocumentUnavailable': r'''
+{
+  "kind": "function",
+  "id": "filter-1",
+  "label": "",
+  "phase": "unavailable",
+  "fields": []
+}''',
+
+  'valveEdit': r'''
+{
+  "key": "units",
+  "isDefault": false,
+  "text": "metric"
+}''',
+
+  'valvesSave': r'''
+{
+  "kind": "tool",
+  "id": "tool-weather",
+  "label": "",
+  "values": [
+    {
+      "key": "verbose",
+      "isDefault": true,
+      "text": ""
+    }
+  ]
+}''',
+
+  'accessRef': r'''
+{
+  "kind": "folder",
+  "id": "folder-1"
+}''',
+
+  'accessGrantDto': r'''
+{
+  "principalType": "user",
+  "principalId": "user-2",
+  "write": true,
+  "name": "Rowan Vale",
+  "email": "rowan@example.test"
+}''',
+
+  'accessState': r'''
+{
+  "kind": "folder",
+  "id": "folder-1",
+  "grants": [
+    {
+      "principalType": "group",
+      "principalId": "group-1",
+      "write": false,
+      "name": ""
+    }
+  ],
+  "audience": "private",
+  "canEdit": true,
+  "allowUsers": true,
+  "allowGroups": true,
+  "allowWrite": true,
+  "allowPublic": true,
+  "ownerName": "Ada Example"
+}''',
+
+  'accessEdit': r'''
+{
+  "kind": "folder",
+  "id": "folder-1",
+  "grants": [
+    {
+      "principalType": "user",
+      "principalId": "user-2",
+      "write": false,
+      "name": ""
+    }
+  ],
+  "audience": "public"
+}''',
+
+  'accessPrincipal': r'''
+{
+  "type": "user",
+  "id": "user-2",
+  "name": "Rowan Vale"
+}''',
+
+  'accessPrincipalQuery': r'''
+{
+  "query": "row"
+}''',
+
+  'accessPrincipals': r'''
+{
+  "items": [
+    {
+      "type": "group",
+      "id": "group-1",
+      "name": "Gardeners"
+    }
+  ]
+}''',
+
+  'modelListFeatured': r'''
+{
+  "models": [
+    {
+      "id": "fake-model",
+      "name": "Kestrel 8B",
+      "pinned": true,
+      "capabilities": []
+    }
+  ],
+  "selectedId": "fake-model",
+  "featuredIds": [
+    "fake-model"
+  ],
+  "moreSections": [
+    {
+      "label": "",
+      "ids": [
+        "fake-other"
+      ]
+    }
+  ],
+  "canPin": true,
+  "defaultId": "fake-model"
+}''',
+
+  'modelSection': r'''
+{
+  "label": "Agents",
+  "ids": [
+    "agent-1"
+  ]
+}''',
+
+  'setModelPinned': r'''
+{
+  "id": "fake-model",
+  "pinned": true
+}''',
+
+  'modelOptionsQuery': r'''
+{
+  "modelId": "fake-model",
+  "chatId": "chat-1"
+}''',
+
+  'reasoningOptions': r'''
+{
+  "visible": true,
+  "options": [
+    "automatic",
+    "low",
+    "medium",
+    "high"
+  ],
+  "allowsCustom": true,
+  "current": "high",
+  "ollama": false
+}''',
+
+  'modelOptionsDto': r'''
+{
+  "modelId": "fake-model",
+  "reasoning": {
+    "visible": true,
+    "options": [],
+    "allowsCustom": false,
+    "current": "low",
+    "ollama": false
+  },
+  "fastTier": false,
+  "draft": {
+    "reasoning_effort": "low"
+  }
+}''',
+
+  'setReasoningEffort': r'''
+{
+  "modelId": "fake-model",
+  "chatId": "chat-1",
+  "draft": {},
+  "effort": "high"
+}''',
+
+  'setFastTier': r'''
+{
+  "modelId": "hermes-agent",
+  "on": true
+}''',
+
+  'folderIconChoice': r'''
+{
+  "alias": "books",
+  "emoji": "B"
+}''',
+
+  'folderKnowledgeItem': r'''
+{
+  "type": "collection",
+  "id": "kb-1",
+  "name": "Garden guides",
+  "missing": false
+}''',
+
+  'folderSettings': r'''
+{
+  "id": "folder-1",
+  "name": "Work",
+  "icon": "briefcase",
+  "systemPrompt": "Keep answers short.",
+  "modelIds": [
+    "fake-model"
+  ],
+  "knowledge": [
+    {
+      "type": "file",
+      "id": "file-1",
+      "name": "notes.txt",
+      "missing": true
+    }
+  ],
+  "shared": false,
+  "canRename": true,
+  "canWrite": true,
+  "canEditSystemPrompt": false,
+  "canShare": true,
+  "iconChoices": [
+    {
+      "alias": "memo",
+      "emoji": "M"
+    }
+  ],
+  "modelChoices": [
+    {
+      "id": "fake-model",
+      "name": "Kestrel 8B"
+    }
+  ]
+}''',
+
+  'folderModelChoice': r'''
+{
+  "id": "fake-model",
+  "name": "Kestrel 8B"
+}''',
+
+  'folderSettingsShared': r'''
+{
+  "id": "folder-9",
+  "name": "Club",
+  "systemPrompt": "",
+  "modelIds": [],
+  "knowledge": [],
+  "shared": true,
+  "ownerName": "Rowan Vale",
+  "canRename": false,
+  "canWrite": false,
+  "canEditSystemPrompt": false,
+  "canShare": false,
+  "iconChoices": [],
+  "modelChoices": []
+}''',
+
+  'folderUpdate': r'''
+{
+  "id": "folder-1",
+  "name": "Work",
+  "icon": "",
+  "systemPrompt": "Keep answers short.",
+  "modelIds": [],
+  "knowledge": [
+    {
+      "type": "note",
+      "id": "note-1",
+      "name": "Plan",
+      "missing": false
+    }
+  ]
+}''',
+
+  'folderDraftModel': r'''
+{
+  "folderId": "folder-1",
+  "modelIds": [
+    "fake-model"
+  ],
+  "missing": false
+}''',
+
+  'folderDraftModelMissing': r'''
+{
+  "folderId": "folder-1",
+  "modelIds": [],
+  "missing": true
+}''',
+
+  'sendTurnInFolder': r'''
+{
+  "text": "Plan the week",
+  "toolIds": [],
+  "knowledge": [],
+  "webSearch": false,
+  "imageGeneration": false,
+  "codeInterpreter": false,
+  "fileIds": [],
+  "context": [],
+  "mentions": [],
+  "filterIds": [],
+  "compareModels": [],
+  "temporary": false,
+  "folderId": "folder-1",
+  "chatParams": {
+    "seed": 42
+  }
+}''',
+
+  'folderSummaryIcon': r'''
+{
+  "id": "folder-1",
+  "name": "Work",
+  "expanded": false,
+  "shared": false,
+  "canWrite": true,
+  "icon": "W"
 }''',
 
 };
