@@ -296,14 +296,49 @@ class CalendarSettingsPages extends SettingsPageModule {
       _redrawQueued = false;
       final l10n = _l10n;
       if (l10n == null || _owner == null) return;
+      if (!_current(_owner)) {
+        await _accountChanged(l10n);
+        return;
+      }
       await _drawMonth(l10n);
       if (_calendarsShown) await _drawCalendars(l10n);
-      // Events read for another account are not drawn again for this one.
-      if (!_current(_owner)) return;
       for (final view in _events.values.toList()) {
         await _drawEvent(l10n, view);
       }
     });
+  }
+
+  /// Another account signed in with the pages open: the pages the visit
+  /// opened over the month keep none of its events, drafts, people or
+  /// calendars, and say so; the month starts over for the account signed
+  /// in now.
+  Future<void> _accountChanged(AppLocalizations l10n) async {
+    final pages = [
+      for (final key in _events.keys) calendarEventPageId(key),
+      for (final key in _editors.keys) calendarEditorPageId(key),
+      for (final key in _people.keys) calendarPeoplePageId(key),
+      if (_calendarsShown) calendarCalendarsPageId,
+      if (_newCalendar != null) calendarNewCalendarPageId,
+    ];
+    _end();
+    for (final id in pages) {
+      await _surface.applyDetail(
+        NativeSheetDetailConfig(
+          id: id,
+          title: l10n.calendarTitle,
+          announcement: l10n.calendarAccountChanged,
+          items: [
+            NativeSheetItemConfig(
+              id: '$id-account-changed',
+              title: l10n.calendarAccountChanged,
+              sfSymbol: 'exclamationmark.triangle',
+              kind: NativeSheetItemKind.info,
+            ),
+          ],
+        ),
+      );
+    }
+    await _openMonth(l10n);
   }
 
   /// The agenda read, when it is the shown month's.

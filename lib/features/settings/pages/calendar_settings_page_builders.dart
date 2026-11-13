@@ -428,20 +428,24 @@ buildCalendarEventPage(
   final data = state.data;
   final access = data?.access;
   final calendars = data?.calendars ?? const <CalendarModel>[];
-  final calendar = calendars.where((c) => c.id == event.calendarId).firstOrNull;
+  // The event's own record once read, so what it says and who may change
+  // it are the server's now; when it happens stays the agenda's, whose
+  // occurrence of a series this page is (the record holds the series'
+  // first start).
   final shown = state.fresh ?? event;
+  final calendar = calendars.where((c) => c.id == shown.calendarId).firstOrNull;
   final loading = state.detail == CalendarEventDetail.loading;
   final canEdit =
       access != null &&
-      access.canEdit(event, calendars) &&
+      access.canEdit(shown, calendars) &&
       state.detail != CalendarEventDetail.denied &&
       state.detail != CalendarEventDetail.gone &&
       !loading;
   final invited = access?.canRsvp(shown) ?? false;
   final answer = state.answer ?? access?.ownAnswer(shown);
   final answered = answer != null && answer != CalendarRsvp.pending;
-  final title = event.title.isEmpty ? l10n.calendarUntitledEvent : event.title;
-  final color = data == null ? _fallbackColor : calendarItemColor(event, data);
+  final title = shown.title.isEmpty ? l10n.calendarUntitledEvent : shown.title;
+  final color = data == null ? _fallbackColor : calendarItemColor(shown, data);
   final busy = state.responding || state.deleting;
   final editorPage = calendarEditorPageId(calendarEditorKey(event.id));
   final description = (shown.description ?? '').trim();
@@ -472,7 +476,7 @@ buildCalendarEventPage(
             symbolColor: color,
             kind: NativeSheetItemKind.info,
           ),
-          if (event.location case final location?)
+          if (shown.location case final location?)
             _note(
               '$pageId-location',
               l10n.calendarFieldLocation,
@@ -482,7 +486,7 @@ buildCalendarEventPage(
         ],
       ),
       NativeSheetSectionConfig(
-        footer: event.isRecurring ? l10n.calendarEventSeriesNote : null,
+        footer: shown.isRecurring ? l10n.calendarEventSeriesNote : null,
         items: [
           if (calendar != null)
             NativeSheetItemConfig(
@@ -493,14 +497,14 @@ buildCalendarEventPage(
               symbolColor: calendarColorArgb(calendar.color) ?? _fallbackColor,
               kind: NativeSheetItemKind.info,
             ),
-          if (event.isRecurring)
+          if (shown.isRecurring)
             _note(
               '$pageId-repeat',
               l10n.calendarFieldRepeat,
               'repeat',
-              repeatLabel(l10n, CalendarRepeat.fromRule(event.rrule)),
+              repeatLabel(l10n, CalendarRepeat.fromRule(shown.rrule)),
             ),
-          if (event.organizerName case final organizer?)
+          if (shown.organizerName case final organizer?)
             _note(
               '$pageId-organizer',
               l10n.calendarFieldOrganizer,
@@ -563,7 +567,7 @@ buildCalendarEventPage(
           items: [
             NativeSheetItemConfig(
               id: editorPage,
-              title: event.isRecurring
+              title: shown.isRecurring
                   ? l10n.calendarEventEditSeries
                   : l10n.calendarEventEdit,
               sfSymbol: 'pencil',
@@ -572,7 +576,7 @@ buildCalendarEventPage(
             ),
             NativeSheetItemConfig(
               id: calendarEventRowId('delete', key),
-              title: event.isRecurring
+              title: shown.isRecurring
                   ? l10n.calendarEventDeleteSeries
                   : l10n.calendarEventDelete,
               sfSymbol: 'trash',
@@ -580,7 +584,7 @@ buildCalendarEventPage(
               showsDisclosure: false,
               pending: state.deleting ? true : null,
               disabled: busy,
-              confirmMessage: event.isRecurring
+              confirmMessage: shown.isRecurring
                   ? l10n.calendarEventDeleteSeriesConfirm(title)
                   : l10n.calendarEventDeleteConfirm(title),
             ),
@@ -607,7 +611,7 @@ buildCalendarEventPage(
         _loading(
           l10n,
           editorPage,
-          event.isRecurring
+          shown.isRecurring
               ? l10n.calendarEditSeriesTitle
               : l10n.calendarEditEventTitle,
         ),

@@ -346,6 +346,53 @@ void main() {
       expect(rig.closed, contains(page));
     });
 
+    testWidgets("shows the event's own record once read, not the agenda's "
+        'older copy', (tester) async {
+      final rig = await _open(tester);
+      final page = eventPage(rig);
+      // Changed on the server after the month was read.
+      rig.wire.events = [
+        eventJson(
+          'ev-mine',
+          'cal-mine',
+          title: 'Planning, moved',
+          location: 'Room 4',
+        ),
+      ];
+
+      await rig.open(page);
+
+      expect(rig.titles(page), contains('Planning, moved'));
+      expect(rig.titles(page), isNot(contains('Planning')));
+      expect(rig.row(page, '$page-location').subtitle, 'Room 4');
+    });
+
+    testWidgets("an account switch leaves the open pages none of the last "
+        "account's event, draft or calendars", (tester) async {
+      final rig = await _open(tester);
+      // Settings keeps its pages' modules followed while it is open.
+      final modules = rig.container.listen(
+        settingsPageModulesProvider,
+        (_, _) {},
+      );
+      addTearDown(modules.close);
+      final page = eventPage(rig);
+      await rig.open(page);
+      final editor = calendarEditorPageId(calendarEditorKey('ev-mine'));
+      await rig.open(editor);
+      final title = calendarEditorRowId('title', calendarEditorKey('ev-mine'));
+      await rig.change(title, 'Planning, moved');
+      await rig.open(calendarCalendarsPageId);
+      expect(rig.titles(page), contains('Planning'));
+
+      rig.session.switchAccount();
+      await rig._settle(Future<void>.value());
+
+      for (final id in [page, editor, calendarCalendarsPageId]) {
+        expect(rig.titles(id), [_l10n.calendarAccountChanged], reason: id);
+      }
+    });
+
     testWidgets('an editor open over its event keeps its rows as the event '
         'is drawn again', (tester) async {
       final rig = await _open(tester);
