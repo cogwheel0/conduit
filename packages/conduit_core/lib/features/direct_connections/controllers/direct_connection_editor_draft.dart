@@ -156,6 +156,7 @@ enum DirectDraftValidationIssue {
 }
 
 const String kOpenRouterProviderPreset = 'openrouter';
+const String kRapidMlxProviderPreset = 'rapid-mlx';
 
 List<String> parseDirectManualModelIds(String source) {
   final seen = <String>{};

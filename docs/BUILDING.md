@@ -201,7 +201,7 @@ lib/
     auth/               server setup, login, SSO, proxy auth
     channels/           channel browsing and threaded messaging
     chat/               conversations, attachments, tools, streaming, voice call
-    direct_connections/ OpenAI-compatible, Ollama, and OpenRouter profiles
+    direct_connections/ OpenAI-compatible, Ollama, OpenRouter, and Rapid-MLX presets
     hermes/             Hermes Agent transport, approvals, scheduled jobs
     navigation/         chat shell, drawer, adaptive navigation
     notes/              note editor and AI-assisted note workflows

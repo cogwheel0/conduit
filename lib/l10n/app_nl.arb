@@ -3234,6 +3234,7 @@
   "openAICompatible": "OpenAI-compatibel",
   "ollama": "Ollama",
   "openRouterProviderName": "OpenRouter",
+  "rapidMlxProviderName": "Rapid-MLX",
   "directApiBaseUrl": "Basis-URL",
   "directOpenRouterUrlInvalid": "Gebruik de HTTPS-/api/v1-hoofd-URL van OpenRouter (wereldwijd of EU).",
   "directOpenRouterBaseUrlDescription": "Conduit gebruikt je OpenRouter-API-sleutel, geverifieerde modelcatalogus en door Conduit beheerde tools.",
