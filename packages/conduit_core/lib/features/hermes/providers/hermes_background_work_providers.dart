@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:clock/clock.dart' show clock;
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_background_work.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_working_directory_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/ports/app_lifecycle.dart';
 import 'package:conduit_core/providers/host_ports.dart';
@@ -255,6 +257,24 @@ final hermesOpenSessionIdProvider = Provider.autoDispose<String?>(
   (ref) => ref.watch(_openHermesSessionProvider),
 );
 
+/// The open chat's background work, its plan and its working directory made
+/// afresh in a chat session scope (`ChatSessionScope`), from the same create
+/// functions: left to the root, they would list the root's open chat's work,
+/// not the scope's. A host keeping several chats live (the desktop daemon)
+/// opens its scopes with these.
+List<Override> chatSessionScopedHermesWorkOverrides() => <Override>[
+  ...chatSessionScopedHermesPlanOverrides(),
+  ...chatSessionScopedHermesWorkingDirectoryOverrides(),
+  _openHermesSessionProvider.overrideWith(
+    (ref) => ref.watch(hermesOpenChatSessionProvider),
+  ),
+  hermesOpenSessionIdProvider.overrideWith(
+    (ref) => ref.watch(_openHermesSessionProvider),
+  ),
+  hermesBackgroundWorkProvider.overrideWith(HermesBackgroundWorkController.new),
+  hermesSubagentTailProvider.overrideWith2(HermesSubagentTailController.new),
+];
+
 /// What is known of a subagent's live output.
 final class HermesSubagentTailView {
   const HermesSubagentTailView({this.tail, this.failed = false});
@@ -358,8 +378,7 @@ class HermesSubagentTailController extends Notifier<HermesSubagentTailView> {
     // A read a resume or the finish started while another was waiting:
     // only the newest one's answer counts, and it schedules the next.
     final read = ++_reads;
-    bool stale() =>
-        generation != _generation || !ref.mounted || read != _reads;
+    bool stale() => generation != _generation || !ref.mounted || read != _reads;
     final finished = _finished;
     try {
       final tail = await service.subagentTail(
@@ -372,8 +391,7 @@ class HermesSubagentTailController extends Notifier<HermesSubagentTailView> {
       final kept = state.tail;
       // Null while the chat is not attached: keep what was read. A
       // finished child's transcript is cleaned up: keep what was read.
-      if (tail != null &&
-          (tail.available || kept == null || !kept.available)) {
+      if (tail != null && (tail.available || kept == null || !kept.available)) {
         state = HermesSubagentTailView(tail: tail);
       }
     } catch (_) {

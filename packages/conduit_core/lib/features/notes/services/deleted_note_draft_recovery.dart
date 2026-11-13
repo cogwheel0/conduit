@@ -47,6 +47,28 @@ class NoteRecoverySession {
 /// The text the editor holds.
 typedef NoteDraftSnapshot = ({String title, String markdown});
 
+/// Creates a `local:` note, through the durable outbox, from the draft of
+/// [previous], a note the server deleted: [title] and [markdown] over the
+/// deleted note's other data. Returns the stored note, or null when it could
+/// not be read back.
+Future<Note?> createNoteFromDeletedDraft(
+  ProviderContainer container,
+  AppDatabase db, {
+  required Note previous,
+  required String? userId,
+  required String title,
+  required String markdown,
+}) => durableCreateNote(
+  container,
+  db,
+  userId: userId,
+  title: title,
+  data: <String, dynamic>{
+    ...previous.data.toJson(),
+    ...noteContentData(markdown),
+  },
+);
+
 /// Saves the edits of a note the server deleted as a new local note.
 ///
 /// A pull that finds the open note gone removes its local row, so an edit not
@@ -199,20 +221,17 @@ class DeletedNoteDraftRecovery {
 
     _cancelPendingSave();
     final NoteDraftSnapshot draft = _readDraft();
-    final Map<String, dynamic> draftData = <String, dynamic>{
-      ...previous.data.toJson(),
-      ...noteContentData(draft.markdown),
-    };
     Note? recovered;
     try {
-      recovered = await durableCreateNote(
+      recovered = await createNoteFromDeletedDraft(
         _container,
         db,
+        previous: previous,
         userId: session.userId,
         title: draft.title.trim().isEmpty
             ? _untitledTitle()
             : draft.title.trim(),
-        data: draftData,
+        markdown: draft.markdown,
       );
     } catch (error, stackTrace) {
       DebugLogger.error(

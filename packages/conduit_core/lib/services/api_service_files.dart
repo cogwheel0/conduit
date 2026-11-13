@@ -242,14 +242,21 @@ mixin _FilesApi on _ApiServiceBase {
   /// Uploads an in-memory file to `/files/` and returns the new file id. Used by
   /// the workspace knowledge browser for both binary uploads and generated text
   /// files. Mirrors [uploadFileWithProgress] but takes bytes directly.
+  ///
+  /// [metadata] goes with the file as Open WebUI's upload form takes it: a
+  /// `channel_id` there files it under that channel, so the channel's
+  /// members may read it (as a channel attachment from mobile does).
   Future<String> uploadFileBytes(
     String fileName,
     List<int> bytes, {
     void Function(int sent, int total)? onProgress,
+    Map<String, dynamic>? metadata,
   }) async {
     _traceApi('Uploading file bytes: $fileName (${bytes.length} bytes)');
     final formData = FormData.fromMap({
       'file': MultipartFile.fromBytes(bytes, filename: fileName),
+      if (metadata != null && metadata.isNotEmpty)
+        'metadata': jsonEncode(metadata),
     });
     final uploadTimeout = uploadTimeoutForBytes(bytes.length);
     // The server processes the file in the background after answering; see

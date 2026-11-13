@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:meta/meta.dart';
 
@@ -66,7 +67,17 @@ final class VoiceCallEligibilityResolutionCancelled implements Exception {
 /// OpenWebUI models still require an authenticated session. Hermes and
 /// device-owned Direct models use app-owned transports and are admitted from
 /// their concrete runtime provenance instead of OpenWebUI navigation state.
-final voiceCallEligibilityProvider = Provider<VoiceCallEligibility>((ref) {
+final voiceCallEligibilityProvider = Provider<VoiceCallEligibility>(
+  _voiceCallEligibility,
+);
+
+/// The overrides that give a chat session scope its own admission: it reads
+/// the scope's selected model, not the root's.
+List<Override> chatSessionScopedVoiceCallEligibilityOverrides() => <Override>[
+  voiceCallEligibilityProvider.overrideWith(_voiceCallEligibility),
+];
+
+VoiceCallEligibility _voiceCallEligibility(Ref ref) {
   final model = ref.watch(selectedModelProvider);
   if (model == null) {
     return const VoiceCallEligibility.blocked(
@@ -135,7 +146,7 @@ final voiceCallEligibilityProvider = Provider<VoiceCallEligibility>((ref) {
     model: model,
     errorMessage: 'Sign in to start a voice call.',
   );
-});
+}
 
 /// Resolves transient startup state before returning the current admission
 /// decision. Native entry points can arrive before secure storage, auth, or

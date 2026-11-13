@@ -88,11 +88,24 @@ final class LibreChatRun {
 /// The LibreChat turns running in this app session, by reply and by
 /// conversation. Separate from Hermes' registry, whose connection changes
 /// cancel everything it holds.
-final libreChatRunRegistryProvider = Provider<LibreChatRunRegistry>((ref) {
+final libreChatRunRegistryProvider = Provider<LibreChatRunRegistry>(
+  _libreChatRunRegistry,
+);
+
+LibreChatRunRegistry _libreChatRunRegistry(Ref ref) {
   final registry = LibreChatRunRegistry._(ref);
   ref.onDispose(registry._dispose);
   return registry;
-});
+}
+
+/// This file's share of a chat session scope ([ChatSessionScope]): a run
+/// shows its reply through its registry's `ref`, so a scope keeps its own
+/// registry and a reply streams into that scope's transcript, not the
+/// root's. Which generations run (`libreChatActiveGenerationsProvider`)
+/// stays the account's, shared.
+List<Override> chatSessionScopedLibreChatOverrides() => <Override>[
+  libreChatRunRegistryProvider.overrideWith(_libreChatRunRegistry),
+];
 
 /// Stops every LibreChat reply this session follows, in any chat, once the
 /// user has agreed to leave the account anyway: the open chat's Stop does
@@ -143,6 +156,34 @@ final class LibreChatRunRegistry {
   /// The run whose reply is [messageId], if any.
   LibreChatRun? forMessage(String messageId) =>
       _runs.where((run) => run.assistantMessageId == messageId).lastOrNull;
+
+  /// Message ids minted here that the server has since replaced, to its
+  /// ids, newest last. Kept past the run, for a host that follows a turn by
+  /// the ids it began with (the desktop's daemon streams a reply to its
+  /// windows by the id it announced).
+  final Map<String, String> _replacedIds = <String, String>{};
+
+  /// [messageId] as the server knows it now: the id the server gave a
+  /// message minted here, else [messageId] itself.
+  String currentMessageId(String messageId) {
+    var current = messageId;
+    // Each id is replaced at most once; the bound only guards a loop.
+    for (var step = 0; step < 4; step++) {
+      final next = _replacedIds[current];
+      if (next == null || next == current) break;
+      current = next;
+    }
+    return current;
+  }
+
+  void _noteReplaced(String minted, String server) {
+    if (minted == server) return;
+    _replacedIds.remove(minted);
+    _replacedIds[minted] = server;
+    while (_replacedIds.length > 256) {
+      _replacedIds.remove(_replacedIds.keys.first);
+    }
+  }
 
   bool isGenerating(String conversationId) =>
       forConversation(conversationId) != null;
@@ -775,7 +816,10 @@ Future<void> _runLibreChatTurn(
         ..updateMessageById(serverId, _withoutPending);
     }
     // A stream resumed again names the same message: nothing was replaced.
-    if (localId != serverId) run._renamed[localId] = serverId;
+    if (localId != serverId) {
+      run._renamed[localId] = serverId;
+      registry._noteReplaced(localId, serverId);
+    }
     run.userMessageId = serverId;
     run.user = _withoutPending(run.user!.copyWith(id: serverId));
     run.assistant = run.assistant!.copyWith(
@@ -794,6 +838,7 @@ Future<void> _runLibreChatTurn(
     }
     final localId = run.assistantMessageId;
     run._renamed[localId] = serverId;
+    registry._noteReplaced(localId, serverId);
     run.assistantMessageId = serverId;
     run.assistant = _withoutPending(run.assistant!.copyWith(id: serverId));
     final runUser = run.user;

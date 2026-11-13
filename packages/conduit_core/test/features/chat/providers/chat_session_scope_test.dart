@@ -425,6 +425,23 @@ void main() {
     expect(answers, {'a': true, 'b': false});
   });
 
+  test('a LibreChat run shows in the scope that sent it', () {
+    // A run shows its reply through its registry's ref: each scope keeps
+    // its own registry, so a reply streams into that scope's transcript.
+    final parent = root();
+    final a = open(parent);
+    final b = open(parent);
+    final registryA = a.container.read(libreChatRunRegistryProvider);
+    final registryB = b.container.read(libreChatRunRegistryProvider);
+    expect(identical(registryA, registryB), isFalse);
+    expect(
+      identical(registryA, parent.read(libreChatRunRegistryProvider)),
+      isFalse,
+    );
+    // An id no run here replaced is itself.
+    expect(registryA.currentMessageId('reply-1'), 'reply-1');
+  });
+
   test('a terminal file request belongs to its chat', () {
     final parent = root();
     final a = open(parent);

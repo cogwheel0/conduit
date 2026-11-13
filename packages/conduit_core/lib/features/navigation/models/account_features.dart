@@ -18,6 +18,7 @@ final class AccountFeatures {
     this.folders = false,
     this.calendar = false,
     this.automations = false,
+    this.scheduledTasks = false,
     this.webhooks = false,
     this.memories = false,
     this.codeInterpreter = false,
@@ -46,6 +47,12 @@ final class AccountFeatures {
 
   /// Scheduled tasks, on a server and account that allow them.
   final bool automations;
+
+  /// Scheduled tasks are offered as a destination: [automations], and the
+  /// app's Advanced setting is on ([scheduledTasksEntryVisibleProvider]).
+  /// Turning Advanced off hides the entry only; the server keeps running
+  /// the tasks.
+  final bool scheduledTasks;
 
   /// Webhook destinations for notifications.
   final bool webhooks;
@@ -76,6 +83,7 @@ final class AccountFeatures {
       other.folders == folders &&
       other.calendar == calendar &&
       other.automations == automations &&
+      other.scheduledTasks == scheduledTasks &&
       other.webhooks == webhooks &&
       other.memories == memories &&
       other.codeInterpreter == codeInterpreter &&
@@ -89,6 +97,7 @@ final class AccountFeatures {
     folders,
     calendar,
     automations,
+    scheduledTasks,
     webhooks,
     memories,
     codeInterpreter,
@@ -112,6 +121,7 @@ final class AccountFeatures {
   String toString() =>
       'AccountFeatures(tabs: ${sidebarTabs.map((t) => t.name).join(',')}, '
       'folders: $folders, calendar: $calendar, automations: $automations, '
+      'scheduledTasks: $scheduledTasks, '
       'webhooks: $webhooks, memories: $memories, '
       'codeInterpreter: $codeInterpreter, imageGeneration: $imageGeneration, '
       'webSearch: $webSearch, '

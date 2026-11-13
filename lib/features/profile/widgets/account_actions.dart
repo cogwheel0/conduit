@@ -1,3 +1,6 @@
+export 'package:conduit_core/providers/primary_account_switcher.dart'
+    show signOutOfLibreChatAndHandOver;
+
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/auth/token_validator.dart';
@@ -454,48 +457,6 @@ bool _libreChatInCharge(ProviderContainer container, String accountId) =>
     container.read(primaryAccountKindProvider) ==
         PrimaryAccountKind.libreChat &&
     container.read(activeLibreChatAccountProvider)?.id == accountId;
-
-/// Signs out of LibreChat account [accountId] with its local history. When
-/// it was in charge of the Chats tab, the most recently used other
-/// LibreChat account takes over, else an Open WebUI account, else the
-/// backend is chosen again. Returns whether it handed the tab over.
-Future<bool> signOutOfLibreChatAndHandOver(
-  ProviderContainer container,
-  String accountId,
-) async {
-  await container.read(libreChatAccountsProvider).signOut(accountId);
-  // Whether the tab needs handing over is asked once the account is gone:
-  // the server can take a while to end the session, and the account may
-  // have been put in charge meanwhile, leaving LibreChat with none. The
-  // accounts left can take a moment to read too, and an account chosen
-  // meanwhile keeps the tab -- handing it over would undo that choice -- so
-  // this is asked again right before the tab is handed over.
-  bool tabStillUnclaimed() =>
-      container.read(primaryAccountKindProvider) ==
-          PrimaryAccountKind.libreChat &&
-      container.read(activeLibreChatAccountProvider) == null;
-  if (!tabStillUnclaimed()) return false;
-  final remaining = [
-    ...(await container.read(libreChatRegistryProvider.future)).accounts,
-  ]..sort((a, b) => (b.lastUsedAt ?? DateTime(0)).compareTo(
-      a.lastUsedAt ?? DateTime(0),
-    ));
-  final openWebUi = remaining.isEmpty
-      ? await container.read(openWebUiAccountsProvider.future)
-      : const <OpenWebUiAccountEntry>[];
-  if (!tabStillUnclaimed()) return false;
-  final switcher = container.read(primaryAccountSwitcherProvider);
-  if (remaining.isNotEmpty) {
-    await switcher.useLibreChat(remaining.first.id, force: true);
-  } else if (openWebUi.isNotEmpty) {
-    await switcher.useOpenWebUi(openWebUi.first.id, force: true);
-  } else {
-    await container
-        .read(preferredBackendProvider.notifier)
-        .set(PreferredBackend.unset);
-  }
-  return true;
-}
 
 /// Signs out of LibreChat [account] after confirming; see
 /// [signOutOfLibreChatAndHandOver]. The questions appear over

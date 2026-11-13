@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit_core/features/calendar/calendar_agenda_layout.dart';
 import 'package:conduit_core/features/calendar/calendar_draft.dart';
 import 'package:conduit_core/features/calendar/calendar_time.dart';
 import 'package:conduit_core/features/calendar/models/calendar_models.dart';
@@ -112,27 +113,17 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
 
   /// The account's own default calendar when it can take events, otherwise the
   /// first calendar that can.
-  String? _defaultCalendarId() {
-    final data = ref.read(calendarAgendaProvider).asData?.value;
-    final access = data?.access;
-    if (data == null || access == null) return null;
-    final writable = data.writableCalendars;
-    final preferred = access.defaultCalendar(writable);
-    return (preferred ?? writable.firstOrNull)?.id;
-  }
+  String? _defaultCalendarId() =>
+      calendarDefaultCalendarId(ref.read(calendarAgendaProvider).asData?.value);
 
   /// The next whole hour when the agenda starts today, else 09:00 on its first
   /// day.
   CalendarWallTime _defaultStart() {
-    final day = widget.initialDay;
     final now = ref.read(calendarClockProvider)().toUtc();
-    final today = wallTimeAt(now.microsecondsSinceEpoch * 1000, _zone);
-    if (day == null || day.sameDate(today)) {
-      return CalendarWallTime.fromFields(
-        DateTime.utc(today.year, today.month, today.day, today.hour + 1),
-      );
-    }
-    return CalendarWallTime(day.year, day.month, day.day, 9);
+    return calendarDefaultStart(
+      day: widget.initialDay,
+      now: wallTimeAt(now.microsecondsSinceEpoch * 1000, _zone),
+    );
   }
 
   /// Whether closing now would lose something the user changed. An edit counts
@@ -224,28 +215,7 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
   /// moved to keep the event's length, as Open WebUI's own editor does, so
   /// moving the start never leaves an impossible span.
   void _setBoundary(CalendarWallTime wall, {required bool end}) {
-    if (end) {
-      _update(_draft.copyWith(end: wall));
-      return;
-    }
-    var next = _draft.copyWith(start: wall);
-    final currentEnd = _draft.end;
-    if (currentEnd != null) {
-      final before = _draft.allDay
-          ? currentEnd.dateOnly.compareTo(wall.dateOnly) < 0
-          : currentEnd.compareTo(wall) < 0;
-      if (before) {
-        final length = _draft.allDay
-            ? Duration.zero
-            : _draft.end!.fields.difference(_draft.start.fields).abs();
-        next = next.copyWith(
-          end: _draft.allDay
-              ? wall.dateOnly
-              : CalendarWallTime.fromFields(wall.fields.add(length)),
-        );
-      }
-    }
-    _update(next);
+    _update(end ? _draft.copyWith(end: wall) : _draft.withStart(wall));
   }
 
   Future<void> _pickRepeat() async {

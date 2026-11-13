@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/auth/token_validator.dart';
@@ -38,6 +39,17 @@ final realtimeCallRouteResolverProvider =
           (model, {newChat = false}) =>
               resolveRealtimeCallRoute(ref, model, newChat: newChat),
     );
+
+/// The override that makes a chat session scope find its call's voice for
+/// the scope's own chat: the open conversation and whether it is temporary
+/// are the scope's.
+List<Override> chatSessionScopedRealtimeCallOverrides() => <Override>[
+  realtimeCallRouteResolverProvider.overrideWith(
+    (ref) =>
+        (model, {newChat = false}) =>
+            resolveRealtimeCallRoute(ref, model, newChat: newChat),
+  ),
+];
 
 /// Why a call runs as a Standard call instead of a realtime one.
 enum RealtimeCallBlock {

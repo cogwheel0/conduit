@@ -90,3 +90,31 @@ bool noteRowIsOwnedBy(NoteRow row, {required String? accountId}) =>
       accountId: accountId,
     ) ==
     NoteWriteAccess.allowed;
+
+/// The note's owner when it is someone other than the signed-in account, or
+/// null for the account's own notes and notes whose owner is not known.
+NoteUser? noteSharedOwner(Note note, {required String? accountId}) {
+  if (note.id.startsWith('local:')) return null;
+  final ownerId = note.userId ?? note.user?.id;
+  if (ownerId == null || ownerId.isEmpty || ownerId == accountId) return null;
+  final name = note.user?.name?.trim();
+  if (name == null || name.isEmpty) return null;
+  return note.user;
+}
+
+/// Whether the note's access sheet is offered: for a server note the account
+/// may edit, when the server lets the account share notes
+/// ([notesSharingAllowed], the workspace capabilities' notes share flag).
+/// Reading and read-only enforcement do not depend on this.
+bool noteShareable(
+  Note note, {
+  required String? accountId,
+  required bool notesSharingAllowed,
+}) {
+  // A `local:` note is not on the server yet, so it has no access to edit.
+  if (note.id.startsWith('local:')) return false;
+  if (noteWriteAccess(note, accountId: accountId) != NoteWriteAccess.allowed) {
+    return false;
+  }
+  return notesSharingAllowed;
+}

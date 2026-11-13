@@ -190,3 +190,21 @@ HermesApprovalCost? _parse(String text) {
     remainder: remainder,
   );
 }
+
+/// The approval and question texts a card shows, with a paid tool's price
+/// taken out of the text and returned apart: from the shown text when it
+/// states it (a Desktop Gateway approval's command), else from what the
+/// run kept ([stored], a REST approval whose card shows the description).
+({String? summary, HermesApprovalCost? cost}) hermesApprovalPresentation(
+  String? summary,
+  Object? stored,
+) {
+  final parsed = parseHermesApprovalCost([summary]);
+  if (parsed != null) {
+    return (
+      summary: parsed.remainder.isEmpty ? null : parsed.remainder,
+      cost: parsed,
+    );
+  }
+  return (summary: summary, cost: HermesApprovalCost.fromJson(stored));
+}

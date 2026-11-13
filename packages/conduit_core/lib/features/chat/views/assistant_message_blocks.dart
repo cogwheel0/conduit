@@ -4,6 +4,10 @@ import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:meta/meta.dart';
 
 import '../../../models/chat_message.dart';
+import '../../hermes/models/hermes_error_surface.dart';
+import '../../hermes/models/hermes_inline_diff.dart';
+import '../../hermes/services/hermes_run_transport.dart'
+    show hermesErrorSurfaceOf;
 import '../../mcp_apps/openwebui_mcp_app.dart';
 import '../../web_embed/web_embed_document.dart'
     show isRemoteWebEmbedSource, resolveRemoteWebEmbedUri;
@@ -31,11 +35,12 @@ import 'chat_turn_render_state.dart';
 ///    alerts, reasoning, tool calls, code-interpreter runs and other
 ///    sections, as `segmentAssistantMessage` splits the content, normalised
 ///    for a plain markdown renderer;
-/// 5. [AssistantErrorBlock]: the error banner;
+/// 5. [AssistantErrorBlock]: the error banner (a Hermes failure's card);
 /// 6. [AssistantCodeExecutionBlock]s, one per code execution;
-/// 7. [AssistantSourcesBlock]: what `[n]` cites, which the action row shows
+/// 7. [AssistantChangedFilesBlock]: the files a Hermes reply changed;
+/// 8. [AssistantSourcesBlock]: what `[n]` cites, which the action row shows
 ///    as a sources pill once the answer is finished;
-/// 8. [AssistantFollowUpsBlock]: suggested follow-ups, once finished.
+/// 9. [AssistantFollowUpsBlock]: suggested follow-ups, once finished.
 ///
 /// Not carried: a multi-model turn's merged response, a queued send's
 /// banner (hosts read the queue themselves), and the legacy `attachmentIds`
@@ -229,7 +234,13 @@ final class AssistantErrorBlock extends AssistantBlock {
   const AssistantErrorBlock({
     required this.text,
     required this.toolsUnsupported,
+    this.hermes,
   });
+
+  /// A Hermes turn's failure as Hermes classified it: hosts draw its card
+  /// (what broke, a reset time, one action) instead of the banner. Only on
+  /// the answer itself, never on an earlier version.
+  final HermesErrorSurface? hermes;
 
   /// The server's or provider's words; empty when it gave none (hosts then
   /// say that an error occurred).
@@ -252,6 +263,17 @@ final class AssistantCodeExecutionBlock extends AssistantBlock {
 
   /// It failed.
   bool get isError => execution.result?.error != null;
+}
+
+/// The files a Hermes reply's tools changed ([hermesChangedFiles]), with
+/// their added and removed lines: a card that opens each file's coloured
+/// diff. Only on the answer itself: an earlier version keeps no record of
+/// what its tools did.
+final class AssistantChangedFilesBlock extends AssistantBlock {
+  AssistantChangedFilesBlock(List<HermesDiffFile> files)
+    : files = List<HermesDiffFile>.unmodifiable(files);
+
+  final List<HermesDiffFile> files;
 }
 
 /// What the answer's `[n]` markers cite: marker `n` is `sources[n - 1]`.
@@ -352,6 +374,8 @@ List<AssistantBlock> assistantMessageBlocks(
     attachmentIds: message.attachmentIds,
     statusHistory: message.statusHistory,
     error: message.error,
+    hermesError: hermesErrorSurfaceOf(message),
+    changedFiles: hermesChangedFiles(message.statusHistory),
     codeExecutions: message.codeExecutions,
     sources: message.sources,
     followUps: message.followUps,
@@ -390,6 +414,8 @@ List<AssistantBlock> _assemble({
   required List<String>? attachmentIds,
   required List<ChatStatusUpdate> statusHistory,
   required ChatMessageError? error,
+  HermesErrorSurface? hermesError,
+  List<HermesDiffFile> changedFiles = const <HermesDiffFile>[],
   required List<ChatCodeExecution> codeExecutions,
   required List<ChatSourceReference> sources,
   required List<String> followUps,
@@ -456,11 +482,16 @@ List<AssistantBlock> _assemble({
       AssistantErrorBlock(
         text: error.content ?? '',
         toolsUnsupported: isDirectToolsUnsupportedError(error.content),
+        hermes: hermesError,
       ),
     );
   }
 
   blocks.addAll(codeExecutions.map(AssistantCodeExecutionBlock.new));
+
+  if (changedFiles.isNotEmpty) {
+    blocks.add(AssistantChangedFilesBlock(changedFiles));
+  }
 
   if (sources.isNotEmpty) blocks.add(AssistantSourcesBlock(sources));
 

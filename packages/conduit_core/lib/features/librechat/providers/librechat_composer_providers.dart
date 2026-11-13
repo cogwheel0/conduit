@@ -9,6 +9,7 @@ import 'package:conduit_core/features/librechat/models/librechat_model.dart';
 import 'package:conduit_core/features/librechat/models/librechat_prompts.dart';
 import 'package:conduit_core/features/librechat/models/librechat_tools.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/librechat/services/librechat_api_service.dart';
 import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
 import 'package:conduit_core/features/librechat/services/librechat_http_client.dart';
 import 'package:conduit_core/models/model.dart';
@@ -225,64 +226,15 @@ bool libreChatMcpServerChatSelectable(Object? settings) =>
 /// The composer's LibreChat options for the selected model.
 final libreChatComposerOptionsProvider =
     FutureProvider<LibreChatComposerOptions>((ref) async {
-      final model = ref.watch(selectedModelProvider);
-      if (model == null || !isLibreChatModel(model)) {
-        return LibreChatComposerOptions.none;
-      }
-      final LibreChatCapabilities capabilities;
-      try {
-        capabilities = await ref.watch(libreChatCapabilitiesProvider.future);
-      } catch (_) {
-        return LibreChatComposerOptions.none;
-      }
-      if (!libreChatModelTakesTools(model)) {
-        return LibreChatComposerOptions(prompts: capabilities.prompts);
-      }
-      final mcpServers = <LibreChatMcpServerOption>[];
-      final api = ref.watch(libreChatApiServiceProvider);
-      if (capabilities.mcpServers && api != null) {
-        try {
-          final results = await Future.wait<Map<String, dynamic>>([
-            api.mcpServers(),
-            api
-                .mcpConnectionStatus()
-                .catchError((Object _) => <String, dynamic>{}),
-            api
-                .mcpServerSettings()
-                .catchError((Object _) => <String, dynamic>{}),
-          ]);
-          final servers = results[0];
-          final status = results[1];
-          final settings = results[2];
-          for (final entry in servers.entries) {
-            if (!libreChatMcpServerChatSelectable(settings[entry.key])) {
-              continue;
-            }
-            final server = entry.value;
-            final connection = status[entry.key];
-            final tools = server is Map ? server['tools'] : null;
-            mcpServers.add(
-              LibreChatMcpServerOption(
-                name: entry.key,
-                toolCount: tools is List ? tools.length : 0,
-                needsConnection: libreChatMcpServerNeedsConnection(
-                  server,
-                  connection,
-                ),
-              ),
-            );
-          }
-        } on LibreChatApiException catch (error) {
-          DebugLogger.warning(
-            'mcp-list-failed',
-            scope: 'librechat/composer',
-            data: {'status': error.statusCode},
-          );
-        }
-      }
+      final options = await libreChatComposerOptionsFor(
+        ref.watch(selectedModelProvider),
+        capabilities: () => ref.watch(libreChatCapabilitiesProvider.future),
+        api: () => ref.watch(libreChatApiServiceProvider),
+      );
       // A server is signed in to in the browser; coming back to the app
       // reads where each stands again, so a connected one can be used.
-      if (ref.mounted && mcpServers.any((server) => server.needsConnection)) {
+      if (ref.mounted &&
+          options.mcpServers.any((server) => server.needsConnection)) {
         final resumed = ref
             .read(appLifecycleProvider)
             .changes
@@ -290,14 +242,83 @@ final libreChatComposerOptionsProvider =
             .listen((_) => ref.invalidateSelf());
         ref.onDispose(resumed.cancel);
       }
-      return LibreChatComposerOptions(
-        webSearch: capabilities.webSearch,
-        codeInterpreter: capabilities.codeInterpreter,
-        fileSearch: capabilities.fileSearch,
-        mcpServers: List.unmodifiable(mcpServers),
-        prompts: capabilities.prompts,
-      );
+      return options;
     });
+
+/// The composer's LibreChat options for [model]: none for a model that is
+/// not LibreChat's; only the prompt library for a saved agent or a model
+/// spec, which bring their own tools; and for an endpoint model, the tools
+/// the server and the user's role allow, with the user's MCP servers.
+///
+/// [capabilities] and [api] are asked only when they matter, so a provider
+/// passing watches depends on them only then.
+Future<LibreChatComposerOptions> libreChatComposerOptionsFor(
+  Model? model, {
+  required Future<LibreChatCapabilities> Function() capabilities,
+  required LibreChatApiService? Function() api,
+}) async {
+  if (model == null || !isLibreChatModel(model)) {
+    return LibreChatComposerOptions.none;
+  }
+  final LibreChatCapabilities allowed;
+  try {
+    allowed = await capabilities();
+  } catch (_) {
+    return LibreChatComposerOptions.none;
+  }
+  if (!libreChatModelTakesTools(model)) {
+    return LibreChatComposerOptions(prompts: allowed.prompts);
+  }
+  final mcpServers = <LibreChatMcpServerOption>[];
+  final service = api();
+  if (allowed.mcpServers && service != null) {
+    try {
+      final results = await Future.wait<Map<String, dynamic>>([
+        service.mcpServers(),
+        service
+            .mcpConnectionStatus()
+            .catchError((Object _) => <String, dynamic>{}),
+        service
+            .mcpServerSettings()
+            .catchError((Object _) => <String, dynamic>{}),
+      ]);
+      final servers = results[0];
+      final status = results[1];
+      final settings = results[2];
+      for (final entry in servers.entries) {
+        if (!libreChatMcpServerChatSelectable(settings[entry.key])) {
+          continue;
+        }
+        final server = entry.value;
+        final connection = status[entry.key];
+        final tools = server is Map ? server['tools'] : null;
+        mcpServers.add(
+          LibreChatMcpServerOption(
+            name: entry.key,
+            toolCount: tools is List ? tools.length : 0,
+            needsConnection: libreChatMcpServerNeedsConnection(
+              server,
+              connection,
+            ),
+          ),
+        );
+      }
+    } on LibreChatApiException catch (error) {
+      DebugLogger.warning(
+        'mcp-list-failed',
+        scope: 'librechat/composer',
+        data: {'status': error.statusCode},
+      );
+    }
+  }
+  return LibreChatComposerOptions(
+    webSearch: allowed.webSearch,
+    codeInterpreter: allowed.codeInterpreter,
+    fileSearch: allowed.fileSearch,
+    mcpServers: List.unmodifiable(mcpServers),
+    prompts: allowed.prompts,
+  );
+}
 
 /// The tools a turn asks for, from the composer's selected tool ids.
 LibreChatToolSelection libreChatToolSelectionFor(Iterable<String> toolIds) {
