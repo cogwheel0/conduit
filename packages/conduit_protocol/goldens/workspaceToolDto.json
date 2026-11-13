@@ -1,0 +1,12 @@
+{
+  "id": "web",
+  "name": "Web",
+  "description": "Fetches pages",
+  "content": "class Tools: pass",
+  "functions": [
+    "fetch"
+  ],
+  "hasValves": true,
+  "hasUserValves": false,
+  "requiresServerVersion": "0.9.0"
+}

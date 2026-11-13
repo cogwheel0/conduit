@@ -1,0 +1,13 @@
+{
+  "channels": [
+    {
+      "id": "c2",
+      "name": "ops",
+      "private": true,
+      "unread": 0,
+      "manager": false,
+      "canPost": false
+    }
+  ],
+  "enabled": true
+}

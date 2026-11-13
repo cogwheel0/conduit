@@ -1,0 +1,19 @@
+{
+  "chatId": "chat-7c1f0b2a",
+  "model": "gpt-4o",
+  "text": "How does the outbox order writes?",
+  "toolIds": [
+    "web_search"
+  ],
+  "knowledge": [
+    {
+      "id": "kb-1",
+      "name": "Handbook"
+    }
+  ],
+  "webSearch": true,
+  "imageGeneration": false,
+  "codeInterpreter": false,
+  "fileIds": [],
+  "temporary": false
+}

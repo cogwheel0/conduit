@@ -1,0 +1,7 @@
+{
+  "id": "tidy",
+  "name": "Tidy",
+  "description": "Tidies text",
+  "content": "Tidy the text.",
+  "active": false
+}

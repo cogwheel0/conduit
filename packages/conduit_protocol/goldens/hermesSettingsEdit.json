@@ -1,0 +1,11 @@
+{
+  "enabled": false,
+  "baseUrl": "https://hermes.example.com",
+  "mode": "desktop",
+  "apiKey": "k",
+  "sessionKey": "",
+  "desktopProfile": "work",
+  "desktopAuthKind": "dashboardCookie",
+  "allowSelfSignedCertificates": true,
+  "onboarding": true
+}

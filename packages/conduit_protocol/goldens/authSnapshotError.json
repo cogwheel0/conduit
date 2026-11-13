@@ -1,0 +1,11 @@
+{
+  "phase": "credentialError",
+  "isAuthenticated": false,
+  "isLoading": false,
+  "hasToken": false,
+  "errorCode": "auth.invalidCredentials",
+  "errorArgs": {
+    "attempt": "3"
+  },
+  "isReviewerMode": false
+}

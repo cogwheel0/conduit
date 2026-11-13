@@ -1,0 +1,6 @@
+{
+  "id": "llama3.2:1b",
+  "name": "llama3.2:1b",
+  "loaded": true,
+  "keepAlive": "30m"
+}

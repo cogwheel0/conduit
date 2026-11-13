@@ -1,0 +1,13 @@
+{
+  "id": "msg-earlier",
+  "content": "The first answer.",
+  "timestampMs": 1758412800000,
+  "model": "llama3.2:1b",
+  "sources": [],
+  "blocks": [
+    {
+      "kind": "text",
+      "markdown": "The first answer."
+    }
+  ]
+}

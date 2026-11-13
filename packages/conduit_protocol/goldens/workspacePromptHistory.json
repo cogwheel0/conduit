@@ -1,0 +1,13 @@
+{
+  "promptId": "p1",
+  "versions": [
+    {
+      "id": "v1",
+      "createdAtMs": 0,
+      "name": "",
+      "command": "",
+      "content": "",
+      "production": false
+    }
+  ]
+}

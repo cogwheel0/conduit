@@ -1,0 +1,7 @@
+{
+  "serverId": "mcp-1",
+  "name": "summarize",
+  "arguments": {
+    "topic": "llamas"
+  }
+}

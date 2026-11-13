@@ -1,0 +1,9 @@
+{
+  "chatId": "chat-7c1f0b2a",
+  "messageId": "msg-assistant-1",
+  "code": "net.serverError",
+  "args": {
+    "status": "502"
+  },
+  "partialText": "The outbox dra"
+}

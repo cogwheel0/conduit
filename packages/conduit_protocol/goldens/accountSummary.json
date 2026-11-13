@@ -1,0 +1,21 @@
+{
+  "id": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+  "connection": {
+    "id": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
+    "name": "Home",
+    "url": "https://chat.example.com",
+    "isActive": true,
+    "allowSelfSignedCertificates": false,
+    "hasMutualTlsCredentials": false,
+    "customHeaderNames": [],
+    "hasStoredSession": true
+  },
+  "user": {
+    "name": "Ada Lovelace",
+    "email": "ada@example.com"
+  },
+  "isActive": true,
+  "hasSession": true,
+  "lastUsedMs": 1758412800000
+}

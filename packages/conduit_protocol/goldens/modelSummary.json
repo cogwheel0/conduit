@@ -1,0 +1,10 @@
+{
+  "id": "gpt-4o",
+  "name": "GPT-4o",
+  "description": "Fast, multimodal.",
+  "pinned": true,
+  "capabilities": [
+    "tools",
+    "vision"
+  ]
+}

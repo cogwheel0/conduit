@@ -1,0 +1,7 @@
+{
+  "userData": "/home/u/.config/Conduit",
+  "database": "/home/u/.config/Conduit/db",
+  "cache": "/home/u/.config/Conduit/cache",
+  "logs": "/home/u/.config/Conduit/logs",
+  "staging": "/home/u/.config/Conduit/staging"
+}

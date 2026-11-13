@@ -1,0 +1,19 @@
+{
+  "serverId": "mcp-1",
+  "serverName": "Docs",
+  "prompts": [
+    {
+      "name": "summarize",
+      "displayName": "Summarize",
+      "description": "",
+      "arguments": []
+    }
+  ],
+  "resources": [
+    {
+      "uri": "file:///a.txt",
+      "displayName": "a.txt",
+      "description": ""
+    }
+  ]
+}

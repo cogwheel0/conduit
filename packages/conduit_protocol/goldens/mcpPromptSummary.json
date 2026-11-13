@@ -1,0 +1,13 @@
+{
+  "name": "summarize",
+  "displayName": "Summarize",
+  "description": "Summarizes a topic.",
+  "arguments": [
+    {
+      "name": "topic",
+      "label": "Topic",
+      "description": "",
+      "required": true
+    }
+  ]
+}

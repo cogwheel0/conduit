@@ -1,0 +1,967 @@
+{
+  "protocolVersion": "1.57.0",
+  "appOrigin": "app://conduit",
+  "subprotocol": "conduit.v1",
+  "subprotocolsExample": {
+    "sessionToken": "synthetic>token?~é",
+    "protocols": [
+      "conduit.v1",
+      "tk.c3ludGhldGljPnRva2VuP37DqQ"
+    ]
+  },
+  "eventNotification": "event",
+  "rpcErrorCode": -32000,
+  "httpRoutes": {
+    "rpc": "/rpc",
+    "upload": "/upload",
+    "transcribe": "/transcribe",
+    "terminalUpload": "/terminal-upload",
+    "file": "/files/{serverId}/{fileId}",
+    "tts": "/tts/{jobId}",
+    "terminal": "/terminal/{handle}"
+  },
+  "methods": [
+    {
+      "name": "system.handshake",
+      "params": "HandshakeRequest",
+      "result": "HandshakeResponse"
+    },
+    {
+      "name": "system.ping",
+      "params": null,
+      "result": "PongResult"
+    },
+    {
+      "name": "system.capabilities",
+      "params": null,
+      "result": "Capabilities"
+    },
+    {
+      "name": "system.shutdown",
+      "params": null,
+      "result": "ShutdownResult"
+    },
+    {
+      "name": "system.exportDiagnostics",
+      "params": null,
+      "result": "DiagnosticsExport"
+    },
+    {
+      "name": "system.network",
+      "params": "NetworkReport",
+      "result": "OkResult"
+    },
+    {
+      "name": "events.subscribe",
+      "params": "EventSubscription",
+      "result": "EventSubscription"
+    },
+    {
+      "name": "ui.respond",
+      "params": "UiResponse",
+      "result": "AcceptedResult"
+    },
+    {
+      "name": "accounts.list",
+      "params": null,
+      "result": "AccountList"
+    },
+    {
+      "name": "accounts.add",
+      "params": "AddAccount",
+      "result": "AccountChangeResult"
+    },
+    {
+      "name": "accounts.cancelAdd",
+      "params": null,
+      "result": "AccountChangeResult"
+    },
+    {
+      "name": "accounts.switch",
+      "params": "AccountRef",
+      "result": "AccountChangeResult"
+    },
+    {
+      "name": "accounts.remove",
+      "params": "AccountRef",
+      "result": "AccountChangeResult"
+    },
+    {
+      "name": "accounts.signOut",
+      "params": "AccountSignOut",
+      "result": "AccountChangeResult"
+    },
+    {
+      "name": "servers.update",
+      "params": "ServerDraft",
+      "result": "ServerSummary"
+    },
+    {
+      "name": "servers.status",
+      "params": null,
+      "result": "ServerStatus"
+    },
+    {
+      "name": "auth.status",
+      "params": null,
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.loginWithPassword",
+      "params": "PasswordLogin",
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.loginWithLdap",
+      "params": "PasswordLogin",
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.loginWithApiKey",
+      "params": "ApiKeyLogin",
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.silentLogin",
+      "params": null,
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.completeExternal",
+      "params": "ExternalAuthCompletion",
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.hasSavedCredentials",
+      "params": null,
+      "result": "SavedCredentialsResult"
+    },
+    {
+      "name": "auth.setReviewerMode",
+      "params": "ReviewerMode",
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "settings.getApp",
+      "params": null,
+      "result": "AppPreferences"
+    },
+    {
+      "name": "settings.setApp",
+      "params": "AppPreferencesPatch",
+      "result": "AppPreferences"
+    },
+    {
+      "name": "chats.list",
+      "params": null,
+      "result": "ChatList"
+    },
+    {
+      "name": "chats.loadMore",
+      "params": null,
+      "result": "ChatList"
+    },
+    {
+      "name": "chats.get",
+      "params": "ChatRef",
+      "result": "ChatResult"
+    },
+    {
+      "name": "chats.search",
+      "params": "ChatSearchQuery",
+      "result": "ChatSearchResults"
+    },
+    {
+      "name": "chats.move",
+      "params": "MoveChat",
+      "result": "ChatList"
+    },
+    {
+      "name": "chats.folder",
+      "params": "FolderRef",
+      "result": "FolderContents"
+    },
+    {
+      "name": "chats.tree",
+      "params": "ChatRef",
+      "result": "ChatTree"
+    },
+    {
+      "name": "chats.setCurrent",
+      "params": "ChatCurrent",
+      "result": "ChatResult"
+    },
+    {
+      "name": "chats.setSystemPrompt",
+      "params": "ChatSystemPrompt",
+      "result": "ChatResult"
+    },
+    {
+      "name": "chats.bulk",
+      "params": "BulkChats",
+      "result": "BulkChatsResult"
+    },
+    {
+      "name": "chats.tags.all",
+      "params": null,
+      "result": "TagList"
+    },
+    {
+      "name": "chats.tags.add",
+      "params": "ChatTagEdit",
+      "result": "TagList"
+    },
+    {
+      "name": "chats.tags.remove",
+      "params": "ChatTagEdit",
+      "result": "TagList"
+    },
+    {
+      "name": "chats.rename",
+      "params": "RenameChat",
+      "result": "ChatList"
+    },
+    {
+      "name": "folders.create",
+      "params": "CreateFolder",
+      "result": "FolderCreated"
+    },
+    {
+      "name": "folders.rename",
+      "params": "RenameFolder",
+      "result": "ChatList"
+    },
+    {
+      "name": "folders.delete",
+      "params": "FolderRef",
+      "result": "ChatList"
+    },
+    {
+      "name": "chats.setPinned",
+      "params": "SetChatFlag",
+      "result": "ChatList"
+    },
+    {
+      "name": "chats.setArchived",
+      "params": "SetChatFlag",
+      "result": "ChatList"
+    },
+    {
+      "name": "chats.delete",
+      "params": "ChatRef",
+      "result": "ChatList"
+    },
+    {
+      "name": "sync.get",
+      "params": null,
+      "result": "SyncState"
+    },
+    {
+      "name": "chats.setArchivedVisible",
+      "params": "ArchivedVisibility",
+      "result": "ChatList"
+    },
+    {
+      "name": "chats.share",
+      "params": "ChatRef",
+      "result": "ChatShare"
+    },
+    {
+      "name": "chats.unshare",
+      "params": "ChatRef",
+      "result": "ChatShare"
+    },
+    {
+      "name": "models.list",
+      "params": null,
+      "result": "ModelList"
+    },
+    {
+      "name": "models.select",
+      "params": "SelectModel",
+      "result": "ModelList"
+    },
+    {
+      "name": "composer.options",
+      "params": null,
+      "result": "ComposerOptions"
+    },
+    {
+      "name": "composer.knowledge",
+      "params": "KnowledgeQuery",
+      "result": "KnowledgeList"
+    },
+    {
+      "name": "prompts.list",
+      "params": null,
+      "result": "PromptList"
+    },
+    {
+      "name": "prompts.render",
+      "params": "RenderPrompt",
+      "result": "RenderedPrompt"
+    },
+    {
+      "name": "direct.list",
+      "params": null,
+      "result": "DirectConnectionList"
+    },
+    {
+      "name": "direct.save",
+      "params": "DirectConnectionEdit",
+      "result": "DirectConnectionList"
+    },
+    {
+      "name": "direct.remove",
+      "params": "DirectRef",
+      "result": "DirectConnectionList"
+    },
+    {
+      "name": "direct.setEnabled",
+      "params": "DirectEnable",
+      "result": "DirectConnectionList"
+    },
+    {
+      "name": "direct.test",
+      "params": "DirectConnectionEdit",
+      "result": "DirectTestResult"
+    },
+    {
+      "name": "direct.setHistory",
+      "params": "DirectHistory",
+      "result": "DirectConnectionList"
+    },
+    {
+      "name": "direct.setPreferred",
+      "params": "DirectPreferred",
+      "result": "DirectConnectionList"
+    },
+    {
+      "name": "direct.ollamaModels",
+      "params": "DirectRef",
+      "result": "OllamaModelList"
+    },
+    {
+      "name": "direct.ollamaLoad",
+      "params": "OllamaModelAction",
+      "result": "OllamaModelList"
+    },
+    {
+      "name": "direct.ollamaUnload",
+      "params": "OllamaModelAction",
+      "result": "OllamaModelList"
+    },
+    {
+      "name": "direct.ollamaKeepAlive",
+      "params": "OllamaModelAction",
+      "result": "OllamaModelList"
+    },
+    {
+      "name": "direct.ollamaThinking",
+      "params": "OllamaModelAction",
+      "result": "OllamaModelList"
+    },
+    {
+      "name": "mcp.list",
+      "params": null,
+      "result": "McpServerList"
+    },
+    {
+      "name": "mcp.save",
+      "params": "McpServerEdit",
+      "result": "McpServerList"
+    },
+    {
+      "name": "mcp.remove",
+      "params": "McpRef",
+      "result": "McpServerList"
+    },
+    {
+      "name": "mcp.setEnabled",
+      "params": "McpEnable",
+      "result": "McpServerList"
+    },
+    {
+      "name": "mcp.test",
+      "params": "McpServerEdit",
+      "result": "McpTestResult"
+    },
+    {
+      "name": "mcp.connect",
+      "params": "McpRef",
+      "result": "McpServerList"
+    },
+    {
+      "name": "mcp.cancelConnect",
+      "params": "McpRef",
+      "result": "CancelledResult"
+    },
+    {
+      "name": "mcp.disconnect",
+      "params": "McpRef",
+      "result": "McpServerList"
+    },
+    {
+      "name": "mcp.forgetApproval",
+      "params": "McpForgetApproval",
+      "result": "McpServerList"
+    },
+    {
+      "name": "mcp.content",
+      "params": "McpRef",
+      "result": "McpContent"
+    },
+    {
+      "name": "mcp.getPrompt",
+      "params": "McpGetPrompt",
+      "result": "McpContentPreview"
+    },
+    {
+      "name": "mcp.readResource",
+      "params": "McpReadResource",
+      "result": "McpContentPreview"
+    },
+    {
+      "name": "turns.send",
+      "params": "SendTurn",
+      "result": "SendTurnAccepted"
+    },
+    {
+      "name": "turns.stop",
+      "params": "StopTurn",
+      "result": "StoppedResult"
+    },
+    {
+      "name": "turns.regenerate",
+      "params": "RegenerateTurn",
+      "result": "SendTurnAccepted"
+    },
+    {
+      "name": "turns.edit",
+      "params": "EditTurn",
+      "result": "SendTurnAccepted"
+    },
+    {
+      "name": "turns.rate",
+      "params": "RateTurn",
+      "result": "RatedResult"
+    },
+    {
+      "name": "notes.list",
+      "params": "NoteQuery",
+      "result": "NoteList"
+    },
+    {
+      "name": "notes.get",
+      "params": "NoteRef",
+      "result": "NoteResult"
+    },
+    {
+      "name": "notes.save",
+      "params": "NoteSave",
+      "result": "NoteDetail"
+    },
+    {
+      "name": "notes.delete",
+      "params": "NoteRef",
+      "result": "DeletedResult"
+    },
+    {
+      "name": "notes.setPinned",
+      "params": "NotePin",
+      "result": "NoteSummary"
+    },
+    {
+      "name": "notes.generateTitle",
+      "params": "NoteAi",
+      "result": "NoteTitle"
+    },
+    {
+      "name": "notes.enhance",
+      "params": "NoteAi",
+      "result": "NoteBody"
+    },
+    {
+      "name": "notes.attach",
+      "params": "NoteAttach",
+      "result": "NoteDetail"
+    },
+    {
+      "name": "notes.detach",
+      "params": "NoteDetach",
+      "result": "NoteDetail"
+    },
+    {
+      "name": "channels.list",
+      "params": null,
+      "result": "ChannelList"
+    },
+    {
+      "name": "channels.save",
+      "params": "ChannelEdit",
+      "result": "ChannelList"
+    },
+    {
+      "name": "channels.delete",
+      "params": "ChannelRef",
+      "result": "ChannelList"
+    },
+    {
+      "name": "channels.leave",
+      "params": "ChannelRef",
+      "result": "ChannelList"
+    },
+    {
+      "name": "channels.messages",
+      "params": "ChannelMessagesQuery",
+      "result": "ChannelMessages"
+    },
+    {
+      "name": "channels.post",
+      "params": "ChannelPost",
+      "result": "ChannelMessageDto"
+    },
+    {
+      "name": "channels.editMessage",
+      "params": "ChannelMessageEdit",
+      "result": "ChannelMessageDto"
+    },
+    {
+      "name": "channels.deleteMessage",
+      "params": "ChannelMessageRef",
+      "result": "OkResult"
+    },
+    {
+      "name": "channels.react",
+      "params": "ChannelReact",
+      "result": "OkResult"
+    },
+    {
+      "name": "channels.pin",
+      "params": "ChannelPin",
+      "result": "OkResult"
+    },
+    {
+      "name": "channels.typing",
+      "params": "ChannelTyping",
+      "result": "OkResult"
+    },
+    {
+      "name": "channels.markRead",
+      "params": "ChannelRef",
+      "result": "OkResult"
+    },
+    {
+      "name": "channels.members",
+      "params": "ChannelRef",
+      "result": "ChannelMembers"
+    },
+    {
+      "name": "workspace.capabilities",
+      "params": null,
+      "result": "WorkspaceAccess"
+    },
+    {
+      "name": "workspace.list",
+      "params": "WorkspaceQuery",
+      "result": "WorkspacePage"
+    },
+    {
+      "name": "workspace.get",
+      "params": "WorkspaceRef",
+      "result": "WorkspaceDetail"
+    },
+    {
+      "name": "workspace.save",
+      "params": "WorkspaceSave",
+      "result": "WorkspaceDetail"
+    },
+    {
+      "name": "workspace.delete",
+      "params": "WorkspaceRef",
+      "result": "OkResult"
+    },
+    {
+      "name": "workspace.toggle",
+      "params": "WorkspaceRef",
+      "result": "WorkspaceItem"
+    },
+    {
+      "name": "workspace.setAccess",
+      "params": "WorkspaceAccessEdit",
+      "result": "WorkspaceDetail"
+    },
+    {
+      "name": "workspace.principals",
+      "params": "WorkspacePrincipalQuery",
+      "result": "WorkspacePrincipals"
+    },
+    {
+      "name": "workspace.export",
+      "params": "WorkspaceExportQuery",
+      "result": "WorkspaceExportFile"
+    },
+    {
+      "name": "workspace.import",
+      "params": "WorkspaceImport",
+      "result": "WorkspaceImportResult"
+    },
+    {
+      "name": "workspace.modelOptions",
+      "params": null,
+      "result": "WorkspaceModelOptions"
+    },
+    {
+      "name": "workspace.promptHistory",
+      "params": "WorkspaceRef",
+      "result": "WorkspacePromptHistory"
+    },
+    {
+      "name": "workspace.promptDiff",
+      "params": "WorkspacePromptDiffQuery",
+      "result": "WorkspacePromptDiff"
+    },
+    {
+      "name": "workspace.promptSetVersion",
+      "params": "WorkspacePromptVersionRef",
+      "result": "WorkspaceDetail"
+    },
+    {
+      "name": "workspace.promptDeleteVersion",
+      "params": "WorkspacePromptVersionRef",
+      "result": "OkResult"
+    },
+    {
+      "name": "workspace.valves",
+      "params": "WorkspaceValvesQuery",
+      "result": "WorkspaceValves"
+    },
+    {
+      "name": "workspace.saveValves",
+      "params": "WorkspaceValves",
+      "result": "WorkspaceValves"
+    },
+    {
+      "name": "workspace.toolFromUrl",
+      "params": "WorkspaceUrl",
+      "result": "WorkspaceToolDto"
+    },
+    {
+      "name": "workspace.files",
+      "params": "WorkspaceFilesQuery",
+      "result": "WorkspaceFiles"
+    },
+    {
+      "name": "workspace.attachFiles",
+      "params": "WorkspaceFilesAttach",
+      "result": "WorkspaceFiles"
+    },
+    {
+      "name": "workspace.fileAction",
+      "params": "WorkspaceFileAction",
+      "result": "WorkspaceFiles"
+    },
+    {
+      "name": "workspace.directoryAction",
+      "params": "WorkspaceDirectoryAction",
+      "result": "WorkspaceFiles"
+    },
+    {
+      "name": "workspace.knowledgeReset",
+      "params": "WorkspaceRef",
+      "result": "WorkspaceDetail"
+    },
+    {
+      "name": "workspace.knowledgeCleanup",
+      "params": "WorkspaceRef",
+      "result": "WorkspaceFiles"
+    },
+    {
+      "name": "hermes.settings",
+      "params": null,
+      "result": "HermesSettings"
+    },
+    {
+      "name": "hermes.saveSettings",
+      "params": "HermesSettingsEdit",
+      "result": "HermesSettings"
+    },
+    {
+      "name": "hermes.test",
+      "params": "HermesSettingsEdit",
+      "result": "HermesTestResult"
+    },
+    {
+      "name": "hermes.status",
+      "params": null,
+      "result": "HermesStatus"
+    },
+    {
+      "name": "hermes.signIn",
+      "params": null,
+      "result": "HermesSettings"
+    },
+    {
+      "name": "hermes.signOut",
+      "params": null,
+      "result": "HermesSettings"
+    },
+    {
+      "name": "hermes.sessions",
+      "params": null,
+      "result": "HermesSessions"
+    },
+    {
+      "name": "hermes.renameSession",
+      "params": "HermesRename",
+      "result": "HermesSessions"
+    },
+    {
+      "name": "hermes.deleteSession",
+      "params": "HermesRef",
+      "result": "HermesSessions"
+    },
+    {
+      "name": "hermes.forkSession",
+      "params": "HermesRef",
+      "result": "HermesSessionDto"
+    },
+    {
+      "name": "hermes.jobs",
+      "params": null,
+      "result": "HermesJobs"
+    },
+    {
+      "name": "hermes.saveJob",
+      "params": "HermesJobEdit",
+      "result": "HermesJobs"
+    },
+    {
+      "name": "hermes.setJobEnabled",
+      "params": "HermesJobToggle",
+      "result": "HermesJobs"
+    },
+    {
+      "name": "hermes.runJob",
+      "params": "HermesRef",
+      "result": "HermesJobs"
+    },
+    {
+      "name": "hermes.deleteJob",
+      "params": "HermesRef",
+      "result": "HermesJobs"
+    },
+    {
+      "name": "hermes.catalog",
+      "params": null,
+      "result": "HermesCatalog"
+    },
+    {
+      "name": "terminal.servers",
+      "params": "TerminalScope",
+      "result": "TerminalServers"
+    },
+    {
+      "name": "terminal.select",
+      "params": "TerminalSelect",
+      "result": "TerminalServers"
+    },
+    {
+      "name": "terminal.attach",
+      "params": "TerminalAttach",
+      "result": "TerminalAttached"
+    },
+    {
+      "name": "terminal.list",
+      "params": "TerminalPath",
+      "result": "TerminalListing"
+    },
+    {
+      "name": "terminal.read",
+      "params": "TerminalPath",
+      "result": "TerminalFileContent"
+    },
+    {
+      "name": "terminal.download",
+      "params": "TerminalPath",
+      "result": "TerminalFileContent"
+    },
+    {
+      "name": "terminal.fileAction",
+      "params": "TerminalFileAction",
+      "result": "OkResult"
+    },
+    {
+      "name": "terminal.ports",
+      "params": "TerminalHandleRef",
+      "result": "TerminalPorts"
+    },
+    {
+      "name": "terminal.previewPort",
+      "params": "TerminalPortRef",
+      "result": "TerminalPreview"
+    },
+    {
+      "name": "voice.settings",
+      "params": null,
+      "result": "VoiceSettings"
+    },
+    {
+      "name": "voice.saveSettings",
+      "params": "VoiceSettingsEdit",
+      "result": "VoiceSettings"
+    },
+    {
+      "name": "voice.voices",
+      "params": null,
+      "result": "VoiceVoices"
+    },
+    {
+      "name": "voice.speak",
+      "params": "VoiceSpeak",
+      "result": "VoiceSpeech"
+    },
+    {
+      "name": "voice.models",
+      "params": null,
+      "result": "VoiceModels"
+    },
+    {
+      "name": "voice.downloadModel",
+      "params": "VoiceModelRef",
+      "result": "VoiceModels"
+    },
+    {
+      "name": "voice.deleteModel",
+      "params": "VoiceModelRef",
+      "result": "VoiceModels"
+    }
+  ],
+  "events": [
+    {
+      "name": "turn.started",
+      "payload": "TurnStarted",
+      "scoped": true
+    },
+    {
+      "name": "turn.delta",
+      "payload": "TurnDelta",
+      "scoped": true
+    },
+    {
+      "name": "turn.blocks",
+      "payload": "TurnBlocks",
+      "scoped": true
+    },
+    {
+      "name": "turn.completed",
+      "payload": "TurnCompleted",
+      "scoped": true
+    },
+    {
+      "name": "turn.failed",
+      "payload": "TurnFailed",
+      "scoped": true
+    },
+    {
+      "name": "turn.finished",
+      "payload": "TurnFinished",
+      "scoped": false
+    },
+    {
+      "name": "chats.changed",
+      "payload": "ChatsChanged",
+      "scoped": false
+    },
+    {
+      "name": "accounts.changed",
+      "payload": "AccountsChanged",
+      "scoped": false
+    },
+    {
+      "name": "notes.changed",
+      "payload": "NotesChanged",
+      "scoped": false
+    },
+    {
+      "name": "channels.message",
+      "payload": "ChannelMessagesChanged",
+      "scoped": true
+    },
+    {
+      "name": "channels.typing",
+      "payload": "ChannelTypingUsers",
+      "scoped": true
+    },
+    {
+      "name": "channels.changed",
+      "payload": null,
+      "scoped": false
+    },
+    {
+      "name": "sync.status",
+      "payload": "SyncState",
+      "scoped": false
+    },
+    {
+      "name": "socket.health",
+      "payload": null,
+      "scoped": false
+    },
+    {
+      "name": "notify.show",
+      "payload": "Notice",
+      "scoped": false
+    },
+    {
+      "name": "route.remap",
+      "payload": "RouteRemap",
+      "scoped": false
+    },
+    {
+      "name": "ui.request",
+      "payload": "UiRequest",
+      "scoped": false
+    },
+    {
+      "name": "ui.settled",
+      "payload": "UiSettled",
+      "scoped": false
+    },
+    {
+      "name": "capabilities.changed",
+      "payload": null,
+      "scoped": false
+    },
+    {
+      "name": "models.changed",
+      "payload": null,
+      "scoped": false
+    },
+    {
+      "name": "shell.openUrl",
+      "payload": "OpenUrl",
+      "scoped": false
+    },
+    {
+      "name": "workspace.changed",
+      "payload": "WorkspaceChanged",
+      "scoped": false
+    },
+    {
+      "name": "hermes.changed",
+      "payload": null,
+      "scoped": false
+    },
+    {
+      "name": "voice.changed",
+      "payload": "VoiceModels",
+      "scoped": false
+    },
+    {
+      "name": "terminal.displayFile",
+      "payload": "TerminalDisplayFile",
+      "scoped": true
+    }
+  ]
+}

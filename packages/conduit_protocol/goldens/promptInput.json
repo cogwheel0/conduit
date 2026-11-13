@@ -1,0 +1,12 @@
+{
+  "name": "team",
+  "label": "Team",
+  "type": "select",
+  "placeholder": "Which team",
+  "defaultValue": "Platform",
+  "required": true,
+  "options": [
+    "Platform",
+    "Mobile"
+  ]
+}

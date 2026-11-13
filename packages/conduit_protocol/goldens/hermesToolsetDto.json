@@ -1,0 +1,10 @@
+{
+  "name": "web",
+  "label": "Web",
+  "description": "Search and fetch",
+  "enabled": false,
+  "tools": [
+    "search",
+    "fetch"
+  ]
+}

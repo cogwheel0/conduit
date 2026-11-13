@@ -1,0 +1,5 @@
+{
+  "id": "ollama",
+  "model": "llama3.2:1b",
+  "value": "-1"
+}

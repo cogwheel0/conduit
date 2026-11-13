@@ -1,0 +1,10 @@
+{
+  "runApproval": true,
+  "skills": true,
+  "toolsets": true,
+  "jobs": true,
+  "jobsAdmin": true,
+  "sessions": true,
+  "inputImages": true,
+  "inputFiles": true
+}

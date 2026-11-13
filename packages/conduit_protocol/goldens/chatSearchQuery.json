@@ -1,0 +1,4 @@
+{
+  "query": "outbox",
+  "limit": 20
+}

@@ -1,0 +1,22 @@
+{
+  "requestId": "req_8",
+  "kind": "inputPrompt",
+  "messageCode": "server.prompt",
+  "messageArgs": {
+    "title": "Pick a region"
+  },
+  "detail": {},
+  "timeoutMs": 300000,
+  "defaultChoice": "cancel",
+  "inputType": "select",
+  "options": [
+    {
+      "value": "eu",
+      "label": "Europe"
+    },
+    {
+      "value": "us",
+      "label": "United States"
+    }
+  ]
+}

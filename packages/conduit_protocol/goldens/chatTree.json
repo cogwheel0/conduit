@@ -1,0 +1,12 @@
+{
+  "chatId": "chat-7c1f0b2a",
+  "nodes": [
+    {
+      "id": "msg-1",
+      "role": "user",
+      "preview": "Hi",
+      "timestampMs": 1
+    }
+  ],
+  "currentId": "msg-1"
+}

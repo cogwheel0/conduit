@@ -1,0 +1,6 @@
+{
+  "command": "/standup",
+  "title": "Stand-up notes",
+  "description": "Yesterday, today, blockers",
+  "usesClipboard": true
+}

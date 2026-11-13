@@ -1,0 +1,15 @@
+{
+  "phase": "authenticated",
+  "isAuthenticated": true,
+  "isLoading": false,
+  "hasToken": true,
+  "user": {
+    "id": "c3a1b2d4-5e6f-4708-9a1b-2c3d4e5f6071",
+    "name": "Ada Lovelace",
+    "email": "ada@example.com",
+    "role": "admin",
+    "avatarUrl": "/api/v1/users/c3a1b2d4/avatar"
+  },
+  "errorArgs": {},
+  "isReviewerMode": false
+}

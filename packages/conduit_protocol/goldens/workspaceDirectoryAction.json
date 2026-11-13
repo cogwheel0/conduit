@@ -1,0 +1,7 @@
+{
+  "knowledgeId": "k1",
+  "op": "rename",
+  "directoryId": "d1",
+  "parentId": "d0",
+  "name": "Manuals"
+}

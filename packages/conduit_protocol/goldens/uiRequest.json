@@ -1,0 +1,16 @@
+{
+  "requestId": "req_7",
+  "kind": "toolApproval",
+  "messageCode": "tool.approvalPrompt",
+  "messageArgs": {
+    "tool": "web_search"
+  },
+  "detail": {
+    "tool": "web_search",
+    "arguments": {
+      "query": "tide tables"
+    }
+  },
+  "timeoutMs": 120000,
+  "defaultChoice": "deny"
+}

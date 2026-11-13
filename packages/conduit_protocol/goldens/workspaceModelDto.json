@@ -1,0 +1,51 @@
+{
+  "id": "helper",
+  "name": "Helper",
+  "baseModelId": "gemma3:1b",
+  "description": "Answers briefly",
+  "tags": [
+    "short"
+  ],
+  "system": "Be brief.",
+  "stop": [
+    "END"
+  ],
+  "suggestionPrompts": [
+    "Hello"
+  ],
+  "capabilities": {
+    "vision": true,
+    "usage": false
+  },
+  "knowledge": [
+    {
+      "id": "k1",
+      "name": "Docs"
+    }
+  ],
+  "toolIds": [
+    "t1"
+  ],
+  "skillIds": [
+    "s1"
+  ],
+  "filterIds": [
+    "f1"
+  ],
+  "defaultFilterIds": [
+    "f1"
+  ],
+  "actionIds": [
+    "a1"
+  ],
+  "defaultFeatureIds": [
+    "web_search"
+  ],
+  "ttsVoice": "alloy",
+  "terminalId": "http://127.0.0.1:8000",
+  "active": true,
+  "hidden": true,
+  "params": {
+    "temperature": 0.5
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "webSearch": true,
+  "imageGeneration": false,
+  "tools": [
+    {
+      "id": "weather",
+      "name": "Weather"
+    }
+  ],
+  "mcpTools": [
+    {
+      "id": "local_mcp:mcp-1",
+      "name": "Docs"
+    }
+  ]
+}

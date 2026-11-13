@@ -1,0 +1,9 @@
+{
+  "server": {
+    "name": "Work",
+    "url": "https://openwebui.corp.example.com",
+    "allowSelfSignedCertificates": false,
+    "clearMutualTls": false
+  },
+  "force": true
+}

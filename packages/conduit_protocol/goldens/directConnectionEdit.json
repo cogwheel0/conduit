@@ -1,0 +1,23 @@
+{
+  "name": "Azure",
+  "kind": "openai",
+  "baseUrl": "https://example.openai.azure.com/openai",
+  "apiMode": "chat",
+  "apiVersion": "2024-10-21",
+  "apiKeyHeader": true,
+  "enabled": true,
+  "openWebUi": false,
+  "apiKey": "sk-test",
+  "customHeaders": {
+    "X-Team": "platform"
+  },
+  "manualModelIds": [
+    "gpt-4o"
+  ],
+  "allowSelfSignedCertificates": false,
+  "tags": [
+    "work"
+  ],
+  "certificatePem": "-----BEGIN CERTIFICATE-----",
+  "certificateLabel": "client.pem"
+}

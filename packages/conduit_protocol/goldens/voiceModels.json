@@ -1,0 +1,13 @@
+{
+  "models": [
+    {
+      "id": "tiny",
+      "name": "",
+      "sizeBytes": 0,
+      "englishOnly": false,
+      "downloaded": true
+    }
+  ],
+  "failedId": "small",
+  "failure": "checksum"
+}

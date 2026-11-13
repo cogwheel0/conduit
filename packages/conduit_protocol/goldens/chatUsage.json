@@ -1,0 +1,11 @@
+{
+  "generationPerSecond": 42.5,
+  "generationTokens": 85,
+  "promptPerSecond": 300.0,
+  "promptTokens": 30,
+  "reasoningTokens": 12,
+  "totalTokens": 115,
+  "totalSeconds": 2.25,
+  "queueSeconds": 0.02,
+  "loadSeconds": 1.0
+}

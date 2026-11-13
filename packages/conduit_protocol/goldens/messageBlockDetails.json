@@ -1,0 +1,8 @@
+{
+  "kind": "details",
+  "summary": "Searched the docs",
+  "done": true,
+  "pending": false,
+  "body": "Three pages matched.",
+  "type": "openai_builtin_tool"
+}

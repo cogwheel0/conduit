@@ -1,0 +1,7 @@
+{
+  "command": "/standup",
+  "values": {
+    "team": "Platform"
+  },
+  "clipboard": "pasted"
+}

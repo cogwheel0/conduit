@@ -1,0 +1,31 @@
+{
+  "knowledgeId": "k1",
+  "directoryId": "d1",
+  "breadcrumbs": [
+    {
+      "id": "d1",
+      "name": ""
+    }
+  ],
+  "directories": [
+    {
+      "id": "d2",
+      "name": ""
+    }
+  ],
+  "files": [
+    {
+      "id": "f1",
+      "filename": ""
+    }
+  ],
+  "pending": [
+    {
+      "id": "f2",
+      "filename": "",
+      "status": "processing"
+    }
+  ],
+  "total": 9,
+  "hasMore": true
+}

@@ -1,0 +1,11 @@
+{
+  "servers": [
+    {
+      "id": "t1",
+      "name": "Box",
+      "kind": "system",
+      "requiresSavedChat": false
+    }
+  ],
+  "selectedId": "t1"
+}

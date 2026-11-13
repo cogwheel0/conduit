@@ -1,0 +1,13 @@
+{
+  "kind": "sources",
+  "sources": [
+    {
+      "label": "Tide tables",
+      "url": "https://example.com/tides"
+    },
+    {
+      "label": "harbour-notes.pdf",
+      "snippet": "Port Wren, 1998"
+    }
+  ]
+}

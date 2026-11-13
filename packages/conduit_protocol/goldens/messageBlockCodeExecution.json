@@ -1,0 +1,18 @@
+{
+  "kind": "codeExecution",
+  "done": true,
+  "pending": false,
+  "code": "plot(tides)",
+  "language": "python",
+  "output": "saved chart.png",
+  "id": "exec-1",
+  "name": "chart.py",
+  "isError": false,
+  "files": [
+    {
+      "id": "file-9c1d",
+      "name": "chart.png",
+      "image": false
+    }
+  ]
+}

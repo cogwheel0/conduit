@@ -1,0 +1,11 @@
+{
+  "id": "c1",
+  "name": "general",
+  "description": "Everything",
+  "private": false,
+  "unread": 3,
+  "lastMessageAtMs": 1790000000000,
+  "manager": true,
+  "canPost": true,
+  "userCount": 12
+}

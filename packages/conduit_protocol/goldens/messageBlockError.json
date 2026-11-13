@@ -1,0 +1,5 @@
+{
+  "kind": "error",
+  "error": "HTTP 400: this model does not support tools",
+  "type": "directToolsUnsupported"
+}

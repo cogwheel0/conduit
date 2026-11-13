@@ -1,0 +1,18 @@
+{
+  "models": [
+    {
+      "id": "gpt-4o",
+      "name": "GPT-4o",
+      "pinned": false,
+      "capabilities": []
+    },
+    {
+      "id": "direct:home:bGxhbWEz",
+      "name": "llama3",
+      "pinned": false,
+      "capabilities": [],
+      "connection": "Home Ollama"
+    }
+  ],
+  "selectedId": "gpt-4o"
+}

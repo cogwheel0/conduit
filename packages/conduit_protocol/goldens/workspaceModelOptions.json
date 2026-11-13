@@ -1,0 +1,38 @@
+{
+  "baseModels": [
+    {
+      "id": "gemma3:1b",
+      "name": ""
+    }
+  ],
+  "knowledge": [
+    {
+      "id": "k1",
+      "name": "Docs"
+    }
+  ],
+  "tools": [
+    {
+      "id": "t1",
+      "name": "Web"
+    }
+  ],
+  "skills": [
+    {
+      "id": "s1",
+      "name": "Tidy"
+    }
+  ],
+  "filters": [
+    {
+      "id": "f1",
+      "name": "Clean"
+    }
+  ],
+  "actions": [
+    {
+      "id": "a1",
+      "name": "Copy"
+    }
+  ]
+}

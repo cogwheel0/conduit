@@ -1,0 +1,14 @@
+{
+  "kind": "prompts",
+  "id": "p1",
+  "name": "Summarize",
+  "subtitle": "/summarize",
+  "ownerName": "Ada",
+  "writeAccess": true,
+  "active": true,
+  "public": true,
+  "updatedAtMs": 1767225600000,
+  "tags": [
+    "writing"
+  ]
+}

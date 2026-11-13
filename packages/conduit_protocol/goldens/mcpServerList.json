@@ -1,0 +1,16 @@
+{
+  "servers": [
+    {
+      "id": "mcp-2",
+      "name": "Local",
+      "endpoint": "http://127.0.0.1:8808/mcp",
+      "enabled": false,
+      "auth": "none",
+      "hasBearerToken": false,
+      "customHeaderNames": [],
+      "oauthConnected": false,
+      "allowInsecureCredentials": false,
+      "approvals": []
+    }
+  ]
+}
