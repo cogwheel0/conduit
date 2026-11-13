@@ -1393,8 +1393,12 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
         text: l10n.workspacePromptSaveFailed,
       );
     }
+    // Each page drawn waits on the sheet: another account may sign in
+    // between them, and is shown nothing more of this one's prompt.
     await _applyVersion(l10n, editor, entry);
+    if (!_current(editor)) return;
     await _applyHistory(l10n, editor);
+    if (!_current(editor)) return;
     await _applyEditor(l10n, editor, withPages: false);
   }
 
@@ -1435,6 +1439,7 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
         text: l10n.workspacePromptSaveFailed,
       );
       await _applyVersion(l10n, editor, entry);
+      if (!_current(editor)) return;
       await _applyEditor(l10n, editor, withPages: false);
       return;
     }
@@ -1445,12 +1450,14 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     ];
     _say(editor, l10n.workspacePromptHistoryDeleted, error: false);
     await _applyHistory(l10n, editor);
+    if (!_current(editor)) return;
     // The server's pages moved up by one: read them again from the first,
     // so Load More does not skip the version that moved into it.
     if (editor.historyHasMore) {
       unawaited(_loadHistory(editor, reset: true, restart: true));
     }
     await _applyEditor(l10n, editor, withPages: false);
+    if (!_current(editor)) return;
     await _surface.closeDetail(
       workspacePromptVersionPageId(editor.key, versionId),
     );

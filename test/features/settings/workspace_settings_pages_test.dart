@@ -196,6 +196,9 @@ final class _Prompts extends WorkspacePrompts {
   List<WorkspacePromptHistoryEntry> versions = const [];
   Object? liveError;
 
+  /// Holds a version made live or deleted, when a test sets it.
+  Completer<void>? versionGate;
+
   @override
   Future<WorkspaceCollectionState<WorkspacePromptSummary>> build() async =>
       WorkspaceCollectionState(items: items, total: items.length);
@@ -246,6 +249,7 @@ final class _Prompts extends WorkspacePrompts {
     String versionId,
   ) async {
     liveSet.add(versionId);
+    await versionGate?.future;
     final error = liveError;
     if (error != null) throw error;
     final live = versions.where((entry) => entry.id == versionId).firstOrNull;
@@ -301,6 +305,7 @@ final class _Prompts extends WorkspacePrompts {
 
   @override
   Future<void> deleteHistoryEntry(String id, String historyId) async {
+    await versionGate?.future;
     versions = [
       for (final entry in versions)
         if (entry.id != historyId) entry,
@@ -394,11 +399,15 @@ final class _Surface extends SettingsSurface {
   /// Holds each page update, when a test sets it.
   Completer<void>? gate;
 
+  /// The pages drawn, in order.
+  final drawn = <String>[];
+
   @override
   Future<bool> applyDetail(
     NativeSheetDetailConfig detail, {
     List<NativeSheetDetailConfig> detailSheets = const [],
   }) async {
+    drawn.add(detail.id);
     final applied = await super.applyDetail(detail, detailSheets: detailSheets);
     await gate?.future;
     return applied;
@@ -2045,6 +2054,54 @@ void main() {
               .subtitle!,
         ).startsWith(_l10n.workspacePromptHistoryLive);
       });
+
+      for (final action in ['live', 'delete']) {
+        testWidgets('a version $action answered as another account signs in '
+            'draws nothing more of the prompt', (tester) async {
+          final prompts = _Prompts()..versions = versions;
+          final rig = await pump(
+            tester,
+            prompts: prompts,
+            promptDetails: {'prompt-1': _prompt()},
+          );
+          final version = workspacePromptVersionPageId(_prompt1Key, 'v1');
+          await rig.open(_prompt1);
+          await rig.open(history);
+          await rig.open(version);
+          final request = prompts.versionGate = Completer<void>();
+
+          final changing = rig
+              .module<WorkspacePromptSettingsPages>()
+              .handleChange(
+                _promptRow('version-$action', _prompt1Key, 'v1'),
+                true,
+                _l10n,
+              );
+          await tester.pump(const Duration(milliseconds: 20));
+          // The answer's first page is held while another account signs in.
+          final first = rig.surface.gate = Completer<void>();
+          request.complete();
+          await tester.pump(const Duration(milliseconds: 20));
+          rig.container
+              .read(_signedInProvider.notifier)
+              .use(
+                const User(
+                  id: 'user-2',
+                  username: 'grace',
+                  email: 'grace@example.com',
+                  role: 'user',
+                ),
+              );
+          await tester.pump(const Duration(milliseconds: 20));
+          final before = rig.surface.drawn.length;
+          rig.surface.gate = null;
+          first.complete();
+          await rig.settle(changing);
+
+          check(rig.surface.drawn.skip(before)).isEmpty();
+          check(rig.closed).not((it) => it.contains(version));
+        });
+      }
 
       testWidgets('an editor with no edits shows the version made live', (
         tester,
