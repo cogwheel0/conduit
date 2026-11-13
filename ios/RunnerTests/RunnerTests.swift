@@ -10,6 +10,26 @@ import XCTest
 
 class RunnerTests: XCTestCase {
   @MainActor
+  func testIconBarButtonsSayWhatTheyDo() {
+    let action = UIAction { _ in }
+    // Given a label, VoiceOver reads it, not the symbol.
+    XCTAssertEqual(
+      iconBarButton(systemName: "checkmark", label: "Save Password", action: action)
+        .accessibilityLabel,
+      "Save Password")
+    // Without one, by what the symbol does: a checkmark is Done, never
+    // "selected".
+    XCTAssertEqual(
+      iconBarButton(systemName: "checkmark", label: "", action: action).accessibilityLabel,
+      nativeBarButtonLabel("checkmark"))
+    XCTAssertEqual(nativeBarButtonLabel("checkmark"), "Done")
+    XCTAssertEqual(
+      iconBarButton(systemName: "xmark", action: action).accessibilityLabel, "Close")
+    XCTAssertEqual(
+      iconBarButton(systemName: "plus", action: action).accessibilityLabel, "Add")
+  }
+
+  @MainActor
   func testNativeProfilePresentationIsSingleUntilDismissed() throws {
     let presenter = ProfilePresentationTestController()
     let host = SelectionMenuTestHost(

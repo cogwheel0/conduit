@@ -29,11 +29,13 @@
 "appIntent.unableSendLink" = "无法发送链接";
 "appIntent.unableSendText" = "无法发送文本";
 "appIntent.unableStartVoiceCall" = "无法开始语音通话";
+"native.add" = "添加";
 "native.avatar" = "头像";
 "native.bio" = "简介";
 "native.cancel" = "取消";
 "native.chooseModel" = "选择模型";
 "native.clear" = "清除";
+"native.close" = "关闭";
 "native.customGender" = "自定义性别";
 "native.dateOfBirth" = "出生日期";
 "native.done" = "完成";

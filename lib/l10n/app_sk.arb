@@ -6858,5 +6858,9 @@
     }
   },
   "showModelNameInComposer": "Zobrazovať názov modelu v poli správy",
-  "showModelNameInComposerDescription": "Prázdne pole správy uvádza názov vybraného modelu namiesto Conduitu."
+  "showModelNameInComposerDescription": "Prázdne pole správy uvádza názov vybraného modelu namiesto Conduitu.",
+  "settingsAddAction": "Pridať",
+  "@settingsAddAction": {
+    "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
+  }
 }

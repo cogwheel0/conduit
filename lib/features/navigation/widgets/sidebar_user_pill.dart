@@ -60,6 +60,7 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../../settings/settings_root.dart';
 import '../providers/sidebar_providers.dart';
+import 'drawer_shell_page.dart' show restFocusInAppShortcuts;
 import 'sidebar_monogram_avatar.dart';
 
 part 'sidebar_user_pill.g.dart';
@@ -567,6 +568,12 @@ bool flutterSettingsShowing() {
       path?.startsWith('${Routes.profile}/') == true;
 }
 
+/// The account a Settings sheet was being built for is no longer the one in
+/// use.
+final class _OwnerChanged implements Exception {
+  const _OwnerChanged();
+}
+
 /// Opens Settings from anywhere in the app: the native sheet where iOS can
 /// present it, built for the account in use, else the Flutter pages. The
 /// account button, Command-comma and any other entry open it the same way.
@@ -586,7 +593,36 @@ final class NativeSettingsSheet {
   /// Presents the native sheet, built for the account in use. Returns the
   /// Flutter Settings route to open instead when it cannot be presented, or
   /// null once it was, or when [context] is gone.
+  ///
+  /// Another account can take over while the sheet's account is read; the
+  /// sheet is then built again for that one, never from both.
   Future<String?> present(BuildContext context) async {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await _present(context, _owner());
+      } on _OwnerChanged {
+        if (!context.mounted) return null;
+      }
+    }
+    return null;
+  }
+
+  /// Whom the sheet is for: the account, its server session and the backend
+  /// in charge.
+  Object _owner() => (
+    ref.read(currentUserProvider2)?.id,
+    ref.read(apiServiceProvider),
+    ref.read(preferredBackendProvider),
+    ref.read(hermesOnlyModeProvider),
+    ref.read(hermesActiveConnectionNameProvider),
+  );
+
+  /// Throws [_OwnerChanged] once the sheet is for someone other than [owner].
+  void _stillFor(Object owner) {
+    if (_owner() != owner) throw const _OwnerChanged();
+  }
+
+  Future<String?> _present(BuildContext context, Object owner) async {
     final nativeProfilePresenter = ref.read(
       sidebarNativeProfilePresenterProvider,
     );
@@ -622,11 +658,13 @@ final class NativeSettingsSheet {
         ? 'U'
         : displayName.characters.first.toUpperCase();
 
-    FocusManager.instance.primaryFocus?.unfocus();
     // Native sheets do not participate in Flutter's focus traversal.
-    // Let the chat input release its keyboard before presenting Settings.
+    // Let the chat input release its keyboard before presenting Settings,
+    // its focus kept where the app's keyboard shortcuts still hear keys.
+    restFocusInAppShortcuts();
     await WidgetsBinding.instance.endOfFrame;
     if (!context.mounted) return null;
+    _stillFor(owner);
 
     if (nativeProfilePresenter != null) {
       // Pre-load the Hermes avatar bytes (the config builder is sync, and
@@ -636,6 +674,7 @@ final class NativeSettingsSheet {
           ? await _loadHermesAvatarBytes()
           : null;
       if (!context.mounted) return null;
+      _stillFor(owner);
       // The sheet lists the other saved accounts as they are when it opens,
       // so the first open after launch must not beat their load, nor the
       // answer on whether it offers Workspace.
@@ -644,6 +683,7 @@ final class NativeSettingsSheet {
         _loadWorkspaceCapabilities(ref),
       ]);
       if (!context.mounted) return null;
+      _stillFor(owner);
       final hasAccountProfile = !hermesOnly && user != null;
       // The profile details editor preselects the stored gender and birth
       // date and saves every field, so it must not open on a profile that
@@ -657,6 +697,7 @@ final class NativeSettingsSheet {
           ? null
           : cachedProfile ?? await _currentAccountProfile(ref);
       if (!context.mounted) return null;
+      _stillFor(owner);
       // With no profile at all, the sheet would offer empty fields that a
       // save writes over the stored ones. The settings page loads the
       // profile itself and reports a failure, so go there instead.

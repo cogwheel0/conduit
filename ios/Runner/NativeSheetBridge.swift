@@ -2809,6 +2809,7 @@ private final class NativeProfilePhotoEditorViewController: UIViewController, PH
         navigationItem.title = nativeLocalized("native.editPhoto", "Edit Photo")
         navigationItem.leftBarButtonItem = iconBarButton(
             systemName: "xmark",
+            label: nativeLocalized("native.cancel", "Cancel"),
             action: UIAction { [weak self] _ in self?.cancelTapped() }
         )
         navigationItem.rightBarButtonItem = iconBarButton(
@@ -3015,6 +3016,7 @@ private final class NativeProfileNameEditorViewController: UIViewController {
         navigationItem.title = copy.nameLabel
         navigationItem.leftBarButtonItem = iconBarButton(
             systemName: "xmark",
+            label: nativeLocalized("native.cancel", "Cancel"),
             action: UIAction { [weak self] _ in self?.cancelTapped() }
         )
         navigationItem.rightBarButtonItem = iconBarButton(
@@ -3080,6 +3082,7 @@ private final class NativeProfileAboutEditorViewController: UIViewController {
         navigationItem.title = copy.bioLabel
         navigationItem.leftBarButtonItem = iconBarButton(
             systemName: "xmark",
+            label: nativeLocalized("native.cancel", "Cancel"),
             action: UIAction { [weak self] _ in self?.cancelTapped() }
         )
         navigationItem.rightBarButtonItem = iconBarButton(
@@ -3160,6 +3163,7 @@ private final class NativeProfileDetailsEditorViewController: UIViewController {
         navigationItem.title = copy.title
         navigationItem.leftBarButtonItem = iconBarButton(
             systemName: "xmark",
+            label: nativeLocalized("native.cancel", "Cancel"),
             action: UIAction { [weak self] _ in self?.cancelTapped() }
         )
         navigationItem.rightBarButtonItem = iconBarButton(
@@ -3350,8 +3354,12 @@ private func inputContainer(caption: String, field: UITextField) -> UIStackView 
     return stack
 }
 
-private func iconBarButton(
+/// A bar button drawn as [systemName] alone, read by VoiceOver as [label],
+/// else by what the symbol does ([nativeBarButtonLabel]). Left to itself,
+/// VoiceOver reads the symbol's name: a checkmark as "selected".
+func iconBarButton(
     systemName: String,
+    label: String? = nil,
     style: UIBarButtonItem.Style = .plain,
     action: UIAction
 ) -> UIBarButtonItem {
@@ -3360,7 +3368,23 @@ private func iconBarButton(
         primaryAction: action
     )
     button.style = style
+    if let label, !label.isEmpty {
+        button.accessibilityLabel = label
+    } else {
+        button.accessibilityLabel = nativeBarButtonLabel(systemName)
+    }
     return button
+}
+
+/// What a bar button drawn as [systemName] alone does, in the device's
+/// language: Close, Done or Add.
+func nativeBarButtonLabel(_ systemName: String) -> String? {
+    switch systemName {
+    case "xmark": return nativeLocalized("native.close", "Close")
+    case "checkmark": return nativeLocalized("native.done", "Done")
+    case "plus": return nativeLocalized("native.add", "Add")
+    default: return nil
+    }
 }
 
 private extension UIViewController {
@@ -5571,6 +5595,7 @@ private final class NativeDetailTableViewController: UITableViewController {
     private func confirmButton(actionId: String, label: String? = nil) -> UIBarButtonItem {
         iconBarButton(
             systemName: "checkmark",
+            label: label,
             style: .done,
             action: UIAction { [weak self] _ in
                 self?.confirmConfiguredAction(actionId)
@@ -8035,6 +8060,7 @@ private final class NativeDatePickerViewController: UIViewController {
         view.backgroundColor = NativeSheetTheme.shared.background
         navigationItem.leftBarButtonItem = iconBarButton(
             systemName: "xmark",
+            label: nativeLocalized("native.cancel", "Cancel"),
             action: UIAction { [weak self] _ in self?.cancelTapped() }
         )
         navigationItem.rightBarButtonItem = iconBarButton(

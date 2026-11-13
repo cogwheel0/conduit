@@ -187,6 +187,20 @@ class _SidebarOverlayDismissListenerState
 /// keeps its own editing shortcuts. Escape is left to whatever in front
 /// owns it: an input method still composing text cancels the composition,
 /// and a dialog, sheet or menu dismisses itself.
+/// Takes focus from a field into the app's keyboard shortcuts, as Escape
+/// does, so Command-K and the rest still reach them once something native,
+/// such as the Settings sheet, takes over. Unfocusing instead hands focus to
+/// the enclosing scope, which can sit above them. Where the shortcuts are not
+/// on screen, it unfocuses.
+void restFocusInAppShortcuts() {
+  final resting = _AppKeyboardShortcutsState._shown?._restingFocus;
+  if (resting != null && resting.context != null) {
+    resting.requestFocus();
+  } else {
+    FocusManager.instance.primaryFocus?.unfocus();
+  }
+}
+
 class AppKeyboardShortcuts extends ConsumerStatefulWidget {
   const AppKeyboardShortcuts({super.key, required this.child});
 
@@ -207,8 +221,18 @@ class _AppKeyboardShortcutsState extends ConsumerState<AppKeyboardShortcuts> {
     skipTraversal: true,
   );
 
+  /// The shortcuts on screen, for [restFocusInAppShortcuts].
+  static _AppKeyboardShortcutsState? _shown;
+
+  @override
+  void initState() {
+    super.initState();
+    _shown = this;
+  }
+
   @override
   void dispose() {
+    if (identical(_shown, this)) _shown = null;
     _restingFocus.dispose();
     super.dispose();
   }

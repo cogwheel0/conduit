@@ -4935,5 +4935,9 @@
     }
   },
   "showModelNameInComposer": "在訊息框中顯示模型名稱",
-  "showModelNameInComposerDescription": "空白訊息框會顯示所選模型的名稱，而非 Conduit。"
+  "showModelNameInComposerDescription": "空白訊息框會顯示所選模型的名稱，而非 Conduit。",
+  "settingsAddAction": "新增",
+  "@settingsAddAction": {
+    "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
+  }
 }

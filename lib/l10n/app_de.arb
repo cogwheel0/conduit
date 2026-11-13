@@ -4935,5 +4935,9 @@
     }
   },
   "showModelNameInComposer": "Modellnamen im Nachrichtenfeld zeigen",
-  "showModelNameInComposerDescription": "Das leere Nachrichtenfeld nennt das ausgewählte Modell statt Conduit."
+  "showModelNameInComposerDescription": "Das leere Nachrichtenfeld nennt das ausgewählte Modell statt Conduit.",
+  "settingsAddAction": "Hinzufügen",
+  "@settingsAddAction": {
+    "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
+  }
 }

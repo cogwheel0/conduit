@@ -29,11 +29,13 @@
 "appIntent.unableSendLink" = "Nie można wysłać linku";
 "appIntent.unableSendText" = "Nie można wysłać tekstu";
 "appIntent.unableStartVoiceCall" = "Nie można rozpocząć połączenia głosowego";
+"native.add" = "Dodaj";
 "native.avatar" = "Awatar";
 "native.bio" = "Bio";
 "native.cancel" = "Anuluj";
 "native.chooseModel" = "Wybierz model";
 "native.clear" = "Wyczyść";
+"native.close" = "Zamknij";
 "native.customGender" = "Inna płeć";
 "native.dateOfBirth" = "Data urodzenia";
 "native.done" = "Gotowe";

@@ -4935,5 +4935,9 @@
     }
   },
   "showModelNameInComposer": "Mostra il nome del modello nel campo messaggio",
-  "showModelNameInComposerDescription": "Il campo messaggio vuoto indica il modello selezionato invece di Conduit."
+  "showModelNameInComposerDescription": "Il campo messaggio vuoto indica il modello selezionato invece di Conduit.",
+  "settingsAddAction": "Aggiungi",
+  "@settingsAddAction": {
+    "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
+  }
 }

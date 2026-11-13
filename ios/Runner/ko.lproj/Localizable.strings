@@ -29,11 +29,13 @@
 "appIntent.unableSendLink" = "링크를 보낼 수 없습니다";
 "appIntent.unableSendText" = "텍스트를 보낼 수 없습니다";
 "appIntent.unableStartVoiceCall" = "음성 통화를 시작할 수 없습니다";
+"native.add" = "추가";
 "native.avatar" = "아바타";
 "native.bio" = "소개";
 "native.cancel" = "취소";
 "native.chooseModel" = "모델 선택";
 "native.clear" = "지우기";
+"native.close" = "닫기";
 "native.customGender" = "사용자 지정 성별";
 "native.dateOfBirth" = "생년월일";
 "native.done" = "완료";

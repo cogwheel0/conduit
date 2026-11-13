@@ -654,6 +654,68 @@ void main() {
       await tester.pump();
     });
 
+    testWidgets('Command-K still reaches the shortcuts once the sheet is up', (
+      tester,
+    ) async {
+      final chatFocus = FocusNode();
+      addTearDown(chatFocus.dispose);
+      final harness = await _pump(
+        tester,
+        cached: _profile(),
+        appOpener: true,
+        header: TextField(focusNode: chatFocus),
+      );
+      chatFocus.requestFocus();
+      await tester.pump();
+
+      await _pressCommandComma(tester);
+      check(harness.presented).length.equals(1);
+      check(chatFocus.hasFocus).isFalse();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pump();
+
+      check(harness.container.read(sidebarHeaderSearchExpandedProvider))
+          .isTrue();
+      harness.profiles.pending!.complete(_profile());
+      await tester.pump();
+    });
+
+    testWidgets('a sheet whose account changed while it loaded is built for '
+        'the account in use', (tester) async {
+      final accounts = Completer<List<OpenWebUiAccountEntry>>();
+      final harness = await _pump(
+        tester,
+        cached: _profile(),
+        accounts: accounts.future,
+        appOpener: true,
+      );
+
+      await _tapAvatar(tester);
+      check(harness.presented).isEmpty();
+      harness.container
+          .read(_signedInUser.notifier)
+          .signIn(
+            const User(
+              id: 'user-2',
+              username: 'grace',
+              email: 'grace@example.com',
+              name: 'Grace',
+              role: 'user',
+            ),
+          );
+      accounts.complete([_savedAccount('ada', isActive: true)]);
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      check(harness.presented).length.equals(1);
+      check(harness.presented.single.profile.email).equals('grace@example.com');
+      harness.profiles.pending?.complete(_profile());
+      await tester.pump();
+    });
+
     testWidgets('the first opening waits to learn whether Workspace is '
         'offered', (tester) async {
       // Nothing on screen has asked yet whether the account may manage
