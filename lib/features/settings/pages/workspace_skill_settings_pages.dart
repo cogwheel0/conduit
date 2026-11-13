@@ -653,6 +653,8 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
       } else {
         await _notifier.updateItem(editor.summary!.id, form);
       }
+    } on WorkspaceSessionChanged {
+      // Answered after another account signed in: the server took it.
     } catch (error, stackTrace) {
       DebugLogger.error(
         'workspace-skill-save-failed',
@@ -723,6 +725,8 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
     Object? failed;
     try {
       await operation();
+    } on WorkspaceSessionChanged {
+      // Answered after another account signed in: the server took it.
     } catch (error, stackTrace) {
       failed = error;
       DebugLogger.error(
@@ -811,7 +815,8 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
         if (serverClones == true || (status != 404 && status != 405)) {
           rethrow;
         }
-        if (!_current(editor)) return;
+        // Nothing was copied: not saved, rather than taken.
+        if (!_current(editor)) throw StateError('account changed');
         await _notifier.create(form);
       }
     });

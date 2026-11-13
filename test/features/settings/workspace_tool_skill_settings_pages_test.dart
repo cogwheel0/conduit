@@ -18,6 +18,7 @@ import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_providers.dart';
+import 'package:conduit_core/features/workspace/providers/workspace_session.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/navigation/routes.dart';
@@ -202,6 +203,21 @@ final class _Tools extends WorkspaceTools {
   @override
   Future<void> delete(String id) async => deleted.add(id);
 
+  /// Runs as an export is read, before it answers.
+  void Function()? onExport;
+
+  @override
+  Future<Map<String, dynamic>> exportOne(String id) async {
+    onExport?.call();
+    return {'id': id, 'content': 'class Tools:\n    pass\n'};
+  }
+
+  /// Holds the next read of the valves, when set.
+  Completer<void>? valvesGate;
+
+  /// What the server's valves read as: units, in turn, per read.
+  final unitsRead = <String?>[];
+
   @override
   Future<Map<String, dynamic>> loadFromUrl(String url) async {
     fetched.add(url);
@@ -230,9 +246,13 @@ final class _Tools extends WorkspaceTools {
 
   @override
   Future<Map<String, dynamic>> toolValves(String id) async {
+    final gate = valvesGate;
+    valvesGate = null;
+    final units = unitsRead.isEmpty ? null : unitsRead.removeAt(0);
+    await gate?.future;
     final error = valvesError;
     if (error != null) throw error;
-    return {'units': null, 'limit': null};
+    return {'units': units, 'limit': null};
   }
 
   @override
@@ -293,12 +313,20 @@ final class _Skills extends WorkspaceSkills {
     return WorkspaceSkillSummary(id: form.id, name: form.name, userId: 'owner');
   }
 
+  /// Runs as a save is sent, before it answers.
+  void Function()? onSave;
+
+  /// What a save fails with, once sent.
+  Object? saveError;
+
   @override
   Future<WorkspaceSkillDetail> updateItem(
     String id,
     WorkspaceSkillForm form,
   ) async {
     updated.add(form);
+    onSave?.call();
+    if (saveError case final error?) throw error;
     return _skill();
   }
 
@@ -767,6 +795,42 @@ void main() {
       check(rig.row(_tool1, _toolRow('delete', _toolKey))).isNull();
       check(rig.row(_tool1, '$workspaceToolValvesPagePrefix$_toolKey'))
           .isNull();
+      // Open WebUI leaves its source out for this account: nothing to export.
+      check(rig.row(_tool1, _toolRow('export', _toolKey))).isNull();
+    });
+
+    testWidgets('an export read as another account signs in is not shared', (
+      tester,
+    ) async {
+      final tools = _Tools();
+      final export = _Export();
+      final rig = await pump(tester, tools: tools, export: export);
+      final surface = rig.container.read(settingsSurfaceProvider) as _Surface;
+      await rig.open(_tool1);
+      // Signed in while the editor is drawn again with the export read.
+      tools.onExport = () =>
+          surface.onNextApply = () =>
+              rig.container.read(_signedInProvider.notifier).use(_grace);
+
+      await rig.change(_toolRow('export', _toolKey));
+
+      check(export.shared).isEmpty();
+    });
+
+    testWidgets('a switch the server took as another account signed in is '
+        'not said to be unsaved', (tester) async {
+      // The notifier answers so a write made for an account since gone.
+      final tools = _Tools()..sendError = const WorkspaceSessionChanged();
+      final rig = await pump(tester, tools: tools, tool: _tool(isActive: true));
+      tools.onSend = () =>
+          rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.open(_tool1);
+
+      await rig.change(_toolRow('active', _toolKey));
+
+      await rig.open(_tool1);
+      check(rig.page(_tool1).announcement)
+          .not((it) => it.equals(_l10n.workspaceEditorAccountChanged));
     });
 
     testWidgets('a change queued on an editor since left does not reach '
@@ -985,6 +1049,51 @@ void main() {
         await rig.open(_tool1);
         check(rig.page(_tool1).announcement)
             .equals(_l10n.workspaceEditorAccountChanged);
+      });
+
+      testWidgets('a save the server took as another account signed in is '
+          'not said to be unsaved', (tester) async {
+        final tools = _Tools()..sendError = const WorkspaceSessionChanged();
+        final rig = await pump(tester, tools: tools);
+        tools.onSend = () =>
+            rig.container.read(_signedInProvider.notifier).use(_grace);
+        await rig.open(_tool1);
+        await rig.open(valves);
+        await rig.change(_toolRow('valve-mode', _toolKey, 'units'), 'custom');
+
+        await rig.change(_toolRow('valves-save', _toolKey));
+
+        check(rig.closed).deepEquals([valves]);
+        await rig.open(_tool1);
+        check(rig.page(_tool1).announcement)
+            .not((it) => it.equals(_l10n.workspaceEditorAccountChanged));
+      });
+
+      testWidgets('values read for a visit since left are not kept for the '
+          'next', (tester) async {
+        final tools = _Tools()..unitsRead.addAll(['metric', 'imperial']);
+        final rig = await pump(tester, tools: tools);
+        await rig.open(_tool1);
+        final first = tools.valvesGate = Completer<void>();
+        rig.container.read(settingsPagesProvider.notifier).register([
+          buildNativeLoadingDetail(l10n: _l10n, id: valves, title: ''),
+        ]);
+        final module = rig.container
+            .read(settingsPageModulesProvider)
+            .whereType<WorkspaceToolSettingsPages>()
+            .single;
+        final opening = module.hydrate(valves, _l10n);
+        await tester.pump(const Duration(milliseconds: 20));
+
+        // Left while the first read waits, then opened again.
+        rig.leave(valves);
+        await rig.open(valves);
+        first.complete();
+        await rig.settle(opening);
+
+        check(
+          rig.row(valves, _toolRow('valve-value', _toolKey, 'units'))?.value,
+        ).equals('imperial');
       });
 
       testWidgets('a value of its own is set, then saved', (tester) async {
@@ -1365,6 +1474,24 @@ void main() {
       check(skills.updated).isEmpty();
       check(rig.page(_skill1).announcement)
           .equals(_l10n.workspaceEditorAccountChanged);
+    });
+
+    testWidgets('a save the server took as another account signed in is '
+        'not said to be unsaved', (tester) async {
+      // The notifier answers so a write made for an account since gone.
+      final skills = _Skills()..saveError = const WorkspaceSessionChanged();
+      final rig = await pump(tester, skills: skills);
+      skills.onSave = () =>
+          rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.open(_skill1);
+      await rig.change(_skillRow('description', _skillKey), 'Changed');
+
+      await rig.change(_skillRow('save', _skillKey));
+
+      check(skills.updated).length.equals(1);
+      await rig.open(_skill1);
+      check(rig.page(_skill1).announcement)
+          .not((it) => it.equals(_l10n.workspaceEditorAccountChanged));
     });
 
     testWidgets('a duplicate refused after another account signed in makes '

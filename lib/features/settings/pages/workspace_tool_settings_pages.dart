@@ -98,6 +98,10 @@ final class WorkspaceToolEditor {
   bool valvesBusy = false;
   bool valvesDirty = false;
 
+  /// Counts the valves page's visits: values read for one since left are
+  /// not taken into the next.
+  int valvesVisit = 0;
+
   /// Text typed into a numeric valve that is no number (yet): kept as
   /// typed, said on its row, and not saved.
   final Map<String, String> valveTexts = {};
@@ -389,7 +393,9 @@ NativeSheetDetailConfig buildWorkspaceToolPage(
             ),
         ],
       ),
-      if (summary != null && (canWrite || canExport))
+      // Open WebUI leaves the source out of a tool the account may only
+      // view, so only its writers export it.
+      if (summary != null && canWrite)
         NativeSheetSectionConfig(
           items: [
             if (canWrite)
@@ -820,6 +826,8 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
           _editors[detailId.substring(workspaceToolValvesPagePrefix.length)];
       editor
         ?..valvesLoaded = false
+        ..valvesLoading = false
+        ..valvesVisit += 1
         ..valvesFailed = false
         ..valvesDirty = false
         ..valvesNotice = null
@@ -891,6 +899,7 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     final l10n = _l10n;
     final id = editor.summary?.id;
     if (l10n == null || id == null || editor.valvesLoading) return;
+    final visit = editor.valvesVisit;
     editor
       ..valvesLoading = true
       ..valvesFailed = false;
@@ -911,7 +920,7 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
         stackTrace: stackTrace,
       );
     }
-    if (!_current(editor)) return;
+    if (!_current(editor) || editor.valvesVisit != visit) return;
     editor.valvesLoading = false;
     if (serverValues == null || userValues == null) {
       editor.valvesFailed = true;
@@ -1208,6 +1217,8 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       } else {
         await _notifier.updateItem(editor.summary!.id, form);
       }
+    } on WorkspaceSessionChanged {
+      // Answered after another account signed in: the server took it.
     } catch (error, stackTrace) {
       DebugLogger.error(
         'workspace-tool-save-failed',
@@ -1283,6 +1294,8 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     Object? failed;
     try {
       await operation();
+    } on WorkspaceSessionChanged {
+      // Answered after another account signed in: the server took it.
     } catch (error, stackTrace) {
       failed = error;
       DebugLogger.error(
@@ -1402,6 +1415,8 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     final data = exported;
     if (!ok || data == null) return;
     await _applyEditor(l10n, editor, withPages: false);
+    // Read for an account since gone, or an editor since left: not shared.
+    if (!_current(editor)) return;
     try {
       await _ref
           .read(workspaceExportControllerProvider)
@@ -1540,6 +1555,9 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       } else {
         await _notifier.updateToolValves(id, payload);
       }
+      saved = true;
+    } on WorkspaceSessionChanged {
+      // Answered after another account signed in: the server took it.
       saved = true;
     } catch (error, stackTrace) {
       DebugLogger.error(
