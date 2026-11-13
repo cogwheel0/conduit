@@ -8,5 +8,7 @@
   "generateTitle": true,
   "share": true,
   "saveTemporary": true,
-  "compare": true
+  "compare": true,
+  "branchFromHere": true,
+  "undoLastTurn": true
 }

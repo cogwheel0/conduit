@@ -38,7 +38,9 @@
     "generateTitle": false,
     "share": false,
     "saveTemporary": false,
-    "compare": false
+    "compare": false,
+    "branchFromHere": false,
+    "undoLastTurn": false
   },
   "temporary": false,
   "tasks": [

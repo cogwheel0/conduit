@@ -5,5 +5,7 @@
   "preview": "Where to?",
   "updatedAtMs": 1767225600000,
   "pinned": true,
-  "archived": false
+  "archived": false,
+  "hidden": false,
+  "running": false
 }

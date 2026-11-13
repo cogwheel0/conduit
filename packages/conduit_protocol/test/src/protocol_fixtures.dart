@@ -1022,8 +1022,47 @@ final Map<String, Object> protocolFixtures = <String, Object>{
       HermesSessionDto(id: 's3', chatId: 'local:hermes_s3', archived: true),
     ],
   ),
+  'hermesSessionsSetAside': const HermesSessions(
+    sessions: <HermesSessionDto>[
+      HermesSessionDto(
+        id: 's4',
+        chatId: 'local:hermes_s4',
+        title: 'Garden notes',
+        source: 'cli',
+        running: true,
+      ),
+    ],
+    archivedFailed: true,
+  ),
+  'hermesHiddenSession': const HermesSessionDto(
+    id: 's5',
+    chatId: 'local:hermes_s5',
+    title: 'Gift ideas',
+    hidden: true,
+    source: 'api_server',
+  ),
   'hermesRef': const HermesRef(id: 's1'),
   'hermesRename': const HermesRename(id: 's1', title: 'Trip'),
+  'hermesSessionUpdate': const HermesSessionUpdate(id: 's1', archived: true),
+  'hermesSessionUpdatePin': const HermesSessionUpdate(
+    id: 's1',
+    pinned: false,
+    hidden: true,
+  ),
+  'hermesContinue': const HermesContinue(chatId: 'local:hermes_s4'),
+  'hermesContinueCopy': const HermesContinue(
+    chatId: 'local:hermes_s4',
+    copy: true,
+  ),
+  'hermesBranch': const HermesBranch(
+    chatId: 'local:hermes_s1',
+    messageId: 'msg-2',
+  ),
+  'hermesChatDto': const HermesChatDto(
+    sessionId: 's4',
+    readOnly: true,
+    owner: 'Hermes CLI',
+  ),
   'hermesJobDto': const HermesJobDto(
     id: 'j1',
     name: 'Morning brief',
@@ -2492,6 +2531,17 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     share: true,
     saveTemporary: true,
     compare: true,
+    branchFromHere: true,
+    undoLastTurn: true,
+  ),
+  'chatDetailHermes': const ChatDetail(
+    summary: ChatSummary(
+      id: 'local:hermes_s4',
+      title: 'Garden notes',
+      updatedAtMs: 1758413000000,
+    ),
+    abilities: ChatAbilities(branchFromHere: true),
+    hermes: HermesChatDto(sessionId: 's4'),
   ),
   'chatDetailActions': const ChatDetail(
     summary: ChatSummary(
@@ -2857,8 +2907,17 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'hermesStatus': HermesStatus.fromJson,
       'hermesSessionDto': HermesSessionDto.fromJson,
       'hermesSessions': HermesSessions.fromJson,
+      'hermesSessionsSetAside': HermesSessions.fromJson,
+      'hermesHiddenSession': HermesSessionDto.fromJson,
       'hermesRef': HermesRef.fromJson,
       'hermesRename': HermesRename.fromJson,
+      'hermesSessionUpdate': HermesSessionUpdate.fromJson,
+      'hermesSessionUpdatePin': HermesSessionUpdate.fromJson,
+      'hermesContinue': HermesContinue.fromJson,
+      'hermesContinueCopy': HermesContinue.fromJson,
+      'hermesBranch': HermesBranch.fromJson,
+      'hermesChatDto': HermesChatDto.fromJson,
+      'chatDetailHermes': ChatDetail.fromJson,
       'hermesJobDto': HermesJobDto.fromJson,
       'hermesJobs': HermesJobs.fromJson,
       'hermesJobEdit': HermesJobEdit.fromJson,

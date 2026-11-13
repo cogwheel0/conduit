@@ -7,7 +7,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.60.0",
+  "protocolVersion": "1.61.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -16,7 +16,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.60.0",
+  "protocolVersion": "1.61.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -1999,7 +1999,9 @@ const Map<String, String> protocolGoldens = <String, String>{
   "preview": "Where to?",
   "updatedAtMs": 1767225600000,
   "pinned": true,
-  "archived": false
+  "archived": false,
+  "hidden": false,
+  "running": false
 }''',
 
   'hermesSessions': r'''
@@ -2010,7 +2012,9 @@ const Map<String, String> protocolGoldens = <String, String>{
       "chatId": "local:hermes_s2",
       "title": "",
       "pinned": false,
-      "archived": false
+      "archived": false,
+      "hidden": false,
+      "running": false
     }
   ],
   "archived": [
@@ -2019,9 +2023,42 @@ const Map<String, String> protocolGoldens = <String, String>{
       "chatId": "local:hermes_s3",
       "title": "",
       "pinned": false,
-      "archived": true
+      "archived": true,
+      "hidden": false,
+      "running": false
     }
-  ]
+  ],
+  "archivedFailed": false
+}''',
+
+  'hermesSessionsSetAside': r'''
+{
+  "sessions": [
+    {
+      "id": "s4",
+      "chatId": "local:hermes_s4",
+      "title": "Garden notes",
+      "pinned": false,
+      "archived": false,
+      "hidden": false,
+      "source": "cli",
+      "running": true
+    }
+  ],
+  "archived": [],
+  "archivedFailed": true
+}''',
+
+  'hermesHiddenSession': r'''
+{
+  "id": "s5",
+  "chatId": "local:hermes_s5",
+  "title": "Gift ideas",
+  "pinned": false,
+  "archived": false,
+  "hidden": true,
+  "source": "api_server",
+  "running": false
 }''',
 
   'hermesRef': r'''
@@ -2033,6 +2070,44 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "id": "s1",
   "title": "Trip"
+}''',
+
+  'hermesSessionUpdate': r'''
+{
+  "id": "s1",
+  "archived": true
+}''',
+
+  'hermesSessionUpdatePin': r'''
+{
+  "id": "s1",
+  "pinned": false,
+  "hidden": true
+}''',
+
+  'hermesContinue': r'''
+{
+  "chatId": "local:hermes_s4",
+  "copy": false
+}''',
+
+  'hermesContinueCopy': r'''
+{
+  "chatId": "local:hermes_s4",
+  "copy": true
+}''',
+
+  'hermesBranch': r'''
+{
+  "chatId": "local:hermes_s1",
+  "messageId": "msg-2"
+}''',
+
+  'hermesChatDto': r'''
+{
+  "sessionId": "s4",
+  "readOnly": true,
+  "owner": "Hermes CLI"
 }''',
 
   'hermesJobDto': r'''
@@ -3389,7 +3464,9 @@ const Map<String, String> protocolGoldens = <String, String>{
     "generateTitle": false,
     "share": false,
     "saveTemporary": false,
-    "compare": false
+    "compare": false,
+    "branchFromHere": false,
+    "undoLastTurn": false
   },
   "temporary": false,
   "tasks": [
@@ -3706,7 +3783,9 @@ const Map<String, String> protocolGoldens = <String, String>{
       "generateTitle": false,
       "share": false,
       "saveTemporary": false,
-      "compare": false
+      "compare": false,
+      "branchFromHere": false,
+      "undoLastTurn": false
     },
     "temporary": false,
     "tasks": []
@@ -5011,7 +5090,47 @@ const Map<String, String> protocolGoldens = <String, String>{
   "generateTitle": true,
   "share": true,
   "saveTemporary": true,
-  "compare": true
+  "compare": true,
+  "branchFromHere": true,
+  "undoLastTurn": true
+}''',
+
+  'chatDetailHermes': r'''
+{
+  "summary": {
+    "id": "local:hermes_s4",
+    "title": "Garden notes",
+    "updatedAtMs": 1758413000000,
+    "pinned": false,
+    "archived": false,
+    "tags": [],
+    "shared": false,
+    "readOnly": false,
+    "unread": false
+  },
+  "messages": [],
+  "readOnly": false,
+  "abilities": {
+    "fork": false,
+    "export": false,
+    "merge": false,
+    "branch": false,
+    "deleteMessages": false,
+    "markUnread": false,
+    "generateTitle": false,
+    "share": false,
+    "saveTemporary": false,
+    "compare": false,
+    "branchFromHere": true,
+    "undoLastTurn": false
+  },
+  "temporary": false,
+  "tasks": [],
+  "hermes": {
+    "sessionId": "s4",
+    "readOnly": false,
+    "owner": ""
+  }
 }''',
 
   'chatDetailActions': r'''
@@ -5039,7 +5158,9 @@ const Map<String, String> protocolGoldens = <String, String>{
     "generateTitle": false,
     "share": false,
     "saveTemporary": false,
-    "compare": false
+    "compare": false,
+    "branchFromHere": false,
+    "undoLastTurn": false
   },
   "temporary": false,
   "shareId": "b5c6d7e8-1f2a-4b3c-9d0e-6a7b8c9d0e1f",
@@ -5152,7 +5273,9 @@ const Map<String, String> protocolGoldens = <String, String>{
       "generateTitle": false,
       "share": false,
       "saveTemporary": false,
-      "compare": false
+      "compare": false,
+      "branchFromHere": false,
+      "undoLastTurn": false
     },
     "temporary": false,
     "tasks": []
