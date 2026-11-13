@@ -25,6 +25,7 @@ class AdaptiveTextField extends StatelessWidget {
     this.obscureText = false,
     this.autocorrect = true,
     this.enableSuggestions = true,
+    this.autofillHints,
     this.autofocus = false,
     this.enabled = true,
     this.readOnly = false,
@@ -55,6 +56,10 @@ class AdaptiveTextField extends StatelessWidget {
   final bool obscureText;
   final bool autocorrect;
   final bool enableSuggestions;
+
+  /// What AutoFill may fill or offer to save in the field. Null keeps it
+  /// out of AutoFill.
+  final Iterable<String>? autofillHints;
   final bool autofocus;
   final bool enabled;
   final bool readOnly;
@@ -98,6 +103,7 @@ class AdaptiveTextField extends StatelessWidget {
         obscureText: obscureText,
         autocorrect: autocorrect,
         enableSuggestions: enableSuggestions,
+        autofillHints: autofillHints,
         autofocus: autofocus,
         enabled: enabled,
         readOnly: readOnly,
@@ -126,6 +132,7 @@ class AdaptiveTextField extends StatelessWidget {
       obscureText: obscureText,
       autocorrect: autocorrect,
       enableSuggestions: enableSuggestions,
+      autofillHints: autofillHints,
       autofocus: autofocus,
       enabled: enabled,
       readOnly: readOnly,

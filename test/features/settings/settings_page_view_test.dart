@@ -102,6 +102,45 @@ void main() {
     check(controller.changes.last).equals(('send-on-enter', false));
   });
 
+  testWidgets('the account password rows are AutoFill password fields, and '
+      'other secrets stay out of AutoFill', (tester) async {
+    await _pumpPage(
+      tester,
+      _detail([
+        NativeSheetItemConfig(
+          id: 'current-password',
+          title: 'Current Password',
+          kind: NativeSheetItemKind.secureTextField,
+          passwordRole: NativeSheetPasswordRole.current,
+        ),
+        NativeSheetItemConfig(
+          id: 'new-password',
+          title: 'New Password',
+          kind: NativeSheetItemKind.secureTextField,
+          passwordRole: NativeSheetPasswordRole.newPassword,
+        ),
+        NativeSheetItemConfig(
+          id: 'api-key',
+          title: 'API Key',
+          kind: NativeSheetItemKind.secureTextField,
+        ),
+      ]),
+    );
+    Iterable<String>? hints(String id) => tester
+        .widget<EditableText>(
+          find.descendant(of: _row(id), matching: find.byType(EditableText)),
+        )
+        .autofillHints;
+
+    check(hints('current-password'))
+        .isNotNull()
+        .deepEquals([AutofillHints.password]);
+    check(hints('new-password'))
+        .isNotNull()
+        .deepEquals([AutofillHints.newPassword]);
+    check(hints('api-key') ?? const <String>[]).isEmpty();
+  });
+
   testWidgets('a choice in use is marked, as iOS marks it', (tester) async {
     await _pumpPage(
       tester,
