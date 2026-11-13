@@ -2289,29 +2289,41 @@ class HermesSettingsPages extends SettingsPageModule {
     if (changed) {
       // The change is made; a list that cannot be read after it is only
       // stale, and shows the change as made.
-      try {
-        _ref.invalidate(hermesToolsetsProvider);
-        editor
-          ..toolsets = await _readFuture(hermesToolsetsProvider) ?? const []
-          ..toolsetsFailed = false;
-      } catch (error) {
-        DebugLogger.warning(
-          'toolsets-reload-failed',
-          scope: 'settings/hermes',
-          data: {'errorType': error.runtimeType.toString()},
-        );
-        editor.toolsets = [
-          for (final toolset in editor.toolsets ?? const <HermesToolset>[])
-            toolset.name == name
-                ? HermesToolset(
-                    name: toolset.name,
-                    label: toolset.label,
-                    description: toolset.description,
-                    enabled: enabled,
-                    tools: toolset.tools,
-                  )
-                : toolset,
-        ];
+      void showMade() => editor.toolsets = [
+        for (final toolset in editor.toolsets ?? const <HermesToolset>[])
+          toolset.name == name
+              ? HermesToolset(
+                  name: toolset.name,
+                  label: toolset.label,
+                  description: toolset.description,
+                  enabled: enabled,
+                  tools: toolset.tools,
+                )
+              : toolset,
+      ];
+      // Another connection in use meanwhile: its toolsets are not this
+      // editor's to read.
+      if (!_actsOn(key, editor)) {
+        showMade();
+      } else {
+        try {
+          _ref.invalidate(hermesToolsetsProvider);
+          final read = await _readFuture(hermesToolsetsProvider) ?? const [];
+          if (_actsOn(key, editor)) {
+            editor
+              ..toolsets = read
+              ..toolsetsFailed = false;
+          } else {
+            showMade();
+          }
+        } catch (error) {
+          DebugLogger.warning(
+            'toolsets-reload-failed',
+            scope: 'settings/hermes',
+            data: {'errorType': error.runtimeType.toString()},
+          );
+          showMade();
+        }
       }
     }
     editor.pendingToolsets.remove(name);

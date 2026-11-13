@@ -859,6 +859,9 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     ];
   }
 
+  /// Counts catalog reads; only the latest one's answer is the page's.
+  int _catalogRead = 0;
+
   Future<void> _loadCatalog(AppLocalizations l10n) async {
     _catalogFailed = false;
     // The catalog read before (Settings closed and opened again) leads to
@@ -868,23 +871,30 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       detailSheets: _unknownEntryPages(l10n),
     );
     final connection = _ref.read(hermesActiveConnectionIdProvider);
+    final read = ++_catalogRead;
+    bool current() =>
+        read == _catalogRead &&
+        _ref.read(hermesActiveConnectionIdProvider) == connection;
     try {
       final service = _service;
       if (service == null) {
         throw StateError('Desktop Gateway is not connected.');
       }
       final catalog = await service.mcpCatalog();
-      // Read through the last connection: not this one's catalog. A client
-      // rebuilt on the same connection (a token refresh) reads the same
-      // Hermes, whose catalog it is.
-      if (_ref.read(hermesActiveConnectionIdProvider) != connection) return;
+      // Read through the last connection, or overtaken by a later read: not
+      // this page's catalog. A client rebuilt on the same connection (a
+      // token refresh) reads the same Hermes, whose catalog it is.
+      if (!current()) return;
       _catalog = catalog;
+      _catalogFailed = false;
     } catch (error) {
       DebugLogger.warning(
         'mcp-catalog-load-failed',
         scope: 'settings/hermes-mcp',
         data: {'errorType': error.runtimeType.toString()},
       );
+      // A failure of a read no longer this page's says nothing of it.
+      if (!current()) return;
       _catalogFailed = _catalog == null;
     }
     await _surface.applyDetail(
