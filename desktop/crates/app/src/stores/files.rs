@@ -1,0 +1,292 @@
+//! Server files through the daemon: images for the window and attachments
+//! opened in another app.
+//!
+//! * **Images:** [`file_image_state`] loads `/files/{server}/{id}` through
+//!   GPUI's asset cache ([`DaemonFileImage`]): the daemon is asked once per
+//!   file and port (a restarted daemon is a new port, so a stale failure is
+//!   not kept), with the session token as the bearer, and the bytes are
+//!   decoded by GPUI like any other image. [`retry_file_image`] forgets a
+//!   failure so the next draw asks again.
+//! * **Attachments:** [`open_attachment`] downloads a file into the daemon's
+//!   staging directory and opens it with its default app or in Quick Look.
+//!
+//! [`FileAccess`] (a global the connection store keeps current) holds the
+//! HTTP client and the staging directory.
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use conduit_daemon::http::HttpClient;
+use conduit_daemon::runtime;
+use gpui_kit::{
+    App, Asset, Global, Image, ImageCacheError, ImageFormat, RenderImage, Task, Window,
+};
+
+/// What file loads need: set by the connection store.
+#[derive(Clone, Default)]
+pub struct FileAccess {
+    pub http: Option<HttpClient>,
+    pub port: Option<u16>,
+    /// The daemon's staging directory (`DaemonPaths.staging`).
+    pub staging: Option<PathBuf>,
+}
+
+impl Global for FileAccess {}
+
+/// A file on the active account's server.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct FileRef {
+    /// The active account's id (its `ServerSummary.id`).
+    pub server_id: String,
+    pub file_id: String,
+}
+
+/// The image format for a response, from its type, else its bytes.
+pub fn image_format(content_type: &str, bytes: &[u8]) -> Option<ImageFormat> {
+    let mime = content_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let by_type = match mime.as_str() {
+        "image/png" => Some(ImageFormat::Png),
+        "image/jpeg" | "image/jpg" => Some(ImageFormat::Jpeg),
+        "image/webp" => Some(ImageFormat::Webp),
+        "image/gif" => Some(ImageFormat::Gif),
+        "image/svg+xml" => Some(ImageFormat::Svg),
+        "image/bmp" => Some(ImageFormat::Bmp),
+        "image/tiff" => Some(ImageFormat::Tiff),
+        "image/x-icon" | "image/vnd.microsoft.icon" => Some(ImageFormat::Ico),
+        _ => None,
+    };
+    by_type.or_else(|| sniff(bytes))
+}
+
+fn sniff(b: &[u8]) -> Option<ImageFormat> {
+    if b.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some(ImageFormat::Png)
+    } else if b.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some(ImageFormat::Jpeg)
+    } else if b.starts_with(b"GIF8") {
+        Some(ImageFormat::Gif)
+    } else if b.len() >= 12 && &b[0..4] == b"RIFF" && &b[8..12] == b"WEBP" {
+        Some(ImageFormat::Webp)
+    } else if b.starts_with(b"BM") {
+        Some(ImageFormat::Bmp)
+    } else if b.starts_with(b"II*\0") || b.starts_with(b"MM\0*") {
+        Some(ImageFormat::Tiff)
+    } else {
+        let head = String::from_utf8_lossy(&b[..b.len().min(256)]).to_ascii_lowercase();
+        (head.contains("<svg") || head.trim_start().starts_with("<?xml"))
+            .then_some(ImageFormat::Svg)
+    }
+}
+
+/// Fetches `file` on the daemon's tokio runtime; any executor can await it.
+async fn fetch(http: HttpClient, file: FileRef) -> Result<(Vec<u8>, String), String> {
+    let (tx, rx) = futures::channel::oneshot::channel();
+    runtime::shared().spawn(async move {
+        let result = http
+            .file(&file.server_id, &file.file_id)
+            .await
+            .map(|f| (f.bytes.to_vec(), f.content_type))
+            .map_err(|e| e.to_string());
+        let _ = tx.send(result);
+    });
+    rx.await
+        .unwrap_or_else(|_| Err("the download was dropped".into()))
+}
+
+/// The GPUI asset that loads a `/files` image.
+pub enum DaemonFileImage {}
+
+impl Asset for DaemonFileImage {
+    /// The daemon's port (a new daemon refetches) and the file.
+    type Source = (u16, FileRef);
+    type Output = Result<Arc<RenderImage>, ImageCacheError>;
+
+    fn load(
+        (_, file): Self::Source,
+        cx: &mut App,
+    ) -> impl std::future::Future<Output = Self::Output> + Send + 'static {
+        let http = cx.try_global::<FileAccess>().and_then(|a| a.http.clone());
+        let renderer = cx.svg_renderer();
+        async move {
+            let other = |m: String| ImageCacheError::Other(Arc::new(anyhow::anyhow!(m)));
+            let id = file.file_id.clone();
+            let result = async {
+                let http = http.ok_or_else(|| "the daemon is not running".to_string())?;
+                let (bytes, content_type) = fetch(http, file).await?;
+                let format = image_format(&content_type, &bytes)
+                    .ok_or_else(|| format!("not an image ({content_type})"))?;
+                Image::from_bytes(format, bytes)
+                    .to_image_data(renderer)
+                    .map_err(|e| e.to_string())
+            }
+            .await;
+            if let Err(e) = &result {
+                log::warn!("image {id}: {e}");
+            }
+            result.map_err(other)
+        }
+    }
+}
+
+/// Where `file`'s image is: `None` while it loads (or the daemon is down),
+/// then the decoded image or why it failed. Asking starts the load, and the
+/// calling view is drawn again when it ends.
+pub fn file_image_state(
+    file: &FileRef,
+    window: &mut Window,
+    cx: &mut App,
+) -> Option<Result<Arc<RenderImage>, ImageCacheError>> {
+    let port = cx.try_global::<FileAccess>().and_then(|a| a.port)?;
+    window.use_asset::<DaemonFileImage>(&(port, file.clone()), cx)
+}
+
+/// Forgets `file`'s load (a failure), so the next draw asks the daemon
+/// again.
+pub fn retry_file_image(file: &FileRef, cx: &mut App) {
+    if let Some(port) = cx.try_global::<FileAccess>().and_then(|a| a.port) {
+        cx.remove_asset::<DaemonFileImage>(&(port, file.clone()));
+    }
+}
+
+/// How [`open_attachment`] shows a file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpenWith {
+    /// The file's default app (Preview for a PDF).
+    DefaultApp,
+    /// A Quick Look panel.
+    QuickLook,
+}
+
+/// A safe file name for `name`: no path parts, no control characters, not
+/// hidden, at most 120 bytes, with its extension kept.
+pub fn safe_name(name: &str) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or_default();
+    let mut out: String = base
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, ':' | '/' | '\\') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    out = out.trim().trim_start_matches('.').to_string();
+    if out.is_empty() {
+        out = "attachment".into();
+    }
+    if out.len() > 120 {
+        let ext = Path::new(&out)
+            .extension()
+            .and_then(|e| e.to_str())
+            .filter(|e| e.len() <= 10)
+            .map(|e| format!(".{e}"))
+            .unwrap_or_default();
+        let mut cut = 120 - ext.len();
+        while !out.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        out = format!("{}{ext}", &out[..cut]);
+    }
+    out
+}
+
+/// Where `file` is staged: `<staging>/open/<file id>/<name>`, so two files
+/// with one name do not collide.
+pub fn staged_path(staging: &Path, file: &FileRef, name: &str) -> PathBuf {
+    staging
+        .join("open")
+        .join(safe_name(&file.file_id))
+        .join(safe_name(name))
+}
+
+/// Downloads `file` into the staging directory and opens it. Resolves with
+/// where it was saved.
+pub fn open_attachment(
+    file: FileRef,
+    name: &str,
+    how: OpenWith,
+    cx: &mut App,
+) -> Task<Result<PathBuf, String>> {
+    let access = cx.try_global::<FileAccess>().cloned().unwrap_or_default();
+    let (Some(http), Some(staging)) = (access.http, access.staging) else {
+        return Task::ready(Err("the daemon is not running".into()));
+    };
+    let path = staged_path(&staging, &file, name);
+    cx.spawn(async move |cx| {
+        let (bytes, _) = fetch(http, file).await?;
+        let target = path.clone();
+        cx.background_executor()
+            .spawn(async move {
+                if let Some(dir) = target.parent() {
+                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                }
+                std::fs::write(&target, bytes).map_err(|e| e.to_string())
+            })
+            .await?;
+        match how {
+            OpenWith::DefaultApp => {
+                cx.update(|cx| cx.open_with_system(&path));
+            }
+            OpenWith::QuickLook => {
+                std::process::Command::new("/usr/bin/qlmanage")
+                    .arg("-p")
+                    .arg(&path)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(path)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formats_come_from_the_type_then_the_bytes() {
+        assert_eq!(image_format("image/png", b""), Some(ImageFormat::Png));
+        assert_eq!(
+            image_format("image/jpeg; charset=binary", b""),
+            Some(ImageFormat::Jpeg)
+        );
+        assert_eq!(
+            image_format("application/octet-stream", b"\x89PNG\r\n\x1a\n...."),
+            Some(ImageFormat::Png)
+        );
+        assert_eq!(
+            image_format("application/octet-stream", b"RIFF\0\0\0\0WEBPVP8 "),
+            Some(ImageFormat::Webp)
+        );
+        assert_eq!(
+            image_format("", b"<svg xmlns='http://www.w3.org/2000/svg'/>"),
+            Some(ImageFormat::Svg)
+        );
+        assert_eq!(image_format("application/pdf", b"%PDF-1.7"), None);
+    }
+
+    #[test]
+    fn staged_names_cannot_escape_the_staging_directory() {
+        let file = FileRef {
+            server_id: "s".into(),
+            file_id: "../../etc".into(),
+        };
+        let p = staged_path(Path::new("/stage"), &file, "../../.ssh/id_rsa");
+        assert!(p.starts_with("/stage/open"), "{}", p.display());
+        assert_eq!(p.file_name().unwrap(), "id_rsa");
+        assert_eq!(safe_name(".hidden"), "hidden");
+        assert_eq!(safe_name("a:b\u{0}c.pdf"), "a_b_c.pdf");
+        assert_eq!(safe_name(""), "attachment");
+        let long = format!("{}.pdf", "é".repeat(100));
+        let s = safe_name(&long);
+        assert!(s.len() <= 120 && s.ends_with(".pdf"), "{s}");
+    }
+}
