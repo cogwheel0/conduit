@@ -554,6 +554,42 @@ void main() {
       check(rig.closed).deepEquals([pageId]);
     });
 
+    testWidgets("a Hermes connection's editor open over its page keeps its "
+        'rows as push changes', (tester) async {
+      const target = PushTargetState(
+        target: pushHermesApiTarget,
+        status: PushStatus.signInNeeded,
+      );
+      final rig = await _pump(tester, pushStateWith([target]));
+      final pageId = pushTargetPageId(target.scope);
+      await rig.open(pageId);
+      // The connection's editor, opened from the page and drawn by Hermes.
+      final editor = hermesConnectionPageId('conn-api');
+      rig.container
+          .read(settingsPagesProvider.notifier)
+          .patch(
+            detailId: editor,
+            items: const [
+              NativeSheetItemConfig(id: 'hermes-name', title: 'Home Hermes'),
+            ],
+          );
+      check(rig.page(editor)!.items.map((row) => row.id))
+          .deepEquals(['hermes-name']);
+
+      rig.fake.emit(
+        pushStateWith([
+          const PushTargetState(
+            target: pushHermesApiTarget,
+            status: PushStatus.on,
+          ),
+        ]),
+      );
+      await rig.idle();
+
+      check(rig.page(editor)!.items.map((row) => row.id))
+          .deepEquals(['hermes-name']);
+    });
+
     testWidgets('follows push as setup finishes', (tester) async {
       final rig = await _pump(
         tester,
