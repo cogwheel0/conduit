@@ -42,7 +42,13 @@
 #
 # Environment:
 #   CONDUIT_SIGN_IDENTITY   codesign identity ("Developer ID Application: …"
-#                           or its SHA-1); default "-" (ad-hoc)
+#                           or its SHA-1); default "-" (ad-hoc). An Apple
+#                           Development identity signs local test bundles
+#                           (--bundle-id only, never --release): the team
+#                           comes from its certificate, no secure timestamp,
+#                           no notarization; Shortcuts can then run the
+#                           App Intents (docs/BUILDING-DESKTOP.md). A
+#                           revoked or unknown identity is refused.
 #   CONDUIT_NOTARY_PROFILE  a `notarytool store-credentials` profile, or
 #   CONDUIT_NOTARY_KEY_FILE + CONDUIT_NOTARY_KEY_ID + CONDUIT_NOTARY_ISSUER
 #                           an App Store Connect API key (.p8)
@@ -100,10 +106,13 @@ app="$out/Conduit.app"
 dmg="$out/Conduit-$version.dmg"
 identity="${CONDUIT_SIGN_IDENTITY:--}"
 feed_url="$(appcast_url)"
+# The signing team and kind (SIGN_TEAM, SIGN_KIND: lib.sh).
+signing_identity "$identity"
+team="$SIGN_TEAM"
 # The widget's app group: release.env's, with the signing team's prefix.
 # A local test bundle (--bundle-id) keeps to a group of its own, away from
-# the release app's snapshot.
-team="$(signing_team "$identity")"
+# the release app's snapshot: <team>.<test id> when team-signed (macOS
+# lets an app use a group prefixed with its own team without a profile).
 group="$(widget_group "$team")"
 if [ "$bundle_id" != "$BUNDLE_ID_DEFAULT" ]; then
   group="${team:+$team.}$bundle_id"
@@ -112,6 +121,11 @@ fi
 if [ "$release" = 1 ]; then
   [ "$bundle_id" = "$BUNDLE_ID_DEFAULT" ] || die "--bundle-id is for local tests only"
   [ ${#test_env[@]} -eq 0 ] || die "--test-env is for local tests only"
+  [ "$SIGN_KIND" != development ] ||
+    die "--release needs a Developer ID Application identity, not an Apple Development one"
+fi
+if [ "$SIGN_KIND" = development ] && [ "$bundle_id" = "$BUNDLE_ID_DEFAULT" ]; then
+  die "an Apple Development identity signs test bundles only: pass --bundle-id <a test id>, never $BUNDLE_ID_DEFAULT"
 fi
 
 # Fails in --release mode, warns otherwise.
@@ -229,8 +243,6 @@ thin() {
   fi
 }
 
-set_plist() { /usr/libexec/PlistBuddy -c "$1" "$2" >/dev/null; }
-
 assemble() {
   move_aside "$out"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks" \
@@ -339,6 +351,11 @@ do_sign() {
     adhoc=1
     ts=(--timestamp=none)
     need "no CONDUIT_SIGN_IDENTITY: ad-hoc signature (runs here only; Gatekeeper rejects it elsewhere)"
+  elif [ "$SIGN_KIND" = development ]; then
+    # As Xcode signs Debug builds: a development signature is never
+    # notarized, so it needs no secure timestamp (nor Apple's server).
+    ts=(--timestamp=none)
+    warn "Apple Development signature (team $team): a local test build; Gatekeeper rejects it elsewhere"
   fi
   local ent="$out/entitlements"
   mkdir -p "$ent"
@@ -357,7 +374,7 @@ do_sign() {
     set_plist "Add :com.apple.security.application-groups array" "$ent/$e.entitlements"
     set_plist "Add :com.apple.security.application-groups:0 string $group" "$ent/$e.entitlements"
   done
-  embed_profiles
+  embed_profiles "$app" "$bundle_id" "$team" "$ent"
   share_entitlements "$bundle_id" "$ent/Share.entitlements"
   if [ "$adhoc" = 1 ]; then
     # No team ID to match: let the ad-hoc binaries load their own libraries.
@@ -366,7 +383,8 @@ do_sign() {
   fi
   sign() { codesign --force --sign "$identity" ${ts[@]+"${ts[@]}"} --options runtime "$@"; }
 
-  log "signing ($([ "$adhoc" = 1 ] && echo ad-hoc || echo "$identity"))"
+  # The team, never the identity: a name names its holder.
+  log "signing ($([ "$adhoc" = 1 ] && echo ad-hoc || echo "team $team, $SIGN_KIND"))"
   local daemon="$app/Contents/Resources/conduitd" lib
   for lib in "$daemon"/lib/*.dylib; do sign "$lib"; done
   sign --identifier "$bundle_id.conduitd" --entitlements "$ent/conduitd.entitlements" "$daemon/bin/conduitd"
@@ -387,43 +405,6 @@ do_sign() {
   sign --entitlements "$ent/Share.entitlements" "$app/Contents/PlugIns/$SHARE_APPEX"
   sign --entitlements "$ent/Conduit.entitlements" "$app"
   codesign --verify --deep --strict "$app"
-}
-
-# The provisioning profiles (CONDUIT_APP_PROFILE, CONDUIT_WIDGET_PROFILE),
-# embedded with the application identifier and team each one vouches for.
-# Without them the build still signs and runs; macOS only leaves the
-# widget out of its gallery (docs/BUILDING-DESKTOP.md).
-embed_profiles() {
-  local app_profile="${CONDUIT_APP_PROFILE:-}" widget_profile="${CONDUIT_WIDGET_PROFILE:-}"
-  if [ -z "$app_profile" ] && [ -z "$widget_profile" ]; then
-    if [ "$identity" != "-" ]; then
-      warn "no CONDUIT_APP_PROFILE / CONDUIT_WIDGET_PROFILE: macOS will not list the widget (docs/BUILDING-DESKTOP.md)"
-    fi
-    return 0
-  fi
-  [ -n "$app_profile" ] && [ -n "$widget_profile" ] ||
-    die "set both CONDUIT_APP_PROFILE and CONDUIT_WIDGET_PROFILE (or neither)"
-  [ -n "$team" ] || die "provisioning profiles need a signing identity with a team"
-  local pair dest id ent_file want got
-  for pair in "app:$app_profile" "widget:$widget_profile"; do
-    if [ "${pair%%:*}" = app ]; then
-      dest="$app/Contents/embedded.provisionprofile"
-      id="$bundle_id"
-      ent_file="$ent/Conduit.entitlements"
-    else
-      dest="$app/Contents/PlugIns/ConduitWidget.appex/Contents/embedded.provisionprofile"
-      id="$bundle_id.widget"
-      ent_file="$ent/ConduitWidget.entitlements"
-    fi
-    [ -f "${pair#*:}" ] || die "no profile at ${pair#*:}"
-    want="$team.$id"
-    got="$(profile_app_id "${pair#*:}")"
-    [ "$got" = "$want" ] || die "the ${pair%%:*} profile is for '$got', not $want"
-    cp "${pair#*:}" "$dest"
-    set_plist "Add :com.apple.application-identifier string $want" "$ent_file"
-    set_plist "Add :com.apple.developer.team-identifier string $team" "$ent_file"
-  done
-  log "provisioning profiles embedded (app and widget, team $team)"
 }
 
 # --- notarize --------------------------------------------------------------
@@ -447,6 +428,10 @@ notarize() {
 skip_notarization() {
   if [ "$identity" = "-" ]; then
     need "notarization skipped: an ad-hoc build cannot be notarized (set CONDUIT_SIGN_IDENTITY)"
+    return 0
+  fi
+  if [ "$SIGN_KIND" = development ]; then
+    warn "notarization skipped: an Apple Development build cannot be notarized (Developer ID only)"
     return 0
   fi
   if ! notary_credentials; then
@@ -487,7 +472,11 @@ do_dmg() {
     move_aside "$dmg"
     sleep 10
   done
-  if [ "$identity" != "-" ]; then
+  if [ "$identity" = "-" ]; then
+    :
+  elif [ "$SIGN_KIND" = development ]; then
+    codesign --force --sign "$identity" --timestamp=none "$dmg"
+  else
     codesign --force --sign "$identity" --timestamp "$dmg"
   fi
 }
@@ -641,20 +630,39 @@ do_verify() {
     fail "codesign --verify --deep --strict"
   fi
   sed 's/^/     /' "$out/codesign-verify.txt"
-  codesign -dv "$app" 2>&1 | grep -E '^(Identifier|Format|CodeDirectory|Signature|Authority|TeamIdentifier|Runtime)' | sed 's/^/     /'
+  codesign -dv "$app" 2>&1 | grep -E '^(Identifier|Format|CodeDirectory|Signature|Authority|TeamIdentifier|Runtime)' |
+    redact_authorities | sed 's/^/     /'
+  # Every nested binary under the app's own team (library validation and
+  # App Intents go by it); ad-hoc: none anywhere.
+  local signature app_team app_kind others
+  signature="$(signature_of "$app")"
+  app_team="${signature%% *}"
+  app_kind="${signature#* }"
+  macho_teams "$app" >"$out/teams.txt"
+  others="$(awk -v t="$app_team" '$1 != t' "$out/teams.txt")"
+  if [ -n "$others" ]; then
+    fail "Mach-O files signed for another team than the app's ($app_team):"
+    sed 's/^/     /' <<<"$others"
+  elif [ "$app_team" = "-" ]; then
+    ok "no TeamIdentifier on any of the $(wc -l <"$out/teams.txt" | tr -d ' ') Mach-O files ($app_kind)"
+  else
+    ok "TeamIdentifier $app_team on all $(wc -l <"$out/teams.txt" | tr -d ' ') Mach-O files ($app_kind)"
+  fi
   codesign -d --entitlements - --xml "$app/Contents/Resources/conduitd/bin/conduitd" 2>/dev/null |
     plutil -convert json -o - - 2>/dev/null | sed 's/^/     conduitd entitlements: /'
   echo
 
   local spctl_out
   spctl_out="$(spctl -a -vv -t exec "$app" 2>&1)" && ok "spctl (Gatekeeper) accepts the app" || {
-    if [ "$identity" = "-" ] && [ "$release" = 0 ]; then
+    if [ "$app_kind" = adhoc ] && [ "$release" = 0 ]; then
       printf 'note spctl rejects the ad-hoc app, as expected:\n'
+    elif [ "$app_kind" = development ] && [ "$release" = 0 ]; then
+      printf 'note spctl rejects the Apple Development app (not notarized), as expected:\n'
     else
       fail "spctl rejects the app"
     fi
   }
-  printf '%s\n' "$spctl_out" | sed 's/^/     /'
+  printf '%s\n' "$spctl_out" | redact_authorities | sed -E 's/^(origin=[^:]*): .*/\1: …/' | sed 's/^/     /'
   if [ -f "$dmg" ]; then
     # A release's DMG is what users download: Gatekeeper must accept it.
     spctl_out="$(spctl -a -vv -t open --context context:primary-signature "$dmg" 2>&1)" &&
@@ -665,7 +673,7 @@ do_verify() {
         printf 'note spctl on the DMG:\n'
       fi
     }
-    printf '%s\n' "$spctl_out" | sed 's/^/     /'
+    printf '%s\n' "$spctl_out" | redact_authorities | sed -E 's/^(origin=[^:]*): .*/\1: …/' | sed 's/^/     /'
   fi
 
   printf '\nsizes:\n'

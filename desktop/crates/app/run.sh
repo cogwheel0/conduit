@@ -14,6 +14,14 @@
 #                                                  # embedded (ad-hoc: macOS
 #                                                  # won't list it; see
 #                                                  # docs/BUILDING-DESKTOP.md)
+#   CONDUIT_SIGN_IDENTITY=<SHA-1> crates/app/run.sh
+#                                                  # signed with an Apple
+#                                                  # Development identity
+#                                                  # (packaging/macos/
+#                                                  # sign-dev.sh): Shortcuts
+#                                                  # can run the App Intents;
+#                                                  # the widget's group gets
+#                                                  # the team's prefix
 #
 # The bundle lives in target/app/ (ignored) and is reused. A scripted run
 # (--shots, --e2e, --capture) uses the profile CONDUIT_USER_DATA names, never
@@ -21,6 +29,13 @@
 set -eu
 cd "$(dirname "$0")/../.."
 cargo build -p conduit-desktop --features harness
+# Team signing, only when asked; ad-hoc otherwise ("-" means ad-hoc too).
+identity="${CONDUIT_SIGN_IDENTITY:-}"
+if [ "$identity" = "-" ]; then identity=""; fi
+team=""
+if [ -n "$identity" ]; then
+  team="$(bash packaging/macos/sign-dev.sh team)"
+fi
 app="target/app/Conduit Dev.app"
 mkdir -p "$app/Contents/MacOS"
 # Copy to a new file and move it into place: overwriting the binary in place
@@ -49,6 +64,9 @@ python3 packaging/macos/native_strings.py infoplist ../lib/l10n \
 # widget is moved aside.
 widget_dir=target/app/widget
 dev_group=app.cogwheel.conduit.desktop.dev
+# Team-signed: the group carries the team's prefix, which macOS lets the
+# app and its widget use without a provisioning profile.
+if [ -n "$team" ]; then dev_group="$team.$dev_group"; fi
 if [ "${CONDUIT_DEV_WIDGET:-}" = 1 ]; then
   packaging/macos/widget/build.sh --out "$widget_dir" \
     --bundle-id app.cogwheel.conduit.desktop.dev --app-group "$dev_group"
@@ -59,14 +77,17 @@ if [ "${CONDUIT_DEV_WIDGET:-}" = 1 ]; then
   ditto "$widget_dir/ConduitWidget.appex" "$app/Contents/PlugIns/ConduitWidget.appex"
   cp "$widget_dir/libconduit_widget.dylib" "$app/Contents/Frameworks/"
   /usr/libexec/PlistBuddy -c "Add :ConduitAppGroup string $dev_group" "$app/Contents/Info.plist"
-  ents="$widget_dir/entitlements"
-  mkdir -p "$ents"
-  cp packaging/macos/widget/ConduitWidget.entitlements "$ents/widget.plist"
-  /usr/libexec/PlistBuddy -c "Add :com.apple.security.application-groups array" \
-    -c "Add :com.apple.security.application-groups:0 string $dev_group" "$ents/widget.plist" >/dev/null
-  codesign --force --sign - --timestamp=none "$app/Contents/Frameworks/libconduit_widget.dylib"
-  codesign --force --sign - --timestamp=none --entitlements "$ents/widget.plist" \
-    "$app/Contents/PlugIns/ConduitWidget.appex"
+  # Team-signed bundles sign the widget with the app (sign-dev.sh, below).
+  if [ -z "$identity" ]; then
+    ents="$widget_dir/entitlements"
+    mkdir -p "$ents"
+    cp packaging/macos/widget/ConduitWidget.entitlements "$ents/widget.plist"
+    /usr/libexec/PlistBuddy -c "Add :com.apple.security.application-groups array" \
+      -c "Add :com.apple.security.application-groups:0 string $dev_group" "$ents/widget.plist" >/dev/null
+    codesign --force --sign - --timestamp=none "$app/Contents/Frameworks/libconduit_widget.dylib"
+    codesign --force --sign - --timestamp=none --entitlements "$ents/widget.plist" \
+      "$app/Contents/PlugIns/ConduitWidget.appex"
+  fi
 else
   mkdir -p "$widget_dir"
   for f in "$app/Contents/PlugIns/ConduitWidget.appex" "$app/Contents/Frameworks/libconduit_widget.dylib"; do
@@ -88,8 +109,13 @@ fi
 # An ad-hoc signature over the whole bundle (Info.plist included), so the
 # system treats it as an app for notifications and the login item. Dev
 # secrets go through /usr/bin/security, so the signature changing on each
-# build never meets a Keychain prompt.
-codesign --force --sign - --timestamp=none "$app" 2>/dev/null || true
+# build never meets a Keychain prompt. With CONDUIT_SIGN_IDENTITY, the
+# team's signature instead (hardened runtime, Conduit.entitlements).
+if [ -n "$identity" ]; then
+  bash packaging/macos/sign-dev.sh sign "$app"
+else
+  codesign --force --sign - --timestamp=none "$app" 2>/dev/null || true
+fi
 if [ "${1:-}" = "--build-only" ]; then
   echo "$PWD/$app"
   exit 0
