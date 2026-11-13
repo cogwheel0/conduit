@@ -16,6 +16,7 @@ pub mod automations;
 pub mod calendar;
 pub mod channels;
 pub mod hermes;
+pub mod hermes_jobs;
 pub mod terminal;
 pub mod workspace;
 
@@ -82,7 +83,8 @@ impl AreaPane {
             cx.new(|cx| NotesArea::new(stores, window, cx))
         };
         let subscriptions = vec![
-            // Hidden Chats reads its list each time it opens.
+            // Hidden Chats reads its list each time it opens; Scheduled
+            // Agents is polled while it shows.
             cx.subscribe(&stores.navigation, |this, _, event, cx| {
                 let crate::stores::navigation::NavigationEvent::Changed(selection) = event;
                 if *selection == crate::stores::navigation::Selection::Area(AreaItem::HermesHidden)
@@ -91,7 +93,13 @@ impl AreaPane {
                         .areas
                         .update(cx, |a, cx| a.refresh_hermes_hidden(cx));
                 }
+                let jobs =
+                    *selection == crate::stores::navigation::Selection::Area(AreaItem::HermesJobs);
+                this.stores
+                    .hermes_admin
+                    .update(cx, |a, cx| a.watch_jobs(jobs, cx));
             }),
+            cx.observe(&stores.hermes_admin, |_, _, cx| cx.notify()),
             cx.observe(&stores.navigation, |this: &mut Self, nav, cx| {
                 // A channel left (for a chat, say, which this pane does not
                 // draw) closes at once: it is no longer in front.
@@ -201,7 +209,7 @@ pub fn title_of(item: &AreaItem, stores: &Stores, cx: &App) -> String {
             .channel(id)
             .map(|c| crate::views::channels::display_title(c, cx.l10n())),
         AreaItem::HermesSession(id) => areas.hermes_session(id).map(|s| s.title.clone()),
-        AreaItem::HermesHidden => None,
+        AreaItem::HermesHidden | AreaItem::HermesJobs => None,
         AreaItem::HermesBot(name) => stores
             .hermes_rooms
             .read(cx)
@@ -333,6 +341,7 @@ impl Render for AreaPane {
             },
             // A bot opens its Bot Chat in the chat pane.
             AreaItem::HermesBot(_) => placeholder(&item, &title, &t, &l),
+            AreaItem::HermesJobs => hermes_jobs::pane(&self.stores, cx),
             AreaItem::Workspace(section) => {
                 workspace::pane(&mut self.workspace, &self.stores, *section, window, cx)
                     .into_any_element()

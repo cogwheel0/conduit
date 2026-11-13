@@ -106,6 +106,8 @@ pub enum AreaItem {
     HermesBot(String),
     /// A Hermes Group Chat, by its room id: its pane.
     HermesRoom(String),
+    /// Hermes's Scheduled Agents: its cron jobs, their runs and history.
+    HermesJobs,
     Workspace(WorkspaceSection),
     /// A terminal server, by its id.
     Terminal(String),
@@ -121,7 +123,8 @@ impl AreaItem {
             Self::HermesSession(_)
             | Self::HermesHidden
             | Self::HermesBot(_)
-            | Self::HermesRoom(_) => Area::Hermes,
+            | Self::HermesRoom(_)
+            | Self::HermesJobs => Area::Hermes,
             Self::Workspace(_) => Area::Workspace,
             Self::Terminal(_) => Area::Terminal,
             Self::Calendar => Area::Calendar,

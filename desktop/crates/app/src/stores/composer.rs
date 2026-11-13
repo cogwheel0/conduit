@@ -427,6 +427,9 @@ pub struct ComposerStore {
     /// (`librechat.composer`): chosen in `tool_ids`, as Open WebUI's are.
     pub librechat: LibreChatComposer,
     pub prompts: Option<Vec<PromptSummary>>,
+    /// `prompts` are a Hermes chat's `/` commands (the agent's skills, as
+    /// on a phone), inserted as typed rather than rendered.
+    pub prompts_hermes: bool,
     /// `@`: the server's users and channels for the query typed.
     pub mention_results: MentionList,
     /// A channel's composer: `@` lists the channel's members (and models,
@@ -520,6 +523,7 @@ impl ComposerStore {
             options: ComposerOptions::default(),
             librechat: LibreChatComposer::default(),
             prompts: None,
+            prompts_hermes: false,
             mention_results: MentionList::default(),
             channel: None,
             context_results: vec![],
@@ -983,19 +987,57 @@ impl ComposerStore {
 
     // ── Prompts and knowledge ───────────────────────────────────────────
 
-    /// `prompts.list`, once (and again after `reset`).
+    /// Whether the composer writes to Hermes: a Hermes session's chat, or
+    /// the Hermes model chosen for a new one.
+    pub fn is_hermes(&self) -> bool {
+        self.chat_id()
+            .is_some_and(|id| id.starts_with("local:hermes_"))
+            || self
+                .selected_model()
+                .is_some_and(|m| m.id.starts_with("hermes:"))
+    }
+
+    /// What `/` lists, once (and again after `reset`, or when the chat
+    /// moves between Hermes and the rest): saved prompts (`prompts.list`),
+    /// or in a Hermes chat the agent's commands (`hermes.catalog`), as
+    /// mobile's composer sources its `/` overlay.
     pub fn load_prompts(&mut self, cx: &mut Context<Self>) {
-        if self.prompts.is_some() {
+        let hermes = self.is_hermes();
+        if self.prompts.is_some() && self.prompts_hermes == hermes {
             return;
         }
         self.prompts = Some(vec![]);
-        let call = self.rpc.call::<methods::PromptsList>(&NoParams);
+        self.prompts_hermes = hermes;
         let scope = self.scope;
+        if hermes {
+            let call = self.rpc.call::<methods::HermesCatalog>(&NoParams);
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let result = call.await;
+                let _ = this.update(cx, |s, cx| {
+                    // Another account's, or the chat left Hermes since.
+                    if s.scope != scope || !s.prompts_hermes {
+                        return;
+                    }
+                    match result {
+                        Ok(catalog) => s.prompts = Some(hermes_prompts(&catalog)),
+                        Err(e) => {
+                            log::info!("hermes.catalog: {e}");
+                            s.prompts = None;
+                        }
+                    }
+                    cx.notify();
+                });
+            })
+            .detach();
+            return;
+        }
+        let call = self.rpc.call::<methods::PromptsList>(&NoParams);
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
-                // Another account's list never fills this one's.
-                if s.scope != scope {
+                // Another account's list never fills this one's, nor a
+                // Hermes chat's (moved there since).
+                if s.scope != scope || s.prompts_hermes {
                     return;
                 }
                 match result {
@@ -2274,6 +2316,29 @@ pub fn match_models<'a>(
     starts.extend(contains);
     starts.truncate(limit);
     starts
+}
+
+/// A Hermes catalog's `/` commands as the menu lists prompts: `/name`,
+/// titled by what it does (its name when Hermes says nothing).
+pub fn hermes_prompts(catalog: &conduit_protocol::HermesCatalog) -> Vec<PromptSummary> {
+    catalog
+        .commands
+        .iter()
+        .map(|c| {
+            let description = c
+                .description
+                .as_deref()
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+                .map(String::from);
+            PromptSummary {
+                command: format!("/{}", c.name),
+                title: description.clone().unwrap_or_else(|| c.name.clone()),
+                description,
+                uses_clipboard: false,
+            }
+        })
+        .collect()
 }
 
 /// Prompts whose command starts with `query`, then those whose title

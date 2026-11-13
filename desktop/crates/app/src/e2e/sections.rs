@@ -534,6 +534,35 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
                 "Hermes's section appears beside Chats (capabilities.changed)",
                 added && cx.update(|cx| headings(cx).get(1).map(|(a, _)| *a)) == Some(Area::Hermes),
             );
+            // Its rows as the phone's tab has them: the connection in use
+            // atop (the switcher, which comes with the connection list a
+            // moment after the section), Scheduled Agents above the chats
+            // when the connection runs them, Hidden Chats last. Go to a
+            // section once they are in.
+            let hermes_rows = |cx: &mut App| -> Vec<SidebarItem> {
+                rows(cx)
+                    .into_iter()
+                    .skip_while(|r| {
+                        !matches!(
+                            r,
+                            SidebarItem::AreaHeader {
+                                area: Area::Hermes,
+                                ..
+                            }
+                        )
+                    })
+                    .skip(1)
+                    .take_while(|r| !matches!(r, SidebarItem::AreaHeader { .. }))
+                    .collect()
+            };
+            let switcher = wait_until(cx, Duration::from_secs(30), |cx| {
+                matches!(
+                    hermes_rows(cx).first(),
+                    Some(SidebarItem::HermesConnection { .. })
+                )
+            })
+            .await;
+            pass &= ok("the connection in use heads Hermes's section", switcher);
             in_main(cx, |mw, window, cx| {
                 mw.sidebar
                     .update(cx, |s, cx| s.go_to_area(Area::Hermes, window, cx))
@@ -547,6 +576,23 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
             pass &= ok(
                 "Go to a section brings its heading to the top",
                 in_view == Some(true),
+            );
+            let laid = cx.update(hermes_rows);
+            let at = |want: &dyn Fn(&AreaItem) -> bool| {
+                laid.iter().position(|r| r.area_item().is_some_and(want))
+            };
+            let jobs = at(&|i| *i == AreaItem::HermesJobs);
+            let first_chat = at(&|i| matches!(i, AreaItem::HermesSession(_)));
+            pass &= ok(
+                &format!("Scheduled Agents sits above the chats ({jobs:?} before {first_chat:?})"),
+                match (jobs, first_chat) {
+                    (Some(j), Some(c)) => j < c,
+                    _ => true,
+                },
+            );
+            pass &= ok(
+                "Hidden Chats closes the section",
+                laid.last().and_then(SidebarItem::area_item) == Some(&AreaItem::HermesHidden),
             );
             shoot_main(dir, "sections-hermes", cx).await;
             pass &= ok(

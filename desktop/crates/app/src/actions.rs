@@ -165,6 +165,16 @@ pub struct RemoveAccount {
     pub account_id: String,
 }
 
+/// The Hermes switcher's menu item: put connection `connection_id` in use.
+#[derive(Clone, Debug, PartialEq, Action)]
+#[action(namespace = conduit, no_json)]
+pub struct HermesSwitchConnection {
+    pub connection_id: String,
+}
+
+// Settings › Hermes, from the Hermes switcher's menu.
+actions!(conduit, [OpenHermesSettings]);
+
 /// A Settings pop-up button's menu item: `value` picked in the pop-up
 /// named `menu` (Settings routes it to the pane that drew the pop-up).
 #[derive(Clone, Debug, PartialEq, Action)]

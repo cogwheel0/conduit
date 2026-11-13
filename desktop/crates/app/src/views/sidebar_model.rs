@@ -387,6 +387,11 @@ pub struct AreaLists<'a> {
     pub notes: Option<&'a [NoteSummary]>,
     pub channels: Option<&'a [ChannelSummary]>,
     pub hermes: Option<&'a HermesSessions>,
+    /// The Hermes connection in use, by name, and how many are saved: the
+    /// section's switcher row.
+    pub hermes_connection: Option<(&'a str, usize)>,
+    /// The connection runs scheduled agents: their row.
+    pub hermes_jobs: bool,
     pub terminals: Option<&'a [TerminalServerDto]>,
     /// The areas whose list could not be read.
     pub failed: &'a [Area],
@@ -458,6 +463,12 @@ pub enum SidebarItem {
         count: usize,
         expanded: bool,
         can_create: bool,
+    },
+    /// The Hermes connection in use, atop its section (the phone's
+    /// switcher tile): with more than one saved, it switches.
+    HermesConnection {
+        name: String,
+        count: usize,
     },
     Header(Section),
     Folder {
@@ -654,10 +665,26 @@ pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Ve
             ..AreaRow::of(AreaItem::Terminal(t.id.clone()))
         }),
         Area::Hermes => {
-            // The phone's Hermes tab: the bots, the rooms, then the
-            // conversations under their own heading.
-            let mut out = hermes_groups(lists);
-            if !out.is_empty() {
+            // The phone's Hermes tab: the connection in use (its switcher),
+            // the bots, the rooms, Scheduled Agents, then the conversations
+            // under their own heading.
+            let mut out: Vec<SidebarItem> = lists
+                .hermes_connection
+                .map(|(name, count)| SidebarItem::HermesConnection {
+                    name: name.to_string(),
+                    count,
+                })
+                .into_iter()
+                .collect();
+            let groups = hermes_groups(lists);
+            let headed = !groups.is_empty() || lists.hermes_jobs;
+            out.extend(groups);
+            // The connection's cron jobs, as the phone's tab offers them
+            // above its conversations.
+            if lists.hermes_jobs {
+                out.push(SidebarItem::AreaRow(AreaRow::of(AreaItem::HermesJobs)));
+            }
+            if headed {
                 out.push(SidebarItem::HermesGroup {
                     group: HermesGroup::Conversations,
                     count: lists.hermes.map_or(0, |h| h.sessions.len()),

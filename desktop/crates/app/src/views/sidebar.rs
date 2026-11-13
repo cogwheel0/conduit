@@ -106,6 +106,7 @@ use crate::stores::hermes_rooms::HermesRoomsStore;
 use crate::stores::navigation::{Area, AreaItem, NavigationEvent, Selection, WorkspaceSection};
 use crate::stores::session;
 use crate::views::accounts::account_row;
+use conduit_components::views::focus::ControlExt as _;
 
 /// The fades at the list's ends, elsewhere than macOS: nothing (the CI
 /// `cargo check` platforms).
@@ -305,6 +306,8 @@ struct RowsKey {
     areas_revision: u64,
     /// Hermes's bots and rooms.
     hermes_rooms: u64,
+    /// Hermes's connections and jobs (the switcher and jobs rows).
+    hermes_admin: u64,
     /// Bumped when a section opens or closes, or shows all.
     sections: u64,
     /// The areas shown, and the workspace sections.
@@ -379,6 +382,7 @@ pub fn item_icon(item: &AreaItem) -> IconName {
         AreaItem::HermesHidden => IconName::EyeOff,
         AreaItem::HermesBot(_) => IconName::Bot,
         AreaItem::HermesRoom(_) => IconName::Users,
+        AreaItem::HermesJobs => IconName::CalendarClock,
         AreaItem::Workspace(WorkspaceSection::Models) => IconName::Network,
         AreaItem::Workspace(WorkspaceSection::Knowledge) => IconName::LibraryBig,
         AreaItem::Workspace(WorkspaceSection::Prompts) => IconName::TextQuote,
@@ -400,6 +404,7 @@ pub fn item_title(item: &AreaItem, listed: Option<&str>, l: &L10n) -> String {
         AreaItem::Automations => l.desktop_scheduled_tasks_all(),
         AreaItem::HermesHidden => l.hermes_hidden_chats_title(),
         AreaItem::AllNotes => l.desktop_all_notes(),
+        AreaItem::HermesJobs => l.hermes_scheduled_agents_title(),
         AreaItem::HermesSession(_) => named
             .map(String::from)
             .unwrap_or_else(|| l.hermes_session_untitled()),
@@ -619,6 +624,7 @@ impl SidebarView {
             cx.observe(&stores.navigation, |_, _, cx| cx.notify()),
             cx.observe(&stores.areas, |_, _, cx| cx.notify()),
             cx.observe(&stores.hermes_rooms, |_, _, cx| cx.notify()),
+            cx.observe(&stores.hermes_admin, |_, _, cx| cx.notify()),
             cx.observe(&stores.sections, |_, _, cx| cx.notify()),
             // Each account keeps its own sections.
             cx.observe(&stores.session, |this, _, cx| {
@@ -810,6 +816,7 @@ impl SidebarView {
             revision: store.revision(),
             areas_revision: self.stores.areas.read(cx).revision(),
             hermes_rooms: self.stores.hermes_rooms.read(cx).revision(),
+            hermes_admin: self.stores.hermes_admin.read(cx).revision(),
             sections: self.stores.sections.read(cx).revision(),
             areas: areas.clone(),
             workspace: workspace.clone(),
@@ -841,10 +848,19 @@ impl SidebarView {
             let lists = self.stores.areas.read(cx);
             let failed: Vec<Area> = lists.failed.iter().copied().collect();
             let hermes_rooms = self.stores.hermes_rooms.read(cx);
+            let admin = self.stores.hermes_admin.read(cx);
+            let connection = admin.active().map(|c| c.name.clone());
+            let connections = admin
+                .connections
+                .as_ref()
+                .map(|l| l.connections.len())
+                .unwrap_or(0);
             let area_lists = AreaLists {
                 notes: lists.notes.as_deref(),
                 channels: lists.channels.as_deref(),
                 hermes: lists.hermes.as_ref(),
+                hermes_connection: connection.as_deref().map(|name| (name, connections)),
+                hermes_jobs: hermes_jobs_shown(admin),
                 terminals: lists.terminals.as_deref(),
                 failed: &failed,
                 workspace: &workspace,
@@ -984,10 +1000,14 @@ impl SidebarView {
             return false;
         };
         let top: f32 = self.sizes[..ix].iter().map(|s| f32::from(s.height)).sum();
+        // A heading's row starts with the gap above it, which
+        // [`Self::scroll_to_top`] scrolls past.
+        let previous = ix.checked_sub(1).and_then(|p| self.rows.get(p));
+        let gap = self.rows.get(ix).map_or(0., |r| header_gap(r, previous));
         let scrolled = -f32::from(self.scroll.offset().y);
         let visible = f32::from(self.scroll.base_handle().bounds().size.height);
         let at_end = scrolled + 1. >= f32::from(self.scroll.max_offset().y);
-        top + 1. >= scrolled
+        top + gap + 1. >= scrolled
             && (top < scrolled + visible / 2. || at_end && top < scrolled + visible)
     }
 
@@ -1095,6 +1115,19 @@ impl SidebarView {
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.cursor = Some(KeyRow::ShowAll(area));
                         this.toggle_show_all(area, cx);
+                    }))
+                    .into_any_element()
+            }
+            SidebarItem::HermesConnection { name, count } => {
+                let count = *count;
+                let selected = self.is_selection(&KeyRow::HermesConnection);
+                hermes_connection_row(name, count, selected, self.list_focused, t, &l)
+                    .when(self.areas_shown, |d| {
+                        d.pl(px(ROW_CONTENT_INSET + ROW_STATUS_GUTTER))
+                    })
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.cursor = Some(KeyRow::HermesConnection);
+                        this.hermes_connection_menu(window, cx);
                     }))
                     .into_any_element()
             }
@@ -1821,6 +1854,36 @@ impl SidebarView {
             .ok();
         })
         .detach();
+    }
+
+    /// The Hermes switcher: the saved connections, the one in use checked,
+    /// then Hermes Settings…; with one connection, Settings › Hermes.
+    pub fn hermes_connection_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let l = cx.l10n().clone();
+        let admin = self.stores.hermes_admin.read(cx);
+        let Some(list) = admin.connections.clone() else {
+            return;
+        };
+        if list.connections.len() <= 1 {
+            window.dispatch_action(Box::new(crate::actions::OpenHermesSettings), cx);
+            return;
+        }
+        let mut menu = NativeMenu::new();
+        for c in &list.connections {
+            menu = menu.menu_with_check(
+                c.name.clone(),
+                c.active,
+                Box::new(crate::actions::HermesSwitchConnection {
+                    connection_id: c.id.clone(),
+                }),
+            );
+        }
+        menu.separator()
+            .menu(
+                l.desktop_hermes_settings_ellipsis(),
+                Box::new(crate::actions::OpenHermesSettings),
+            )
+            .show(window.mouse_position(), window, cx);
     }
 
     /// Carries out `command` on Hermes session `session_id`: Rename here,
@@ -2652,6 +2715,7 @@ impl SidebarView {
             Some(KeyRow::Item(AreaItem::HermesBot(name))) => {
                 crate::views::hermes_rooms::open_bot(&self.stores, &name, cx);
             }
+            Some(KeyRow::HermesConnection) => self.hermes_connection_menu(window, cx),
             // Already shown in its pane.
             Some(KeyRow::Item(_)) => {}
             Some(KeyRow::Chat(_)) | None => {
@@ -4095,6 +4159,114 @@ fn footer_button(
         })
 }
 
+/// Whether the sidebar lists Hermes's Scheduled Agents: the connection
+/// in use is reachable for jobs (as far as its status says; until it is
+/// read, as long as one is in use).
+fn hermes_jobs_shown(admin: &crate::stores::hermes_admin::HermesAdminStore) -> bool {
+    if admin.active().is_none() || !admin.connections.as_ref().is_some_and(|l| l.enabled) {
+        return false;
+    }
+    admin
+        .status
+        .as_ref()
+        .and_then(crate::stores::hermes_admin::Loaded::ready)
+        .is_none_or(|s| s.capabilities.jobs || !s.reachable)
+}
+
+/// The Hermes section's switcher row: the connection in use, by its
+/// initials and name, and with more than one saved, the pop-up's ⌃⌄.
+fn hermes_connection_row(
+    name: &str,
+    count: usize,
+    selected: bool,
+    list_key: bool,
+    t: &ConduitTheme,
+    l: &L10n,
+) -> gpui_kit::Stateful<gpui_kit::Div> {
+    let r = t.roles;
+    let m = t.metrics;
+    let fill = selection_fill(t, list_key);
+    let switches = count > 1;
+    let initials = hermes_initials(name);
+    div()
+        .id("hermes-connection-switcher")
+        .role(if switches {
+            Role::ComboBox
+        } else {
+            Role::TreeItem
+        })
+        .aria_label(SharedString::from(name.to_string()))
+        .when(switches, |d| {
+            d.aria_description(SharedString::from(l.hermes_switch_connection_title()))
+        })
+        .aria_selected(selected)
+        .when(selected, |d| d.aria_active_descendant())
+        .h(px(m.row_height + 4.))
+        .px(px(conduit_components::views::sidebar::ROW_CONTENT_INSET))
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .rounded(t.row_radius())
+        .when(selected, |d| d.bg(fill))
+        .when(switches && !selected, |d| d.hover(|s| s.bg(r.hover)))
+        .when(switches, |d| {
+            d.cursor_pointer().active(|s| {
+                s.bg(conduit_components::views::focus::pressed_fill(
+                    if selected { fill } else { r.hover },
+                    t,
+                ))
+            })
+        })
+        .when(switches, |d| {
+            d.tip(l.hermes_switch_connection_title(), None)
+        })
+        .child(
+            div()
+                .size(px(20.))
+                .flex_none()
+                .rounded_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(conduit_components::theme::with_alpha(
+                    r.text,
+                    if t.dark { 0.14 } else { 0.08 },
+                ))
+                .text_size(px(9.5))
+                .font_weight(FontWeight::BOLD)
+                .text_color(r.sidebar_text_subtle)
+                .child(SharedString::from(initials)),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(px(m.control))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(on_selection(r.sidebar_text, t, selected && list_key))
+                .child(SharedString::from(name.to_string())),
+        )
+        .when(switches, |d| {
+            d.child(icon(IconName::ChevronsUpDown, 12., r.sidebar_text_subtle))
+        })
+}
+
+/// Up to two initials for a Hermes connection's name, as the phone's
+/// switcher draws them ("HA", Hermes Agent, without a usable name).
+pub fn hermes_initials(name: &str) -> String {
+    let words: Vec<&str> = name
+        .split(|c: char| c.is_whitespace() || c == '.' || c == '_' || c == '-')
+        .filter(|w| !w.is_empty())
+        .collect();
+    let initials: String = match words.as_slice() {
+        [] => "HA".into(),
+        [one] => one.chars().take(2).collect(),
+        [a, b, ..] => a.chars().take(1).chain(b.chars().take(1)).collect(),
+    };
+    initials.to_uppercase()
+}
+
 fn hint_text(hint: Hint, l: &L10n) -> String {
     match hint {
         Hint::Loading => l.loading_short(),
@@ -4184,6 +4356,7 @@ pub fn area_item_id(item: &AreaItem) -> String {
         AreaItem::HermesHidden => "hermes-hidden".into(),
         AreaItem::HermesBot(name) => format!("bot-{name}"),
         AreaItem::HermesRoom(id) => format!("room-{id}"),
+        AreaItem::HermesJobs => "hermes-jobs".into(),
         AreaItem::Workspace(section) => format!("workspace-{}", section.id()),
         AreaItem::Terminal(id) => format!("terminal-{id}"),
         AreaItem::Calendar => "calendar".into(),
