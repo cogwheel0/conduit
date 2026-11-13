@@ -899,8 +899,23 @@
       }
     }
   },
-  "desktopChannelsNotAvailable": "Kanály zatiaľ na počítači nie sú dostupné.",
-  "desktopNotesNotAvailable": "Poznámky zatiaľ na počítači nie sú dostupné.",
+  "desktopChannelsUnavailable": "Kanály nie sú pre tento účet k dispozícii.",
+  "desktopNotesUnavailable": "Poznámky nie sú pre tento účet k dispozícii.",
+  "desktopShowAll": "Zobraziť všetko",
+  "desktopCalendarUpcoming": "Nadchádzajúce",
+  "desktopScheduledTasksAll": "Všetky úlohy",
+  "desktopUnreadCount": "{count, plural, one{{count} neprečítaná} few{{count} neprečítané} other{{count} neprečítaných}}",
+  "@desktopUnreadCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopMenuGo": "Prejsť",
+  "desktopMenuBack": "Späť",
+  "desktopMenuForward": "Dopredu",
+  "desktopKeyboardGoToSection": "Prejsť na sekciu bočného panela",
   "desktopNotificationAnswerReady": "Odpoveď je hotová.",
   "desktopNotificationAnswerFailed": "Odpoveď sa nedokončila.",
   "desktopTrayOpen": "Otvoriť Conduit",

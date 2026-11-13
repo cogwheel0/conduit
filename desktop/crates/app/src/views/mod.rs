@@ -14,6 +14,7 @@ pub mod hermes;
 pub mod main_window;
 pub mod onboarding;
 pub mod palette;
+pub mod panes;
 pub mod privacy;
 pub mod quick_ask;
 pub mod server_form;

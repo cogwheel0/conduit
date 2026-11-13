@@ -29,6 +29,7 @@ use crate::keymap::{
 };
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::prefs::{Appearance, TEXT_SIZE_MAX, TEXT_SIZE_MIN};
+use crate::stores::navigation::Area;
 use crate::views::sidebar::ChatCommand;
 
 /// GPUI Kit's own key bindings, captured after `gpui_kit::init` so a
@@ -210,6 +211,18 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
         // Chat › Delete…, from the sidebar's list (a text field keeps ⌘⌫
         // for deleting to the start of the line).
         KeyBinding::new("cmd-backspace", DeleteChat, Some(SIDEBAR_LIST_CONTEXT)),
+        // Go › Back and Forward (Finder's ⌘[ and ⌘]); Go › the sidebar's
+        // sections, ⌘1… in its order (the phone's ⌘1–⌘5 pick its tabs).
+        KeyBinding::new("cmd-[", GoBack, None),
+        KeyBinding::new("cmd-]", GoForward, None),
+        KeyBinding::new("cmd-1", GoToSection { index: 1 }, None),
+        KeyBinding::new("cmd-2", GoToSection { index: 2 }, None),
+        KeyBinding::new("cmd-3", GoToSection { index: 3 }, None),
+        KeyBinding::new("cmd-4", GoToSection { index: 4 }, None),
+        KeyBinding::new("cmd-5", GoToSection { index: 5 }, None),
+        KeyBinding::new("cmd-6", GoToSection { index: 6 }, None),
+        KeyBinding::new("cmd-7", GoToSection { index: 7 }, None),
+        KeyBinding::new("cmd-8", GoToSection { index: 8 }, None),
         // Tab through the chat in the messages' order, rows off screen
         // included (the window's own order holds only what is drawn).
         KeyBinding::new(
@@ -322,6 +335,11 @@ pub struct ChatMenuState {
 /// What the menu bar follows.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MenuState {
+    /// The Go menu's sections: the areas the sidebar shows, in its order
+    /// (⌘1 the first). Empty without the main frame.
+    pub areas: Vec<Area>,
+    pub can_go_back: bool,
+    pub can_go_forward: bool,
     pub sidebar_visible: bool,
     pub full_screen: bool,
     /// The open chat, when it takes changes (not another user's).
@@ -335,6 +353,9 @@ pub struct MenuState {
 impl Default for MenuState {
     fn default() -> Self {
         Self {
+            areas: vec![],
+            can_go_back: false,
+            can_go_forward: false,
             sidebar_visible: true,
             full_screen: false,
             chat: None,
@@ -402,7 +423,25 @@ pub fn menu_state(cx: &App) -> MenuState {
         })
         .unwrap_or_default();
     folders.sort_by_key(|(_, name)| name.to_lowercase());
+    let main = state
+        .main_view
+        .as_ref()
+        .is_some_and(|v| v.read(cx).shows_main(cx));
+    let areas = if main {
+        crate::stores::areas::visible_areas(&state.stores.session.read(cx).capabilities())
+    } else {
+        vec![]
+    };
+    let usable = |step: &crate::stores::navigation::Selection| areas.contains(&step.area());
+    let navigation = state.stores.navigation.read(cx);
+    let (can_go_back, can_go_forward) = (
+        main && navigation.can_go_back(usable),
+        main && navigation.can_go_forward(usable),
+    );
     MenuState {
+        areas,
+        can_go_back,
+        can_go_forward,
         sidebar_visible,
         full_screen,
         chat,
@@ -540,6 +579,7 @@ pub fn build_menus(l10n: &L10n, state: &MenuState) -> Vec<Menu> {
                 ToggleFullScreen,
             ),
         ]),
+        Menu::new(l10n.desktop_menu_go()).items(go_menu_items(l10n, state)),
         Menu::new(l10n.desktop_menu_chat()).items(chat_menu_items(l10n, state)),
         Menu::new(l10n.desktop_menu_window()).items([
             MenuItem::action(l10n.desktop_minimize_window(), Minimize),
@@ -554,6 +594,25 @@ pub fn build_menus(l10n: &L10n, state: &MenuState) -> Vec<Menu> {
             MenuItem::action(l10n.desktop_menu_keyboard_shortcuts(), ShowShortcuts),
         ]),
     ]
+}
+
+/// The Go menu, as Finder's: Back and Forward, then each section the
+/// sidebar shows, ⌘1 for the first.
+fn go_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
+    let mut items = vec![
+        MenuItem::action(l10n.desktop_menu_back(), GoBack).disabled(!state.can_go_back),
+        MenuItem::action(l10n.desktop_menu_forward(), GoForward).disabled(!state.can_go_forward),
+    ];
+    if !state.areas.is_empty() {
+        items.push(MenuItem::separator());
+    }
+    for (i, area) in state.areas.iter().take(GO_SECTIONS).enumerate() {
+        items.push(MenuItem::action(
+            crate::views::sidebar::area_label(*area, l10n),
+            GoToSection { index: i + 1 },
+        ));
+    }
+    items
 }
 
 /// The Chat menu: the open chat's commands in [`CHAT_COMMAND_ORDER`] (as its
@@ -702,6 +761,32 @@ mod tests {
             folders: vec![("f1".into(), "Garden".into()), ("f2".into(), "Work".into())],
             ..MenuState::default()
         }
+    }
+
+    #[test]
+    fn go_lists_back_forward_and_the_shown_sections_in_order() {
+        let l = L10n::new("en");
+        let none = build_menus(&l, &MenuState::default());
+        assert_eq!(titles(menu(&none, "Go")), ["Back", "Forward"]);
+        assert!(disabled(menu(&none, "Go"), "Back"));
+        let state = MenuState {
+            areas: vec![Area::Chats, Area::Notes, Area::Channels],
+            can_go_back: true,
+            ..MenuState::default()
+        };
+        let menus = build_menus(&l, &state);
+        let go = menu(&menus, "Go");
+        assert_eq!(
+            titles(go),
+            ["Back", "Forward", "—", "Chats", "Notes", "Channels"]
+        );
+        assert!(!disabled(go, "Back"));
+        assert!(disabled(go, "Forward"));
+        // Between View and Chat, as Finder's sits after View.
+        let names: Vec<String> = menus.iter().map(|m| m.name.to_string()).collect();
+        let at = |n: &str| names.iter().position(|m| m == n).unwrap();
+        assert_eq!(at("Go"), at("View") + 1);
+        assert_eq!(at("Chat"), at("Go") + 1);
     }
 
     #[test]
@@ -1009,6 +1094,11 @@ mod tests {
             F::CloseWindow => Box::new(CloseWindow),
             F::Minimize => Box::new(Minimize),
             F::FullScreen => Box::new(ToggleFullScreen),
+            F::Back => Box::new(GoBack),
+            F::Forward => Box::new(GoForward),
+            F::GoToSection(n) => Box::new(GoToSection {
+                index: usize::from(n),
+            }),
         }
     }
 

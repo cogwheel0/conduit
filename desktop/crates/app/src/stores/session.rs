@@ -24,6 +24,12 @@
 //! `accounts.changed` (through the accounts store), on `hermes.changed` and
 //! `capabilities.changed`, and after the window changes something.
 //!
+//! **Capabilities.** What the active account can use comes from
+//! `system.capabilities`, the daemon's reading of the core's rules (the
+//! phone's tabs and feature gates), asked again on `capabilities.changed`
+//! and with every refresh; the handshake's copy stands in until it
+//! answers.
+//!
 //! **Asked again until it routes.** A daemon that restarted while starting,
 //! or a core still restoring the session, answers `loading` or nothing at
 //! first, and no event follows when that settles. So while the route is
@@ -159,6 +165,8 @@ pub struct SessionStore {
     facts_for: Option<String>,
     pub direct: Option<DirectConnectionList>,
     pub hermes: Option<HermesSettings>,
+    /// `system.capabilities`, once it has answered for this session.
+    pub system_capabilities: Option<Capabilities>,
     /// The core's onboarding answer, once confirmed (see the module docs).
     pub needs_onboarding: Option<bool>,
     /// The connect handshake: daemon paths and capabilities.
@@ -186,6 +194,7 @@ pub struct SessionStore {
     _status: Option<Task<()>>,
     _resolve: Option<Task<()>>,
     _recheck: Option<Task<()>>,
+    _capabilities: Option<Task<()>>,
     _accounts: Subscription,
 }
 
@@ -222,6 +231,7 @@ impl SessionStore {
             facts_for: None,
             direct: None,
             hermes: None,
+            system_capabilities: None,
             needs_onboarding: None,
             handshake: None,
             request: None,
@@ -237,6 +247,7 @@ impl SessionStore {
             _status: None,
             _resolve: None,
             _recheck: None,
+            _capabilities: None,
             _accounts: subscription,
         }
     }
@@ -299,10 +310,12 @@ impl SessionStore {
                 .is_some_and(|s| s.reachability == ServerReachability::Unreachable)
     }
 
+    /// What the active account can use: `system.capabilities`, else the
+    /// server status's or the handshake's copy until it answers.
     pub fn capabilities(&self) -> Capabilities {
-        self.server
-            .as_ref()
-            .map(|s| s.capabilities.clone())
+        self.system_capabilities
+            .clone()
+            .or_else(|| self.server.as_ref().map(|s| s.capabilities.clone()))
             .or_else(|| self.handshake.as_ref().map(|h| h.capabilities.clone()))
             .unwrap_or_default()
     }
@@ -315,9 +328,29 @@ impl SessionStore {
             self.facts_for = active;
             self.auth = None;
             self.server = None;
+            self.system_capabilities = None;
             self._status = None;
             self._recheck = None;
+            self._capabilities = None;
         }
+    }
+
+    /// Asks `system.capabilities` again (`capabilities.changed`).
+    pub fn refresh_capabilities(&mut self, cx: &mut Context<Self>) {
+        let call = self.rpc.call::<methods::SystemCapabilities>(&NoParams);
+        self._capabilities = Some(self.read(
+            call,
+            |s, result, cx| match result {
+                Ok(capabilities) => {
+                    if s.system_capabilities.as_ref() != Some(&capabilities) {
+                        s.system_capabilities = Some(capabilities);
+                        cx.notify();
+                    }
+                }
+                Err(e) => log::warn!("system.capabilities: {e}"),
+            },
+            cx,
+        ));
     }
 
     /// A new daemon session: forget everything and ask again. Only a `true`
@@ -333,9 +366,11 @@ impl SessionStore {
         self.server = None;
         self.direct = None;
         self.hermes = None;
+        self.system_capabilities = None;
         self.error = None;
         self.seen_accounts = None;
         self._recheck = None;
+        self._capabilities = None;
         self.handshake = handshake.response.as_deref().cloned();
         self.needs_onboarding = (handshake.needs_onboarding == Some(true)).then_some(true);
         self.accounts.update(cx, |a, cx| {
@@ -453,6 +488,7 @@ impl SessionStore {
                     Err(e) => failed = failed.or(Some(e)),
                 }
                 s.refresh_server(cx);
+                s.refresh_capabilities(cx);
                 s.keep_resolving(failed, cx);
                 cx.notify();
             },

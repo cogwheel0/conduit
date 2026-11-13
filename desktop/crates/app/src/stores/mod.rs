@@ -11,6 +11,9 @@
 //!   the chat pane follows it).
 //! * [`chat_list`]: the sidebar's chats, folders, sync state and search;
 //!   [`palette`]: the ⌘K palette's query and hits.
+//! * [`areas`]: the sidebar's other areas (which ones the account can use,
+//!   and their lists); [`sections`]: which sections are closed, per
+//!   account.
 //! * [`chat`]: one open chat (the chat pane's): its transcript, the live
 //!   answer and this window's choices about it; [`composer`]: models,
 //!   features, prompts and attachments for the next message.
@@ -24,6 +27,7 @@
 //! none patches what the daemon answered.
 
 pub mod accounts;
+pub mod areas;
 pub mod chat;
 pub mod chat_list;
 pub mod composer;
@@ -34,6 +38,7 @@ pub mod navigation;
 pub mod palette;
 pub mod router;
 pub mod rpc;
+pub mod sections;
 pub mod session;
 pub mod settings;
 pub mod shell;
@@ -44,11 +49,13 @@ use conduit_protocol::{Event, NoticeLevel, events};
 use gpui_kit::{App, AppContext as _, Entity};
 
 use accounts::{AccountsEvent, AccountsStore};
+use areas::AreasStore;
 use chat_list::ChatListStore;
 use connection::{ConnectionEvent, ConnectionStore};
 use navigation::NavigationStore;
 use palette::PaletteStore;
 use router::RouterStore;
+use sections::SectionsStore;
 use session::{SessionEvent, SessionStore};
 use toasts::ToastStore;
 use ui_requests::UiRequestsStore;
@@ -65,6 +72,8 @@ pub struct Stores {
     pub navigation: Entity<NavigationStore>,
     pub chat_list: Entity<ChatListStore>,
     pub palette: Entity<PaletteStore>,
+    pub areas: Entity<AreasStore>,
+    pub sections: Entity<SectionsStore>,
 }
 
 /// The session-wide events the stores follow (the views add their own scopes
@@ -114,7 +123,9 @@ impl Stores {
             toasts: cx.new(|_| ToastStore::new()),
             navigation: cx.new(|_| NavigationStore::new()),
             chat_list: cx.new(|_| ChatListStore::new(rpc.clone())),
-            palette: cx.new(|_| PaletteStore::new(rpc)),
+            palette: cx.new(|_| PaletteStore::new(rpc.clone())),
+            areas: cx.new(|_| AreasStore::new(rpc)),
+            sections: cx.new(|_| SectionsStore::load(None)),
         }
     }
 
@@ -133,6 +144,13 @@ impl Stores {
         let navigation = cx.new(|_| NavigationStore::new());
         let chat_list = cx.new(|_| ChatListStore::new(rpc.clone()));
         let palette = cx.new(|_| PaletteStore::new(rpc.clone()));
+        let areas = cx.new(|_| AreasStore::new(rpc.clone()));
+        let sections_file = connection
+            .read(cx)
+            .paths()
+            .user_data
+            .join("sidebar-sections.json");
+        let sections = cx.new(|_| SectionsStore::load(Some(sections_file)));
         let stores = Self {
             connection: connection.clone(),
             accounts,
@@ -143,9 +161,12 @@ impl Stores {
             navigation,
             chat_list,
             palette,
+            areas,
+            sections,
         };
         connection.update(cx, |c, _| c.subscribe("session", SESSION_EVENTS, vec![]));
         chat_list::wire(&stores, cx);
+        areas::wire(&stores, cx);
         {
             // The server answers again after the window opened without it:
             // the session (a token may have lapsed meanwhile) and the chat
@@ -218,7 +239,10 @@ impl Stores {
                 self.router.update(cx, |r, cx| r.on_remap(from, to, cx));
             }
             Event::HermesChanged => self.session.update(cx, |s, cx| s.refresh(cx)),
-            Event::CapabilitiesChanged => self.session.update(cx, |s, cx| s.refresh_server(cx)),
+            Event::CapabilitiesChanged => self.session.update(cx, |s, cx| {
+                s.refresh_capabilities(cx);
+                s.refresh_server(cx);
+            }),
             _ => {}
         }
     }

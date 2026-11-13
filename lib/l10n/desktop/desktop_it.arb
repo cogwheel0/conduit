@@ -899,8 +899,23 @@
       }
     }
   },
-  "desktopChannelsNotAvailable": "I canali non sono ancora disponibili su desktop.",
-  "desktopNotesNotAvailable": "Le note non sono ancora disponibili su desktop.",
+  "desktopChannelsUnavailable": "I canali non sono disponibili per questo account.",
+  "desktopNotesUnavailable": "Le note non sono disponibili per questo account.",
+  "desktopShowAll": "Mostra tutto",
+  "desktopCalendarUpcoming": "In arrivo",
+  "desktopScheduledTasksAll": "Tutte le attività",
+  "desktopUnreadCount": "{count, plural, =1{1 non letto} other{{count} non letti}}",
+  "@desktopUnreadCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopMenuGo": "Vai",
+  "desktopMenuBack": "Indietro",
+  "desktopMenuForward": "Avanti",
+  "desktopKeyboardGoToSection": "Vai a una sezione della barra laterale",
   "desktopNotificationAnswerReady": "La risposta è pronta.",
   "desktopNotificationAnswerFailed": "La risposta non è stata completata.",
   "desktopTrayOpen": "Apri Conduit",

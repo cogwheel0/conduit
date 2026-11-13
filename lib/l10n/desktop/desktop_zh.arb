@@ -899,8 +899,23 @@
       }
     }
   },
-  "desktopChannelsNotAvailable": "桌面版暂不支持频道。",
-  "desktopNotesNotAvailable": "桌面版暂不支持笔记。",
+  "desktopChannelsUnavailable": "此账户无法使用频道。",
+  "desktopNotesUnavailable": "此账户无法使用笔记。",
+  "desktopShowAll": "显示全部",
+  "desktopCalendarUpcoming": "即将到来",
+  "desktopScheduledTasksAll": "所有任务",
+  "desktopUnreadCount": "{count} 条未读",
+  "@desktopUnreadCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopMenuGo": "前往",
+  "desktopMenuBack": "返回",
+  "desktopMenuForward": "前进",
+  "desktopKeyboardGoToSection": "前往边栏分区",
   "desktopNotificationAnswerReady": "回答已就绪。",
   "desktopNotificationAnswerFailed": "回答未能完成。",
   "desktopTrayOpen": "打开 Conduit",

@@ -43,7 +43,7 @@ use crate::stores::Stores;
 use crate::stores::accounts::AccountsStore;
 use crate::stores::chat_list::ChatListStore;
 use crate::stores::connection::{ConnectionOptions, ConnectionStore};
-use crate::stores::navigation::NavigationStore;
+use crate::stores::navigation::{Area, NavigationStore};
 use crate::stores::palette::PaletteStore;
 use crate::stores::router::RouterStore;
 use crate::stores::rpc::{CallFuture, Daemon, Rpc};
@@ -130,6 +130,66 @@ fn folder(id: &str, name: &str, parent: Option<&str>, expanded: bool) -> FolderS
 /// Answers the sidebar's calls from [`synthetic`] data.
 struct CannedDaemon {
     list: ChatList,
+    /// How many items each other area lists (the perf pass's sections).
+    areas: usize,
+}
+
+/// Every area on, every workspace section managed: the perf pass's
+/// account.
+pub fn all_areas() -> Capabilities {
+    Capabilities {
+        bulk_selection: true,
+        notes: true,
+        channels: true,
+        hermes: true,
+        terminal: true,
+        workspace: true,
+        workspace_models: true,
+        workspace_knowledge: true,
+        workspace_prompts: true,
+        workspace_tools: true,
+        workspace_skills: true,
+        calendar: true,
+        automations: true,
+        folders: true,
+        ..Default::default()
+    }
+}
+
+/// `n` synthetic items for each listed area: notes, channels, Hermes
+/// sessions (a tenth archived) and two terminal servers.
+fn area_answer(method: &str, n: usize) -> Option<Value> {
+    let day = 86_400_000_i64;
+    let base = 1_767_225_600_000_i64;
+    Some(match method {
+        "notes.list" => json!({"notes": (0..n).map(|i| json!({
+            "id": format!("note-{i}"),
+            "title": format!("Field note {i}"),
+            "updatedAtMs": base - i as i64 * day / 3,
+            "pinned": i < 3,
+        })).collect::<Vec<_>>()}),
+        "channels.list" => json!({"enabled": true, "channels": (0..n).map(|i| json!({
+            "id": format!("channel-{i}"),
+            "name": format!("channel-{i}"),
+            "unread": if i % 4 == 0 { (i % 9) as i64 } else { 0 },
+        })).collect::<Vec<_>>()}),
+        "hermes.sessions" => json!({
+            "sessions": (0..n).map(|i| json!({
+                "id": format!("s{i}"), "chatId": format!("local:hermes_s{i}"),
+                "title": format!("Session {i}"), "updatedAtMs": base - i as i64 * day,
+                "pinned": i < 2,
+            })).collect::<Vec<_>>(),
+            "archived": (0..n / 10).map(|i| json!({
+                "id": format!("a{i}"), "chatId": format!("local:hermes_a{i}"),
+                "title": format!("Old session {i}"), "archived": true,
+            })).collect::<Vec<_>>(),
+        }),
+        "terminal.servers" => json!({"servers": [
+            {"id": "term-1", "name": "Build box", "kind": "system"},
+            {"id": "term-2", "name": "Lab shell", "kind": "system"},
+        ]}),
+        _ => return None,
+    })
 }
 
 impl Daemon for CannedDaemon {
@@ -204,7 +264,10 @@ impl Daemon for CannedDaemon {
                 "activeAccountId": "acct-1",
                 "addingAccount": false
             })),
-            other => Err(error(codes::METHOD_NOT_FOUND, other)),
+            other => match area_answer(other, self.areas) {
+                Some(value) if self.areas > 0 => Ok(value),
+                _ => Err(error(codes::METHOD_NOT_FOUND, other)),
+            },
         };
         Box::pin(async move { answer })
     }
@@ -337,6 +400,8 @@ fn stores(rpc: Rpc, scratch: &std::path::Path, cx: &mut App) -> Stores {
         navigation: cx.new(|_| NavigationStore::new()),
         chat_list: cx.new(|_| ChatListStore::new(rpc.clone())),
         palette: cx.new(|_| PaletteStore::new(rpc.clone())),
+        areas: cx.new(|_| crate::stores::areas::AreasStore::new(rpc.clone())),
+        sections: cx.new(|_| crate::stores::sections::SectionsStore::load(None)),
         accounts,
         session,
     }
@@ -375,8 +440,32 @@ pub fn run(mode: Mode) {
         } else {
             40
         };
-        let rpc = Rpc::new(CannedDaemon { list: synthetic(n) });
+        // The perf pass's sidebar holds every area too, long ones listed in
+        // full (Show All), below the 5,000 chats.
+        let areas = if matches!(mode, Mode::Perf { .. }) {
+            400
+        } else {
+            0
+        };
+        let rpc = Rpc::new(CannedDaemon {
+            list: synthetic(n),
+            areas,
+        });
         let stores = stores(rpc, &scratch, cx);
+        if areas > 0 {
+            let capabilities = all_areas();
+            stores.session.update(cx, |s, cx| {
+                s.system_capabilities = Some(capabilities.clone());
+                s.preview_route(Some(crate::stores::session::Route::Main), cx);
+            });
+            let shown = crate::stores::areas::visible_areas(&capabilities);
+            stores.areas.update(cx, |a, cx| a.set_wanted(&shown, cx));
+            stores.sections.update(cx, |s, cx| {
+                for area in [Area::Notes, Area::Channels, Area::Hermes] {
+                    s.set_show_all(area.id(), true, cx);
+                }
+            });
+        }
         if let Mode::Shell { shots } = mode.clone() {
             shell(stores, settings, scratch.clone(), shots, cx);
             return;

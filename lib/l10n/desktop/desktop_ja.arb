@@ -899,8 +899,23 @@
       }
     }
   },
-  "desktopChannelsNotAvailable": "チャンネルはデスクトップ版ではまだ使えません。",
-  "desktopNotesNotAvailable": "メモはデスクトップ版ではまだ使えません。",
+  "desktopChannelsUnavailable": "このアカウントではチャンネルを利用できません。",
+  "desktopNotesUnavailable": "このアカウントではノートを利用できません。",
+  "desktopShowAll": "すべて表示",
+  "desktopCalendarUpcoming": "今後の予定",
+  "desktopScheduledTasksAll": "すべてのタスク",
+  "desktopUnreadCount": "未読 {count} 件",
+  "@desktopUnreadCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopMenuGo": "移動",
+  "desktopMenuBack": "戻る",
+  "desktopMenuForward": "進む",
+  "desktopKeyboardGoToSection": "サイドバーのセクションに移動",
   "desktopNotificationAnswerReady": "回答ができました。",
   "desktopNotificationAnswerFailed": "回答を完了できませんでした。",
   "desktopTrayOpen": "Conduitを開く",

@@ -572,6 +572,179 @@ pub fn quiet_section_header(
         .cursor_pointer()
 }
 
+/// How far an area's heading sits below the area above it: the gap
+/// Finder's and Mail's sidebars leave between their groups.
+pub const AREA_GAP: f32 = 14.;
+
+/// An area's heading ("Notes", "Channels"), as Finder's and Mail's
+/// sidebars head their groups: bold in the secondary tone at the rows'
+/// leading edge, its disclosure chevron showing while hovered, closed or
+/// stood on by the keyboard. VoiceOver hears a heading that is open or
+/// closed. `selected` draws it as the keyboard's selection.
+pub fn area_header(
+    id: &str,
+    label: &SharedString,
+    expanded: bool,
+    state: RowState,
+    t: &ConduitTheme,
+) -> Stateful<Div> {
+    let r = t.roles;
+    let key = state.selected && state.keyboard;
+    let tone = on_selection(r.sidebar_text_subtle, t, key);
+    let group = SharedString::from(format!("area-{id}-hover"));
+    let chevron = div()
+        .flex_none()
+        .when(expanded && !state.selected, |d| d.invisible())
+        .group_hover(group.clone(), |s| s.visible())
+        .child(icon(
+            if expanded {
+                IconName::ChevronDown
+            } else {
+                IconName::ChevronRight
+            },
+            12.,
+            tone,
+        ));
+    div()
+        .id(ElementId::Name(format!("area-{id}").into()))
+        .group(group)
+        .role(Role::Heading)
+        .aria_level(2)
+        .aria_label(label.clone())
+        .aria_expanded(expanded)
+        .aria_selected(state.selected)
+        .h(px(SECTION_HEADER_HEIGHT))
+        .pl(px(ROW_CONTENT_INSET))
+        .pr(px(ROW_CONTENT_INSET))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(6.))
+        .rounded(t.row_radius())
+        .cursor_pointer()
+        .when(state.selected, |d| d.bg(selection_fill(t, key)))
+        .child(
+            div()
+                .flex_1()
+                .truncate()
+                .text_size(px(t.metrics.small))
+                .font_weight(FontWeight::BOLD)
+                .text_color(tone)
+                .child(label.clone()),
+        )
+        .child(chevron)
+}
+
+/// An item of an area as its row shows it: a note, a channel, a Hermes
+/// session, a workspace section, a terminal server.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ItemLine {
+    pub id: SharedString,
+    pub icon: IconName,
+    pub title: SharedString,
+    /// At the trailing edge: a date, or a channel's unread count.
+    pub trailing: Option<SharedString>,
+    /// Spoken after the title ("Yesterday", "3 unread").
+    pub description: Option<SharedString>,
+    /// A pin before the trailing text (a pinned note or session).
+    pub pinned: bool,
+    /// The trailing text is a count to notice (unread messages): drawn in
+    /// the primary tone.
+    pub emphasized: bool,
+}
+
+/// An area item's row: its glyph where a folder's sits, the title where a
+/// chat's starts, and the date or count at the trailing edge, as Mail draws
+/// a mailbox's unread count.
+pub fn item_row(line: &ItemLine, state: RowState, t: &ConduitTheme) -> Stateful<Div> {
+    let r = t.roles;
+    let m = t.metrics;
+    let key = state.selected && state.keyboard;
+    let glyph = on_selection(r.sidebar_text_subtle, t, key);
+    let subtle = if state.selected {
+        on_selection(r.selected_text_subtle, t, key)
+    } else {
+        r.sidebar_text_subtle
+    };
+    let mut label = line.title.to_string();
+    if let Some(d) = &line.description {
+        label.push_str(", ");
+        label.push_str(d);
+    }
+    div()
+        .id(ElementId::Name(format!("item-{}", line.id).into()))
+        .role(Role::TreeItem)
+        .aria_label(SharedString::from(label))
+        .aria_selected(state.selected)
+        .h(px(m.row_height))
+        .pl(px(ROW_CONTENT_INSET))
+        .pr(px(ROW_CONTENT_INSET))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(FOLDER_GLYPH_GAP))
+        .rounded(t.row_radius())
+        .bg(row_bg(state, t))
+        .when(!state.selected, |d| d.hover(|s| s.bg(r.hover)))
+        .active(|s| s.bg(pressed_fill(row_bg_hovered(state, t), t)))
+        .cursor_pointer()
+        .child(icon(line.icon, FOLDER_GLYPH, glyph))
+        .child(row_title(
+            &line.title,
+            m.control,
+            on_selection(r.sidebar_text, t, key),
+        ))
+        .when(line.pinned, |d| d.child(icon(IconName::Pin, 11., subtle)))
+        .when_some(line.trailing.clone(), |d, text| {
+            d.child(
+                div()
+                    .flex_none()
+                    .min_w(px(ROW_ACTION_SLOT))
+                    .flex()
+                    .justify_end()
+                    .text_size(px(m.small))
+                    .when(line.emphasized, |d| d.font_weight(FontWeight::SEMIBOLD))
+                    .text_color(if line.emphasized {
+                        on_selection(r.sidebar_text, t, key)
+                    } else {
+                        subtle
+                    })
+                    .child(text),
+            )
+        })
+}
+
+/// A quiet row of secondary text at the title column: an area's Show All
+/// (or Show Less).
+pub fn more_row(
+    id: &str,
+    label: &SharedString,
+    state: RowState,
+    t: &ConduitTheme,
+) -> Stateful<Div> {
+    let r = t.roles;
+    let key = state.selected && state.keyboard;
+    div()
+        .id(ElementId::Name(format!("more-{id}").into()))
+        .role(Role::TreeItem)
+        .aria_label(label.clone())
+        .aria_selected(state.selected)
+        .h(px(t.metrics.row_height))
+        .pl(px(ROW_CONTENT_INSET + ROW_STATUS_GUTTER))
+        .pr(px(ROW_CONTENT_INSET))
+        .flex()
+        .flex_none()
+        .items_center()
+        .rounded(t.row_radius())
+        .bg(row_bg(state, t))
+        .when(!state.selected, |d| d.hover(|s| s.bg(r.hover)))
+        .active(|s| s.bg(pressed_fill(row_bg_hovered(state, t), t)))
+        .cursor_pointer()
+        .text_size(px(t.metrics.small))
+        .text_color(on_selection(r.sidebar_text_subtle, t, key))
+        .child(label.clone())
+}
+
 fn section(
     id: &str,
     label: &str,

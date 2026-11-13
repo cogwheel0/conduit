@@ -13,12 +13,14 @@ pub use gpui_kit::assets::IconName;
 gpui_kit::assets::icon_assets!(
     pub ConduitIcons,
     [
-        AppWindow, Archive, ArrowUp, ArrowUpRight, AtSign, Bell, BookOpen, Bot, Brain, Check,
+        AppWindow, Archive, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, AtSign, Bell, BookOpen,
+        Bot, Brain, Calendar, CalendarClock, Check,
         ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsUpDown, Circle, CircleAlert,
         CircleCheck, CircleUser, Clock, ClockFading, Cloud, CloudOff, Code, Command, Copy,
         CornerDownLeft, Cpu, Database, Download, Ellipsis, ExternalLink, Eye, EyeOff, FileCode,
         FileText, FlaskConical, Folder, FolderClosed, FolderOpen, Globe, Hash, Image, ImageOff, Info,
-        KeyRound, Keyboard, Laptop, Layers, Link, List, ListChecks, LoaderCircle, Lock, LogOut,
+        KeyRound, Keyboard, Laptop, Layers, LibraryBig, Link, List, ListChecks, LoaderCircle, Lock,
+        LogOut, Network, TextQuote, WandSparkles,
         Mail, MessageSquare, MessageSquarePlus, Mic, Monitor, Moon, Palette, PanelLeft, Paperclip,
         Pencil, Pin, PinOff, Play, Plus, RefreshCw, RotateCcw, Search, Server, Settings, Share,
         ShieldAlert, ShieldCheck, SlidersHorizontal, Smartphone, Sparkles, Square, SquarePen,

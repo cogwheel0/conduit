@@ -344,6 +344,9 @@ impl ChatPane {
                 }
                 self.open_chat(id, cx);
             }
+            // Another area's item: the main window shows its pane, and the
+            // chat stays loaded for when it comes back.
+            Selection::Area(_) => return,
             Selection::New { temporary } => {
                 self.chat = None;
                 // Nothing to find in a new chat.
@@ -518,7 +521,7 @@ impl ChatPane {
         }
         let temporary = match self.stores.navigation.read(cx).selection() {
             Selection::New { temporary } => *temporary,
-            Selection::Chat(_) => false,
+            Selection::Chat(_) | Selection::Area(_) => false,
         } || self.composer.read(cx).temporary;
         let turn = options.into_turn(text.clone(), None, temporary);
         let call = self

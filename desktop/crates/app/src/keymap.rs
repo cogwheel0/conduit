@@ -329,12 +329,20 @@ pub enum FixedCommand {
     CloseWindow,
     Minimize,
     FullScreen,
+    /// Go › Back (⌘[).
+    Back,
+    /// Go › Forward (⌘]).
+    Forward,
+    /// Go › the `n`th sidebar section (⌘1…⌘8; `n` from 1).
+    GoToSection(u8),
 }
 
 impl FixedCommand {
     /// Listed in Settings › Keyboard. The standard app and window chords
     /// (⌘Q, ⌘H, ⌘W, ⌘M, ⌃⌘F) are every Mac app's and are not; ⌘, is
     /// listed as Open Settings' own row.
+    ///
+    /// ⌘1…⌘8 are listed once, as one row ([`Self::GoToSection`] 1).
     pub fn listed(self) -> bool {
         !matches!(
             self,
@@ -345,7 +353,7 @@ impl FixedCommand {
                 | Self::CloseWindow
                 | Self::Minimize
                 | Self::FullScreen
-        )
+        ) && !matches!(self, Self::GoToSection(n) if n != 1)
     }
 
     /// The rebindable command this one stands beside (⌘, is Open
@@ -381,6 +389,16 @@ pub fn fixed_shortcuts() -> Vec<(FixedCommand, KeyStroke)> {
         (F::CloseWindow, k("w").primary()),
         (F::Minimize, k("m").primary()),
         (F::FullScreen, k("f").primary().ctrl()),
+        (F::Back, k("[").primary()),
+        (F::Forward, k("]").primary()),
+        (F::GoToSection(1), k("1").primary()),
+        (F::GoToSection(2), k("2").primary()),
+        (F::GoToSection(3), k("3").primary()),
+        (F::GoToSection(4), k("4").primary()),
+        (F::GoToSection(5), k("5").primary()),
+        (F::GoToSection(6), k("6").primary()),
+        (F::GoToSection(7), k("7").primary()),
+        (F::GoToSection(8), k("8").primary()),
     ]
 }
 
@@ -419,6 +437,8 @@ pub enum KeyGroup {
     Chats,
     Messages,
     FindAndView,
+    /// The Go menu: Back, Forward and the sidebar's sections.
+    Go,
     Window,
 }
 
@@ -465,6 +485,10 @@ pub fn keyboard_groups() -> Vec<(KeyGroup, Vec<KeyRow>)> {
                 Fixed(F::ZoomIn),
                 Fixed(F::ZoomOut),
             ],
+        ),
+        (
+            KeyGroup::Go,
+            vec![Fixed(F::Back), Fixed(F::Forward), Fixed(F::GoToSection(1))],
         ),
         (
             KeyGroup::Window,
@@ -896,8 +920,15 @@ mod tests {
             assert_eq!(n, 1, "{c:?}");
         }
         assert_eq!(rows.iter().filter(|r| **r == KeyRow::QuickAsk).count(), 1);
-        // About twenty: 12 rebindable, 12 fixed, Quick Ask.
-        assert_eq!(rows.len(), 25);
+        // 12 rebindable, 15 fixed (⌘1…⌘8 as one row), Quick Ask.
+        assert_eq!(rows.len(), 28);
+        // Go › Back and Forward are Finder's ⌘[ and ⌘].
+        assert_eq!(describe(&fixed_stroke(FixedCommand::Back), true), "⌘[");
+        assert_eq!(describe(&fixed_stroke(FixedCommand::Forward), true), "⌘]");
+        assert_eq!(
+            describe(&fixed_stroke(FixedCommand::GoToSection(3)), true),
+            "⌘3"
+        );
         // Next and Previous Chat are ⌃⇥ and ⌃⇧⇥, as Safari's tabs.
         assert_eq!(describe(&fixed_stroke(FixedCommand::NextChat), true), "⌃⇥");
         assert_eq!(

@@ -899,8 +899,23 @@
       }
     }
   },
-  "desktopChannelsNotAvailable": "채널은 아직 데스크톱에서 사용할 수 없습니다.",
-  "desktopNotesNotAvailable": "노트는 아직 데스크톱에서 사용할 수 없습니다.",
+  "desktopChannelsUnavailable": "이 계정에서는 채널을 사용할 수 없습니다.",
+  "desktopNotesUnavailable": "이 계정에서는 노트를 사용할 수 없습니다.",
+  "desktopShowAll": "모두 보기",
+  "desktopCalendarUpcoming": "다가오는 일정",
+  "desktopScheduledTasksAll": "모든 작업",
+  "desktopUnreadCount": "읽지 않음 {count}개",
+  "@desktopUnreadCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopMenuGo": "이동",
+  "desktopMenuBack": "뒤로",
+  "desktopMenuForward": "앞으로",
+  "desktopKeyboardGoToSection": "사이드바 섹션으로 이동",
   "desktopNotificationAnswerReady": "답변이 준비되었습니다.",
   "desktopNotificationAnswerFailed": "답변을 완료하지 못했습니다.",
   "desktopTrayOpen": "Conduit 열기",

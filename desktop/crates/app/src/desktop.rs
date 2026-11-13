@@ -39,6 +39,7 @@ use crate::shell::deep_link::{self, OpenRequest};
 use crate::shell::notify::{self, NotificationKind, OnScreen};
 use crate::shell::open_files;
 use crate::stores::connection::ConnectionEvent;
+use crate::stores::navigation::{Area, AreaItem};
 use crate::stores::settings::SettingsEvent;
 use crate::stores::shell::{HotkeyState, LoginState, NotificationAccess, ShellStore};
 use crate::views::quick_ask::{QuickAskEvent, QuickAskView};
@@ -276,16 +277,8 @@ fn dispatch(request: OpenRequest, cx: &mut App) {
             open_new_chat(text, vec![], attachments, cx);
         }
         OpenRequest::NewChat { text, files } => open_new_chat(text, files, vec![], cx),
-        OpenRequest::Channel { .. } => {
-            show_main(cx);
-            let text = cx.l10n().desktop_channels_not_available();
-            toast(NoticeLevel::Info, text, cx);
-        }
-        OpenRequest::Note { .. } => {
-            show_main(cx);
-            let text = cx.l10n().desktop_notes_not_available();
-            toast(NoticeLevel::Info, text, cx);
-        }
+        OpenRequest::Channel { id } => open_item(AreaItem::Channel(id), cx),
+        OpenRequest::Note { id } => open_item(AreaItem::Note(id), cx),
     }
 }
 
@@ -336,6 +329,30 @@ fn open_new_chat(
             cx,
         );
     }
+}
+
+/// Opens `item` in its area's pane, or says the account has no such area
+/// (once its capabilities are known: before then the pane opens, as a chat
+/// link opens a chat the list has not loaded yet).
+fn open_item(item: AreaItem, cx: &mut App) {
+    show_main(cx);
+    let Some(state) = cx.try_global::<AppState>() else {
+        return;
+    };
+    let session = state.stores.session.read(cx);
+    let known = session.system_capabilities.is_some();
+    let shown = crate::stores::areas::visible_areas(&session.capabilities()).contains(&item.area());
+    if known && !shown {
+        let l = cx.l10n().clone();
+        let text = match item.area() {
+            Area::Channels => l.desktop_channels_unavailable(),
+            _ => l.desktop_notes_unavailable(),
+        };
+        toast(NoticeLevel::Info, text, cx);
+        return;
+    }
+    let navigation = state.stores.navigation.clone();
+    navigation.update(cx, |n, cx| n.open_item(item, cx));
 }
 
 fn toast(level: NoticeLevel, text: String, cx: &mut App) {

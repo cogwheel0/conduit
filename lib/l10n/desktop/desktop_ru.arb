@@ -899,8 +899,23 @@
       }
     }
   },
-  "desktopChannelsNotAvailable": "Каналы пока недоступны на компьютере.",
-  "desktopNotesNotAvailable": "Заметки пока недоступны на компьютере.",
+  "desktopChannelsUnavailable": "Каналы недоступны для этой учётной записи.",
+  "desktopNotesUnavailable": "Заметки недоступны для этой учётной записи.",
+  "desktopShowAll": "Показать все",
+  "desktopCalendarUpcoming": "Предстоящие",
+  "desktopScheduledTasksAll": "Все задачи",
+  "desktopUnreadCount": "{count, plural, one{{count} непрочитанное} few{{count} непрочитанных} many{{count} непрочитанных} other{{count} непрочитанного}}",
+  "@desktopUnreadCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopMenuGo": "Переход",
+  "desktopMenuBack": "Назад",
+  "desktopMenuForward": "Вперед",
+  "desktopKeyboardGoToSection": "Перейти к разделу боковой панели",
   "desktopNotificationAnswerReady": "Ответ готов.",
   "desktopNotificationAnswerFailed": "Ответ не завершён.",
   "desktopTrayOpen": "Открыть Conduit",
