@@ -11,6 +11,27 @@ import XCTest
 
 class RunnerTests: XCTestCase {
   @MainActor
+  func testNativeSheetSearchCancelEmptiesTheField() throws {
+    var sent: [Any?] = []
+    let controller = try XCTUnwrap(
+      makeNativeDetailPageForTesting(
+        [
+          "id": "test-tasks", "title": "Tasks", "items": [],
+          "search": ["id": "test-search", "placeholder": "Search", "value": "lamp"],
+        ],
+        onControlChanged: { _, value in sent.append(value) }))
+    let search = try XCTUnwrap(controller.navigationItem.searchController)
+    search.searchBar.text = "lamp"
+    let delegate = try XCTUnwrap(search.searchBar.delegate)
+
+    delegate.searchBarCancelButtonClicked?(search.searchBar)
+
+    XCTAssertEqual(search.searchBar.text, "")
+    XCTAssertEqual(sent.count, 1)
+    XCTAssertEqual(sent.first as? String, "")
+  }
+
+  @MainActor
   func testWebSignInRetryLoadsThePageThatFailed() throws {
     let start = try XCTUnwrap(URL(string: "https://hermes.example/login"))
     let provider = try XCTUnwrap(URL(string: "https://id.example/authorize"))

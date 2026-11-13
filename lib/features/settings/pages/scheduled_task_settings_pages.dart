@@ -1576,7 +1576,11 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
     try {
       await change(owner);
     } catch (error) {
-      _listNotice = scheduledTaskErrorText(l10n, error, fallback: failure);
+      // Answered after another account signed in: the list shown now is that
+      // account's, and says nothing of this change.
+      if (_notifier.isCurrentOwner(owner)) {
+        _listNotice = scheduledTaskErrorText(l10n, error, fallback: failure);
+      }
     } finally {
       _listBusy.remove(taskId);
     }
@@ -1657,7 +1661,11 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
         ..loadError = null;
     } catch (error) {
       if (!identical(_tasks[view.taskId], view)) return;
-      view.loadError = error;
+      // Failed after another account signed in: the page says so, as it
+      // does once it can no longer act, not why the read failed.
+      view.loadError = _notifier.isCurrentOwner(owner)
+          ? error
+          : AutomationsOwnerChangedException();
       await _redrawTask(view);
       return;
     }
@@ -2261,6 +2269,12 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
         ..attempted = true
         ..error = null;
       await _applyEditor(l10n, editor);
+      return;
+    }
+    // A saved task left as it was: Save only goes back, writing nothing.
+    if (!draft.isNew && !editor.edited) {
+      _editors.remove(editor.key)?.dispose();
+      await _surface.closeDetail('$scheduledTaskEditorPagePrefix${editor.key}');
       return;
     }
     final owner = editor.owner;

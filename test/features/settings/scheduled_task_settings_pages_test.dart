@@ -910,6 +910,34 @@ void main() {
       });
     });
 
+    testWidgets("a list change refused after another account signed in says "
+        "nothing on that account's list", (tester) async {
+      final session = await pumpAutomations(tester);
+      await session.open(_list);
+      session.wire.rejectWrites = (status: 409, detail: 'Already gone');
+      final hold = session.wire.hold('DELETE', '/api/v1/automations/a/delete');
+
+      final change = session.module.handleChange(_row('delete'), true, _l10n);
+      await reach(tester, hold);
+      session.switchAccount();
+      hold.release();
+      await session.settle(change);
+
+      expect(session.page(_list).announcement, isNull);
+    });
+
+    testWidgets('a saved task left as it was is not written on Save', (
+      tester,
+    ) async {
+      final session = await pumpAutomations(tester);
+      await session.open(_editA);
+
+      await session.change(_row('save'));
+
+      expect(session.wire.writes, isEmpty);
+      expect(session.closed, contains(_editA));
+    });
+
     testWidgets('keeps a saved model that is not available visible, and needs '
         'a compatible one', (tester) async {
       final session = await pumpAutomations(

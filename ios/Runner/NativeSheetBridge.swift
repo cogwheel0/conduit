@@ -5613,8 +5613,14 @@ private final class NativeSheetStatusTableViewCell: UITableViewCell {
 }
 
 /// A Settings page drawn from [payload], acting on nothing, for tests.
-func makeNativeDetailPageForTesting(_ payload: [String: Any]) -> UITableViewController? {
-    NativeDetailTableViewController.makeForTesting(payload)
+func makeNativeDetailPageForTesting(
+    _ payload: [String: Any],
+    onControlChanged: @escaping (String, Any?) -> Void = { _, _ in }
+) -> UITableViewController? {
+    NativeDetailTableViewController.makeForTesting(
+        payload,
+        onControlChanged: onControlChanged
+    )
 }
 
 private final class NativeDetailTableViewController: UITableViewController, NativeSheetLeaveGuarding {
@@ -5651,6 +5657,8 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     /// trimmed as the page echoes them.
     private var unechoedSearchQueries: [String] = []
     private var searchDebounce: Timer?
+    /// Set as the page is popped or its sheet closes: it sends no search.
+    private var leaving = false
 
     var detailId: String { detail.id }
 
@@ -5700,13 +5708,16 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         nil
     }
 
-    fileprivate static func makeForTesting(_ payload: [String: Any]) -> UITableViewController? {
+    fileprivate static func makeForTesting(
+        _ payload: [String: Any],
+        onControlChanged: @escaping (String, Any?) -> Void
+    ) -> UITableViewController? {
         guard let detail = NativeSheetDetail(payload) else { return nil }
         let controller = NativeDetailTableViewController(
             detail: detail,
             canNavigate: { _ in false },
             onSelect: { _ in },
-            onControlChanged: { _, _ in },
+            onControlChanged: { item, value in onControlChanged(item.id, value) },
             onReorder: { _, _ in },
             onConfirmAction: { _ in },
             onClose: {}
@@ -5832,7 +5843,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     fileprivate func sendSearch(_ query: String) {
         searchDebounce?.invalidate()
         searchDebounce = nil
-        guard let search = detail.search,
+        guard !leaving, let search = detail.search,
               let item = NativeSheetItem([
                   "id": search.id,
                   "title": search.placeholder ?? search.id,
@@ -6031,6 +6042,13 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         // page, say, then Back.
         if isMovingFromParent, detail.discardPrompt == nil {
             commitPendingTextChanges()
+        }
+        // Left, a search still waiting for typing to pause is for no page,
+        // nor is the field emptied as its bar goes.
+        if isMovingFromParent || navigationController?.isBeingDismissed == true {
+            leaving = true
+            searchDebounce?.invalidate()
+            searchDebounce = nil
         }
         view.endEditing(true)
     }
@@ -9508,7 +9526,9 @@ extension NativeDetailTableViewController: UISearchBarDelegate {
     }
 
     func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
-        // Cancel clears the field: the whole list comes back at once.
+        // Cancel clears the field: the whole list comes back at once, and
+        // the field shows it empty (the page's echo of "" changes nothing).
+        searchBar.text = ""
         sendSearch("")
     }
 }
