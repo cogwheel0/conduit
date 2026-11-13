@@ -10,7 +10,9 @@ import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_open.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart';
@@ -45,10 +47,29 @@ String? hermesSessionOf(String chatId) =>
 /// under an action, and forget a session's document trust before deleting
 /// it -- so the daemon adds nothing to what they already guard.
 final class HermesService {
-  HermesService(this._container, {EventBus? events}) : _events = events;
+  HermesService(this._container, {EventBus? events}) : _events = events {
+    // A session found read-only (opened, or a send Hermes refused) changes
+    // what its chat offers: the window reads it again.
+    _readOnlyWatch = _container.listen<Map<String, String>>(
+      hermesReadOnlySessionsProvider,
+      (previous, next) {
+        for (final id in <String>{...?previous?.keys, ...next.keys}) {
+          if (previous?[id] != next[id]) _announceChat(id);
+        }
+      },
+    );
+  }
 
   final ProviderContainer _container;
   final EventBus? _events;
+  ProviderSubscription<Map<String, String>>? _readOnlyWatch;
+
+  void dispose() => _readOnlyWatch?.close();
+
+  void _announceChat(String sessionId) => _events?.emit(
+    ConduitEventSpecs.chatsChanged,
+    ChatsChanged(chatId: hermesChatId(sessionId)),
+  );
 
   HermesConfigController get _config =>
       _container.read(hermesConfigProvider.notifier);
@@ -93,6 +114,8 @@ final class HermesService {
         apiKey: _blankIsNull(edit.apiKey),
         sessionKeyChanged: edit.sessionKey != null,
         sessionKey: _blankIsNull(edit.sessionKey),
+        desktopCredentialsChanged: edit.legacyToken != null,
+        desktopCredentials: _desktopCredentials(edit),
       );
       await _config.setEnabled(edit.enabled);
     } on ArgumentError catch (error) {
@@ -125,9 +148,13 @@ final class HermesService {
         sessionKey: edit.sessionKey == null
             ? saved.sessionKey
             : _blankIsNull(edit.sessionKey),
+        desktopCredentials: edit.legacyToken == null
+            ? saved.desktopCredentials
+            : _desktopCredentials(edit),
       ),
       apiKeyChanged: edit.apiKey != null,
       sessionKeyChanged: edit.sessionKey != null,
+      desktopCredentialsChanged: edit.legacyToken != null,
     );
     try {
       await _container
@@ -281,8 +308,9 @@ final class HermesService {
       hermesSessionsProvider.future,
     );
     // The archived row has its own failure, as on a phone: it never takes
-    // the conversations with it.
+    // the conversations with it, and says so with Try Again.
     List<HermesSessionSummary> archived;
+    var archivedFailed = false;
     try {
       archived = await readSettled(
         _container,
@@ -290,6 +318,10 @@ final class HermesService {
       );
     } on Object {
       archived = const <HermesSessionSummary>[];
+      archivedFailed = true;
+    }
+    for (final session in <HermesSessionSummary>[...sessions, ...archived]) {
+      _known[session.id] = session;
     }
     // Read one after the other, a session archived in between is in both:
     // the later read, the archive, has it.
@@ -306,10 +338,11 @@ final class HermesService {
       archived: <HermesSessionDto>[
         for (final session in archived) _sessionDto(session),
       ],
+      archivedFailed: archivedFailed,
     );
   });
 
-  static HermesSessionDto _sessionDto(HermesSessionSummary session) =>
+  HermesSessionDto _sessionDto(HermesSessionSummary session) =>
       HermesSessionDto(
         id: session.id,
         chatId: hermesChatId(session.id),
@@ -318,7 +351,96 @@ final class HermesService {
         updatedAtMs: session.updatedAt?.millisecondsSinceEpoch,
         pinned: session.pinned,
         archived: session.archived,
+        hidden: session.hidden,
+        source: session.source,
+        running: _isRunning(session.id),
       );
+
+  /// The sessions the windows have been told of, by id: what an action on
+  /// one changes from.
+  final Map<String, HermesSessionSummary> _known =
+      <String, HermesSessionSummary>{};
+
+  /// Sessions with a turn of this daemon's running in them.
+  final Set<String> _running = <String>{};
+
+  bool _isRunning(String sessionId) {
+    if (_running.contains(sessionId)) return true;
+    // A Desktop Gateway also says when another app's turn runs in it.
+    final service = _container.read(hermesApiServiceProvider);
+    return service is HermesDesktopApiService &&
+        service.turnStateFor(sessionId) == HermesDesktopTurnState.running;
+  }
+
+  /// A turn started or ended in [sessionId]: its row's spinner follows.
+  void setRunning(String sessionId, bool running) {
+    final changed = running
+        ? _running.add(sessionId)
+        : _running.remove(sessionId);
+    if (changed) _announce();
+  }
+
+  /// Pins, archives or hides session [request.id], or undoes one of them,
+  /// through the phone's own list controller (which keeps this device's
+  /// way back to a session no Hermes list shows).
+  Future<HermesSessions> update(HermesSessionUpdate request) =>
+      _guard(() async {
+        var session = await _summary(request.id);
+        final controller = _sessions();
+        if (request.hidden case final hidden?) {
+          await controller.setHidden(session, hidden);
+          session = session.copyWith(
+            hidden: hidden,
+            pinned: hidden && session.pinned ? false : null,
+          );
+        }
+        if (request.archived case final archived?) {
+          await controller.setArchived(session, archived);
+          session = session.copyWith(
+            archived: archived,
+            pinned: archived && session.pinned ? false : null,
+          );
+        }
+        if (request.pinned case final pinned?) {
+          await controller.setPinned(session, pinned);
+          session = session.copyWith(pinned: pinned);
+        }
+        _known[session.id] = session;
+        _announce();
+        return sessions();
+      });
+
+  /// The sessions hidden from every list, newest first: Hidden Chats.
+  Future<HermesSessions> hidden() => _guard(() async {
+    if (_container.read(hermesApiServiceProvider) == null) {
+      return const HermesSessions();
+    }
+    _container.invalidate(hermesHiddenSessionsProvider);
+    final hidden = await readSettled(
+      _container,
+      hermesHiddenSessionsProvider.future,
+    );
+    return HermesSessions(
+      sessions: <HermesSessionDto>[
+        for (final session in hidden)
+          _sessionDto(_known[session.id] = session.copyWith(hidden: true)),
+      ],
+    );
+  });
+
+  /// Session [id] as the windows were last told of it, or as Hermes lists
+  /// it now (a hidden one included).
+  Future<HermesSessionSummary> _summary(String id) async {
+    if (_known[id] case final known?) return known;
+    await sessions();
+    if (_known[id] == null) await hidden();
+    return _known[id] ??
+        (throw RpcError(
+          code: ConduitErrorCodes.notFound,
+          args: <String, String>{'sessionId': id},
+          debugMessage: 'no such Hermes session',
+        ));
+  }
 
   Future<HermesSessions> rename(HermesRename request) => _guard(() async {
     await _sessions().rename(request.id, request.title.trim());
@@ -329,6 +451,10 @@ final class HermesService {
   Future<HermesSessions> delete(String id) => _guard(() async {
     final deleted = await _sessions().delete(id);
     _transcripts.remove(id);
+    _previous.remove(id);
+    _titles.remove(id);
+    _known.remove(id);
+    _running.remove(id);
     if (!deleted) {
       throw const RpcError(
         code: ConduitErrorCodes.conflict,
@@ -339,6 +465,131 @@ final class HermesService {
     _announce();
     return sessions();
   });
+
+  /// A read-only session's chat [request.chatId], continued in a session
+  /// this app owns; answers with it, to open. Continue Here is Hermes's
+  /// fork: every message, in a session the API server owns, which ends the
+  /// original in the other app. Continue in a Copy is a new session that
+  /// leaves the other app's chat alone; Hermes never stores the history a
+  /// REST turn replays, so the copied messages are kept on this device as
+  /// the copy's earlier messages (as the phone's notice does).
+  Future<HermesSessionDto> continueChat(HermesContinue request) =>
+      _guard(() async {
+        final sessionId = hermesSessionOf(request.chatId);
+        final service = _container.read(hermesApiServiceProvider);
+        if (sessionId == null || service == null) {
+          throw RpcError(
+            code: ConduitErrorCodes.invalidParams,
+            args: <String, String>{'chatId': request.chatId},
+            debugMessage: 'not a Hermes chat',
+          );
+        }
+        final title = await titleOf(sessionId) ?? '';
+        if (!request.copy) {
+          final forked = await fork(sessionId);
+          return forked.title.isEmpty ? forked.copyWith(title: title) : forked;
+        }
+        final transcript = await service.getSessionMessages(sessionId);
+        // Untitled: Hermes refuses a second session with the same title.
+        final copyId = await service.createSession();
+        final identity = hermesSessionConnectionIdentity(
+          service,
+          _config.documentTrustPrincipalId(),
+        ).connectionIdentity;
+        final store = hermesCopiedHistoryFor(_container, service, identity);
+        if (store != null && identity != null) {
+          try {
+            await saveHermesCopyHistory(
+              store: store,
+              connectionIdentity: identity,
+              service: service,
+              sessionId: copyId,
+              transcript: transcript,
+            );
+          } on HermesCopyHistoryException catch (error) {
+            _container.invalidate(hermesSessionsProvider);
+            _announce();
+            throw RpcError(
+              code: ConduitErrorCodes.conflict,
+              retryable: true,
+              debugMessage: 'the copy could not keep its messages: $error',
+            );
+          }
+        }
+        final copy = HermesSessionSummary(
+          id: copyId,
+          title: title,
+          source: kHermesApiOwnedSessionSources.first,
+          updatedAt: DateTime.now(),
+        );
+        _known[copyId] = copy;
+        _titles[copyId] = title;
+        _container.invalidate(hermesSessionsProvider);
+        _announce();
+        return _sessionDto(copy);
+      });
+
+  /// A branch made from a chat (Branch from Here), or another session
+  /// this app made, told of before Hermes lists it: its title, and the
+  /// earlier messages it opens with on REST (saved on this device).
+  Future<HermesSessionDto> adopt(
+    HermesSessionSummary session, {
+    List<Map<String, dynamic>>? transcript,
+  }) async {
+    var summary = session;
+    if (transcript != null) {
+      final service = _container.read(hermesApiServiceProvider);
+      final identity = service == null
+          ? null
+          : hermesSessionConnectionIdentity(
+              service,
+              _config.documentTrustPrincipalId(),
+            ).connectionIdentity;
+      final store = service == null
+          ? null
+          : hermesCopiedHistoryFor(_container, service, identity);
+      if (service != null && store != null && identity != null) {
+        await saveHermesCopyHistory(
+          store: store,
+          connectionIdentity: identity,
+          service: service,
+          sessionId: session.id,
+          transcript: transcript,
+        );
+      }
+    }
+    if (summary.title.isNotEmpty) _titles[summary.id] = summary.title;
+    summary = _known[summary.id] = summary;
+    _transcripts.remove(summary.id);
+    _container.invalidate(hermesSessionsProvider);
+    _announce();
+    return _sessionDto(summary);
+  }
+
+  /// What session [sessionId]'s chat is, beside its messages.
+  HermesChatDto chatState(String sessionId) {
+    final owner = _container.read(hermesReadOnlySessionsProvider)[sessionId];
+    return HermesChatDto(
+      sessionId: sessionId,
+      readOnly: owner != null,
+      owner: owner == null || owner.trim().isEmpty
+          ? ''
+          : hermesSessionSourceName(owner),
+    );
+  }
+
+  /// What a Hermes chat offers: its history's actions, unless another
+  /// Hermes app owns it. Undo needs a Desktop Gateway, whose session keeps
+  /// the transcript.
+  ChatAbilities abilities(String sessionId) {
+    final readOnly = chatState(sessionId).readOnly;
+    return ChatAbilities(
+      branchFromHere: !readOnly,
+      undoLastTurn:
+          !readOnly &&
+          _container.read(hermesApiServiceProvider) is HermesDesktopApiService,
+    );
+  }
 
   /// A copy of a session to go on from; answers with the copy.
   Future<HermesSessionDto> fork(String id) => _guard(() async {
@@ -378,23 +629,94 @@ final class HermesService {
     if (cached != null && !reload) return List<ChatMessage>.of(cached);
     final service = _container.read(hermesApiServiceProvider);
     if (service == null) return const <ChatMessage>[];
-    final raw = await _guard(() => service.getSessionMessages(sessionId));
-    final messages = hermesMessagesToChatMessages(
+    final identity = hermesSessionConnectionIdentity(
+      service,
+      _config.documentTrustPrincipalId(),
+    ).connectionIdentity;
+    // A REST copy opens with the earlier messages this device keeps for it.
+    final raw = await _guard(
+      () async => withHermesCopiedHistory(
+        hermesCopiedHistoryFor(_container, service, identity),
+        identity,
+        sessionId,
+        await service.getSessionMessages(sessionId),
+      ),
+    );
+    final read = hermesMessagesToChatMessages(
       raw,
       modelId: kHermesDefaultModelId,
+      trustedLocalDocumentKeys: identity == null
+          ? const <String>{}
+          : HermesLocalDocumentTrustStore.trustedDocumentKeys(
+              connectionIdentity: identity,
+              sessionId: sessionId,
+            ),
+      sensitiveValues: service.config.sensitiveValues,
     );
+    // Hermes's rows carry no ids of their own, so each read names them
+    // anew: what a window or a chat's scope already calls a message keeps
+    // that name, or a reply chosen in the window is not found in the
+    // scope (Branch from Here, edit).
+    final messages = _keepIds(
+      read,
+      _transcripts[sessionId] ?? _previous.remove(sessionId),
+    );
+    // Another Hermes app's session opens read-only on REST, as on a phone.
+    if (_known[sessionId] case final summary?
+        when await hermesSessionOpensReadOnly(_container, service, summary)) {
+      _container
+          .read(hermesReadOnlySessionsProvider.notifier)
+          .mark(sessionId, source: summary.source);
+    }
     _transcripts[sessionId] = messages;
     return List<ChatMessage>.of(messages);
   }
 
   /// Drops what is kept of [sessionId]'s transcript, so the next read is
-  /// Hermes's own record: a turn has added to it there.
-  void forget(String sessionId) => _transcripts.remove(sessionId);
+  /// Hermes's own record: a turn has added to it there. Its messages'
+  /// ids -- [latest]'s, the chat scope's, when given -- name the same
+  /// messages in that read.
+  void forget(String sessionId, {List<ChatMessage>? latest}) {
+    final kept = latest ?? _transcripts[sessionId];
+    _transcripts.remove(sessionId);
+    if (kept != null) _previous[sessionId] = List<ChatMessage>.of(kept);
+  }
+
+  /// Transcripts dropped by [forget], until the next read takes their ids.
+  final Map<String, List<ChatMessage>> _previous =
+      <String, List<ChatMessage>>{};
+
+  /// [read] with [known]'s ids where the same message stands at the same
+  /// place (same role and text), unless the read already uses that id.
+  static List<ChatMessage> _keepIds(
+    List<ChatMessage> read,
+    List<ChatMessage>? known,
+  ) {
+    if (known == null || known.isEmpty) return read;
+    final taken = <String>{for (final m in read) m.id};
+    return <ChatMessage>[
+      for (final (i, message) in read.indexed)
+        if (i < known.length &&
+            known[i].id != message.id &&
+            !taken.contains(known[i].id) &&
+            known[i].role == message.role &&
+            known[i].content.trim() == message.content.trim())
+          message.copyWith(id: known[i].id)
+        else
+          message,
+    ];
+  }
+
+  /// Titles of sessions this app made that Hermes leaves untitled (a copy
+  /// keeps its chat's title while the list does not).
+  final Map<String, String> _titles = <String, String>{};
 
   /// The session's title as the list has it, for a chat header.
   Future<String?> titleOf(String sessionId) async {
     final sessions = _container.read(hermesSessionsProvider).value;
-    return sessions?.where((s) => s.id == sessionId).firstOrNull?.title;
+    final listed = sessions?.where((s) => s.id == sessionId).firstOrNull?.title;
+    if (listed != null && listed != 'Untitled session') return listed;
+    return _titles[sessionId] ?? listed ?? _known[sessionId]?.title;
   }
 
   void announceSessions() {
@@ -521,6 +843,19 @@ final class HermesService {
   static HermesDesktopAuthKind _authKind(String name) =>
       HermesDesktopAuthKind.values.where((k) => k.name == name).firstOrNull ??
       HermesDesktopAuthKind.legacyToken;
+
+  /// The saved Desktop Gateway credentials with [edit]'s legacy token in
+  /// place (null: the edit leaves them alone).
+  HermesDesktopCredentials? _desktopCredentials(HermesSettingsEdit edit) {
+    final token = edit.legacyToken;
+    if (token == null) return null;
+    final saved = _container.read(hermesConfigProvider).desktopCredentials;
+    return HermesDesktopCredentials(
+      legacyToken: _blankIsNull(token),
+      nativeTokens: saved?.nativeTokens,
+      accessHeaders: saved?.accessHeaders ?? const <String, String>{},
+    );
+  }
 
   static String? _blankIsNull(String? value) {
     final trimmed = value?.trim();

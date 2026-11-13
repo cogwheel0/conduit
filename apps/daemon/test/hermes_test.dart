@@ -210,6 +210,145 @@ void main() {
     expect(sessions.sessions, isEmpty);
   });
 
+  test('sessions are pinned, archived, hidden, branched and continued from '
+      'another Hermes app', () async {
+    final events = EventBus();
+    final turns = TurnsService(runtime.container, events, hermes: hermes);
+    addTearDown(turns.dispose);
+    final chats = ChatsService(
+      runtime.container,
+      events: events,
+      hermes: hermes,
+    );
+    addTearDown(chats.dispose);
+    final own = hermesServer.seedForeign(
+      title: 'Pond plants',
+      source: 'api_server',
+      turns: <(String, String)>[
+        ('Which plants suit a small pond?', 'Water lilies and irises.'),
+        ('And for the edges?', 'Marsh marigolds.'),
+      ],
+    );
+    final cli = hermesServer.seedForeign(
+      title: 'Shed shelves',
+      turns: <(String, String)>[
+        ('How deep should shed shelves be?', 'About 30 cm.'),
+      ],
+    );
+
+    var listed = await hermes.sessions();
+    expect(listed.sessions.map((s) => s.id), containsAll(<String>[own, cli]));
+    expect(listed.sessions.firstWhere((s) => s.id == cli).source, 'cli');
+    expect(listed.archivedFailed, isFalse);
+
+    // Pinned first; archived into its own row, unpinned; hidden from
+    // both, and back.
+    listed = await hermes.update(HermesSessionUpdate(id: own, pinned: true));
+    expect(listed.sessions.first.id, own);
+    expect(listed.sessions.first.pinned, isTrue);
+    listed = await hermes.update(HermesSessionUpdate(id: own, archived: true));
+    expect(listed.sessions.map((s) => s.id), isNot(contains(own)));
+    expect(listed.archived.single.id, own);
+    expect(listed.archived.single.pinned, isFalse);
+    listed = await hermes.update(HermesSessionUpdate(id: own, archived: false));
+    expect(listed.archived, isEmpty);
+    listed = await hermes.update(HermesSessionUpdate(id: own, hidden: true));
+    expect(listed.sessions.map((s) => s.id), isNot(contains(own)));
+    final hidden = await hermes.hidden();
+    expect(hidden.sessions.single.id, own);
+    expect(hidden.sessions.single.hidden, isTrue);
+    listed = await hermes.update(HermesSessionUpdate(id: own, hidden: false));
+    expect(listed.sessions.map((s) => s.id), contains(own));
+    expect((await hermes.hidden()).sessions, isEmpty);
+
+    // This app's session can be branched from a reply; not undone on the
+    // API server, which keeps no transcript to rewind.
+    final ownDetail = await chats.get(hermesChatId(own));
+    expect(ownDetail!.hermes!.readOnly, isFalse);
+    expect(ownDetail.abilities.branchFromHere, isTrue);
+    expect(ownDetail.abilities.undoLastTurn, isFalse);
+    final firstReply = ownDetail.messages[1];
+    final branch = await turns.branchHermes(
+      HermesBranch(chatId: hermesChatId(own), messageId: firstReply.id),
+    );
+    expect(branch.id, isNot(own));
+    final branched = await chats.get(branch.chatId);
+    expect(branched!.messages.map((m) => m.content), <String>[
+      'Which plants suit a small pond?',
+      'Water lilies and irises.',
+    ]);
+    expect(
+      (await turns.undoHermes(ChatRef(id: hermesChatId(own)))).ok,
+      isFalse,
+    );
+
+    // Another app's session opens read-only, then goes on in a copy that
+    // keeps its messages here, or through Hermes's fork.
+    final detail = await chats.get(hermesChatId(cli));
+    expect(detail!.hermes!.readOnly, isTrue);
+    expect(detail.hermes!.owner, 'Hermes CLI');
+    expect(detail.abilities.branchFromHere, isFalse);
+    final copy = await hermes.continueChat(
+      HermesContinue(chatId: hermesChatId(cli), copy: true),
+    );
+    expect(copy.id, isNot(cli));
+    expect(copy.title, 'Shed shelves');
+    final copied = await chats.get(copy.chatId);
+    expect(copied!.hermes!.readOnly, isFalse);
+    expect(copied.messages.map((m) => m.content), <String>[
+      'How deep should shed shelves be?',
+      'About 30 cm.',
+    ]);
+    final here = await hermes.continueChat(
+      HermesContinue(chatId: hermesChatId(cli)),
+    );
+    expect(hermesServer.sessions[here.id]!['source'], 'api_server');
+
+    for (final id in <String>[own, cli, branch.id, copy.id, here.id]) {
+      await hermes.delete(id);
+    }
+  });
+
+  test('a transcript whose rows have no ids keeps the names a window '
+      'was given', () async {
+    final events = EventBus();
+    final turns = TurnsService(runtime.container, events, hermes: hermes);
+    addTearDown(turns.dispose);
+    final chats = ChatsService(
+      runtime.container,
+      events: events,
+      hermes: hermes,
+    );
+    addTearDown(chats.dispose);
+    final id = hermesServer.seedForeign(
+      title: 'Kite knots',
+      source: 'api_server',
+      rowIds: false,
+      turns: <(String, String)>[
+        ('Which knot ties a kite line?', 'A bowline holds well.'),
+        ('And to join two lines?', 'A double fisherman.'),
+      ],
+    );
+    await hermes.sessions();
+    final first = await chats.get(hermesChatId(id));
+    // Read again, as a turn's end makes it read.
+    hermes.forget(id);
+    final again = await chats.get(hermesChatId(id));
+    expect(again!.messages.map((m) => m.id), first!.messages.map((m) => m.id));
+    // The chat's scope opens from a fresh read and still finds the reply
+    // the window names.
+    final branch = await turns.branchHermes(
+      HermesBranch(chatId: hermesChatId(id), messageId: first.messages[1].id),
+    );
+    final branched = await chats.get(branch.chatId);
+    expect(branched!.messages.map((m) => m.content), <String>[
+      'Which knot ties a kite line?',
+      'A bowline holds well.',
+    ]);
+    await hermes.delete(branch.id);
+    await hermes.delete(id);
+  });
+
   test('scheduled agents are made, paused, run and deleted', () async {
     var jobs = await hermes.saveJob(
       const HermesJobEdit(

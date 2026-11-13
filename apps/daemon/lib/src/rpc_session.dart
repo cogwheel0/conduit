@@ -852,6 +852,23 @@ class RpcSession {
       ConduitMethodSpecs.hermesForkSession,
       (p) => _requireHermes().fork(p.id),
     );
+    _on(
+      ConduitMethodSpecs.hermesSessionsUpdate,
+      (p) => _requireHermes().update(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesSessionsContinue,
+      (p) => _requireHermes().continueChat(p),
+    );
+    _on(ConduitMethodSpecs.hermesHiddenList, (_) => _requireHermes().hidden());
+    _on(
+      ConduitMethodSpecs.hermesHistoryBranch,
+      (p) => _requireTurns().branchHermes(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesHistoryUndo,
+      (p) => _requireTurns().undoHermes(p),
+    );
     _on(ConduitMethodSpecs.hermesJobs, (_) => _requireHermes().jobs());
     _on(ConduitMethodSpecs.hermesSaveJob, (p) => _requireHermes().saveJob(p));
     _on(
