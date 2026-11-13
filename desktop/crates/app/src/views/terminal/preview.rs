@@ -389,7 +389,10 @@ fn open_window(entry: String, scripts: Vec<String>, port: u16, cx: &mut App) {
             builder = builder.with_initialization_script(script);
         }
         let webview = cx.new(|cx| {
-            WebView::build(builder, window, cx).expect("a WKWebView always builds on macOS")
+            let webview =
+                WebView::build(builder, window, cx).expect("a WKWebView always builds on macOS");
+            crate::shell::web_media::guard(webview.raw());
+            webview
         });
         cx.new(|cx| {
             let events = cx.spawn(async move |this, cx| {

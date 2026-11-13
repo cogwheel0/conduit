@@ -15,6 +15,10 @@
 //! * **The realtime audio.** `calls.command` `audioStart` opens the voice's
 //!   audio ([`crate::voice::realtime`]): the microphone and the voice on one
 //!   echo-cancelled engine, over `WS /calls/{handle}`.
+//! * **The WebRTC peer.** `calls.command` `webRtcStart` opens a Hermes
+//!   GPT-Live call's peer ([`crate::voice::peer`]): a hidden web view with
+//!   WebKit's echo-cancelled microphone and the voice, which the daemon's
+//!   GPT-Live engine signals over the same kind of socket.
 //! * **The speaker.** A Standard call's answers are spoken by the read-aloud
 //!   engine ([`super::speech`]), which the daemon drives as it does a
 //!   reading. While the call is on they play on the call's own engine
@@ -24,6 +28,7 @@
 //!
 //! Minimising the call ([`CallStore::collapsed`]) is this window's own.
 
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -44,6 +49,7 @@ use super::dictation::{DictationEvent, DictationStore, Notice, Target, microphon
 use super::rpc::Rpc;
 use crate::l10n::ActiveL10n as _;
 use crate::voice::InputOverride;
+use crate::voice::peer::{self, PeerHost, PeerStats, Said};
 use crate::voice::realtime::{self, AudioCommand, AudioOut};
 
 /// The events this store follows.
@@ -66,6 +72,22 @@ struct Realtime {
 }
 
 impl Drop for Realtime {
+    fn drop(&mut self) {
+        self.link.abort();
+    }
+}
+
+/// A Hermes GPT-Live call's WebRTC peer under way: the page, its link to
+/// the daemon (on the shared runtime), and the relay between them (on the
+/// main thread, where the page lives). Dropping it closes the page.
+struct Peer {
+    path: String,
+    host: Rc<PeerHost>,
+    link: tokio::task::JoinHandle<()>,
+    _relay: gpui_kit::Task<()>,
+}
+
+impl Drop for Peer {
     fn drop(&mut self) {
         self.link.abort();
     }
@@ -94,6 +116,9 @@ pub struct CallStore {
     ears: Entity<DictationStore>,
     listen: Option<Listen>,
     realtime: Option<Realtime>,
+    /// The realtime audio's socket path, to tell its stop from another's.
+    realtime_path: Option<String>,
+    peer: Option<Peer>,
     /// The microphone's stand-in (dev builds).
     input: Option<InputOverride>,
     /// Stand-ins for the next listens, one each, the last one kept (the
@@ -112,6 +137,11 @@ pub struct CallStore {
     /// Call states applied so far: a refresh's answer gives way to one
     /// applied after it was asked.
     applied: u64,
+    /// What the WebRTC peer's page did (the E2E pass reads it).
+    pub peer_stats: PeerStats,
+    /// The loopback TURN relay a stand-in call's WebRTC peer uses alone
+    /// (the E2E pass sets it with its stand-in; a release build never).
+    test_relay: Option<peer::Relay>,
 }
 
 impl EventEmitter<CallChanged> for CallStore {}
@@ -140,6 +170,8 @@ impl CallStore {
             ears,
             listen: None,
             realtime: None,
+            realtime_path: None,
+            peer: None,
             input: InputOverride::current(),
             queued_inputs: std::collections::VecDeque::new(),
             failure: None,
@@ -150,7 +182,32 @@ impl CallStore {
             said: vec![],
             audio: Arc::new(AudioCounters::default()),
             applied: 0,
+            peer_stats: PeerStats::default(),
+            test_relay: None,
         }
+    }
+
+    /// The loopback TURN relay a stand-in call's WebRTC peer uses alone, so
+    /// a test call never reaches the local network (the E2E pass).
+    pub fn set_test_relay(&mut self, relay: Option<peer::Relay>) {
+        self.test_relay = relay;
+    }
+
+    /// Whether a WebRTC peer's page is open.
+    pub fn has_peer(&self) -> bool {
+        self.peer.is_some()
+    }
+
+    /// The WebRTC peer's page, if one is open (the E2E pass asks its media
+    /// policy).
+    pub fn peer_host(&self) -> Option<Rc<PeerHost>> {
+        self.peer.as_ref().map(|p| p.host.clone())
+    }
+
+    /// Whether the WebRTC peer's page is on screen (invisibly), if one is
+    /// open.
+    pub fn peer_on_screen(&self) -> Option<bool> {
+        self.peer.as_ref().map(|p| p.host.on_screen())
     }
 
     // ---------------------------------------------------------------
@@ -419,6 +476,7 @@ impl CallStore {
             // Over: the ears and the audio go with it.
             self.stop_listening(cx);
             self.realtime = None;
+            self.close_peer();
             crate::voice::call_audio::end();
             if was_active {
                 self.collapsed = false;
@@ -477,8 +535,23 @@ impl CallStore {
                 }
             }
             CallCommandKind::AudioStart => self.start_audio(command, cx),
+            CallCommandKind::WebRtcStart => self.start_peer(command, cx),
             CallCommandKind::AudioStop => {
-                self.realtime = None;
+                // Whichever runs on that socket; an older one's stop leaves
+                // a newer one alone.
+                let path = command.path.as_deref();
+                if path.is_none() || self.realtime_path.as_deref() == path {
+                    self.realtime = None;
+                    self.realtime_path = None;
+                }
+                if path.is_none()
+                    || self
+                        .peer
+                        .as_ref()
+                        .is_some_and(|p| Some(p.path.as_str()) == path)
+                {
+                    self.close_peer();
+                }
             }
             // A newer daemon's: nothing this window can do.
             CallCommandKind::Unknown => {}
@@ -626,6 +699,8 @@ impl CallStore {
 
     fn start_audio(&mut self, command: CallCommand, cx: &mut Context<Self>) {
         self.realtime = None;
+        self.realtime_path = command.path.clone();
+        self.close_peer();
         // A realtime call: its own engine has the microphone and the voice.
         crate::voice::call_audio::end();
         let rpc = self.rpc.clone();
@@ -701,6 +776,224 @@ impl CallStore {
         })
         .detach();
     }
+}
+
+impl CallStore {
+    fn close_peer(&mut self) {
+        if self.peer.take().is_some() {
+            self.peer_stats.closed += 1;
+        }
+    }
+
+    /// Opens the WebRTC peer's page for a Hermes GPT-Live call, and links
+    /// it to the call's socket. The microphone is asked for first (the
+    /// app's permission); a stand-in (dev builds) is looped instead.
+    fn start_peer(&mut self, command: CallCommand, cx: &mut Context<Self>) {
+        self.close_peer();
+        self.realtime = None;
+        self.realtime_path = None;
+        crate::voice::call_audio::end();
+        let rpc = self.rpc.clone();
+        let Some(path) = command.path.clone() else {
+            return;
+        };
+        let http = self.connection.read(cx).http().cloned();
+        let input = self.stand_in().cloned();
+        let play = !crate::shell::speech_engine::muted();
+        let test_relay = self.test_relay.clone();
+        let id = command.id;
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let fail = |error: String| CallReport {
+                id: Some(id),
+                ok: false,
+                error: Some(error),
+                ..Default::default()
+            };
+            let mut relay = None;
+            let source = match input {
+                Some(InputOverride::File(file)) => {
+                    // A test call reaches nothing but loopback: without its
+                    // relay WebKit would register mDNS names and reach for
+                    // the local network, and macOS would ask about it.
+                    relay = test_relay.filter(peer::Relay::is_loopback);
+                    if relay.is_none() {
+                        report(
+                            &rpc,
+                            fail("a stand-in call needs the loopback test relay".into()),
+                        )
+                        .await;
+                        return;
+                    }
+                    match peer::Source::from_wav(&file) {
+                        Ok(source) => source,
+                        Err(e) => {
+                            report(&rpc, fail(format!("stand-in: {e}"))).await;
+                            return;
+                        }
+                    }
+                }
+                Some(InputOverride::Denied) => {
+                    report(&rpc, fail("The microphone is not allowed.".into())).await;
+                    return;
+                }
+                None => {
+                    if !microphone_allowed().await {
+                        report(&rpc, fail("The microphone is not allowed.".into())).await;
+                        return;
+                    }
+                    peer::Source::Microphone
+                }
+            };
+            let Some(http) = http else {
+                report(&rpc, fail("not connected".into())).await;
+                return;
+            };
+            let (page_tx, page_rx) = mpsc::unbounded::<String>();
+            let options = peer::Options {
+                source,
+                play,
+                relay,
+            };
+            let host = match PeerHost::open(&options, move |text| {
+                let _ = page_tx.unbounded_send(text);
+            }) {
+                Ok(host) => Rc::new(host),
+                Err(e) => {
+                    report(&rpc, fail(e)).await;
+                    return;
+                }
+            };
+            let socket_path = path.clone();
+            let socket = match on_io(async move { http.websocket(&socket_path).await }).await {
+                Some(Ok(socket)) => socket,
+                Some(Err(e)) => {
+                    report(&rpc, fail(e.to_string())).await;
+                    return;
+                }
+                None => {
+                    report(&rpc, fail("dropped".into())).await;
+                    return;
+                }
+            };
+            let (to_daemon, to_daemon_rx) = mpsc::unbounded::<String>();
+            let (from_daemon_tx, from_daemon) = mpsc::unbounded::<String>();
+            let link = conduit_daemon::runtime::shared().spawn(run_peer_link(
+                socket,
+                to_daemon_rx,
+                from_daemon_tx,
+            ));
+            let kept = this
+                .update(cx, |s, cx| {
+                    let relay = {
+                        let host = host.clone();
+                        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                            relay_peer(this, host, page_rx, from_daemon, to_daemon, cx).await;
+                        })
+                    };
+                    s.peer_stats.opened += 1;
+                    s.peer_stats.switches = host.switches();
+                    s.peer = Some(Peer {
+                        path,
+                        host,
+                        link,
+                        _relay: relay,
+                    });
+                    s.is_active()
+                })
+                .unwrap_or(false);
+            if kept {
+                report(
+                    &rpc,
+                    CallReport {
+                        id: Some(id),
+                        ..Default::default()
+                    },
+                )
+                .await;
+            } else {
+                // Over meanwhile.
+                let _ = this.update(cx, |s, _| s.close_peer());
+            }
+        })
+        .detach();
+    }
+}
+
+/// What the WebRTC peer's relay hears.
+enum PeerEvent {
+    Page(String),
+    Daemon(String),
+}
+
+/// The peer's relay, on the main thread where the page lives: the page's
+/// messages go to the daemon, the daemon's to the page. The page is on
+/// screen (still invisible) while the microphone opens, as WebKit opens
+/// it only for a page it thinks is seen.
+async fn relay_peer(
+    this: WeakEntity<CallStore>,
+    host: Rc<PeerHost>,
+    page: mpsc::UnboundedReceiver<String>,
+    daemon: mpsc::UnboundedReceiver<String>,
+    to_daemon: mpsc::UnboundedSender<String>,
+    cx: &mut AsyncApp,
+) {
+    let mut events =
+        futures::stream::select(page.map(PeerEvent::Page), daemon.map(PeerEvent::Daemon));
+    while let Some(event) = events.next().await {
+        let alive = this.update(cx, |s, _| match event {
+            PeerEvent::Page(text) => {
+                let value = serde_json::from_str(&text).unwrap_or_default();
+                if s.peer_stats.from_page(&value) == Said::OfferDone {
+                    host.set_on_screen(false);
+                }
+                let _ = to_daemon.unbounded_send(text);
+            }
+            PeerEvent::Daemon(text) => {
+                let value = serde_json::from_str(&text).unwrap_or_default();
+                if s.peer_stats.from_daemon(&value) == Said::OfferAsked {
+                    host.set_on_screen(true);
+                }
+                host.post(&text);
+            }
+        });
+        if alive.is_err() {
+            break;
+        }
+    }
+}
+
+/// The WebRTC peer's link to the daemon: the page's messages out, the
+/// daemon's in, until the daemon says stop.
+async fn run_peer_link(
+    socket: conduit_daemon::http::DaemonSocket,
+    mut to_daemon: mpsc::UnboundedReceiver<String>,
+    from_daemon: mpsc::UnboundedSender<String>,
+) {
+    use conduit_daemon::http::SocketMessage as Message;
+    use futures::SinkExt as _;
+
+    let (mut sink, mut stream) = socket.split();
+    loop {
+        tokio::select! {
+            next = to_daemon.next() => {
+                let Some(text) = next else { break };
+                if sink.send(Message::text(text)).await.is_err() {
+                    break;
+                }
+            }
+            incoming = stream.next() => {
+                let Some(Ok(message)) = incoming else { break };
+                let Message::Text(text) = message else { continue };
+                let stop = serde_json::from_str::<serde_json::Value>(&text)
+                    .is_ok_and(|v| v.get("type").and_then(|t| t.as_str()) == Some("stop"));
+                let _ = from_daemon.unbounded_send(text.to_string());
+                if stop {
+                    break;
+                }
+            }
+        }
+    }
+    let _ = sink.close().await;
 }
 
 /// The realtime audio's link: the microphone's frames and the engine's

@@ -121,9 +121,9 @@ fn http_get(url: &str) -> Option<(u16, Option<String>)> {
     Some((status, location))
 }
 
-/// A request to the local Open WebUI: the status and the body (chunked
-/// bodies joined).
-fn http_request(
+/// A request to the local Open WebUI (or another local fake): the status
+/// and the body (chunked bodies joined).
+pub(super) fn http_request(
     method: &str,
     url: &str,
     bearer: Option<&str>,
