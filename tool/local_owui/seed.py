@@ -15,7 +15,10 @@ Usage (owui.sh seed runs it):
 - Two prompts, one with a select variable, and an uploaded text file.
 - Seven notes of the admin's, two pinned, and three channels: a standard
   one, an empty one, and a group with the second user, who posts three
-  messages there so the admin has unread ones.
+  messages there so the admin has unread ones. The notes are written in
+  markdown, for the sidebar's Notes and the composer's `#`.
+- For the composer's `$` and `#`: an active skill, and a knowledge base
+  with a file of its own.
 
 Writes the env file (mode 600) the daemon's live tests and the desktop
 E2E read. Every name, address, password and text is invented. Prints only
@@ -77,19 +80,24 @@ SHARED_CHATS = [
 ]
 
 NOTES = [
-    ('Garden plan for spring', 'Beans along the fence, squash in the far bed.'),
+    # Oldest first, so the newest is listed first. The two pinned notes
+    # are made last: they are also among the four newest, which is what the
+    # composer's `#` lists before anything is typed.
     ('Reading list', 'Three novels and a field guide to mosses.'),
-    ('Bread ratios', 'Flour 100, water 72, salt 2, starter 20.'),
-    ('Trip packing', 'Rain shell, wool socks, the small stove.'),
+    ('Trip packing list', '- Rain shell\n- Wool socks\n- The small stove\n- Trail mix'),
     ('Quilt colours', 'Indigo, rust and an off-white backing.'),
     ('Bike service log', 'New chain at 3,000 km; brake pads next.'),
     ('Moth sightings', 'Two hawk moths by the porch light in June.'),
+    ('Bread ratios', 'Flour 100, water 72, salt 2, starter 20.'),
+    ('Garden plan for spring',
+     '# Garden plan for spring\n\nBeans along the fence, squash in the far bed, '
+     'herbs in the corners.'),
 ]
 PINNED_NOTES = ('Garden plan for spring', 'Bread ratios')
 
 CHANNELS = [
     # (name, description, type): None is a standard channel.
-    ('garden-club', 'Seeds, beds and swaps.', None),
+    ('garden-club', 'Raised beds and seed swaps.', None),
     ('quiet-corner', 'Nothing posted yet.', None),
     ('trail-crew', 'Planning the next hike.', 'group'),
 ]
@@ -98,6 +106,14 @@ TRAIL_MESSAGES = [
     'I can bring the map and a spare headlamp.',
     'Forecast says dry until the afternoon.',
 ]
+KNOWLEDGE = ('Garden handbook', 'Synthetic notes on soil and beds.')
+KNOWLEDGE_FILE = ('soil-guide.md', '# Soil guide\n\nMix compost with grit for raised beds.\n')
+SKILL = {
+    'id': 'plain-english',
+    'name': 'Plain English',
+    'description': 'Short sentences and everyday words.',
+    'content': 'Answer in plain English: short sentences, everyday words.',
+}
 
 FILE_NAME = 'field-notes.txt'
 FILE_TEXT = (
@@ -147,6 +163,22 @@ class Server:
         req.add_header('User-Agent', 'conduit-local-owui-seed')
         with urllib.request.urlopen(req, timeout=60) as resp:
             return json.loads(resp.read())
+
+
+def markdown_html(text):
+    """The HTML Open WebUI keeps beside a note's markdown, for the few forms
+    the seed's notes use: a heading, a list, paragraphs."""
+    blocks = []
+    for block in text.split('\n\n'):
+        lines = block.split('\n')
+        if block.startswith('# '):
+            blocks.append(f'<h1>{block[2:]}</h1>')
+        elif all(line.startswith('- ') for line in lines):
+            items = ''.join(f'<li><p>{line[2:]}</p></li>' for line in lines)
+            blocks.append(f'<ul>{items}</ul>')
+        else:
+            blocks.append(f'<p>{block}</p>')
+    return ''.join(blocks)
 
 
 def exchange(title, question, answer, at, follow_up=None):
@@ -294,7 +326,7 @@ def main():
     for title, text in NOTES:
         created = server.ok('POST', '/api/v1/notes/create', {
             'title': title,
-            'data': {'content': {'json': None, 'html': f'<p>{text}</p>', 'md': text}},
+            'data': {'content': {'json': None, 'html': markdown_html(text), 'md': text}},
         }, token)
         notes[title] = created['id']
     for title in PINNED_NOTES:
@@ -322,6 +354,15 @@ def main():
     unread = {c['name']: c.get('unread_count', 0) for c in listed}
     print('channels', len(channels), 'unread', unread.get('trail-crew'))
 
+    # What else the composer's `$` and `#` list: a skill, and a knowledge
+    # base with a file of its own.
+    knowledge = server.ok('POST', '/api/v1/knowledge/create',
+                          {'name': KNOWLEDGE[0], 'description': KNOWLEDGE[1]}, token)
+    guide = server.upload(token, KNOWLEDGE_FILE[0], KNOWLEDGE_FILE[1].encode(), 'text/markdown')
+    server.ok('POST', f"/api/v1/knowledge/{knowledge['id']}/file/add", {'file_id': guide['id']}, token)
+    server.ok('POST', '/api/v1/skills/create', SKILL, token)
+    print('knowledge 1 (1 file) skill 1')
+
     private_file(args.env_file, '\n'.join([
         '# A throwaway local Open WebUI, made by tool/local_owui/owui.sh.',
         '# Every account and password here is synthetic and local to this machine.',
@@ -340,6 +381,11 @@ def main():
         f"OWUI_CHANNEL={channels['trail-crew']}",
         f'OWUI_CHANNEL_UNREAD={len(TRAIL_MESSAGES)}',
         f'FAKE_OPENAI_URL={args.fake_model_url}',
+        # Each request the fake model saw (its tool names, for instance).
+        f"FAKE_MODEL_LOG={os.path.join(args.state, 'requests.jsonl')}",
+        # A synthetic web page the server can read for the composer's
+        # Web Page attachment (the server allows loopback fetches here).
+        f"FAKE_PAGE_URL={args.fake_model_url.rsplit('/v1', 1)[0]}/page/raised-beds",
         f'FAKE_HERMES_URL={args.fake_hermes_url}',
         f'FAKE_HERMES_KEY={open(args.fake_hermes_key_file).read().strip()}',
         '',

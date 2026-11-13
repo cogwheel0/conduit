@@ -8,6 +8,7 @@ import 'accounts_service.dart';
 import 'auth_service.dart';
 import 'chats_service.dart';
 import 'composer_service.dart';
+import 'drafts_service.dart';
 import 'direct_service.dart';
 import 'mcp_service.dart';
 import 'notes_service.dart';
@@ -58,6 +59,7 @@ final class CoreServices {
     this.memories,
     this.releaseNotes,
     this.data,
+    this.drafts,
   });
 
   final AccountsService? accounts;
@@ -85,6 +87,7 @@ final class CoreServices {
   final MemoriesService? memories;
   final ReleaseNotesRpcService? releaseNotes;
   final DataService? data;
+  final DraftsService? drafts;
 }
 
 /// One connected renderer window.
@@ -142,6 +145,7 @@ class RpcSession {
   /// is attached, when there is nothing to ask yet.
   UiRequestsService? get _uiRequests => _services().uiRequests;
   ComposerService? get _composer => _services().composer;
+  DraftsService? get _drafts => _services().drafts;
   PromptsService? get _prompts => _services().prompts;
   DirectService? get _direct => _services().direct;
   McpService? get _mcp => _services().mcp;
@@ -555,6 +559,18 @@ class RpcSession {
       await _requireTurns().stop(r.chatId);
       return const StoppedResult(stopped: true);
     });
+    _on(ConduitMethodSpecs.turnsSteer, (r) => _requireTurns().steer(r));
+
+    // queue.*: messages queued behind a running answer.
+    _on(ConduitMethodSpecs.queueGet, (r) => _requireTurns().queueGet(r.id));
+    _on(ConduitMethodSpecs.queueAdd, (r) => _requireTurns().queueAdd(r));
+    _on(ConduitMethodSpecs.queueEdit, (r) => _requireTurns().queueEdit(r));
+    _on(ConduitMethodSpecs.queueRemove, (r) => _requireTurns().queueRemove(r));
+    _on(
+      ConduitMethodSpecs.queueSendNow,
+      (r) => _requireTurns().queueSendNow(r),
+    );
+    _on(ConduitMethodSpecs.queueRetry, (r) => _requireTurns().queueRetry(r.id));
   }
 
   void _registerModels() {
@@ -568,6 +584,30 @@ class RpcSession {
       }
       return composer.options();
     });
+    // drafts.*, mentions.*, skills.*, context.*, files.*: what the composer
+    // holds and draws on.
+    _on(ConduitMethodSpecs.draftsGet, (r) => _requireDrafts().get(r));
+    _on(ConduitMethodSpecs.draftsSave, (r) => _requireDrafts().save(r));
+    _on(
+      ConduitMethodSpecs.mentionsSearch,
+      (r) => _requireComposer().mentions(r.query),
+    );
+    _on(
+      ConduitMethodSpecs.skillsSearch,
+      (r) => _requireComposer().skills(r.query),
+    );
+    _on(
+      ConduitMethodSpecs.contextSearch,
+      (r) => _requireComposer().context(r.query),
+    );
+    _on(
+      ConduitMethodSpecs.contextFetchUrl,
+      (r) => _requireComposer().fetchUrl(r.url),
+    );
+    _on(
+      ConduitMethodSpecs.filesList,
+      (r) => _requireComposer().serverFiles(r.query),
+    );
     _on(ConduitMethodSpecs.composerKnowledge, (request) {
       final composer = _composer;
       if (composer == null) {
@@ -961,6 +1001,20 @@ class RpcSession {
 
   ModelsService _requireModels() =>
       _models ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  ComposerService _requireComposer() =>
+      _composer ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  DraftsService _requireDrafts() =>
+      _drafts ??
       (throw const RpcError(
         code: ConduitErrorCodes.daemonUnavailable,
         debugMessage: 'the core is not up yet',

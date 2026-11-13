@@ -26,6 +26,8 @@ import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show openWebUiDuplicateAccountReconcilerProvider;
 import 'package:conduit_core/providers/storage_providers.dart';
+import 'package:conduit_core/services/settings_service.dart'
+    show AppSettingsHostDefaults, appSettingsHostDefaultsProvider;
 import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -248,6 +250,11 @@ final class CoreRuntime {
         // has neither, so it asks the engine directly.
         hostPostCertificationSyncProvider.overrideWithValue(
           () => unawaited(_pullAfterCertification()),
+        ),
+        // A Mac always has a hardware keyboard: Enter sends until the user
+        // turns Send with Enter off (mobile's default stays off).
+        appSettingsHostDefaultsProvider.overrideWithValue(
+          const AppSettingsHostDefaults(sendOnEnter: true),
         ),
         // The remaining ports keep the core's own defaults, and each is a
         // deliberate choice rather than an omission:

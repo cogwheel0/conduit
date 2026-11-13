@@ -142,7 +142,8 @@ void main() {
   group('settings.get and settings.set', () {
     test("start at core's defaults, with the message action catalog", () async {
       final s = await read();
-      expect(s.sendOnEnter, isFalse);
+      // The desktop's own default: Enter sends until it is turned off.
+      expect(s.sendOnEnter, isTrue);
       expect(s.showComposerNotesButton, isTrue);
       expect(s.computerEnabled, isTrue);
       expect(s.quickPills, isEmpty);
@@ -166,7 +167,7 @@ void main() {
       final announced = next(ConduitEvents.settingsChanged);
       final after = await patch(
         const AppSettingsPatch(
-          sendOnEnter: true,
+          sendOnEnter: false,
           temporaryChatByDefault: true,
           showComposerNotesButton: false,
           quickPills: <String>['web', 'web', ' image '],
@@ -175,7 +176,7 @@ void main() {
           citationShowTitles: true,
         ),
       );
-      expect(after.sendOnEnter, isTrue);
+      expect(after.sendOnEnter, isFalse);
       expect(after.temporaryChatByDefault, isTrue);
       expect(after.showComposerNotesButton, isFalse);
       expect(after.quickPills, <String>['web', 'image']);
@@ -245,7 +246,7 @@ void main() {
         await expectLater(
           patch(
             const AppSettingsPatch(
-              sendOnEnter: false,
+              sendOnEnter: true,
               inlineMessageActions: <String>['teleport'],
             ),
           ),
@@ -259,7 +260,7 @@ void main() {
           patch(const AppSettingsPatch(ttsEngine: 'robot')),
           rpcCode(ConduitErrorCodes.invalidParams),
         );
-        expect((await read()).sendOnEnter, isTrue);
+        expect((await read()).sendOnEnter, isFalse);
 
         s = await patch(
           const AppSettingsPatch(

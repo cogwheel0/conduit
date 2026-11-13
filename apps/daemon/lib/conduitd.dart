@@ -25,6 +25,8 @@ export 'src/direct_service.dart';
 export 'src/event_bus.dart';
 export 'src/files_service.dart';
 export 'src/diagnostics.dart';
+export 'src/drafts_service.dart';
+export 'src/composer_wire.dart';
 export 'src/log.dart';
 export 'src/log_file.dart';
 export 'src/redact.dart';

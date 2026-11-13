@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/attachment_upload_retry.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -179,4 +180,19 @@ final class FilesService {
   /// Larger than any image a chat shows; a download of something bigger
   /// is not what this route is for.
   static const int maxFileBytes = 50 * 1024 * 1024;
+}
+
+/// What a failed upload's answer says about trying again, by the core's
+/// rules ([classifyUploadFailure], [uploadRetryDelay]): `retry` is
+/// `offline` (wait for the network), `indeterminate` (the server may hold
+/// the file: only the user retries), `retryable` (try again after
+/// `retryAfterMs`) or `exhausted` (try [attempt] was the last).
+Map<String, String> uploadRetryArgs(Object error, int attempt) {
+  final kind = classifyUploadFailure(error);
+  final exhausted =
+      kind == UploadFailureKind.retryable && attempt >= kUploadMaxRetries;
+  return <String, String>{
+    'retry': exhausted ? 'exhausted' : kind.name,
+    'retryAfterMs': '${uploadRetryDelay(attempt).inMilliseconds}',
+  };
 }

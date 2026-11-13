@@ -453,7 +453,12 @@ final class CoreSettingsService {
     return QuickPillOptions(
       options: <QuickPillOption>[
         for (final pill in quickPillCandidates(tools: tools, filters: filters))
-          QuickPillOption(id: pill.id, kind: pill.kind.name, name: pill.name),
+          QuickPillOption(
+            id: pill.id,
+            kind: pill.kind.name,
+            name: pill.name,
+            targetId: pill.targetId,
+          ),
       ],
     );
   }

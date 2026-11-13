@@ -69,6 +69,16 @@ def fake_embedding(text, size=16):
     return [v / norm for v in values]
 
 
+PAGE = (
+    '<!doctype html><html><head><title>Raised Bed Basics</title></head><body>'
+    '<article><h1>Raised Bed Basics</h1>'
+    '<p>A raised bed drains faster than the ground around it, so it warms '
+    'earlier in spring.</p>'
+    '<p>Fill it with two parts compost to one part grit, and keep paths wide '
+    'enough for a wheelbarrow.</p></article></body></html>'
+)
+
+
 def silence_wav():
     out = io.BytesIO()
     with wave.open(out, 'wb') as w:
@@ -190,6 +200,15 @@ class Handler(BaseHTTPRequestHandler):
         self._json(status, {'error': {'message': message, 'type': 'invalid_request_error'}})
 
     def do_GET(self):
+        if self.path.rstrip('/').endswith('/page/raised-beds'):
+            # A page for Open WebUI to read as a Web Page attachment.
+            body = PAGE.encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path.rstrip('/').endswith('/models'):
             self._json(200, {'object': 'list', 'data': [
                 {'id': MODEL, 'object': 'model', 'owned_by': 'fake'},

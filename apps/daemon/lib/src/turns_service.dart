@@ -4,10 +4,12 @@ import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/database/chat_database_repository.dart'
     show ChatStorageKind;
 import 'package:conduit_core/features/chat/models/chat_context_attachment.dart';
+import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
 import 'package:conduit_core/features/chat/providers/openwebui_prompt_resolution.dart';
+import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
 import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
 import 'package:conduit_core/features/chat/services/historical_message_regeneration.dart';
 import 'package:conduit_core/features/chat/utils/message_targeting.dart';
@@ -21,9 +23,12 @@ import 'package:conduit_core/features/direct_connections/services/direct_chat_br
         kDirectMcpApprovalMetadataKey,
         kDirectTransport;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/hermes/controllers/hermes_busy_turn_controller.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart'
+    show HermesSteerUncertain;
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart'
     show kHermesTransport;
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
@@ -32,6 +37,7 @@ import 'package:conduit_core/features/terminal/providers/terminal_providers.dart
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_core/ports/ui_request_port.dart';
@@ -41,9 +47,12 @@ import 'package:conduit_core/services/message_rating.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 
+import 'composer_wire.dart';
 import 'event_bus.dart';
+import 'files_service.dart';
 import 'hermes_service.dart';
 import 'message_blocks.dart';
 import 'models_service.dart';
@@ -90,9 +99,11 @@ final class TurnsService {
     TemporaryChats? temporary,
     UiRequestsService? uiRequests,
     HermesService? hermes,
+    FilesService? files,
   }) : temporary = temporary ?? TemporaryChats(),
        _uiRequests = uiRequests,
-       _hermes = hermes {
+       _hermes = hermes,
+       _files = files {
     // A chat belongs to the account it was opened under. On another
     // account, or none, every scope goes, and a running turn with it.
     _accountWatches = <ProviderSubscription<Object?>>[
@@ -128,6 +139,9 @@ final class TurnsService {
   /// Hermes sessions' transcripts, for opening a Hermes chat in a scope and
   /// refreshing what `chats.get` shows after a turn.
   final HermesService? _hermes;
+
+  /// What this daemon uploaded, to name a queued message's files.
+  final FilesService? _files;
 
   late final List<ProviderSubscription<Object?>> _accountWatches;
   StreamSubscription<Object?>? _remaps;
@@ -272,7 +286,8 @@ final class TurnsService {
 
   Future<SendTurnAccepted> send(SendTurn request) async {
     _refuseDeleted(request.chatId);
-    final text = request.text.trim();
+    // `@` users and channels and `$` skills, in Open WebUI's wire format.
+    final text = composerWireText(request.text, request.mentions).trim();
     if (text.isEmpty) {
       throw const RpcError(
         code: ConduitErrorCodes.invalidParams,
@@ -292,6 +307,7 @@ final class TurnsService {
         imageGeneration: request.imageGeneration,
         codeInterpreter: request.codeInterpreter,
         toolIds: request.toolIds,
+        filterIds: request.filterIds,
         temporary: request.chatId == null
             ? request.temporary
             : temporary.contains(request.chatId!),
@@ -305,7 +321,12 @@ final class TurnsService {
             name: base.name,
             description: base.description,
           ),
+        // Web pages, transcripts, notes and knowledge files.
+        for (final context in request.context) contextFromDto(context),
       ];
+      if (request.compareModels.isNotEmpty) {
+        return await _compare(session, request, text, knowledge);
+      }
       return await _run(
         session,
         model: model,
@@ -321,6 +342,60 @@ final class TurnsService {
       );
     } finally {
       _release(session);
+    }
+  }
+
+  /// Compare Models: one message to two models, as one durable Open WebUI
+  /// turn (the core's [durableCompareSend]); the server answers each under
+  /// its own message id.
+  ///
+  /// The windows follow the first model's answer live, as any turn; the
+  /// second arrives with the stored copy (`chats.changed` once both are
+  /// done), until a window draws the two side by side.
+  Future<SendTurnAccepted> _compare(
+    _ChatSession session,
+    SendTurn request,
+    String text,
+    List<ChatContextAttachment> context,
+  ) async {
+    final scope = session.scope.container;
+    if (!scope.read(comparisonRuntimeAvailableProvider)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'comparing models needs a stored Open WebUI chat',
+      );
+    }
+    final models = <Model>[
+      for (final id in request.compareModels) await _resolveModel(id),
+    ];
+    var first = true;
+    try {
+      return await _run(
+        session,
+        model: models.first,
+        userMessageId: null,
+        start: (onPlaceholder) => durableCompareSend(
+          scope,
+          text,
+          request.fileIds.isEmpty ? null : request.fileIds,
+          models: models,
+          toolIds: request.toolIds.isEmpty ? null : request.toolIds,
+          onAssistantPlaceholderCreated: (handle) {
+            // The first slot is the turn the windows follow.
+            if (first) onPlaceholder(handle);
+            first = false;
+          },
+        ).then((_) {}),
+      );
+    } on ComparisonAdmissionException catch (error) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{
+          'reason': error.reason.name,
+          if (error.modelIds.isNotEmpty) 'models': error.modelIds.join(','),
+        },
+        debugMessage: 'the comparison was refused: ${error.reason.name}',
+      );
     }
   }
 
@@ -496,6 +571,307 @@ final class TurnsService {
     // Stopped is finished, whatever the transport did with its message.
     if (!session.scope.isDisposed) _project(session);
     if (!turn.finished) _finish(session, turn, _answerOf(session, turn));
+  }
+
+  // ---------------------------------------------------------------------------
+  // queue.* -- messages queued behind a running Open WebUI answer
+  // ---------------------------------------------------------------------------
+
+  /// [chatId]'s queue: the core's [ChatDraftQueueController] in the chat's
+  /// scope. A chat with no scope has no answer running and nothing queued.
+  QueueState queueGet(String chatId) {
+    final session = _sessionOf(chatId);
+    if (session == null || session.scope.isDisposed) {
+      return QueueState(chatId: chatId);
+    }
+    return _queueState(session);
+  }
+
+  /// Queues what the composer holds behind [QueueAdd.chatId]'s running
+  /// answer, as mobile's Queue does: its files and context go with it.
+  QueueState queueAdd(QueueAdd request) {
+    final session = _queueSession(request.chatId);
+    final scope = session.scope.container;
+    if (!scope.read(chatDraftQueueOfferProvider)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.conflict,
+        debugMessage: 'that chat takes no queued message now',
+      );
+    }
+    // The scope's tray is the draft's: the core captures it for the queue.
+    final tray = scope.read(attachedFilesProvider.notifier)..clearAll();
+    for (final id in request.fileIds) {
+      tray.addRemoteFile(_uploaded(id));
+    }
+    final context = scope.read(contextAttachmentsProvider.notifier)..clear();
+    for (final attachment in request.context) {
+      context.add(contextFromDto(attachment));
+    }
+    final draft = scope
+        .read(chatDraftQueueProvider.notifier)
+        .enqueue(composerWireText(request.text, request.mentions));
+    if (draft == null) {
+      tray.clearAll();
+      context.clear();
+      throw const RpcError(
+        code: ConduitErrorCodes.conflict,
+        debugMessage: 'the answer ended before the message was queued',
+      );
+    }
+    return _publishQueue(session, force: true);
+  }
+
+  QueueState queueEdit(QueueEdit request) {
+    final session = _queueSession(request.chatId);
+    final edited = session.scope.container
+        .read(chatDraftQueueProvider.notifier)
+        .editDraft(request.draftId, request.text);
+    if (!edited) _refuseQueueChange();
+    return _publishQueue(session, force: true);
+  }
+
+  QueueState queueRemove(QueueDraftRef request) {
+    final session = _queueSession(request.chatId);
+    final removed = session.scope.container
+        .read(chatDraftQueueProvider.notifier)
+        .removeDraft(request.draftId);
+    if (!removed) _refuseQueueChange();
+    return _publishQueue(session, force: true);
+  }
+
+  /// Stops the running answer and sends one queued message now; the others
+  /// wait for that turn, as on mobile.
+  Future<QueueSendNowResult> queueSendNow(QueueDraftRef request) async {
+    final session = _queueSession(request.chatId);
+    final outcome = await session.scope.container
+        .read(chatDraftQueueProvider.notifier)
+        .sendNow(request.draftId);
+    return QueueSendNowResult(
+      outcome: outcome.name,
+      queue: session.scope.isDisposed
+          ? QueueState(chatId: request.chatId)
+          : _publishQueue(session, force: true),
+    );
+  }
+
+  QueueState queueRetry(String chatId) {
+    final session = _queueSession(chatId);
+    session.scope.container
+        .read(chatDraftQueueProvider.notifier)
+        .retryAdmission();
+    return _publishQueue(session, force: true);
+  }
+
+  _ChatSession _queueSession(String chatId) {
+    final session = _sessionOf(chatId);
+    if (session == null || session.scope.isDisposed) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        args: <String, String>{'chatId': chatId},
+        debugMessage: 'nothing is queued in that chat',
+      );
+    }
+    return session;
+  }
+
+  Never _refuseQueueChange() => throw const RpcError(
+    code: ConduitErrorCodes.conflict,
+    debugMessage: 'that message is being sent, or is gone',
+  );
+
+  /// A file this daemon uploaded (or one picked from the server), as the
+  /// server describes a file the tray takes as already uploaded.
+  FileInfo _uploaded(String id) {
+    final known = _files?.describe(id);
+    final now = DateTime.now();
+    return FileInfo(
+      id: id,
+      filename: known?.name ?? 'file',
+      originalFilename: known?.name ?? 'file',
+      size: known?.size ?? 0,
+      mimeType: known?.contentType ?? '',
+      createdAt: now,
+      updatedAt: now,
+    );
+  }
+
+  bool _queued(_ChatSession session) =>
+      !session.scope.isDisposed &&
+      (session.scope.container
+              .read(activeChatDraftQueueProvider)
+              ?.drafts
+              .isNotEmpty ??
+          false);
+
+  QueueState _queueState(_ChatSession session) {
+    final scope = session.scope.container;
+    final chatId = session.chatId ?? '';
+    final queue = scope.read(activeChatDraftQueueProvider);
+    final offer = scope.read(chatDraftQueueOfferProvider);
+    if (queue == null) return QueueState(chatId: chatId, offer: offer);
+    final held = scope.read(queuedDraftAttachmentsProvider);
+    return QueueState(
+      chatId: chatId,
+      drafts: <QueuedDraftDto>[
+        for (final draft in queue.drafts)
+          QueuedDraftDto(
+            id: draft.id,
+            text: draft.text,
+            files: <ChatFileDto>[
+              for (final file in chatDraftFiles(queue, draft, held))
+                if (file != null)
+                  ChatFileDto(
+                    id: file.upload.fileId,
+                    name: file.upload.fileName,
+                    image: file.upload.isImage ?? false,
+                  ),
+            ],
+            context: <ContextAttachmentDto>[
+              for (final context in draft.contextAttachments)
+                contextToDto(context),
+            ],
+            frozen: queue.isFrozen(draft.id),
+          ),
+      ],
+      phase: switch (queue.phase) {
+        ChatDraftQueuePhase.idle => QueuePhase.idle,
+        ChatDraftQueuePhase.stopping => QueuePhase.stopping,
+        ChatDraftQueuePhase.admitting => QueuePhase.admitting,
+      },
+      admissionFailed: queue.admissionFailed,
+      offer: offer,
+    );
+  }
+
+  /// Tells the windows showing [session]'s chat that its queue changed
+  /// (`queue.changed`), once per change, and keeps the scope while anything
+  /// is queued.
+  QueueState _publishQueue(_ChatSession session, {bool force = false}) {
+    if (session.scope.isDisposed) {
+      return QueueState(chatId: session.chatId ?? '');
+    }
+    final state = _queueState(session);
+    if (state.drafts.isNotEmpty) {
+      session.linger?.cancel();
+    } else if (session.lastQueue?.drafts.isNotEmpty ?? false) {
+      final turn = session.turn;
+      if ((turn == null || turn.finished) &&
+          session.pending == null &&
+          session.holds == 0) {
+        _scheduleLinger(session);
+      }
+    }
+    if (force || state != session.lastQueue) {
+      session.lastQueue = state;
+      if (state.chatId.isNotEmpty) {
+        _events.emit(
+          ConduitEventSpecs.queueChanged,
+          state,
+          scope: state.chatId,
+        );
+      }
+    }
+    return state;
+  }
+
+  /// The core queue's send for [session]: the batch as one turn, through
+  /// [_run] like any other, so its answer reaches the windows. Completes when
+  /// the core's send does, as [durableSend] would.
+  Future<void> _queuedSend(
+    _ChatSession session,
+    String text,
+    List<String>? fileIds, {
+    List<String>? toolIds,
+    List<ChatContextAttachment>? contextAttachments,
+    void Function(ChatSendPlaceholderHandle handle)?
+    onAssistantPlaceholderCreated,
+    void Function(ChatSendAdmissionReceipt receipt)? onAdmissionCommitted,
+  }) {
+    final scope = session.scope.container;
+    final model = scope.read(selectedModelProvider);
+    if (model == null) {
+      return Future<void>.error(
+        const RpcError(
+          code: ConduitErrorCodes.serverError,
+          debugMessage: 'the chat has no model to send the queue with',
+        ),
+      );
+    }
+    final sent = Completer<void>();
+    unawaited(
+      _run(
+        session,
+        model: model,
+        userMessageId: null,
+        start: (onPlaceholder) async {
+          // As before any turn ([_requireIdle]): the last turn's stored copy
+          // first, then a quiet transcript. A turn started while a pull
+          // adopts the stored rows is dropped by the server's copy, and the
+          // queue's batch follows an answer that has only just ended.
+          final settling = session.settling;
+          if (settling != null) {
+            await settling.timeout(_settleTimeout, onTimeout: () {});
+          }
+          await _settleBeforeTurn(session);
+          final sending = durableSend(
+            scope,
+            text,
+            fileIds,
+            toolIds: toolIds,
+            contextAttachments: contextAttachments,
+            onAssistantPlaceholderCreated: (handle) {
+              onPlaceholder(handle);
+              onAssistantPlaceholderCreated?.call(handle);
+            },
+            onAdmissionCommitted: onAdmissionCommitted,
+          );
+          sending.then(
+            (_) {
+              if (!sent.isCompleted) sent.complete();
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              if (!sent.isCompleted) sent.completeError(error, stackTrace);
+            },
+          );
+          await sending;
+        },
+      ).then<void>(
+        (_) {},
+        onError: (Object error, StackTrace stackTrace) {
+          if (!sent.isCompleted) sent.completeError(error, stackTrace);
+        },
+      ),
+    );
+    return sent.future;
+  }
+
+  // ---------------------------------------------------------------------------
+  // turns.steer -- a message typed while Hermes works
+  // ---------------------------------------------------------------------------
+
+  /// Hands [SteerTurn.text] to the Hermes turn running in its chat: to steer
+  /// it, or as the next message. The core's busy-turn controller, in the
+  /// chat's scope.
+  Future<SteerResult> steer(SteerTurn request) async {
+    final text = composerWireText(request.text, request.mentions).trim();
+    if (text.isEmpty) return const SteerResult(accepted: false);
+    final session = await _sessionFor(request.chatId);
+    try {
+      final accepted = await session.scope.container
+          .read(hermesBusyTurnControllerProvider)
+          .submit(
+            action: request.steer
+                ? HermesBusyTurnAction.steer
+                : HermesBusyTurnAction.sendNext,
+            text: text,
+            localStreaming: session.scope.isStreaming,
+          );
+      return SteerResult(accepted: accepted);
+    } on HermesSteerUncertain {
+      return const SteerResult(accepted: false, uncertain: true);
+    } finally {
+      _release(session);
+    }
   }
 
   /// Stops every running answer, as leaving the account they belong to does
@@ -914,6 +1290,8 @@ final class TurnsService {
       final turn = session.turn;
       if (turn != null && !turn.finished) return;
       if (session.pending != null) return;
+      // Queued messages live in the scope until they have gone out.
+      if (_queued(session)) return;
       _close(session);
     });
   }
@@ -1202,13 +1580,52 @@ final class TurnsService {
         debugMessage: 'the account changed while the chat loaded',
       );
     }
-    final scope = ChatSessionScope.open(_container);
-    final session = _ChatSession(scope, requestedChatId: chatId)..holds = 1;
+    late final _ChatSession session;
+    final scope = ChatSessionScope.open(
+      _container,
+      overrides: <Override>[
+        // A batch of queued messages goes out through [_run], so it is
+        // followed and published like a turn a window started.
+        chatDraftQueueSendProvider.overrideWithValue(
+          (
+            ref,
+            text,
+            fileIds, {
+            toolIds,
+            contextAttachments,
+            onAssistantPlaceholderCreated,
+            onAdmissionCommitted,
+          }) => _queuedSend(
+            session,
+            text,
+            fileIds,
+            toolIds: toolIds,
+            contextAttachments: contextAttachments,
+            onAssistantPlaceholderCreated: onAssistantPlaceholderCreated,
+            onAdmissionCommitted: onAdmissionCommitted,
+          ),
+        ),
+      ],
+    );
+    session = _ChatSession(scope, requestedChatId: chatId)..holds = 1;
     _sessions.add(session);
     session.subscriptions.addAll(<ProviderSubscription<Object?>>[
       scope.container.listen<List<ChatMessage>>(
         chatMessagesProvider,
         (_, _) => _project(session),
+      ),
+      // The messages queued behind the answer, and whether one may be.
+      scope.container.listen<List<ChatDraftQueue>>(
+        chatDraftQueueProvider,
+        (_, _) => _publishQueue(session),
+      ),
+      scope.container.listen<bool>(
+        chatDraftQueueOfferProvider,
+        (_, _) => _publishQueue(session),
+      ),
+      scope.container.listen<List<QueuedDraftAttachment>>(
+        queuedDraftAttachmentsProvider,
+        (_, _) => _publishQueue(session),
       ),
       scope.container.listen<Conversation?>(activeConversationProvider, (
         previous,
@@ -1417,6 +1834,7 @@ final class TurnsService {
     bool imageGeneration = false,
     bool codeInterpreter = false,
     List<String> toolIds = const <String>[],
+    List<String>? filterIds,
     bool? temporary,
   }) {
     scope.read(isManualModelSelectionProvider.notifier).set(true);
@@ -1425,6 +1843,11 @@ final class TurnsService {
     scope.read(imageGenerationEnabledProvider.notifier).set(imageGeneration);
     scope.read(codeInterpreterEnabledProvider.notifier).set(codeInterpreter);
     scope.read(selectedToolIdsProvider.notifier).set(toolIds);
+    // Chosen in the window, from the model's own defaults; a request that
+    // names none (regenerate, edit) keeps the scope's.
+    if (filterIds != null) {
+      scope.read(selectedFilterIdsProvider.notifier).set(filterIds);
+    }
     scope.read(contextAttachmentsProvider.notifier).clear();
     if (temporary != null) {
       scope.read(temporaryChatEnabledProvider.notifier).set(temporary);
@@ -1761,6 +2184,9 @@ final class _ChatSession {
 
   /// Approvals already put to the user, so each is asked once.
   final Set<String> asked = <String>{};
+
+  /// The queue as `queue.changed` last published it.
+  QueueState? lastQueue;
 
   String? get chatId {
     if (!scope.isDisposed) {
