@@ -42,9 +42,13 @@ String _plain(String text) => text.replaceAll(' ', ' ');
 String calendarDayText(CalendarClock clock, CalendarWallTime day) =>
     DateFormat.MMMEd(clock.locale).format(day.fields);
 
-/// A wall clock time, in the device's 12 or 24 hour style.
+/// A wall clock time, in the device's 12 or 24 hour style: a device on the
+/// 12-hour clock gets it whatever the language's own habit, as scheduled
+/// tasks' times do.
 String calendarClockText(CalendarClock clock, CalendarWallTime wall) => _plain(
-  (clock.use24Hour ? DateFormat.Hm(clock.locale) : DateFormat.jm(clock.locale))
+  (clock.use24Hour
+          ? DateFormat.Hm(clock.locale)
+          : DateFormat('h:mm a', clock.locale))
       .format(wall.fields),
 );
 

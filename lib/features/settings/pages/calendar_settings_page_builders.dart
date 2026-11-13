@@ -433,6 +433,8 @@ buildCalendarEventPage(
   // occurrence of a series this page is (the record holds the series'
   // first start).
   final shown = state.fresh ?? event;
+  // A one-off event's own times; a series' are the occurrence's.
+  final when = shown.isRecurring ? event : shown;
   final calendar = calendars.where((c) => c.id == shown.calendarId).firstOrNull;
   final loading = state.detail == CalendarEventDetail.loading;
   final canEdit =
@@ -467,9 +469,9 @@ buildCalendarEventPage(
             subtitle: calendarWhenText(
               clock,
               l10n,
-              startNs: event.startAtNs,
-              endNs: event.endAtNs,
-              allDay: event.allDay,
+              startNs: when.startAtNs,
+              endNs: when.endAtNs,
+              allDay: when.allDay,
               zone: zone,
             ),
             sfSymbol: 'circle.fill',

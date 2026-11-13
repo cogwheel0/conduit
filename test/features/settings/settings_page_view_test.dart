@@ -6,7 +6,6 @@ import 'package:conduit/features/settings/views/settings_page_view.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
-import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -205,7 +204,12 @@ void main() {
       known: [NativeSheetDetailConfig(id: 'new-event', title: 'New Event')],
     );
 
-    await tester.tap(find.byType(ConduitAdaptiveAppBarIconButton));
+    // Read by what it does, not by its symbol.
+    await tester.tap(
+      find.bySemanticsLabel(
+        lookupAppLocalizations(const Locale('en')).settingsAddAction,
+      ),
+    );
     await tester.pumpAndSettle();
 
     check(find.text('page new-event').evaluate()).isNotEmpty();

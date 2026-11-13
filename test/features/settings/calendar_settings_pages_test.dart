@@ -220,9 +220,23 @@ void main() {
       var handled = false;
       unawaited(paging.then((_) => handled = true));
       await tester.pump(const Duration(milliseconds: 50));
-
       // Answered while the month is still being read.
       expect(handled, isTrue);
+
+      // The next change, a day chosen while November is still being read,
+      // is handled and shown without waiting for that read.
+      final choosing = rig.module.handleChange(
+        '$calendarGridId:day',
+        '2026-11-12',
+        _l10n,
+      );
+      var chosen = false;
+      unawaited(choosing.then((_) => chosen = true));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(chosen, isTrue);
+      expect(rig.page(calendarMonthPageId).calendar!.selectedDay, '2026-11-12');
+      expect(held.isCompleted, isFalse);
+
       held.complete();
       await rig._settle(Future<void>.value());
     });
@@ -393,6 +407,81 @@ void main() {
       }
     });
 
+    testWidgets("while the next account's agenda loads, the month shows none "
+        "of the last account's", (tester) async {
+      final rig = await _open(tester);
+      // Settings keeps its pages' modules followed while it is open.
+      final modules = rig.container.listen(
+        settingsPageModulesProvider,
+        (_, _) {},
+      );
+      addTearDown(modules.close);
+      bool listsEvents() => rig
+          .rows(calendarMonthPageId)
+          .any((row) => row.id.startsWith(calendarEventPagePrefix));
+      expect(listsEvents(), isTrue);
+      final held = rig.wire.holdAgenda = Completer<void>();
+
+      rig.session.switchAccount();
+      await rig._settle(Future<void>.value());
+
+      expect(listsEvents(), isFalse);
+      expect(
+        rig.rows(calendarMonthPageId).map((row) => row.id),
+        contains('$calendarMonthPageId-loading'),
+      );
+      held.complete();
+      await rig._settle(Future<void>.value());
+      // The next account's own, once read.
+      expect(listsEvents(), isTrue);
+    });
+
+    testWidgets("Delete offered from the event's own record is sent from it", (
+      tester,
+    ) async {
+      final rig = await _open(
+        tester,
+        configureWire: (wire) =>
+            wire.events = [eventJson('ev-mine', 'cal-ro', owner: 'user-9')],
+      );
+      final page = eventPage(rig);
+      // Moved since the month was read, to a calendar the account can change.
+      rig.wire.events = [eventJson('ev-mine', 'cal-mine')];
+      await rig.open(page);
+      final delete = rig
+          .rows(page)
+          .singleWhere((row) => row.id.startsWith('calendar.event.delete:'));
+
+      await rig.change(delete.id, true);
+
+      expect(rig.wire.stored('ev-mine'), isNull);
+      expect(rig.closed, contains(page));
+    });
+
+    testWidgets("a one-off event's time is its own record's once read", (
+      tester,
+    ) async {
+      final rig = await _open(tester);
+      final page = eventPage(rig);
+      await rig.open(page);
+      final before = rig.row(page, '$page-title').subtitle;
+      rig.module.pageLeft(page);
+      // Moved two hours later since the month was read.
+      const twoHours = 2 * 3600 * 1000000000;
+      rig.wire.events = [
+        eventJson(
+          'ev-mine',
+          'cal-mine',
+          startAt: 1791320967123456789 + twoHours,
+          endAt: 1791324567987654321 + twoHours,
+        ),
+      ];
+
+      await rig.open(page);
+
+      expect(rig.row(page, '$page-title').subtitle, isNot(before));
+    });
+
     testWidgets('an editor open over its event keeps its rows as the event '
         'is drawn again', (tester) async {
       final rig = await _open(tester);
@@ -443,6 +532,17 @@ void main() {
       await rig._settle(deleting);
 
       expect(rig.closed, isNot(contains(page)));
+      // The next visit reads the month afresh: the deleted event is not on
+      // it, and its page, asked for again, keeps nothing of the last visit.
+      await rig.open(calendarMonthPageId);
+      expect(
+        rig
+            .rows(calendarMonthPageId)
+            .where((row) => row.id.startsWith(calendarEventPagePrefix)),
+        isEmpty,
+      );
+      await rig.open(page);
+      expect(rig.titles(page), [_l10n.calendarEventGone]);
     });
 
     testWidgets('an invited event takes an answer', (tester) async {

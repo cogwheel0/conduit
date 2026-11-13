@@ -220,6 +220,11 @@ class CalendarAgenda extends _$CalendarAgenda {
   late CalendarRange _range;
   Set<String> _filter = const <String>{};
 
+  /// The account the agenda's data was read for. A rebuild for another
+  /// account (or the calendar withdrawn) keeps the last data as its previous
+  /// value while it loads; this tells it apart.
+  CalendarOwner? _readFor;
+
   @override
   Future<CalendarAgendaData> build() async {
     ref.watch(activeServerProvider.select((s) => s.asData?.value?.id));
@@ -230,11 +235,13 @@ class CalendarAgenda extends _$CalendarAgenda {
     final apiAlive = ref.watch(apiServiceProvider.select((a) => a != null));
     _range = _defaultRange();
     _filter = const <String>{};
+    _readFor = null;
     final owner = apiAlive ? captureOwner() : null;
     if (owner == null) return CalendarAgendaData(range: _range);
 
     final data = await _load(owner);
     if (!_isCurrent(owner)) return CalendarAgendaData(range: _range);
+    _readFor = owner;
     return data;
   }
 
@@ -251,6 +258,13 @@ class CalendarAgenda extends _$CalendarAgenda {
 
   /// Whether [owner] is still the signed-in account.
   bool isCurrentOwner(CalendarOwner owner) => _isCurrent(owner);
+
+  /// Whether the agenda's data was read for [owner], still signed in: not the
+  /// last account's, kept while the next one's first read is under way.
+  bool showsAgendaOf(CalendarOwner owner) {
+    final readFor = _readFor;
+    return readFor != null && _isCurrent(readFor) && _isCurrent(owner);
+  }
 
   /// Reloads the agenda for [owner], optionally over another [range] or limited
   /// to other calendars. A result that arrives after the account has changed is
@@ -619,6 +633,7 @@ class CalendarAgenda extends _$CalendarAgenda {
     try {
       final data = await _load(owner);
       if (generation != _loadGeneration || !_isCurrent(owner)) return;
+      _readFor = owner;
       state = AsyncData(data);
     } catch (error, stackTrace) {
       if (generation != _loadGeneration || !_isCurrent(owner)) return;

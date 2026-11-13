@@ -119,7 +119,14 @@ class CalendarSettingsPages extends SettingsPageModule {
   SettingsSurface get _surface => _ref.read(settingsSurfaceProvider);
   CalendarAgenda get _notifier => _ref.read(calendarAgendaProvider.notifier);
   CalendarZone get _zone => _ref.read(calendarZoneProvider);
-  CalendarAgendaData? get _data => _ref.read(calendarAgendaProvider).value;
+
+  /// The agenda, when it was read for the visit's account: the last
+  /// account's, kept while the next one's loads, is never this visit's.
+  CalendarAgendaData? get _data {
+    final owner = _owner;
+    if (owner == null || !_notifier.showsAgendaOf(owner)) return null;
+    return _ref.read(calendarAgendaProvider).value;
+  }
 
   CalendarWallTime _today() {
     final now = _ref.read(calendarClockProvider)().toUtc();
@@ -213,6 +220,7 @@ class CalendarSettingsPages extends SettingsPageModule {
 
   /// Ends the month page's visit: nothing it started shows or acts again.
   void _end() {
+    _restart = null;
     _following?.close();
     _following = null;
     _owner = null;
@@ -234,6 +242,7 @@ class CalendarSettingsPages extends SettingsPageModule {
   // -- The month page ------------------------------------------------------
 
   Future<void> _openMonth(AppLocalizations l10n) async {
+    _restart = null;
     if (!_ref.read(calendarAvailableProvider)) {
       await _drawMonth(l10n);
       return;
@@ -321,7 +330,11 @@ class CalendarSettingsPages extends SettingsPageModule {
       if (_newCalendar != null) calendarNewCalendarPageId,
     ];
     _end();
+    // Settings closed, the month left or opened again meanwhile: that has the
+    // last word, and no visit starts here.
+    final restart = _restart = Object();
     for (final id in pages) {
+      if (!identical(_restart, restart)) return;
       await _surface.applyDetail(
         NativeSheetDetailConfig(
           id: id,
@@ -338,8 +351,13 @@ class CalendarSettingsPages extends SettingsPageModule {
         ),
       );
     }
+    if (!identical(_restart, restart)) return;
     await _openMonth(l10n);
   }
+
+  /// The account change whose pages are being replaced, until the month
+  /// starts over or the visit ends.
+  Object? _restart;
 
   /// The agenda read, when it is the shown month's.
   CalendarAgendaData? get _monthData {
@@ -652,7 +670,9 @@ class CalendarSettingsPages extends SettingsPageModule {
       ..error = null;
     await _drawEvent(l10n, view);
     try {
-      await _notifier.deleteEvent(view.event, owner: owner);
+      // The record the page offered Delete from: the event read just now,
+      // which can be in a calendar the agenda's copy was not.
+      await _notifier.deleteEvent(view.fresh ?? view.event, owner: owner);
       if (!_current(owner) || !identical(_events[view.event.key], view)) {
         return;
       }

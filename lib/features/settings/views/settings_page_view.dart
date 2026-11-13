@@ -468,6 +468,8 @@ class _SettingsPageViewState extends ConsumerState<SettingsPageView> {
       return ConduitAdaptiveAppBarIconButton(
         icon: settingsMaterialIcon(symbol),
         iosSymbol: symbol,
+        // Read by what it does, not by its icon.
+        semanticLabel: symbol == 'plus' ? l10n.settingsAddAction : null,
         onPressed: () =>
             unawaited(_select(NativeSheetItemConfig(id: page, title: page))),
       );
