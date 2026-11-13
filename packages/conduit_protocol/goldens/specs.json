@@ -1197,6 +1197,21 @@
       "result": "WorkspaceFiles"
     },
     {
+      "name": "workspace.duplicate",
+      "params": "WorkspaceDuplicate",
+      "result": "WorkspaceDetail"
+    },
+    {
+      "name": "workspace.addText",
+      "params": "WorkspaceTextFile",
+      "result": "WorkspaceFiles"
+    },
+    {
+      "name": "workspace.skillFromMarkdown",
+      "params": "WorkspaceMarkdown",
+      "result": "WorkspaceSkillDto"
+    },
+    {
       "name": "hermes.settings",
       "params": null,
       "result": "HermesSettings"

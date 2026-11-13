@@ -733,6 +733,8 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     public: true,
     updatedAtMs: 1767225600000,
     tags: <String>['writing'],
+    hidden: true,
+    functionCount: 2,
   ),
   'workspaceQuery': const WorkspaceQuery(
     kind: WorkspaceKind.knowledge,
@@ -782,6 +784,9 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     name: 'Docs',
     description: 'Manuals',
     fileCount: 4,
+    external: true,
+    maxFileCount: 20,
+    maxFileSize: 5,
   ),
   'workspacePromptDto': const WorkspacePromptDto(
     id: 'p1',
@@ -801,6 +806,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     functions: <String>['fetch'],
     hasValves: true,
     requiresServerVersion: '0.9.0',
+    active: true,
   ),
   'workspaceSkillDto': const WorkspaceSkillDto(
     id: 'tidy',
@@ -912,6 +918,18 @@ final Map<String, Object> protocolFixtures = <String, Object>{
       },
     },
     values: <String, dynamic>{'limit': 5},
+    fields: <ValveField>[
+      ValveField(
+        key: 'limit',
+        title: 'Limit',
+        type: ValveFieldType.integer,
+        isDefault: false,
+        hasDefault: true,
+        text: '5',
+        seed: '3',
+      ),
+    ],
+    edits: <ValveEdit>[ValveEdit(key: 'limit', isDefault: false, text: '6')],
   ),
   'workspaceUrl': const WorkspaceUrl(url: 'https://example.com/tool.py'),
   'workspaceDirectory': const WorkspaceDirectory(
@@ -947,6 +965,19 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     knowledgeId: 'k1',
     directoryId: 'd1',
     fileIds: <String>['f1', 'f2'],
+    uploaded: true,
+  ),
+  'workspaceTextFile': const WorkspaceTextFile(
+    knowledgeId: 'k1',
+    directoryId: 'd1',
+    filename: 'notes',
+    content: 'Plant beans in May.',
+  ),
+  'workspaceMarkdown': const WorkspaceMarkdown(text: 'Pack water first.'),
+  'workspaceDuplicate': const WorkspaceDuplicate(
+    kind: WorkspaceKind.prompts,
+    id: 'p1',
+    suffix: '(copy)',
   ),
   'workspaceFileAction': const WorkspaceFileAction(
     knowledgeId: 'k1',
@@ -3294,6 +3325,9 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'workspaceFilesQuery': WorkspaceFilesQuery.fromJson,
       'workspaceFiles': WorkspaceFiles.fromJson,
       'workspaceFilesAttach': WorkspaceFilesAttach.fromJson,
+      'workspaceTextFile': WorkspaceTextFile.fromJson,
+      'workspaceDuplicate': WorkspaceDuplicate.fromJson,
+      'workspaceMarkdown': WorkspaceMarkdown.fromJson,
       'workspaceFileAction': WorkspaceFileAction.fromJson,
       'workspaceDirectoryAction': WorkspaceDirectoryAction.fromJson,
       'workspaceChanged': WorkspaceChanged.fromJson,

@@ -1386,6 +1386,24 @@ abstract final class ConduitMethodSpecs {
         params: WorkspaceRef.fromJson,
         result: WorkspaceFiles.fromJson,
       );
+  static const workspaceDuplicate =
+      ConduitMethodSpec<WorkspaceDuplicate, WorkspaceDetail>(
+        ConduitMethods.workspaceDuplicate,
+        params: WorkspaceDuplicate.fromJson,
+        result: WorkspaceDetail.fromJson,
+      );
+  static const workspaceAddText =
+      ConduitMethodSpec<WorkspaceTextFile, WorkspaceFiles>(
+        ConduitMethods.workspaceAddText,
+        params: WorkspaceTextFile.fromJson,
+        result: WorkspaceFiles.fromJson,
+      );
+  static const workspaceSkillFromMarkdown =
+      ConduitMethodSpec<WorkspaceMarkdown, WorkspaceSkillDto>(
+        ConduitMethods.workspaceSkillFromMarkdown,
+        params: WorkspaceMarkdown.fromJson,
+        result: WorkspaceSkillDto.fromJson,
+      );
 
   // hermes.*
 
@@ -1921,6 +1939,9 @@ abstract final class ConduitMethodSpecs {
         workspaceDirectoryAction,
         workspaceKnowledgeReset,
         workspaceKnowledgeCleanup,
+        workspaceDuplicate,
+        workspaceAddText,
+        workspaceSkillFromMarkdown,
         hermesSettings,
         hermesSaveSettings,
         hermesTest,

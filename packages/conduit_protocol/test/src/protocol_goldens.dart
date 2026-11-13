@@ -1440,7 +1440,10 @@ const Map<String, String> protocolGoldens = <String, String>{
   "updatedAtMs": 1767225600000,
   "tags": [
     "writing"
-  ]
+  ],
+  "external": false,
+  "hidden": true,
+  "functionCount": 2
 }''',
 
   'workspaceQuery': r'''
@@ -1462,7 +1465,9 @@ const Map<String, String> protocolGoldens = <String, String>{
       "name": "Web",
       "writeAccess": false,
       "public": false,
-      "tags": []
+      "tags": [],
+      "external": false,
+      "hidden": false
     }
   ],
   "total": 3,
@@ -1540,7 +1545,10 @@ const Map<String, String> protocolGoldens = <String, String>{
   "id": "k1",
   "name": "Docs",
   "description": "Manuals",
-  "fileCount": 4
+  "fileCount": 4,
+  "external": true,
+  "maxFileCount": 20,
+  "maxFileSize": 5
 }''',
 
   'workspacePromptDto': r'''
@@ -1569,6 +1577,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   ],
   "hasValves": true,
   "hasUserValves": false,
+  "active": true,
   "requiresServerVersion": "0.9.0"
 }''',
 
@@ -1611,7 +1620,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "id": "",
       "name": "Docs",
       "description": "",
-      "fileCount": 0
+      "fileCount": 0,
+      "external": false
     },
     "grants": [],
     "writeAccess": true
@@ -1806,7 +1816,28 @@ const Map<String, String> protocolGoldens = <String, String>{
   },
   "values": {
     "limit": 5
-  }
+  },
+  "fields": [
+    {
+      "key": "limit",
+      "title": "Limit",
+      "type": "integer",
+      "isRequired": false,
+      "password": false,
+      "options": [],
+      "isDefault": false,
+      "hasDefault": true,
+      "text": "5",
+      "seed": "3"
+    }
+  ],
+  "edits": [
+    {
+      "key": "limit",
+      "isDefault": false,
+      "text": "6"
+    }
+  ]
 }''',
 
   'workspaceUrl': r'''
@@ -1879,7 +1910,28 @@ const Map<String, String> protocolGoldens = <String, String>{
   "fileIds": [
     "f1",
     "f2"
-  ]
+  ],
+  "uploaded": true
+}''',
+
+  'workspaceTextFile': r'''
+{
+  "knowledgeId": "k1",
+  "directoryId": "d1",
+  "filename": "notes",
+  "content": "Plant beans in May."
+}''',
+
+  'workspaceMarkdown': r'''
+{
+  "text": "Pack water first."
+}''',
+
+  'workspaceDuplicate': r'''
+{
+  "kind": "prompts",
+  "id": "p1",
+  "suffix": "(copy)"
 }''',
 
   'workspaceFileAction': r'''

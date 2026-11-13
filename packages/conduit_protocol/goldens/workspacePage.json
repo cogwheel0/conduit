@@ -7,7 +7,9 @@
       "name": "Web",
       "writeAccess": false,
       "public": false,
-      "tags": []
+      "tags": [],
+      "external": false,
+      "hidden": false
     }
   ],
   "total": 3,

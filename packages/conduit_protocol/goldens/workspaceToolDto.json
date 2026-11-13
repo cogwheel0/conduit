@@ -8,5 +8,6 @@
   ],
   "hasValves": true,
   "hasUserValves": false,
+  "active": true,
   "requiresServerVersion": "0.9.0"
 }
