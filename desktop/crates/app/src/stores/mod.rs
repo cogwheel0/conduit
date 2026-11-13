@@ -33,6 +33,7 @@ pub mod accounts;
 pub mod app_settings;
 pub mod areas;
 pub mod call;
+pub mod channel;
 pub mod chat;
 pub mod chat_list;
 pub mod composer;

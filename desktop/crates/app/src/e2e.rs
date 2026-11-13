@@ -68,6 +68,7 @@
 //! typed.
 
 mod actions;
+mod channels;
 mod chat;
 mod chat_settings;
 mod composer;
@@ -735,6 +736,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         }
         "integration" => integration::run(&inputs, &dir, cx).await,
         "sections" => sections::run(&inputs, &dir, cx).await,
+        "channels" => channels::run(&inputs, &dir, cx).await,
         "composer" => composer::run(&inputs, &dir, cx).await,
         "chat-settings" => chat_settings::run(&inputs, &dir, cx).await,
         "shell" | "shell-notify" | "shell-close" => shell::run(&inputs, &dir, cx).await,

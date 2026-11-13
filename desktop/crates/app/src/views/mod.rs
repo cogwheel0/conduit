@@ -4,6 +4,7 @@ pub mod access_sheet;
 pub mod accounts;
 pub mod add_account;
 pub mod approvals;
+pub mod channels;
 pub mod chat;
 pub mod chat_pane;
 pub mod chat_settings;

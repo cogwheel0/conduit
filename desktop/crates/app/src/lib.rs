@@ -21,6 +21,8 @@ pub mod actions;
 #[cfg(all(target_os = "macos", feature = "harness"))]
 pub mod capture;
 #[cfg(all(target_os = "macos", feature = "harness"))]
+pub mod channel_fixture;
+#[cfg(target_os = "macos")]
 #[cfg(feature = "harness")]
 pub mod chat_fixture;
 pub mod desktop;
@@ -261,6 +263,8 @@ pub fn run() {
     let smoke_options = smoke::SmokeOptions::from_args(&args);
     #[cfg(all(target_os = "macos", feature = "harness"))]
     let chat_fixture = chat_fixture::requested(&args);
+    #[cfg(all(target_os = "macos", feature = "harness"))]
+    let channel_fixture = channel_fixture::requested(&args);
     // `--capture <dir>`: screenshots and motion strips of every screen,
     // for design review (capture/).
     #[cfg(all(target_os = "macos", feature = "harness"))]
@@ -312,6 +316,12 @@ pub fn run() {
         #[cfg(all(target_os = "macos", feature = "harness"))]
         if let Some((mode, shots)) = chat_fixture.clone() {
             chat_fixture::run(mode, shots, cx);
+            return;
+        }
+        // A channel's timeline over a fixture daemon (perf).
+        #[cfg(all(target_os = "macos", feature = "harness"))]
+        if let Some((mode, shots)) = channel_fixture.clone() {
+            channel_fixture::run(mode, shots, cx);
             return;
         }
         let layout = cx.new(|_| LayoutStore::load(app_paths.window_state_file()));

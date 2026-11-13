@@ -198,12 +198,13 @@ pub fn daemon_uploader() -> Uploader {
             conduit_daemon::runtime::shared().spawn(async move {
                 let progress = req.progress.clone();
                 let result = http
-                    .upload(
+                    .upload_to(
                         &req.name,
                         req.content_type.as_deref(),
                         bytes::Bytes::from(req.bytes),
                         Some(Arc::new(move |sent, total| progress(sent, total))),
                         req.attempt,
+                        req.channel_id.as_deref(),
                     )
                     .await
                     .map_err(|e| UploadError::from_rpc(&e))

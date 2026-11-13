@@ -62,6 +62,9 @@ pub struct UploadRequest {
     pub progress: Progress,
     /// Which try this is (1 for the first), for the core's retry rules.
     pub attempt: u32,
+    /// A channel's attachment: filed under the channel on the server, so
+    /// its members may read it.
+    pub channel_id: Option<String>,
 }
 
 /// What a failed upload says about trying again: the daemon answers with
@@ -343,6 +346,9 @@ pub struct ComposerStore {
     pub prompts: Option<Vec<PromptSummary>>,
     /// `@`: the server's users and channels for the query typed.
     pub mention_results: MentionList,
+    /// A channel's composer: `@` lists the channel's members (and models,
+    /// as tokens), and attachments are filed under the channel.
+    pub channel: Option<String>,
     /// `#`: notes, knowledge bases and files for the query typed.
     pub context_results: Vec<ContextSuggestion>,
     /// `$`: skills for the query typed.
@@ -427,6 +433,7 @@ impl ComposerStore {
             options: ComposerOptions::default(),
             prompts: None,
             mention_results: MentionList::default(),
+            channel: None,
             context_results: vec![],
             skill_results: vec![],
             searched: [None, None, None],
@@ -459,6 +466,19 @@ impl ComposerStore {
             _searches: [None, None, None],
             _draft: None,
         }
+    }
+
+    /// A channel's composer: `@` offers the channel's members and the
+    /// models (as mentions), + attaches files and pictures, and nothing
+    /// else a chat's composer offers applies.
+    pub fn for_channel(mut self, channel_id: impl Into<String>) -> Self {
+        self.channel = Some(channel_id.into());
+        self.options = serde_json::from_value(serde_json::json!({
+            "mentions": true,
+            "attachments": {"files": true, "images": true},
+        }))
+        .unwrap_or_default();
+        self
     }
 
     /// The daemon, for a panel that asks it directly (MCP Content).
@@ -739,6 +759,10 @@ impl ComposerStore {
 
     /// `composer.options`; switches it no longer offers go off.
     pub fn refresh_options(&mut self, cx: &mut Context<Self>) {
+        // A channel's options are its own (`for_channel`), not a model's.
+        if self.channel.is_some() {
+            return;
+        }
         let call = self.rpc.call::<methods::ComposerOptions>(&NoParams);
         let scope = self.scope;
         self._options = Some(
@@ -881,23 +905,50 @@ impl ComposerStore {
         if !self.options.mentions {
             return;
         }
-        self.search::<methods::MentionsSearch>(Search::Mentions, query, cx, |s, list| {
-            s.mention_results = list
-        });
+        // In a channel: its members and the channels to link.
+        if let Some(channel_id) = self.channel.clone() {
+            let params = conduit_protocol::ChannelMentionQuery {
+                channel_id,
+                query: query.to_string(),
+            };
+            self.search::<methods::ChannelsMentions>(
+                Search::Mentions,
+                query,
+                params,
+                cx,
+                |s, list| s.mention_results = list,
+            );
+            return;
+        }
+        self.search::<methods::MentionsSearch>(
+            Search::Mentions,
+            query,
+            search(query),
+            cx,
+            |s, list| s.mention_results = list,
+        );
     }
 
     /// `context.search` for what follows a `#`.
     pub fn search_context(&mut self, query: &str, cx: &mut Context<Self>) {
-        self.search::<methods::ContextSearch>(Search::Context, query, cx, |s, list| {
-            s.context_results = list.items
-        });
+        self.search::<methods::ContextSearch>(
+            Search::Context,
+            query,
+            search(query),
+            cx,
+            |s, list| s.context_results = list.items,
+        );
     }
 
     /// `skills.search` for what follows a `$`.
     pub fn search_skills(&mut self, query: &str, cx: &mut Context<Self>) {
-        self.search::<methods::SkillsSearch>(Search::Skills, query, cx, |s, list| {
-            s.skill_results = list.items
-        });
+        self.search::<methods::SkillsSearch>(
+            Search::Skills,
+            query,
+            search(query),
+            cx,
+            |s, list| s.skill_results = list.items,
+        );
     }
 
     /// Asks `M` 150 ms after `query` last changed, and keeps its answer.
@@ -909,10 +960,12 @@ impl ComposerStore {
         &mut self,
         kind: Search,
         query: &str,
+        params: M::Params,
         cx: &mut Context<Self>,
         keep: fn(&mut Self, M::Result),
     ) where
-        M: conduit_protocol::RpcMethod<Params = ComposerSearch>,
+        M: conduit_protocol::RpcMethod,
+        M::Params: 'static,
         M::Result: Default + Send + 'static,
     {
         let slot = kind as usize;
@@ -921,7 +974,7 @@ impl ComposerStore {
         }
         self.searched[slot] = Some(query.to_string());
         let rpc = self.rpc.clone();
-        let (params, scope) = (search(query), self.scope);
+        let scope = self.scope;
         self._searches[slot] = Some(cx.spawn(
             async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 cx.background_executor()
@@ -1171,6 +1224,7 @@ impl ComposerStore {
             bytes: bytes.to_vec(),
             progress,
             attempt,
+            channel_id: self.channel.clone(),
         });
         // Progress, as it comes.
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -1904,6 +1958,8 @@ pub enum MentionTarget {
     User(String),
     Channel(String),
     Skill(String),
+    /// A model asked in a channel (`<@M:id|Name>`), which answers there.
+    Model(String),
 }
 
 impl MentionTarget {
@@ -1912,6 +1968,7 @@ impl MentionTarget {
             Self::User(id) => format!("U:{id}"),
             Self::Channel(id) => format!("C:{id}"),
             Self::Skill(id) => format!("S:{id}"),
+            Self::Model(id) => format!("M:{id}"),
         }
     }
 
@@ -1921,6 +1978,7 @@ impl MentionTarget {
             "U" => Some(Self::User(id.to_string())),
             "C" => Some(Self::Channel(id.to_string())),
             "S" => Some(Self::Skill(id.to_string())),
+            "M" => Some(Self::Model(id.to_string())),
             _ => None,
         }
     }
@@ -1957,6 +2015,7 @@ pub fn mentions_in(
                 MentionTarget::User(id) => ("U", conduit_protocol::MentionKind::Entity, id),
                 MentionTarget::Channel(id) => ("C", conduit_protocol::MentionKind::Entity, id),
                 MentionTarget::Skill(id) => ("M", conduit_protocol::MentionKind::Skill, id),
+                MentionTarget::Model(id) => ("M", conduit_protocol::MentionKind::Entity, id),
             };
             Some(ComposerMentionDto {
                 start,

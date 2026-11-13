@@ -47,6 +47,8 @@ pub struct AreaPane {
     layout: Entity<LayoutStore>,
     /// The workspace's pane, once a section was shown.
     pub workspace: Option<Entity<crate::views::workspace::WorkspacePane>>,
+    /// The open channel's pane, while a channel is shown.
+    pub channel: Option<Entity<crate::views::channels::ChannelPane>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -63,7 +65,12 @@ impl AreaPane {
                         .update(cx, |a, cx| a.refresh_hermes_hidden(cx));
                 }
             }),
-            cx.observe(&stores.navigation, |_, _, cx| cx.notify()),
+            cx.observe(&stores.navigation, |this, _, cx| {
+                // A channel left (for a chat, say, which this pane does not
+                // draw) closes at once: it is no longer in front.
+                channels::on_navigation(this, cx);
+                cx.notify()
+            }),
             cx.observe(&stores.areas, |_, _, cx| cx.notify()),
             cx.observe(&layout, |_, _, cx| cx.notify()),
         ];
@@ -71,6 +78,7 @@ impl AreaPane {
             stores,
             layout,
             workspace: None,
+            channel: None,
             _subscriptions: subscriptions,
         }
     }
@@ -83,7 +91,10 @@ impl AreaPane {
     /// The shown item's title, as its pane and toolbar say it.
     pub fn title(&self, cx: &App) -> Option<String> {
         let item = self.item(cx)?;
-        Some(title_of(&item, &self.stores, cx))
+        Some(
+            channels::shown_title(self, &item, cx)
+                .unwrap_or_else(|| title_of(&item, &self.stores, cx)),
+        )
     }
 }
 
@@ -92,7 +103,9 @@ pub fn title_of(item: &AreaItem, stores: &Stores, cx: &App) -> String {
     let areas = stores.areas.read(cx);
     let listed = match item {
         AreaItem::Note(id) => areas.note(id).map(|n| n.title.clone()),
-        AreaItem::Channel(id) => areas.channel(id).map(|c| c.name.clone()),
+        AreaItem::Channel(id) => areas
+            .channel(id)
+            .map(|c| crate::views::channels::display_title(c, cx.l10n())),
         AreaItem::HermesSession(id) => areas.hermes_session(id).map(|s| s.title.clone()),
         AreaItem::HermesHidden => None,
         AreaItem::Terminal(id) => areas
@@ -151,12 +164,16 @@ impl Render for AreaPane {
         let l = cx.l10n().clone();
         let r = t.roles;
         let Some(item) = self.item(cx) else {
+            channels::sync(self, None, window, cx);
             return div().size_full().bg(r.content).into_any_element();
         };
-        let title = title_of(&item, &self.stores, cx);
+        channels::sync(self, Some(&item), window, cx);
+        let title = channels::shown_title(self, &item, cx)
+            .unwrap_or_else(|| title_of(&item, &self.stores, cx));
+        let trailing = channels::toolbar_items(self, cx);
         let body = match &item {
             AreaItem::Note(id) => notes::pane(id, &title, &t, &l),
-            AreaItem::Channel(id) => channels::pane(id, &title, &t, &l),
+            AreaItem::Channel(id) => channels::pane(self, id, &title, &t, &l),
             // Shown in the chat pane; here only while the main window
             // switches over.
             AreaItem::HermesSession(_) => placeholder(&item, &title, &t, &l),
@@ -226,7 +243,9 @@ impl Render for AreaPane {
                             .text_color(r.text)
                             .child(SharedString::from(title)),
                     ),
-            );
+            )
+            .child(div().flex_1())
+            .children(trailing);
         div()
             .id("area-pane")
             .size_full()

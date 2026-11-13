@@ -649,6 +649,11 @@ pub fn build_menus(l10n: &L10n, state: &MenuState) -> Vec<Menu> {
             // Finder's and Notes' New Folder: greyed where folders cannot
             // be made (no handler answers it then).
             MenuItem::action(l10n.desktop_new_folder(), NewFolder),
+            // New Channel… likewise, for an account that may make one.
+            MenuItem::action(
+                l10n.desktop_new_channel(),
+                crate::views::channels::NewChannel,
+            ),
             MenuItem::separator(),
             MenuItem::action(l10n.desktop_menu_close_window(), CloseWindow),
         ]),
@@ -1082,6 +1087,7 @@ mod tests {
                 "New Chat",
                 "New Temporary Chat",
                 "New Folder",
+                "New Channel…",
                 "—",
                 "Close Window"
             ]

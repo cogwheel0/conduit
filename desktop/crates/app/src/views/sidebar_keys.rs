@@ -662,6 +662,8 @@ mod tests {
                 unread: 0,
                 pinned: false,
                 session: None,
+                icon: None,
+                dimmed: false,
             })
         };
         vec![
