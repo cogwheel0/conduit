@@ -112,6 +112,8 @@ actions!(
         // (the open chat's whole tree) and Save Chat (a temporary chat).
         MarkChatUnread,
         GenerateChatTitle,
+        // A LibreChat chat copied whole, on its server.
+        DuplicateChat,
         ShowBranches,
         SaveTemporaryChat,
         // Chat › Context & Usage… (a Hermes chat's context window).

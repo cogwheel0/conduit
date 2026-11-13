@@ -77,6 +77,7 @@ mod direct;
 mod hermes_cards;
 mod hermes_sessions;
 mod integration;
+mod librechat;
 mod notes;
 mod offline;
 mod read_aloud;
@@ -738,6 +739,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "integration" => integration::run(&inputs, &dir, cx).await,
         "sections" => sections::run(&inputs, &dir, cx).await,
         "channels" => channels::run(&inputs, &dir, cx).await,
+        "librechat" => librechat::run(&inputs, &dir, cx).await,
         "composer" => composer::run(&inputs, &dir, cx).await,
         "chat-settings" => chat_settings::run(&inputs, &dir, cx).await,
         "shell" | "shell-notify" | "shell-close" => shell::run(&inputs, &dir, cx).await,

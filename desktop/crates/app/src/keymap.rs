@@ -447,6 +447,69 @@ pub fn fixed_conflict(stroke: &KeyStroke, action: Option<ShortcutAction>) -> Opt
         .map(|(c, _)| c)
 }
 
+/// A key that works in one area only, listed in Settings › Keyboard under
+/// it: Notes' (its list and editor: New Note and the Format menu's chords)
+/// and Workspace's Save. Some share a chord with a command that works
+/// everywhere else (⌘N New Chat, ⌘K the palette, ⌘I Chat Settings): Notes
+/// binds them in its own contexts after the shortcut table, so they win
+/// there (`menus::bind_keys`), and they take no chord from anything else.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AreaKey {
+    NewNote,
+    Title,
+    Heading,
+    Subheading,
+    Body,
+    Bold,
+    Italic,
+    Strikethrough,
+    Code,
+    Link,
+    BulletedList,
+    NumberedList,
+    Checklist,
+    MarkChecked,
+    Quote,
+    CodeBlock,
+    /// ⌘S in a Workspace editor.
+    SaveWorkspaceItem,
+}
+
+/// The area keys and their chords, as Notes binds them (the Format menu
+/// shows them) and a Workspace editor takes ⌘S.
+pub fn area_shortcuts() -> Vec<(AreaKey, KeyStroke)> {
+    use AreaKey as A;
+    let k = KeyStroke::new;
+    vec![
+        (A::NewNote, k("n").primary()),
+        (A::Title, k("t").primary().shift()),
+        (A::Heading, k("h").primary().shift()),
+        (A::Subheading, k("j").primary().shift()),
+        (A::Body, k("b").primary().shift()),
+        (A::Bold, k("b").primary()),
+        (A::Italic, k("i").primary()),
+        (A::Strikethrough, k("x").primary().shift()),
+        (A::Code, k("e").primary()),
+        (A::Link, k("k").primary()),
+        (A::BulletedList, k("7").primary().shift()),
+        (A::NumberedList, k("9").primary().shift()),
+        (A::Checklist, k("8").primary().shift()),
+        (A::MarkChecked, k("u").primary().shift()),
+        (A::Quote, k("'").primary()),
+        (A::CodeBlock, k("c").primary().alt()),
+        (A::SaveWorkspaceItem, k("s").primary()),
+    ]
+}
+
+/// The chord an area key has.
+pub fn area_stroke(key: AreaKey) -> KeyStroke {
+    area_shortcuts()
+        .into_iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, s)| s)
+        .unwrap_or_else(|| KeyStroke::new(""))
+}
+
 /// A row of Settings › Keyboard.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyRow {
@@ -456,6 +519,8 @@ pub enum KeyRow {
     Fixed(FixedCommand),
     /// Quick Ask's global shortcut (also in General, with its switch).
     QuickAsk,
+    /// Works in one area only (Notes, Workspace); shown, not changed.
+    Area(AreaKey),
 }
 
 /// Settings › Keyboard's groups, as the menus group the commands.
@@ -467,6 +532,10 @@ pub enum KeyGroup {
     /// The Go menu: Back, Forward and the sidebar's sections.
     Go,
     Window,
+    /// New Note and the Format menu, in Notes.
+    Notes,
+    /// Save, in a Workspace editor.
+    Workspace,
 }
 
 /// Every shortcut the app has, grouped: the rebindable ones the app can
@@ -527,6 +596,18 @@ pub fn keyboard_groups() -> Vec<(KeyGroup, Vec<KeyRow>)> {
         (
             KeyGroup::Window,
             vec![QuickAsk, R(A::OpenSettings), R(A::ShowShortcuts)],
+        ),
+        (
+            KeyGroup::Notes,
+            area_shortcuts()
+                .into_iter()
+                .map(|(k, _)| KeyRow::Area(k))
+                .filter(|r| *r != KeyRow::Area(AreaKey::SaveWorkspaceItem))
+                .collect(),
+        ),
+        (
+            KeyGroup::Workspace,
+            vec![KeyRow::Area(AreaKey::SaveWorkspaceItem)],
         ),
     ]
 }
@@ -957,8 +1038,23 @@ mod tests {
             assert_eq!(n, 1, "{c:?}");
         }
         assert_eq!(rows.iter().filter(|r| **r == KeyRow::QuickAsk).count(), 1);
-        // 15 rebindable, 18 fixed (⌘1…⌘8 as one row), Quick Ask.
-        assert_eq!(rows.len(), 35);
+        for (key, _) in area_shortcuts() {
+            let n = rows.iter().filter(|r| **r == KeyRow::Area(key)).count();
+            assert_eq!(n, 1, "{key:?}");
+        }
+        // 15 rebindable, 18 fixed (⌘1…⌘8 as one row), Quick Ask, 16 in
+        // Notes and Workspace's Save.
+        assert_eq!(rows.len(), 52);
+        // The area keys share no chord among themselves; where one is a
+        // fixed command's too (⌘I Chat Settings), Notes takes it only in
+        // its own contexts.
+        let area: Vec<KeyStroke> = area_shortcuts().into_iter().map(|(_, s)| s).collect();
+        for (i, s) in area.iter().enumerate() {
+            assert!(!area[i + 1..].contains(s), "{s:?} twice");
+        }
+        assert_eq!(describe(&area_stroke(AreaKey::NewNote), true), "⌘N");
+        assert_eq!(describe(&area_stroke(AreaKey::Link), true), "⌘K");
+        assert_eq!(describe(&area_stroke(AreaKey::CodeBlock), true), "⌥⌘C");
         // Start Voice Call takes no chord the menus have.
         let call = default_shortcuts()
             .into_iter()

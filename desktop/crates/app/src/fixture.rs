@@ -102,7 +102,7 @@ pub fn synthetic(n: usize) -> ChatList {
                 model: None,
                 tags: vec![],
                 shared: false,
-                menu: Default::default(),
+                menu: crate::fixture::owui_chat_menu(),
             }
         })
         .collect::<Vec<_>>();
@@ -815,4 +815,17 @@ fn shell(
         cx.update(|cx| cx.quit());
     })
     .detach();
+}
+
+/// An Open WebUI chat's menus, as the core offers them, for the fixtures'
+/// canned chats.
+pub fn owui_chat_menu() -> conduit_protocol::ChatMenuAbilities {
+    conduit_protocol::ChatMenuAbilities {
+        share: true,
+        duplicate: false,
+        r#move: true,
+        mark_unread: true,
+        generate_title: true,
+        export: true,
+    }
 }

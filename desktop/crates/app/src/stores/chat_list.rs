@@ -1053,12 +1053,7 @@ pub fn wire(stores: &Stores, cx: &mut App) {
         let s = stores.clone();
         move |cx: &mut App| {
             let next = Scope {
-                account: s
-                    .accounts
-                    .read(cx)
-                    .list
-                    .as_ref()
-                    .and_then(|l| l.active_account_id.clone()),
+                account: s.accounts.read(cx).scope_key(),
                 main: main(&s, cx),
             };
             let change = scope_change(last.borrow().as_ref(), &next);

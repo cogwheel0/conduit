@@ -26,7 +26,7 @@
   },
   "desktopShareAccessEllipsis": "Share Access…",
   "@desktopShareAccessEllipsis": {
-    "description": "Note context menu item and toolbar button that open who may read or edit the note. Title Case, ellipsis because a sheet opens."
+    "description": "Menu item and button that open who may read or edit a note or a workspace item (Share Note, Share Model…). Title Case, ellipsis because a sheet opens."
   },
   "desktopDeleteNoteTitle": "Delete “{title}”?",
   "@desktopDeleteNoteTitle": {
@@ -253,7 +253,7 @@
   },
   "desktopSignOut": "Sign Out",
   "@desktopSignOut": {
-    "description": "Settings › Data row label, and the button of the sign-out confirmation, in Title Case."
+    "description": "Settings › Data row label, the button of the sign-out confirmation, and the button that forgets an MCP server's sign-in, in Title Case."
   },
   "desktopSignOutEllipsis": "Sign Out…",
   "@desktopSignOutEllipsis": {
@@ -479,7 +479,7 @@
   },
   "desktopSaving": "Saving…",
   "@desktopSaving": {
-    "description": "Save button while the change is saved."
+    "description": "Save button (a chat setting, a workspace editor) while the change is saved."
   },
   "desktopSignInWithHermes": "Sign In with Hermes Agent",
   "@desktopSignInWithHermes": {
@@ -1398,10 +1398,6 @@
   "@desktopWorkspaceDenied": {
     "description": "Shown when the user lacks permission to manage a workspace section. (Desktop copy of the phone's workspaceDenied, translated for the desktop.)"
   },
-  "desktopWorkspaceEditorSaving": "Saving…",
-  "@desktopWorkspaceEditorSaving": {
-    "description": "Label shown on the editor save button while a save is in progress. (Desktop copy of the phone's workspaceEditorSaving, translated for the desktop.)"
-  },
   "desktopWorkspaceImportBatchFailed": "The import could not be completed.",
   "@desktopWorkspaceImportBatchFailed": {
     "description": "Error shown when the entire import operation fails unexpectedly. (Desktop copy of the phone's workspaceImportBatchFailed, translated for the desktop.)"
@@ -2179,13 +2175,29 @@
   "@desktopWorkspaceRevert": {
     "description": "Button in a workspace editor: throws away unsaved changes and shows the item as saved. Title Case."
   },
-  "desktopWorkspaceShareAccess": "Share Access…",
-  "@desktopWorkspaceShareAccess": {
-    "description": "Context menu item and button: opens the sheet that says who may use or edit a workspace item. Title Case, ellipsis."
-  },
   "desktopWorkspaceShareAccessTitle": "Share Access",
   "@desktopWorkspaceShareAccessTitle": {
     "description": "Title of the sheet that says who may use or edit a workspace item. Title Case."
+  },
+  "desktopShareModelTitle": "Share Model",
+  "@desktopShareModelTitle": {
+    "description": "Title of the sheet that says who may use or edit a workspace model. Title Case."
+  },
+  "desktopShareKnowledgeTitle": "Share Knowledge",
+  "@desktopShareKnowledgeTitle": {
+    "description": "Title of the sheet that says who may use or edit a knowledge collection in the workspace. Title Case."
+  },
+  "desktopSharePromptTitle": "Share Prompt",
+  "@desktopSharePromptTitle": {
+    "description": "Title of the sheet that says who may use or edit a workspace prompt. Title Case."
+  },
+  "desktopShareToolTitle": "Share Tool",
+  "@desktopShareToolTitle": {
+    "description": "Title of the sheet that says who may use or edit a workspace tool. Title Case."
+  },
+  "desktopShareSkillTitle": "Share Skill",
+  "@desktopShareSkillTitle": {
+    "description": "Title of the sheet that says who may use or edit a workspace skill. Title Case."
   },
   "desktopWorkspaceShow": "Show",
   "@desktopWorkspaceShow": {
@@ -3094,10 +3106,6 @@
   "@desktopDirectHistoryLocalHelp": {
     "description": "Footer under the Open WebUI History switch when it is off."
   },
-  "desktopDirectThisMacSection": "On This Mac",
-  "@desktopDirectThisMacSection": {
-    "description": "Section title over the Direct connections kept on this Mac (beside those kept in the Open WebUI account)."
-  },
   "desktopDirectConnectionsHelp": "Connect to model providers without Open WebUI. Keys are kept securely on this Mac and sent only to their provider.",
   "@desktopDirectConnectionsHelp": {
     "description": "Footer under this Mac's Direct connections in Settings."
@@ -3196,10 +3204,6 @@
   "@desktopMcpSignInHelp": {
     "description": "Status under an MCP server's OAuth row before signing in."
   },
-  "desktopMcpSignOut": "Sign Out",
-  "@desktopMcpSignOut": {
-    "description": "Button that forgets an MCP server's OAuth sign-in."
-  },
   "desktopMcpSignInFailed": "Signing in didn't finish. Try again.",
   "@desktopMcpSignInFailed": {
     "description": "Error after an MCP server's OAuth sign-in failed or timed out."
@@ -3286,10 +3290,6 @@
   "desktopOllamaOneHour": "1 Hour",
   "@desktopOllamaOneHour": {
     "description": "Keep-alive choice for an Ollama model."
-  },
-  "desktopOllamaCustomEllipsis": "Custom…",
-  "@desktopOllamaCustomEllipsis": {
-    "description": "Keep-alive choice that opens a field for any duration."
   },
   "desktopOllamaKeepAliveHelp": "Seconds, or a duration such as 10m or 24h. -1 keeps it loaded; 0 unloads it after each answer.",
   "@desktopOllamaKeepAliveHelp": {
@@ -4009,6 +4009,14 @@
   "@desktopKeyboardGoToSection": {
     "description": "Settings › Keyboard row for ⌘1–⌘8: open the sidebar's sections in order."
   },
+  "desktopKeyboardNotesFooter": "These work in Notes, where ⌘N makes a note instead of a chat.",
+  "@desktopKeyboardNotesFooter": {
+    "description": "Settings › Keyboard: footer under the Notes group, whose keys work only in Notes (there ⌘N makes a note; elsewhere it starts a chat). Sentence case."
+  },
+  "desktopKeyboardWorkspaceFooter": "Saves the model, prompt, tool, skill or knowledge open in Workspace.",
+  "@desktopKeyboardWorkspaceFooter": {
+    "description": "Settings › Keyboard: footer under the Workspace group, whose ⌘S saves the item open in a Workspace editor. Sentence case."
+  },
   "desktopNotificationAnswerReady": "The answer is ready.",
   "@desktopNotificationAnswerReady": {
     "description": "Body of the system notification when an answer finishes; the title is the conversation's title. Never includes the answer."
@@ -4384,7 +4392,7 @@
   },
   "desktopCustomEllipsis": "Custom…",
   "@desktopCustomEllipsis": {
-    "description": "Last item of the reasoning effort menu: type a value of your own. Title Case with an ellipsis."
+    "description": "Last item of a menu of preset values (reasoning effort, Ollama keep-alive) that opens a field for a value of your own. Title Case with an ellipsis."
   },
   "desktopPinModel": "Pin {name}",
   "@desktopPinModel": {
@@ -4870,7 +4878,7 @@
   },
   "desktopOnThisMac": "On This Mac",
   "@desktopOnThisMac": {
-    "description": "Settings › Audio: the speech engine that runs on this Mac (speech to text and text to speech), the phone's \"On Device\". Title Case."
+    "description": "Settings › Audio: the speech engine that runs on this Mac (the phone's \"On Device\"); Settings › Direct Connections: the section of connections kept on this Mac. Title Case."
   },
   "desktopSttEngineWhisper": "Whisper on This Mac",
   "@desktopSttEngineWhisper": {
@@ -5036,5 +5044,9 @@
   "desktopHermesSessionsFailed": "Couldn't load Hermes chats.",
   "@desktopHermesSessionsFailed": {
     "description": "Sidebar hint in the Hermes section when the session list could not be read; a Try Again button follows."
+  },
+  "desktopLibreChatSignInSubtitle": "Sign in with your LibreChat account.",
+  "@desktopLibreChatSignInSubtitle": {
+    "description": "Subtitle of the LibreChat sign-in step, under its Sign In title. Sentence case."
   }
 }

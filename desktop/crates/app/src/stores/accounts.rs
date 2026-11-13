@@ -17,7 +17,8 @@ use std::pin::Pin;
 use conduit_daemon::RpcError;
 use conduit_protocol::{
     AccountChangeOutcome, AccountChangeResult, AccountList, AccountRef, AccountSignOut,
-    AccountSummary, AddAccount, NoParams, ServerDraft, methods,
+    AccountSummary, AddAccount, LibreChatAccountSummary, LibreChatSessionPhase, NoParams,
+    PrimaryAccount, ServerDraft, methods,
 };
 use gpui_kit::{AsyncApp, Context, EventEmitter, Task, WeakEntity};
 
@@ -123,9 +124,42 @@ pub fn display_name(account: &AccountSummary) -> String {
         .unwrap_or_else(|| account.connection.name.clone())
 }
 
+/// A display name for a LibreChat account: its user's name, else its
+/// email, else its server's title.
+pub fn libre_chat_display_name(account: &LibreChatAccountSummary) -> String {
+    account
+        .user
+        .as_ref()
+        .and_then(|u| {
+            u.name
+                .clone()
+                .filter(|n| !n.trim().is_empty())
+                .or_else(|| u.email.clone().filter(|e| !e.is_empty()))
+        })
+        .unwrap_or_else(|| account.title.clone())
+}
+
 fn name_of(list: &AccountList, id: Option<&str>) -> Option<String> {
     let id = id?;
-    list.accounts.iter().find(|a| a.id == id).map(display_name)
+    list.accounts
+        .iter()
+        .find(|a| a.id == id)
+        .map(display_name)
+        .or_else(|| {
+            list.libre_chat_accounts
+                .iter()
+                .find(|a| a.id == id)
+                .map(libre_chat_display_name)
+        })
+}
+
+/// The account in charge of the chats: the active Open WebUI account, or
+/// the LibreChat account in use while LibreChat owns them.
+fn in_charge(list: &AccountList) -> Option<&str> {
+    match list.primary {
+        PrimaryAccount::LibreChat => list.active_libre_chat_account_id.as_deref(),
+        _ => list.active_account_id.as_deref(),
+    }
 }
 
 /// The notice for `change`'s `result`, given the list before it. `None` for
@@ -137,12 +171,12 @@ pub fn describe(
 ) -> Option<AccountNotice> {
     use AccountChangeOutcome as O;
     let after = &result.accounts;
-    let active_after = after.active_account_id.as_deref();
+    let active_after = in_charge(after);
     let target_before = change
         .account_id()
         .map(str::to_string)
         .or_else(|| match change {
-            AccountChange::SignOut => before.and_then(|b| b.active_account_id.clone()),
+            AccountChange::SignOut => before.and_then(in_charge).map(str::to_string),
             _ => None,
         });
     let name = before
@@ -216,8 +250,53 @@ impl AccountsStore {
         list.accounts.iter().find(|a| a.id == id)
     }
 
+    /// The account in charge of the chats, as a scope: the active Open
+    /// WebUI account, or the LibreChat account in use while LibreChat owns
+    /// the chats. Another scope means nothing chosen carries over.
+    pub fn scope_key(&self) -> Option<String> {
+        let list = self.list.as_ref()?;
+        let id = in_charge(list)?;
+        Some(match list.primary {
+            PrimaryAccount::LibreChat => format!("librechat:{id}"),
+            _ => id.to_string(),
+        })
+    }
+
     pub fn adding(&self) -> bool {
         self.list.as_ref().is_some_and(|l| l.adding_account)
+    }
+
+    /// The saved LibreChat accounts.
+    pub fn libre_chat_accounts(&self) -> &[LibreChatAccountSummary] {
+        self.list
+            .as_ref()
+            .map_or(&[], |l| l.libre_chat_accounts.as_slice())
+    }
+
+    /// Whether a LibreChat account owns the chats.
+    pub fn libre_chat_in_charge(&self) -> bool {
+        self.list
+            .as_ref()
+            .is_some_and(|l| l.primary == PrimaryAccount::LibreChat)
+    }
+
+    /// The LibreChat account in use, whether or not it owns the chats.
+    pub fn libre_chat_active(&self) -> Option<&LibreChatAccountSummary> {
+        let list = self.list.as_ref()?;
+        let id = list.active_libre_chat_account_id.as_deref()?;
+        list.libre_chat_accounts.iter().find(|a| a.id == id)
+    }
+
+    /// The LibreChat account in charge of the chats when its session ended
+    /// and it needs a sign-in, from its own server.
+    pub fn libre_chat_needs_sign_in(&self) -> Option<&LibreChatAccountSummary> {
+        let list = self.list.as_ref()?;
+        if list.primary != PrimaryAccount::LibreChat
+            || list.libre_chat_session != LibreChatSessionPhase::NeedsSignIn
+        {
+            return None;
+        }
+        self.libre_chat_active()
     }
 
     /// Forgets the list: a new daemon session may hold another state.
@@ -437,10 +516,7 @@ pub(crate) mod tests {
             accounts,
             active_account_id: active,
             adding_account: false,
-            libre_chat_accounts: Default::default(),
-            primary: conduit_protocol::PrimaryAccount::OpenWebUi,
-            active_libre_chat_account_id: None,
-            libre_chat_session: conduit_protocol::LibreChatSessionPhase::None,
+            ..Default::default()
         }
     }
 
@@ -453,6 +529,23 @@ pub(crate) mod tests {
 
     fn result(outcome: AccountChangeOutcome, accounts: AccountList) -> AccountChangeResult {
         AccountChangeResult { outcome, accounts }
+    }
+
+    #[test]
+    fn the_scope_is_the_account_in_charge_of_the_chats() {
+        let mut store = AccountsStore::new(crate::stores::rpc::fake::FakeDaemon::new().rpc());
+        let mut l = two();
+        store.list = Some(l.clone());
+        assert_eq!(store.scope_key().as_deref(), Some("a"));
+        // LibreChat owns the chats: its account is the scope, though the
+        // Open WebUI account stays active (parked).
+        l.primary = PrimaryAccount::LibreChat;
+        l.active_libre_chat_account_id = Some("a".into());
+        store.list = Some(l.clone());
+        assert_eq!(store.scope_key().as_deref(), Some("librechat:a"));
+        l.active_libre_chat_account_id = None;
+        store.list = Some(l);
+        assert_eq!(store.scope_key(), None);
     }
 
     #[test]

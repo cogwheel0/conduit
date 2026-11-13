@@ -37,6 +37,7 @@ pub mod chats;
 pub mod connection;
 pub mod controls;
 pub mod data_controls;
+pub mod librechat_memories;
 pub mod personalization;
 pub mod profile;
 
@@ -300,6 +301,31 @@ pub fn fixed_label(command: FixedCommand, l10n: &L10n) -> String {
         F::Back => l10n.desktop_menu_back(),
         F::Forward => l10n.desktop_menu_forward(),
         F::GoToSection(_) => l10n.desktop_keyboard_go_to_section(),
+    }
+}
+
+/// An area key's name in Settings › Keyboard: the Format menu's item, the
+/// File menu's New Note, Save.
+pub fn area_key_label(key: keymap::AreaKey, l10n: &L10n) -> String {
+    use keymap::AreaKey as K;
+    match key {
+        K::NewNote => l10n.desktop_new_note(),
+        K::Title => l10n.desktop_note_style_title(),
+        K::Heading => l10n.desktop_note_style_heading(),
+        K::Subheading => l10n.desktop_note_style_subheading(),
+        K::Body => l10n.desktop_note_style_body(),
+        K::Bold => l10n.desktop_note_bold(),
+        K::Italic => l10n.desktop_note_italic(),
+        K::Strikethrough => l10n.desktop_note_strikethrough(),
+        K::Code => l10n.desktop_note_code(),
+        K::Link => l10n.desktop_add_link_ellipsis(),
+        K::BulletedList => l10n.desktop_note_bulleted_list(),
+        K::NumberedList => l10n.desktop_note_numbered_list(),
+        K::Checklist => l10n.desktop_note_checklist(),
+        K::MarkChecked => l10n.desktop_note_mark_checked(),
+        K::Quote => l10n.desktop_note_quote(),
+        K::CodeBlock => l10n.desktop_note_code_block(),
+        K::SaveWorkspaceItem => l10n.save(),
     }
 }
 
@@ -950,6 +976,18 @@ impl SettingsView {
                                 .into_any_element(),
                         );
                     }
+                    KeyRow::Area(key) => {
+                        let label = area_key_label(key, &l10n);
+                        let keys = describe(&keymap::area_stroke(key), mac);
+                        let field = ShortcutField::new(
+                            SharedString::from(format!("area-{key:?}")),
+                            keys,
+                            label.clone(),
+                            SharedString::default(),
+                        )
+                        .fixed(true);
+                        rows.push(setting_row(label, None, field, cx).into_any_element());
+                    }
                     KeyRow::QuickAsk => {
                         if recording_quick_ask && let Some(m) = &quick_ask_message {
                             footer = Some(record_message(m, &l10n).into());
@@ -970,7 +1008,15 @@ impl SettingsView {
                 KeyGroup::FindAndView => l10n.desktop_keyboard_find_and_view(),
                 KeyGroup::Go => l10n.desktop_menu_go(),
                 KeyGroup::Window => l10n.desktop_menu_window(),
+                KeyGroup::Notes => l10n.sidebar_notes_tab(),
+                KeyGroup::Workspace => l10n.workspace_title(),
             };
+            // Where these keys work, under the areas' own groups.
+            let footer = footer.or_else(|| match group {
+                KeyGroup::Notes => Some(l10n.desktop_keyboard_notes_footer().into()),
+                KeyGroup::Workspace => Some(l10n.desktop_keyboard_workspace_footer().into()),
+                _ => None,
+            });
             sections.push(settings_section(title, footer, rows, cx).into_any_element());
         }
         let s = self.settings.clone();
@@ -1338,23 +1384,32 @@ impl SettingsView {
         let more = {
             let stores = self.stores.clone();
             Rc::new(move |id: &str, window: &mut Window, cx: &mut App| {
-                let Some(account) = stores
-                    .accounts
-                    .read(cx)
-                    .accounts()
-                    .iter()
-                    .find(|a| a.id == id)
-                    .cloned()
-                else {
+                // An Open WebUI account, or a LibreChat one.
+                let name = {
+                    let store = stores.accounts.read(cx);
+                    store
+                        .accounts()
+                        .iter()
+                        .find(|a| a.id == id)
+                        .map(crate::stores::accounts::display_name)
+                        .or_else(|| {
+                            store
+                                .libre_chat_accounts()
+                                .iter()
+                                .find(|a| a.id == id)
+                                .map(crate::stores::accounts::libre_chat_display_name)
+                        })
+                };
+                let Some(name) = name else {
                     return;
                 };
                 let l10n = cx.l10n().clone();
-                let name = privacy::name(&crate::stores::accounts::display_name(&account), cx);
+                let name = privacy::name(&name, cx);
                 NativeMenu::new()
                     .menu(
                         l10n.desktop_sign_out_of(&name),
                         Box::new(RemoveAccount {
-                            account_id: account.id.clone(),
+                            account_id: id.to_string(),
                         }),
                     )
                     .show(window.mouse_position(), window, cx);

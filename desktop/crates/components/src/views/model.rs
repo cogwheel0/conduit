@@ -121,6 +121,7 @@ pub enum Backend {
     OpenWebUi,
     Direct,
     Hermes,
+    LibreChat,
 }
 
 impl Backend {
@@ -129,6 +130,7 @@ impl Backend {
             Self::OpenWebUi => "Open WebUI",
             Self::Direct => "Direct connection",
             Self::Hermes => "Hermes",
+            Self::LibreChat => "LibreChat",
         }
     }
 }

@@ -168,6 +168,79 @@ pub fn is_done(url: &str, server_origin: &str, left_origin: bool, has_token: boo
     origin_of(url).as_deref() == Some(server_origin) && (has_token || left_origin)
 }
 
+/// What the LibreChat sign-in window does with one navigation (the core's
+/// `libreChatSsoNavigation`, which the phone's web view follows too; the
+/// window must decide inside WebKit's navigation callback, so it is read
+/// here, from the daemon's [`LibreChatSsoPlan`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LibreChatNav {
+    /// The provider's pages, and LibreChat's own sign-in routes.
+    Allow,
+    /// LibreChat's OAuth callback: the provider sent the browser back, and
+    /// this response sets the session. It loads.
+    ProviderReturned,
+    /// A page of LibreChat's outside its sign-in routes: once the provider
+    /// has returned, the sign-in finished, and this hop to its web app is
+    /// cancelled (the web app would renew the session and rotate its
+    /// cookie).
+    AppPage,
+    /// LibreChat sent the browser back to its sign-in page with an error.
+    Fail,
+}
+
+/// [`LibreChatNav`] for `url` on a server at `origins` under `base_path`.
+pub fn librechat_nav(url: &str, origins: &[String], base_path: &str) -> LibreChatNav {
+    let Ok(u) = url::Url::parse(url) else {
+        return LibreChatNav::Allow;
+    };
+    let origin = u.origin().ascii_serialization();
+    if !origins.iter().any(|o| o.eq_ignore_ascii_case(&origin)) {
+        return LibreChatNav::Allow;
+    }
+    let base = base_path.trim_end_matches('/');
+    let mut path = u.path();
+    if !base.is_empty() && (path == base || path.starts_with(&format!("{base}/"))) {
+        path = &path[base.len()..];
+    }
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    if let Some(oauth) = segments.iter().rposition(|s| *s == "oauth")
+        && oauth + 3 == segments.len()
+        && segments.last() == Some(&"callback")
+    {
+        return LibreChatNav::ProviderReturned;
+    }
+    if segments.contains(&"oauth") || segments.contains(&"api") {
+        return LibreChatNav::Allow;
+    }
+    if segments.last() == Some(&"login") && u.query_pairs().any(|(k, _)| k == "error") {
+        return LibreChatNav::Fail;
+    }
+    LibreChatNav::AppPage
+}
+
+/// Single sign-on to a LibreChat server, as `plan` says (from
+/// `librechat.ssoStart`): a browser window at its `/oauth/{provider}`,
+/// stopped at the hop to its web app, and the cookies of its
+/// `cookie_url` handed back for `librechat.completeSso`.
+pub fn run_librechat_sso(
+    plan: conduit_protocol::LibreChatSsoPlan,
+    title: String,
+    cx: &mut App,
+) -> Task<SsoOutcome> {
+    if origin_of(&plan.start_url).is_none() {
+        return Task::ready(SsoOutcome::Failed("not an http(s) server address".into()));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos::run_librechat(plan, title, cx)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (plan, title, cx);
+        Task::ready(SsoOutcome::Failed("SSO needs macOS for now".into()))
+    }
+}
+
 /// Opens the sign-in window for `server_url` and resolves when it is done,
 /// closed or out of time. `title` is the window's title.
 pub fn run_sso(server_url: &str, title: String, cx: &mut App) -> Task<SsoOutcome> {
@@ -362,6 +435,167 @@ mod macos {
         !format!("{cookie:?}").contains("domain: Some(Concrete(\".")
     }
 
+    /// What the LibreChat window's navigation callback tells the flow.
+    enum LibreChatSignal {
+        Loaded,
+        Finished,
+        Failed,
+    }
+
+    pub fn run_librechat(
+        plan: conduit_protocol::LibreChatSsoPlan,
+        title: String,
+        cx: &mut App,
+    ) -> Task<SsoOutcome> {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let (signals_tx, mut signals) = mpsc::unbounded::<LibreChatSignal>();
+        let (closed_tx, closed) = oneshot::channel::<()>();
+        let returned = Arc::new(AtomicBool::new(false));
+        let bounds = Bounds::centered(None, size(px(520.), px(700.)), cx);
+        let mut options = conduit_components::window::window_options(&title, bounds, false, true);
+        options.window_bounds = Some(WindowBounds::Windowed(bounds));
+        options.window_min_size = Some(size(px(420.), px(480.)));
+        let origins = plan.server_origins.clone();
+        let base_path = plan.base_path.clone();
+        let start = plan.start_url.clone();
+        let opened = open_window_clear_root(options, cx, |window, cx| {
+            let nav_tx = signals_tx.clone();
+            let load_tx = signals_tx.clone();
+            let returned = returned.clone();
+            let builder = wry::WebViewBuilder::new()
+                // A fresh, non-persistent store: no earlier sign-in's cookies
+                // can sign this one in, and none outlive the window.
+                .with_incognito(true)
+                .with_url(&start)
+                .with_navigation_handler(move |url: String| {
+                    if !url::Url::parse(&url).is_ok_and(|u| matches!(u.scheme(), "http" | "https"))
+                    {
+                        return false;
+                    }
+                    match super::librechat_nav(&url, &origins, &base_path) {
+                        LibreChatNav::Allow => true,
+                        LibreChatNav::ProviderReturned => {
+                            returned.store(true, Ordering::SeqCst);
+                            true
+                        }
+                        LibreChatNav::AppPage => {
+                            if returned.load(Ordering::SeqCst) {
+                                let _ = nav_tx.unbounded_send(LibreChatSignal::Finished);
+                                false
+                            } else {
+                                true
+                            }
+                        }
+                        LibreChatNav::Fail => {
+                            let _ = nav_tx.unbounded_send(LibreChatSignal::Failed);
+                            false
+                        }
+                    }
+                })
+                .with_on_page_load_handler(move |event, url: String| {
+                    if matches!(event, wry::PageLoadEvent::Finished) {
+                        let _ = (url, load_tx.unbounded_send(LibreChatSignal::Loaded));
+                    }
+                });
+            let webview = cx.new(|cx| {
+                WebView::build(builder, window, cx).expect("a WKWebView always builds on macOS")
+            });
+            cx.new(|_| SsoWindow {
+                title: title.clone().into(),
+                webview,
+                _closed: closed_tx,
+            })
+        });
+        let (handle, view): (AnyWindowHandle, Entity<SsoWindow>) = match opened {
+            Ok(opened) => opened,
+            Err(e) => return Task::ready(SsoOutcome::Failed(e.to_string())),
+        };
+        let view = view.downgrade();
+        let cookie_url = plan.cookie_url.clone();
+        let origin = plan
+            .server_origins
+            .first()
+            .cloned()
+            .unwrap_or_else(|| super::origin_of(&plan.start_url).unwrap_or_default());
+        cx.spawn(async move |cx: &mut AsyncApp| {
+            let mut closed = closed.fuse();
+            let mut timeout = cx.background_executor().timer(SSO_TIMEOUT).fuse();
+            let mut script = cx.update(|cx| cx.try_global::<SsoScript>().and_then(|s| s.0.clone()));
+            loop {
+                let signal = futures::select_biased! {
+                    _ = closed => return SsoOutcome::Cancelled,
+                    _ = timeout => {
+                        close(handle, cx);
+                        return SsoOutcome::TimedOut;
+                    }
+                    signal = signals.next() => match signal {
+                        Some(signal) => signal,
+                        None => return SsoOutcome::Cancelled,
+                    },
+                };
+                match signal {
+                    LibreChatSignal::Loaded => {
+                        // The test hook stands in for the user at the
+                        // provider's page, once.
+                        if let Some(js) = script.take() {
+                            let Ok(webview) =
+                                view.read_with(cx, |v, cx| v.webview.read(cx).handle())
+                            else {
+                                return SsoOutcome::Cancelled;
+                            };
+                            log::info!("sso: running the test script on the provider's page");
+                            let _ = webview.raw().evaluate_script(&js);
+                        }
+                    }
+                    LibreChatSignal::Failed => {
+                        close(handle, cx);
+                        return SsoOutcome::Failed("the server refused the sign-in".into());
+                    }
+                    LibreChatSignal::Finished => {
+                        // Read outside any GPUI borrow: wry pumps the run
+                        // loop while it waits for WKHTTPCookieStore.
+                        let Ok(webview) = view.read_with(cx, |v, cx| v.webview.read(cx).handle())
+                        else {
+                            return SsoOutcome::Cancelled;
+                        };
+                        let all = match webview.raw().cookies() {
+                            Ok(all) => all,
+                            Err(e) => {
+                                close(handle, cx);
+                                return SsoOutcome::Failed(e.to_string());
+                            }
+                        };
+                        // Those a browser would send to the LibreChat server
+                        // (RFC 6265), as for Open WebUI.
+                        let cookies = cookies_for_server(
+                            all.iter().map(|c| Captured {
+                                domain: c.domain(),
+                                host_only: host_only(c),
+                                secure: c.secure().unwrap_or(false),
+                                path: c.path(),
+                                name: c.name(),
+                                value: c.value(),
+                            }),
+                            &cookie_url,
+                        );
+                        log::info!(
+                            "sso: LibreChat sign-in finished ({} cookies)",
+                            cookies.len()
+                        );
+                        close(handle, cx);
+                        return SsoOutcome::Captured {
+                            origin: origin.clone(),
+                            cookies,
+                            token: None,
+                        };
+                    }
+                }
+            }
+        })
+    }
+
     fn close(handle: AnyWindowHandle, cx: &mut AsyncApp) {
         let _ = handle.update(cx, |_, window, _| window.remove_window());
     }
@@ -492,6 +726,58 @@ mod tests {
             true,
             true
         ));
+    }
+
+    #[test]
+    fn librechat_navigations_read_as_the_core_reads_them() {
+        let origins = vec!["https://chat.example.com".to_string()];
+        let nav = |url: &str| librechat_nav(url, &origins, "");
+        // The provider's own pages, and LibreChat's sign-in routes.
+        assert_eq!(
+            nav("https://idp.example.org/authorize"),
+            LibreChatNav::Allow
+        );
+        assert_eq!(
+            nav("https://chat.example.com/oauth/openid"),
+            LibreChatNav::Allow
+        );
+        assert_eq!(
+            nav("https://chat.example.com/api/auth/refresh"),
+            LibreChatNav::Allow
+        );
+        // Back from the provider.
+        assert_eq!(
+            nav("https://chat.example.com/oauth/openid/callback?code=x"),
+            LibreChatNav::ProviderReturned
+        );
+        // The web app, and its sign-in page with an error.
+        assert_eq!(nav("https://chat.example.com/c/new"), LibreChatNav::AppPage);
+        assert_eq!(nav("https://chat.example.com/"), LibreChatNav::AppPage);
+        assert_eq!(
+            nav("https://chat.example.com/login?error=auth_failed"),
+            LibreChatNav::Fail
+        );
+        assert_eq!(nav("https://chat.example.com/login"), LibreChatNav::AppPage);
+        // Another port is another origin.
+        assert_eq!(
+            nav("https://chat.example.com:8443/c/new"),
+            LibreChatNav::Allow
+        );
+    }
+
+    #[test]
+    fn a_librechat_server_under_a_path_keeps_its_routes() {
+        let origins = vec!["https://example.com".to_string()];
+        let nav = |url: &str| librechat_nav(url, &origins, "/oauth/librechat");
+        // Its web app under `/oauth/librechat` is not an OAuth route.
+        assert_eq!(
+            nav("https://example.com/oauth/librechat/c/new"),
+            LibreChatNav::AppPage
+        );
+        assert_eq!(
+            nav("https://example.com/oauth/librechat/oauth/github/callback"),
+            LibreChatNav::ProviderReturned
+        );
     }
 
     #[test]

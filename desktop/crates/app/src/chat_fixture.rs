@@ -183,7 +183,7 @@ fn chat_value() -> Value {
                 model: None,
                 tags: vec![],
                 shared: false,
-                menu: Default::default(),
+                menu: crate::fixture::owui_chat_menu(),
             },
             messages,
             system_prompt: None,

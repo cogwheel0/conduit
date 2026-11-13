@@ -5,6 +5,8 @@
 //!   Direct, and the session moves the window to chat once it works.
 //! * **Hermes**: the Hermes form ([`HermesView`]); once Hermes is usable
 //!   the session moves on.
+//! * **LibreChat** (Beta): the LibreChat sign-in ([`LibreChatSignInView`]);
+//!   signed in, its account owns the chats and the window moves to chat.
 //!
 //! It lives in the setup window ([`crate::views::setup_window`]). Choosing
 //! a path tells the daemon whether Direct is preferred
@@ -28,6 +30,7 @@ use crate::l10n::ActiveL10n as _;
 use crate::stores::Stores;
 use crate::views::direct::DirectView;
 use crate::views::hermes::HermesView;
+use crate::views::librechat_sign_in::{LibreChatSignInEvent, LibreChatSignInView};
 use crate::views::server_form::{ServerForm, ServerFormEvent};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +39,7 @@ pub enum Step {
     Server,
     Direct,
     Hermes,
+    LibreChat,
 }
 
 pub struct OnboardingView {
@@ -47,6 +51,7 @@ pub struct OnboardingView {
     pub server: Entity<ServerForm>,
     direct: Option<Entity<DirectView>>,
     hermes: Option<Entity<HermesView>>,
+    pub librechat: Entity<LibreChatSignInView>,
     busy: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -54,24 +59,39 @@ pub struct OnboardingView {
 impl OnboardingView {
     pub fn new(stores: Stores, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let server = cx.new(|cx| ServerForm::new(stores.clone(), window, cx));
-        let subscriptions = vec![cx.subscribe_in(
-            &server,
-            window,
-            |this: &mut Self, _, event: &ServerFormEvent, window, cx| match event {
-                ServerFormEvent::Back => {
-                    if this.adding {
-                        this.adding = false;
+        let librechat = cx.new(|cx| LibreChatSignInView::new(stores.clone(), window, cx));
+        let subscriptions = vec![
+            cx.subscribe_in(
+                &librechat,
+                window,
+                |this: &mut Self, _, event: &LibreChatSignInEvent, window, cx| match event {
+                    LibreChatSignInEvent::Back => this.go(Step::Choose, window, cx),
+                    // Signed in: the session routes to chat.
+                    LibreChatSignInEvent::SignedIn => {
+                        this.step = Step::Choose;
+                        cx.notify();
                     }
-                    this.go(Step::Choose, window, cx);
-                }
-                ServerFormEvent::Connected => {
-                    // Sign-in is next; the session routes there.
-                    this.adding = false;
-                    this.step = Step::Choose;
-                    cx.notify();
-                }
-            },
-        )];
+                },
+            ),
+            cx.subscribe_in(
+                &server,
+                window,
+                |this: &mut Self, _, event: &ServerFormEvent, window, cx| match event {
+                    ServerFormEvent::Back => {
+                        if this.adding {
+                            this.adding = false;
+                        }
+                        this.go(Step::Choose, window, cx);
+                    }
+                    ServerFormEvent::Connected => {
+                        // Sign-in is next; the session routes there.
+                        this.adding = false;
+                        this.step = Step::Choose;
+                        cx.notify();
+                    }
+                },
+            ),
+        ];
         Self {
             stores,
             step: Step::Choose,
@@ -80,6 +100,7 @@ impl OnboardingView {
             server,
             direct: None,
             hermes: None,
+            librechat,
             busy: false,
             _subscriptions: subscriptions,
         }
@@ -98,7 +119,9 @@ impl OnboardingView {
     /// Whether the window should keep showing this view over the route: an
     /// addition in progress, or a server being checked.
     pub fn holds(&self, cx: &App) -> bool {
-        self.adding || self.server.read(cx).busy
+        self.adding
+            || self.server.read(cx).busy
+            || (self.step == Step::LibreChat && self.librechat.read(cx).busy)
     }
 
     /// "Add account": the server form, with Cancel.
@@ -128,6 +151,18 @@ impl OnboardingView {
                 let stores = self.stores.clone();
                 self.hermes = Some(cx.new(|cx| HermesView::new(stores, true, window, cx)));
             }
+            Step::LibreChat => {
+                self.librechat.update(cx, |l, cx| {
+                    if !l.busy {
+                        l.reset(window, cx)
+                    }
+                });
+                let field = self.librechat.read(cx).first_field();
+                window.on_next_frame(move |window, cx| {
+                    let handle = gpui_kit::Focusable::focus_handle(field.read(cx), cx);
+                    window.focus(&handle, cx);
+                });
+            }
             _ => {}
         }
         cx.notify();
@@ -139,6 +174,7 @@ impl OnboardingView {
             Backend::OpenWebUi => Step::Server,
             Backend::Direct => Step::Direct,
             Backend::Hermes => Step::Hermes,
+            Backend::LibreChat => Step::LibreChat,
         };
         // Remembered, so a working Direct connection skips server setup.
         let preferred = step == Step::Direct;
@@ -270,6 +306,7 @@ impl Render for OnboardingView {
                 ),
                 None => div().into_any_element(),
             },
+            Step::LibreChat => self.librechat.clone().into_any_element(),
             Step::Hermes => match self.hermes.clone() {
                 Some(hermes) => self.panel(
                     l10n.desktop_hermes_agent(),

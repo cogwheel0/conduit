@@ -64,11 +64,13 @@ pub fn search_chats_stroke() -> KeyStroke {
 /// `MoveTo` stands for the Move To submenu; a menu leaves out what does not
 /// apply (Remove from Folder for a chat in none, Select in the menu bar).
 /// Fork and Hide are a Hermes session's (its chat menus fill the slots
-/// they share with every chat: Pin, Rename…, Archive and Delete…).
-pub const CHAT_COMMAND_ORDER: [ChatCommandSlot; 13] = [
+/// they share with every chat: Pin, Rename…, Archive and Delete…);
+/// Duplicate is a LibreChat chat's.
+pub const CHAT_COMMAND_ORDER: [ChatCommandSlot; 14] = [
     ChatCommandSlot::Pin,
     ChatCommandSlot::MarkUnread,
     ChatCommandSlot::Rename,
+    ChatCommandSlot::Duplicate,
     ChatCommandSlot::GenerateTitle,
     ChatCommandSlot::Share,
     ChatCommandSlot::Export,
@@ -89,6 +91,8 @@ pub enum ChatCommandSlot {
     /// Mark as Unread or Mark as Read.
     MarkUnread,
     Rename,
+    /// Duplicate Chat (a LibreChat chat's copy, on its server).
+    Duplicate,
     GenerateTitle,
     Share,
     /// The Export submenu (Backup, Transcript).
@@ -111,6 +115,7 @@ impl ChatCommandSlot {
         match command {
             ChatCommand::Pin | ChatCommand::Unpin => Self::Pin,
             ChatCommand::Rename => Self::Rename,
+            ChatCommand::Duplicate => Self::Duplicate,
             ChatCommand::MarkUnread | ChatCommand::MarkRead => Self::MarkUnread,
             ChatCommand::GenerateTitle => Self::GenerateTitle,
             ChatCommand::Export(_) => Self::Export,
@@ -377,12 +382,15 @@ pub struct ChatMenuState {
     pub pinned: bool,
     pub archived: bool,
     pub folder_id: Option<String>,
-    /// It can be shared (an account's server holds it).
-    pub can_share: bool,
     /// It has an unread dot (Mark as Read offered instead).
     pub unread: bool,
-    /// The server holds it: Mark as Unread, Generate Title and Export.
-    pub served: bool,
+    /// What its menus offer, by the core's rule for its backend (Share,
+    /// Duplicate, Move To, Mark as Unread, Generate Title, Export): the
+    /// sidebar's context menu reads the same.
+    pub offered: conduit_protocol::ChatMenuAbilities,
+    /// Show Branches…: the open chat's versions live on the server (the
+    /// core's branch rule, from the chat's detail once loaded).
+    pub branches: bool,
 }
 
 /// What the menu bar follows.
@@ -480,8 +488,16 @@ pub fn menu_state(cx: &App) -> MenuState {
     };
     let sidebar_visible = state.layout.read(cx).state.sidebar_visible;
     let zoom = ZoomState::of(&state.settings.read(cx).prefs.appearance);
-    let can_share = state.stores.accounts.read(cx).active().is_some();
     let chat_list = state.stores.chat_list.read(cx);
+    // The open chat's branch rule, once its detail has loaded.
+    let branches = state.main_view.as_ref().is_some_and(|v| {
+        v.read(cx)
+            .chat_pane
+            .read(cx)
+            .chat
+            .as_ref()
+            .is_some_and(|c| c.store.read(cx).abilities().branch)
+    });
     let chat = state
         .stores
         .navigation
@@ -493,9 +509,9 @@ pub fn menu_state(cx: &App) -> MenuState {
             pinned: c.pinned,
             archived: c.archived,
             folder_id: c.folder_id.clone(),
-            can_share,
             unread: c.unread,
-            served: can_share && !c.id.starts_with("local:"),
+            offered: c.menu.clone(),
+            branches,
         });
     let mut folders: Vec<(String, String)> = chat_list
         .list
@@ -632,16 +648,16 @@ fn install(state: MenuState, cx: &mut App) {
     let _ = (move_disabled, export_disabled);
 }
 
-/// Chat › Export Chat has nothing to export: no chat open, or one the
-/// server does not hold (a `local:` chat).
+/// Chat › Export Chat has nothing to export: no chat open, or one whose
+/// backend offers no export (the core's rule, as the menu item reads it).
 pub fn export_disabled(state: &MenuState) -> bool {
-    !state.chat.as_ref().is_some_and(|c| c.served)
+    !state.chat.as_ref().is_some_and(|c| c.offered.export)
 }
 
 /// Chat › Move to has nothing to act on: no chat open (or another user's),
 /// or no folder to file it in.
 pub fn move_to_disabled(state: &MenuState) -> bool {
-    state.chat.is_none() || state.folders.is_empty()
+    !state.chat.as_ref().is_some_and(|c| c.offered.r#move) || state.folders.is_empty()
 }
 
 /// The menu bar for `state`, in `l`'s words.
@@ -809,8 +825,10 @@ fn go_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
 fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
     let no_chat = state.chat.is_none();
     let chat = state.chat.clone();
-    let served = chat.as_ref().is_some_and(|c| c.served);
-    let filed = chat.as_ref().is_some_and(|c| c.folder_id.is_some());
+    let offered = chat.as_ref().map(|c| c.offered.clone()).unwrap_or_default();
+    let filed = chat
+        .as_ref()
+        .is_some_and(|c| c.folder_id.is_some() && c.offered.r#move);
     let move_to = state
         .folders
         .iter()
@@ -876,6 +894,12 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
             ChatCommandSlot::Rename => items.push(
                 MenuItem::action(l10n.desktop_menu_rename_chat(), RenameChat).disabled(no_chat),
             ),
+            // Only a LibreChat chat has it.
+            ChatCommandSlot::Duplicate if offered.duplicate => items.push(MenuItem::action(
+                l10n.libre_chat_duplicate_chat(),
+                DuplicateChat,
+            )),
+            ChatCommandSlot::Duplicate => {}
             ChatCommandSlot::MarkUnread => items.push(
                 MenuItem::action(
                     if chat.as_ref().is_some_and(|c| c.unread) {
@@ -885,10 +909,12 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
                     },
                     MarkChatUnread,
                 )
-                .disabled(!served),
+                .disabled(!offered.mark_unread),
             ),
-            ChatCommandSlot::GenerateTitle => items
-                .push(MenuItem::action(l10n.generate_title(), GenerateChatTitle).disabled(!served)),
+            ChatCommandSlot::GenerateTitle => items.push(
+                MenuItem::action(l10n.generate_title(), GenerateChatTitle)
+                    .disabled(!offered.generate_title),
+            ),
             ChatCommandSlot::Export => items.push(MenuItem::submenu(
                 Menu::new(l10n.chat_export_action())
                     .items(vec![
@@ -905,11 +931,11 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
                             },
                         ),
                     ])
-                    .disabled(!served),
+                    .disabled(!offered.export),
             )),
             ChatCommandSlot::Share => items.push(
                 MenuItem::action(l10n.desktop_share_chat_sheet(), ShareChat)
-                    .disabled(!chat.as_ref().is_some_and(|c| c.can_share)),
+                    .disabled(!offered.share),
             ),
             ChatCommandSlot::MoveTo => items.push(MenuItem::submenu(
                 Menu::new(l10n.desktop_menu_move_to())
@@ -949,7 +975,7 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
                     )
                     .disabled(!state.tool_settings),
                     MenuItem::action(l10n.desktop_menu_show_branches(), ShowBranches)
-                        .disabled(no_chat),
+                        .disabled(!chat.as_ref().is_some_and(|c| c.branches)),
                 ]);
                 // Only a Hermes chat has a context window to show.
                 if state.hermes_context {
@@ -1058,9 +1084,17 @@ mod tests {
                 pinned: true,
                 archived: false,
                 folder_id: folder.map(str::to_string),
-                can_share: true,
                 unread: false,
-                served: true,
+                // An Open WebUI chat's, as the core offers them.
+                offered: conduit_protocol::ChatMenuAbilities {
+                    share: true,
+                    duplicate: false,
+                    r#move: true,
+                    mark_unread: true,
+                    generate_title: true,
+                    export: true,
+                },
+                branches: true,
             }),
             folders: vec![("f1".into(), "Garden".into()), ("f2".into(), "Work".into())],
             ..MenuState::default()
@@ -1357,7 +1391,7 @@ mod tests {
         );
         // Without a server to hold the link, Share Chat is off.
         let mut local = open_chat(None);
-        local.chat.as_mut().unwrap().can_share = false;
+        local.chat.as_mut().unwrap().offered.share = false;
         assert!(disabled(
             menu(&build_menus(&l, &local), "Chat"),
             "Share Chat…"
@@ -1436,6 +1470,29 @@ mod tests {
     }
 
     #[test]
+    fn only_a_librechat_chat_offers_duplicate() {
+        let l = L10n::new("en");
+        let owui = titles(menu(&build_menus(&l, &open_chat(None)), "Chat"));
+        assert!(!owui.iter().any(|t| t == "Duplicate Chat"));
+        let mut lc = open_chat(None);
+        if let Some(chat) = lc.chat.as_mut() {
+            // A LibreChat chat's, as the core offers them.
+            chat.offered = conduit_protocol::ChatMenuAbilities {
+                share: true,
+                duplicate: true,
+                ..Default::default()
+            };
+        }
+        lc.folders.clear();
+        let names = titles(menu(&build_menus(&l, &lc), "Chat"));
+        let at = |t: &str| names.iter().position(|n| n == t);
+        // After Rename…, before Share Chat…, as on the phone.
+        assert!(at("Duplicate Chat").is_some());
+        assert!(at("Rename…") < at("Duplicate Chat"));
+        assert!(at("Duplicate Chat") < at("Share Chat…"));
+    }
+
+    #[test]
     fn chat_commands_keep_one_order() {
         // The order is total and every command has a place in it.
         let ranks: Vec<usize> = CHAT_COMMAND_ORDER.iter().map(|s| s.rank()).collect();
@@ -1444,6 +1501,7 @@ mod tests {
             ChatCommand::Pin,
             ChatCommand::Unpin,
             ChatCommand::Rename,
+            ChatCommand::Duplicate,
             ChatCommand::MarkUnread,
             ChatCommand::MarkRead,
             ChatCommand::GenerateTitle,
@@ -1466,6 +1524,7 @@ mod tests {
             "Pin" | "Unpin" => Some(ChatCommandSlot::Pin),
             "Mark as Unread" | "Mark as Read" => Some(ChatCommandSlot::MarkUnread),
             "Rename…" => Some(ChatCommandSlot::Rename),
+            "Duplicate Chat" => Some(ChatCommandSlot::Duplicate),
             "Generate Title" => Some(ChatCommandSlot::GenerateTitle),
             "Share Chat…" => Some(ChatCommandSlot::Share),
             "Export Chat ▸" => Some(ChatCommandSlot::Export),
@@ -1619,6 +1678,50 @@ mod tests {
                 index: usize::from(n),
             }),
         }
+    }
+
+    /// Settings › Keyboard's Notes keys are the ones Notes binds.
+    #[cfg(target_os = "macos")]
+    #[gpui_kit::test]
+    fn the_notes_chords_settings_shows_are_bound(cx: &mut gpui_kit::TestAppContext) {
+        use crate::keymap::AreaKey as K;
+        use crate::views::notes::editor as e;
+        cx.update(|cx| {
+            cx.set_global(L10n::new("en"));
+            bind_keys(&Keymap::default(), cx);
+            for (key, stroke) in crate::keymap::area_shortcuts() {
+                let action: Box<dyn gpui_kit::Action> = match key {
+                    K::NewNote => Box::new(crate::views::notes::NewNote),
+                    K::Title => Box::new(e::Title),
+                    K::Heading => Box::new(e::Heading),
+                    K::Subheading => Box::new(e::Subheading),
+                    K::Body => Box::new(e::Body),
+                    K::Bold => Box::new(e::ToggleBold),
+                    K::Italic => Box::new(e::ToggleItalic),
+                    K::Strikethrough => Box::new(e::ToggleStrike),
+                    K::Code => Box::new(e::ToggleCode),
+                    K::Link => Box::new(e::AddLink),
+                    K::BulletedList => Box::new(e::BulletList),
+                    K::NumberedList => Box::new(e::NumberedList),
+                    K::Checklist => Box::new(e::Checklist),
+                    K::MarkChecked => Box::new(e::ToggleChecked),
+                    K::Quote => Box::new(e::QuoteBlock),
+                    K::CodeBlock => Box::new(e::CodeBlock),
+                    // The Workspace editor takes ⌘S in its key handler.
+                    K::SaveWorkspaceItem => continue,
+                };
+                let bound = cx
+                    .key_bindings()
+                    .borrow()
+                    .bindings_for_action(action.as_ref())
+                    .any(|b| {
+                        b.keystrokes().len() == 1
+                            && crate::keymap::from_gpui(b.keystrokes()[0].inner()).as_ref()
+                                == Some(&stroke)
+                    });
+                assert!(bound, "{key:?} is not bound to {stroke:?}");
+            }
+        });
     }
 
     /// In Notes, ⌘N is New Note and the editor's ⌘K is Add Link, though

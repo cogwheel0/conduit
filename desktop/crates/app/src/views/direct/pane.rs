@@ -1062,7 +1062,7 @@ impl Render for DirectPane {
                 Connections {
                     title: list
                         .open_web_ui_available
-                        .then(|| l10n.desktop_direct_this_mac_section()),
+                        .then(|| l10n.desktop_on_this_mac()),
                     footer: Some(l10n.desktop_direct_connections_help()),
                     connections: mac,
                     empty: (

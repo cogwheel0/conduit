@@ -30,7 +30,7 @@ use conduit_components::motion::{self, Anchor, Reveal, specs};
 use conduit_components::views::approval::{
     ALLOW_KEYS, ApprovalAction, ApprovalCard, ApprovalKind, DENY_KEYS, SelectOption,
 };
-use conduit_protocol::UiRequest;
+use conduit_protocol::{UiRequest, UiRequestKind};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -519,7 +519,11 @@ impl ApprovalsView {
             Card::Tool { title, message } => (
                 ApprovalCard::new(
                     id.clone(),
-                    tool_question(&title, l10n),
+                    if top.message_code == "librechat.toolApproval" {
+                        l10n.libre_chat_approval_run(&librechat_tool_name(&title))
+                    } else {
+                        tool_question(&title, l10n)
+                    },
                     message,
                     source,
                     ApprovalKind::Message,
@@ -576,7 +580,15 @@ impl ApprovalsView {
                         // Answering a server's question: Skip answers nothing,
                         // Send sends the choice (Deny and Allow stay the tool
                         // cards' words).
-                        secondary(cancel_label.unwrap_or_else(|| l10n.desktop_skip())),
+                        // A LibreChat question's Cancel stops the reply, as on
+                        // the phone.
+                        secondary(cancel_label.unwrap_or_else(|| {
+                            if top.kind == UiRequestKind::LibreChatQuestion {
+                                l10n.cancel()
+                            } else {
+                                l10n.desktop_skip()
+                            }
+                        })),
                         primary(confirm_label.unwrap_or_else(|| l10n.send())),
                     ],
                 )
@@ -876,6 +888,15 @@ impl ApprovalsView {
                 ],
             ),
         }
+    }
+}
+
+/// A LibreChat tool's name as people read it: an MCP tool's own name
+/// without its server (`lookup_tide_mcp_harbour_docs` → "lookup_tide").
+pub(crate) fn librechat_tool_name(name: &str) -> String {
+    match name.split_once("_mcp_") {
+        Some((tool, _)) if !tool.is_empty() => tool.to_string(),
+        _ => name.to_string(),
     }
 }
 

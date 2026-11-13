@@ -134,6 +134,8 @@ pub enum ChatCommand {
     GenerateTitle,
     /// Export › Backup (JSON)… or Transcript (Markdown)….
     Export(conduit_protocol::ChatExportFormat),
+    /// Duplicate Chat: a LibreChat chat copied whole, on its server.
+    Duplicate,
 }
 
 /// The context menu's action: `command` on `chat_id`.
@@ -404,14 +406,20 @@ pub fn item_title(item: &AreaItem, listed: Option<&str>, l: &L10n) -> String {
 /// The scope the sidebar's sections are kept under: the Open WebUI account
 /// by id, or the setup in use (Direct, Hermes, the demo).
 pub fn sections_scope(stores: &Stores, cx: &App) -> String {
-    if let Some(account) = stores.accounts.read(cx).active() {
+    let accounts = stores.accounts.read(cx);
+    if accounts.libre_chat_in_charge()
+        && let Some(account) = accounts.libre_chat_active()
+    {
+        return format!("account:{}", account.id);
+    }
+    if let Some(account) = accounts.active() {
         return format!("account:{}", account.id);
     }
     match stores.session.read(cx).backend(cx) {
         Some(session::Backend::Direct) => "direct".into(),
         Some(session::Backend::Hermes) => "hermes".into(),
         Some(session::Backend::Demo) => "demo".into(),
-        Some(session::Backend::OpenWebUi) | None => "none".into(),
+        Some(session::Backend::OpenWebUi | session::Backend::LibreChat) | None => "none".into(),
     }
 }
 
@@ -470,7 +478,13 @@ pub fn sync_state(store: &ChatListStore, l: &L10n) -> SyncState {
 pub fn footer_account(stores: &Stores, cx: &App) -> Account {
     let l10n = cx.l10n().clone();
     let session = stores.session.read(cx);
-    if let Some(active) = stores.accounts.read(cx).active() {
+    let accounts = stores.accounts.read(cx);
+    if accounts.libre_chat_in_charge()
+        && let Some(active) = accounts.libre_chat_active()
+    {
+        return crate::views::accounts::libre_chat_account_row(active, cx);
+    }
+    if let Some(active) = accounts.active() {
         return account_row(active, cx);
     }
     let (name, backend, server) = match session.backend(cx) {
@@ -605,7 +619,7 @@ impl SidebarView {
             cx.observe(&stores.accounts, |this, accounts, cx| {
                 this.sync_scope(cx);
                 // Another account: nothing chosen carries over.
-                let active = accounts.read(cx).active().map(|a| a.id.clone());
+                let active = accounts.read(cx).scope_key();
                 if active != this.account {
                     this.account = active;
                     this.selecting = None;
@@ -657,7 +671,7 @@ impl SidebarView {
                 }
             }
         });
-        let account = stores.accounts.read(cx).active().map(|a| a.id.clone());
+        let account = stores.accounts.read(cx).scope_key();
         Self {
             stores,
             search,
@@ -2639,12 +2653,17 @@ impl SidebarView {
         .detach();
     }
 
-    /// The context menu's items for `chat`.
+    /// The context menu's items for `chat`: what its menus offer by the
+    /// core's rule for its backend (`ChatSummary::menu`: an Open WebUI
+    /// chat's server actions, a LibreChat chat's Duplicate and links, none
+    /// of either for an on-device Direct chat), in the order every chat
+    /// menu shares.
     pub fn menu_items(&self, chat: &ChatSummary, cx: &App) -> Vec<(String, ChatCommand)> {
         if chat.read_only {
             return vec![];
         }
         let l = cx.l10n();
+        let offered = &chat.menu;
         let mut items = vec![
             if chat.pinned {
                 (l.desktop_unpin_chat(), ChatCommand::Unpin)
@@ -2653,21 +2672,23 @@ impl SidebarView {
             },
             (l.desktop_rename_ellipsis(), ChatCommand::Rename),
         ];
-        // What the server keeps for a chat it holds (not one made on this
-        // computer that has not reached it yet).
-        let served = self.has_server(cx) && !chat.id.starts_with("local:");
-        if served {
+        if offered.duplicate {
+            items.push((l.libre_chat_duplicate_chat(), ChatCommand::Duplicate));
+        }
+        if offered.mark_unread {
             items.push(if chat.unread {
                 (l.desktop_mark_as_read(), ChatCommand::MarkRead)
             } else {
                 (l.mark_as_unread(), ChatCommand::MarkUnread)
             });
+        }
+        if offered.generate_title {
             items.push((l.generate_title(), ChatCommand::GenerateTitle));
         }
-        if self.has_server(cx) {
+        if offered.share {
             items.push((l.desktop_share_chat_sheet(), ChatCommand::Share));
         }
-        if served {
+        if offered.export {
             items.push((
                 format!("{}…", l.chat_export_json()),
                 ChatCommand::Export(conduit_protocol::ChatExportFormat::Json),
@@ -2677,7 +2698,7 @@ impl SidebarView {
                 ChatCommand::Export(conduit_protocol::ChatExportFormat::Markdown),
             ));
         }
-        if chat.folder_id.is_some() {
+        if offered.r#move && chat.folder_id.is_some() {
             items.push((
                 l.desktop_remove_from_folder(),
                 ChatCommand::RemoveFromFolder,
@@ -2721,7 +2742,9 @@ impl SidebarView {
             .map(|l| l.folders.clone())
             .unwrap_or_default();
         let mut menu = menu;
-        let mut filed = folders.is_empty();
+        // Move To where the core's rule offers it (not a LibreChat or an
+        // on-device chat) and there is a folder to move to.
+        let mut filed = !chat.menu.r#move || folders.is_empty();
         let mut export: Option<NativeMenu> = None;
         for (label, command) in self.menu_items(chat, cx) {
             // Export's two formats go in one submenu, in its place.
@@ -2803,6 +2826,7 @@ impl SidebarView {
                 .detach();
             }
             ChatCommand::GenerateTitle => self.generate_title(&id, cx),
+            ChatCommand::Duplicate => self.duplicate(&id, cx),
             ChatCommand::Export(format) => {
                 crate::views::chat::export::export(id, format, window, cx)
             }
@@ -3299,6 +3323,33 @@ impl SidebarView {
                 }
             })
             .ok();
+        })
+        .detach();
+    }
+
+    /// Duplicate Chat: LibreChat copies the chat whole, on its server
+    /// (`librechat.duplicate`); the copy opens, as on the phone.
+    fn duplicate(&mut self, chat_id: &str, cx: &mut Context<Self>) {
+        let rpc = self.stores.connection.read(cx).rpc();
+        let call =
+            rpc.call::<conduit_protocol::methods::LibrechatDuplicate>(&conduit_protocol::ChatRef {
+                id: chat_id.to_string(),
+            });
+        let navigation = self.stores.navigation.clone();
+        let list = self.stores.chat_list.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| match result {
+                Ok(copy) => {
+                    list.update(cx, |l, cx| l.refresh(cx));
+                    navigation.update(cx, |n, cx| n.open(copy.chat_id, cx));
+                }
+                Err(e) => {
+                    log::warn!("librechat.duplicate: {e}");
+                    let l = cx.l10n().clone();
+                    s.toast(NoticeLevel::Error, l.libre_chat_copy_failed(), cx);
+                }
+            });
         })
         .detach();
     }

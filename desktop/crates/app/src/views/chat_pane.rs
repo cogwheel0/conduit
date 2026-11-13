@@ -281,7 +281,7 @@ impl ChatPane {
             cx.observe(&stores.accounts, |this, accounts, cx| {
                 // Another account: nothing the composer holds for one
                 // message (files, knowledge, an `@` model) carries over.
-                let active = accounts.read(cx).active().map(|a| a.id.clone());
+                let active = accounts.read(cx).scope_key();
                 if active != this.account {
                     this.account = active;
                     // A first send of the last account's no longer holds
@@ -410,7 +410,7 @@ impl ChatPane {
                 this.toast(NoticeLevel::Warning, text, cx);
             }),
         ];
-        let account = stores.accounts.read(cx).active().map(|a| a.id.clone());
+        let account = stores.accounts.read(cx).scope_key();
         let prompt_card = cx.new(|cx| crate::views::chat::prompt::PromptCard::new(window, cx));
         let mut this = Self {
             stores,
@@ -2974,6 +2974,7 @@ fn composer_dock(
 pub fn failure_text(action: ChatAction, reason: Option<&str>, l10n: &crate::l10n::L10n) -> String {
     match (action, reason) {
         (ChatAction::Load, _) => l10n.desktop_chat_load_failed(),
+        (ChatAction::Send, Some("libreChatTemporaryChat")) => l10n.libre_chat_temporary_chat_off(),
         (ChatAction::Rate, _) => l10n.desktop_rating_not_saved(),
         (ChatAction::Branch | ChatAction::Fork, Some("responseRunning" | "forkConflict")) => {
             l10n.chat_branch_wait_for_response()

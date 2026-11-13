@@ -10,14 +10,14 @@ use conduit_components::assets::IconName;
 use conduit_components::views::kit::{Button, ClickHandler, grouped, setting_row};
 use conduit_components::views::model::{Account, Backend};
 use conduit_components::views::settings::{AccountActions, accounts_list_with};
-use conduit_protocol::{AccountChangeOutcome, AccountSummary};
+use conduit_protocol::{AccountChangeOutcome, AccountSummary, LibreChatAccountSummary};
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, App, AsyncApp, Div, SharedString, Window, div, px};
 
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::shell::sheet::{SheetSpec, present_sheet};
 use crate::stores::Stores;
-use crate::stores::accounts::{AccountChange, display_name};
+use crate::stores::accounts::{AccountChange, display_name, libre_chat_display_name};
 use crate::views::forms::host_of;
 use crate::views::privacy;
 
@@ -104,7 +104,15 @@ pub fn sign_out_sheet(name: &str, l10n: &L10n) -> SheetSpec {
 
 /// Sign out of the active account; the next one takes over.
 pub fn sign_out_active(stores: &Stores, window: &mut Window, cx: &mut App) {
-    let Some(name) = stores.accounts.read(cx).active().map(display_name) else {
+    let name = {
+        let store = stores.accounts.read(cx);
+        if store.libre_chat_in_charge() {
+            store.libre_chat_active().map(libre_chat_display_name)
+        } else {
+            store.active().map(display_name)
+        }
+    };
+    let Some(name) = name else {
         return;
     };
     let name = privacy::name(&name, cx);
@@ -114,23 +122,31 @@ pub fn sign_out_active(stores: &Stores, window: &mut Window, cx: &mut App) {
 
 /// Sign out of `account_id` and remove it with its local data.
 pub fn remove_account(stores: &Stores, account_id: &str, window: &mut Window, cx: &mut App) {
-    let Some(account) = stores
-        .accounts
-        .read(cx)
-        .accounts()
-        .iter()
-        .find(|a| a.id == account_id)
-        .cloned()
-    else {
+    let name = {
+        let store = stores.accounts.read(cx);
+        store
+            .accounts()
+            .iter()
+            .find(|a| a.id == account_id)
+            .map(display_name)
+            .or_else(|| {
+                store
+                    .libre_chat_accounts()
+                    .iter()
+                    .find(|a| a.id == account_id)
+                    .map(libre_chat_display_name)
+            })
+    };
+    let Some(name) = name else {
         return;
     };
-    let name = privacy::name(&display_name(&account), cx);
+    let name = privacy::name(&name, cx);
     let spec = sign_out_sheet(&name, cx.l10n());
     confirm_change(
         stores,
         spec,
         AccountChange::Remove {
-            account_id: account.id,
+            account_id: account_id.to_string(),
         },
         window,
         cx,
@@ -155,6 +171,25 @@ pub fn account_row(a: &AccountSummary, cx: &App) -> Account {
     }
 }
 
+/// A LibreChat account as the components draw it (names masked in
+/// `--shots`).
+pub fn libre_chat_account_row(a: &LibreChatAccountSummary, cx: &App) -> Account {
+    let email = a
+        .user
+        .as_ref()
+        .and_then(|u| u.email.clone())
+        .unwrap_or_default();
+    Account {
+        id: a.id.clone().into(),
+        name: privacy::name(&libre_chat_display_name(a), cx).into(),
+        email: privacy::email(&email, cx).into(),
+        server: privacy::host(&host_of(&a.base_url), cx).into(),
+        backend: Backend::LibreChat,
+        active: a.is_active,
+        needs_sign_in: !a.has_session,
+    }
+}
+
 /// The Accounts tab's sections. `on_add` opens Add Account's sheet;
 /// `on_more` opens the row's menu.
 pub fn accounts_sections(
@@ -166,10 +201,22 @@ pub fn accounts_sections(
     let l10n = cx.l10n().clone();
     let t = cx.conduit().clone();
     let store = stores.accounts.read(cx);
+    // Open WebUI's accounts, then LibreChat's, as the phone lists them; the
+    // one marked is the account in charge of the chats.
+    let libre_chat = store.libre_chat_in_charge();
     let rows: Vec<Account> = store
         .accounts()
         .iter()
-        .map(|a| account_row(a, cx))
+        .map(|a| {
+            let mut row = account_row(a, cx);
+            row.active &= !libre_chat;
+            row
+        })
+        .chain(store.libre_chat_accounts().iter().map(|a| {
+            let mut row = libre_chat_account_row(a, cx);
+            row.active &= libre_chat;
+            row
+        }))
         .collect();
     let busy = store
         .busy

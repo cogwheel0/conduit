@@ -1116,6 +1116,18 @@ pub fn nav_row(
     subtitle: Option<SharedString>,
     cx: &App,
 ) -> Stateful<Div> {
+    nav_row_badged(id, leading, title, None, subtitle, cx)
+}
+
+/// [`nav_row`] with a small capsule after the title ("Beta").
+pub fn nav_row_badged(
+    id: impl Into<ElementId>,
+    leading: IconName,
+    title: SharedString,
+    badge: Option<SharedString>,
+    subtitle: Option<SharedString>,
+    cx: &App,
+) -> Stateful<Div> {
     let pressed = pressed_fill(cx.conduit().roles.hover, cx.conduit());
     let t = cx.conduit();
     let r = t.roles;
@@ -1151,9 +1163,25 @@ pub fn nav_row(
                 .gap(px(2.))
                 .child(
                     div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
                         .text_size(px(m.control + 1.))
                         .text_color(r.text)
-                        .child(title),
+                        .child(title)
+                        .when_some(badge, |d, badge| {
+                            d.child(
+                                div()
+                                    .px(px(6.))
+                                    .py(px(1.))
+                                    .rounded_full()
+                                    .border_1()
+                                    .border_color(r.border)
+                                    .text_size(px(m.small - 1.))
+                                    .text_color(r.text_subtle)
+                                    .child(badge),
+                            )
+                        }),
                 )
                 .when_some(subtitle, |d, s| {
                     d.child(
