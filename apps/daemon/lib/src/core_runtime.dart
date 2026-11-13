@@ -53,6 +53,7 @@ import 'bootstrap.dart';
 import 'daemon_paths.dart';
 import 'hermes_service.dart' show hermesAwaitsSignIn;
 import 'log.dart';
+import 'apple_models_service.dart' show AppleModelsBridge, appleModelsOverrides;
 import 'calls_service.dart' show CallPorts;
 import 'ports/handoff.dart';
 import 'ports/connectivity.dart';
@@ -85,6 +86,7 @@ final class CoreRuntime {
     required this.uiRequests,
     required this.handoff,
     required this.calls,
+    required this.apple,
     required List<Box<dynamic>> boxes,
   }) : _connectivity = connectivity,
        _boxes = boxes;
@@ -108,6 +110,10 @@ final class CoreRuntime {
   /// A voice call's microphone and realtime audio: the window, through the
   /// calls service, which attaches once there is one.
   final CallPorts calls;
+
+  /// The window's Foundation Models engine, as the core's Apple host: the
+  /// Apple service binds it to the event bus once there is one.
+  final AppleModelsBridge apple;
 
   /// Takes a window's view of the network, which arrives as an event where
   /// the port can only poll.
@@ -249,6 +255,7 @@ final class CoreRuntime {
     final uiRequests = DaemonUiRequestPort();
     final handoff = DaemonHandoffPort();
     final calls = CallPorts();
+    final apple = AppleModelsBridge();
 
     final container = ProviderContainer(
       observers: observers,
@@ -298,6 +305,11 @@ final class CoreRuntime {
         realtimePcmAudioFactoryProvider.overrideWithValue(
           calls.newRealtimeAudio,
         ),
+        // Apple's on-device model runs in the window (Foundation Models is a
+        // Swift API); the core's Apple adapter reaches it through this host,
+        // as the phone's reaches its Swift bridge. Private Cloud Compute is
+        // never offered: this build has no entitlement for it.
+        ...appleModelsOverrides(apple),
         // The remaining ports keep the core's own defaults, and each is a
         // deliberate choice rather than an omission:
         //
@@ -377,6 +389,7 @@ final class CoreRuntime {
       uiRequests: uiRequests,
       handoff: handoff,
       calls: calls,
+      apple: apple,
       boxes: boxes.all,
     );
   }

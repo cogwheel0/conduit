@@ -53,14 +53,31 @@ final class DirectService {
       ),
       preferred:
           _container.read(preferredBackendProvider) == PreferredBackend.direct,
-      usable: profiles.any(
+      usable: await _usable(profiles),
+      openWebUiLoadFailed: _openWebUiFailed,
+    );
+  }
+
+  /// Whether Direct can carry the app, as the core decides it when the
+  /// last Open WebUI account signs out (`_fallBackWithoutOpenWebUi`): any
+  /// effective profile usable -- Apple's on-device one too, while the Mac
+  /// offers it -- so a window the core handed over to Direct is a Direct
+  /// window. The stored connections alone when that list cannot be read.
+  Future<bool> _usable(List<DirectConnectionProfile> stored) async {
+    try {
+      final effective = await readSettled(
+        _container,
+        effectiveDirectConnectionProfilesFutureProvider.future,
+      );
+      return effective.any((profile) => profile.isUsable);
+    } on Object {
+      return stored.any(
         (profile) =>
             profile.isUsable &&
             (profile.adapterKey == kOpenAiCompatibleAdapterKey ||
                 profile.adapterKey == kOllamaAdapterKey),
-      ),
-      openWebUiLoadFailed: _openWebUiFailed,
-    );
+      );
+    }
   }
 
   /// The Open WebUI account's connections read again, as mobile does when
