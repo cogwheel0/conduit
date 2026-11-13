@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.57.0";
+pub const PROTOCOL_VERSION: &str = "1.58.0";
 
 /// Who an account is, as the account list shows it: the name, email and
 /// avatar recorded the last time it signed in. Never a token or a password.
@@ -557,16 +557,52 @@ pub struct MessageStatusDto {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
+    /// Some workspace section can be managed: the Workspace section. Which
+    /// ones are the `workspace*` flags below.
     #[serde(default)]
     pub workspace: bool,
     #[serde(default)]
     pub notes: bool,
     #[serde(default)]
     pub channels: bool,
+    /// Hermes's sessions: Hermes is on (or the only backend).
     #[serde(default)]
     pub hermes: bool,
     #[serde(default)]
     pub terminal: bool,
+    #[serde(default)]
+    pub calendar: bool,
+    /// Scheduled tasks.
+    #[serde(default)]
+    pub automations: bool,
+    /// Hermes is the only backend: its sessions take the chats' place, and
+    /// Open WebUI's own sections are hidden.
+    #[serde(default)]
+    pub hermes_only: bool,
+    #[serde(default)]
+    pub workspace_models: bool,
+    #[serde(default)]
+    pub workspace_knowledge: bool,
+    #[serde(default)]
+    pub workspace_prompts: bool,
+    #[serde(default)]
+    pub workspace_tools: bool,
+    #[serde(default)]
+    pub workspace_skills: bool,
+    /// Folders can be listed and made.
+    #[serde(default)]
+    pub folders: bool,
+    /// Webhook destinations for notifications.
+    #[serde(default)]
+    pub webhooks: bool,
+    #[serde(default)]
+    pub memories: bool,
+    #[serde(default)]
+    pub code_interpreter: bool,
+    #[serde(default)]
+    pub image_generation: bool,
+    #[serde(default)]
+    pub web_search: bool,
     #[serde(default)]
     pub direct_connections: bool,
     #[serde(default)]
@@ -2102,14 +2138,24 @@ pub struct HermesSessionDto {
     pub preview: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at_ms: Option<i64>,
+    /// Kept at the top of the list, however old.
+    #[serde(default)]
+    pub pinned: bool,
+    /// Set aside in the list's Archived row.
+    #[serde(default)]
+    pub archived: bool,
 }
 
 /// Reply to `hermes.sessions`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct HermesSessions {
+    /// Pinned first, then the rest, newest first.
     #[serde(default)]
     pub sessions: Vec<HermesSessionDto>,
+    /// The archived sessions, newest first.
+    #[serde(default)]
+    pub archived: Vec<HermesSessionDto>,
 }
 
 /// Params naming a Hermes session, job, or anything else by id.
@@ -7594,7 +7640,9 @@ pub mod events {
     /// Emitted when `Capabilities` change — a server switch, a sign-in, the
     /// Apple helper becoming available.
     ///
-    /// Reserved; not published yet. A window refetches `system.capabilities`.
+    /// What the active account can use changed: another account, a server
+    /// whose features or permissions changed, Hermes switched on or off. A
+    /// window refetches `system.capabilities`.
     pub const CAPABILITIES_CHANGED: &str = "capabilities.changed";
     /// The models on offer changed: a direct connection was added and its
     /// models discovered, or the server's list was refreshed. No
@@ -7822,7 +7870,9 @@ pub enum Event {
     /// Emitted when `Capabilities` change — a server switch, a sign-in, the
     /// Apple helper becoming available.
     ///
-    /// Reserved; not published yet. A window refetches `system.capabilities`.
+    /// What the active account can use changed: another account, a server
+    /// whose features or permissions changed, Hermes switched on or off. A
+    /// window refetches `system.capabilities`.
     ///
     /// `capabilities.changed`.
     CapabilitiesChanged,
