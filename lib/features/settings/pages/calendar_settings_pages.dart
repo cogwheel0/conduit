@@ -124,8 +124,10 @@ class CalendarSettingsPages extends SettingsPageModule {
   /// account's, kept while the next one's loads, is never this visit's.
   CalendarAgendaData? get _data {
     final owner = _owner;
-    if (owner == null || !_notifier.showsAgendaOf(owner)) return null;
-    return _ref.read(calendarAgendaProvider).value;
+    if (owner == null) return null;
+    // Followed or not, the agenda is built before its owner is asked.
+    _ref.read(calendarAgendaProvider);
+    return _notifier.agendaOf(owner);
   }
 
   CalendarWallTime _today() {

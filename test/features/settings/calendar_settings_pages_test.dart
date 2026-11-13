@@ -8,6 +8,7 @@ import 'package:conduit/features/settings/pages/calendar_settings_pages.dart';
 import 'package:conduit/features/settings/settings_page_module.dart';
 import 'package:conduit/features/settings/settings_pages.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/features/calendar/providers/calendar_providers.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:flutter/widgets.dart';
 import 'package:conduit/features/settings/settings_controller.dart';
@@ -434,6 +435,43 @@ void main() {
       await rig._settle(Future<void>.value());
       // The next account's own, once read.
       expect(listsEvents(), isTrue);
+    });
+
+    testWidgets("a read abandoned for a newer one does not pass the last "
+        "account's agenda off as the next one's", (tester) async {
+      final rig = await _open(tester);
+      bool listsEvents() => rig
+          .rows(calendarMonthPageId)
+          .any((row) => row.id.startsWith(calendarEventPagePrefix));
+      expect(listsEvents(), isTrue);
+      // Settings closes; the agenda stays read, as something else follows it.
+      final agenda = rig.container.listen(calendarAgendaProvider, (_, _) {});
+      addTearDown(agenda.close);
+      rig.module.settingsClosed();
+      // The next account has nothing on its calendar.
+      rig.wire.events = [];
+      final first = rig.wire.holdAgenda = Completer<void>();
+      rig.session.switchAccount();
+      await rig._settle(Future<void>.value());
+      // The agenda is read again while the next account's first read is
+      // still out; that newer read is held on its own.
+      final second = rig.wire.holdAgenda = Completer<void>();
+      rig.container.invalidate(calendarAgendaProvider);
+      await rig._settle(Future<void>.value());
+      // The first read lands, for a build Riverpod no longer publishes.
+      first.complete();
+      await rig._settle(Future<void>.value());
+
+      await rig.open(calendarMonthPageId);
+
+      expect(
+        listsEvents(),
+        isFalse,
+        reason: "the last account's agenda, kept while the next one's loads",
+      );
+      second.complete();
+      await rig._settle(Future<void>.value());
+      expect(listsEvents(), isFalse);
     });
 
     testWidgets("Delete offered from the event's own record is sent from it", (
