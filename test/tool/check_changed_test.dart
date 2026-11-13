@@ -155,8 +155,13 @@ void main() {
   });
 
   test('a translation change runs the ARB checks and the analyzer', () {
-    check(_names(_plan(['lib/l10n/app_de.arb'])))
+    final plan = _plan(['lib/l10n/app_de.arb']);
+    check(_names(plan))
         .deepEquals(['ARB descriptions', 'ARB locales', 'Analyze app']);
+    // The desktop app builds its strings from the same files.
+    check(
+      plan.leftToCi,
+    ).contains('Desktop workflow (cargo tests, builds and the generated Rust)');
   });
 
   test('changes outside Dart run only their own checks', () {

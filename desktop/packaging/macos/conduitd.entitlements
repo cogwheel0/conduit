@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Contents/Resources/conduitd/bin/conduitd (Dart AOT), signed with the
+  hardened runtime.
+
+  The Dart VM maps generated code at run time (its AOT runtime still
+  allocates executable stubs), which the hardened runtime refuses without
+  allow-unsigned-executable-memory; allow-jit alone is not enough.
+
+  bundle.sh adds com.apple.security.cs.disable-library-validation for
+  ad-hoc builds only: an ad-hoc conduitd has no team ID, so dyld would
+  refuse its own lib/libsqlite3.dylib and lib/libconduit_whisper.dylib.
+  Developer ID builds sign those with the same team and keep library
+  validation on.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+</dict>
+</plist>
