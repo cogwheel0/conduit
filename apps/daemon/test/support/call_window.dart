@@ -19,6 +19,10 @@ final class CallWindow {
 
   /// How the window opens the realtime audio (refused unless a test says).
   void Function(CallCommand command)? onAudioStart;
+
+  /// How the window opens a GPT-Live call's WebRTC peer (refused unless a
+  /// test says).
+  void Function(CallCommand command)? onWebRtcStart;
   final stopped = <int>[];
   final spoken = <String>[];
   final events = <String>[];
@@ -60,6 +64,13 @@ final class CallWindow {
           open(c);
         } else {
           calls.report(CallReport(id: c.id, ok: false, error: 'no audio'));
+        }
+      case CallCommandKind.webRtcStart:
+        final open = onWebRtcStart;
+        if (open != null) {
+          open(c);
+        } else {
+          calls.report(CallReport(id: c.id, ok: false, error: 'no peer'));
         }
       case CallCommandKind.audioStop:
         break;

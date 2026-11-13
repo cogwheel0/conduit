@@ -503,6 +503,144 @@ void main() {
     await reporting.cancel();
   });
 
+  /// The window's side of a GPT-Live call's peer: [onStart] answers
+  /// `webRtcStart` and connects [socket]; what the daemon sends is [sent].
+  ({StreamChannelController<dynamic> socket, List<Map<String, Object?>> sent})
+  peerWindow() {
+    final socket = StreamChannelController<dynamic>();
+    final sent = <Map<String, Object?>>[];
+    socket.local.stream.listen((message) {
+      if (message is String) {
+        sent.add((jsonDecode(message) as Map).cast<String, Object?>());
+      }
+    });
+    window.onWebRtcStart = (command) {
+      final handle = command.path!.substring('/calls/'.length);
+      unawaited(calls.tunnel(handle, socket.foreign));
+      calls.report(CallReport(id: command.id));
+      socket.local.sink.add(jsonEncode({'type': 'ready'}));
+    };
+    return (socket: socket, sent: sent);
+  }
+
+  test(
+    'a GPT-Live call\'s WebRTC peer runs over the window\'s socket',
+    () async {
+      final peer = runtime.calls.newWebRtcMedia()!;
+      final (:socket, :sent) = peerWindow();
+
+      // The offer is made in the window, with the voice's data channel, and
+      // comes back exactly as the page wrote it.
+      final offering = peer.createOffer();
+      await window.until(() => sent.any((m) => m['type'] == 'offer'));
+      expect(
+        sent.firstWhere((m) => m['type'] == 'offer')['dataChannel'],
+        'oai-events',
+      );
+      socket.local.sink.add(
+        jsonEncode({'type': 'offer', 'sdp': 'v=0\r\noffer\r\n'}),
+      );
+      expect(await offering, 'v=0\r\noffer\r\n');
+
+      final accepting = peer.acceptAnswer('v=0\r\nanswer\r\n');
+      await window.until(() => sent.any((m) => m['type'] == 'answer'));
+      expect(
+        sent.firstWhere((m) => m['type'] == 'answer')['sdp'],
+        'v=0\r\nanswer\r\n',
+      );
+      socket.local.sink.add(jsonEncode({'type': 'answered'}));
+      await accepting;
+
+      // The data channel both ways, the connection's state, the meter.
+      final messages = <String>[];
+      final states = <RealtimeMediaState>[];
+      final levels = <RealtimeMediaLevels>[];
+      final listening = [
+        peer.messages.listen(messages.add),
+        peer.states.listen(states.add),
+        peer.levels.listen(levels.add),
+      ];
+      socket.local.sink
+        ..add(jsonEncode({'type': 'state', 'state': 'connected'}))
+        ..add(
+          jsonEncode({
+            'type': 'message',
+            'text': jsonEncode({'type': 'session.started'}),
+          }),
+        )
+        ..add(jsonEncode({'type': 'levels', 'input': 0.4, 'output': 3}));
+      await window.until(
+        () => messages.isNotEmpty && states.isNotEmpty && levels.isNotEmpty,
+      );
+      expect(jsonDecode(messages.single), {'type': 'session.started'});
+      expect(states.single, RealtimeMediaState.connected);
+      expect(levels.single, (input: 0.4, output: 1.0));
+      peer
+        ..send(jsonEncode({'type': 'session.close'}))
+        ..setMicrophoneEnabled(false);
+      await window.until(() => sent.any((m) => m['type'] == 'mic'));
+      expect(
+        jsonDecode(
+          sent.firstWhere((m) => m['type'] == 'send')['text']! as String,
+        ),
+        {'type': 'session.close'},
+      );
+      expect(sent.firstWhere((m) => m['type'] == 'mic')['enabled'], isFalse);
+
+      // A closed connection is the call's failure.
+      socket.local.sink.add(jsonEncode({'type': 'state', 'state': 'failed'}));
+      await window.until(() => states.length == 2);
+      expect(states.last, RealtimeMediaState.failed);
+
+      await peer.close();
+      expect(sent.last['type'], 'stop');
+      await window.until(
+        () => window.commands.any(
+          (c) =>
+              c.kind == CallCommandKind.audioStop &&
+              c.path ==
+                  window.commands
+                      .lastWhere((c) => c.kind == CallCommandKind.webRtcStart)
+                      .path,
+        ),
+      );
+      for (final subscription in listening) {
+        await subscription.cancel();
+      }
+    },
+  );
+
+  test('a microphone the peer cannot open fails the offer plainly', () async {
+    final peer = runtime.calls.newWebRtcMedia()!;
+    final (:socket, :sent) = peerWindow();
+    final offering = peer.createOffer();
+    await window.until(() => sent.any((m) => m['type'] == 'offer'));
+    socket.local.sink.add(
+      jsonEncode({
+        'type': 'failure',
+        'reason': 'microphone',
+        'message': 'NotAllowedError',
+      }),
+    );
+    await expectLater(
+      offering,
+      throwsA(
+        isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          'The microphone could not be opened.',
+        ),
+      ),
+    );
+    await peer.close();
+  });
+
+  test('a window without a peer refuses it, and nothing is offered', () async {
+    final peer = runtime.calls.newWebRtcMedia()!;
+    await expectLater(peer.createOffer(), throwsA(isA<Exception>()));
+    await peer.close();
+  });
+
   test('a second call is refused while one is on', () async {
     await calls.start(CallStart(model: model));
     await window.until(() => window.listens.isNotEmpty);

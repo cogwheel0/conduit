@@ -43,7 +43,7 @@ import 'package:path/path.dart' as p;
 import 'package:conduit_core/features/chat/read_aloud/text_to_speech_controller.dart'
     show textToSpeechServiceProvider;
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart'
-    show realtimePcmAudioFactoryProvider;
+    show realtimePcmAudioFactoryProvider, realtimeWebRtcMediaFactoryProvider;
 import 'package:conduit_core/features/chat/voice_mode/voice_mode_ports.dart'
     show voiceModeInputProvider, voiceModeSpeechProvider;
 import 'package:riverpod/misc.dart' show Override;
@@ -303,13 +303,17 @@ final class CoreRuntime {
         readAloudLiveDeviceSpeechProvider.overrideWithValue(true),
         // A voice call listens through the window (dictation's engines),
         // speaks through the read-aloud engine as the phone's does, and for
-        // a realtime voice runs the window's echo-cancelled audio.
+        // a realtime voice runs the window's echo-cancelled audio, or its
+        // WebRTC peer for Hermes GPT-Live.
         voiceModeInputProvider.overrideWithValue(calls.input),
         voiceModeSpeechProvider.overrideWith(
           (ref) => ref.watch(textToSpeechServiceProvider),
         ),
         realtimePcmAudioFactoryProvider.overrideWithValue(
           calls.newRealtimeAudio,
+        ),
+        realtimeWebRtcMediaFactoryProvider.overrideWithValue(
+          calls.newWebRtcMedia,
         ),
         // Apple's on-device model runs in the window (Foundation Models is a
         // Swift API); the core's Apple adapter reaches it through this host,
