@@ -1,0 +1,95 @@
+//! Icons and the brand mark.
+//!
+//! Icons are Lucide (ISC; see GPUI Kit's LICENSE-LUCIDE), selected by name
+//! from GPUI Kit's bundled catalog so only these SVGs are embedded. The asset
+//! source falls back to GPUI Kit's default component icons.
+
+use std::borrow::Cow;
+
+use gpui_kit::{AssetSource, Hsla, IntoElement, Pixels, SharedString, Styled as _, Svg, svg};
+
+pub use gpui_kit::assets::IconName;
+
+gpui_kit::assets::icon_assets!(
+    pub ConduitIcons,
+    [
+        AppWindow, Archive, ArrowUp, ArrowUpRight, AtSign, Bell, BookOpen, Bot, Brain, Check,
+        ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsUpDown, Circle, CircleAlert,
+        CircleCheck, CircleUser, Clock, ClockFading, Cloud, CloudOff, Code, Command, Copy,
+        CornerDownLeft, Cpu, Database, Download, Ellipsis, ExternalLink, Eye, EyeOff, FileCode,
+        FileText, FlaskConical, Folder, FolderClosed, FolderOpen, Globe, Hash, Image, ImageOff, Info,
+        KeyRound, Keyboard, Laptop, Layers, Link, List, ListChecks, LoaderCircle, Lock, LogOut,
+        Mail, MessageSquare, MessageSquarePlus, Mic, Monitor, Moon, Palette, PanelLeft, Paperclip,
+        Pencil, Pin, PinOff, Play, Plus, RefreshCw, RotateCcw, Search, Server, Settings, Share,
+        ShieldAlert, ShieldCheck, SlidersHorizontal, Smartphone, Sparkles, Square, SquarePen,
+        SquareTerminal,
+        Sun, Terminal, TextCursorInput, ThumbsDown, ThumbsUp, Trash, Upload, User, UserPlus, Users,
+        Wifi,
+        Wrench, X, Zap
+    ]
+);
+
+/// Path of the Conduit mark inside [`ConduitAssets`].
+pub const BRAND_MARK: &str = "brand/mark.svg";
+const BRAND_MARK_SVG: &[u8] = include_bytes!("../assets/brand/mark.svg");
+
+/// The app's asset source: Conduit's icons and mark, then GPUI Kit's.
+pub struct ConduitAssets;
+
+impl AssetSource for ConduitAssets {
+    fn load(&self, path: &str) -> gpui_kit::Result<Option<Cow<'static, [u8]>>> {
+        if path == BRAND_MARK {
+            return Ok(Some(Cow::Borrowed(BRAND_MARK_SVG)));
+        }
+        if let Some(bytes) = ConduitIcons.load(path)? {
+            return Ok(Some(bytes));
+        }
+        gpui_kit::assets::Assets.load(path)
+    }
+
+    fn list(&self, path: &str) -> gpui_kit::Result<Vec<SharedString>> {
+        let mut paths = gpui_kit::assets::Assets.list(path)?;
+        paths.extend(ConduitIcons.list(path)?);
+        if BRAND_MARK.starts_with(path) {
+            paths.push(BRAND_MARK.into());
+        }
+        paths.sort();
+        paths.dedup();
+        Ok(paths)
+    }
+}
+
+/// An icon at `size` points in `color`. Decorative: wrap it in a labelled
+/// control when it is the only content of one.
+pub fn icon(name: IconName, size: f32, color: Hsla) -> Svg {
+    svg()
+        .path(name.path())
+        .size(Pixels::from(size))
+        .flex_none()
+        .text_color(color)
+}
+
+/// The Conduit mark.
+pub fn brand_mark(size: f32, color: Hsla) -> impl IntoElement {
+    svg()
+        .path(BRAND_MARK)
+        .size(Pixels::from(size))
+        .flex_none()
+        .text_color(color)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_selected_icon_and_the_mark_load() {
+        for name in [IconName::Brain, IconName::SquarePen, IconName::ThumbsUp] {
+            let bytes = ConduitAssets.load(&name.path()).unwrap();
+            assert!(bytes.is_some_and(|b| b.starts_with(b"<svg")), "{name:?}");
+        }
+        assert!(ConduitAssets.load(BRAND_MARK).unwrap().is_some());
+        // GPUI Kit's own component icons still resolve.
+        assert!(ConduitAssets.load("icons/check.svg").unwrap().is_some());
+    }
+}
