@@ -1,11 +1,11 @@
 import 'dart:io';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/openwebui_server_address.dart';
 import 'package:conduit_core/auth/proxy_session.dart';
 import 'package:conduit_core/network/conduit_user_agent.dart';
-import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
 void main() {
   test(

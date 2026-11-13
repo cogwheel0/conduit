@@ -22,6 +22,7 @@ import 'package:conduit_core/models/user.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/auth/openwebui_address_check.dart';
+import 'package:conduit_core/auth/openwebui_server_address.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart'
     show proxySignInForRouteEditingProvider;
@@ -47,6 +48,7 @@ import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../widgets/auth_grouped_form.dart';
 import '../services/server_address_service.dart';
+import '../services/server_address_wording.dart';
 import '../../profile/widgets/account_actions.dart'
     show
         abandonAddedAccount,
@@ -333,7 +335,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       label: _routeLabelController.text,
       verified: verified,
       sessionRevision: sessionRevision,
-      l10n: l10n,
       confirmSendingSession: (address) async {
         if (!mounted) return false;
         return ThemedDialogs.confirm(
@@ -356,9 +357,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           context.pop();
         }
         return true;
-      case ServerAddressNotSaved(:final message):
-        if (message != null && mounted) {
-          setState(() => _connectionError = message);
+      case ServerAddressNotSaved(:final problem):
+        if (problem != null && mounted) {
+          setState(
+            () => _connectionError = serverAddressProblemText(problem, l10n),
+          );
         }
         return false;
     }
@@ -380,10 +383,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       registry: registry,
       serverId: serverId,
       endpointId: widget.endpointId,
-      accountIds: [
-        ?activeId,
-        for (final account in registry.accountsOn(serverId)) account.id,
-      ],
+      accountIds: addressCheckAccountIds(
+        registry,
+        serverId: serverId,
+        activeAccountId: activeId,
+      ),
     );
   }
 
@@ -997,8 +1001,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     }
   }
 
-  String _validateAndFormatUrl(String input) =>
-      formatServerAddressInput(input, AppLocalizations.of(context)!);
+  String _validateAndFormatUrl(String input) => formatServerAddressInput(input);
 
   bool _hasExplicitHttpScheme(String input) => hasExplicitHttpScheme(input);
 
@@ -1041,19 +1044,14 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       _normalizedMtlsPrivateKeyPassword != null;
 
   String? _validateMutualTlsSelection() {
-    final hasPassword = _normalizedMtlsPrivateKeyPassword != null;
-    if (!_hasMutualTlsCertificate && !_hasMutualTlsPrivateKey) {
-      if (!hasPassword) {
-        return null;
-      }
-      return AppLocalizations.of(context)!.mutualTlsMissingCredentialPair;
-    }
-
-    if (_hasMutualTlsCertificate && _hasMutualTlsPrivateKey) {
-      return null;
-    }
-
-    return AppLocalizations.of(context)!.mutualTlsMissingCredentialPair;
+    final problem = validateMutualTlsSelection(
+      hasCertificate: _hasMutualTlsCertificate,
+      hasPrivateKey: _hasMutualTlsPrivateKey,
+      hasPassword: _normalizedMtlsPrivateKeyPassword != null,
+    );
+    return problem == null
+        ? null
+        : serverAddressProblemText(problem, AppLocalizations.of(context)!);
   }
 
   Future<void> _pickMtlsCertificateChain() async {
@@ -1065,13 +1063,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   Future<void> _pickMutualTlsFile({required bool isPrivateKey}) async {
+    final l10n = AppLocalizations.of(context)!;
     try {
       FocusManager.instance.primaryFocus?.unfocus();
       final file = await FilePicker.pickFile(
         type: FileType.custom,
-        allowedExtensions: isPrivateKey
-            ? const ['pem', 'key']
-            : const ['pem', 'crt', 'cer'],
+        allowedExtensions: pemFileExtensions(isPrivateKey: isPrivateKey),
       );
 
       if (file == null) {
@@ -1091,7 +1088,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
       final fileLabel = _resolvePickedFileLabel(
         file,
-        fallback: isPrivateKey ? 'client-key.pem' : 'client-cert.pem',
+        fallback: pemFileFallbackLabel(isPrivateKey: isPrivateKey),
       );
 
       setState(() {
@@ -1105,27 +1102,30 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         _connectionError = null;
       });
       ConduitHaptics.lightImpact();
+    } on ServerAddressInputException catch (error) {
+      _showHeaderError(serverAddressProblemText(error.problem, l10n));
     } catch (error) {
       _showHeaderError(error.toString().replaceFirst('Exception: ', ''));
     }
   }
 
   Future<String> _readPickedPemFile(PlatformFile file) =>
-      readPickedPemFile(file, AppLocalizations.of(context)!);
+      readPickedPemFile(file);
 
   String _resolvePickedFileLabel(
     PlatformFile file, {
     required String fallback,
-  }) => pickedFileLabel(file, fallback: fallback);
+  }) => pickedPlatformFileLabel(file, fallback: fallback);
 
   String? _validatePickedPemContent(
     String content, {
     required bool isPrivateKey,
-  }) => validatePickedPem(
-    content,
-    isPrivateKey: isPrivateKey,
-    l10n: AppLocalizations.of(context)!,
-  );
+  }) {
+    final problem = validatePickedPem(content, isPrivateKey: isPrivateKey);
+    return problem == null
+        ? null
+        : serverAddressProblemText(problem, AppLocalizations.of(context)!);
+  }
 
   void _clearMutualTlsCredentials() {
     setState(() {
@@ -1142,11 +1142,13 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   String _formatConnectionError(
     Object error, {
     Iterable<String>? sensitiveValues,
-  }) => formatServerConnectionError(
-    error,
-    sensitiveValues: sensitiveValues ?? _customHeaders.values,
-    hasMutualTlsInput: _hasAnyMutualTlsInput,
-    l10n: AppLocalizations.of(context)!,
+  }) => serverAddressFailureText(
+    classifyServerConnectionError(
+      error,
+      sensitiveValues: sensitiveValues ?? _customHeaders.values,
+      hasMutualTlsInput: _hasAnyMutualTlsInput,
+    ),
+    AppLocalizations.of(context)!,
   );
 
   @override
@@ -2063,10 +2065,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   String? _validateHeaderKey(String key) =>
-      validateServerAddressHeaderName(key, AppLocalizations.of(context)!);
+      serverAddressHeaderNameProblemText(key, AppLocalizations.of(context)!);
 
   String? _validateHeaderValue(String value) =>
-      validateServerAddressHeaderValue(value, AppLocalizations.of(context)!);
+      serverAddressHeaderValueProblemText(value, AppLocalizations.of(context)!);
 
   void _showHeaderError(String message) {
     AdaptiveSnackBar.show(

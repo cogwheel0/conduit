@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/auth/openwebui_server_address.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -21,6 +22,7 @@ import '../../../core/utils/account_display.dart'
 import '../../../core/utils/native_sheet_utils.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../auth/services/server_address_service.dart';
+import '../../auth/services/server_address_wording.dart';
 import '../settings_controller.dart';
 import '../settings_page_module.dart';
 import '../settings_pages.dart';
@@ -108,7 +110,7 @@ NativeSheetDetailConfig buildServerAddressesPage(
       items: [problem(notice ?? l10n.errorMessage)],
     );
   }
-  final removable = server.endpoints.length > 1;
+  final removable = serverAddressesRemovable(server);
   return NativeSheetDetailConfig(
     id: pageId,
     title: serverDisplayName(server),
@@ -765,7 +767,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
       final registry = await _ref
           .read(optimizedStorageServiceProvider)
           .getOpenWebUiRegistryStrict();
-      return (registry.server(serverId)?.endpoints.length ?? 0) > 1;
+      return serverAddressesRemovable(registry.server(serverId));
     } catch (_) {
       return false;
     }
@@ -962,26 +964,20 @@ class ServerAddressSettingsPages extends SettingsPageModule {
       // Over the Settings sheet, as a picker opened from one of its rows.
       final file = await FilePicker.pickFile(
         type: FileType.custom,
-        allowedExtensions: isPrivateKey
-            ? const ['pem', 'key']
-            : const ['pem', 'crt', 'cer'],
+        allowedExtensions: pemFileExtensions(isPrivateKey: isPrivateKey),
       );
       if (file == null) return;
-      final pem = await readPickedPemFile(file, l10n);
+      final pem = await readPickedPemFile(file);
       // Closed (and maybe opened again) while the file was chosen and read:
       // it is not this editor's any more.
       if (!identical(_editors[key], editor)) return;
-      final problem = validatePickedPem(
-        pem,
-        isPrivateKey: isPrivateKey,
-        l10n: l10n,
-      );
+      final problem = validatePickedPem(pem, isPrivateKey: isPrivateKey);
       if (problem != null) {
-        editor.advancedNotice = problem;
+        editor.advancedNotice = serverAddressProblemText(problem, l10n);
       } else {
-        final label = pickedFileLabel(
+        final label = pickedPlatformFileLabel(
           file,
-          fallback: isPrivateKey ? 'client-key.pem' : 'client-cert.pem',
+          fallback: pemFileFallbackLabel(isPrivateKey: isPrivateKey),
         );
         if (isPrivateKey) {
           editor.draft
@@ -995,7 +991,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
         editor.advancedNotice = null;
       }
     } on ServerAddressInputException catch (error) {
-      editor.advancedNotice = error.message;
+      editor.advancedNotice = serverAddressProblemText(error.problem, l10n);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'server-address-pick-failed',
@@ -1016,7 +1012,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
   ) async {
     final name = editor.headerName.trim();
     final value = editor.headerValue.trim();
-    final problem = validateServerAddressHeader(
+    final problem = serverAddressHeaderProblemText(
       editor.draft.headers,
       name: name,
       value: value,
@@ -1060,11 +1056,10 @@ class ServerAddressSettingsPages extends SettingsPageModule {
         serverId: serverId,
         endpointId: endpointId,
         draft: editor.draft,
-        l10n: l10n,
       );
       switch (check) {
-        case ServerAddressUnusable(:final message):
-          notice = message;
+        case ServerAddressUnusable(:final failure):
+          notice = serverAddressFailureText(failure, l10n);
         case ServerAddressBehindProxy():
           editor.busy = false;
           await _handOffToProxySignIn(l10n, key, serverId, endpointId, editor);
@@ -1078,7 +1073,6 @@ class ServerAddressSettingsPages extends SettingsPageModule {
             label: editor.draft.label,
             verified: config,
             sessionRevision: sessionRevision,
-            l10n: l10n,
             // Asked only while the editor is open, and agreed only if it
             // still is: a left editor's session goes nowhere.
             confirmSendingSession: (address) async {
@@ -1112,8 +1106,10 @@ class ServerAddressSettingsPages extends SettingsPageModule {
           switch (outcome) {
             case ServerAddressSaved():
               saved = true;
-            case ServerAddressNotSaved(:final message):
-              notice = message;
+            case ServerAddressNotSaved(:final problem):
+              notice = problem == null
+                  ? null
+                  : serverAddressProblemText(problem, l10n);
           }
       }
     } catch (error, stackTrace) {
@@ -1240,18 +1236,18 @@ class ServerAddressSettingsPages extends SettingsPageModule {
   ) async {
     if (endpointId == null) return;
     final route = _ref.read(openWebUiRouteResolverProvider);
-    if (route.serverId == serverId &&
-        route.endpointId == endpointId &&
+    if (isServerAddressInUse(
+          route,
+          serverId: serverId,
+          endpointId: endpointId,
+        ) &&
         !await _mayChangeAddressInUse(l10n)) {
       return;
     }
     final removed = await _editRoutes(
       l10n,
       serverId,
-      (endpoints) => [
-        for (final endpoint in endpoints)
-          if (endpoint.id != endpointId) endpoint,
-      ],
+      (endpoints) => withoutServerAddress(endpoints, endpointId),
     );
     final editor = _editors[key];
     if (!removed && editor != null) {
@@ -1280,12 +1276,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
     await _editRoutes(
       l10n,
       serverId,
-      (endpoints) => [
-        for (final id in order)
-          ?endpoints.where((endpoint) => endpoint.id == id).firstOrNull,
-        for (final endpoint in endpoints)
-          if (!order.contains(endpoint.id)) endpoint,
-      ],
+      (endpoints) => serverAddressesInOrder(endpoints, order),
     );
     // Only the order changed: an address editor opened meanwhile keeps its
     // draft.
@@ -1302,10 +1293,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
     List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint>) edit,
   ) async {
     try {
-      await _ref
-          .read(optimizedStorageServiceProvider)
-          .editServerEndpoints(serverId, edit);
-      await reloadAfterRoutesEdited(_ref.container, serverId);
+      await editServerAddresses(_ref.container, serverId, edit);
       return true;
     } catch (error, stackTrace) {
       DebugLogger.error(
