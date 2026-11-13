@@ -5051,6 +5051,10 @@
   },
   "showModelNameInComposer": "Afficher le nom du modèle dans la zone de message",
   "showModelNameInComposerDescription": "La zone de message vide indique le nom du modèle sélectionné au lieu de Conduit.",
+  "workspaceEditorAccountChanged": "Le compte connecté a changé, votre modification n'a donc pas été enregistrée.",
+  "@workspaceEditorAccountChanged": {
+    "description": "Shown on a Workspace skill or tool editor that was read again because the signed-in account changed while a change was being saved; the change was not saved."
+  },
   "settingsAddAction": "Ajouter",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."

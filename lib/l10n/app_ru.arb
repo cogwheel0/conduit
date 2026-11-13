@@ -5089,6 +5089,10 @@
   },
   "showModelNameInComposer": "Показывать название модели в поле сообщения",
   "showModelNameInComposerDescription": "В пустом поле сообщения указывается выбранная модель вместо Conduit.",
+  "workspaceEditorAccountChanged": "Аккаунт, в который выполнен вход, изменился, поэтому изменение не было сохранено.",
+  "@workspaceEditorAccountChanged": {
+    "description": "Shown on a Workspace skill or tool editor that was read again because the signed-in account changed while a change was being saved; the change was not saved."
+  },
   "settingsAddAction": "Добавить",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."

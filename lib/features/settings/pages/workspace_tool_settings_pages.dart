@@ -801,6 +801,7 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       _session(),
       since: _ref.read(settingsControllerProvider).controlsQueued,
     );
+    if (_notSent.remove(key)) _say(editor, l10n.workspaceEditorAccountChanged);
     if (editor.isCreate) editor.content = workspaceToolBoilerplate;
     await _applyEditor(l10n, editor);
     if (!editor.isCreate) await _load(editor);
@@ -841,12 +842,14 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       final key = detailId.substring(workspaceToolPagePrefix.length);
       _editors.remove(key);
       _access.forget(key);
+      _notSent.remove(key);
     }
   }
 
   @override
   void settingsClosed() {
     _editors.clear();
+    _notSent.clear();
     _access.clear();
   }
 
@@ -1233,6 +1236,10 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     await _surface.closeDetail('$workspaceToolPagePrefix${editor.key}');
   }
 
+  /// Editors whose change was not sent because their session ended: the one
+  /// read afresh in their place says so.
+  final _notSent = <String>{};
+
   /// Frees [editor] once its session ended during a change it was drawn
   /// busy for, so its page ([pageId], else the editor's) is not left
   /// disabled. Still the one open, the page is described again for the
@@ -1247,6 +1254,7 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       ..busy = false
       ..valvesBusy = false;
     if (!identical(_editors[editor.key], editor)) return;
+    _notSent.add(editor.key);
     await hydrate(pageId ?? '$workspaceToolPagePrefix${editor.key}', l10n);
   }
 

@@ -6665,6 +6665,10 @@
   },
   "showModelNameInComposer": "メッセージ欄にモデル名を表示",
   "showModelNameInComposerDescription": "空のメッセージ欄に、Conduit の代わりに選択中のモデル名を表示します。",
+  "workspaceEditorAccountChanged": "サインイン中のアカウントが変更されたため、変更は保存されませんでした。",
+  "@workspaceEditorAccountChanged": {
+    "description": "Shown on a Workspace skill or tool editor that was read again because the signed-in account changed while a change was being saved; the change was not saved."
+  },
   "settingsAddAction": "追加",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."

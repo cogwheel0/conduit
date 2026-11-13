@@ -4823,6 +4823,10 @@
   },
   "showModelNameInComposer": "메시지 입력란에 모델 이름 표시",
   "showModelNameInComposerDescription": "비어 있는 메시지 입력란에 Conduit 대신 선택한 모델 이름을 표시합니다.",
+  "workspaceEditorAccountChanged": "로그인한 계정이 변경되어 변경 사항을 저장하지 않았습니다.",
+  "@workspaceEditorAccountChanged": {
+    "description": "Shown on a Workspace skill or tool editor that was read again because the signed-in account changed while a change was being saved; the change was not saved."
+  },
   "settingsAddAction": "추가",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."

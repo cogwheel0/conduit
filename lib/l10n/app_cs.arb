@@ -6971,6 +6971,10 @@
   },
   "showModelNameInComposer": "Zobrazovat název modelu v poli zprávy",
   "showModelNameInComposerDescription": "Prázdné pole zprávy uvádí název vybraného modelu místo Conduitu.",
+  "workspaceEditorAccountChanged": "Přihlášený účet se změnil, takže vaše změna nebyla uložena.",
+  "@workspaceEditorAccountChanged": {
+    "description": "Shown on a Workspace skill or tool editor that was read again because the signed-in account changed while a change was being saved; the change was not saved."
+  },
   "settingsAddAction": "Přidat",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."

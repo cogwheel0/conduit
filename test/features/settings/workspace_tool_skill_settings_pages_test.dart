@@ -753,6 +753,8 @@ void main() {
       check(tools.toggled).deepEquals(['tool-1']);
       check(rig.page(_tool1).busy).not((it) => it.equals(true));
       check(rig.row(_tool1, _toolRow('active', _toolKey))).isNotNull();
+      check(rig.page(_tool1).announcement)
+          .equals(_l10n.workspaceEditorAccountChanged);
     });
 
     group('from a URL', () {
@@ -858,6 +860,10 @@ void main() {
 
         check(tools.valveSaves).length.equals(1);
         check(rig.closed).deepEquals([valves]);
+        // Back on the editor, read afresh, it says why.
+        await rig.open(_tool1);
+        check(rig.page(_tool1).announcement)
+            .equals(_l10n.workspaceEditorAccountChanged);
       });
 
       testWidgets('a value of its own is set, then saved', (tester) async {
@@ -1218,6 +1224,8 @@ void main() {
       check(skills.cloned).deepEquals([('skill-1', 'skill-1_clone')]);
       check(rig.page(_skill1).busy).not((it) => it.equals(true));
       check(rig.row(_skill1, _skillRow('clone', _skillKey))).isNotNull();
+      check(rig.page(_skill1).announcement)
+          .equals(_l10n.workspaceEditorAccountChanged);
     });
 
     testWidgets('a duplicate refused after another account signed in makes '

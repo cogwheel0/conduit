@@ -5051,6 +5051,10 @@
   },
   "showModelNameInComposer": "在訊息框中顯示模型名稱",
   "showModelNameInComposerDescription": "空白訊息框會顯示所選模型的名稱，而非 Conduit。",
+  "workspaceEditorAccountChanged": "目前登入的帳戶已變更，因此未儲存你的變更。",
+  "@workspaceEditorAccountChanged": {
+    "description": "Shown on a Workspace skill or tool editor that was read again because the signed-in account changed while a change was being saved; the change was not saved."
+  },
   "settingsAddAction": "新增",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
