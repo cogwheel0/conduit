@@ -877,6 +877,9 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       buildHermesMcpCatalogPage(l10n, entries: _catalog),
       detailSheets: _unknownEntryPages(l10n),
     );
+    // Another connection in use while it was drawn, or a newer read begun:
+    // no service is chosen for this one, which is no longer the page's.
+    if (!current()) return;
     try {
       final service = _service;
       if (service == null) {
