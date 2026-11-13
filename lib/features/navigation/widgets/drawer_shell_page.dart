@@ -7,6 +7,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 
+import '../../settings/settings_opener.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../l10n/app_localizations.dart';
@@ -238,6 +239,13 @@ class _AppKeyboardShortcutsState extends ConsumerState<AppKeyboardShortcuts> {
   }
 
   void _openSettings() {
+    // On iOS and iPadOS, the same native sheet as the account button.
+    final open = ref.read(settingsOpenerProvider).open;
+    if (settingsShortcutDestination(nativeSheetAvailable: open != null) ==
+        SettingsDestination.nativeSheet) {
+      unawaited(open!());
+      return;
+    }
     final path = Uri.tryParse(NavigationService.currentRoute ?? '')?.path;
     if (path == Routes.profile ||
         path?.startsWith('${Routes.profile}/') == true) {

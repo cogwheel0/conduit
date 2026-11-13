@@ -29,6 +29,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'sidebar_page_test_support.dart';
 
+import 'package:conduit/features/settings/settings_opener.dart';
+
 void main() {
   tearDown(PlatformUiCapabilities.resetDebugOverrides);
 
@@ -73,6 +75,53 @@ void main() {
       ),
       hasLength(1),
     );
+  });
+
+  testWidgets('Command-comma opens the native Settings sheet the account '
+      'button opens', (tester) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    var sheets = 0;
+    Future<void> openSheet() async => sheets++;
+    container.read(settingsOpenerProvider).register(openSheet);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          home: AppKeyboardShortcuts(child: Focus(child: Text('Content'))),
+        ),
+      ),
+    );
+
+    final bindings = tester
+        .widget<CallbackShortcuts>(find.byType(CallbackShortcuts))
+        .bindings;
+    bindings[const SingleActivator(LogicalKeyboardKey.comma, meta: true)]!();
+    await tester.pump();
+
+    expect(sheets, 1);
+  });
+
+  test('Settings opens where the account button would open it', () {
+    expect(
+      settingsShortcutDestination(nativeSheetAvailable: true),
+      SettingsDestination.nativeSheet,
+    );
+    expect(
+      settingsShortcutDestination(nativeSheetAvailable: false),
+      SettingsDestination.flutterPages,
+    );
+    final opener = SettingsOpener();
+    Future<void> first() async {}
+    Future<void> second() async {}
+    opener
+      ..register(first)
+      ..register(second)
+      ..unregister(first);
+    // A button gone after another took over leaves the newer one.
+    expect(opener.open, same(second));
   });
 
   testWidgets('Command-N accepts an initial press but ignores repeats', (

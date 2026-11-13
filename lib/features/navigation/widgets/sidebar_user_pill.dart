@@ -15,6 +15,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/models/account_metadata.dart';
 
+import '../../settings/settings_opener.dart';
 import '../../../core/network/image_header_utils.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
@@ -370,6 +371,16 @@ class _SidebarProfileAppBarLeadingState
     extends ConsumerState<SidebarProfileAppBarLeading> {
   bool _openingProfile = false;
 
+  /// This button's way of opening Settings, which Command-comma uses too.
+  Future<void> Function()? _opener;
+  late final SettingsOpener _settingsOpener = ref.read(settingsOpenerProvider);
+
+  @override
+  void dispose() {
+    if (_opener case final opener?) _settingsOpener.unregister(opener);
+    super.dispose();
+  }
+
   Future<void> _openProfile(Future<void> Function() present) async {
     // Claim the opening before navigation or account loading can yield.
     if (_openingProfile) return;
@@ -610,6 +621,14 @@ class _SidebarProfileAppBarLeadingState
         );
       }
     }
+
+    // Command-comma opens Settings the way this button does, while the
+    // native sheet is how it does.
+    if (_opener case final previous?) _settingsOpener.unregister(previous);
+    _opener = nativeProfilePresenter == null
+        ? null
+        : () => _openProfile(presentProfile);
+    if (_opener case final opener?) _settingsOpener.register(opener);
 
     // Exclude the native glass button's own node so VoiceOver announces one
     // labelled control instead of an unlabelled avatar image.
