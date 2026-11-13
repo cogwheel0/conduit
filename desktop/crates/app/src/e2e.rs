@@ -31,6 +31,10 @@
 //!   pane and answered, pin, rename, fork, archive, hide and Hidden Chats,
 //!   Branch from Here, Undo Last Turn, delete; and a read-only session of
 //!   the fake API server continued in a copy ([`hermes_sessions`]).
+//! * `hermes-rooms`: Hermes Bot Mode and Group Chats on the same real
+//!   gateway: a bot's Bot Chat, New Room, @mentions answered by both bots,
+//!   a paused debate continued, an approval card, Room Info, rename, stop
+//!   and disband ([`hermes_rooms`]).
 //! * `sidebar`: sign in to the seeded server, then the sidebar: folders as the
 //!   account left them, open, hover, rename, pin, move to folder (menu and
 //!   drop), remove from folder, archive and the archived section, delete,
@@ -85,6 +89,7 @@ mod composer;
 mod dictation;
 mod direct;
 mod hermes_cards;
+mod hermes_rooms;
 mod hermes_sessions;
 mod integration;
 mod intents;
@@ -748,6 +753,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "direct-advanced" => direct::run(&inputs, &dir, cx).await,
         "hermes" => hermes(&inputs, &dir, cx).await,
         "hermes-sessions" => hermes_sessions::run_scenario(&inputs, &dir, cx).await,
+        "hermes-rooms" => hermes_rooms::run_scenario(&inputs, &dir, cx).await,
         "hermes-cards" => hermes_cards::run(&inputs, &dir, cx).await,
         "sidebar" => sidebar(&inputs, &dir, cx).await,
         "chat" | "chat-direct" | "chat-smoke" | "chat-read-only" => {

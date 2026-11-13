@@ -101,6 +101,11 @@ pub enum AreaItem {
     HermesSession(String),
     /// Hermes's Hidden Chats: the sessions hidden from every list.
     HermesHidden,
+    /// A Bot Mode bot, by its profile name: its row opens its Bot Chat (a
+    /// Hermes session), never a pane of its own.
+    HermesBot(String),
+    /// A Hermes Group Chat, by its room id: its pane.
+    HermesRoom(String),
     Workspace(WorkspaceSection),
     /// A terminal server, by its id.
     Terminal(String),
@@ -113,7 +118,10 @@ impl AreaItem {
         match self {
             Self::AllNotes | Self::Note(_) => Area::Notes,
             Self::Channel(_) => Area::Channels,
-            Self::HermesSession(_) | Self::HermesHidden => Area::Hermes,
+            Self::HermesSession(_)
+            | Self::HermesHidden
+            | Self::HermesBot(_)
+            | Self::HermesRoom(_) => Area::Hermes,
             Self::Workspace(_) => Area::Workspace,
             Self::Terminal(_) => Area::Terminal,
             Self::Calendar => Area::Calendar,

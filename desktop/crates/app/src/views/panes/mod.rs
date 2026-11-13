@@ -65,6 +65,8 @@ pub struct AreaPane {
     terminals: HashMap<String, Entity<crate::views::terminal::pane::TerminalPane>>,
     /// The account the terminal panes belong to.
     terminals_account: Option<String>,
+    /// The Group Chat shown, while one is (its timeline and composer).
+    pub room: Option<Entity<crate::views::hermes_room::HermesRoomPane>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -106,6 +108,7 @@ impl AreaPane {
             cx.observe(&stores.accounts, |this: &mut Self, _, cx| {
                 this.follow_account(cx)
             }),
+            cx.observe(&stores.hermes_rooms, |_, _, cx| cx.notify()),
             cx.observe(&layout, |_, _, cx| cx.notify()),
             cx.observe(&notes, |_, _, cx| cx.notify()),
         ];
@@ -121,6 +124,7 @@ impl AreaPane {
             last_item: None,
             terminals: HashMap::new(),
             terminals_account,
+            room: None,
             _subscriptions: subscriptions,
         }
     }
@@ -198,6 +202,16 @@ pub fn title_of(item: &AreaItem, stores: &Stores, cx: &App) -> String {
             .map(|c| crate::views::channels::display_title(c, cx.l10n())),
         AreaItem::HermesSession(id) => areas.hermes_session(id).map(|s| s.title.clone()),
         AreaItem::HermesHidden => None,
+        AreaItem::HermesBot(name) => stores
+            .hermes_rooms
+            .read(cx)
+            .bot(name)
+            .map(|b| b.title.clone()),
+        AreaItem::HermesRoom(id) => stores
+            .hermes_rooms
+            .read(cx)
+            .room(id)
+            .map(|r| r.name.clone()),
         AreaItem::Terminal(id) => areas
             .terminal(id)
             .map(|t| t.name.clone())
@@ -259,11 +273,25 @@ impl Render for AreaPane {
         let Some(item) = self.item(cx) else {
             channels::sync(self, None, window, cx);
             self.last_item = None;
+            self.room = None;
             return div().size_full().bg(r.content).into_any_element();
         };
         let returning = self.last_item.as_ref() == Some(&item);
         self.last_item = Some(item.clone());
         channels::sync(self, Some(&item), window, cx);
+        // A Group Chat keeps its pane (its composer, its scroll) while it
+        // stays shown.
+        match &item {
+            AreaItem::HermesRoom(id) => {
+                if self.room.as_ref().is_none_or(|p| p.read(cx).room_id != *id) {
+                    let (stores, id) = (self.stores.clone(), id.clone());
+                    self.room = Some(cx.new(|cx| {
+                        crate::views::hermes_room::HermesRoomPane::new(stores, id, window, cx)
+                    }));
+                }
+            }
+            _ => self.room = None,
+        }
         let title = channels::shown_title(self, &item, cx)
             .unwrap_or_else(|| title_of(&item, &self.stores, cx));
         let terminal = match &item {
@@ -271,8 +299,8 @@ impl Render for AreaPane {
             _ => None,
         };
         // The shown item's own buttons, at the toolbar's trailing edge: a
-        // note's or a channel's. A terminal's sit beside its
-        // leading title instead (below).
+        // note's or a channel's; a room's follow. A
+        // terminal's sit beside its leading title instead (below).
         let trailing = match &item {
             AreaItem::Note(_) => self
                 .notes
@@ -296,6 +324,12 @@ impl Render for AreaPane {
             // switches over.
             AreaItem::HermesSession(_) => placeholder(&item, &title, &t, &l),
             AreaItem::HermesHidden => hermes::hidden_pane(&self.stores, &t, &l, cx),
+            AreaItem::HermesRoom(_) => match &self.room {
+                Some(room) => room.clone().into_any_element(),
+                None => placeholder(&item, &title, &t, &l),
+            },
+            // A bot opens its Bot Chat in the chat pane.
+            AreaItem::HermesBot(_) => placeholder(&item, &title, &t, &l),
             AreaItem::Workspace(section) => {
                 workspace::pane(&mut self.workspace, &self.stores, *section, window, cx)
                     .into_any_element()
@@ -325,6 +359,15 @@ impl Render for AreaPane {
             10.
         };
         let keys = conduit_components::views::focus::hints(cx);
+        let room_actions = match &item {
+            AreaItem::HermesRoom(id) => Some(crate::views::hermes_room::toolbar_actions(
+                &self.stores,
+                id,
+                cx,
+            ))
+            .filter(|a| !a.is_empty()),
+            _ => None,
+        };
         let toolbar = drag_region("area-pane-toolbar")
             .role(Role::Toolbar)
             .aria_label(SharedString::from(title.clone()))
@@ -363,8 +406,13 @@ impl Render for AreaPane {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(
-                            div()
+                        .child(match &item {
+                            // A room names itself with its bots' faces and who
+                            // is at work; a click opens Room Info.
+                            AreaItem::HermesRoom(id) => {
+                                crate::views::hermes_room::toolbar_title(&self.stores, id, &t, cx)
+                            }
+                            _ => div()
                                 .id("area-pane-title")
                                 // The item's name, as VoiceOver's headings list
                                 // finds it (a note's own title is a field).
@@ -375,11 +423,21 @@ impl Render for AreaPane {
                                 .text_size(px(t.metrics.control))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(r.text)
-                                .child(SharedString::from(title.clone())),
-                        ),
+                                .child(SharedString::from(title.clone()))
+                                .into_any_element(),
+                        }),
                 )
                 .child(div().flex_1())
                 .children(trailing)
+                .when_some(room_actions, |d, actions| {
+                    d.child(
+                        toolbar_capsule(&t)
+                            .p(px(2.))
+                            .flex()
+                            .gap(px(2.))
+                            .children(actions),
+                    )
+                })
             })
             // A terminal's controls fill the trailing edge, so its title
             // leads, as a unified toolbar's does.

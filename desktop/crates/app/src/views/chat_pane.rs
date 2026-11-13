@@ -2720,13 +2720,42 @@ impl Render for ChatPane {
         let pill_label = l10n.desktop_model_chip(&model_name);
         let composer = self.composer.downgrade();
         let previous = self.title_crossfade(pill_title.as_ref(), window, cx);
-        let pill = TitlePill::new(model_name.clone(), pill_label)
-            .title(pill_title)
-            .previous(previous)
-            .open(picker_open)
-            .on_click(Rc::new(move |_, window, cx| {
-                let _ = composer.update(cx, |c, cx| c.toggle_picker(window, cx));
-            }));
+        let pill = match hermes.as_ref().and_then(|h| h.bot.clone()) {
+            // A Bot Chat runs as its bot, on the bot's own model: the
+            // header names the bot, with its face (it bobs while it
+            // answers), as the phone's does.
+            Some(bot) => {
+                let streaming = self
+                    .chat
+                    .as_ref()
+                    .is_some_and(|c| c.store.read(cx).is_streaming());
+                let rooms = self.stores.hermes_rooms.read(cx);
+                let face = crate::views::hermes_faces::bot_face(&bot, rooms);
+                if bot.has_avatar && face.image.is_none() {
+                    crate::views::hermes_faces::request_avatars(
+                        [bot.name.as_str()],
+                        &self.stores.hermes_rooms,
+                        cx,
+                    );
+                }
+                TitlePill::new(bot.title.clone(), bot.title.clone()).face(
+                    crate::views::hermes_faces::face(
+                        "bot-title-face",
+                        &face,
+                        22.,
+                        streaming,
+                        cx.reduce_motion(),
+                    ),
+                )
+            }
+            None => TitlePill::new(model_name.clone(), pill_label)
+                .title(pill_title)
+                .previous(previous)
+                .open(picker_open)
+                .on_click(Rc::new(move |_, window, cx| {
+                    let _ = composer.update(cx, |c, cx| c.toggle_picker(window, cx));
+                })),
+        };
         let sidebar_visible = self.layout.read(cx).state.sidebar_visible;
         let mut toolbar = ChatToolbar::new(title, SharedString::default())
             .temporary(temporary)

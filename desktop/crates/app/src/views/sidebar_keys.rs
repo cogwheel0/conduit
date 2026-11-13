@@ -48,6 +48,7 @@ impl KeyRow {
             SidebarItem::ShowAll { area, .. } => Some(Self::ShowAll(*area)),
             SidebarItem::HermesArchived { .. } => Some(Self::HermesArchived),
             SidebarItem::Header(_)
+            | SidebarItem::HermesGroup { .. }
             | SidebarItem::Hint(_)
             | SidebarItem::AreaHint { .. }
             | SidebarItem::NewFolder { .. } => None,
@@ -664,6 +665,8 @@ mod tests {
                 session: None,
                 icon: None,
                 dimmed: false,
+                bot: None,
+                room: None,
             })
         };
         vec![

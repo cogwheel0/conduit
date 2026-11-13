@@ -778,6 +778,172 @@ pub fn item_row(line: &ItemLine, state: RowState, t: &ConduitTheme) -> Stateful<
         })
 }
 
+/// A bot or a room as its row shows it: its face where a glyph sits.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FaceLine {
+    pub id: SharedString,
+    pub title: SharedString,
+    /// At the trailing edge: when it was last active.
+    pub trailing: Option<SharedString>,
+    /// Spoken after the title.
+    pub description: Option<SharedString>,
+    /// Something was said since it was last shown: a dot, as Mail marks
+    /// an unread mailbox, and the title in the stronger weight.
+    pub unread: bool,
+    /// Its bots are at work (or its chat is opening): a spinner in place
+    /// of the date, still under Reduce Motion.
+    pub working: bool,
+    pub reduce_motion: bool,
+    /// Spoken when `unread`.
+    pub unread_spoken: Option<SharedString>,
+    /// Spoken when `working`.
+    pub working_spoken: Option<SharedString>,
+}
+
+/// A row with a face (a bot's, a room's stack) where an item's glyph sits,
+/// the title where a chat's starts, and at the trailing edge the date, a
+/// spinner while it works or the unread dot; hovering shows `actions` in
+/// the date's place, as a chat row does.
+pub fn face_row(
+    line: &FaceLine,
+    face: AnyElement,
+    state: RowState,
+    actions: Vec<RowAction>,
+    t: &ConduitTheme,
+) -> Stateful<Div> {
+    let r = t.roles;
+    let m = t.metrics;
+    let key = state.selected && state.keyboard;
+    let subtle = if state.selected {
+        on_selection(r.selected_text_subtle, t, key)
+    } else {
+        r.sidebar_text_subtle
+    };
+    let mut label = line.title.to_string();
+    if let Some(d) = &line.description {
+        label.push_str(", ");
+        label.push_str(d);
+    }
+    if line.unread && !state.selected {
+        label.push_str(", ");
+        label.push_str(line.unread_spoken.as_ref().map_or("unread", |s| s.as_ref()));
+    }
+    if line.working {
+        label.push_str(", ");
+        label.push_str(
+            line.working_spoken
+                .as_ref()
+                .map_or("working", |s| s.as_ref()),
+        );
+    }
+    let show_actions = state.hovered && !actions.is_empty();
+    let spinner = || {
+        let glyph = icon(IconName::LoaderCircle, 12., subtle);
+        if line.reduce_motion {
+            glyph.into_any_element()
+        } else {
+            glyph
+                .with_animation(
+                    ElementId::Name(format!("working-{}", line.id).into()),
+                    Animation::new(std::time::Duration::from_millis(900)).repeat(),
+                    |svg, delta| svg.with_transformation(Transformation::rotate(percentage(delta))),
+                )
+                .into_any_element()
+        }
+    };
+    let mark: Option<AnyElement> = if line.working {
+        Some(spinner())
+    } else if line.unread && !state.selected {
+        Some(
+            div()
+                .id(ElementId::Name(format!("unread-{}", line.id).into()))
+                .size(px(8.))
+                .rounded_full()
+                .bg(on_selection(r.sidebar_text, t, key))
+                .into_any_element(),
+        )
+    } else {
+        line.trailing.clone().map(|text| {
+            div()
+                .text_size(px(m.small))
+                .text_color(subtle)
+                .child(text)
+                .into_any_element()
+        })
+    };
+    let trailing = div()
+        .relative()
+        .flex_none()
+        .h(px(m.row_height))
+        .min_w(px(ROW_ACTION_SLOT))
+        .flex()
+        .items_center()
+        .justify_end()
+        .children(mark.map(|m| div().when(show_actions, |d| d.invisible()).child(m)))
+        .when(show_actions, |d| {
+            d.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .right(px(-(ROW_CONTENT_INSET - ROW_ACTION_INSET)))
+                    .flex()
+                    .items_center()
+                    .gap(px(2.))
+                    .children(actions.into_iter().map(|a| {
+                        let mut b = IconButton::new(ElementId::Name(a.id), a.icon, a.label)
+                            .size(ROW_ACTION_SIZE, 14.);
+                        if let Some(tip) = a.tooltip {
+                            b = b.tooltip(tip);
+                        }
+                        if let Some(h) = a.on_click {
+                            b = b.on_click(h);
+                        }
+                        b
+                    })),
+            )
+        });
+    let title_color = on_selection(r.sidebar_text, t, key);
+    div()
+        .id(ElementId::Name(format!("item-{}", line.id).into()))
+        .role(Role::TreeItem)
+        .aria_label(SharedString::from(label))
+        .aria_selected(state.selected)
+        .h(px(m.row_height))
+        .pl(px(ROW_CONTENT_INSET))
+        .pr(px(ROW_CONTENT_INSET))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(FOLDER_GLYPH_GAP))
+        .rounded(t.row_radius())
+        .bg(row_bg(state, t))
+        .when(!state.selected, |d| d.hover(|s| s.bg(r.hover)))
+        .active(|s| s.bg(pressed_fill(row_bg_hovered(state, t), t)))
+        .when(state.context, |d| d.border_2().border_color(r.focus))
+        .cursor_pointer()
+        .child(
+            div()
+                .flex_none()
+                .w(px(FOLDER_GLYPH))
+                .flex()
+                .justify_center()
+                .child(face),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .child(if line.unread && !state.selected {
+                    row_title(&line.title, m.control, title_color).font_weight(FontWeight::SEMIBOLD)
+                } else {
+                    row_title(&line.title, m.control, title_color)
+                }),
+        )
+        .child(trailing)
+}
+
 /// A quiet row of secondary text at the title column: an area's Show All
 /// (or Show Less).
 pub fn more_row(

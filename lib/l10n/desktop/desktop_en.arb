@@ -5003,6 +5003,22 @@
   "@desktopHermesContextUsageMenu": {
     "description": "Chat menu and More menu item that opens a Hermes chat's Context & Usage sheet."
   },
+  "desktopHermesNewRoomMenu": "New Room…",
+  "@desktopHermesNewRoomMenu": {
+    "description": "Menu item (the Rooms heading's and a room's context menu) that opens the sheet making a new Hermes Group Chat."
+  },
+  "desktopHermesRoomInfoMenu": "Room Info…",
+  "@desktopHermesRoomInfoMenu": {
+    "description": "Menu item and toolbar button that opens a Hermes Group Chat's Room Info sheet (purpose, notes, who answers, its bots)."
+  },
+  "desktopHermesDisbandRoomMenu": "Disband Room…",
+  "@desktopHermesDisbandRoomMenu": {
+    "description": "Menu item and button that asks before ending a Hermes Group Chat for good."
+  },
+  "desktopHermesOpenBotChat": "Open Bot Chat",
+  "@desktopHermesOpenBotChat": {
+    "description": "Context-menu item on a Hermes bot's sidebar row: opens the bot's permanent Bot Chat."
+  },
   "desktopHermesShowChanges": "Show Changes",
   "@desktopHermesShowChanges": {
     "description": "Tooltip of a changed file's row on a Hermes reply; it opens the file's coloured diff."

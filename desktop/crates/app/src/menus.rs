@@ -679,20 +679,32 @@ pub fn build_menus(l10n: &L10n, state: &MenuState) -> Vec<Menu> {
             MenuItem::separator(),
             MenuItem::action(l10n.desktop_menu_quit(), Quit),
         ]),
-        Menu::new(l10n.file()).items([
-            MenuItem::action(l10n.new_chat(), NewChat),
-            MenuItem::action(l10n.desktop_new_temporary_chat(), NewTemporaryChat),
-            // Finder's and Notes' New Folder: greyed where folders cannot
-            // be made (no handler answers it then).
-            MenuItem::action(l10n.desktop_new_folder(), NewFolder),
-            // New Channel… likewise, for an account that may make one.
-            MenuItem::action(
-                l10n.desktop_new_channel(),
-                crate::views::channels::NewChannel,
-            ),
-            MenuItem::separator(),
-            MenuItem::action(l10n.desktop_menu_close_window(), CloseWindow),
-        ]),
+        Menu::new(l10n.file()).items(
+            [
+                MenuItem::action(l10n.new_chat(), NewChat),
+                MenuItem::action(l10n.desktop_new_temporary_chat(), NewTemporaryChat),
+                // Finder's and Notes' New Folder: greyed where folders cannot
+                // be made (no handler answers it then).
+                MenuItem::action(l10n.desktop_new_folder(), NewFolder),
+                // New Channel… likewise, for an account that may make one.
+                MenuItem::action(
+                    l10n.desktop_new_channel(),
+                    crate::views::channels::NewChannel,
+                ),
+            ]
+            .into_iter()
+            // With Hermes on: New Room…, greyed where no room can be made.
+            .chain(state.areas.contains(&Area::Hermes).then(|| {
+                MenuItem::action(
+                    l10n.desktop_hermes_new_room_menu(),
+                    crate::views::hermes_rooms::NewRoom,
+                )
+            }))
+            .chain([
+                MenuItem::separator(),
+                MenuItem::action(l10n.desktop_menu_close_window(), CloseWindow),
+            ]),
+        ),
         Menu::new(l10n.edit()).items([
             MenuItem::os_action(l10n.desktop_menu_undo(), Undo, OsAction::Undo),
             MenuItem::os_action(l10n.desktop_menu_redo(), Redo, OsAction::Redo),
