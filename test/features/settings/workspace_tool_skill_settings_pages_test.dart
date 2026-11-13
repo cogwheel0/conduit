@@ -1207,6 +1207,24 @@ void main() {
       check(skills.updated.single.isActive).isNull();
     });
 
+    testWidgets('a save to Open WebUI 0.11 keeps a switched-off skill off', (
+      tester,
+    ) async {
+      final skills = _Skills();
+      final rig = await pump(
+        tester,
+        skills: skills,
+        skill: _skill(isActive: false),
+        serverVersion: '0.11.4',
+      );
+      await rig.open(_skill1);
+      await rig.change(_skillRow('description', _skillKey), 'Plans a loop');
+
+      await rig.change(_skillRow('save', _skillKey));
+
+      check(skills.updated.single.isActive).equals(false);
+    });
+
     testWidgets('a skill with unsaved changes is not switched on or off', (
       tester,
     ) async {

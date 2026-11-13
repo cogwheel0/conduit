@@ -1193,7 +1193,14 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     await _applyEditor(l10n, editor, withPages: false);
     // Another account signed in while the editor was drawn busy: nothing is
     // sent, with no await between this and the write.
-    if (!_current(editor)) return;
+    if (!_current(editor)) {
+      editor.busy = false;
+      if (identical(_editors[editor.key], editor)) {
+        _say(editor, l10n.workspaceToolSaveFailed);
+        await _applyEditor(l10n, editor, withPages: false);
+      }
+      return;
+    }
     String? problem;
     try {
       if (editor.isCreate) {

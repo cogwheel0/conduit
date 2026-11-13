@@ -616,7 +616,17 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
       meta: editor.meta,
       // On or off is the switch's to change: an update leaves it as the
       // server has it, should another client have switched it meanwhile.
-      isActive: editor.isCreate ? true : null,
+      // Open WebUI before 0.12 takes a missing value as on, so it is sent
+      // the value read instead.
+      isActive: editor.isCreate
+          ? true
+          : ServerVersionCompat.knownAtLeast(
+                  _ref.read(workspaceServerVersionProvider),
+                  '0.12.0',
+                ) ==
+                true
+          ? null
+          : editor.summary?.isActive ?? true,
       // Who may open it is saved on its Access page; an update leaves it
       // as it is, rather than putting back what was read on opening.
       accessGrants: editor.isCreate ? editor.grants : null,
@@ -628,7 +638,14 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
     await _applyEditor(l10n, editor, withPages: false);
     // Another account signed in while the editor was drawn busy: nothing is
     // sent, with no await between this and the write.
-    if (!_current(editor)) return;
+    if (!_current(editor)) {
+      editor.busy = false;
+      if (identical(_editors[editor.key], editor)) {
+        _say(editor, l10n.workspaceSkillSaveFailed);
+        await _applyEditor(l10n, editor, withPages: false);
+      }
+      return;
+    }
     String? problem;
     try {
       if (editor.isCreate) {
