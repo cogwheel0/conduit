@@ -317,15 +317,14 @@ class DirectConnectionSettingsPages extends SettingsPageModule {
   Future<void> _redrawing = Future<void>.value();
 
   void _queueRedraw() {
+    // One redraw at a time, in the order asked for; changes that come while
+    // one waits its turn share it, so a burst draws the page once more.
     if (_redrawQueued) return;
     _redrawQueued = true;
-    scheduleMicrotask(() {
+    _redrawing = _redrawing.then((_) {
       _redrawQueued = false;
       final l10n = _l10n;
-      // One redraw at a time, in the order asked for.
-      if (l10n != null) {
-        _redrawing = _redrawing.then((_) => _redraw(l10n));
-      }
+      return l10n == null ? null : _redraw(l10n);
     });
   }
 
