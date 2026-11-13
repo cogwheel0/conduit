@@ -60,6 +60,18 @@ final class _Hermes implements HttpClientAdapter {
         (frame['params'] as Map?) ?? const {},
       );
       rpcs.add((method, params));
+      if (failOnce.remove(method)) {
+        scheduleMicrotask(
+          () => incoming.add(
+            jsonEncode({
+              'jsonrpc': '2.0',
+              'id': id,
+              'error': {'code': -32000, 'message': 'Refused'},
+            }),
+          ),
+        );
+        return;
+      }
       if (method == 'mcp.servers.list' &&
           failListOnceAdded &&
           servers.isNotEmpty) {
@@ -93,6 +105,9 @@ final class _Hermes implements HttpClientAdapter {
 
   /// Holds the next addition's answer until completed, when set.
   Completer<void>? addGate;
+
+  /// Methods whose next call is refused.
+  final failOnce = <String>{};
 
   /// Holds the next answer to each method named until completed.
   final gates = <String, Completer<void>>{};
@@ -860,6 +875,34 @@ void main() {
     final calls = hermes.calls('mcp.servers.add');
     check(calls).length.equals(2);
     check(calls.last['name']).equals('tide-more');
+    check(calls.last.toString()).not((it) => it.contains('synthetic-mcp-key'));
+    await hermes.dispose();
+  });
+
+  testWidgets('an addition refused keeps no key for the next try', (
+    tester,
+  ) async {
+    final hermes = _Hermes()..failOnce.add('mcp.servers.add');
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [hermesApiServiceProvider.overrideWithValue(hermes.service)],
+    );
+    addTearDown(container.dispose);
+    final rig = _Rig(tester, container);
+    await rig.open(hermesMcpPageId);
+    await rig.open(hermesMcpAddPageId);
+    await rig.change(hermesMcpRowId('add-name'), 'tide-notes');
+    await rig.change(hermesMcpRowId('add-url'), 'https://tides.example/mcp');
+    await rig.change(hermesMcpRowId('add-key'), 'synthetic-mcp-key');
+
+    await rig.change(hermesMcpRowId('add'));
+    check(rig.titles(hermesMcpAddPageId)).contains(_l10n.hermesMcpActionFailed);
+    // Tried again as it stands: the key, refused once, is not sent again.
+    await rig.change(hermesMcpRowId('add'));
+
+    final calls = hermes.calls('mcp.servers.add');
+    check(calls).length.equals(2);
+    check(calls.first.toString()).contains('synthetic-mcp-key');
     check(calls.last.toString()).not((it) => it.contains('synthetic-mcp-key'));
     await hermes.dispose();
   });

@@ -9034,6 +9034,15 @@ final class NativeWebSignInViewController: UIViewController,
     private let failureLabel = UILabel()
     private var checking = false
 
+    /// The page whose load failed, which Retry loads again: an identity
+    /// provider's, when that is where the sign-in failed. Reloading the
+    /// dashboard's sign-in instead would count as its return, after which
+    /// the flow may not leave for the provider again.
+    private var failedURL: URL?
+
+    /// What Retry loads.
+    var retryURL: URL { failedURL ?? startURL }
+
     init(
         request: PlatformWebSignInRequest,
         startURL: URL,
@@ -9128,7 +9137,9 @@ final class NativeWebSignInViewController: UIViewController,
 
     @objc private func reloadTapped() {
         failureLabel.isHidden = true
-        webView?.load(URLRequest(url: startURL))
+        let url = retryURL
+        failedURL = nil
+        webView?.load(URLRequest(url: url))
     }
 
     private func finish(_ signedIn: Bool) {
@@ -9268,6 +9279,9 @@ final class NativeWebSignInViewController: UIViewController,
             return
         }
         if nsError.domain == "WebKitErrorDomain", nsError.code == 102 { return }
+        failedURL = (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
+            ?? webView?.url
+            ?? failedURL
         failureLabel.isHidden = false
     }
 }

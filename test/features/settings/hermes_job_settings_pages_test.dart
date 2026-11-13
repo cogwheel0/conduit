@@ -302,6 +302,8 @@ Future<_Rig> _pump(
   PushState? push,
   FakePushCoordinator? pushCoordinator,
   bool scheduledKind = true,
+  // Each connection's delivery targets; home's are [_options] by default.
+  Future<HermesDeliveryOptions?> Function(String? connection)? deliveryOptions,
 }) async {
   final container = ProviderContainer(
     retry: (_, _) => null,
@@ -319,7 +321,10 @@ Future<_Rig> _pump(
       hermesActiveConnectionIdProvider.overrideWith(
         (ref) => ref.watch(_connectionIdProvider),
       ),
-      hermesJobDeliveryOptionsProvider.overrideWith((ref) async => _options),
+      hermesJobDeliveryOptionsProvider.overrideWith(
+        (ref) async =>
+            deliveryOptions?.call(ref.watch(_connectionIdProvider)) ?? _options,
+      ),
       hermesJobRunsProvider.overrideWith((ref, jobId) async {
         runReads?.add(jobId);
         return const [];
@@ -1064,6 +1069,71 @@ void main() {
 
       check(jobs.created).isEmpty();
       check(rig.page(editor).announcement).equals(_l10n.hermesJobCreateFailed);
+      rig.leave();
+    });
+  });
+
+  testWidgets('an open job page reads its history again once Run Now '
+      'started', (tester) async {
+    final reads = <String>[];
+    final jobs = _Jobs([_job()]);
+    final rig = await _pump(tester, jobs, runReads: reads);
+    await rig.open(hermesJobPageId('job-1'));
+    await rig.frames();
+    final before = reads.length;
+
+    rig.start(_run);
+    await rig.frames();
+    jobs.running!.complete();
+    await rig.frames();
+
+    check(reads.length).isGreaterThan(before);
+    rig.leave();
+  });
+
+  group('after a switch to another connection', () {
+    testWidgets("a Deliver To page offers none of the last connection's "
+        'targets', (tester) async {
+      final work = Completer<HermesDeliveryOptions?>();
+      final jobs = _Jobs([]);
+      final rig = await _pump(
+        tester,
+        jobs,
+        deliveryOptions: (connection) async =>
+            connection == 'work' ? work.future : _options,
+      );
+      const key = hermesNewJobKey;
+      final delivery = '$hermesJobDeliveryPagePrefix$key';
+      final telegram = hermesJobRowId('deliver', key, 'telegram');
+      await rig.open(hermesJobEditorPageId(null));
+      await rig.frames();
+      await rig.open(delivery);
+      check(rig.row(delivery, telegram)).isNotNull();
+
+      rig.container.read(_connectionIdProvider.notifier).use('work');
+      await rig.frames();
+      await rig.open(delivery);
+
+      check(rig.row(delivery, telegram)).isNull();
+      work.complete(null);
+      await rig.frames();
+      rig.leave();
+    });
+
+    testWidgets('an edit made before it is not sent to the new one', (
+      tester,
+    ) async {
+      final jobs = _Jobs([_job()]);
+      final rig = await _pump(tester, jobs);
+      final editor = hermesJobEditorPageId('job-1');
+      await rig.open(editor);
+      await rig.change(hermesJobRowId('name', 'job-1'), 'Renamed');
+
+      rig.container.read(_connectionIdProvider.notifier).use('work');
+      await rig.change(hermesJobRowId('save', 'job-1'));
+
+      check(jobs.edits).isEmpty();
+      check(rig.page(editor).announcement).equals(_l10n.hermesJobUpdateFailed);
       rig.leave();
     });
   });

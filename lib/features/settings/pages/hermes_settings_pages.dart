@@ -1959,6 +1959,20 @@ class HermesSettingsPages extends SettingsPageModule {
       }
       if (controller.desktopAuthKind != recommended) {
         controller.setDesktopAuthKind(recommended);
+        // The profiles listed meanwhile were for the sign-in before, and are
+        // dropped: they are listed again for this one.
+        final changed = _authIdentity(
+          editor,
+          controller.buildDraft(_saved(editor)).config,
+        );
+        if (changed != editor.lastProfileIdentity) {
+          editor
+            ..lastProfileIdentity = changed
+            ..profileEpoch += 1
+            ..profiles = const []
+            ..profilesError = null;
+          unawaited(_loadProfiles(key, editor, force: true));
+        }
         final l10n = _l10n;
         if (l10n != null) await _applyEditor(l10n, key, editor);
       }
@@ -2521,8 +2535,14 @@ class HermesSettingsPages extends SettingsPageModule {
       case 'save':
         await _done(l10n, key, editor);
       case 'use':
-        await _useConnection(l10n, key, editor);
+        final switched = await _useConnection(l10n, key, editor);
         await _applyEditor(l10n, key, editor);
+        // The list under the editor marks the connection in use: this one
+        // now. Its pages already drawn, this editor among them, stay.
+        if (switched &&
+            _ref.read(settingsPagesProvider).contains(hermesSettingsPageId)) {
+          await _applyRoot(l10n, keepKnownPages: true);
+        }
       case 'delete':
         final connectionId = controller.connectionId;
         if (connectionId == null) return true;

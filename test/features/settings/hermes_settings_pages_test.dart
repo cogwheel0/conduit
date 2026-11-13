@@ -261,6 +261,72 @@ void main() {
     check(await secrets.read(key: 'hermes_api_key_v1:$_work')).isNull();
   });
 
+  testWidgets('a connection put in use from its editor is marked in use on '
+      'the list under it', (tester) async {
+    final rig = await _pump(tester, secrets: secrets);
+    await rig.open(hermesSettingsPageId);
+    final editor = hermesConnectionPageId(_work);
+    await rig.open(editor);
+    check(rig.row(hermesSettingsPageId, hermesSettingsRowId('use', _work)))
+        .isNotNull();
+
+    await rig.change(_row('use', _work), true);
+
+    check(rig.container.read(hermesConfigProvider).connectionId).equals(_work);
+    // In use, the row opens its editor and is checked; the one before is
+    // switched to again on a tap.
+    check(rig.row(hermesSettingsPageId, editor)?.checked).equals(true);
+    final home = rig.row(
+      hermesSettingsPageId,
+      hermesSettingsRowId('use', _home),
+    );
+    check(home).isNotNull();
+    check(home!.checked).not((it) => it.equals(true));
+  });
+
+  testWidgets('a sign-in its server recommends lists the profiles for it', (
+    tester,
+  ) async {
+    final blockedHttp = HttpOverrides.current;
+    HttpOverrides.global = _RealHttpOverrides();
+    addTearDown(() => HttpOverrides.global = blockedHttp);
+    final gateway = (await tester.runAsync(_OpenGateway.start))!;
+    addTearDown(gateway.close);
+    _store(
+      enabled: false,
+      connections: _connections(
+        workBaseUrl: gateway.baseUrl,
+        workDesktop: true,
+      ),
+    );
+    // Signed in with a token as well as by browser before.
+    await secrets.write(
+      key: 'hermes_desktop_credentials_v1:$_work',
+      value: jsonEncode(
+        HermesDesktopCredentials(legacyToken: 'synthetic-token').toJson(),
+      ),
+    );
+    final rig = await _pump(tester, secrets: secrets);
+    final editor = hermesConnectionPageId(_work);
+    await rig.open(editor);
+
+    // A new address on the same server: it is asked which sign-in it wants
+    // (a token) while its profiles are listed for the sign-in chosen before.
+    unawaited(
+      rig.module.handleChange(
+        _row('url', _work),
+        '${gateway.baseUrl}/hermes',
+        _l10n,
+      ),
+    );
+    for (var i = 0; i < 60; i++) {
+      await rig.settleIo();
+    }
+
+    final profile = rig.row(editor, _row('profile', _work))!;
+    check(profile.options.map((option) => option.id)).contains('travel');
+  });
+
   testWidgets('a change on the Advanced page marks the editor edited', (
     tester,
   ) async {
@@ -975,6 +1041,46 @@ final class _HiddenSessions extends HermesSessionsController {
 }
 
 class _RealHttpOverrides extends HttpOverrides {}
+
+/// A Desktop gateway that, under `/hermes`, needs only a token, and whose
+/// profiles there answer only once its status was asked for.
+final class _OpenGateway {
+  _OpenGateway._(this._server) {
+    _server.listen(_handle);
+  }
+
+  static Future<_OpenGateway> start() async =>
+      _OpenGateway._(await HttpServer.bind(InternetAddress.loopbackIPv4, 0));
+
+  final HttpServer _server;
+  final Completer<void> _statusAnswered = Completer<void>();
+
+  String get baseUrl => 'http://127.0.0.1:${_server.port}';
+
+  Future<void> _handle(HttpRequest request) async {
+    request.response.headers.contentType = ContentType.json;
+    switch (request.uri.path) {
+      case '/hermes/api/status':
+        request.response.write('{"auth_required":false}');
+        await request.response.close();
+        if (!_statusAnswered.isCompleted) _statusAnswered.complete();
+        return;
+      case '/hermes/api/profiles':
+        await _statusAnswered.future;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        request.response.write('{"profiles":[{"name":"travel"}]}');
+      case '/api/status':
+        request.response.write('{"auth_required":true}');
+      case '/api/profiles':
+        request.response.write('{"profiles":[{"name":"default"}]}');
+      default:
+        request.response.statusCode = HttpStatus.notFound;
+    }
+    await request.response.close();
+  }
+
+  Future<void> close() => _server.close(force: true);
+}
 
 /// A Desktop gateway whose first token refresh waits for [release]. Each
 /// refresh spends the refresh token it replaces.

@@ -850,6 +850,11 @@ class HermesJobSettingsPages extends SettingsPageModule {
       _runs.clear();
       _runsFailed.clear();
       _lastRunSeen.clear();
+      // The last connection's rooms and bots are not offered for this one;
+      // its own are read for the pages still open.
+      _deliveryOptions = null;
+      _deliveryFor = next;
+      if (_listShown || _drafts.isNotEmpty) unawaited(_readDeliveryOptions());
       // A job page still open shows this connection's history, read now.
       final l10n = _l10n;
       if (l10n != null) {
@@ -1504,6 +1509,11 @@ class HermesJobSettingsPages extends SettingsPageModule {
       if (started && !stopRequested) {
         _notice = l10n.hermesJobStarted;
         await _applyShown();
+        // The job's page lists the run now: one that ends before the list
+        // is read again would otherwise wait for the next read to show.
+        if (visit == _connectionVisit && _shownJobs.contains(jobId)) {
+          unawaited(_readRuns(l10n, jobId));
+        }
       }
     } finally {
       // This call's own: another connection's Run Now for a job by the same

@@ -90,11 +90,15 @@ class HermesDashboardSignIn {
         retainedNames: kHermesDashboardRetainedCookieNames,
       );
     } catch (error) {
+      // Unrecorded, the session's cookies would outlive Sign Out, which
+      // deletes only those recorded: the sign-in does not count, as the
+      // Flutter page has it.
       DebugLogger.warning(
         'dashboard-cookie-register-failed',
         scope: 'hermes/desktop/auth',
         data: {'errorType': error.runtimeType.toString()},
       );
+      return false;
     }
     return true;
   }
