@@ -222,6 +222,8 @@ class RunnerTests: XCTestCase {
       iconBarButton(systemName: "xmark", action: action).accessibilityLabel, "Close")
     XCTAssertEqual(
       iconBarButton(systemName: "plus", action: action).accessibilityLabel, "Add")
+    // The system's own Close button too, not its symbol's name "close".
+    XCTAssertEqual(systemCloseBarButton(action: action).accessibilityLabel, "Close")
   }
 
   @MainActor
