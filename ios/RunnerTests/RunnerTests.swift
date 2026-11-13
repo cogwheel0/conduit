@@ -270,6 +270,34 @@ class RunnerTests: XCTestCase {
   }
 
   @MainActor
+  func testSettingsColumnsCloseTheFirstPageEvenWhenItIsTheFirstRowsPage() throws {
+    let columns = NativeSettingsColumnsController(root: UIViewController())
+    columns.defaultRootId = { "test-page" }
+    columns.makePage = { id in
+      makeNativeDetailPageForTesting(["id": id, "title": "Test Page", "items": []])
+    }
+    var left: [UIViewController] = []
+    columns.onPageLeft = { left.append($0) }
+    columns.loadViewIfNeeded()
+    columns.view.frame = CGRect(x: 0, y: 0, width: 1000, height: 800)
+    columns.view.setNeedsLayout()
+    columns.view.layoutIfNeeded()
+    XCTAssertTrue(columns.isExpanded)
+    let page = try XCTUnwrap(columns.pages.viewControllers.first)
+    let above = try XCTUnwrap(
+      makeNativeDetailPageForTesting(["id": "above", "title": "Above", "items": []])
+    )
+    columns.pages.pushViewController(above, animated: false)
+
+    // The first row's own page closes itself: a new one takes its place,
+    // and the page above it goes with it.
+    XCTAssertTrue(columns.closeRootPage(where: { $0 === page }))
+    XCTAssertEqual(columns.pages.viewControllers.count, 1)
+    XCTAssertFalse(columns.pages.viewControllers.first === page)
+    XCTAssertTrue(left.contains { $0 === page })
+  }
+
+  @MainActor
   func testNativeProfilePresentationIsSingleUntilDismissed() throws {
     let presenter = ProfilePresentationTestController()
     let host = SelectionMenuTestHost(

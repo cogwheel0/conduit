@@ -4527,16 +4527,18 @@ final class NativeSettingsColumnsController: UIViewController, NativeSheetCloseG
         replacePages(withPageOf: id)
     }
 
-    /// Replaces the second column's pages with root row [id]'s. The page on
-    /// top says it left as it disappears; those under it, which UIKit does
-    /// not tell, are told here.
-    private func replacePages(withPageOf id: String) {
-        guard let page = makePage?(id) else { return }
+    /// Replaces the second column's pages with root row [id]'s, and returns
+    /// whether it did. The page on top says it left as it disappears; those
+    /// under it, which UIKit does not tell, are told here.
+    @discardableResult
+    private func replacePages(withPageOf id: String) -> Bool {
+        guard let page = makePage?(id) else { return false }
         let covered = pages.viewControllers.dropLast()
         pages.setViewControllers([page], animated: false)
         selectedRootId = id
         onSelectionChanged?(id)
         for controller in covered { onPageLeft?(controller) }
+        return true
     }
 
     /// Pops the second column to its first page; the pages popped under the
@@ -4548,20 +4550,16 @@ final class NativeSettingsColumnsController: UIViewController, NativeSheetCloseG
     }
 
     /// Two columns: a page closing itself that is the second column's first
-    /// gives way to the first root row's page. Returns whether it did;
-    /// otherwise the page is closed as in one column.
+    /// gives way to the first root row's page -- a new one, when it was that
+    /// page -- with the pages above it. Returns whether it did; otherwise the
+    /// page is closed as in one column.
     func closeRootPage(where matches: (UIViewController) -> Bool) -> Bool {
         guard isExpanded,
               let first = pages.viewControllers.first,
-              matches(first)
+              matches(first),
+              let id = defaultRootId?() ?? selectedRootId
         else { return false }
-        let fallback = defaultRootId?()
-        if let fallback, fallback != selectedRootId {
-            replacePages(withPageOf: fallback)
-        } else if pages.viewControllers.count > 1 {
-            popPagesToFirst()
-        }
-        return true
+        return replacePages(withPageOf: id)
     }
 
     // MARK: NativeSheetCloseGuarding
