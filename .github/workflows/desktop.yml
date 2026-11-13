@@ -169,7 +169,7 @@ jobs:
       - name: Leave only dependencies in the target folder
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          cargo clean -p conduit-components -p conduit-protocol
+          cargo clean -p conduit-components -p conduit-gallery -p conduit-protocol
           du -sh target
       - name: Save the Cargo cache
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

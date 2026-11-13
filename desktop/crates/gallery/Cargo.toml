@@ -1,0 +1,25 @@
+[package]
+name = "conduit-gallery"
+description = "Conduit Desktop design gallery: named screens on synthetic data, rendered to PNG in-process"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "conduit-gallery"
+path = "src/main.rs"
+
+[dependencies]
+gpui-kit.workspace = true
+conduit-components.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-foundation.workspace = true
+objc2-app-kit.workspace = true
+
+[lints]
+workspace = true
