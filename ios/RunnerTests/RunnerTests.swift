@@ -299,7 +299,21 @@ class RunnerTests: XCTestCase {
 
   @MainActor
   func testNativeProfilePresentationIsSingleUntilDismissed() throws {
+    // In a window, so UIKit takes the presentation: the bridge checks that it
+    // did before it counts Settings as open.
+    let scene = try XCTUnwrap(
+      UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+    let window = UIWindow(windowScene: scene)
+    window.frame = scene.coordinateSpace.bounds
     let presenter = ProfilePresentationTestController()
+    window.rootViewController = presenter
+    window.makeKeyAndVisible()
+    window.layoutIfNeeded()
+    defer {
+      window.isHidden = true
+      previousKeyWindow?.makeKey()
+    }
     let host = SelectionMenuTestHost(
       messenger: SelectionMenuTestMessenger(), controller: presenter)
     let bridge = NativeSheetBridge.shared
@@ -748,10 +762,15 @@ class RunnerTests: XCTestCase {
     let selectedColor = try XCTUnwrap(
       control.titleTextAttributes(for: .selected)?[.foregroundColor] as? UIColor
     )
-    XCTAssertEqual(control.backgroundColor, NativeSheetTheme.shared.elevatedSurface)
-    XCTAssertEqual(control.selectedSegmentTintColor, NativeSheetTheme.shared.accent)
+    // The system's own track and raised pill, as everywhere else in iOS;
+    // only the titles take the palette's ink, so a custom palette still reads.
+    XCTAssertNil(control.backgroundColor)
+    XCTAssertNil(control.selectedSegmentTintColor)
     XCTAssertEqual(normalColor, NativeSheetTheme.shared.foreground)
-    XCTAssertEqual(selectedColor, NativeSheetTheme.shared.onAccent)
+    XCTAssertEqual(selectedColor, NativeSheetTheme.shared.foreground)
+    XCTAssertEqual(
+      control.titleTextAttributes(for: .disabled)?[.foregroundColor] as? UIColor,
+      NativeSheetTheme.shared.secondaryForeground)
   }
 
   func testNativeModelSelectorKeepsCurrentSelectionWithPinnedModels() {
@@ -4828,7 +4847,9 @@ private final class ProfilePresentationTestController: UIViewController {
     completion: (() -> Void)? = nil
   ) {
     presentations.append(viewControllerToPresent)
-    completion?()
+    // Presented for real, at once, so the sheet's presenting controller is
+    // set as the bridge checks it.
+    super.present(viewControllerToPresent, animated: false, completion: completion)
   }
 }
 
