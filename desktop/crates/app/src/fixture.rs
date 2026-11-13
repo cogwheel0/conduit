@@ -402,6 +402,7 @@ fn stores(rpc: Rpc, scratch: &std::path::Path, cx: &mut App) -> Stores {
         palette: cx.new(|_| PaletteStore::new(rpc.clone())),
         areas: cx.new(|_| crate::stores::areas::AreasStore::new(rpc.clone())),
         sections: cx.new(|_| crate::stores::sections::SectionsStore::load(None)),
+        app_settings: cx.new(|_| crate::stores::app_settings::AppSettingsStore::new(rpc.clone())),
         accounts,
         session,
     }

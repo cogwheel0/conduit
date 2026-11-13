@@ -17,6 +17,7 @@ pub mod palette;
 pub mod panes;
 pub mod privacy;
 pub mod quick_ask;
+pub mod release_notes;
 pub mod server_form;
 pub mod settings;
 pub mod setup_window;

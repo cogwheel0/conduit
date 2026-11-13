@@ -27,6 +27,7 @@
 //! none patches what the daemon answered.
 
 pub mod accounts;
+pub mod app_settings;
 pub mod areas;
 pub mod chat;
 pub mod chat_list;
@@ -74,6 +75,8 @@ pub struct Stores {
     pub palette: Entity<PaletteStore>,
     pub areas: Entity<AreasStore>,
     pub sections: Entity<SectionsStore>,
+    /// Core's `AppSettings` and the socket's health (Settings, composer).
+    pub app_settings: Entity<app_settings::AppSettingsStore>,
 }
 
 /// The session-wide events the stores follow (the views add their own scopes
@@ -124,8 +127,9 @@ impl Stores {
             navigation: cx.new(|_| NavigationStore::new()),
             chat_list: cx.new(|_| ChatListStore::new(rpc.clone())),
             palette: cx.new(|_| PaletteStore::new(rpc.clone())),
-            areas: cx.new(|_| AreasStore::new(rpc)),
+            areas: cx.new(|_| AreasStore::new(rpc.clone())),
             sections: cx.new(|_| SectionsStore::load(None)),
+            app_settings: cx.new(|_| app_settings::AppSettingsStore::new(rpc)),
         }
     }
 
@@ -151,6 +155,7 @@ impl Stores {
             .user_data
             .join("sidebar-sections.json");
         let sections = cx.new(|_| SectionsStore::load(Some(sections_file)));
+        let app_settings = cx.new(|_| app_settings::AppSettingsStore::new(rpc.clone()));
         let stores = Self {
             connection: connection.clone(),
             accounts,
@@ -163,10 +168,12 @@ impl Stores {
             palette,
             areas,
             sections,
+            app_settings,
         };
         connection.update(cx, |c, _| c.subscribe("session", SESSION_EVENTS, vec![]));
         chat_list::wire(&stores, cx);
         areas::wire(&stores, cx);
+        app_settings::wire(&stores, cx);
         {
             // The server answers again after the window opened without it:
             // the session (a token may have lapsed meanwhile) and the chat

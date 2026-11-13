@@ -144,7 +144,7 @@ pub(crate) fn ns_window(handle: AnyWindowHandle, cx: &mut App) -> Option<Retaine
 /// Places a window (top-left in screen points). AppKit calls back into GPUI
 /// from `setFrame` (windowDidMove), so this must run while no GPUI borrow is
 /// held: never inside `cx.update` or a window update.
-fn place(ns: &NSWindow, origin: (f64, f64), size: (f32, f32)) {
+pub(crate) fn place(ns: &NSWindow, origin: (f64, f64), size: (f32, f32)) {
     let screen_h = ns.screen().map(|s| s.frame().size.height).unwrap_or(1080.);
     let frame = objc2_foundation::NSRect::new(
         objc2_foundation::NSPoint::new(origin.0, screen_h - origin.1 - f64::from(size.1)),

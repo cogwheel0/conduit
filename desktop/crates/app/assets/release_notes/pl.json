@@ -1,0 +1,23 @@
+{
+  "notes": [
+    {
+      "version": "0.9.0",
+      "title": "Co nowego",
+      "intro": "Conduit działa teraz jako aplikacja na Maca, a ustawienia z telefonu mają własne okno.",
+      "bullets": [
+        {
+          "text": "Ustawienia mają te same strony co w telefonie: Profil, Personalizacja, Dane i połączenie, Czat, Audio i Kontrola danych.",
+          "icon": "polish"
+        },
+        {
+          "text": "Prompt systemowy, wspomnienia i szybkie akcje pochodzą z Twojego konta Open WebUI, więc są takie same na każdym urządzeniu.",
+          "icon": "local"
+        },
+        {
+          "text": "Takie informacje pojawiają się po każdej aktualizacji, a O aplikacji › Co nowego pokazuje je ponownie.",
+          "icon": "direct"
+        }
+      ]
+    }
+  ]
+}

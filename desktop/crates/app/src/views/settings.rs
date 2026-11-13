@@ -20,9 +20,25 @@
 //!   with conflict detection, the fixed ones as text, and Quick Ask's.
 //! * **Data**: clear local data (asked with a native sheet) and export the
 //!   diagnostic report.
-//! * **About**: the version, updates (Check Now, check automatically,
-//!   "Receive beta updates"; see [`crate::updates`]), and the developer
-//!   details behind a Diagnostics disclosure.
+//! * **About**: the version, the server's name and version, What's New,
+//!   the source repository and open-source licenses, Support Conduit, and
+//!   updates (Check Now, check automatically, "Receive beta updates"; see
+//!   [`crate::updates`]).
+//!
+//! The phone's Settings pages, in the phone's groups (see [`Tab::ALL`]):
+//! **Profile**, **Personalization** and **Connection** for the account
+//! ([`profile`], [`personalization`], [`connection`]); **Chat** and
+//! **Audio** with Appearance ([`chats`], [`audio`]); and **Data Controls**
+//! behind Advanced ([`data_controls`]). Accounts ends with Sign Out (this
+//! account, or all of them).
+
+pub mod audio;
+pub mod chats;
+pub mod connection;
+pub mod controls;
+pub mod data_controls;
+pub mod personalization;
+pub mod profile;
 
 use std::rc::Rc;
 
@@ -48,7 +64,7 @@ use gpui_kit::{
     Window, div, px,
 };
 
-use crate::actions::{RemoveAccount, SetLocale};
+use crate::actions::{RemoveAccount, SetLocale, SettingsChoice};
 use crate::desktop::Desktop;
 use crate::keymap::{self, FixedCommand, KeyGroup, KeyRow, ShortcutAction, describe};
 use crate::l10n::{ActiveL10n as _, L10n, LOCALES, locale};
@@ -86,20 +102,35 @@ pub enum Tab {
     Desktop,
     Data,
     About,
+    Profile,
+    Personalization,
+    Connection,
+    Chats,
+    Audio,
+    DataControls,
 }
 
 impl Tab {
     /// General first, as every Mac app's Settings (Mail: General, then
-    /// Accounts); then the accounts and connections, how the app looks and
-    /// reads, and data and About.
-    pub const ALL: [Self; 9] = [
+    /// Accounts); then the phone's groups in the phone's order: the
+    /// account's pages (Profile, Personalization, Connection), the app's
+    /// (Appearance, Chat, Audio, then the Mac's Language and Keyboard), the
+    /// connections (Direct, Hermes), Advanced (Data Controls), and last
+    /// what is about this Mac and the app (Data, About).
+    pub const ALL: [Self; 15] = [
         Self::Desktop,
         Self::Accounts,
-        Self::Direct,
-        Self::Hermes,
+        Self::Profile,
+        Self::Personalization,
+        Self::Connection,
         Self::Appearance,
+        Self::Chats,
+        Self::Audio,
         Self::Language,
         Self::Keyboard,
+        Self::Direct,
+        Self::Hermes,
+        Self::DataControls,
         Self::Data,
         Self::About,
     ];
@@ -107,9 +138,39 @@ impl Tab {
     /// The pane Settings opens on when nothing asks for another: General.
     pub const FIRST: Self = Self::ALL[0];
 
-    /// Whether the tab starts a group in the list.
-    fn group_start(self) -> bool {
-        matches!(self, Self::Appearance | Self::Data)
+    /// The group the tab sits in (the list puts room between groups).
+    fn group(self) -> u8 {
+        match self {
+            Self::Desktop | Self::Accounts => 0,
+            Self::Profile | Self::Personalization | Self::Connection => 1,
+            Self::Appearance | Self::Chats | Self::Audio | Self::Language | Self::Keyboard => 2,
+            Self::Direct | Self::Hermes => 3,
+            Self::DataControls => 4,
+            Self::Data | Self::About => 5,
+        }
+    }
+
+    /// The tabs shown now, as the phone gates its pages: the account's own
+    /// pages need an Open WebUI account, Personalization an Open WebUI
+    /// account or a Direct connection (not Hermes alone), and Data Controls
+    /// Advanced too.
+    pub fn visible(stores: &Stores, cx: &App) -> Vec<Self> {
+        let open_webui = stores.accounts.read(cx).active().is_some();
+        let hermes_only = stores.session.read(cx).hermes_only(cx);
+        let advanced = stores
+            .app_settings
+            .read(cx)
+            .settings()
+            .advanced_features_enabled;
+        Self::ALL
+            .into_iter()
+            .filter(|tab| match tab {
+                Self::Profile | Self::Connection => open_webui,
+                Self::Personalization => open_webui || !hermes_only,
+                Self::DataControls => open_webui && advanced,
+                _ => true,
+            })
+            .collect()
     }
 
     /// The tab a `conduit://settings/<tab>` link names (`general` too, the
@@ -132,6 +193,12 @@ impl Tab {
             Self::Desktop => "desktop",
             Self::Data => "data",
             Self::About => "about",
+            Self::Profile => "profile",
+            Self::Personalization => "personalization",
+            Self::Connection => "connection",
+            Self::Chats => "chat",
+            Self::Audio => "audio",
+            Self::DataControls => "data-controls",
         }
     }
 
@@ -147,6 +214,12 @@ impl Tab {
             Self::Desktop => IconName::Settings,
             Self::Data => IconName::Database,
             Self::About => IconName::Info,
+            Self::Profile => IconName::CircleUser,
+            Self::Personalization => IconName::Sparkles,
+            Self::Connection => IconName::Wifi,
+            Self::Chats => IconName::MessageSquare,
+            Self::Audio => IconName::AudioLines,
+            Self::DataControls => IconName::DatabaseBackup,
         }
     }
 
@@ -161,6 +234,12 @@ impl Tab {
             Self::Desktop => l10n.desktop_settings_desktop_tab(),
             Self::Data => l10n.desktop_settings_data_tab(),
             Self::About => l10n.about_app(),
+            Self::Profile => l10n.profile_title(),
+            Self::Personalization => l10n.personalization(),
+            Self::Connection => l10n.settings_data_and_connection(),
+            Self::Chats => l10n.chat_settings(),
+            Self::Audio => l10n.audio_settings_title(),
+            Self::DataControls => l10n.chat_data_controls_title(),
         }
     }
 }
@@ -281,6 +360,13 @@ pub struct SettingsView {
     stores: Stores,
     direct: Option<Entity<DirectView>>,
     hermes: Option<Entity<HermesView>>,
+    pub profile: Option<Entity<profile::ProfilePane>>,
+    pub personalization: Option<Entity<personalization::PersonalizationPane>>,
+    pub chats: Option<Entity<chats::ChatsPane>>,
+    pub audio: Option<Entity<audio::AudioPane>>,
+    pub data_controls: Option<Entity<data_controls::DataControlsPane>>,
+    /// About's server rows and links (`settings.about`).
+    pub about_info: Option<conduit_protocol::AboutInfo>,
     pub tab: Tab,
     /// When the pane last changed by a click or key in the window (the new
     /// one fades in); `None` while it shows the pane it opened with.
@@ -309,6 +395,7 @@ impl SettingsView {
             cx.observe(&connection, |_, _, cx| cx.notify()),
             cx.observe(&stores.accounts, |_, _, cx| cx.notify()),
             cx.observe(&stores.session, |_, _, cx| cx.notify()),
+            cx.observe(&stores.app_settings, |_, _, cx| cx.notify()),
         ];
         if let Some(shell) = cx.try_global::<Desktop>().map(|d| d.shell.clone()) {
             subscriptions.push(cx.observe(&shell, |_, _, cx| cx.notify()));
@@ -332,6 +419,12 @@ impl SettingsView {
             stores,
             direct: None,
             hermes: None,
+            profile: None,
+            personalization: None,
+            chats: None,
+            audio: None,
+            data_controls: None,
+            about_info: None,
             tab,
             switched: None,
             focus,
@@ -427,6 +520,88 @@ impl SettingsView {
         }
         window.focus(&self.focus, cx);
         cx.notify();
+    }
+
+    fn profile_pane(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<profile::ProfilePane> {
+        let stores = self.stores.clone();
+        self.profile
+            .get_or_insert_with(|| cx.new(|cx| profile::ProfilePane::new(stores, window, cx)))
+            .clone()
+    }
+
+    fn personalization_pane(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<personalization::PersonalizationPane> {
+        let stores = self.stores.clone();
+        self.personalization
+            .get_or_insert_with(|| {
+                cx.new(|cx| personalization::PersonalizationPane::new(stores, window, cx))
+            })
+            .clone()
+    }
+
+    fn chats_pane(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<chats::ChatsPane> {
+        let stores = self.stores.clone();
+        self.chats
+            .get_or_insert_with(|| cx.new(|cx| chats::ChatsPane::new(stores, window, cx)))
+            .clone()
+    }
+
+    fn audio_pane(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<audio::AudioPane> {
+        let stores = self.stores.clone();
+        self.audio
+            .get_or_insert_with(|| cx.new(|cx| audio::AudioPane::new(stores, window, cx)))
+            .clone()
+    }
+
+    fn data_controls_pane(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<data_controls::DataControlsPane> {
+        let stores = self.stores.clone();
+        self.data_controls
+            .get_or_insert_with(|| {
+                cx.new(|cx| data_controls::DataControlsPane::new(stores, window, cx))
+            })
+            .clone()
+    }
+
+    /// A pop-up button's pick ([`SettingsChoice`]), for the pane that drew
+    /// it.
+    pub fn choose(&mut self, menu: &str, value: &str, window: &mut Window, cx: &mut Context<Self>) {
+        match menu {
+            "profile-gender" => {
+                if let Some(p) = &self.profile {
+                    p.update(cx, |p, cx| p.choose_gender(value, cx));
+                }
+            }
+            "default-model" => {
+                if let Some(p) = &self.personalization {
+                    p.update(cx, |p, cx| p.choose_default_model(value, cx));
+                }
+            }
+            menu if menu.starts_with("audio-") => {
+                if let Some(p) = &self.audio {
+                    p.update(cx, |p, cx| p.choose(menu, value, window, cx));
+                }
+            }
+            other => log::debug!("no pop-up {other}"),
+        }
     }
 
     fn appearance(&self, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -846,7 +1021,7 @@ impl SettingsView {
         )
     }
 
-    fn about(&self, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn about(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let l10n = cx.l10n().clone();
         let t = cx.conduit().clone();
         // The version as System Settings' About shows it: "1.2.0 (345)", or
@@ -857,7 +1032,10 @@ impl SettingsView {
         };
         // What only a developer or a bug report needs is in Data ›
         // Diagnostics, beside the report itself.
-        vec![
+        if self.about_info.is_none() {
+            self.fetch_about(window, cx);
+        }
+        let mut out = vec![
             about_header(
                 &l10n.app_title(),
                 &l10n.desktop_about_version_line(&version),
@@ -865,8 +1043,160 @@ impl SettingsView {
                 &t,
             )
             .into_any_element(),
-            self.updates_section(cx),
-        ]
+        ];
+        out.extend(self.about_sections(cx));
+        out.push(self.updates_section(cx));
+        out
+    }
+
+    fn fetch_about(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // One fetch per window; a placeholder stops a second.
+        self.about_info = Some(conduit_protocol::AboutInfo::default());
+        let call = self
+            .connection
+            .read(cx)
+            .rpc()
+            .call::<conduit_protocol::methods::SettingsAbout>(&conduit_protocol::NoParams);
+        cx.spawn_in(
+            window,
+            async move |this, cx: &mut gpui_kit::AsyncWindowContext| {
+                let result = call.await;
+                let _ = this.update(cx, |s: &mut Self, cx| {
+                    match result {
+                        Ok(info) => s.about_info = Some(info),
+                        Err(e) => log::warn!("settings.about: {e}"),
+                    }
+                    cx.notify();
+                });
+            },
+        )
+        .detach();
+    }
+
+    /// About's server rows, What's New and the links, and Support Conduit.
+    fn about_sections(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let l10n = cx.l10n().clone();
+        let info = self.about_info.clone().unwrap_or_default();
+        let mut out = vec![];
+        if info.server {
+            let value =
+                |v: Option<String>| controls::value(v.unwrap_or_else(|| "\u{2014}".into()), cx);
+            let mut rows = vec![
+                setting_row(
+                    l10n.server_name_label(),
+                    None,
+                    value(info.server_name.clone().map(|n| privacy::host(&n, cx))),
+                    cx,
+                )
+                .into_any_element(),
+                setting_row(
+                    l10n.server_version_label(),
+                    None,
+                    value(info.server_version.clone()),
+                    cx,
+                )
+                .into_any_element(),
+            ];
+            if info.latest_version.is_some() {
+                rows.push(
+                    setting_row(
+                        l10n.latest_version_label(),
+                        None,
+                        value(info.latest_version.clone()),
+                        cx,
+                    )
+                    .into_any_element(),
+                );
+            }
+            let unavailable = info.server_version.is_none() && info.server_name.is_none();
+            out.push(
+                settings_section(
+                    l10n.server_information(),
+                    unavailable.then(|| l10n.server_info_unavailable().into()),
+                    rows,
+                    cx,
+                )
+                .into_any_element(),
+            );
+        }
+        let link = |id: &'static str,
+                    icon: IconName,
+                    title: String,
+                    subtitle: Option<String>,
+                    url: String| {
+            conduit_components::views::kit::nav_row(
+                id,
+                icon,
+                title.into(),
+                subtitle.map(SharedString::from),
+                cx,
+            )
+            .on_click(move |_, _, cx| {
+                if !url.is_empty() {
+                    cx.open_url(&url);
+                }
+            })
+            .into_any_element()
+        };
+        let whats_new = conduit_components::views::kit::nav_row(
+            "about-whats-new",
+            IconName::Megaphone,
+            l10n.release_notes_title().into(),
+            None,
+            cx,
+        )
+        .on_click(|_, window, cx| crate::views::release_notes::show_latest(window, cx))
+        .into_any_element();
+        out.push(
+            settings_section(
+                SharedString::default(),
+                None,
+                vec![
+                    whats_new,
+                    link(
+                        "about-repository",
+                        IconName::Github,
+                        l10n.github_repository(),
+                        Some("github.com/cogwheel0/conduit".into()),
+                        info.repository_url.clone(),
+                    ),
+                    link(
+                        "about-licenses",
+                        IconName::ScrollText,
+                        l10n.open_source_licenses(),
+                        None,
+                        licenses_url(&info.repository_url),
+                    ),
+                ],
+                cx,
+            )
+            .into_any_element(),
+        );
+        out.push(
+            settings_section(
+                l10n.support_conduit(),
+                Some(l10n.support_conduit_subtitle().into()),
+                vec![
+                    link(
+                        "about-coffee",
+                        IconName::Coffee,
+                        l10n.buy_me_a_coffee_title(),
+                        Some(l10n.buy_me_a_coffee_subtitle()),
+                        info.buy_me_a_coffee_url.clone(),
+                    ),
+                    link(
+                        "about-sponsors",
+                        IconName::Heart,
+                        l10n.github_sponsors_title(),
+                        Some(l10n.github_sponsors_subtitle()),
+                        info.github_sponsors_url.clone(),
+                    ),
+                ],
+                cx,
+            )
+            .into_any_element(),
+        );
+        out
     }
 
     /// About › Updates: Sparkle's check and "check automatically" (release
@@ -974,7 +1304,132 @@ impl SettingsView {
             settings_section(SharedString::default(), footer, vec![list], cx).into_any_element(),
         ];
         out.extend(sections);
+        out.extend(self.sign_out_section(cx));
         out
+    }
+
+    /// Accounts › Sign Out, as the phone's Settings ends: the account in
+    /// use, and with more than one, every account.
+    fn sign_out_section(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let l10n = cx.l10n().clone();
+        let accounts = self.stores.accounts.read(cx);
+        let active = accounts.active()?.clone();
+        let several = accounts.accounts().len() > 1;
+        let name = privacy::name(&crate::stores::accounts::display_name(&active), cx);
+        let mut buttons = vec![];
+        if several {
+            let view = cx.entity().downgrade();
+            buttons.push(
+                Button::new("sign-out-all", l10n.desktop_sign_out_all_ellipsis())
+                    .on_click(Rc::new(move |_, window, cx| {
+                        let _ = view.update(cx, |v, cx| v.sign_out_all(window, cx));
+                    }))
+                    .into_any_element(),
+            );
+        }
+        let id = active.id.clone();
+        buttons.push(
+            Button::new(
+                "sign-out-active",
+                if several {
+                    l10n.desktop_sign_out_of(&name)
+                } else {
+                    l10n.desktop_sign_out_ellipsis()
+                },
+            )
+            .danger()
+            .on_click(Rc::new(move |_, window, cx| {
+                window.dispatch_action(
+                    Box::new(RemoveAccount {
+                        account_id: id.clone(),
+                    }),
+                    cx,
+                );
+            }))
+            .into_any_element(),
+        );
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .child(forms::group_footer(
+                    if several {
+                        l10n.accounts_sign_out_confirm_message()
+                    } else {
+                        l10n.desktop_sign_out_last_footer()
+                    },
+                    cx,
+                ))
+                .child(div().flex().justify_end().gap(px(8.)).children(buttons))
+                .into_any_element(),
+        )
+    }
+
+    /// Sign Out of All Accounts…: asks, then signs out of each (asking
+    /// again when an answer is still being written).
+    pub fn sign_out_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let l10n = cx.l10n().clone();
+        let spec = SheetSpec::new(
+            l10n.desktop_sign_out_all_title(),
+            l10n.desktop_sign_out_all_message(),
+            l10n.accounts_sign_out_all(),
+            l10n.cancel(),
+        )
+        .destructive();
+        let ask = present_sheet(window, spec, cx);
+        let rpc = self.connection.read(cx).rpc();
+        let accounts = self.stores.accounts.clone();
+        cx.spawn_in(
+            window,
+            async move |_, cx: &mut gpui_kit::AsyncWindowContext| {
+                if !ask.await {
+                    return;
+                }
+                let mut force = false;
+                loop {
+                    let result = rpc
+                        .call::<conduit_protocol::methods::ProfileSignOutAll>(
+                            &conduit_protocol::SignOutAll { force },
+                        )
+                        .await;
+                    match result {
+                        Ok(r)
+                            if r.outcome
+                                == conduit_protocol::AccountChangeOutcome::BlockedByActiveReply
+                                && !force =>
+                        {
+                            let again = cx.update(|window, cx| {
+                                let l10n = cx.l10n().clone();
+                                present_sheet(
+                                    window,
+                                    SheetSpec::new(
+                                        l10n.desktop_reply_in_progress(),
+                                        l10n.desktop_sign_out_all_message(),
+                                        l10n.desktop_sign_out_anyway(),
+                                        l10n.cancel(),
+                                    )
+                                    .destructive(),
+                                    cx,
+                                )
+                            });
+                            let Ok(task) = again else { return };
+                            if !task.await {
+                                return;
+                            }
+                            force = true;
+                        }
+                        Ok(_) => break,
+                        Err(e) => {
+                            log::warn!("profile.signOutAll: {e}");
+                            break;
+                        }
+                    }
+                }
+                let _ = cx.update(|_, cx| accounts.update(cx, |a, cx| a.refresh(cx)));
+            },
+        )
+        .detach();
     }
 
     fn direct(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -1308,6 +1763,25 @@ impl SettingsView {
     }
 }
 
+/// The open-source notices: the copy this bundle carries, or, for a build
+/// that has none (a dev build), the repository's page on how they are made.
+fn licenses_url(repository: &str) -> String {
+    let bundled = std::env::current_exe()
+        .ok()
+        .and_then(|exe| {
+            exe.parent()
+                .map(|d| d.join("../Resources/THIRD_PARTY_NOTICES.md"))
+        })
+        .filter(|p| p.is_file());
+    match bundled.and_then(|p| p.canonicalize().ok()) {
+        Some(path) => format!("file://{}", path.display()),
+        None if !repository.is_empty() => {
+            format!("{repository}/blob/main/desktop/packaging/notices/README.md")
+        }
+        None => String::new(),
+    }
+}
+
 /// The copyright line of the About header: the first sentence of the
 /// bundle's `NSHumanReadableCopyright` (packaging/macos/Info.plist), which
 /// the standard About panel shows. Legal text, so not translated.
@@ -1504,13 +1978,20 @@ impl Render for SettingsView {
             window,
             (t.prefs.sidebar == SidebarStyle::Material).then_some(f64::from(SETTINGS_SIDEBAR)),
         );
-        let tabs: Vec<SettingsTab> = Tab::ALL
+        let visible = Tab::visible(&self.stores, cx);
+        // A pane that went away (signed out, Advanced turned off) gives the
+        // window back to General.
+        if !visible.contains(&self.tab) {
+            self.tab = Tab::FIRST;
+        }
+        let tabs: Vec<SettingsTab> = visible
             .iter()
-            .map(|tab| SettingsTab {
+            .enumerate()
+            .map(|(i, tab)| SettingsTab {
                 id: tab.id().into(),
                 label: tab.label(&l10n).into(),
                 icon: tab.icon(),
-                group_start: tab.group_start(),
+                group_start: i > 0 && visible[i - 1].group() != tab.group(),
             })
             .collect();
         let view = cx.entity().downgrade();
@@ -1531,7 +2012,9 @@ impl Render for SettingsView {
             .title(l10n.desktop_settings_title())
             .header(card)
             .on_select(Rc::new(move |i, _, cx| {
-                let _ = view.update(cx, |v, cx| v.show_tab(Tab::ALL[i], cx));
+                if let Some(tab) = visible.get(i).copied() {
+                    let _ = view.update(cx, |v, cx| v.show_tab(tab, cx));
+                }
             }));
         let sections = match self.tab {
             Tab::Appearance => self.appearance(window, cx),
@@ -1543,6 +2026,14 @@ impl Render for SettingsView {
             Tab::Desktop => self.desktop(cx),
             Tab::Data => self.data(cx),
             Tab::About => self.about(window, cx),
+            Tab::Profile => vec![self.profile_pane(window, cx).into_any_element()],
+            Tab::Personalization => {
+                vec![self.personalization_pane(window, cx).into_any_element()]
+            }
+            Tab::Connection => connection::sections(&self.stores, cx),
+            Tab::Chats => vec![self.chats_pane(window, cx).into_any_element()],
+            Tab::Audio => vec![self.audio_pane(window, cx).into_any_element()],
+            Tab::DataControls => vec![self.data_controls_pane(window, cx).into_any_element()],
         };
         // A pane replacing another fades in over 100 ms, from the frame the
         // button went down (a plain fade, so Reduce Motion keeps it); the
@@ -1562,6 +2053,9 @@ impl Render for SettingsView {
             .on_action(move |a: &RemoveAccount, window, cx| {
                 remove_account(&stores, &a.account_id, window, cx);
             })
+            .on_action(cx.listener(|this, a: &SettingsChoice, window, cx| {
+                this.choose(&a.menu, &a.value, window, cx);
+            }))
             .relative()
             .size_full()
             .child(frame)
