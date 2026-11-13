@@ -2121,6 +2121,42 @@ final Map<String, Object> protocolFixtures = <String, Object>{
       ),
     ],
   ),
+  // intents.sendLink, location.* (1.66.0)
+  'intentLink': const IntentLink(url: 'https://example.com/tide-tables'),
+  'intentLinkResult': const IntentLinkResult(
+    url: 'https://example.com/tide-tables',
+    attachment: ContextAttachmentDto(
+      id: 'ctx-7',
+      kind: ContextAttachmentKind.web,
+      name: 'Tide tables for Port Wren',
+      url: 'https://example.com/tide-tables',
+      content: 'High water at 06:12 and 18:40.',
+    ),
+  ),
+  'intentLinkResultFailed': const IntentLinkResult(
+    url: 'https://youtu.be/abc123',
+    youtube: true,
+    error: 'noContent',
+  ),
+  'locationCommand': const LocationCommand(
+    id: 5,
+    kind: LocationCommandKind.currentPosition,
+  ),
+  'locationReportStatus': const LocationReport(
+    id: 4,
+    servicesEnabled: true,
+    permission: LocationPermission.whileInUse,
+  ),
+  'locationReportFix': const LocationReport(
+    id: 5,
+    latitude: 51.5014,
+    longitude: -0.1419,
+  ),
+  'locationReportFailed': const LocationReport(
+    id: 6,
+    ok: false,
+    error: 'no fix',
+  ),
   'terminalDisplayFile': const TerminalDisplayFile(
     chatId: 'c1',
     path: '/home/user/report.md',
@@ -4909,6 +4945,13 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'intentChatsQuery': IntentChatsQuery.fromJson,
       'intentChat': IntentChat.fromJson,
       'intentChats': IntentChats.fromJson,
+      'intentLink': IntentLink.fromJson,
+      'intentLinkResult': IntentLinkResult.fromJson,
+      'intentLinkResultFailed': IntentLinkResult.fromJson,
+      'locationCommand': LocationCommand.fromJson,
+      'locationReportStatus': LocationReport.fromJson,
+      'locationReportFix': LocationReport.fromJson,
+      'locationReportFailed': LocationReport.fromJson,
       'terminalDisplayFile': TerminalDisplayFile.fromJson,
       'terminalDisplayFilePage': TerminalDisplayFile.fromJson,
       'terminalWatch': TerminalWatch.fromJson,

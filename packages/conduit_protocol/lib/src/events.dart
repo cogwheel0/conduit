@@ -191,6 +191,11 @@ abstract final class ConduitEvents {
   /// [AppleCommand]; answered with `apple.report`.
   static const String appleCommand = 'apple.command';
 
+  /// The daemon asks the window's location services whether they are on, for
+  /// permission, or for a position fix (`{{USER_LOCATION}}`). Payload
+  /// [LocationCommand]; answered with `location.report`.
+  static const String locationCommand = 'location.command';
+
   /// Every event name, for subscription validation and tests.
   static const Set<String> all = {
     turnStarted,
@@ -242,6 +247,7 @@ abstract final class ConduitEvents {
     hermesRoomsChanged,
     hermesRoomsListChanged,
     appleCommand,
+    locationCommand,
   };
 }
 

@@ -4192,6 +4192,60 @@ const Map<String, String> protocolGoldens = <String, String>{
   ]
 }''',
 
+  'intentLink': r'''
+{
+  "url": "https://example.com/tide-tables"
+}''',
+
+  'intentLinkResult': r'''
+{
+  "url": "https://example.com/tide-tables",
+  "youtube": false,
+  "attachment": {
+    "id": "ctx-7",
+    "kind": "web",
+    "name": "Tide tables for Port Wren",
+    "url": "https://example.com/tide-tables",
+    "content": "High water at 06:12 and 18:40."
+  }
+}''',
+
+  'intentLinkResultFailed': r'''
+{
+  "url": "https://youtu.be/abc123",
+  "youtube": true,
+  "error": "noContent"
+}''',
+
+  'locationCommand': r'''
+{
+  "id": 5,
+  "kind": "currentPosition"
+}''',
+
+  'locationReportStatus': r'''
+{
+  "id": 4,
+  "ok": true,
+  "servicesEnabled": true,
+  "permission": "whileInUse"
+}''',
+
+  'locationReportFix': r'''
+{
+  "id": 5,
+  "ok": true,
+  "latitude": 51.5014,
+  "longitude": -0.1419
+}''',
+
+  'locationReportFailed': r'''
+{
+  "id": 6,
+  "ok": false,
+  "error": "no fix"
+}''',
+
   'terminalDisplayFile': r'''
 {
   "chatId": "c1",

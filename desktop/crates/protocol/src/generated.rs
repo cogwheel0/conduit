@@ -8726,6 +8726,37 @@ pub struct IntentChats {
     pub chats: Vec<IntentChat>,
 }
 
+/// Params for `intents.sendLink`: Shortcuts' Send Link to Conduit, a link
+/// put into a new chat for a summary or an analysis.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntentLink {
+    pub url: String,
+}
+
+/// Reply to `intents.sendLink`: what the server read from the link, as the
+/// composer's Web Page attaches it, or why it read nothing.
+///
+/// The app opens a new chat either way, as the phone does: with the page's
+/// text (or the video's transcript) attached when there is one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntentLinkResult {
+    /// The link, trimmed.
+    pub url: String,
+    /// A YouTube video, whose transcript is read instead of the page.
+    #[serde(default)]
+    pub youtube: bool,
+    /// The page's text or the video's transcript, ready for the composer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<ContextAttachmentDto>,
+    /// Null with an attachment; else `invalidUrl` (not an http or https
+    /// link), `noContent` (nothing readable, no transcript) or `failed` (no
+    /// Open WebUI account to read it, or the server refused).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 /// What checking an address for a LibreChat server found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum LibreChatProbeOutcome {
@@ -9085,6 +9116,90 @@ pub struct LibreChatMemoryRef {
 #[serde(rename_all = "camelCase")]
 pub struct LibreChatMemoryToggle {
     pub enabled: bool,
+}
+
+/// What `location.command` asks the window's location services for: the
+/// core's location port, one method each (the phone's port asks its OS the
+/// same four things).
+///
+/// The daemon asks only for a request or a prompt that names
+/// `{{USER_LOCATION}}`, and only while the account's location setting is on
+/// (the core's `LocationLookupPolicy`); nothing else reaches the window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LocationCommandKind {
+    /// Whether location services are on, and what this app may do: answered
+    /// with `LocationReport.servicesEnabled` and `LocationReport.permission`.
+    /// Never asks the user anything.
+    #[serde(rename = "status")]
+    Status,
+    /// Asks for permission (the system's prompt, the first time): answered
+    /// with `LocationReport.permission` once the user chose.
+    #[serde(rename = "requestPermission")]
+    RequestPermission,
+    /// One position fix: answered with `LocationReport.latitude` and
+    /// `LocationReport.longitude`, or `ok` false.
+    #[serde(rename = "currentPosition")]
+    CurrentPosition,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Payload of `location.command`. Answered with `location.report` naming
+/// `id`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocationCommand {
+    pub id: i64,
+    pub kind: LocationCommandKind,
+}
+
+/// What the app may do with the location, as the core's port says it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LocationPermission {
+    #[serde(rename = "denied")]
+    Denied,
+    #[serde(rename = "deniedForever")]
+    DeniedForever,
+    #[serde(rename = "whileInUse")]
+    WhileInUse,
+    #[serde(rename = "always")]
+    Always,
+    #[serde(rename = "unableToDetermine")]
+    UnableToDetermine,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Params for `location.report`: the window's answer to a command.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocationReport {
+    pub id: i64,
+    /// Whether the command was carried out; `error` says why not, for the
+    /// log.
+    #[serde(default = "default_location_report_ok")]
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// `status`: whether location services are on for this Mac.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub services_enabled: Option<bool>,
+    /// `status` and `requestPermission`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission: Option<LocationPermission>,
+    /// `currentPosition`, in degrees.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latitude: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub longitude: Option<f64>,
+}
+
+fn default_location_report_ok() -> bool {
+    true
 }
 
 /// How the app signs in to an MCP server.
@@ -19241,6 +19356,31 @@ pub mod methods {
         type Params = super::IntentChatsQuery;
         type Result = super::IntentChats;
     }
+
+    /// What the server reads from a link (Send Link to Conduit): a web
+    /// page's text or a YouTube video's transcript, for a new chat.
+    ///
+    /// `intents.sendLink`: IntentLink -> IntentLinkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct IntentsSendLink;
+
+    impl RpcMethod for IntentsSendLink {
+        const NAME: &'static str = "intents.sendLink";
+        type Params = super::IntentLink;
+        type Result = super::IntentLinkResult;
+    }
+
+    /// The window answers a `location.command`.
+    ///
+    /// `location.report`: LocationReport -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct LocationReport;
+
+    impl RpcMethod for LocationReport {
+        const NAME: &'static str = "location.report";
+        type Params = super::LocationReport;
+        type Result = super::OkResult;
+    }
 }
 
 /// Every method, with its params and result DTOs by name (`None` for none).
@@ -21275,6 +21415,16 @@ pub const METHODS: &[MethodSpec] = &[
         params: Some("IntentChatsQuery"),
         result: Some("IntentChats"),
     },
+    MethodSpec {
+        name: "intents.sendLink",
+        params: Some("IntentLink"),
+        result: Some("IntentLinkResult"),
+    },
+    MethodSpec {
+        name: "location.report",
+        params: Some("LocationReport"),
+        result: Some("OkResult"),
+    },
 ];
 
 /// The event names, for `events.subscribe`.
@@ -21424,6 +21574,10 @@ pub mod events {
     /// status, to start or stop a run, or answers a tool call. Payload
     /// `AppleCommand`; answered with `apple.report`.
     pub const APPLE_COMMAND: &str = "apple.command";
+    /// The daemon asks the window's location services whether they are on, for
+    /// permission, or for a position fix (`{{USER_LOCATION}}`). Payload
+    /// `LocationCommand`; answered with `location.report`.
+    pub const LOCATION_COMMAND: &str = "location.command";
 }
 
 /// Every event, with its payload DTO by name and whether it is scoped.
@@ -21673,6 +21827,11 @@ pub const EVENTS: &[EventSpec] = &[
         payload: Some("AppleCommand"),
         scoped: false,
     },
+    EventSpec {
+        name: "location.command",
+        payload: Some("LocationCommand"),
+        scoped: false,
+    },
 ];
 
 /// An event the daemon pushed, decoded from its envelope by name.
@@ -21916,6 +22075,12 @@ pub enum Event {
     ///
     /// `apple.command`.
     AppleCommand(AppleCommand),
+    /// The daemon asks the window's location services whether they are on, for
+    /// permission, or for a position fix (`{{USER_LOCATION}}`). Payload
+    /// `LocationCommand`; answered with `location.report`.
+    ///
+    /// `location.command`.
+    LocationCommand(LocationCommand),
     /// An event this build does not know, from a newer daemon, kept as it came.
     Unknown {
         name: String,
@@ -21994,6 +22159,7 @@ impl Event {
                 Self::HermesRoomsListChanged(serde_json::from_value(payload)?)
             }
             events::APPLE_COMMAND => Self::AppleCommand(serde_json::from_value(payload)?),
+            events::LOCATION_COMMAND => Self::LocationCommand(serde_json::from_value(payload)?),
             _ => Self::Unknown {
                 name: name.to_owned(),
                 payload,
@@ -22053,6 +22219,7 @@ impl Event {
             Self::HermesRoomsChanged(_) => events::HERMES_ROOMS_CHANGED,
             Self::HermesRoomsListChanged(_) => events::HERMES_ROOMS_LIST_CHANGED,
             Self::AppleCommand(_) => events::APPLE_COMMAND,
+            Self::LocationCommand(_) => events::LOCATION_COMMAND,
             Self::Unknown { name, .. } => name,
         }
     }
@@ -22100,6 +22267,7 @@ impl Event {
             Self::HermesRoomsChanged(payload) => serde_json::to_value(payload),
             Self::HermesRoomsListChanged(payload) => serde_json::to_value(payload),
             Self::AppleCommand(payload) => serde_json::to_value(payload),
+            Self::LocationCommand(payload) => serde_json::to_value(payload),
             Self::ChannelsChanged
             | Self::SocketHealth
             | Self::CapabilitiesChanged
@@ -22460,6 +22628,8 @@ pub mod conformance {
         "IntentChat",
         "IntentChats",
         "IntentChatsQuery",
+        "IntentLink",
+        "IntentLinkResult",
         "KnowledgeList",
         "KnowledgeQuery",
         "KnowledgeSummary",
@@ -22483,6 +22653,8 @@ pub mod conformance {
         "LibreChatSsoProviderDto",
         "LibreChatSsoStart",
         "LibreChatVerify",
+        "LocationCommand",
+        "LocationReport",
         "MarkUnread",
         "McpAppContext",
         "McpAppDto",
@@ -23105,6 +23277,8 @@ pub mod conformance {
             "IntentChat" => roundtrip::<super::IntentChat>(json),
             "IntentChats" => roundtrip::<super::IntentChats>(json),
             "IntentChatsQuery" => roundtrip::<super::IntentChatsQuery>(json),
+            "IntentLink" => roundtrip::<super::IntentLink>(json),
+            "IntentLinkResult" => roundtrip::<super::IntentLinkResult>(json),
             "KnowledgeList" => roundtrip::<super::KnowledgeList>(json),
             "KnowledgeQuery" => roundtrip::<super::KnowledgeQuery>(json),
             "KnowledgeSummary" => roundtrip::<super::KnowledgeSummary>(json),
@@ -23128,6 +23302,8 @@ pub mod conformance {
             "LibreChatSsoProviderDto" => roundtrip::<super::LibreChatSsoProviderDto>(json),
             "LibreChatSsoStart" => roundtrip::<super::LibreChatSsoStart>(json),
             "LibreChatVerify" => roundtrip::<super::LibreChatVerify>(json),
+            "LocationCommand" => roundtrip::<super::LocationCommand>(json),
+            "LocationReport" => roundtrip::<super::LocationReport>(json),
             "MarkUnread" => roundtrip::<super::MarkUnread>(json),
             "McpAppContext" => roundtrip::<super::McpAppContext>(json),
             "McpAppDto" => roundtrip::<super::McpAppDto>(json),
