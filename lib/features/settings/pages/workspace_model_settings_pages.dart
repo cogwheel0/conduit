@@ -714,6 +714,13 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
   bool _baseModelsLoading = false;
   bool _baseModelsFailed = false;
 
+  /// Moved on each time the list is forgotten: a read started before then is
+  /// not kept.
+  int _baseModelsGeneration = 0;
+
+  /// The account the read still running is for.
+  WorkspaceSessionIdentity? _baseModelsReading;
+
   SettingsSurface get _surface => _ref.read(settingsSurfaceProvider);
   WorkspaceModels get _notifier => _ref.read(workspaceModelsProvider.notifier);
 
@@ -864,9 +871,14 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
   }
 
   void _forgetBaseModels() {
-    if (_baseModels != null || _baseModelsFailed) {
+    // Read afresh next time. A read still running for an account since gone
+    // is being replaced already: the list follows the account.
+    final reading =
+        _baseModelsLoading && (_baseModelsReading?.isCurrent(_ref) ?? false);
+    if (_baseModels != null || _baseModelsFailed || reading) {
       _ref.invalidate(workspaceBaseModelsProvider);
     }
+    _baseModelsGeneration++;
     _baseModels = null;
     _baseModelsSession = null;
     _baseModelsFailed = false;
@@ -939,13 +951,18 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
     if (_baseModels != null || _baseModelsLoading) return;
     _baseModelsLoading = true;
     _baseModelsFailed = false;
+    final generation = _baseModelsGeneration;
+    _baseModelsReading = session;
     var stale = false;
     try {
       final listening = _ref.listen(workspaceBaseModelsProvider, (_, _) {});
       try {
         final models = await _ref.read(workspaceBaseModelsProvider.future);
-        // Read for an account since gone: not this one's list.
-        if (session == null || !session.isCurrent(_ref)) {
+        // Read for an account since gone, or before the list was forgotten:
+        // not the list to keep.
+        if (session == null ||
+            !session.isCurrent(_ref) ||
+            generation != _baseModelsGeneration) {
           stale = true;
         } else {
           _baseModels = models;
@@ -955,7 +972,11 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
         listening.close();
       }
     } catch (error, stackTrace) {
-      _baseModelsFailed = true;
+      if (generation == _baseModelsGeneration) {
+        _baseModelsFailed = true;
+      } else {
+        stale = true;
+      }
       DebugLogger.error(
         'workspace-base-models-failed',
         scope: 'settings/workspace',
@@ -964,10 +985,11 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
       );
     } finally {
       _baseModelsLoading = false;
+      _baseModelsReading = null;
     }
     if (stale) {
-      // An editor the account signed in since opened waited on this read:
-      // it reads its own list now.
+      // An editor opened since (for the account signed in since, or after
+      // the last one was left) waited on this read: it reads afresh now.
       if (_session() != null && _editors.isNotEmpty) {
         unawaited(_loadBaseModels());
       }

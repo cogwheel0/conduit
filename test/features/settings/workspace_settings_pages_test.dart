@@ -1243,6 +1243,38 @@ void main() {
       check(reads).equals(2);
     });
 
+    testWidgets('a base-model read still running when the last editor is '
+        'left is not kept for the next one', (tester) async {
+      var reads = 0;
+      final firstRead = Completer<void>();
+      final rig = await pump(
+        tester,
+        modelDetails: {'model-1': _writableModel()},
+        baseModels: () async {
+          final read = ++reads;
+          if (read == 1) await firstRead.future;
+          return [WorkspaceRelationshipOption(id: 'base-$read', label: 'Base')];
+        },
+      );
+      await rig.open(_model1);
+      check(reads).equals(1);
+
+      rig.leave(_model1);
+      await rig.open(_newModel);
+      firstRead.complete();
+      await rig.settle(Future<void>.value());
+
+      check(reads).equals(2);
+      check(
+          rig
+              .row(_newModel, _modelRow('base', workspaceNewKey))!
+              .options
+              .map((option) => option.id),
+        )
+        ..contains('base-2')
+        ..not((it) => it.contains('base-1'));
+    });
+
     testWidgets('an editor opened while an earlier account still reads '
         'its base models gets its own', (tester) async {
       var reads = 0;
@@ -1768,6 +1800,47 @@ void main() {
           check(rig.closed).not((it) => it.contains(access));
         });
       }
+
+      testWidgets('a save answered after its page was left and opened again '
+          'leaves the new page alone', (tester) async {
+        final models = _Models()..keepAccess = _withoutEveryone;
+        final rig = await pump(
+          tester,
+          models: models,
+          modelDetails: {'model-1': _writableModel()},
+        );
+        await rig.open(_model1);
+        await rig.open(access);
+        await rig.change(everyone, 'server');
+        final request = models.accessGate = Completer<void>();
+
+        final saving = rig.module<WorkspaceModelSettingsPages>().handleChange(
+          workspaceRowId(
+            'access-done',
+            '${WorkspaceSection.models.name}|$_model1Key',
+          ),
+          true,
+          _l10n,
+        );
+        await tester.pump(const Duration(milliseconds: 20));
+        // The editor drawn with the saved list is held while the page is
+        // left and opened again on a list of its own.
+        final editorDrawn = rig.surface.gate = Completer<void>();
+        request.complete();
+        await tester.pump(const Duration(milliseconds: 20));
+        check(rig.surface.drawn.last).equals(_model1);
+        rig.surface.gate = null;
+        rig.leave(access);
+        await rig.open(access);
+        final drawn = rig.surface.drawn.length;
+        final closed = rig.closed.length;
+        editorDrawn.complete();
+        await rig.settle(saving);
+
+        check(rig.surface.drawn.skip(drawn)).not((it) => it.contains(access));
+        check(rig.closed.skip(closed)).not((it) => it.contains(access));
+        check(rig.page(access).announcement).isNull();
+      });
 
       testWidgets('its Add rows open pages of their own', (tester) async {
         final rig = await pump(
