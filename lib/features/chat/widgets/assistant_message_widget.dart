@@ -19,6 +19,7 @@ import 'package:conduit_core/utils/usage_summary.dart';
 import 'package:conduit_core/utils/model_display_name.dart';
 import 'package:conduit_core/features/direct_connections/services/model_logo_catalog.dart'
     show installedModelLogoCatalog;
+import 'package:conduit_core/features/chat/utils/message_action_layout.dart';
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart'
     show markStandaloneBase64Images, stripAssistantContentPlaceholders;
@@ -44,8 +45,6 @@ import '../providers/text_to_speech_provider.dart';
 
 import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
 import 'package:conduit_core/features/chat/providers/streaming_haptic_memory.dart';
-import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart'
-    show kAutomaticReasoningEffort, reasoningEffortForModel;
 
 import 'enhanced_image_attachment.dart';
 import 'enhanced_video_attachment.dart';
@@ -67,6 +66,8 @@ import '../../../shared/widgets/web_content_embed.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         ChatForkAvailability,
+        errorMentionsReasoningEffort,
+        isReasoningEffortRejection,
         isUnconfirmedLibreChatMessage,
         ComparisonAnswerStop,
         ComparisonMergeException,
@@ -86,8 +87,6 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
 import 'package:conduit_core/providers/app_providers.dart'
     show activeConversationProvider, modelsProvider, selectedModelProvider;
 import 'package:conduit_core/models/model.dart' show Model;
-import 'package:conduit_core/models/openwebui_chat_settings.dart'
-    show kChatParamReasoningEffort;
 
 import '../../../shared/utils/external_link_launcher.dart';
 
@@ -691,25 +690,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         .firstOrNull;
   }
 
-  /// The finished answers of this turn a merge may read, one per slot in slot
-  /// order: the shown answer for its own slot, otherwise the slot's current
-  /// one. An answer still being written, failed, or without text is left out,
-  /// so one unfinished slot never blocks merging the others.
-  List<ChatComparisonAnswer> _mergeableAnswers(ChatComparisonGroup group) {
-    final shown = _shownAnswer(group);
-    return [
-      for (final slot in group.slots)
-        if (_isMergeable(
-          shown != null && slot.index == shown.slot ? shown : slot.current,
-        ))
-          shown != null && slot.index == shown.slot ? shown : slot.current,
-    ];
-  }
-
-  static bool _isMergeable(ChatComparisonAnswer answer) =>
-      !answer.isStreaming &&
-      answer.error == null &&
-      answer.sourceText.trim().isNotEmpty;
+  /// The finished answers of this turn a merge may read: the shown answer
+  /// for its own slot, otherwise each slot's current one (the core's rule).
+  List<ChatComparisonAnswer> _mergeableAnswers(ChatComparisonGroup group) =>
+      group.mergeableAnswers(shownId: _shownAnswer(group)?.messageId);
 
   /// Merges answers of this comparison into one response, saved on the answer
   /// being shown. With two finished answers that is all there is to choose;
@@ -2361,7 +2345,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     required List<ChatSourceReference> activeSources,
     required bool includeActions,
   }) {
-    const maxInlineActions = 3;
     // A row that does not own its grouped response's bar still shows its own
     // sources and version chip; only the buttons collapse onto the last row.
     final actions = includeActions
@@ -2370,36 +2353,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final preferred = ref.watch(
       appSettingsProvider.select((settings) => settings.inlineMessageActions),
     );
-    String preferenceId(_AssistantFooterAction action) => switch (action.id) {
-      'retry' => 'regenerate',
-      'stop-merge' => 'merge',
-      _ => action.id,
-    };
-    // Share, Delete and the Hermes history actions live in the overflow.
-    bool overflowOnly(_AssistantFooterAction action) =>
-        action.id == 'share' ||
-        action.id == 'delete' ||
-        action.id.startsWith('hermes-');
-    final forcedOverflowActions = actions
-        .where(overflowOnly)
-        .toList(growable: false);
-    final inlineCandidateActions = actions
-        .where((action) => !overflowOnly(action))
-        .toList(growable: false);
-    final visibleActions = preferred == null
-        ? inlineCandidateActions.take(maxInlineActions).toList(growable: false)
-        : [
-            for (final id in preferred.toSet())
-              ...actions.where((action) => preferenceId(action) == id),
-          ];
-    final overflowActions = preferred == null
-        ? [
-            ...inlineCandidateActions.skip(maxInlineActions),
-            ...forcedOverflowActions,
-          ]
-        : actions
-              .where((action) => !preferred.contains(preferenceId(action)))
-              .toList(growable: false);
+    // Inline as Settings › Chats › Message Actions says; Share, Delete and the
+    // Hermes history actions live in More unless the user put them inline.
+    final layout = messageActionLayout([
+      for (final action in actions) action.id,
+    ], preferred);
+    final actionById = {for (final action in actions) action.id: action};
+    final visibleActions = [for (final id in layout.inline) actionById[id]!];
+    final overflowActions = [for (final id in layout.more) actionById[id]!];
     final infoWidgets = <Widget>[
       if (activeSources.isNotEmpty)
         OpenWebUISourcesWidget(
@@ -2641,14 +2602,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return _errorScanResult;
   }
 
-  // Issue #779: an explicit effort opt-in on a model that does not advertise
-  // support can be rejected by the upstream provider. When the failure names
-  // the parameter, the footer offers to clear the opt-in and retry.
-  static final _reasoningEffortRejectionPattern = RegExp(
-    r'reasoning[_\s-]*effort',
-    caseSensitive: false,
-  );
-
   /// Resolves [modelId] against the model list, or the model selected now
   /// when the id is absent or already the selected one. Null when the id
   /// names a model that left the list — then only the chat-wide override can
@@ -2710,46 +2663,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   /// The chat's own saved `reasoning_effort`, which a model that advertises
   /// support is sent over the picker's value.
-  bool get _chatHasReasoningEffortOverride {
-    final params = ref.read(activeConversationProvider)?.chatParams;
-    final value = params == null ? null : params[kChatParamReasoningEffort];
-    return value is String &&
-        value.trim().isNotEmpty &&
-        value.trim().toLowerCase() != kAutomaticReasoningEffort;
-  }
-
-  /// Whether the chat saved a default (Automatic) for `reasoning_effort`,
-  /// which outranks every model's own pick.
-  bool get _chatSavedReasoningEffortDefault {
-    final params = ref.read(activeConversationProvider)?.chatParams;
-    return params != null &&
-        params.containsKey(kChatParamReasoningEffort) &&
-        !_chatHasReasoningEffortOverride;
-  }
-
-  bool _isReasoningEffortRejection(String errorText, Model? retryModel) {
-    if (!_reasoningEffortRejectionPattern.hasMatch(errorText)) return false;
-    // An explicitly refusing model never takes the parameter: the request
-    // boundary strips it whatever the opt-ins say. A retry through such a
-    // model therefore cannot fail on the value, and offering recovery would
-    // discard the user's pick and the chat-wide override on an error that
-    // cannot be about the never-sent parameter (issue #779). A model that
-    // left the list is unknown, not refusing — recovery stays available.
-    if (retryModel?.explicitlyRejectsReasoningEffort ?? false) return false;
-    // A model that does not advertise support is sent only its own pick
-    // (issue #611); one that does is sent the chat's saved value over the
-    // picker's. A model that left the list may have been sent either.
-    final pickerOptIn =
-        retryModel != null &&
-        !retryModel.advertisesReasoningEffort &&
-        !_chatSavedReasoningEffortDefault &&
-        reasoningEffortForModel(ref.read, retryModel) !=
-            kAutomaticReasoningEffort;
-    final chatOptIn =
-        (retryModel == null || retryModel.advertisesReasoningEffort) &&
-        _chatHasReasoningEffortOverride;
-    return pickerOptIn || chatOptIn;
-  }
+  bool _isReasoningEffortRejection(String errorText, Model? retryModel) =>
+      isReasoningEffortRejection(
+        ref,
+        errorText: errorText,
+        retryModel: retryModel,
+      );
 
   /// Like [_isReasoningEffortRejection] for a parked queued completion,
   /// additionally qualified from the request itself: the replay sends the
@@ -2763,7 +2682,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   /// here as well.
   bool _isQueuedReasoningEffortRejection(QueuedCompletionInfo info) {
     final errorText = info.lastError ?? '';
-    if (!_reasoningEffortRejectionPattern.hasMatch(errorText)) return false;
+    if (!errorMentionsReasoningEffort(errorText)) return false;
     final retryModel = _modelForQueuedRetry();
     if (_isReasoningEffortRejection(errorText, retryModel)) return true;
     if (retryModel?.explicitlyRejectsReasoningEffort ?? false) return false;
@@ -2907,7 +2826,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         comparisonGroup.isComparison &&
         ref.watch(comparisonMergeCommandAvailableProvider) &&
         shownAnswer != null &&
-        _isMergeable(shownAnswer) &&
+        shownAnswer.isMergeable &&
         _mergeableAnswers(comparisonGroup).length >= 2;
 
     final IconData listenIcon = Platform.isIOS

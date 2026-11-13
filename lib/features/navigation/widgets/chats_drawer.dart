@@ -7,6 +7,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:conduit_core/features/chat/utils/conversation_unread.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
@@ -1741,10 +1742,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         (pending) => _conversationIsActive(conversation, pending),
       ),
     );
-    final bool unread = _conversationUnread(
+    final bool unread = isConversationUnread(
       conversation,
       selected: isActive,
-      isGenerating: isGenerating,
+      generating: isGenerating,
     );
 
     final tileWidget = ConversationTile(
@@ -1917,22 +1918,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           },
         );
     }
-  }
-
-  bool _conversationUnread(
-    dynamic conversation, {
-    required bool selected,
-    required bool isGenerating,
-  }) {
-    final id = conversation.id?.toString();
-    if (id == null || id.isEmpty || selected || isGenerating) {
-      return false;
-    }
-    final updatedAt = conversation.updatedAt;
-    if (updatedAt is! DateTime) return false;
-    final lastReadAt = conversation.lastReadAt;
-    if (lastReadAt is! DateTime) return true;
-    return updatedAt.isAfter(lastReadAt);
   }
 
   /// Whether [conversation] is among [activeChatIds], raw Open WebUI ids as

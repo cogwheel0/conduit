@@ -35,10 +35,16 @@ final class ChatSessionScope {
   ChatSessionScope._(this._parent, this.container);
 
   /// Opens a scope under [parent], the host's root container.
-  factory ChatSessionScope.open(ProviderContainer parent) {
+  ///
+  /// [overrides] come after the scope's own: what the host adds for this
+  /// chat alone, such as how its queue sends ([chatDraftQueueSendProvider]).
+  factory ChatSessionScope.open(
+    ProviderContainer parent, {
+    List<Override> overrides = const <Override>[],
+  }) {
     final container = ProviderContainer(
       parent: parent,
-      overrides: chatSessionScopeOverrides(),
+      overrides: <Override>[...chatSessionScopeOverrides(), ...overrides],
     );
     final scope = ChatSessionScope._(parent, container);
     parent.read(chatSessionRegistryProvider)._add(scope);
@@ -127,8 +133,9 @@ final chatSessionRegistryProvider = Provider<ChatSessionRegistry>(
 /// * the composer: [selectedModelProvider] and whether it was chosen by hand,
 ///   the model last picked in the chat ([chatModelPickProvider]),
 ///   web search, image generation and the code interpreter (with what makes
-///   them available), tools, filters, terminal, attachments, the chat's
-///   pending settings and folder, temporary chat;
+///   them available), tools, filters, terminal, attachments, the messages
+///   queued behind the running answer, the chat's pending settings and
+///   folder, temporary chat;
 /// * reasoning effort, derived from the selected model;
 /// * the selected model's controls and the option each applies (the picks
 ///   themselves are the account's settings on the server, and stay shared);
@@ -140,7 +147,7 @@ final chatSessionRegistryProvider = Provider<ChatSessionRegistry>(
 /// * the Hermes session the chat is bound to and its navigation epoch, which
 ///   the root bumps on every chat switch and a running Hermes turn checks;
 /// * the providers that capture their `ref` to act on "the open chat" later:
-///   stop, regenerate, and the Hermes busy-turn controller;
+///   stop, regenerate, merge, and the Hermes busy-turn controller;
 /// * the Open WebUI prompt waiting in the chat (a confirmation, a question).
 List<Override> chatSessionScopeOverrides() => <Override>[
   ...chatSessionScopedAppOverrides(),
@@ -179,11 +186,17 @@ List<Override> chatSessionScopeOverrides() => <Override>[
   queuedDraftAttachmentsProvider.overrideWith(
     QueuedDraftAttachmentsNotifier.new,
   ),
+  // The messages queued behind this chat's running answer.
+  ...chatSessionScopedDraftQueueOverrides(),
+  ...chatSessionScopedQueuedCompletionOverrides(),
   chatBranchControlsProvider.overrideWith(_chatBranchControls),
   regenerateLastMessageProvider.overrideWith(_regenerateLastMessage),
   stopGenerationProvider.overrideWith(_stopGenerationAction),
   stopGenerationSettledProvider.overrideWith(_stopGenerationSettledAction),
   hermesBusyTurnControllerProvider.overrideWith(HermesBusyTurnController.new),
+  // A merge (Merge Responses) acts on the chat it was started in, and one
+  // chat's merge never blocks another's.
+  comparisonMergeProvider.overrideWith(ComparisonMergeController.new),
   // One Open WebUI prompt at a time per chat: a confirmation or question
   // raised in one chat must not replace another chat's.
   openWebUiLivePromptProvider.overrideWith(OpenWebUiLivePromptNotifier.new),

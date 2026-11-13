@@ -21,9 +21,11 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
+import 'package:conduit_core/features/chat/composer/composer_availability.dart';
 import 'package:conduit_core/features/chat/composer/composer_commands.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
+import 'package:conduit_core/features/chat/services/quick_pill_catalog.dart';
 import 'package:conduit_core/features/chat/providers/personal_valves_providers.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
@@ -1012,13 +1014,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   bool get _queuesInsteadOfSending => ref.read(chatDraftQueueOfferProvider);
 
   /// Whether this composer sends to a Hermes Desktop Gateway.
-  bool get _isDesktopHermesComposer {
-    final model = ref.read(selectedModelProvider);
-    return model != null &&
-        isHermesModel(model) &&
-        ref.read(hermesConfigProvider).mode ==
-            HermesBackendMode.desktopGateway;
-  }
+  bool get _isDesktopHermesComposer =>
+      isHermesDesktopComposer(ref.read, ref.read(selectedModelProvider));
 
   /// Queues what is typed, with the composer's files, and clears the composer.
   /// A draft the queue refuses (the response just ended) leaves it untouched.
@@ -1982,14 +1979,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return model != null && isLibreChatModel(model);
   }
 
-  bool get _openWebUiSkillsAvailable {
-    if (!ref.read(openWebUiAccountAvailableProvider)) return false;
-    final model = ref.read(selectedModelProvider);
-    return model == null ||
-        (!isHermesModel(model) &&
-            !isLibreChatModel(model) &&
-            !isLocallyMintedDirectModel(model));
-  }
+  bool get _openWebUiSkillsAvailable =>
+      composerSkillsAvailable(ref.read, ref.read(selectedModelProvider));
 
   /// Whether `@` offers models to switch to. A LibreChat turn takes no
   /// mention, and a LibreChat chat goes on only with LibreChat's models.
@@ -2016,8 +2007,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       selectionStart: selection.start,
       selectionEnd: selection.end,
       allowSkills: _openWebUiSkillsAvailable,
-      allowContext:
-          model == null || (!isHermesModel(model) && !isLibreChatModel(model)),
+      allowContext: composerContextAvailable(model),
       triggers: {
         ComposerCommandTrigger.prompt,
         ComposerCommandTrigger.context,
@@ -3215,6 +3205,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   ComposerOverflowAttachmentAvailability get _overflowAttachmentAvailability {
     final model = ref.read(selectedModelProvider);
+    // The kinds are conduit_core's (composer_availability.dart); this
+    // composer offers those it has a picker for.
+    final kinds = composerAttachmentKinds(ref.read, model);
     if (model != null && isLibreChatModel(model)) {
       return ComposerOverflowAttachmentAvailability(
         file: widget.onFileAttachment != null,
@@ -3224,49 +3217,25 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         web: false,
       );
     }
-    final hermesMode = model != null && isHermesModel(model);
-    if (hermesMode) {
-      final inputImages =
-          ref.read(hermesCapabilitiesProvider).asData?.value.inputImages ==
-          true;
+    if (model != null && isHermesModel(model)) {
       return ComposerOverflowAttachmentAvailability(
-        // Hermes documents are ingested locally and sent as text, so this is
-        // deliberately independent of the remote image-input capability.
         file: widget.onFileAttachment != null,
         serverFile: false,
-        photo: inputImages && widget.onImageAttachment != null,
-        camera: inputImages && widget.onCameraCapture != null,
+        photo: kinds.image && widget.onImageAttachment != null,
+        camera: kinds.image && widget.onCameraCapture != null,
         web: false,
       );
     }
-
-    final directMode = model != null && hasReservedDirectIdentity(model);
-    final imageInputAvailable =
-        model != null &&
-        ref.read(visionCapableModelsProvider).contains(model.id);
-    final fileInputAvailable =
-        model != null &&
-        ref.read(fileUploadCapableModelsProvider).contains(model.id);
-    final mcpContentAvailable =
-        directMode &&
-        ref
-            .read(directMcpServersProvider)
-            .maybeWhen(
-              data: (servers) => servers.any((server) => server.enabled),
-              orElse: () => false,
-            );
     return ComposerOverflowAttachmentAvailability(
-      file: fileInputAvailable && widget.onFileAttachment != null,
-      serverFile:
-          !directMode &&
-          fileInputAvailable &&
-          widget.onServerFileAttachment != null,
-      photo: imageInputAvailable && widget.onImageAttachment != null,
-      camera: imageInputAvailable && widget.onCameraCapture != null,
-      web: !directMode && widget.onWebAttachment != null,
-      mcpContent: mcpContentAvailable,
+      file: kinds.file && widget.onFileAttachment != null,
+      serverFile: kinds.serverFile && widget.onServerFileAttachment != null,
+      photo: kinds.image && widget.onImageAttachment != null,
+      camera: kinds.image && widget.onCameraCapture != null,
+      web: kinds.web && widget.onWebAttachment != null,
+      mcpContent: kinds.mcpContent,
     );
   }
+
 
   List<IosKeyboardAttachmentActionConfig> _nativeKeyboardAttachmentActions({
     required AppLocalizations l10n,
@@ -3800,8 +3769,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         _scheduleNativeKeyboardAttachmentSync();
       });
     }
-    final bool showWebPill = selectedQuickPills.contains('web');
-    final bool showImagePillPref = selectedQuickPills.contains('image');
     final voiceAvailableAsync = ref.watch(voiceInputAvailableProvider);
     final bool voiceAvailable = voiceAvailableAsync.maybeWhen(
       data: (v) => v,
@@ -3952,64 +3919,64 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final Color placeholderFocused = placeholderColor;
     final List<Widget> quickPills = <Widget>[];
 
-    for (final id in selectedQuickPills) {
-      if (isHermesComposer || isDirectComposer || isLibreChatComposer) {
-        break;
-      }
-      final filterId = ComposerOverflowActionIds.filterIdFrom(id);
-      if (id == 'web' && showWebPill && webSearchAvailable) {
-        final String label = AppLocalizations.of(context)!.web;
-        final IconData icon = Platform.isIOS
-            ? CupertinoIcons.search
-            : Icons.search;
-        void handleTap() {
-          final notifier = ref.read(webSearchEnabledProvider.notifier);
-          notifier.set(!webSearchEnabled);
-        }
-
-        quickPills.add(
-          _buildPillButton(
-            icon: icon,
-            label: label,
-            isActive: webSearchEnabled,
-            dense: true,
-            onTap: widget.enabled && !_isRecording ? handleTap : null,
-          ),
-        );
-      } else if (id == 'image' && showImagePillPref && imageGenAvailable) {
-        final String label = AppLocalizations.of(context)!.imageGen;
-        final IconData icon = Platform.isIOS
-            ? CupertinoIcons.photo
-            : Icons.image;
-        void handleTap() {
-          setComposerOverflowSelection(
-            ref,
-            actionId: ComposerOverflowActionIds.imageGeneration,
-            selected: !imageGenEnabled,
+    // The chosen pills this composer can turn on, by core's rules (the
+    // desktop's composer draws the same list).
+    final composerPills =
+        isHermesComposer || isDirectComposer || isLibreChatComposer
+        ? const <QuickPillCandidate>[]
+        : composerQuickPills(
+            selectedQuickPills,
+            webSearchAvailable: webSearchAvailable,
+            imageGenerationAvailable: imageGenAvailable,
+            tools: availableTools,
+            filters: availableFilters,
           );
-        }
-
-        quickPills.add(
-          _buildPillButton(
-            icon: icon,
-            label: label,
-            isActive: imageGenEnabled,
-            dense: true,
-            onTap: widget.enabled && !_isRecording ? handleTap : null,
-          ),
-        );
-      } else if (filterId != null) {
-        // Handle filter quick pills
-        ToggleFilter? filter;
-        for (final f in availableFilters) {
-          if (f.id == filterId) {
-            filter = f;
-            break;
+    for (final pill in composerPills) {
+      switch (pill.kind) {
+        case QuickPillKind.web:
+          final String label = AppLocalizations.of(context)!.web;
+          final IconData icon = Platform.isIOS
+              ? CupertinoIcons.search
+              : Icons.search;
+          void handleTap() {
+            final notifier = ref.read(webSearchEnabledProvider.notifier);
+            notifier.set(!webSearchEnabled);
           }
-        }
-        if (filter != null) {
+
+          quickPills.add(
+            _buildPillButton(
+              icon: icon,
+              label: label,
+              isActive: webSearchEnabled,
+              dense: true,
+              onTap: widget.enabled && !_isRecording ? handleTap : null,
+            ),
+          );
+        case QuickPillKind.image:
+          final String label = AppLocalizations.of(context)!.imageGen;
+          final IconData icon = Platform.isIOS
+              ? CupertinoIcons.photo
+              : Icons.image;
+          void handleTap() {
+            setComposerOverflowSelection(
+              ref,
+              actionId: ComposerOverflowActionIds.imageGeneration,
+              selected: !imageGenEnabled,
+            );
+          }
+
+          quickPills.add(
+            _buildPillButton(
+              icon: icon,
+              label: label,
+              isActive: imageGenEnabled,
+              dense: true,
+              onTap: widget.enabled && !_isRecording ? handleTap : null,
+            ),
+          );
+        case QuickPillKind.filter:
+          final filterId = pill.targetId;
           final bool isSelected = selectedFilterIds.contains(filterId);
-          final String label = filter.name;
           final IconData icon = Platform.isIOS
               ? CupertinoIcons.sparkles
               : Icons.auto_awesome;
@@ -4021,26 +3988,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           quickPills.add(
             _buildPillButton(
               icon: icon,
-              label: label,
+              label: pill.name,
               isActive: isSelected,
               dense: true,
               onTap: widget.enabled && !_isRecording ? handleTap : null,
-              iconUrl: filter.icon,
+              iconUrl: pill.iconUrl,
             ),
           );
-        }
-      } else {
-        // Handle tool quick pills
-        Tool? tool;
-        for (final t in availableTools) {
-          if (t.id == id) {
-            tool = t;
-            break;
-          }
-        }
-        if (tool != null) {
+        case QuickPillKind.tool:
+          final id = pill.targetId;
           final bool isSelected = selectedToolIds.contains(id);
-          final String label = tool.name;
           final IconData icon = Platform.isIOS
               ? CupertinoIcons.wrench
               : Icons.build;
@@ -4058,13 +4015,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           quickPills.add(
             _buildPillButton(
               icon: icon,
-              label: label,
+              label: pill.name,
               isActive: isSelected,
               dense: true,
               onTap: widget.enabled && !_isRecording ? handleTap : null,
             ),
           );
-        }
       }
     }
 

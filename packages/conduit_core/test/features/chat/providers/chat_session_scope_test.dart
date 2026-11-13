@@ -7,6 +7,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
+import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
@@ -176,6 +177,58 @@ void main() {
     expect(a.isStreaming, isFalse);
     expect(b.isStreaming, isTrue);
     expect(b.messages.last.isStreaming, isTrue);
+  });
+
+  test('a queue follows its own chat\'s answer, and sends through the host', () {
+    final parent = root();
+    final sent = <String>[];
+    final a = ChatSessionScope.open(
+      parent,
+      overrides: [
+        chatDraftQueueSendProvider.overrideWithValue((
+          ref,
+          text,
+          fileIds, {
+          toolIds,
+          contextAttachments,
+          onAssistantPlaceholderCreated,
+          onAdmissionCommitted,
+        }) async {
+          sent.add(text);
+        }),
+      ],
+    );
+    addTearDown(a.dispose);
+    final b = open(parent);
+    a.container.read(activeConversationProvider.notifier).set(_chat('chat-a'));
+    b.container.read(activeConversationProvider.notifier).set(_chat('chat-b'));
+    a.container
+        .read(chatMessagesProvider.notifier)
+        .addMessage(_streaming('answer-a'));
+
+    // The answer that holds a queue back is the scope's own.
+    expect(a.container.read(chatMainAnswerActiveProvider), isTrue);
+    expect(b.container.read(chatMainAnswerActiveProvider), isFalse);
+    expect(parent.read(chatMainAnswerActiveProvider), isFalse);
+    // Each scope has a queue of its own; the root's is another.
+    expect(
+      identical(
+        a.container.read(chatDraftQueueProvider.notifier),
+        b.container.read(chatDraftQueueProvider.notifier),
+      ),
+      isFalse,
+    );
+    expect(a.container.read(activeChatDraftQueueProvider), isNull);
+    // The host's send stands in for the durable one in that scope alone.
+    a.container.read(chatDraftQueueSendProvider)(a.container, 'queued', null);
+    expect(sent, ['queued']);
+    expect(
+      identical(
+        b.container.read(chatDraftQueueSendProvider),
+        a.container.read(chatDraftQueueSendProvider),
+      ),
+      isFalse,
+    );
   });
 
   test('the composer, model and reasoning are each scope\'s own', () {

@@ -134,6 +134,11 @@ class ChatComparisonAnswer {
     return structured.trim().isNotEmpty ? structured : content;
   }
 
+  /// Whether a merge may read this answer: finished, without an error, with
+  /// text of its own.
+  bool get isMergeable =>
+      !isStreaming && error == null && sourceText.trim().isNotEmpty;
+
   /// A short label for the model that answered.
   String get label {
     final name = modelName?.trim();
@@ -177,6 +182,24 @@ class ChatComparisonGroup {
   /// The slot that holds the displayed message.
   ChatComparisonSlot get displayedSlot =>
       slots.firstWhere((slot) => slot.answers.any((a) => a.isDisplayed));
+
+  /// The finished answers of this turn a merge may read, one per slot in slot
+  /// order: the answer [shownId] names for its own slot, otherwise the slot's
+  /// current one. An answer still being written, failed, or without text is
+  /// left out, so one unfinished slot never blocks merging the others.
+  List<ChatComparisonAnswer> mergeableAnswers({String? shownId}) {
+    final shown = shownId == null
+        ? null
+        : [
+            for (final slot in slots) ...slot.answers,
+          ].where((a) => a.messageId == shownId).firstOrNull;
+    return [
+      for (final slot in slots)
+        if ((shown != null && slot.index == shown.slot ? shown : slot.current)
+            case final answer when answer.isMergeable)
+          answer,
+    ];
+  }
 
   ChatComparisonSlot? slotAt(int index) {
     for (final slot in slots) {

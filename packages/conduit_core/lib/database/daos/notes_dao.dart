@@ -269,11 +269,17 @@ LIMIT 1
 
         case NoteMergeKind.fastForward:
           // Plain server write; preserve the local pin mirror if present (pin
-          // is reconciled out-of-band, never via this watermark merge).
+          // is reconciled out-of-band, never via this watermark merge). A
+          // note seen for the first time has no mirror: it takes the
+          // server's pin, or a note pinned elsewhere would arrive unpinned.
+          final serverRow = serverToNoteRow(
+            serverRaw,
+            readAccounts: readAccounts,
+          );
           await into(notes).insertOnConflictUpdate(
-            serverToNoteRow(serverRaw, readAccounts: readAccounts).copyWith(
+            serverRow.copyWith(
               isPinned: existing == null
-                  ? const Value.absent()
+                  ? serverRow.isPinned
                   : Value(existing.isPinned),
               dirtyPinned: existing == null
                   ? const Value.absent()
