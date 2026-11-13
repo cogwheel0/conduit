@@ -17,6 +17,7 @@ export 'src/composer_service.dart';
 export 'src/prompts_service.dart';
 export 'src/hermes_service.dart';
 export 'src/terminals_service.dart';
+export 'src/speech_service.dart';
 export 'src/voice_service.dart';
 export 'src/dictation_service.dart';
 export 'src/recordings_service.dart';

@@ -49,6 +49,7 @@ import 'workspace_service.dart';
 import 'terminals_service.dart';
 import 'handoff_service.dart';
 import 'hermes_service.dart';
+import 'speech_service.dart';
 import 'voice_service.dart';
 import 'dictation_service.dart';
 import 'recordings_service.dart';
@@ -135,6 +136,7 @@ class DaemonServer {
   ValvesService? _valves;
   AccessService? _access;
   FolderSettingsService? _folderSettings;
+  SpeechService? _readAloud;
   ReleaseNotesRpcService? _releaseNotes;
   DataService? _data;
 
@@ -265,6 +267,19 @@ class DaemonServer {
     _valves = ValvesService(core.container);
     _access = AccessService(core.container);
     _folderSettings = FolderSettingsService(core.container, events: events);
+    final chats = _chats;
+    _readAloud = SpeechService(
+      core.container,
+      events: events,
+      voice: _voice!,
+      answerFor: chats?.answerFor,
+    );
+    if (chats != null) {
+      _voice!.speechOfChat = (chatId) async => SpeechService.speechForModel(
+        core.container,
+        await chats.modelOf(chatId),
+      );
+    }
     // Every session reads this, including one that connected before now.
     _coreServices = CoreServices(
       accounts: _accounts,
@@ -299,6 +314,7 @@ class DaemonServer {
       valves: _valves,
       access: _access,
       folderSettings: _folderSettings,
+      speech: _readAloud,
       handoff: _handoff,
     );
     // What the active account can use: answered by `system.capabilities`
@@ -995,6 +1011,7 @@ class DaemonServer {
       await session.close();
     }
     _sessions.clear();
+    await _readAloud?.dispose();
     await _terminals?.dispose();
     await _data?.dispose();
     _terminals = null;

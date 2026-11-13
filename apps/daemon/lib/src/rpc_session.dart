@@ -29,6 +29,7 @@ import 'workspace_service.dart';
 import 'terminals_service.dart';
 import 'handoff_service.dart';
 import 'hermes_service.dart';
+import 'speech_service.dart';
 import 'voice_service.dart';
 import 'dictation_service.dart';
 import 'recordings_service.dart';
@@ -77,6 +78,7 @@ final class CoreServices {
     this.valves,
     this.access,
     this.folderSettings,
+    this.speech,
     this.handoff,
   });
 
@@ -112,6 +114,9 @@ final class CoreServices {
   final ValvesService? valves;
   final AccessService? access;
   final FolderSettingsService? folderSettings;
+
+  /// `speech.*`: read aloud.
+  final SpeechService? speech;
 
   /// A server's `chat:handoff`, put to the windows.
   final HandoffService? handoff;
@@ -191,6 +196,7 @@ class RpcSession {
   MemoriesService? get _memories => _services().memories;
   ChatPromptsService? get _chatPrompts => _services().chatPrompts;
   McpAppsService? get _mcpApps => _services().mcpApps;
+  SpeechService? get _speech => _services().speech;
   ReleaseNotesRpcService? get _releaseNotes => _services().releaseNotes;
   DataService? get _data => _services().data;
   ChatSettingsService? get _chatSettings => _services().chatSettings;
@@ -900,6 +906,20 @@ class RpcSession {
       ConduitMethodSpecs.recordingsTranscribe,
       (p) => _requireRecordings().transcribe(p),
     );
+
+    // speech.*: read aloud, run here; the window speaks and plays.
+    _on(ConduitMethodSpecs.speechGet, (_) async => _need(_speech).get());
+    _on(ConduitMethodSpecs.speechToggle, (p) => _need(_speech).toggle(p));
+    _on(ConduitMethodSpecs.speechPause, (_) => _need(_speech).pause());
+    _on(ConduitMethodSpecs.speechResume, (_) => _need(_speech).resume());
+    _on(ConduitMethodSpecs.speechStop, (_) => _need(_speech).stop());
+    _on(ConduitMethodSpecs.speechRetry, (_) => _need(_speech).retry());
+    _on(ConduitMethodSpecs.speechSeek, (p) => _need(_speech).seek(p));
+    _on(ConduitMethodSpecs.speechPreview, (p) => _need(_speech).preview(p));
+    _on(ConduitMethodSpecs.speechReport, (p) async {
+      _need(_speech).report(p);
+      return const OkResult(ok: true);
+    });
 
     // terminal.*.
     _on(

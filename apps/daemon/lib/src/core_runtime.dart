@@ -33,6 +33,8 @@ import 'package:conduit_core/services/connectivity_service.dart'
 import 'package:conduit_core/services/settings_service.dart'
     show AppSettingsHostDefaults, appSettingsHostDefaultsProvider;
 import 'package:conduit_core/sync/request_completion_runner_provider.dart';
+import 'package:conduit_core/features/chat/read_aloud/text_to_speech_controller.dart'
+    show readAloudLiveDeviceSpeechProvider;
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:hive_ce/hive.dart';
@@ -270,6 +272,9 @@ final class CoreRuntime {
         appSettingsHostDefaultsProvider.overrideWithValue(
           const AppSettingsHostDefaults(sendOnEnter: true),
         ),
+        // The Mac's voices read aloud live, reporting each word, and the
+        // reading moves from sentence to sentence (the phone renders clips).
+        readAloudLiveDeviceSpeechProvider.overrideWithValue(true),
         // The remaining ports keep the core's own defaults, and each is a
         // deliberate choice rather than an omission:
         //

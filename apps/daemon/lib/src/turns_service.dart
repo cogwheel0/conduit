@@ -1918,9 +1918,16 @@ final class TurnsService implements ChatTurns {
       session.pending = null;
     }
     _scheduleLinger(session);
+    // Not an answer yet: the windows end the turn and show the stored row
+    // queued, and no "answer ready" goes out for it.
     _events.emit(
       ConduitEventSpecs.turnFinished,
-      TurnFinished(chatId: chatId, messageId: turn.messageId, ok: true),
+      TurnFinished(
+        chatId: chatId,
+        messageId: turn.messageId,
+        ok: true,
+        queued: true,
+      ),
     );
     _announce(chatId);
   }
