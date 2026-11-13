@@ -5,6 +5,9 @@ import 'dart:io';
 import 'package:conduit_ddgs/conduit_ddgs.dart' show kDdgsDefaultUserAgent;
 
 import 'package:conduit_core/features/web_search/services/public_web_address.dart';
+import 'package:conduit_core/network/io/vetted_connector.dart';
+
+export 'package:conduit_core/network/io/vetted_connector.dart' show HostLookup;
 
 /// Why a page could not be fetched. The message is written for the model,
 /// which reads it as the tool result.
@@ -38,8 +41,6 @@ final class FetchedWebPage {
   final bool truncated;
 }
 
-typedef HostLookup = Future<List<InternetAddress>> Function(String host);
-
 /// Decides whether a fetch may follow a redirect from [from] to [to].
 typedef RedirectPolicy = bool Function(Uri from, Uri to);
 
@@ -60,9 +61,13 @@ class WebPageFetcher {
     this.maxBytes = 2 * 1024 * 1024,
     this.maxRedirects = 5,
     this.userAgent = kDdgsDefaultUserAgent,
-  }) : _lookup = lookup ?? InternetAddress.lookup;
+  }) : _connector = VettedConnector(
+         allowed: isPublicInternetAddress,
+         lookup: lookup,
+         connectTimeout: connectTimeout,
+       );
 
-  final HostLookup _lookup;
+  final VettedConnector _connector;
   final Duration timeout;
   final Duration connectTimeout;
   final int maxBytes;
@@ -211,58 +216,18 @@ class WebPageFetcher {
     Uri url,
     bool Function() stopped,
   ) async {
-    final host = url.host;
-    final port = url.hasPort ? url.port : (url.scheme == 'https' ? 443 : 80);
-    final addresses = await _vettedAddresses(host);
-    if (stopped()) throw const SocketException('Fetch stopped');
-    final socket = _connectAny(addresses, port, stopped).then<Socket>(
-      (socket) => url.scheme == 'https'
-          ? SecureSocket.secure(socket, host: host)
-          : socket,
-    );
-    return ConnectionTask.fromSocket(socket, () {});
-  }
-
-  Future<List<InternetAddress>> _vettedAddresses(String host) async {
-    final literal = InternetAddress.tryParse(host);
-    final addresses = literal == null ? await _lookup(host) : [literal];
-    if (addresses.isEmpty) {
-      throw const WebFetchException('The page could not be reached.');
-    }
-    // Fail closed: a public hostname has no reason to resolve to a private
-    // address, so one private answer taints the whole lookup.
-    if (!addresses.every(isPublicInternetAddress)) {
+    try {
+      return await _connector.connect(url, stopped: stopped);
+    } on RefusedAddressException {
+      // Fail closed: a public hostname has no reason to resolve to a
+      // private address, so one private answer taints the whole lookup.
       throw const WebFetchException('Web fetch requires a public URL.');
-    }
-    return addresses;
-  }
-
-  Future<Socket> _connectAny(
-    List<InternetAddress> addresses,
-    int port,
-    bool Function() stopped,
-  ) async {
-    Object? lastError;
-    for (final address in addresses.take(4)) {
-      if (stopped()) throw const SocketException('Fetch stopped');
-      try {
-        final socket = await Socket.connect(
-          address,
-          port,
-          timeout: connectTimeout,
-        );
-        // A socket that lands after the fetch stopped is nobody's.
-        if (stopped()) {
-          socket.destroy();
-          throw const SocketException('Fetch stopped');
-        }
-        return socket;
-      } on SocketException catch (error) {
-        if (stopped()) rethrow;
-        lastError = error;
+    } on SocketException catch (error) {
+      if (error.message.startsWith('No address for')) {
+        throw const WebFetchException('The page could not be reached.');
       }
+      rethrow;
     }
-    throw lastError ?? const SocketException('No address to connect to');
   }
 
   Future<(List<int>, bool)> _readBounded(HttpClientResponse response) async {

@@ -20,6 +20,9 @@ import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import 'terminal_section_components.dart';
 
+export 'package:conduit_core/features/terminal/services/terminal_port_preview.dart'
+    show terminalPreviewNavigationScript;
+
 /// Opens a web address outside the app.
 typedef TerminalPreviewExternalOpener = Future<bool> Function(Uri uri);
 
@@ -36,31 +39,6 @@ typedef TerminalPreviewWebViewBuilder = Widget Function(
   BuildContext context,
   TerminalPreviewWebViewHost host,
 );
-
-/// Open WebUI 0.13 and Open Terminal pages report a link's destination to
-/// the page that frames them rather than following it. Shown top-level here
-/// they post to themselves, so this follows them: the app's navigation rules
-/// then map an address on the terminal's machine into the preview and send
-/// any other outside the app.
-@visibleForTesting
-const terminalPreviewNavigationScript = r'''
-(() => {
-  'use strict';
-  addEventListener('message', (event) => {
-    if (event.source !== window) return;
-    const data = event.data;
-    if (!data || typeof data !== 'object') return;
-    if (typeof data.url !== 'string') return;
-    if (data.type !== 'terminal-browser-navigate' &&
-        data.type !== 'terminal-browser-popup') return;
-    let url;
-    try { url = new URL(data.url, location.href); } catch (_) { return; }
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
-    if (data.replace === true) location.replace(url.href);
-    else location.assign(url.href);
-  });
-})();
-''';
 
 /// Sends a form the page aims at the terminal's machine through the port
 /// proxy at [target] (see [TerminalPreviewNavigator.formTarget]), as Open

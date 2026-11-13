@@ -53,6 +53,10 @@ abstract interface class DeviceSpeechEngine {
   /// Whether [speak] replaces what the engine is saying without reporting
   /// a `cancel` for it, so a reading can move to another sentence, or say
   /// the rest of one again at a new speed, without ending.
+  ///
+  /// Such an engine is paused and resumed by the reading alone: its
+  /// [pause] and [resume] answering is what counts, and its own `pause` and
+  /// `continue` events are not waited for.
   bool get replacesOnSpeak;
 
   Future<bool> isAvailable();

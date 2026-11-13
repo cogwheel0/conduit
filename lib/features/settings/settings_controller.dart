@@ -10,6 +10,7 @@ import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_s
 import 'package:conduit_core/features/chat/services/quick_pill_catalog.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/notifications/services/notification_prefs_sync.dart';
 import 'package:conduit_core/features/push/models/push_status.dart'
     show PushAndroidTransport;
 import 'package:conduit_core/features/push/models/push_target.dart'
@@ -377,33 +378,21 @@ class SettingsController {
   }
 
   /// Mirrors the three Open WebUI-aligned notification prefs to the server when
-  /// toggled from the iOS native sheet. Fire-and-forget: local persistence has
+  /// toggled from the iOS native sheet (core's
+  /// [syncNotificationPrefsToServer]). Fire-and-forget: local persistence has
   /// already succeeded, so a failed sync only loses cross-device parity.
   void _syncNotificationPrefsToServer({
     bool? enabled,
     bool? sound,
     bool? soundAlways,
   }) {
-    final api = ref.read(apiServiceProvider);
-    if (api == null) return;
     unawaited(
-      api
-          .updateUserNotificationSettings(
-            notificationEnabled: enabled,
-            notificationSound: sound,
-            notificationSoundAlways: soundAlways,
-          )
-          .then(
-            (_) {},
-            onError: (Object e, StackTrace st) {
-              DebugLogger.error(
-                'failed to sync notification prefs to server',
-                error: e,
-                stackTrace: st,
-                scope: 'notifications/settings',
-              );
-            },
-          ),
+      syncNotificationPrefsToServer(
+        ref.read(apiServiceProvider),
+        enabled: enabled,
+        sound: sound,
+        soundAlways: soundAlways,
+      ),
     );
   }
 

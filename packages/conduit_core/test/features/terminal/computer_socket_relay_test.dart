@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/features/terminal/models/computer_models.dart';
@@ -182,4 +183,48 @@ void main() {
       await next.close();
     },
   );
+
+  test(
+    'a host that keeps the token gets it put into the viewer auth messages',
+    () async {
+      await relay.close();
+      relay = await ComputerSocketRelay.start(
+        ComputerConnection(
+          surface: ComputerSurface.desktop,
+          streamUri: Uri.parse(
+            'ws://127.0.0.1:${backend.port}/nested/desktop/stream',
+          ),
+          token: 'synthetic-account-token',
+          chatId: 'chat-1',
+        ),
+        injectAuth: true,
+      );
+      final socket = await connect(relay.streamUri);
+      final frames = StreamIterator(socket);
+      socket.add('{"type":"auth","token":"","chat_id":"chat-1"}');
+      expect(await frames.moveNext(), isTrue);
+      expect(jsonDecode(frames.current as String), {
+        'type': 'auth',
+        'token': 'synthetic-account-token',
+        'chat_id': 'chat-1',
+      });
+      // Anything else, an auth-looking word included, goes on unchanged.
+      socket.add('{"type":"key","code":"auth"}');
+      expect(await frames.moveNext(), isTrue);
+      expect(frames.current, '{"type":"key","code":"auth"}');
+      socket.add([1, 2, 3]);
+      expect(await frames.moveNext(), isTrue);
+      expect(frames.current, [1, 2, 3]);
+      await socket.close();
+    },
+  );
+
+  test('without the host option the viewer auth goes on as written', () async {
+    final socket = await connect(relay.streamUri);
+    final frames = StreamIterator(socket);
+    socket.add('{"type":"auth","token":"viewer-token"}');
+    expect(await frames.moveNext(), isTrue);
+    expect(frames.current, '{"type":"auth","token":"viewer-token"}');
+    await socket.close();
+  });
 }

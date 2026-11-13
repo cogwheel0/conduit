@@ -1,9 +1,9 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_room.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_room_projection.dart';
 
 import 'hermes_bot_avatar.dart';
 
@@ -17,14 +17,6 @@ const _fallbackColors = [
   '#ec4899',
   '#eab308',
 ];
-
-/// The roster bot a room member is, when it is one.
-HermesBot? hermesRoomMemberBot(List<HermesBot>? bots, String profile) {
-  for (final bot in bots ?? const <HermesBot>[]) {
-    if (bot.name == profile) return bot;
-  }
-  return null;
-}
 
 /// One room member's face: its Bot Mode avatar when the roster has it,
 /// else a shape face in a color of its own.

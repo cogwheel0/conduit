@@ -972,27 +972,13 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   /// Validates that a token is a JWT and not an API key.
   /// API keys (sk-, api-, key-) don't work with WebSocket authentication.
   String? _validateJwtToken(String? value) {
-    if (value == null || value.isEmpty) {
-      return AppLocalizations.of(context)!.validationMissingRequired;
-    }
-
-    final trimmed = value.trim();
-    final lowerTrimmed = trimmed.toLowerCase();
-
-    // Reject API keys - they don't work with socket authentication
-    // Case-insensitive check to catch SK-, API-, KEY- variants
-    if (lowerTrimmed.startsWith('sk-') ||
-        lowerTrimmed.startsWith('api-') ||
-        lowerTrimmed.startsWith('key-')) {
-      return AppLocalizations.of(context)!.apiKeyNotSupported;
-    }
-
-    // Check minimum length
-    if (trimmed.length < 10) {
-      return AppLocalizations.of(context)!.tokenTooShort;
-    }
-
-    return null;
+    final l10n = AppLocalizations.of(context)!;
+    return switch (jwtSignInTokenProblem(value)) {
+      JwtTokenProblem.missing => l10n.validationMissingRequired,
+      JwtTokenProblem.apiKey => l10n.apiKeyNotSupported,
+      JwtTokenProblem.tooShort => l10n.tokenTooShort,
+      null => null,
+    };
   }
 
   Widget _buildApiKeyForm() {

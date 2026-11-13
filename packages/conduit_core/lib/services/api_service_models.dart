@@ -397,6 +397,48 @@ mixin _ModelsApi on _ApiServiceBase {
     }
   }
 
+  /// A model's profile image for a host that holds no credential of its
+  /// own (the desktop's window): what [getWorkspaceModelProfileImage]
+  /// serves, else, when the model's [imageUrl] is an address on this server
+  /// (which the endpoint answers with a redirect), the picture there,
+  /// fetched with the account's credential. Null when neither has one, and
+  /// never a fetch from another site.
+  Future<List<int>?> getWorkspaceModelAvatar(
+    String id, {
+    String? imageUrl,
+  }) async {
+    final kept = await getWorkspaceModelProfileImage(id);
+    if (kept != null) return kept;
+    final url = imageUrl?.trim() ?? '';
+    if (workspaceModelAvatarSource(url, serverBaseUrl: serverConfig.url) !=
+            WorkspaceModelAvatarSource.server ||
+        !url.toLowerCase().startsWith('http')) {
+      return null;
+    }
+    try {
+      final response = await _dio.get<List<int>>(
+        url,
+        options: Options(
+          responseType: ResponseType.bytes,
+          followRedirects: false,
+          validateStatus: (status) => status != null && status < 300,
+        ),
+      );
+      final data = response.data;
+      if (data == null ||
+          data.isEmpty ||
+          data.length > maxWorkspaceModelAvatarBytes) {
+        return null;
+      }
+      return data;
+    } on DioException {
+      return null;
+    }
+  }
+
+  /// The largest profile image [getWorkspaceModelAvatar] hands over.
+  static const int maxWorkspaceModelAvatarBytes = 10 * 1024 * 1024;
+
   Future<WorkspaceModelDetail?> toggleWorkspaceModel(String id) async {
     final response = await _dio.post(
       '/api/v1/models/model/toggle',

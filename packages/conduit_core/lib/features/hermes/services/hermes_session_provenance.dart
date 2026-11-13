@@ -26,6 +26,18 @@ Conversation markNativeHermesConversation(Conversation conversation) {
 bool isNativeHermesConversation(Conversation? conversation) =>
     conversation != null && _nativeHermesConversations[conversation] == true;
 
+/// The id prefix of a Hermes session's conversation in this app: Hermes keeps
+/// the session, and the app keeps it under a `local:` id of its own.
+const kHermesSessionConversationIdPrefix = 'local:hermes_';
+
+/// Whether [conversation] is a Hermes session's: minted here as one, or
+/// carrying a Hermes session's id. Such a `local:` id is not a temporary
+/// chat's.
+bool isHermesSessionConversation(Conversation? conversation) =>
+    conversation != null &&
+    (isNativeHermesConversation(conversation) ||
+        conversation.id.startsWith(kHermesSessionConversationIdPrefix));
+
 /// Propagates native provenance across one app-owned immutable update.
 ///
 /// Callers must invoke this only while copying an already trusted native

@@ -13,6 +13,42 @@ import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
 void main() {
+  group('profile list', () {
+    test('a draft without a URL, or unencrypted unasked, lists nothing', () {
+      check(
+        hermesProfileListBlocker(const HermesConfig(baseUrl: '')),
+      ).equals(HermesProfileListIssue.noUrl);
+      check(
+        hermesProfileListBlocker(
+          const HermesConfig(baseUrl: 'http://gateway.example:8642'),
+        ),
+      ).equals(HermesProfileListIssue.testFirst);
+      check(
+        hermesProfileListBlocker(
+          const HermesConfig(baseUrl: 'http://127.0.0.1:8642'),
+        ),
+      ).isNull();
+      check(
+        hermesProfileListBlocker(
+          const HermesConfig(baseUrl: 'https://gateway.example'),
+        ),
+      ).isNull();
+    });
+
+    test('a refreshed list keeps the profile, else default, else first', () {
+      check(
+        hermesProfileAfterRefresh(['default', 'work'], 'work'),
+      ).equals('work');
+      check(
+        hermesProfileAfterRefresh(['work', 'default'], 'gone'),
+      ).equals('default');
+      check(
+        hermesProfileAfterRefresh(['work', 'home'], 'gone'),
+      ).equals('work');
+      check(hermesProfileAfterRefresh(const [], 'gone')).equals('gone');
+    });
+  });
+
   test(
     'first-time native sign-in saves tokens and connects the gateway WebSocket',
     () async {

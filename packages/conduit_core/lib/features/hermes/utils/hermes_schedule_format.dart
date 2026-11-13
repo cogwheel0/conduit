@@ -1,15 +1,100 @@
 import 'package:intl/intl.dart';
+import 'package:meta/meta.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 
-/// Human-readable cadence for the common five-field cron forms Hermes uses.
-/// Unknown expressions remain visible instead of being guessed at.
-String describeHermesCronSchedule(String expression) {
+/// The cadences [describeHermesCronSchedule] puts into words, as data: a
+/// client that words them in its own language reads these, and the English
+/// sentence stays the fallback.
+enum HermesCadenceKind {
+  /// No expression at all.
+  none,
+  everyMinute,
+
+  /// Every [HermesCadence.every] minutes (2 or more).
+  everyMinutes,
+
+  /// Every hour, at [HermesCadence.minute] past (0 for on the hour).
+  everyHour,
+
+  /// Every [HermesCadence.every] hours (2 or more), at
+  /// [HermesCadence.minute] past.
+  everyHours,
+
+  /// Every day at [HermesCadence.hour]:[HermesCadence.minute].
+  daily,
+
+  /// Monday to Friday at the time.
+  weekdays,
+
+  /// Saturday and Sunday at the time.
+  weekends,
+
+  /// On [HermesCadence.weekday] at the time.
+  weekly,
+
+  /// On day [HermesCadence.day] of each month at the time.
+  monthly,
+}
+
+/// A five-field cron expression Hermes uses, read: what
+/// [describeHermesCronSchedule] says in English.
+@immutable
+class HermesCadence {
+  const HermesCadence(
+    this.kind, {
+    this.every,
+    this.hour,
+    this.minute,
+    this.weekday,
+    this.day,
+  });
+
+  final HermesCadenceKind kind;
+
+  /// The step of [HermesCadenceKind.everyMinutes] and
+  /// [HermesCadenceKind.everyHours].
+  final int? every;
+
+  /// The time's hour, 0–23.
+  final int? hour;
+
+  /// The time's minute, 0–59; for the hourly kinds, the minute past the
+  /// hour.
+  final int? minute;
+
+  /// [HermesCadenceKind.weekly]'s day: 0 is Sunday, 6 Saturday.
+  final int? weekday;
+
+  /// [HermesCadenceKind.monthly]'s day of the month, 1–31.
+  final int? day;
+
+  @override
+  bool operator ==(Object other) =>
+      other is HermesCadence &&
+      other.kind == kind &&
+      other.every == every &&
+      other.hour == hour &&
+      other.minute == minute &&
+      other.weekday == weekday &&
+      other.day == day;
+
+  @override
+  int get hashCode => Object.hash(kind, every, hour, minute, weekday, day);
+
+  @override
+  String toString() =>
+      'HermesCadence($kind, every: $every, hour: $hour, minute: $minute, '
+      'weekday: $weekday, day: $day)';
+}
+
+/// Reads the common five-field cron forms Hermes uses; null for anything
+/// else, which is shown as it is written rather than guessed at.
+HermesCadence? parseHermesCronSchedule(String expression) {
   final normalized = expression.trim().replaceAll(RegExp(r'\s+'), ' ');
+  if (normalized.isEmpty) return const HermesCadence(HermesCadenceKind.none);
   final fields = normalized.split(' ');
-  if (fields.length != 5) {
-    return normalized.isEmpty ? 'No schedule' : normalized;
-  }
+  if (fields.length != 5) return null;
 
   final minute = fields[0].toUpperCase();
   final hour = fields[1].toUpperCase();
@@ -22,7 +107,7 @@ String describeHermesCronSchedule(String expression) {
       dayOfMonth == '*' &&
       month == '*' &&
       dayOfWeek == '*') {
-    return 'Every minute';
+    return const HermesCadence(HermesCadenceKind.everyMinute);
   }
 
   final minuteStep = _stepValue(minute, max: 59);
@@ -31,7 +116,9 @@ String describeHermesCronSchedule(String expression) {
       dayOfMonth == '*' &&
       month == '*' &&
       dayOfWeek == '*') {
-    return minuteStep == 1 ? 'Every minute' : 'Every $minuteStep minutes';
+    return minuteStep == 1
+        ? const HermesCadence(HermesCadenceKind.everyMinute)
+        : HermesCadence(HermesCadenceKind.everyMinutes, every: minuteStep);
   }
 
   final numericMinute = int.tryParse(minute);
@@ -41,18 +128,17 @@ String describeHermesCronSchedule(String expression) {
       month == '*' &&
       dayOfWeek == '*') {
     if (hour == '*') {
-      return numericMinute == 0
-          ? 'Every hour'
-          : 'Every hour at :${numericMinute.toString().padLeft(2, '0')}';
+      return HermesCadence(HermesCadenceKind.everyHour, minute: numericMinute);
     }
     final hourStep = _stepValue(hour, max: 23);
     if (hourStep != null) {
-      final suffix = numericMinute == 0
-          ? ''
-          : ' at :${numericMinute.toString().padLeft(2, '0')}';
       return hourStep == 1
-          ? 'Every hour$suffix'
-          : 'Every $hourStep hours$suffix';
+          ? HermesCadence(HermesCadenceKind.everyHour, minute: numericMinute)
+          : HermesCadence(
+              HermesCadenceKind.everyHours,
+              every: hourStep,
+              minute: numericMinute,
+            );
     }
   }
 
@@ -61,23 +147,30 @@ String describeHermesCronSchedule(String expression) {
       numericHour == null ||
       numericMinute > 59 ||
       numericHour > 23) {
-    return normalized;
+    return null;
   }
 
-  final time = _formatTime(numericHour, numericMinute);
+  HermesCadence at(HermesCadenceKind kind, {int? weekday, int? day}) =>
+      HermesCadence(
+        kind,
+        hour: numericHour,
+        minute: numericMinute,
+        weekday: weekday,
+        day: day,
+      );
   if (dayOfMonth == '*' && month == '*') {
-    if (dayOfWeek == '*') return 'Every day at $time';
+    if (dayOfWeek == '*') return at(HermesCadenceKind.daily);
     if (dayOfWeek == '1-5' || dayOfWeek == 'MON-FRI') {
-      return 'Weekdays at $time';
+      return at(HermesCadenceKind.weekdays);
     }
     if (dayOfWeek == '0,6' ||
         dayOfWeek == '6,0' ||
         dayOfWeek == 'SUN,SAT' ||
         dayOfWeek == 'SAT,SUN') {
-      return 'Weekends at $time';
+      return at(HermesCadenceKind.weekends);
     }
-    final weekday = _weekdayLabel(dayOfWeek);
-    if (weekday != null) return 'Every $weekday at $time';
+    final weekday = _weekdays[dayOfWeek];
+    if (weekday != null) return at(HermesCadenceKind.weekly, weekday: weekday);
   }
 
   final numericDay = int.tryParse(dayOfMonth);
@@ -86,10 +179,38 @@ String describeHermesCronSchedule(String expression) {
       numericDay <= 31 &&
       month == '*' &&
       dayOfWeek == '*') {
-    return 'Monthly on the ${_ordinal(numericDay)} at $time';
+    return at(HermesCadenceKind.monthly, day: numericDay);
   }
 
-  return normalized;
+  return null;
+}
+
+/// Human-readable cadence for the common five-field cron forms Hermes uses.
+/// Unknown expressions remain visible instead of being guessed at.
+String describeHermesCronSchedule(String expression) {
+  final cadence = parseHermesCronSchedule(expression);
+  if (cadence == null) {
+    return expression.trim().replaceAll(RegExp(r'\s+'), ' ');
+  }
+  String pastTheHour(int? minute) => minute == null || minute == 0
+      ? ''
+      : ' at :${minute.toString().padLeft(2, '0')}';
+  String time() => _formatTime(cadence.hour ?? 0, cadence.minute ?? 0);
+  return switch (cadence.kind) {
+    HermesCadenceKind.none => 'No schedule',
+    HermesCadenceKind.everyMinute => 'Every minute',
+    HermesCadenceKind.everyMinutes => 'Every ${cadence.every} minutes',
+    HermesCadenceKind.everyHour => 'Every hour${pastTheHour(cadence.minute)}',
+    HermesCadenceKind.everyHours =>
+      'Every ${cadence.every} hours${pastTheHour(cadence.minute)}',
+    HermesCadenceKind.daily => 'Every day at ${time()}',
+    HermesCadenceKind.weekdays => 'Weekdays at ${time()}',
+    HermesCadenceKind.weekends => 'Weekends at ${time()}',
+    HermesCadenceKind.weekly =>
+      'Every ${_weekdayNames[cadence.weekday ?? 0]} at ${time()}',
+    HermesCadenceKind.monthly =>
+      'Monthly on the ${_ordinal(cadence.day ?? 1)} at ${time()}',
+  };
 }
 
 /// Whether [schedule] benefits from showing its raw cron expression alongside
@@ -126,26 +247,34 @@ String _formatTime(int hour, int minute) {
   return '$displayHour:${minute.toString().padLeft(2, '0')} $period';
 }
 
-String? _weekdayLabel(String value) {
-  const labels = <String, String>{
-    '0': 'Sunday',
-    '7': 'Sunday',
-    'SUN': 'Sunday',
-    '1': 'Monday',
-    'MON': 'Monday',
-    '2': 'Tuesday',
-    'TUE': 'Tuesday',
-    '3': 'Wednesday',
-    'WED': 'Wednesday',
-    '4': 'Thursday',
-    'THU': 'Thursday',
-    '5': 'Friday',
-    'FRI': 'Friday',
-    '6': 'Saturday',
-    'SAT': 'Saturday',
-  };
-  return labels[value];
-}
+/// A cron day-of-week field naming one day, by its number (0 is Sunday).
+const Map<String, int> _weekdays = <String, int>{
+  '0': 0,
+  '7': 0,
+  'SUN': 0,
+  '1': 1,
+  'MON': 1,
+  '2': 2,
+  'TUE': 2,
+  '3': 3,
+  'WED': 3,
+  '4': 4,
+  'THU': 4,
+  '5': 5,
+  'FRI': 5,
+  '6': 6,
+  'SAT': 6,
+};
+
+const List<String> _weekdayNames = <String>[
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
 
 String _ordinal(int value) {
   if (value >= 11 && value <= 13) return '${value}th';

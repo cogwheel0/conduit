@@ -620,6 +620,7 @@ void main() {
     check(eligibility.reason)
         .equals(VoiceCallEligibilityReason.authenticationRequired);
     check(eligibility.errorMessage).equals('Sign in to start a voice call.');
+    check(eligibility.refusal).equals(VoiceCallRefusal.signInRequired);
   });
 
   test('voice eligibility says a LibreChat chat has no voice calls, rather '
@@ -679,6 +680,7 @@ void main() {
     check(eligibility.reason)
         .equals(VoiceCallEligibilityReason.backendUnavailable);
     check(eligibility.errorMessage).isNotNull().contains('Hermes');
+    check(eligibility.refusal).equals(VoiceCallRefusal.hermesUnavailable);
   });
 
   test('voice readiness waits for Hermes secrets to hydrate', () async {

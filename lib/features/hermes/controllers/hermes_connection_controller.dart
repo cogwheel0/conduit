@@ -5,10 +5,13 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/models/connection_attempt.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_connection_contract.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 
 export 'package:conduit_core/features/hermes/models/hermes_connection_contract.dart';
+export 'package:conduit_core/features/hermes/models/hermes_connection_form.dart'
+    show HermesConnectionValidationIssue;
 
 enum HermesConnectionOperation { idle, testing, saving, finishing }
 
@@ -18,8 +21,6 @@ extension HermesConnectionOperationState on HermesConnectionOperation {
       this == HermesConnectionOperation.saving ||
       this == HermesConnectionOperation.finishing;
 }
-
-enum HermesConnectionValidationIssue { invalidUrl, credentialsReentryRequired }
 
 enum HermesConnectionOutcome {
   ignored,
@@ -205,69 +206,31 @@ final class HermesConnectionController extends ChangeNotifier {
     _plainHttpConsentOrigin = HermesConfig.plainHttpOrigin(url.text);
   }
 
-  HermesConnectionDraft buildDraft(HermesConfig saved) {
-    final trimmedUrl = url.text.trim();
-    final originChanged = _originChanged(saved, trimmedUrl);
-    final trimmedApiKey = apiKey.text.trim();
-    final trimmedSessionKey = sessionKey.text.trim();
-    final trimmedLegacyToken = desktopLegacyToken.text.trim();
-    final previousDesktop = saved.desktopCredentials;
-    final initialHeadersByName = {
-      for (final entry in _initialAccessHeaders.entries)
-        entry.key.toLowerCase(): entry.value,
-    };
-    final initialHeaderValues = _initialAccessHeaders.values.toSet();
-    final newOriginHeaders = <String, String>{
-      for (final entry in _accessHeaders.entries)
-        if (initialHeadersByName[entry.key.toLowerCase()] != entry.value &&
-            !initialHeaderValues.contains(entry.value))
-          entry.key: entry.value,
-    };
-    final nextDesktop = originChanged
-        ? HermesDesktopCredentials(
-            legacyToken: trimmedLegacyToken.isEmpty ? null : trimmedLegacyToken,
-            accessHeaders: accessHeadersDirty ? newOriginHeaders : const {},
-          )
-        : desktopCredentialsDirty
-        ? HermesDesktopCredentials(
-            legacyToken: trimmedLegacyToken.isEmpty
-                ? previousDesktop?.legacyToken
-                : trimmedLegacyToken,
-            nativeTokens: previousDesktop?.nativeTokens,
-            accessHeaders: _accessHeaders,
-          )
-        : previousDesktop;
-    return HermesConnectionDraft(
-      config: HermesConfig(
-        enabled: true,
-        connectionId: _connectionId,
-        // Null keeps the saved name; an empty one derives it from the URL.
-        name: nameDirty ? name.text.trim() : null,
-        baseUrl: trimmedUrl,
-        mode: _mode,
-        desktopAuthKind: _desktopAuthKind,
-        desktopProfile: _desktopProfile,
-        allowSelfSignedCertificates: _allowSelfSignedCertificates,
-        plainHttpConsentOrigin:
-            _plainHttpConsentOrigin ?? saved.plainHttpConsentOrigin,
-        apiKey: originChanged || apiKeyDirty
-            ? (trimmedApiKey.isEmpty ? null : trimmedApiKey)
-            : saved.apiKey,
-        sessionKey: originChanged
-            ? (sessionKeyDirty && trimmedSessionKey.isNotEmpty
-                  ? trimmedSessionKey
-                  : null)
-            : sessionKeyDirty
-            ? (trimmedSessionKey.isEmpty ? null : trimmedSessionKey)
-            : saved.sessionKey,
-        desktopCredentials: nextDesktop,
-      ),
-      apiKeyChanged: originChanged || apiKeyDirty,
-      sessionKeyChanged: originChanged || sessionKeyDirty,
-      desktopCredentialsChanged: originChanged || desktopCredentialsDirty,
-      nameSource: nameDirty ? _nameSource : null,
-    );
-  }
+  HermesConnectionDraft buildDraft(HermesConfig saved) =>
+      buildHermesConnectionDraft(saved, _form);
+
+  /// The form as typed, for core's draft rules.
+  HermesConnectionForm get _form => HermesConnectionForm(
+    connectionId: _connectionId,
+    name: name.text,
+    nameDirty: nameDirty,
+    nameSource: _nameSource,
+    url: url.text,
+    mode: _mode,
+    desktopAuthKind: _desktopAuthKind,
+    desktopProfile: _desktopProfile,
+    allowSelfSignedCertificates: _allowSelfSignedCertificates,
+    plainHttpConsentOrigin: _plainHttpConsentOrigin,
+    apiKey: apiKey.text,
+    apiKeyDirty: apiKeyDirty,
+    sessionKey: sessionKey.text,
+    sessionKeyDirty: sessionKeyDirty,
+    legacyToken: desktopLegacyToken.text,
+    desktopCredentialsDirty: desktopCredentialsDirty,
+    initialAccessHeaders: _initialAccessHeaders,
+    accessHeaders: _accessHeaders,
+    accessHeadersDirty: accessHeadersDirty,
+  );
 
   void markNameChanged() {
     _nameSource = HermesConnectionNameSource.user;
@@ -563,23 +526,8 @@ final class HermesConnectionController extends ChangeNotifier {
     return buildDraft(saved);
   }
 
-  HermesConnectionValidationIssue? _validate(HermesConfig saved) {
-    final trimmedUrl = url.text.trim();
-    if (HermesConfig.connectionOrigin(trimmedUrl) == null ||
-        trimmedUrl.length > kMaxHermesBaseUrlCharacters) {
-      return HermesConnectionValidationIssue.invalidUrl;
-    }
-    final draft = buildDraft(saved).config;
-    if (draft.mode == HermesBackendMode.responsesApi &&
-        (draft.apiKey?.trim().isEmpty ?? true)) {
-      return HermesConnectionValidationIssue.credentialsReentryRequired;
-    }
-    return null;
-  }
-
-  bool _originChanged(HermesConfig saved, String nextUrl) =>
-      HermesConfig.connectionOrigin(saved.baseUrl) !=
-      HermesConfig.connectionOrigin(nextUrl);
+  HermesConnectionValidationIssue? _validate(HermesConfig saved) =>
+      validateHermesConnectionForm(saved, _form);
 
   int? _beginOperation(
     HermesConnectionOperation operation, {

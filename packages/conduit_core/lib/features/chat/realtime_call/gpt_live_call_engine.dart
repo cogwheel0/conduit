@@ -141,6 +141,18 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
               unawaited(_fail('Voice connection closed.'));
             }
           }),
+        )
+        ..add(
+          _media.levels.listen((levels) {
+            if (_ended) return;
+            // A muted microphone sends nothing, whatever it hears.
+            _update(
+              _state.copyWith(
+                inputLevel: _state.muted ? 0 : levels.input,
+                outputLevel: levels.output,
+              ),
+            );
+          }),
         );
       final answer = await _open(offer, history);
       if (_ended) return;
