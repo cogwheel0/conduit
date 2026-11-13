@@ -4,5 +4,9 @@
   "updatedAtMs": 1790000000000,
   "pinned": true,
   "preview": "- milk",
-  "conflictCopy": false
+  "conflictCopy": false,
+  "section": "yesterday",
+  "canEdit": true,
+  "accessUnverified": false,
+  "canShare": true
 }

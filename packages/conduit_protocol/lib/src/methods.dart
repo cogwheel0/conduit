@@ -788,6 +788,20 @@ abstract final class ConduitMethods {
 
   /// Takes a file off a note; the file itself stays on the server.
   static const String notesDetach = 'notes.detach';
+
+  /// A note's recordings that are not attached yet; starts uploading the
+  /// ones waiting when the server can be reached.
+  static const String notesRecordings = 'notes.recordings';
+
+  /// Keeps a recording the window made, then uploads it and attaches it to
+  /// the note, surviving a lost connection and a relaunch.
+  static const String notesAddRecording = 'notes.addRecording';
+
+  /// Tries a waiting recording's upload again.
+  static const String notesRetryRecording = 'notes.retryRecording';
+
+  /// Deletes a recording that is not attached yet.
+  static const String notesRemoveRecording = 'notes.removeRecording';
   static const String channelsPrefix = 'channels.';
 
   // channels.*.

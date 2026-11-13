@@ -1130,7 +1130,26 @@ const Map<String, String> protocolGoldens = <String, String>{
   "updatedAtMs": 1790000000000,
   "pinned": true,
   "preview": "- milk",
-  "conflictCopy": false
+  "conflictCopy": false,
+  "section": "yesterday",
+  "canEdit": true,
+  "accessUnverified": false,
+  "canShare": true
+}''',
+
+  'noteSummaryShared': r'''
+{
+  "id": "n4",
+  "title": "Allotment rota",
+  "updatedAtMs": 1790000000002,
+  "pinned": false,
+  "preview": "",
+  "conflictCopy": false,
+  "section": "older",
+  "canEdit": false,
+  "accessUnverified": false,
+  "canShare": false,
+  "owner": "Wren Okafor"
 }''',
 
   'noteList': r'''
@@ -1142,7 +1161,11 @@ const Map<String, String> protocolGoldens = <String, String>{
       "updatedAtMs": 1790000000001,
       "pinned": false,
       "preview": "",
-      "conflictCopy": true
+      "conflictCopy": true,
+      "section": "older",
+      "canEdit": true,
+      "accessUnverified": false,
+      "canShare": false
     }
   ]
 }''',
@@ -1160,7 +1183,11 @@ const Map<String, String> protocolGoldens = <String, String>{
     "updatedAtMs": 1,
     "pinned": false,
     "preview": "",
-    "conflictCopy": false
+    "conflictCopy": false,
+    "section": "older",
+    "canEdit": true,
+    "accessUnverified": false,
+    "canShare": false
   },
   "ops": [
     {
@@ -1179,7 +1206,10 @@ const Map<String, String> protocolGoldens = <String, String>{
       "name": "list.pdf",
       "contentType": "application/pdf"
     }
-  ]
+  ],
+  "pages": [],
+  "pageId": "main",
+  "markdown": ""
 }''',
 
   'noteSave': r'''
@@ -1190,6 +1220,109 @@ const Map<String, String> protocolGoldens = <String, String>{
       "insert": "Hello"
     }
   ]
+}''',
+
+  'noteSavePage': r'''
+{
+  "id": "n1",
+  "title": "Garden plan",
+  "ops": [
+    {
+      "insert": "Sow beans"
+    }
+  ],
+  "pageId": "p2",
+  "baseOps": [
+    {
+      "insert": "Sow peas"
+    }
+  ]
+}''',
+
+  'noteDetailPaged': r'''
+{
+  "summary": {
+    "id": "n2",
+    "title": "Garden plan",
+    "updatedAtMs": 2,
+    "pinned": false,
+    "preview": "",
+    "conflictCopy": false,
+    "section": "older",
+    "canEdit": true,
+    "accessUnverified": false,
+    "canShare": false
+  },
+  "ops": [],
+  "files": [],
+  "pages": [
+    {
+      "id": "main",
+      "title": "Garden plan",
+      "path": "Garden plan",
+      "depth": 0
+    },
+    {
+      "id": "p2",
+      "title": "Beds",
+      "path": "Garden plan / Beds",
+      "depth": 1
+    }
+  ],
+  "pageId": "p2",
+  "markdown": "- [ ] Sow beans",
+  "recoveredFrom": "n0"
+}''',
+
+  'noteOpen': r'''
+{
+  "id": "n2",
+  "pageId": "p2"
+}''',
+
+  'notePage': r'''
+{
+  "id": "p2",
+  "title": "Beds",
+  "path": "",
+  "depth": 0
+}''',
+
+  'noteRecordingDto': r'''
+{
+  "id": "r1",
+  "name": "recording_1790000000000.wav",
+  "state": "failed",
+  "size": 64044,
+  "createdAtMs": 1790000000000,
+  "pageId": "p2"
+}''',
+
+  'noteRecordings': r'''
+{
+  "noteId": "n2",
+  "recordings": [
+    {
+      "id": "r2",
+      "name": "recording_2.wav",
+      "state": "waiting",
+      "size": 0,
+      "createdAtMs": 0
+    }
+  ]
+}''',
+
+  'noteRecordingAdd': r'''
+{
+  "noteId": "n2",
+  "path": "/tmp/conduit/recording.wav",
+  "pageId": "p2"
+}''',
+
+  'noteRecordingRef': r'''
+{
+  "noteId": "n2",
+  "id": "r1"
 }''',
 
   'noteRef': r'''
@@ -4364,10 +4497,17 @@ const Map<String, String> protocolGoldens = <String, String>{
       "updatedAtMs": 2,
       "pinned": false,
       "preview": "",
-      "conflictCopy": false
+      "conflictCopy": false,
+      "section": "older",
+      "canEdit": true,
+      "accessUnverified": false,
+      "canShare": false
     },
     "ops": [],
-    "files": []
+    "files": [],
+    "pages": [],
+    "pageId": "main",
+    "markdown": ""
   }
 }''',
 

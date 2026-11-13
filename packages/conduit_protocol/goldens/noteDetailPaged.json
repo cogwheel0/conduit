@@ -1,0 +1,33 @@
+{
+  "summary": {
+    "id": "n2",
+    "title": "Garden plan",
+    "updatedAtMs": 2,
+    "pinned": false,
+    "preview": "",
+    "conflictCopy": false,
+    "section": "older",
+    "canEdit": true,
+    "accessUnverified": false,
+    "canShare": false
+  },
+  "ops": [],
+  "files": [],
+  "pages": [
+    {
+      "id": "main",
+      "title": "Garden plan",
+      "path": "Garden plan",
+      "depth": 0
+    },
+    {
+      "id": "p2",
+      "title": "Beds",
+      "path": "Garden plan / Beds",
+      "depth": 1
+    }
+  ],
+  "pageId": "p2",
+  "markdown": "- [ ] Sow beans",
+  "recoveredFrom": "n0"
+}

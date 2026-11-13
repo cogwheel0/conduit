@@ -973,7 +973,7 @@
     },
     {
       "name": "notes.get",
-      "params": "NoteRef",
+      "params": "NoteOpen",
       "result": "NoteResult"
     },
     {
@@ -1010,6 +1010,26 @@
       "name": "notes.detach",
       "params": "NoteDetach",
       "result": "NoteDetail"
+    },
+    {
+      "name": "notes.recordings",
+      "params": "NoteRef",
+      "result": "NoteRecordings"
+    },
+    {
+      "name": "notes.addRecording",
+      "params": "NoteRecordingAdd",
+      "result": "NoteRecordings"
+    },
+    {
+      "name": "notes.retryRecording",
+      "params": "NoteRecordingRef",
+      "result": "NoteRecordings"
+    },
+    {
+      "name": "notes.removeRecording",
+      "params": "NoteRecordingRef",
+      "result": "NoteRecordings"
     },
     {
       "name": "channels.list",
