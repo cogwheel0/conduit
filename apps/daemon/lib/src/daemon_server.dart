@@ -253,7 +253,11 @@ class DaemonServer {
     _direct = DirectService(core.container);
     _mcp = McpService(core.container);
     _webSearch = WebSearchService(core.container);
-    _notes = NotesService(core.container, events: events);
+    _notes = NotesService(
+      core.container,
+      events: events,
+      paths: core.directories,
+    );
     _channels = ChannelsService(core.container, events: events);
     _workspace = WorkspaceService(core.container, events: events);
     _terminals = TerminalsService(core.container, log: _log);
@@ -1079,6 +1083,7 @@ class DaemonServer {
     _handoff = null;
     _capabilities?.dispose();
     _capabilities = null;
+    _notes?.dispose();
     // After the sockets and those, so nothing can arrive mid-teardown and
     // read a half-disposed container; before completing, so a caller
     // awaiting `onStopped` knows the database is closed and the process can

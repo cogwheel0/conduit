@@ -2089,6 +2089,224 @@ void main() {
         expect(await serverFiles(), isEmpty);
       }, timeout: const Timeout(Duration(minutes: 2)));
 
+      // The notes list's access flags and time groups.
+      test(
+        'summarizes notes with their group and what the account may do',
+        () async {
+          final notes = NotesService(runtime.container);
+          final list = (await notes.list('')).notes;
+          expect(list, isNotEmpty);
+          // The admin's own notes: editable; sharing follows the server.
+          expect(list.every((n) => n.canEdit), isTrue);
+          expect(list.every((n) => n.owner == null), isTrue);
+          // Seeded today, so today's group.
+          expect(list.any((n) => n.section == NoteSection.today), isTrue);
+        },
+      );
+
+      // A note with pages (Open WebUI 0.12.5), seeded: each page reads and
+      // saves on its own, and a file the page gained after the editor
+      // loaded it is kept by the save (the phone's link merge).
+      test('reads and saves a page, keeping a file the page gained', () async {
+        final paged = credentials!.values['OWUI_PAGED_NOTE'];
+        if (paged == null) {
+          markTestSkipped('the seed has no paged note');
+          return;
+        }
+        final notes = NotesService(runtime.container);
+        final opened = (await notes.get(paged))!;
+        expect(opened.pageId, kNoteMainPageId);
+        expect(
+          opened.pages.map((p) => p.title),
+          containsAll(<String>['Day one', 'Day two', 'Evening walk']),
+        );
+        expect(
+          opened.pages.firstWhere((p) => p.title == 'Evening walk').depth,
+          1,
+        );
+        final dayTwo = opened.pages.firstWhere((p) => p.title == 'Day two').id;
+        final page = (await notes.get(paged, pageId: dayTwo))!;
+        expect(page.pageId, dayTwo);
+        expect(page.markdown, contains('Rain until noon'));
+        // An unknown page reads as the main page.
+        expect((await notes.get(paged, pageId: 'gone'))!.pageId, 'main');
+
+        final uploaded = await FilesService(runtime.container).upload(
+          name: 'live-page.txt',
+          bytes: Uint8List.fromList('A synthetic page file.'.codeUnits),
+          contentType: 'text/plain',
+          session: FilesService(runtime.container).session(),
+        );
+        final api = runtime.container.read(apiServiceProvider)!;
+        addTearDown(() async {
+          try {
+            await api.deleteFile(uploaded.id);
+          } on Object catch (error) {
+            stderr.writeln('could not delete the page test file: $error');
+          }
+        });
+        // Attached to the page while the editor holds it as it loaded.
+        await notes.attach(
+          NoteAttach(
+            noteId: paged,
+            file: NoteFile(id: uploaded.id, name: 'live-page.txt'),
+            pageId: dayTwo,
+          ),
+        );
+        final saved = await notes.save(
+          NoteSave(
+            id: paged,
+            title: opened.summary.title,
+            pageId: dayTwo,
+            ops: const <Map<String, dynamic>>[
+              <String, dynamic>{'insert': 'Rain all day.\n'},
+            ],
+            baseOps: page.ops,
+          ),
+        );
+        expect(saved.pageId, dayTwo);
+        expect(saved.markdown, contains('Rain all day.'));
+        expect(
+          noteFileLinksInMarkdown(saved.markdown).map((l) => l.id),
+          contains(uploaded.id),
+        );
+        // The other pages are untouched.
+        expect(
+          (await notes.get(paged))!.markdown,
+          contains('Notes from the spring field trip.'),
+        );
+
+        // Put back as seeded: the text, and the file taken out.
+        await notes.save(
+          NoteSave(
+            id: paged,
+            title: opened.summary.title,
+            pageId: dayTwo,
+            ops: page.ops,
+            baseOps: saved.ops,
+          ),
+        );
+        final restored = (await notes.get(paged, pageId: dayTwo))!;
+        expect(restored.markdown, contains('Rain until noon'));
+        expect(
+          noteFileLinksInMarkdown(restored.markdown).map((l) => l.id),
+          isNot(contains(uploaded.id)),
+        );
+      }, timeout: const Timeout(Duration(minutes: 2)));
+
+      // A note deleted while its editor still had text to save: the text
+      // is kept as a new note, as the phone's editor recovers it.
+      test('keeps the draft of a deleted note as a new note', () async {
+        final api = runtime.container.read(apiServiceProvider)!;
+        final notes = NotesService(runtime.container);
+        final title = 'Live recovery ${DateTime.now().millisecondsSinceEpoch}';
+        final created = await notes.save(
+          NoteSave(
+            title: title,
+            ops: const <Map<String, dynamic>>[
+              <String, dynamic>{'insert': 'First draft\n'},
+            ],
+          ),
+        );
+        final id = created.summary.id;
+        // The editor has it open.
+        expect(await notes.get(id), isNotNull);
+        await notes.delete(id);
+        final kept = await notes.save(
+          NoteSave(
+            id: id,
+            title: title,
+            ops: const <Map<String, dynamic>>[
+              <String, dynamic>{'insert': 'Second draft\n'},
+            ],
+            baseOps: created.ops,
+          ),
+        );
+        expect(kept.recoveredFrom, id);
+        expect(kept.summary.id, isNot(id));
+        expect(kept.summary.title, title);
+        expect(kept.markdown, contains('Second draft'));
+        // Kept through the outbox under a `local:` id. Once the server has
+        // created it, that id still opens it, answered under the server's
+        // id (the editor that holds the local one follows).
+        expect(kept.summary.id, startsWith('local:'));
+        await _waitFor(() async {
+          final now = await notes.get(kept.summary.id);
+          return now != null && !now.summary.id.startsWith('local:');
+        }, seconds: 30);
+        final synced = (await notes.get(kept.summary.id))!;
+        expect(synced.markdown, contains('Second draft'));
+        expect(synced.summary.title, title);
+        addTearDown(() async {
+          await notes.delete(synced.summary.id);
+          await _waitFor(
+            () async => (await notes.get(synced.summary.id)) == null,
+            seconds: 30,
+          );
+          final (listed, _) = await api.getNotes();
+          for (final note in listed) {
+            final noteId = note['id'];
+            if (note['title'] == title && noteId is String) {
+              try {
+                await api.deleteNote(noteId);
+              } on Object catch (error) {
+                stderr.writeln('could not delete recovery note: $error');
+              }
+            }
+          }
+        });
+      }, timeout: const Timeout(Duration(minutes: 2)));
+
+      // A recording made in a note: kept on this computer, uploaded and
+      // attached through the core's controller (as the phone's recorder).
+      test('keeps, uploads and attaches a recording to a note', () async {
+        final directory = Directory.systemTemp.createTempSync('notes-audio');
+        addTearDown(() => directory.deleteSync(recursive: true));
+        final events = EventBus();
+        final notes = NotesService(
+          runtime.container,
+          events: events,
+          paths: DaemonDirectories.create(directory.path),
+        );
+        addTearDown(notes.dispose);
+        final api = runtime.container.read(apiServiceProvider)!;
+        final created = await notes.save(
+          NoteSave(
+            title: 'Live recording ${DateTime.now().millisecondsSinceEpoch}',
+          ),
+        );
+        final id = created.summary.id;
+        addTearDown(() async {
+          try {
+            await api.deleteNote(id);
+          } on Object catch (error) {
+            stderr.writeln('could not delete the recording note: $error');
+          }
+        });
+        // One second of 16 kHz silence, as a WAV file.
+        final wav = File('${directory.path}/recording.wav')
+          ..writeAsBytesSync(_silentWav(16000));
+        final added = await notes.addRecording(
+          NoteRecordingAdd(noteId: id, path: wav.path),
+        );
+        expect(added.recordings, isNotEmpty);
+        Future<List<NoteFileLink>> links() async {
+          final note = await notes.get(id);
+          return noteFileLinksInMarkdown(note?.markdown ?? '');
+        }
+
+        await _waitFor(
+          () async => (await links()).any((l) => l.name.endsWith('.wav')),
+          seconds: 60,
+        );
+        expect((await links()).map((l) => l.name), contains(endsWith('.wav')));
+        await _waitFor(
+          () async => (await notes.recordings(id)).recordings.isEmpty,
+          seconds: 30,
+        );
+        expect((await notes.recordings(id)).recordings, isEmpty);
+      }, timeout: const Timeout(Duration(minutes: 2)));
+
       // Channels. This run's own channel, deleted at the end.
       test('posts, reacts, pins, threads and edits in a channel', () async {
         final events = EventBus();
@@ -3746,6 +3964,29 @@ Future<void> _waitFor(
     if (await condition()) return;
     await Future<void>.delayed(const Duration(milliseconds: 250));
   }
+}
+
+/// [samples] of silence as a 16 kHz mono 16-bit WAV file.
+List<int> _silentWav(int samples) {
+  final data = samples * 2;
+  final out = BytesBuilder();
+  void u32(int v) =>
+      out.add(<int>[v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >> 24) & 255]);
+  void u16(int v) => out.add(<int>[v & 255, (v >> 8) & 255]);
+  out.add('RIFF'.codeUnits);
+  u32(36 + data);
+  out.add('WAVEfmt '.codeUnits);
+  u32(16);
+  u16(1);
+  u16(1);
+  u32(16000);
+  u32(32000);
+  u16(2);
+  u16(16);
+  out.add('data'.codeUnits);
+  u32(data);
+  out.add(List<int>.filled(data, 0));
+  return out.takeBytes();
 }
 
 /// The transcript as the daemon would serve it.
