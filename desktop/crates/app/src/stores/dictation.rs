@@ -374,6 +374,14 @@ impl DictationStore {
         self.notice = None;
         self.level = 0.0;
         cx.notify();
+        // The microphone would hear a reading: it pauses (one still
+        // loading stops) before listening starts.
+        if let Some(speech) = cx
+            .try_global::<crate::AppState>()
+            .map(|s| s.stores.speech.clone())
+        {
+            speech.update(cx, |s, cx| s.yield_to_dictation(cx));
+        }
         let status = self.rpc.call::<methods::DictationStatus>(&DictationTarget {
             model_id: self.target.model_id.clone(),
         });

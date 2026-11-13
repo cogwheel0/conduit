@@ -25,7 +25,7 @@ gpui_kit::assets::icon_assets!(
         MessageSquare, MessageSquareDot, MessageSquarePlus, Mic, Minimize2, Monitor, Moon, Network,
         NotebookPen, OctagonAlert, Palette, PanelLeft, Paperclip, Pause, Pencil, Pin, PinOff, Play,
         Plus, RefreshCw, RotateCcw, Save, ScrollText, Search, Server, Settings, Share, ShieldAlert,
-        ShieldCheck, SlidersHorizontal, Smartphone, Sparkles, Square, SquarePen, SquareTerminal,
+        ShieldCheck, SkipBack, SkipForward, SlidersHorizontal, Smartphone, Sparkles, Square, SquarePen, SquareTerminal,
         Sun, Terminal, TextCursorInput, TextQuote, ThumbsDown, ThumbsUp, Timer, Trash,
         TriangleAlert, Upload, User, UserPlus, Users, WandSparkles, Wifi, Wrench, X, Zap, ZoomIn,
         ZoomOut,

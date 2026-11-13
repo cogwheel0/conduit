@@ -472,6 +472,7 @@ pub fn run(mode: String, shots: Option<PathBuf>, cx: &mut App) {
             message_id: "live".into(),
             ok: true,
             code: None,
+            queued: false,
         });
         store.update(cx, |s, cx| s.on_event(&done, cx));
         cx.background_executor().timer(Duration::from_secs(1)).await;

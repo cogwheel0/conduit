@@ -297,6 +297,24 @@ impl ChatPane {
                     }
                 }
             }),
+            // A reading that starts, or goes on, while the composer
+            // dictates ends the dictation as Stop does (what was said is
+            // transcribed): the microphone would hear it. Dictating pauses
+            // a reading in turn (`SpeechStore::yield_to_dictation`).
+            cx.observe(&stores.speech, {
+                let mut was_speaking = false;
+                move |this, speech, cx| {
+                    let speaking = speech.read(cx).is_speaking();
+                    if speaking && !was_speaking {
+                        let dictation = this.composer.read(cx).dictation.clone();
+                        if let Some(d) = dictation.filter(|d| d.read(cx).is_listening()) {
+                            d.update(cx, |d, cx| d.stop(cx));
+                        }
+                    }
+                    was_speaking = speaking;
+                    this.sync_speech(cx);
+                }
+            }),
             // Settings › Chat changes the composer as it changes.
             cx.observe(&stores.app_settings, |this, settings, cx| {
                 this.adopt_prefs(cx);
@@ -714,6 +732,7 @@ impl ChatPane {
                 self.composer_store
                     .update(cx, |c, cx| c.switch_new_chat(folder, temporary, &text, cx));
                 self.chat = None;
+                self.sync_speech(cx);
                 self.prompt_card.update(cx, |p, cx| p.set_store(None, cx));
                 self.queue_edit = None;
                 // Nothing to find in a new chat.
@@ -866,6 +885,7 @@ impl ChatPane {
             transcript,
             _subscriptions: subscriptions,
         });
+        self.sync_speech(cx);
         cx.notify();
         store
     }
@@ -1361,6 +1381,47 @@ impl ChatPane {
         }
     }
 
+    /// Chat › Read Aloud: the newest answer, or Stop Speaking while it is
+    /// read (Resume while paused), as its own Read Aloud does.
+    pub fn read_aloud_last(&mut self, cx: &mut Context<Self>) {
+        let Some(chat) = &self.chat else { return };
+        let store = chat.store.read(cx);
+        let Some(answer) = store.last_answer_id() else {
+            return;
+        };
+        let chat_id = store.chat_id().to_string();
+        self.stores
+            .speech
+            .update(cx, |s, cx| s.toggle(chat_id, answer, cx));
+    }
+
+    /// Follows the reading: its answer's Read Aloud says Stop Speaking and
+    /// its words are marked in place; a reading of another chat pauses when
+    /// this one opens, as the phone's does when its chat goes.
+    fn sync_speech(&mut self, cx: &mut Context<Self>) {
+        let open = self.open_chat_id(cx);
+        let (reading_chat, message, speaking) = {
+            let s = self.stores.speech.read(cx);
+            (
+                s.chat_id().map(str::to_string),
+                s.progress().message_id.clone(),
+                s.is_speaking(),
+            )
+        };
+        if let Some(chat) = &self.chat {
+            let here = reading_chat.is_some() && reading_chat == open;
+            let speech = self.stores.speech.clone();
+            chat.transcript.update(cx, |t, cx| {
+                t.set_reading(message.filter(|_| here), cx);
+                t.follow_reading(here.then_some(&speech), cx);
+            });
+        }
+        if speaking && reading_chat.is_some() && reading_chat != open {
+            self.stores.speech.update(cx, |s, cx| s.pause(cx));
+        }
+        cx.notify();
+    }
+
     /// Chat › Regenerate: the newest answer again.
     pub fn regenerate_last(&mut self, cx: &mut Context<Self>) {
         if let Some(chat) = &self.chat {
@@ -1372,7 +1433,13 @@ impl ChatPane {
         }
     }
 
+    /// Esc: stops the reading aloud while there is one (what is heard
+    /// first), else the running answer.
     pub fn stop(&mut self, cx: &mut Context<Self>) {
+        if self.stores.speech.read(cx).is_active() {
+            self.stores.speech.update(cx, |s, cx| s.stop(cx));
+            return;
+        }
         if let Some(chat) = &self.chat {
             chat.store.update(cx, |s, cx| {
                 if s.is_streaming() {
@@ -1954,12 +2021,22 @@ impl ChatPane {
                 cx,
             )
         });
+        let t = cx.conduit().clone();
+        let chat_id = self.open_chat_id(cx);
+        let speech = crate::views::chat::speech_bar::speech_bar(
+            &self.stores.speech,
+            &self.stores.app_settings,
+            chat_id.as_deref(),
+            &t,
+            cx,
+        );
         Some(
             div()
                 .flex()
                 .flex_col()
                 .children(tasks)
                 .children(queue)
+                .children(speech)
                 .child(self.approvals.clone())
                 .when(self.chat.is_some(), |d| d.child(self.prompt_card.clone()))
                 .into_any_element(),
@@ -2006,6 +2083,15 @@ pub fn register_actions(cx: &mut App) {
     cx.on_action(|_: &FocusModelPicker, cx| with_pane(cx, |p, w, cx| p.open_model_picker(w, cx)));
     cx.on_action(|_: &ChooseModel, cx| with_pane(cx, |p, w, cx| p.open_model_picker(w, cx)));
     cx.on_action(|_: &StopGenerating, cx| with_pane(cx, |p, _, cx| p.stop(cx)));
+    cx.on_action(|_: &crate::actions::ReadAloud, cx| {
+        with_pane(cx, |p, _, cx| p.read_aloud_last(cx))
+    });
+    // ⌘. ends the reading from anywhere (Settings' preview too).
+    cx.on_action(|_: &crate::actions::StopSpeaking, cx| {
+        if let Some(speech) = cx.try_global::<AppState>().map(|s| s.stores.speech.clone()) {
+            speech.update(cx, |s, cx| s.stop(cx));
+        }
+    });
     cx.on_action(|_: &CopyLastResponse, cx| with_pane(cx, |p, _, cx| p.copy_last_response(cx)));
     cx.on_action(|_: &CopyLastCodeBlock, cx| with_pane(cx, |p, _, cx| p.copy_last_code_block(cx)));
     cx.on_action(|_: &crate::actions::AskConduit, cx| {

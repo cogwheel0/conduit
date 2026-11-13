@@ -1268,9 +1268,9 @@
       "ms": {}
     }
   },
-  "desktopReadAloud": "Read aloud",
+  "desktopReadAloud": "Read Aloud",
   "@desktopReadAloud": {
-    "description": "Button under an answer that reads it aloud."
+    "description": "Read Aloud: the action under an answer that reads it aloud, the Chat menu item and its Settings › Keyboard row. Title Case."
   },
   "desktopStopReading": "Stop reading",
   "@desktopStopReading": {
@@ -2996,6 +2996,51 @@
   "desktopTryAgain": "Try Again",
   "@desktopTryAgain": {
     "description": "Button on an error toast whose change can be tried again: sends the same request once more."
+  },
+  "desktopStopSpeaking": "Stop Speaking",
+  "@desktopStopSpeaking": {
+    "description": "Stop Speaking: ends the reading aloud (the message action while it reads, the Chat menu item, the playback bar's close button). As macOS's Edit › Speech › Stop Speaking. Title Case."
+  },
+  "desktopPreviousSentence": "Previous Sentence",
+  "@desktopPreviousSentence": {
+    "description": "The playback bar's button that moves the reading back one sentence. Title Case."
+  },
+  "desktopNextSentence": "Next Sentence",
+  "@desktopNextSentence": {
+    "description": "The playback bar's button that moves the reading on one sentence. Title Case."
+  },
+  "desktopSpeechPreparing": "Preparing…",
+  "@desktopSpeechPreparing": {
+    "description": "The playback bar while the reading gets ready (the server's speech is being made)."
+  },
+  "desktopSpeechSentenceOf": "Sentence {current} of {total}",
+  "@desktopSpeechSentenceOf": {
+    "description": "The playback bar: which sentence of the answer is being read.",
+    "placeholders": {
+      "current": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopSpeechFailed": "Couldn't read this aloud.",
+  "@desktopSpeechFailed": {
+    "description": "The playback bar when the reading failed, beside Try Again. Sentence case."
+  },
+  "desktopReadingAloud": "Reading Aloud",
+  "@desktopReadingAloud": {
+    "description": "Accessibility name of the playback bar above the message field while an answer is read aloud."
+  },
+  "desktopGoToSentence": "Go to Sentence {number}",
+  "@desktopGoToSentence": {
+    "description": "Tooltip and accessibility name of one sentence's mark on the playback bar's track: a click moves the reading there. Title Case.",
+    "placeholders": {
+      "number": {
+        "type": "String"
+      }
+    }
   },
   "desktopSendOnEnterDescription": "Return sends your message instead of starting a new line.",
   "@desktopSendOnEnterDescription": {

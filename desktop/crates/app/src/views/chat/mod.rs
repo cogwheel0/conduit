@@ -23,6 +23,7 @@ pub mod rows;
 pub mod share_sheet;
 pub mod sheets;
 pub mod sources;
+pub mod speech_bar;
 pub mod tasks;
 pub mod transcript;
 pub mod video;

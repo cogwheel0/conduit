@@ -264,6 +264,7 @@ pub fn shortcut_label(action: ShortcutAction, l10n: &L10n) -> String {
         A::DenyRequest => l10n.desktop_shortcut_deny_request(),
         A::Dictate => l10n.desktop_shortcut_dictate(),
         A::ToggleSidebar => l10n.desktop_shortcut_toggle_sidebar(),
+        A::ReadAloud => l10n.desktop_read_aloud(),
     }
 }
 
@@ -278,6 +279,7 @@ pub fn fixed_label(command: FixedCommand, l10n: &L10n) -> String {
         F::NextChat => l10n.desktop_menu_next_chat(),
         F::PreviousChat => l10n.desktop_menu_previous_chat(),
         F::Regenerate => l10n.regenerate(),
+        F::StopSpeaking => l10n.desktop_stop_speaking(),
         F::ExpandEditor => l10n.desktop_expand_editor(),
         F::AskConduit => l10n.ask_conduit_action(),
         F::ChatSettings => l10n.chat_settings_title(),

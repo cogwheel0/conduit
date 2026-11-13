@@ -41,22 +41,48 @@ impl OnScreen {
     }
 }
 
+/// How a turn ended, as `turn.finished` says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// With an answer (a stopped one counts).
+    Answered,
+    /// It failed.
+    Failed,
+    /// Its request waits in the outbox (sent while offline): no answer
+    /// yet, and none failed.
+    Queued,
+}
+
+impl Outcome {
+    /// From `turn.finished`'s `ok` and `queued`.
+    pub fn of(ok: bool, queued: bool) -> Self {
+        if queued {
+            Self::Queued
+        } else if ok {
+            Self::Answered
+        } else {
+            Self::Failed
+        }
+    }
+}
+
 /// The notification a `turn.finished` gets, if any. `enabled` is the
-/// "Notify when an answer finishes" setting.
+/// "Notify when an answer finishes" setting. A queued answer gets none:
+/// nothing is ready until it goes out, and its own turn ends then.
 pub fn decide(
     enabled: bool,
     chat_id: &str,
-    ok: bool,
+    outcome: Outcome,
     on_screen: &OnScreen,
 ) -> Option<NotificationKind> {
     if !enabled || on_screen.shows(chat_id) {
         return None;
     }
-    Some(if ok {
-        NotificationKind::Ready
-    } else {
-        NotificationKind::Failed
-    })
+    match outcome {
+        Outcome::Answered => Some(NotificationKind::Ready),
+        Outcome::Failed => Some(NotificationKind::Failed),
+        Outcome::Queued => None,
+    }
 }
 
 /// The longest title a notification carries.
@@ -155,50 +181,103 @@ mod tests {
         use NotificationKind::*;
         // The chat is on screen in the key main window: nothing.
         assert_eq!(
-            decide(true, "c1", true, &screen(true, Some("c1"), false, None)),
+            decide(
+                true,
+                "c1",
+                Outcome::Answered,
+                &screen(true, Some("c1"), false, None)
+            ),
             None
         );
         // Another chat on screen, or the main window not key: a notification.
         assert_eq!(
-            decide(true, "c1", true, &screen(true, Some("c2"), false, None)),
+            decide(
+                true,
+                "c1",
+                Outcome::Answered,
+                &screen(true, Some("c2"), false, None)
+            ),
             Some(Ready)
         );
         assert_eq!(
-            decide(true, "c1", true, &screen(false, Some("c1"), false, None)),
+            decide(
+                true,
+                "c1",
+                Outcome::Answered,
+                &screen(false, Some("c1"), false, None)
+            ),
             Some(Ready)
         );
         // A new chat on screen (nothing stored selected).
         assert_eq!(
-            decide(true, "c1", true, &screen(true, None, false, None)),
+            decide(
+                true,
+                "c1",
+                Outcome::Answered,
+                &screen(true, None, false, None)
+            ),
             Some(Ready)
         );
         // Quick Ask in front with that chat: nothing; with another: notify.
         assert_eq!(
-            decide(true, "q1", true, &screen(false, None, true, Some("q1"))),
+            decide(
+                true,
+                "q1",
+                Outcome::Answered,
+                &screen(false, None, true, Some("q1"))
+            ),
             None
         );
         assert_eq!(
             decide(
                 true,
                 "c1",
-                true,
+                Outcome::Answered,
                 &screen(false, Some("c1"), true, Some("q1"))
             ),
             Some(Ready)
         );
         // Quick Ask hidden (not key) with its chat: notify.
         assert_eq!(
-            decide(true, "q1", true, &screen(false, None, false, Some("q1"))),
+            decide(
+                true,
+                "q1",
+                Outcome::Answered,
+                &screen(false, None, false, Some("q1"))
+            ),
             Some(Ready)
         );
         // Failed turns notify too.
         assert_eq!(
-            decide(true, "c1", false, &OnScreen::default()),
+            decide(true, "c1", Outcome::Failed, &OnScreen::default()),
             Some(Failed)
         );
         // The setting off: never.
-        assert_eq!(decide(false, "c1", true, &OnScreen::default()), None);
-        assert_eq!(decide(false, "c1", false, &OnScreen::default()), None);
+        assert_eq!(
+            decide(false, "c1", Outcome::Answered, &OnScreen::default()),
+            None
+        );
+        assert_eq!(
+            decide(false, "c1", Outcome::Failed, &OnScreen::default()),
+            None
+        );
+    }
+
+    #[test]
+    fn a_queued_answer_is_not_ready_and_gets_no_notification() {
+        // The daemon hands a queued answer off with `ok` and `queued`.
+        assert_eq!(Outcome::of(true, true), Outcome::Queued);
+        assert_eq!(Outcome::of(true, false), Outcome::Answered);
+        assert_eq!(Outcome::of(false, false), Outcome::Failed);
+        assert_eq!(
+            decide(true, "c1", Outcome::Queued, &OnScreen::default()),
+            None
+        );
+        // When it goes out and ends, its own turn says Answer Ready.
+        assert_eq!(
+            decide(true, "c1", Outcome::Answered, &OnScreen::default()),
+            Some(NotificationKind::Ready)
+        );
     }
 
     #[test]
