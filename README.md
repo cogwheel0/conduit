@@ -293,10 +293,10 @@ a menu-bar item.
   [GitHub Releases](https://github.com/cogwheel0/conduit/releases): download
   `Conduit-<version>.dmg`, open it and drag Conduit to Applications. Builds are
   signed with a Developer ID and notarized by Apple.
-- It updates itself (Sparkle) from the stable channel. Betas are opt-in:
-  Settings › About › Receive beta updates.
+- It updates itself (Sparkle) from one stable channel.
 - Build it yourself with [docs/BUILDING-DESKTOP.md](docs/BUILDING-DESKTOP.md);
-  development notes are in [desktop/README.md](desktop/README.md).
+  development notes are in [desktop/README.md](desktop/README.md), and how a
+  release is made is in [docs/RELEASING-DESKTOP.md](docs/RELEASING-DESKTOP.md).
 
 ## Privacy
 
@@ -306,8 +306,10 @@ a menu-bar item.
   on Android.
 - No third-party analytics or advertising SDKs.
 - Diagnostic logging is local and transient. On the Mac, logs stay in
-  `~/Library/Logs/Conduit` and are never uploaded, and the only network request
-  the app makes on its own is a daily update check (which you can turn off).
+  `~/Library/Logs/Conduit` and are never uploaded. Besides your servers and
+  providers, the Mac app contacts other hosts only for the daily update check
+  (which you can turn off) and for what you ask for: a speech model you
+  download, or pictures and PDFs from other sites you choose to load.
 - No developer-operated backend receives your chats or other content. Traffic
   goes from your device to the server or provider you configured. The one
   developer-operated service is for optional push notifications on the phone:

@@ -1,11 +1,11 @@
 # Conduit
 
-Conduit is a native Flutter client for iOS and Android. It talks to self-hosted
-Open WebUI and LibreChat servers, straight to model providers
-(OpenAI-compatible APIs, Ollama, OpenRouter), to Apple's on-device and Private
-Cloud Compute models, and to self-hosted Hermes agents. It ships on the App
-Store and Google Play, and as a build without Google services for F-Droid and
-IzzyOnDroid.
+Conduit is a native Flutter client for iOS and Android, and Conduit Desktop is
+its native Mac app. It talks to self-hosted Open WebUI and LibreChat servers,
+straight to model providers (OpenAI-compatible APIs, Ollama, OpenRouter), to
+Apple's on-device and Private Cloud Compute models, and to self-hosted Hermes
+agents. It ships on the App Store and Google Play, as a build without Google
+services for F-Droid and IzzyOnDroid, and for the Mac on GitHub Releases.
 
 ## What Conduit must keep
 
@@ -25,7 +25,8 @@ that sends anything anywhere new needs the maintainer's sign-off first.
 
 iOS gets iOS controls and behavior, and Android gets Android's. The app does
 not paint one look on both. Platform widgets are reached only through the
-platform UI seam, `lib/shared/widgets/platform_ui`.
+platform UI seam, `lib/shared/widgets/platform_ui`. The Mac app is not a
+Flutter build: it is written in Rust on GPUI and follows the Mac's conventions.
 
 ### 3. Every backend counts
 
@@ -67,10 +68,11 @@ else's task.
   server account.
 - **core** means `packages/conduit_core`: the logic, in pure Dart.
 - **host** means the program that runs the core and supplies what it cannot do
-  itself. Today that is the Flutter app.
+  itself. There are two: the Flutter app, and `conduitd`, the Dart process that
+  runs the core for the Mac app and answers it over `conduit_protocol`.
 - **port** means an interface the core declares and the host implements, such
   as storage, the clipboard, or connectivity. The Flutter ones are in
-  `lib/platform`.
+  `lib/platform`, and `conduitd`'s in `apps/daemon`.
 - **seam** means the platform UI seam, `lib/shared/widgets/platform_ui`.
 - **reference sources** means the `openwebui-src`, `librechat-src`, and
   `hermes-src` submodules: upstream code kept to read, never built or shipped.
@@ -91,7 +93,10 @@ else's task.
    (annotated Dart, an ARB file, `pigeons/`) and generate again. The Pigeon
    bindings are the exception to "ignored": `conduit_platform_apis.g.dart`,
    `ConduitPlatformApis.g.swift`, and `ConduitPlatformApis.g.kt` are tracked,
-   so regenerate and commit all three when `pigeons/` changes.
+   so regenerate and commit all three when `pigeons/` changes. So are the
+   protocol's goldens and the Mac app's Rust types: when a DTO in
+   `packages/conduit_protocol` changes, run its `tool/dump_goldens.dart` and
+   `tool/generate_rust.dart` and commit what they write.
 
 ## Hit every surface
 
@@ -99,9 +104,10 @@ The most common defect is a change that works on the path you tested and is
 missing everywhere else. Before calling user-visible work done, walk this list
 and say which entries applied:
 
-- **Platforms.** iOS and Android, phone and tablet. Android has two builds:
-  `play` and `foss`. The `foss` build must compile without Firebase, Google
-  Play services, or ML Kit; CI fails if it pulls them in.
+- **Platforms.** iOS and Android, phone and tablet, and the Mac app, which
+  runs the same core through `conduitd`. Android has two builds: `play` and
+  `foss`. The `foss` build must compile without Firebase, Google Play
+  services, or ML Kit; CI fails if it pulls them in.
 - **Backends.** Open WebUI, LibreChat, Direct connections (OpenAI-compatible,
   Ollama, OpenRouter), Apple On-Device and Private Cloud Compute, and Hermes.
   Do not carry one backend's assumptions into another.
@@ -117,6 +123,8 @@ and say which entries applied:
   `tool/platform_ui_allowlist.yaml` only shrinks.
 - **Languages.** A new string goes in `lib/l10n/app_en.arb` with an `@key`
   description, and is translated in every other locale in the same change.
+  The Mac app reads those files too, and keeps its own strings in
+  `lib/l10n/desktop/`; renaming or removing a key it uses breaks its build.
 - **Connection states.** Online, offline, and reconnecting. Synced chats and
   notes stay readable without a connection.
 - **Reverse states.** If you added a way in, add the way out and the way to see
@@ -142,14 +150,18 @@ and say which entries applied:
 - The iOS simulator build is Apple Silicon only and needs the
   `XCODE_XCCONFIG_FILE` setting shown in [docs/BUILDING.md](docs/BUILDING.md),
   which also covers Android, release builds, and troubleshooting.
+- The Mac app needs the Rust toolchain that `desktop/rust-toolchain.toml` pins.
+  [docs/BUILDING-DESKTOP.md](docs/BUILDING-DESKTOP.md) covers its build, its
+  checks, and its end-to-end passes.
 
 ## Verifying
 
 - Before you push, run `dart run tool/check_changed.dart`. It runs CI's fast
   checks for what the branch changed: the seam, the package boundaries, the
   ARB checks, the analyzer for each changed package and everything that
-  depends on it, and the tests beside the changed files. It ends by naming the
-  CI jobs it left out.
+  depends on it, the tests beside the changed files, and for `desktop/` the
+  protocol's generated Rust, `cargo fmt`, and `cargo check`. It ends by naming
+  the CI jobs it left out.
 - While you iterate, run `flutter test <file>` for the app, or `dart test
   <file>` from a package's own directory.
 - **Do not run the whole suite** (`dart run tool/run_test_shards.dart`, or a
@@ -173,9 +185,9 @@ and say which entries applied:
 - Before you change a call to Open WebUI, LibreChat, or Hermes, read the
   endpoint, the payload, and the events in the matching reference source. Do
   not trust memory for a server's API.
-- A user-visible change gets one pass in the real app, on a simulator or an
-  emulator, after everything is integrated. The primary agent does it once.
-  Subagents do not boot devices or start builds of their own.
+- A user-visible change gets one pass in the real app, on a simulator, an
+  emulator, or the Mac, after everything is integrated. The primary agent does
+  it once. Subagents do not boot devices or start builds of their own.
 
 ## Pull requests
 
@@ -241,6 +253,12 @@ Most code changes need no documentation change. Agents can read the code.
   turn model output into blocks. It must compile with `dart compile js`.
 - `packages/conduit_theme` holds the color palettes, and `packages/conduit_ddgs`
   the web search scrapers for on-device models.
+- `packages/conduit_protocol` is the wire contract between `conduitd` and the
+  Mac app: pure Dart DTOs, the method and event tables, and their goldens.
+- `apps/daemon` is `conduitd`. `desktop/` is the Mac app, a Cargo workspace:
+  the app, its components, the design gallery, its link to `conduitd`, and the
+  generated protocol types in `crates/`; its packaging in `packaging/`; and
+  GPUI, with the patches its `PATCHES.md` lists, in `vendor/`.
 - `ios/` and `android/` hold the native code: bridges, widgets, the share and
   notification extensions, and CarPlay. Swift in `ios/Runner` reaches its host
   only through `ConduitBridgeHost`, unless it is marked Flutter-host-only.
