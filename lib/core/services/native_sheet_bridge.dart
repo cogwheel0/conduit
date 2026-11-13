@@ -862,7 +862,13 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     if (session == null) return false;
     try {
       return session.allowsNavigation(url);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      // Refused: a navigation that cannot be judged is not loaded.
+      _logNativeSheetBridgeError(
+        'webSignInAllowsNavigation',
+        error,
+        stackTrace,
+      );
       return false;
     }
   }
@@ -873,7 +879,8 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     if (session == null) return false;
     try {
       return session.checksPage(url);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError('webSignInChecksPage', error, stackTrace);
       return false;
     }
   }

@@ -312,16 +312,15 @@ void main() {
 
     // A new address on the same server: it is asked which sign-in it wants
     // (a token) while its profiles are listed for the sign-in chosen before.
-    unawaited(
-      rig.module.handleChange(
-        _row('url', _work),
-        '${gateway.baseUrl}/hermes',
-        _l10n,
-      ),
+    final changing = rig.module.handleChange(
+      _row('url', _work),
+      '${gateway.baseUrl}/hermes',
+      _l10n,
     );
     for (var i = 0; i < 60; i++) {
       await rig.settleIo();
     }
+    await changing;
 
     final profile = rig.row(editor, _row('profile', _work))!;
     check(profile.options.map((option) => option.id)).contains('travel');
@@ -851,6 +850,51 @@ void main() {
       ).isNull();
     });
 
+    for (final refused in [false, true]) {
+      testWidgets('an unhide ${refused ? 'refused' : 'made'} after another '
+          'list was read leaves that list as it is', (tester) async {
+        final sessions = _HiddenSessions();
+        var listed = [hidden];
+        final rig = await _pump(
+          tester,
+          secrets: secrets,
+          overrides: [
+            hermesHiddenSessionsProvider.overrideWith((ref) async => listed),
+            hermesSessionsProvider.overrideWith(() => sessions),
+          ],
+        );
+        await rig.open(hermesHiddenChatsPageId);
+        final gate = sessions.gate = Completer<void>();
+        final unhiding = rig.module.handleChange(
+          hermesHiddenChatRowId('unhide', hidden.id),
+          true,
+          _l10n,
+        );
+        await tester.pump();
+
+        // The list is read again (another connection's, say) with a chat by
+        // the same id, still hidden there; then the first answer lands.
+        listed = [
+          const HermesSessionSummary(
+            id: 'session-1',
+            title: 'Office plans',
+            preview: 'Desks first',
+          ),
+        ];
+        await rig.open(hermesHiddenChatsPageId);
+        sessions.refuses = refused;
+        gate.complete();
+        await rig.settle(unhiding);
+
+        final row = rig.row(
+          hermesHiddenChatsPageId,
+          hermesHiddenChatRowId('open', hidden.id),
+        );
+        check(row?.title).equals('Office plans');
+        check(rig.page(hermesHiddenChatsPageId)!.announcement).isNull();
+      });
+    }
+
     testWidgets("opened again, show no chats from the last list while they "
         'are read', (tester) async {
       final later = Completer<List<HermesSessionSummary>>();
@@ -1030,11 +1074,17 @@ final class _HiddenSessions extends HermesSessionsController {
   /// Whether the server refuses the next change.
   bool refuses = false;
 
+  /// Holds the next change's answer until completed, when set.
+  Completer<void>? gate;
+
   @override
   Future<List<HermesSessionSummary>> build() async => const [];
 
   @override
   Future<void> setHidden(HermesSessionSummary session, bool hidden) async {
+    final held = gate;
+    gate = null;
+    await held?.future;
     if (refuses) throw StateError('offline');
     if (!hidden) unhidden.add(session.id);
   }

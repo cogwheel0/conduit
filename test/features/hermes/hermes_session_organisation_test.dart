@@ -445,6 +445,8 @@ void main() {
 
     check(service.edits).deepEquals(['secret hidden=false']);
     check(titles()).not((it) => it.contains('Synthetic hidden'));
+    // The last one shown again, the page says none are hidden.
+    check(titles()).contains(_l10n.hermesHiddenChatsEmpty);
     check(HermesSetAsideSessionStore.forScope(_scope)).isEmpty();
   });
 

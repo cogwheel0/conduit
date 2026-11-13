@@ -4832,7 +4832,7 @@
       }
     }
   },
-  "hermesMcpAuthenticate": "Verifiëren",
+  "hermesMcpAuthenticate": "Authenticeren",
   "hermesMcpSetApiKey": "API-sleutel instellen",
   "hermesMcpSetApiKeyFor": "API-sleutel voor {name}",
   "@hermesMcpSetApiKeyFor": {

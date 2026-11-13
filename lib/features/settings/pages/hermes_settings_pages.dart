@@ -1147,6 +1147,9 @@ class HermesSettingsPages extends SettingsPageModule {
   String? _rootNotice;
   List<HermesSessionSummary>? _hidden;
   bool _hiddenFailed = false;
+
+  /// Counts the hidden-chat lists read.
+  int _hiddenList = 0;
   final Set<String> _unhiding = {};
   String? _hiddenNotice;
   AppLocalizations? _l10n;
@@ -2025,12 +2028,17 @@ class HermesSettingsPages extends SettingsPageModule {
       ..profilesError = null;
     await show();
     try {
-      final live = editsActive ? _ref.read(hermesApiServiceProvider) : null;
+      // Read once the page was drawn: another connection may be in use by
+      // now, and its client lists that connection's profiles, not this one's.
+      final live = editsActive && _editsActive(editor)
+          ? _ref.read(hermesApiServiceProvider)
+          : null;
       final loading = _desktopConnection.profiles(
         draft.config.copyWith(enabled: true),
         service: switch (live) {
           final HermesDesktopApiService service
-              when hermesDesktopConnectionMatches(saved, draft.config) =>
+              when hermesDesktopConnectionMatches(saved, draft.config) &&
+                  hermesDesktopConnectionMatches(saved, service.config) =>
             service,
           _ => null,
         },
@@ -2263,14 +2271,12 @@ class HermesSettingsPages extends SettingsPageModule {
       await _applyServer(l10n, key, editor);
       return;
     }
+    var changed = false;
     try {
       final service = _ref.read(hermesApiServiceProvider);
       if (service is HermesDesktopApiService) {
         await service.configureTools([name], enabled: enabled);
-        _ref.invalidate(hermesToolsetsProvider);
-        editor
-          ..toolsets = await _readFuture(hermesToolsetsProvider) ?? const []
-          ..toolsetsFailed = false;
+        changed = true;
       }
     } catch (error) {
       DebugLogger.warning(
@@ -2279,9 +2285,36 @@ class HermesSettingsPages extends SettingsPageModule {
         data: {'errorType': error.runtimeType.toString()},
       );
       editor.serverNotice = l10n.hermesToolsetUpdateFailed;
-    } finally {
-      editor.pendingToolsets.remove(name);
     }
+    if (changed) {
+      // The change is made; a list that cannot be read after it is only
+      // stale, and shows the change as made.
+      try {
+        _ref.invalidate(hermesToolsetsProvider);
+        editor
+          ..toolsets = await _readFuture(hermesToolsetsProvider) ?? const []
+          ..toolsetsFailed = false;
+      } catch (error) {
+        DebugLogger.warning(
+          'toolsets-reload-failed',
+          scope: 'settings/hermes',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+        editor.toolsets = [
+          for (final toolset in editor.toolsets ?? const <HermesToolset>[])
+            toolset.name == name
+                ? HermesToolset(
+                    name: toolset.name,
+                    label: toolset.label,
+                    description: toolset.description,
+                    enabled: enabled,
+                    tools: toolset.tools,
+                  )
+                : toolset,
+        ];
+      }
+    }
+    editor.pendingToolsets.remove(name);
     await _applyServer(l10n, key, editor);
   }
 
@@ -2326,6 +2359,7 @@ class HermesSettingsPages extends SettingsPageModule {
   Future<void> _hydrateHidden(AppLocalizations l10n) async {
     // Opened afresh: the last list read may be another connection's, and
     // its rows would unhide that connection's chats on this one.
+    _hiddenList++;
     _hidden = null;
     _hiddenFailed = false;
     await _surface.applyDetail(
@@ -2371,6 +2405,13 @@ class HermesSettingsPages extends SettingsPageModule {
         .firstOrNull;
     if (session == null || !_unhiding.add(sessionId)) return;
     final connection = _ref.read(hermesActiveConnectionIdProvider);
+    // The list the chat was unhidden from: an answer arriving after another
+    // list was read (another connection's, perhaps, with a chat by the same
+    // id) changes nothing on it.
+    final list = _hiddenList;
+    bool sameList() =>
+        list == _hiddenList &&
+        _ref.read(hermesActiveConnectionIdProvider) == connection;
     _hiddenNotice = null;
     await _applyHidden(l10n);
     try {
@@ -2382,17 +2423,19 @@ class HermesSettingsPages extends SettingsPageModule {
       await _ref
           .read(hermesSessionsProvider.notifier)
           .setHidden(session, false);
-      _hidden = [
-        for (final candidate in _hidden ?? const <HermesSessionSummary>[])
-          if (candidate.id != sessionId) candidate,
-      ];
+      if (sameList()) {
+        _hidden = [
+          for (final candidate in _hidden ?? const <HermesSessionSummary>[])
+            if (candidate.id != sessionId) candidate,
+        ];
+      }
     } catch (error) {
       DebugLogger.warning(
         'unhide-session-failed',
         scope: 'settings/hermes',
         data: {'errorType': error.runtimeType.toString()},
       );
-      _hiddenNotice = l10n.hermesSessionUpdateFailed;
+      if (sameList()) _hiddenNotice = l10n.hermesSessionUpdateFailed;
     } finally {
       _unhiding.remove(sessionId);
     }

@@ -4,12 +4,14 @@ import 'dart:convert';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/features/settings/pages/hermes_mcp_settings_pages.dart';
-import 'package:conduit/features/settings/pages/hermes_page_ids.dart';
+import 'package:conduit/features/settings/pages/hermes_settings_pages.dart';
 import 'package:conduit/features/settings/settings_page_module.dart';
 import 'package:conduit/features/settings/settings_pages.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
+import 'package:conduit_core/features/hermes/models/hermes_toolset.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
@@ -261,6 +263,20 @@ final class _Rig {
     }
     await work;
   }
+}
+
+const _homeConnection = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+/// Hermes on, with the Desktop Gateway connection [_homeConnection] in use.
+final class _DesktopHome extends HermesConfigController {
+  @override
+  HermesConfig build() => HermesConfig(
+    enabled: true,
+    connectionId: _homeConnection,
+    baseUrl: 'https://hermes.example',
+    mode: HermesBackendMode.desktopGateway,
+    desktopCredentials: HermesDesktopCredentials(legacyToken: 'token'),
+  );
 }
 
 String _entryPage(String name) =>
@@ -640,6 +656,44 @@ void main() {
     await hermes.dispose();
   });
 
+  testWidgets('a catalog read across a token refresh is still shown', (
+    tester,
+  ) async {
+    final hermes = _Hermes(
+      gatewayCatalog: [
+        {'name': 'tide-tables', 'installed': false, 'requires': <String>[]},
+      ],
+    );
+    final client = NotifierProvider<_Client, HermesDesktopApiService?>(
+      () => _Client(hermes.service),
+    );
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [
+        hermesApiServiceProvider.overrideWith((ref) => ref.watch(client)),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.listen(hermesApiServiceProvider, (_, _) {});
+    final rig = _Rig(tester, container);
+    await rig.open(hermesMcpPageId);
+    final reading = hermes.gates['mcp.catalog'] = Completer<void>();
+    container.read(settingsPagesProvider.notifier).register([
+      NativeSheetDetailConfig(id: hermesMcpCatalogPageId, title: ''),
+    ]);
+    final opening = rig.module.hydrate(hermesMcpCatalogPageId, _l10n);
+    await tester.pump();
+
+    // A token refresh builds the client again; the connection is the same.
+    container.read(client.notifier).use(hermes.rebuilt());
+    await tester.pump();
+    reading.complete();
+    await rig.settle(opening);
+
+    check(rig.titles(hermesMcpCatalogPageId)).contains('tide-tables');
+    await hermes.dispose();
+  });
+
   testWidgets('an install answered after the same connection rebuilt its '
       'client goes on to sign in', (tester) async {
     final hermes = _Hermes(
@@ -715,6 +769,7 @@ void main() {
         .not((ids) => ids.contains('$hermesMcpPageId-loading'));
     check(rig.rows(hermesMcpPageId).map((row) => row.title))
         .contains(_l10n.hermesMcpLoadFailed);
+    await hermes.dispose();
   });
 
   testWidgets('a list read again that fails keeps the list, with word that '
@@ -745,6 +800,32 @@ void main() {
     await rig.open(hermesMcpPageId);
     check(rig.rows(hermesMcpPageId).map((row) => row.id))
         .not((ids) => ids.contains('$hermesMcpPageId-notice'));
+    await hermes.dispose();
+  });
+
+  testWidgets('a catalog opened again leads to its entries before it is read '
+      'again', (tester) async {
+    final hermes = _Hermes(
+      gatewayCatalog: [
+        {'name': 'tide-tables', 'installed': false, 'requires': <String>[]},
+      ],
+    );
+    final rig = await openCatalog(tester, hermes);
+    final entry = _entryPage('tide-tables');
+    check(rig.container.read(settingsPagesProvider).contains(entry)).isTrue();
+
+    // Settings closes, forgetting its pages, and opens the catalog again
+    // while it is read again.
+    rig.module.settingsClosed();
+    rig.container.read(settingsPagesProvider.notifier).clear();
+    final reading = hermes.gates['mcp.catalog'] = Completer<void>();
+    final opening = rig.module.hydrate(hermesMcpCatalogPageId, _l10n);
+    await tester.pump(const Duration(milliseconds: 20));
+
+    // Its cached row opens its form already.
+    check(rig.container.read(settingsPagesProvider).contains(entry)).isTrue();
+    reading.complete();
+    await rig.settle(opening);
     await hermes.dispose();
   });
 
@@ -876,6 +957,112 @@ void main() {
     check(calls).length.equals(2);
     check(calls.last['name']).equals('tide-more');
     check(calls.last.toString()).not((it) => it.contains('synthetic-mcp-key'));
+    await hermes.dispose();
+  });
+
+  testWidgets('a toolset switched whose list then cannot be read shows the '
+      'switch made, with no failure', (tester) async {
+    final hermes = _Hermes();
+    var reads = 0;
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [
+        hermesConfigProvider.overrideWith(_DesktopHome.new),
+        hermesApiServiceProvider.overrideWithValue(hermes.service),
+        hermesToolsetsProvider.overrideWith((ref) async {
+          if (reads++ > 0) throw StateError('offline');
+          return const [
+            HermesToolset(name: 'search', label: 'Search', enabled: false),
+          ];
+        }),
+        hermesInstalledSkillsProvider.overrideWith((ref) async => const []),
+        hermesServerStatusProvider.overrideWith((ref) async => const {}),
+        hermesConnectionsProvider.overrideWithValue(const [
+          HermesConnectionProfile(
+            id: _homeConnection,
+            name: 'Home agent',
+            baseUrl: 'https://hermes.example',
+            mode: HermesBackendMode.desktopGateway,
+            documentTrustPrincipalId: 'aaaaaaaa-0000-4000-8000-000000000000',
+          ),
+        ]),
+      ],
+    );
+    addTearDown(container.dispose);
+    final rig = _Rig(tester, container);
+    final settings = container
+        .read(settingsPageModulesProvider)
+        .whereType<HermesSettingsPages>()
+        .single;
+    Future<void> open(String id) async {
+      container.read(settingsPagesProvider.notifier).register([
+        NativeSheetDetailConfig(id: id, title: ''),
+      ]);
+      await rig.settle(settings.hydrate(id, _l10n));
+    }
+
+    final key = Uri.encodeComponent(_homeConnection);
+    await open(hermesConnectionPageId(_homeConnection));
+    final server = '$hermesConnectionServerPagePrefix$key';
+    await open(server);
+    final toolset = hermesConnectionRowId('toolset', key, 'search');
+    NativeSheetItemConfig? row() =>
+        rig.rows(server).where((item) => item.id == toolset).firstOrNull;
+    check(row()?.value).equals(false);
+
+    await rig.settle(settings.handleChange(toolset, true, _l10n));
+
+    check(hermes.calls('tools.configure')).length.equals(1);
+    check(row()?.value).equals(true);
+    check(rig.page(server).announcement)
+        .not((it) => it.equals(_l10n.hermesToolsetUpdateFailed));
+    check(rig.titles(server))
+        .not((it) => it.contains(_l10n.hermesToolsetUpdateFailed));
+    await hermes.dispose();
+  });
+
+  testWidgets('a key saved as its page is left sends nothing', (tester) async {
+    final hermes = _Hermes();
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [hermesApiServiceProvider.overrideWithValue(hermes.service)],
+    );
+    addTearDown(container.dispose);
+    final rig = _Rig(tester, container);
+    await rig.open(hermesMcpPageId);
+    final keyPage = '$hermesMcpKeyPagePrefix${Uri.encodeComponent('tides')}';
+    await rig.open(keyPage);
+    await rig.change(hermesMcpRowId('key', 'tides'), 'synthetic-mcp-key');
+
+    final saving = rig.module.handleChange(
+      hermesMcpRowId('key-save', 'tides'),
+      true,
+      _l10n,
+    );
+    // Left while Save draws it busy: its key goes with it.
+    rig.module.pageLeft(keyPage);
+    await rig.settle(saving);
+
+    check(hermes.calls('mcp.servers.set_api_key')).isEmpty();
+    await hermes.dispose();
+  });
+
+  testWidgets('a catalog entry left is not installed by a late Add', (
+    tester,
+  ) async {
+    final hermes = _Hermes(
+      gatewayCatalog: [
+        {'name': 'tide-notes', 'installed': false, 'requires': <String>[]},
+      ],
+    );
+    final rig = await openCatalog(tester, hermes);
+    await rig.open(_entryPage('tide-notes'));
+    rig.module.pageLeft(_entryPage('tide-notes'));
+
+    await rig.change(hermesMcpRowId('catalog-add', 'tide-notes'));
+
+    check(hermes.calls('mcp.servers.add')).isEmpty();
+    check(hermes.installs).isEmpty();
     await hermes.dispose();
   });
 

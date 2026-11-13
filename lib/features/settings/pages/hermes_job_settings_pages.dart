@@ -46,8 +46,9 @@ const hermesJobEditorPagePrefix = 'hermes-job-edit:';
 /// Prefix of an editor's Deliver To page; the editor's key follows.
 const hermesJobDeliveryPagePrefix = 'hermes-job-deliver:';
 
-/// The key of the editor of a new scheduled agent.
-const hermesNewJobKey = 'new';
+/// The key of the editor of a new scheduled agent. An existing agent's key
+/// is its id, URI-encoded, which never holds a `+`: no id is taken for it.
+const hermesNewJobKey = '+new';
 
 /// Prefix of the rows of the scheduled agents' pages.
 const hermesJobRowPrefix = 'hermes-job.';
@@ -474,6 +475,9 @@ final class HermesJobDraft {
     this.notify,
     this.notifyHint,
   }) : deliversToConduit = hermesDeliverIncludesConduit(deliver),
+       initialName = name,
+       initialPrompt = prompt,
+       initialSchedule = schedule,
        initialNotify = notify,
        initialCatchUp = catchUp,
        // Conduit's own target is "Notify me", not a row of the checklist:
@@ -522,6 +526,12 @@ final class HermesJobDraft {
   final String? initialDeliver;
   final HermesJobCatchUp initialCatchUp;
 
+  /// The text the editor opened with: put back as it was, a field is no
+  /// longer an edit.
+  final String initialName;
+  final String initialPrompt;
+  final String initialSchedule;
+
   /// Whether the job's targets were read, so its Deliver To can be edited.
   final bool deliveryEditable;
 
@@ -539,7 +549,16 @@ final class HermesJobDraft {
   bool? notify;
   final bool? initialNotify;
   final String? notifyHint;
-  bool edited = false;
+
+  /// Whether anything differs from what the editor opened with; set back,
+  /// Back no longer asks.
+  bool get edited =>
+      name != initialName ||
+      prompt != initialPrompt ||
+      schedule != initialSchedule ||
+      catchUp != initialCatchUp ||
+      notify != initialNotify ||
+      !hermesDeliveryTargetsMatch(deliver, initialDeliver);
   bool shownEdited = false;
   bool showErrors = false;
   bool saving = false;
@@ -1256,7 +1275,7 @@ class HermesJobSettingsPages extends SettingsPageModule {
         key,
         draft,
         scheduling: scheduling,
-        deliveryOptions: _deliveryOptions,
+        deliveryOptions: _optionsFor(draft),
       ),
       detailSheets: [
         if (withPages && scheduling)
@@ -1264,7 +1283,7 @@ class HermesJobSettingsPages extends SettingsPageModule {
             l10n,
             key,
             draft,
-            options: _deliveryOptions,
+            options: _optionsFor(draft),
             loading: _deliveryLoading,
           ),
       ],
@@ -1280,10 +1299,19 @@ class HermesJobSettingsPages extends SettingsPageModule {
       l10n,
       key,
       draft,
-      options: _deliveryOptions,
+      options: _optionsFor(draft),
       loading: _deliveryLoading,
     ),
   );
+
+  /// The delivery targets a draft may offer: those read for the connection
+  /// it was opened on, while that one is in use. Another connection's are
+  /// never offered, nor can be chosen, for it.
+  HermesDeliveryOptions? _optionsFor(HermesJobDraft draft) =>
+      draft.connectionId == _ref.read(hermesActiveConnectionIdProvider) &&
+          draft.connectionId == _deliveryFor
+      ? _deliveryOptions
+      : null;
 
   Future<void> _save(
     AppLocalizations l10n,
@@ -1663,35 +1691,38 @@ class HermesJobSettingsPages extends SettingsPageModule {
             if (draft.schedule == value) return true;
             draft.schedule = value;
         }
-        draft.edited = true;
-        // Errors already shown follow the text as it is fixed.
-        if (draft.showErrors) {
+        // Errors already shown follow the text as it is fixed; the editor
+        // says whether it holds an edit as that changes.
+        if (draft.showErrors || draft.edited != draft.shownEdited) {
           await _applyEditor(l10n, key, draft, withPages: false);
         }
       case 'notify' when value is bool:
         final draft = _drafts[key];
         if (draft == null || draft.notifyHint != null) return true;
-        draft
-          ..notify = value
-          ..edited = true;
+        draft.notify = value;
         await _applyEditor(l10n, key, draft, withPages: false);
       case 'catch-up' when value is String:
         final draft = _drafts[key];
         final choice = HermesJobCatchUp.values.asNameMap()[value];
         if (draft == null || choice == null) return true;
-        draft
-          ..catchUp = choice
-          ..edited = true;
+        draft.catchUp = choice;
+        if (draft.edited != draft.shownEdited) {
+          await _applyEditor(l10n, key, draft, withPages: false);
+        }
       case 'deliver' when extra != null && value is bool:
         final draft = _drafts[key];
         if (draft == null) return true;
-        draft
-          ..deliver = toggleHermesDeliveryTarget(
-            draft.deliver,
-            extra,
-            selected: value,
-          )
-          ..edited = true;
+        // Another connection in use: its targets are not this draft's to
+        // choose, and the page is drawn again as it was.
+        if (draft.connectionId != _ref.read(hermesActiveConnectionIdProvider)) {
+          await _applyDelivery(l10n, key, draft);
+          return true;
+        }
+        draft.deliver = toggleHermesDeliveryTarget(
+          draft.deliver,
+          extra,
+          selected: value,
+        );
         await _applyDelivery(l10n, key, draft);
         // The editor, under the Deliver To page, now asks before leaving.
         await _applyEditor(l10n, key, draft, withPages: false);

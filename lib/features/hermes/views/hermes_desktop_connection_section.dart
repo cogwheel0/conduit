@@ -300,13 +300,11 @@ class _HermesDesktopConnectionSectionState
   Future<void> _signInDashboard() async {
     if (!await widget.prepareSignIn() || !mounted) return;
     final config = ref.read(hermesConfigProvider);
-    final signedIn = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) =>
-            HermesDashboardAuthPage(config: config.copyWith(enabled: true)),
-      ),
+    final signedIn = await HermesDashboardAuthPage.open(
+      context,
+      config.copyWith(enabled: true),
     );
-    if (mounted && signedIn == true) {
+    if (mounted && signedIn) {
       ref.invalidate(hermesDesktopModelsProvider);
       await _loadProfiles();
       await widget.testConnection();

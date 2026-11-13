@@ -27,9 +27,12 @@ class HermesDashboardSignIn {
     if (bridge.settingsSheetOpen) {
       if (config.accessHeaders.isEmpty) return _signInOverSheet(bridge, config);
       // The sheet's web view cannot add access headers; the Flutter page
-      // can. Settings closes first, as for any Flutter page, so the page is
-      // not opened under it.
-      await bridge.dismiss();
+      // can. Settings closes first, as for any Flutter page, and has gone
+      // before the page opens, so the page is not opened under it.
+      if (!await bridge.dismissSettings()) {
+        if (!bridge.settingsLeaving) return false;
+        await bridge.untilSettingsClosed();
+      }
     }
     final context = NavigationService.context;
     if (context == null || !context.mounted) return false;

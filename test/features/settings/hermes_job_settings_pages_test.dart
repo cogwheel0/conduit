@@ -1091,6 +1091,45 @@ void main() {
     rig.leave();
   });
 
+  testWidgets('an editor set back to what it opened with no longer holds an '
+      'edit', (tester) async {
+    final jobs = _Jobs([_job()]);
+    final rig = await _pump(tester, jobs);
+    final editor = hermesJobEditorPageId('job-1');
+    await rig.open(editor);
+    final opened = rig.row(editor, hermesJobRowId('name', 'job-1'))!.value;
+
+    await rig.change(hermesJobRowId('name', 'job-1'), 'Renamed');
+    check(rig.page(editor).edited).isTrue();
+    await rig.change(hermesJobRowId('name', 'job-1'), opened);
+
+    check(rig.page(editor).edited).isFalse();
+    rig.leave();
+  });
+
+  testWidgets("an agent whose id is 'new' opens its own editor", (
+    tester,
+  ) async {
+    final jobs = _Jobs([
+      const HermesJob(
+        id: 'new',
+        name: 'Night owl',
+        prompt: 'Summarize',
+        schedule: '0 7 * * *',
+      ),
+    ]);
+    final rig = await _pump(tester, jobs);
+    final editor = hermesJobEditorPageId('new');
+    await rig.open(editor);
+
+    check(
+      rig
+          .row(editor, hermesJobRowId('name', Uri.encodeComponent('new')))
+          ?.value,
+    ).equals('Night owl');
+    rig.leave();
+  });
+
   group('after a switch to another connection', () {
     testWidgets("a Deliver To page offers none of the last connection's "
         'targets', (tester) async {
@@ -1117,6 +1156,44 @@ void main() {
       check(rig.row(delivery, telegram)).isNull();
       work.complete(null);
       await rig.frames();
+      rig.leave();
+    });
+
+    testWidgets("an editor opened before it neither offers nor takes the new "
+        "one's targets", (tester) async {
+      final work = HermesDeliveryOptions.build(
+        targets: [
+          {'id': 'local', 'name': 'Local (save only)'},
+          {'id': 'slack', 'name': 'Slack', 'home_target_set': true},
+        ],
+        rooms: const [],
+        roomProfile: 'ops',
+      );
+      final jobs = _Jobs([_job()]);
+      final rig = await _pump(
+        tester,
+        jobs,
+        deliveryOptions: (connection) async =>
+            connection == 'work' ? work : _options,
+      );
+      const key = 'job-1';
+      final editor = hermesJobEditorPageId('job-1');
+      final delivery = '$hermesJobDeliveryPagePrefix$key';
+      final slack = hermesJobRowId('deliver', key, 'slack');
+      await rig.open(editor);
+      await rig.frames();
+
+      rig.container.read(_connectionIdProvider.notifier).use('work');
+      await rig.frames();
+      await rig.open(delivery);
+      check(rig.row(delivery, slack)).isNull();
+      await rig.change(slack, true);
+
+      // Back on the first connection, its save sends none of the other's.
+      rig.container.read(_connectionIdProvider.notifier).use('home');
+      await rig.frames();
+      await rig.change(hermesJobRowId('save', key));
+      check(jobs.edits.join()).not((it) => it.contains('slack'));
       rig.leave();
     });
 

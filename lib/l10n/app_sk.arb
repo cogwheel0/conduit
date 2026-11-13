@@ -6737,7 +6737,7 @@
   "hermesMcpNone": "Nie sú nastavené žiadne MCP servery.",
   "hermesMcpTest": "Otestovať",
   "hermesMcpRemove": "Odstrániť",
-  "hermesMcpRemoveMessage": "Týmto server z Hermes odstránite.",
+  "hermesMcpRemoveMessage": "Týmto odstránite server z Hermes.",
   "hermesMcpToolsList": "Nástroje: {tools}",
   "@hermesMcpToolsList": {
     "placeholders": {

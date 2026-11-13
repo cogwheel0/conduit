@@ -622,6 +622,10 @@ class HermesMcpSettingsPages extends SettingsPageModule {
   String? _addNotice;
   bool _adding = false;
   final Map<String, String> _credentials = {};
+
+  /// The catalog entry whose form is shown: an install asked of another
+  /// (one left, its values gone) is not made.
+  String? _entryShown;
   String? _catalogNotice;
   bool _catalogAdding = false;
   String _key = '';
@@ -706,6 +710,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       if (entry == null) return;
       _formVisit++;
       _formConnection = _ref.read(hermesActiveConnectionIdProvider);
+      _entryShown = entry.name;
       _credentials.clear();
       _catalogNotice = null;
       await _surface.applyDetail(buildHermesMcpCatalogEntryPage(l10n, entry));
@@ -733,6 +738,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       _add.clear();
     } else if (detailId.startsWith(hermesMcpCatalogEntryPagePrefix)) {
       _formVisit++;
+      _entryShown = null;
       _credentials.clear();
     } else if (detailId.startsWith(hermesMcpKeyPagePrefix)) {
       _formVisit++;
@@ -745,6 +751,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
   @override
   void settingsClosed() {
     _add.clear();
+    _entryShown = null;
     _credentials.clear();
     _key = '';
     _notice = null;
@@ -838,19 +845,39 @@ class HermesMcpSettingsPages extends SettingsPageModule {
     return read;
   }
 
+  /// The forms of the catalog's entries not yet known to Settings. An
+  /// entry's form already drawn -- open, perhaps, with its values typed --
+  /// keeps what it shows.
+  List<NativeSheetDetailConfig> _unknownEntryPages(AppLocalizations l10n) {
+    final known = _ref.read(settingsPagesProvider);
+    return [
+      for (final entry in _catalog ?? const <HermesMcpCatalogEntry>[])
+        if (!known.contains(
+          '$hermesMcpCatalogEntryPagePrefix${Uri.encodeComponent(entry.name)}',
+        ))
+          buildHermesMcpCatalogEntryPage(l10n, entry),
+    ];
+  }
+
   Future<void> _loadCatalog(AppLocalizations l10n) async {
     _catalogFailed = false;
+    // The catalog read before (Settings closed and opened again) leads to
+    // its entries' forms at once, while it is read again.
     await _surface.applyDetail(
       buildHermesMcpCatalogPage(l10n, entries: _catalog),
+      detailSheets: _unknownEntryPages(l10n),
     );
+    final connection = _ref.read(hermesActiveConnectionIdProvider);
     try {
       final service = _service;
       if (service == null) {
         throw StateError('Desktop Gateway is not connected.');
       }
       final catalog = await service.mcpCatalog();
-      // Read through the last connection: not this one's catalog.
-      if (!identical(service, _service)) return;
+      // Read through the last connection: not this one's catalog. A client
+      // rebuilt on the same connection (a token refresh) reads the same
+      // Hermes, whose catalog it is.
+      if (_ref.read(hermesActiveConnectionIdProvider) != connection) return;
       _catalog = catalog;
     } catch (error) {
       DebugLogger.warning(
@@ -866,18 +893,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
         entries: _catalog,
         failed: _catalogFailed,
       ),
-      detailSheets: [
-        // An entry's form already drawn -- open, perhaps, with its values
-        // typed -- keeps what it shows.
-        for (final entry in _catalog ?? const <HermesMcpCatalogEntry>[])
-          if (!_ref
-              .read(settingsPagesProvider)
-              .contains(
-                '$hermesMcpCatalogEntryPagePrefix'
-                '${Uri.encodeComponent(entry.name)}',
-              ))
-            buildHermesMcpCatalogEntryPage(l10n, entry),
-      ],
+      detailSheets: _unknownEntryPages(l10n),
     );
   }
 
@@ -995,10 +1011,15 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       _addNotice = l10n.hermesMcpActionFailed;
       return _applyAdd(l10n);
     }
+    final visit = _formVisit;
     _adding = true;
     _addNotice = null;
     await _applyAdd(l10n);
-    final visit = _formVisit;
+    // Left meanwhile: what it held went with it, and nothing is sent.
+    if (visit != _formVisit) {
+      _adding = false;
+      return;
+    }
     // Checked with nothing awaited before the request: a key typed for one
     // connection is never sent to another.
     if (_formOnOtherConnection || !identical(service, _service)) {
@@ -1070,7 +1091,12 @@ class HermesMcpSettingsPages extends SettingsPageModule {
   Future<void> _addFromCatalog(AppLocalizations l10n, String name) async {
     final entry = _catalogEntry(name);
     final service = _service;
-    if (entry == null || service == null || _catalogAdding) return;
+    if (entry == null ||
+        service == null ||
+        _catalogAdding ||
+        _entryShown != name) {
+      return;
+    }
     Future<void> applyEntry() => _surface.applyDetail(
       buildHermesMcpCatalogEntryPage(
         l10n,
@@ -1158,11 +1184,19 @@ class HermesMcpSettingsPages extends SettingsPageModule {
   Future<void> _saveKey(AppLocalizations l10n, String name) async {
     final service = _service;
     final pageId = '$hermesMcpKeyPagePrefix${Uri.encodeComponent(name)}';
-    if (service == null || _keySaving || _key.isEmpty) return;
+    // The key as Save found it: the page can be left, and its key cleared,
+    // while it is drawn busy.
+    final key = _key;
+    final visit = _formVisit;
+    if (service == null || _keySaving || key.isEmpty) return;
     _keySaving = true;
     _keyNotice = null;
     await _surface.applyDetail(buildHermesMcpKeyPage(l10n, name, busy: true));
-    final visit = _formVisit;
+    // Left meanwhile: its key went with it, and nothing is sent.
+    if (visit != _formVisit) {
+      _keySaving = false;
+      return;
+    }
     if (_formOnOtherConnection || !identical(service, _service)) {
       _keySaving = false;
       _key = '';
@@ -1173,7 +1207,7 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       return;
     }
     try {
-      await service.setMcpApiKey(name, _key);
+      await service.setMcpApiKey(name, key);
       _keySaving = false;
       // Left and opened again meanwhile: the new visit's key is its own.
       if (visit != _formVisit) {
