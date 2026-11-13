@@ -327,11 +327,7 @@ class SettingsColumnsState extends ConsumerState<SettingsColumns>
     if (!mounted) return;
     // Left for another page, a page that asks nothing keeps the text typed
     // into it, as Back does; one whose changes were discarded sends none.
-    for (final member in List.of(_members)) {
-      if (leaving.contains(member.pageId) && member.discardPrompt == null) {
-        member.commitPendingText();
-      }
-    }
+    _commitLeaving(leaving);
     setState(() {
       if (again) {
         for (final entry in _entries.skip(1)) {
@@ -349,6 +345,16 @@ class SettingsColumnsState extends ConsumerState<SettingsColumns>
       _selected = id;
     });
     widget.onSelected?.call(id);
+  }
+
+  /// Sends the text typed into each page of [leaving] that asks nothing
+  /// before its changes go.
+  void _commitLeaving(Set<String> leaving) {
+    for (final member in List.of(_members)) {
+      if (leaving.contains(member.pageId) && member.discardPrompt == null) {
+        member.commitPendingText();
+      }
+    }
   }
 
   /// Asks each page of [leaving] that holds unsaved changes, the highest
@@ -380,7 +386,12 @@ class SettingsColumnsState extends ConsumerState<SettingsColumns>
   /// Back on the column's only page: Settings closes, once that page may
   /// lose what it holds.
   Future<void> _leaveSettings() async {
-    if (!await _mayLeave(openPageIds.toSet()) || !mounted) return;
+    final leaving = openPageIds.toSet();
+    if (!await _mayLeave(leaving) || !mounted) return;
+    // A page that asks nothing keeps the text typed into it, as its own
+    // Back does: Settings closing over it does not pop its route, which
+    // would send it.
+    _commitLeaving(leaving);
     final outer = Navigator.of(context);
     if (outer.canPop()) {
       outer.pop();

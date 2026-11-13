@@ -489,6 +489,35 @@ void main() {
     check(rig.controller.changed).isEmpty();
   });
 
+  testWidgets("Back on the column's only page sends the text typed into a "
+      'page that asks nothing, before Settings closes', (tester) async {
+    final rig = await _pump(tester, _tablet);
+    final sentBeforeClosing = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'SystemNavigator.pop') {
+          sentBeforeClosing.addAll(rig.controller.changed);
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await _openBeside(tester, 'test-note');
+    await tester.enterText(find.byType(EditableText), 'Remember the map');
+    await tester.pump();
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    check(sentBeforeClosing).deepEquals(['test-note-text']);
+  });
+
   testWidgets('widening does not describe again a page whose own page moved '
       'with it', (tester) async {
     final rig = await _pump(tester, const Size(800, 1280));
