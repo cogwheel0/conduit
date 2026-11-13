@@ -13,6 +13,7 @@ import 'package:conduit_core/features/librechat/providers/librechat_composer_pro
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
     show libreChatSessionProvider, LibreChatSignedInState;
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/services/location_service.dart';
 
 import 'settled.dart';
 import 'language_tag.dart';
@@ -25,14 +26,22 @@ import 'language_tag.dart';
 /// signed-in user, which only the daemon holds; the clipboard is the one
 /// input that has to come the other way.
 final class PromptsService {
-  PromptsService(this._container, {Future<List<Prompt>> Function()? fetch})
-    : _fetchOverride = fetch;
+  PromptsService(
+    this._container, {
+    Future<List<Prompt>> Function()? fetch,
+    Future<Map<String, dynamic>?> Function()? userSettings,
+  }) : _fetchOverride = fetch,
+       _userSettingsOverride = userSettings;
 
   final ProviderContainer _container;
 
   /// Stands in for the server in tests. The account a live test signs in
   /// with may have no prompts, and creating one would leave it behind.
   final Future<List<Prompt>> Function()? _fetchOverride;
+
+  /// Stands in for the account's Open WebUI settings in tests, as [fetch]
+  /// does for its prompts.
+  final Future<Map<String, dynamic>?> Function()? _userSettingsOverride;
 
   /// The last list fetched, by command, so rendering the prompt the user
   /// just picked does not fetch them all again.
@@ -81,6 +90,7 @@ final class PromptsService {
       systemResolver: SystemVariableResolver(
         userName: user?.name ?? user?.username,
         userLanguage: userLanguageTag(_container),
+        userLocation: await _userLocation(prompt.content),
         clipboard: _GivenClipboard(request.clipboard),
       ),
     );
@@ -118,6 +128,34 @@ final class PromptsService {
             ),
       ],
     );
+  }
+
+  /// `{{USER_LOCATION}}` for a prompt that names it, as the phone fills it
+  /// in (its position, or `LOCATION_UNKNOWN`); the Mac asks its location
+  /// services only while the account's location setting is on, else the
+  /// place the user typed (the core's [LocationLookupPolicy]). Null for a
+  /// prompt that does not name it: nothing is asked.
+  Future<String?> _userLocation(String content) async {
+    final named = _parser
+        .parse(content)
+        .any(
+          (variable) =>
+              variable.isSystemVariable &&
+              variable.name.toUpperCase() == 'USER_LOCATION',
+        );
+    if (!named) return null;
+    Map<String, dynamic>? settings;
+    try {
+      settings =
+          await (_userSettingsOverride ??
+              () async =>
+                  _container.read(apiServiceProvider)?.getUserSettings())();
+    } on Object {
+      settings = null;
+    }
+    return _container
+        .read(locationServiceProvider)
+        .resolveLocationForPromptTemplate(settings);
   }
 
   /// A LibreChat prompt, read with LibreChat's grammar (`{{name}}`, and

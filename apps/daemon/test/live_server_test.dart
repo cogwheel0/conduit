@@ -498,6 +498,14 @@ void main() {
             expect(fetched.attachment!.content, contains('raised bed'));
           }
           expect((await composer.fetchUrl('not a url')).error, 'invalidUrl');
+          // Shortcuts' Send Link to Conduit reads the page the same way.
+          if (page != null) {
+            final sent = await composer.sendLink(' $page ');
+            expect(sent.url, page);
+            expect(sent.youtube, isFalse);
+            expect(sent.attachment!.kind, ContextAttachmentKind.web);
+            expect(sent.attachment!.content, contains('raised bed'));
+          }
         },
         timeout: const Timeout(Duration(minutes: 2)),
       );

@@ -22,6 +22,7 @@ export 'src/hermes_service.dart';
 export 'src/librechat_service.dart';
 export 'src/terminals_service.dart';
 export 'src/apple_models_service.dart';
+export 'src/location_bridge.dart';
 export 'src/calls_service.dart';
 export 'src/computer_rpc_service.dart';
 export 'src/speech_service.dart';

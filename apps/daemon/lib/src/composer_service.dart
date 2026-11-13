@@ -387,6 +387,21 @@ final class ComposerService {
     }
   }
 
+  /// Shortcuts' Send Link to Conduit (`intents.sendLink`): what the server
+  /// reads from [url], as [fetchUrl] reads it for Web Page, and whether it
+  /// is a YouTube video, so the app words the new chat's message as the
+  /// phone does ("this video" or "this page").
+  Future<IntentLinkResult> sendLink(String url) async {
+    final trimmed = url.trim();
+    final fetched = await fetchUrl(trimmed);
+    return IntentLinkResult(
+      url: trimmed,
+      youtube: isYoutubeUrl(trimmed),
+      attachment: fetched.attachment,
+      error: fetched.error,
+    );
+  }
+
   /// The account's files on the server, newest first, matching [query]:
   /// what mobile's server-file picker lists.
   Future<ServerFileList> serverFiles(String query) async {

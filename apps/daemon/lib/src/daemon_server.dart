@@ -347,6 +347,8 @@ class DaemonServer {
     );
     // Apple's on-device model: the chat runs here, the model in the window.
     core.apple.bind(events);
+    // `{{USER_LOCATION}}`: the window asks the Mac's location services.
+    core.location.bind(events);
     _apple = AppleModelsService(core.container, bridge: core.apple);
     if (chats != null) {
       _voice!.speechOfChat = (chatId) async => SpeechService.speechForModel(
@@ -399,6 +401,7 @@ class DaemonServer {
       speech: _readAloud,
       calls: _calls,
       apple: _apple,
+      location: core.location,
       handoff: _handoff,
       calendar: _calendar,
       automations: _automations,

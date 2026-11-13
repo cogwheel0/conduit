@@ -21,6 +21,29 @@ import 'support/null_sink.dart';
 /// per chat, a message's mentions in Open WebUI's wire format, an upload's
 /// retry advice, and the queue's answers in a chat with nothing running.
 void main() {
+  test(
+    'Send Link says what it could not read, and whether it is a video',
+    () async {
+      // No Open WebUI account to read it (Direct, Hermes, signed out).
+      final container = ProviderContainer(
+        overrides: [apiServiceProvider.overrideWithValue(null)],
+      );
+      addTearDown(container.dispose);
+      final composer = ComposerService(container);
+
+      final notALink = await composer.sendLink('  ftp://example.com/tides ');
+      expect(notALink.url, 'ftp://example.com/tides');
+      expect(notALink.error, 'invalidUrl');
+      expect(notALink.youtube, isFalse);
+      expect(notALink.attachment, isNull);
+
+      final video = await composer.sendLink('https://youtu.be/tide-clock');
+      expect(video.youtube, isTrue);
+      expect(video.error, 'failed');
+      expect(video.attachment, isNull);
+    },
+  );
+
   test('mentions go out in Open WebUI\'s wire format', () {
     const text = 'Ask @Riley in #garden with \$Plain English';
     final wire = composerWireText(text, const <ComposerMentionDto>[
