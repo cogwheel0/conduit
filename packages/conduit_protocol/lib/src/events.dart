@@ -63,6 +63,10 @@ abstract final class ConduitEvents {
   /// any window, the server's mirror or the daemon itself. No payload.
   static const String notificationsChanged = 'notifications.changed';
 
+  /// An Open WebUI answer this Mac did not run finished (another device, a
+  /// scheduled task): the window notifies as for its own (`AnswerNotice`).
+  static const String notificationsAnswered = 'notifications.answered';
+
   /// Ask the shell to raise an OS notification.
   static const String notifyShow = 'notify.show';
 
@@ -100,6 +104,12 @@ abstract final class ConduitEvents {
 
   /// Hermes's settings, sessions or jobs changed. No payload.
   static const String hermesChanged = 'hermes.changed';
+
+  /// The active account's session changed in a way the account list does
+  /// not show: a second step began or moved on, or a kept session became a
+  /// connection issue (a sign-in proxy turning it away). No payload; ask
+  /// `auth.status` again.
+  static const String authChanged = 'auth.changed';
 
   /// The whisper models changed: a download moved, finished or failed, or
   /// one was deleted. Payload [VoiceModels].
@@ -208,11 +218,13 @@ abstract final class ConduitEvents {
     openUrl,
     workspaceChanged,
     hermesChanged,
+    authChanged,
     voiceChanged,
     terminalDisplayFile,
     terminalChanged,
     settingsChanged,
     notificationsChanged,
+    notificationsAnswered,
     queueChanged,
     messagesMerge,
     handoffRequested,

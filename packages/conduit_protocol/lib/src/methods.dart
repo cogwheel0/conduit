@@ -124,6 +124,33 @@ abstract final class ConduitMethods {
   /// Turns the reviewer/demo path on or off.
   static const String authSetReviewerMode = 'auth.setReviewerMode';
 
+  /// What to add to an authenticator app for a two-step `enroll` step.
+  static const String authTwoStepSetup = 'auth.twoStep.setup';
+
+  /// Answers a two-step `verify` or `enroll` step with a code (or, for
+  /// `verify`, a recovery code). Signs in, or moves to `recoveryCodes` when
+  /// the server issued new ones.
+  static const String authTwoStepVerify = 'auth.twoStep.verify';
+
+  /// Redeems an administrator's recovery token for a `recover` step, which
+  /// moves to `enroll`.
+  static const String authTwoStepRedeem = 'auth.twoStep.redeem';
+
+  /// Signs in once the new recovery codes were shown.
+  static const String authTwoStepFinish = 'auth.twoStep.finish';
+
+  /// Leaves the second step, back to the sign-in form.
+  static const String authTwoStepCancel = 'auth.twoStep.cancel';
+
+  /// Checks the kept session again after a connection issue: the server is
+  /// asked again, or the saved sign-in tried when no session is kept.
+  static const String authRetry = 'auth.retry';
+
+  /// Renews the active account's expired reverse-proxy session in place
+  /// with what a proxy sign-in window captured, keeping the account signed
+  /// in.
+  static const String authRenewProxy = 'auth.renewProxy';
+
   // ---------------------------------------------------------------------
   // chats.* -- the conversation list and transcripts.
   // ---------------------------------------------------------------------
@@ -891,6 +918,12 @@ abstract final class ConduitMethods {
   /// Asks the Mac again (Settings' Refresh); a model that became able to
   /// answer is listed in the model picker.
   static const String appleRefresh = 'apple.refresh';
+
+  /// The first-run chooser's Apple On-Device row: asks the Mac again, and
+  /// when the model answers, Direct is preferred with it (history kept on
+  /// this Mac unless a policy was chosen before). Answers with the model as
+  /// it is now; anything but available chose nothing.
+  static const String appleChoose = 'apple.choose';
 
   /// The window's engine answers an `apple.command`, or says what a run
   /// did.

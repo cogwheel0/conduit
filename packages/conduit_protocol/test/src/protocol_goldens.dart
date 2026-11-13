@@ -7,7 +7,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.65.0",
+  "protocolVersion": "1.66.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -16,7 +16,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.65.0",
+  "protocolVersion": "1.66.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -478,7 +478,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "isLoading": false,
   "hasToken": false,
   "errorArgs": {},
-  "isReviewerMode": false
+  "isReviewerMode": false,
+  "canRenewProxy": false
 }''',
 
   'authSnapshotSignedIn': r'''
@@ -495,7 +496,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     "avatarUrl": "/api/v1/users/c3a1b2d4/avatar"
   },
   "errorArgs": {},
-  "isReviewerMode": false
+  "isReviewerMode": false,
+  "canRenewProxy": false
 }''',
 
   'authSnapshotError': r'''
@@ -508,13 +510,77 @@ const Map<String, String> protocolGoldens = <String, String>{
   "errorArgs": {
     "attempt": "3"
   },
-  "isReviewerMode": false
+  "isReviewerMode": false,
+  "canRenewProxy": false
+}''',
+
+  'authSnapshotTwoStep': r'''
+{
+  "phase": "unauthenticated",
+  "isAuthenticated": false,
+  "isLoading": false,
+  "hasToken": false,
+  "errorArgs": {},
+  "isReviewerMode": false,
+  "twoStep": {
+    "stage": "verify",
+    "account": "ada@example.com",
+    "expiresInSeconds": 300,
+    "recoveryCodes": []
+  },
+  "canRenewProxy": false
+}''',
+
+  'authSnapshotConnectionIssue': r'''
+{
+  "phase": "error",
+  "isAuthenticated": false,
+  "isLoading": false,
+  "hasToken": true,
+  "errorCode": "net.connectionFailed",
+  "errorArgs": {},
+  "isReviewerMode": false,
+  "canRenewProxy": true
 }''',
 
   'authUser': r'''
 {
   "id": "c3a1b2d4-5e6f-4708-9a1b-2c3d4e5f6071",
   "name": "Ada Lovelace"
+}''',
+
+  'twoStepChallengeCodes': r'''
+{
+  "stage": "recoveryCodes",
+  "account": "ada@example.com",
+  "expiresInSeconds": 0,
+  "recoveryCodes": [
+    "0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+  ]
+}''',
+
+  'twoStepSetup': r'''
+{
+  "manualKey": "MFRGGZDFMZTWQ2LK",
+  "qrSvg": "<svg></svg>",
+  "authenticatorUri": "otpauth://totp/Open%20WebUI:ada%40example.com?secret=MFRGGZDFMZTWQ2LK&issuer=Open%20WebUI"
+}''',
+
+  'twoStepCode': r'''
+{
+  "code": "123456",
+  "recovery": false
+}''',
+
+  'twoStepRecoveryCode': r'''
+{
+  "code": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+  "recovery": true
+}''',
+
+  'twoStepResetToken': r'''
+{
+  "resetToken": "not-a-real-recovery-token"
 }''',
 
   'passwordLogin': r'''
@@ -5968,6 +6034,13 @@ const Map<String, String> protocolGoldens = <String, String>{
   "surface": "banner",
   "cue": true,
   "systemSound": false
+}''',
+
+  'answerNotice': r'''
+{
+  "chatId": "tide-tables",
+  "messageId": "reply-7",
+  "title": "Tide tables"
 }''',
 
   'webhookDto': r'''

@@ -242,6 +242,39 @@ abstract final class ConduitMethodSpecs {
         params: ReviewerMode.fromJson,
         result: AuthSnapshot.fromJson,
       );
+  static const authTwoStepSetup = ConduitMethodSpec<void, TwoStepSetup>(
+    ConduitMethods.authTwoStepSetup,
+    result: TwoStepSetup.fromJson,
+  );
+  static const authTwoStepVerify = ConduitMethodSpec<TwoStepCode, AuthSnapshot>(
+    ConduitMethods.authTwoStepVerify,
+    params: TwoStepCode.fromJson,
+    result: AuthSnapshot.fromJson,
+  );
+  static const authTwoStepRedeem =
+      ConduitMethodSpec<TwoStepResetToken, AuthSnapshot>(
+        ConduitMethods.authTwoStepRedeem,
+        params: TwoStepResetToken.fromJson,
+        result: AuthSnapshot.fromJson,
+      );
+  static const authTwoStepFinish = ConduitMethodSpec<void, AuthSnapshot>(
+    ConduitMethods.authTwoStepFinish,
+    result: AuthSnapshot.fromJson,
+  );
+  static const authTwoStepCancel = ConduitMethodSpec<void, AuthSnapshot>(
+    ConduitMethods.authTwoStepCancel,
+    result: AuthSnapshot.fromJson,
+  );
+  static const authRetry = ConduitMethodSpec<void, AuthSnapshot>(
+    ConduitMethods.authRetry,
+    result: AuthSnapshot.fromJson,
+  );
+  static const authRenewProxy =
+      ConduitMethodSpec<ExternalAuthCompletion, AuthSnapshot>(
+        ConduitMethods.authRenewProxy,
+        params: ExternalAuthCompletion.fromJson,
+        result: AuthSnapshot.fromJson,
+      );
 
   // settings.*
 
@@ -1220,6 +1253,10 @@ abstract final class ConduitMethodSpecs {
   static const appleRefresh = ConduitMethodSpec<void, AppleModels>(
     ConduitMethods.appleRefresh,
     result: AppleModels.fromJson,
+  );
+  static const appleChoose = ConduitMethodSpec<void, AppleModelStatus>(
+    ConduitMethods.appleChoose,
+    result: AppleModelStatus.fromJson,
   );
   static const appleReport = ConduitMethodSpec<AppleReport, OkResult>(
     ConduitMethods.appleReport,
@@ -2342,6 +2379,13 @@ abstract final class ConduitMethodSpecs {
         authCompleteExternal,
         authHasSavedCredentials,
         authSetReviewerMode,
+        authTwoStepSetup,
+        authTwoStepVerify,
+        authTwoStepRedeem,
+        authTwoStepFinish,
+        authTwoStepCancel,
+        authRetry,
+        authRenewProxy,
         settingsGetApp,
         settingsSetApp,
         settingsGet,
@@ -2543,6 +2587,7 @@ abstract final class ConduitMethodSpecs {
         automationsSave,
         appleStatus,
         appleRefresh,
+        appleChoose,
         appleReport,
         notesList,
         notesGet,
@@ -2855,6 +2900,10 @@ abstract final class ConduitEventSpecs {
     payload: HermesChanged.fromJson,
     scoped: false,
   );
+  static const authChanged = ConduitEventSpec<void>(
+    ConduitEvents.authChanged,
+    scoped: false,
+  );
   static const voiceChanged = ConduitEventSpec<VoiceModels>(
     ConduitEvents.voiceChanged,
     payload: VoiceModels.fromJson,
@@ -2876,6 +2925,11 @@ abstract final class ConduitEventSpecs {
   );
   static const notificationsChanged = ConduitEventSpec<void>(
     ConduitEvents.notificationsChanged,
+    scoped: false,
+  );
+  static const notificationsAnswered = ConduitEventSpec<AnswerNotice>(
+    ConduitEvents.notificationsAnswered,
+    payload: AnswerNotice.fromJson,
     scoped: false,
   );
 
@@ -2997,11 +3051,13 @@ abstract final class ConduitEventSpecs {
         openUrl,
         workspaceChanged,
         hermesChanged,
+        authChanged,
         voiceChanged,
         terminalDisplayFile,
         terminalChanged,
         settingsChanged,
         notificationsChanged,
+        notificationsAnswered,
         queueChanged,
         messagesMerge,
         handoffRequested,

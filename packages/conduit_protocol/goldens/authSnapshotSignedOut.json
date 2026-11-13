@@ -4,5 +4,6 @@
   "isLoading": false,
   "hasToken": false,
   "errorArgs": {},
-  "isReviewerMode": false
+  "isReviewerMode": false,
+  "canRenewProxy": false
 }

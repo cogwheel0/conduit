@@ -94,6 +94,27 @@ abstract class NotificationRouteParams with _$NotificationRouteParams {
       _$NotificationRouteParamsFromJson(json);
 }
 
+/// `notifications.answered`: an Open WebUI answer this Mac did not run
+/// finished (on another device, or a scheduled task's run), as the
+/// phone's notification listener hears it on the server's socket
+/// (`chat:completion`, its last frame). The window routes it as it routes
+/// `turn.finished` (`notifications.route`, an answer).
+@freezed
+abstract class AnswerNotice with _$AnswerNotice {
+  const factory AnswerNotice({
+    required String chatId,
+
+    /// The answer's message id, when the server names it.
+    @Default('') String messageId,
+
+    /// The chat's title as the server sent it; may be empty.
+    @Default('') String title,
+  }) = _AnswerNotice;
+
+  factory AnswerNotice.fromJson(Map<String, dynamic> json) =>
+      _$AnswerNoticeFromJson(json);
+}
+
 /// Reply to `notifications.route`: the core's decision.
 @freezed
 abstract class NotificationRoute with _$NotificationRoute {
