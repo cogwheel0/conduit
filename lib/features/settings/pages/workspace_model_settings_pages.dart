@@ -781,6 +781,7 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
           resourceName: editor.text.name.trim().isEmpty
               ? null
               : editor.text.name.trim(),
+          session: editor.session,
         );
       }
       await _access.hydrate(detailId, l10n);

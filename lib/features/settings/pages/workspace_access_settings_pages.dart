@@ -5,6 +5,7 @@ import 'package:conduit_core/features/sharing/providers/principal_lookup.dart';
 import 'package:conduit_core/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart';
+import 'package:conduit_core/features/workspace/providers/workspace_session.dart';
 import 'package:conduit_core/navigation/routes.dart' show WorkspaceSection;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -32,11 +33,16 @@ final class WorkspaceAccessDraft {
     required this.readOnly,
     required this.saveOnDone,
     this.resourceName,
+    this.session,
   }) : baseline = normalizeWorkspaceGrants(grants),
        grants = normalizeWorkspaceGrants(grants);
 
   final WorkspaceSection section;
   final String editorKey;
+
+  /// The account the list was opened for: once another one signs in, the
+  /// list is neither drawn nor sent for it.
+  final WorkspaceSessionIdentity? session;
   final String? resourceName;
   final bool readOnly;
   final bool saveOnDone;
@@ -456,23 +462,37 @@ final class WorkspaceAccessPages {
       _drafts[workspaceAccessKey(section, editorKey)];
 
   /// Opens the access of the resource behind [editorKey] as its Access page
-  /// appears. A list being edited stays as it is.
+  /// appears, for the account of [session] (the one signed in when null). A
+  /// list being edited stays as it is; one opened for an account since gone
+  /// is replaced.
   WorkspaceAccessDraft open({
     required String editorKey,
     required List<WorkspaceAccessGrantInput> grants,
     required bool readOnly,
     required bool saveOnDone,
     String? resourceName,
+    WorkspaceSessionIdentity? session,
   }) {
     final key = workspaceAccessKey(section, editorKey);
-    return _drafts[key] ??= WorkspaceAccessDraft(
+    final existing = _drafts[key];
+    if (existing != null && _current(existing)) return existing;
+    return _drafts[key] = WorkspaceAccessDraft(
       section: section,
       editorKey: editorKey,
       grants: grants,
       readOnly: readOnly,
       saveOnDone: saveOnDone,
       resourceName: resourceName,
+      session: session ?? _session(),
     );
+  }
+
+  WorkspaceSessionIdentity? _session() {
+    try {
+      return WorkspaceSessionIdentity.read(_ref);
+    } on StateError {
+      return null;
+    }
   }
 
   Future<void> hydrate(String detailId, AppLocalizations l10n) async {
@@ -480,8 +500,9 @@ final class WorkspaceAccessPages {
     final editorKey = editorKeyOf(detailId);
     if (editorKey == null) return;
     final draft = draftFor(editorKey);
-    if (draft == null) {
-      // The editor that owns it is gone: nothing to show access for.
+    if (draft == null || !_current(draft)) {
+      // The editor that owns it is gone, or was another account's: nothing
+      // to show access for.
       await _surface.closeDetail(detailId);
       return;
     }
@@ -558,8 +579,10 @@ final class WorkspaceAccessPages {
     return lookup;
   }
 
+  /// Whether [draft] is still the page's list, for the account signed in.
   bool _current(WorkspaceAccessDraft draft) =>
-      identical(_drafts[draft.key], draft);
+      identical(_drafts[draft.key], draft) &&
+      (draft.session?.isCurrent(_ref) ?? false);
 
   Future<void> _resolveNames(WorkspaceAccessDraft draft) async {
     final lookup = _currentLookup();
@@ -665,7 +688,8 @@ final class WorkspaceAccessPages {
     final bar = row.key.indexOf('|');
     if (bar < 0 || row.key.substring(0, bar) != section.name) return false;
     final draft = _drafts[row.key];
-    if (draft == null) return true;
+    // A list opened for an account since gone is not changed or drawn.
+    if (draft == null || !_current(draft)) return true;
     // What the account may grant now, as the page draws it: a change from a
     // page drawn before the server said otherwise is refused, and the page
     // drawn again as it stands.
@@ -762,6 +786,7 @@ final class WorkspaceAccessPages {
     if (!draft.saveOnDone) {
       draft.baseline = grants;
       await onDone(draft, grants, saved: false);
+      if (!_current(draft)) return;
       await _surface.closeDetail(pageId);
       return;
     }
@@ -790,8 +815,14 @@ final class WorkspaceAccessPages {
       ..baseline = saved;
     final keptAll = workspaceGrantKeys(saved)
         .containsAll(workspaceGrantKeys(grants));
-    if (keptAll) await apply(l10n, draft);
+    if (keptAll) {
+      await apply(l10n, draft);
+      if (!_current(draft)) return;
+    }
     await onDone(draft, saved, saved: true);
+    // The editor drawn again waits on the sheet: an account that signed in
+    // meanwhile, or a page left, is shown nothing more of this list.
+    if (!_current(draft)) return;
     if (keptAll) {
       await _surface.closeDetail(pageId);
       return;

@@ -70,6 +70,14 @@ const _readOnlyModel = WorkspaceModelSummary(
   writeAccess: false,
 );
 
+/// The server's answer to a list shared with everyone it may not open to.
+List<WorkspaceAccessGrantInput> _withoutEveryone(
+  List<WorkspaceAccessGrantInput> grants,
+) => [
+  for (final grant in grants)
+    if (grant.principalId != '*') grant,
+];
+
 WorkspacePromptSummary _prompt({
   bool writeAccess = true,
   List<String> tags = const ['travel'],
@@ -110,6 +118,9 @@ final class _Models extends WorkspaceModels {
   /// What the server keeps of a list sent: all of it unless a test says.
   List<WorkspaceAccessGrantInput> Function(List<WorkspaceAccessGrantInput>)
   keepAccess = (grants) => grants;
+
+  /// Holds an access save, when a test sets it.
+  Completer<void>? accessGate;
   Completer<void>? saveGate;
 
   @override
@@ -141,6 +152,7 @@ final class _Models extends WorkspaceModels {
     List<WorkspaceAccessGrantInput> grants,
   ) async {
     accessSaves.add(grants);
+    await accessGate?.future;
     if (failAccess) throw StateError('refused');
     return WorkspaceModelSummary(
       id: id,
@@ -198,6 +210,43 @@ final class _Prompts extends WorkspacePrompts {
 
   /// Holds a version made live or deleted, when a test sets it.
   Completer<void>? versionGate;
+
+  final accessSaves = <List<WorkspaceAccessGrantInput>>[];
+
+  /// What the server keeps of a list sent: all of it unless a test says.
+  List<WorkspaceAccessGrantInput> Function(List<WorkspaceAccessGrantInput>)
+  keepAccess = (grants) => grants;
+
+  /// Holds an access save, when a test sets it.
+  Completer<void>? accessGate;
+
+  @override
+  Future<WorkspacePromptDetail> updateAccess(
+    String id,
+    List<WorkspaceAccessGrantInput> grants,
+  ) async {
+    accessSaves.add(grants);
+    await accessGate?.future;
+    final prompt = _prompt();
+    return WorkspacePromptSummary(
+      id: prompt.id,
+      command: prompt.command,
+      name: prompt.name,
+      content: prompt.content,
+      userId: prompt.userId,
+      tags: prompt.tags,
+      versionId: prompt.versionId,
+      writeAccess: prompt.writeAccess,
+      accessGrants: [
+        for (final grant in keepAccess(grants))
+          WorkspaceAccessGrant(
+            principalType: grant.principalType,
+            principalId: grant.principalId,
+            permission: grant.permission,
+          ),
+      ],
+    );
+  }
 
   @override
   Future<WorkspaceCollectionState<WorkspacePromptSummary>> build() async =>
@@ -1644,6 +1693,81 @@ void main() {
             .equals(_l10n.libraryAccessPartialSave(name));
         check(rig.row(access, friend)).isNull();
       });
+
+      for (final section in [
+        WorkspaceSection.models,
+        WorkspaceSection.prompts,
+      ]) {
+        testWidgets('a ${section.name} save kept in part draws no Access page '
+            'once another account signs in', (tester) async {
+          final models = section == WorkspaceSection.models
+              ? (_Models()..keepAccess = _withoutEveryone)
+              : null;
+          final prompts = section == WorkspaceSection.prompts
+              ? (_Prompts()..keepAccess = _withoutEveryone)
+              : null;
+          final rig = await pump(
+            tester,
+            models: models,
+            prompts: prompts,
+            modelDetails: {'model-1': _writableModel()},
+            promptDetails: {'prompt-1': _prompt()},
+          );
+          final (editorPage, key) = section == WorkspaceSection.models
+              ? (_model1, _model1Key)
+              : (_prompt1, _prompt1Key);
+          final SettingsPageModule module = section == WorkspaceSection.models
+              ? rig.module<WorkspaceModelSettingsPages>()
+              : rig.module<WorkspacePromptSettingsPages>();
+          final access = workspaceAccessPageId(section, key);
+          await rig.open(editorPage);
+          await rig.open(access);
+          await rig.change(
+            workspaceRowId('access-general', '${section.name}|$key'),
+            'server',
+          );
+          final request = Completer<void>();
+          models?.accessGate = request;
+          prompts?.accessGate = request;
+
+          final saving = module.handleChange(
+            workspaceRowId('access-done', '${section.name}|$key'),
+            true,
+            _l10n,
+          );
+          await tester.pump(const Duration(milliseconds: 20));
+          // The editor drawn with the saved list is held while another
+          // account signs in.
+          final editorDrawn = rig.surface.gate = Completer<void>();
+          request.complete();
+          await tester.pump(const Duration(milliseconds: 20));
+          check(rig.surface.drawn.last).equals(editorPage);
+          rig.container
+              .read(_signedInProvider.notifier)
+              .use(
+                const User(
+                  id: 'user-2',
+                  username: 'grace',
+                  email: 'grace@example.com',
+                  role: 'user',
+                ),
+              );
+          await tester.pump(const Duration(milliseconds: 20));
+          final before = rig.surface.drawn.length;
+          rig.surface.gate = null;
+          editorDrawn.complete();
+          await rig.settle(saving);
+
+          check(
+            (models?.accessSaves ?? prompts!.accessSaves).single.map(
+              (g) => g.principalId,
+            ),
+          ).contains('*');
+          check(rig.surface.drawn.skip(before))
+              .not((it) => it.contains(access));
+          check(rig.closed).not((it) => it.contains(access));
+        });
+      }
 
       testWidgets('its Add rows open pages of their own', (tester) async {
         final rig = await pump(

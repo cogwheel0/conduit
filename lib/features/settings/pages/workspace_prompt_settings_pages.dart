@@ -749,6 +749,7 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
           readOnly: editor.readOnly,
           saveOnDone: !editor.isCreate,
           resourceName: editor.name.trim().isEmpty ? null : editor.name.trim(),
+          session: editor.session,
         );
       }
       await _access.hydrate(detailId, l10n);
