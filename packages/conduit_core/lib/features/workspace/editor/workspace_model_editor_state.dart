@@ -9,6 +9,8 @@ import '../models/workspace_resources.dart';
 import '../providers/workspace_model_relationships.dart';
 import 'workspace_editor_session.dart';
 
+import 'package:conduit_core/features/workspace/models/workspace_clone.dart';
+
 /// Which JSON field stopped [WorkspaceModelEditorState.syncFieldText].
 enum WorkspaceModelDraftSyncIssue { params, builtinTools }
 
@@ -245,8 +247,8 @@ base class WorkspaceModelEditorState {
   /// and no sharing grants.
   WorkspaceModelDraft buildClone(String suffix) {
     return _draft.deepCopy(
-      id: '${_draft.id}-copy',
-      name: '${_draft.name} $suffix',
+      id: WorkspaceClone.modelId(_draft.id),
+      name: WorkspaceClone.name(_draft.name, suffix),
       accessGrants: const [],
     );
   }

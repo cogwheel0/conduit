@@ -53,6 +53,131 @@ final class ChatActionAvailability {
   final bool compare;
 }
 
+/// What a chat's menus offer for it -- a host's chat list menu and its
+/// menu bar's Chat menu -- as the phone's conversation menu decides each one
+/// (`buildConversationActionsWithFolders`), plus Export as the chat page
+/// offers it. Read synchronously ([chatMenuAvailability]) so a host can list
+/// it beside every chat; [chatActionAvailability] answers the same rule for
+/// one open chat.
+@immutable
+final class ChatMenuAvailability {
+  const ChatMenuAvailability({
+    this.share = false,
+    this.duplicate = false,
+    this.move = false,
+    this.markUnread = false,
+    this.generateTitle = false,
+    this.export = false,
+  });
+
+  /// Share Chat: not for an on-device or temporary chat, nor another
+  /// user's; a LibreChat chat only where its server allows links (or it has
+  /// one already).
+  final bool share;
+
+  /// Duplicate Chat: a LibreChat chat's copy on its server, while online.
+  final bool duplicate;
+
+  /// Move To a folder: an Open WebUI chat while folders are on.
+  final bool move;
+
+  /// Mark as Unread (or Read): an Open WebUI chat on a server that keeps
+  /// the mark.
+  final bool markUnread;
+
+  /// Generate Title: a chat the server holds (not LibreChat's, not a native
+  /// Hermes session's).
+  final bool generateTitle;
+
+  /// Export: an Open WebUI chat the account may export.
+  final bool export;
+}
+
+/// The one rule behind [ChatMenuAvailability], from what the caller read.
+ChatMenuAvailability _chatMenuRule(
+  Conversation conversation, {
+  required bool readOnly,
+  required bool temporary,
+  required bool apiPresent,
+  required bool libreChatSharedLinks,
+  required bool markUnreadSupported,
+  required bool exportAllowed,
+  required bool online,
+  required bool foldersAvailable,
+}) {
+  final onDevice = isDirectLocalConversation(conversation);
+  final libreChat = isLibreChatConversation(conversation);
+  // The chat menu's own actions: none on a temporary chat or another user's.
+  final menu = !temporary && !readOnly && !onDevice;
+  final shareId = conversation.shareId;
+  final bool share;
+  if (!menu) {
+    share = false;
+  } else if (!libreChat) {
+    share = true;
+  } else {
+    share = (shareId != null && shareId.isNotEmpty) || libreChatSharedLinks;
+  }
+  return ChatMenuAvailability(
+    share: share,
+    duplicate: libreChat && !readOnly && online,
+    move: menu && !libreChat && foldersAvailable,
+    markUnread: menu && !libreChat && markUnreadSupported,
+    generateTitle:
+        menu &&
+        !libreChat &&
+        !isNativeHermesConversation(conversation) &&
+        apiPresent,
+    export:
+        apiPresent &&
+        !temporary &&
+        chatMutationOwnerScopeForConversation(conversation) ==
+            openWebUiChatMutationOwnerScope(conversation.id) &&
+        exportAllowed,
+  );
+}
+
+/// [ChatMenuAvailability] for [conversation] from what is loaded now: an
+/// account permission or LibreChat's capabilities still loading read as
+/// not allowed (a host lists again once they load). [temporary] marks a
+/// chat the server never stores (besides a `local:` id).
+ChatMenuAvailability chatMenuAvailability(
+  dynamic ref,
+  Conversation conversation, {
+  bool temporary = false,
+}) {
+  bool read(Object? Function() value) {
+    try {
+      return value() == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  final userId = (ref.read(currentUserProvider2) as User?)?.id;
+  return _chatMenuRule(
+    conversation,
+    readOnly: isReadOnlySharedConversation(conversation, userId),
+    temporary: temporary || isTemporaryChat(conversation.id),
+    apiPresent: ref.read(apiServiceProvider) != null,
+    libreChatSharedLinks: read(() {
+      // Typed, not dynamic: `asData` is an extension getter.
+      final loaded =
+          ref.read(libreChatCapabilitiesProvider) as AsyncValue<Object?>;
+      final dynamic capabilities = loaded.asData?.value;
+      return capabilities?.sharedLinks;
+    }),
+    markUnreadSupported: read(() => ref.read(chatMarkUnreadSupportedProvider)),
+    exportAllowed: read(
+      () => (ref.read(
+        openWebUiChatActionAllowedProvider('export'),
+      ) as AsyncValue<bool>).asData?.value,
+    ),
+    online: read(() => ref.read(isOnlineProvider)),
+    foldersAvailable: read(() => ref.read(foldersAvailableProvider)),
+  );
+}
+
 /// Whether the branch controls apply to [conversation]: the signed-in
 /// user's own durable Open WebUI chat, outside reviewer mode, as
 /// [chatBranchControlsProvider] decides for the active chat.
@@ -79,7 +204,6 @@ Future<ChatActionAvailability> chatActionAvailability(
   final isTemporary = temporary || isTemporaryChat(conversation.id);
   final api = ref.read(apiServiceProvider);
   final reviewer = ref.read(reviewerModeProvider) == true;
-  final onDevice = isDirectLocalConversation(conversation);
   final libreChat = isLibreChatConversation(conversation);
   final branch = !isTemporary && chatBranchControlsFor(ref, conversation);
 
@@ -98,19 +222,11 @@ Future<ChatActionAvailability> chatActionAvailability(
     fork =
         branch &&
         await allowed(
-          () => ref.read(openWebUiChatImportAllowedProvider.future)
-              as Future<bool>,
+          () =>
+              ref.read(openWebUiChatImportAllowedProvider.future)
+                  as Future<bool>,
         );
   }
-  final export =
-      api != null &&
-      !isTemporary &&
-      chatMutationOwnerScopeForConversation(conversation) ==
-          openWebUiChatMutationOwnerScope(conversation.id) &&
-      await allowed(
-        () => ref.read(openWebUiChatActionAllowedProvider('export').future)
-            as Future<bool>,
-      );
   final advanced =
       (ref.read(appSettingsProvider) as AppSettings).advancedFeaturesEnabled;
   final durableOpenWebUi =
@@ -120,38 +236,42 @@ Future<ChatActionAvailability> chatActionAvailability(
       !reviewer &&
       !isTemporary &&
       conversationUsesOpenWebUiStorage(conversation);
-  // The chat menu's own actions: none on a temporary chat or another user's.
-  final menu = !isTemporary && !readOnly && !onDevice;
-  final shareId = conversation.shareId;
-  final bool share;
-  if (!menu) {
-    share = false;
-  } else if (!libreChat) {
-    share = true;
-  } else if (shareId != null && shareId.isNotEmpty) {
-    share = true;
-  } else {
-    share = await allowed(() async {
-      final dynamic capabilities = await ref.read(
-        libreChatCapabilitiesProvider.future,
-      );
-      return capabilities.sharedLinks == true;
-    });
-  }
+  // Share, Mark as Unread, Generate Title and Export: the menus' rule
+  // ([chatMenuAvailability]), with the permissions it reads awaited.
+  final menu = _chatMenuRule(
+    conversation,
+    readOnly: readOnly,
+    temporary: isTemporary,
+    apiPresent: api != null,
+    libreChatSharedLinks:
+        libreChat &&
+        await allowed(() async {
+          final dynamic capabilities = await ref.read(
+            libreChatCapabilitiesProvider.future,
+          );
+          return capabilities.sharedLinks == true;
+        }),
+    markUnreadSupported: ref.read(chatMarkUnreadSupportedProvider) == true,
+    exportAllowed:
+        api != null &&
+        !isTemporary &&
+        await allowed(
+          () =>
+              ref.read(openWebUiChatActionAllowedProvider('export').future)
+                  as Future<bool>,
+        ),
+    online: true,
+    foldersAvailable: true,
+  );
   return ChatActionAvailability(
     fork: fork,
-    export: export,
+    export: menu.export,
     merge: advanced && durableOpenWebUi && !readOnly && !mergeRunning,
     branch: branch,
     deleteMessages: !readOnly && !libreChat,
-    markUnread:
-        menu && !libreChat && ref.read(chatMarkUnreadSupportedProvider) == true,
-    generateTitle:
-        menu &&
-        !libreChat &&
-        !isNativeHermesConversation(conversation) &&
-        api != null,
-    share: share,
+    markUnread: menu.markUnread,
+    generateTitle: menu.generateTitle,
+    share: menu.share,
     saveTemporary:
         isTemporary &&
         conversation.messages.isNotEmpty &&

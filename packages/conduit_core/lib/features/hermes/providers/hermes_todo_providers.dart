@@ -1,4 +1,5 @@
 import 'package:collection/collection.dart';
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
@@ -13,7 +14,11 @@ import 'package:conduit_core/providers/app_providers.dart'
 /// The Hermes session the open chat continues, when it is a Hermes chat, or
 /// the one a Hermes turn inside an OpenWebUI chat runs in. Its plan and its
 /// background work follow it.
-final hermesOpenChatSessionProvider = Provider.autoDispose<String?>((ref) {
+final hermesOpenChatSessionProvider = Provider.autoDispose<String?>(
+  _hermesOpenChatSession,
+);
+
+String? _hermesOpenChatSession(Ref ref) {
   final id = ref.watch(
     activeConversationProvider.select(
       (conversation) => conversation?.metadata['hermesSessionId'],
@@ -34,17 +39,27 @@ final hermesOpenChatSessionProvider = Provider.autoDispose<String?>((ref) {
   );
   if (bound != null && latest == bound) return bound;
   return ref.watch(hermesTrustedMixedSessionProvider);
-});
+}
 
 /// The agent's task list for the open chat, live: only a Desktop Gateway
 /// reports one. Null when the chat has none.
 final hermesActiveTodoProvider = StreamProvider.autoDispose<HermesTodoState?>(
-  (ref) {
-    final service = ref.watch(hermesApiServiceProvider);
-    final storedId = ref.watch(hermesOpenChatSessionProvider);
-    if (service is! HermesDesktopApiService || storedId == null) {
-      return Stream.value(null);
-    }
-    return service.todoStatesFor(storedId);
-  },
+  _hermesActiveTodo,
 );
+
+Stream<HermesTodoState?> _hermesActiveTodo(Ref ref) {
+  final service = ref.watch(hermesApiServiceProvider);
+  final storedId = ref.watch(hermesOpenChatSessionProvider);
+  if (service is! HermesDesktopApiService || storedId == null) {
+    return Stream.value(null);
+  }
+  return service.todoStatesFor(storedId);
+}
+
+/// The open chat's Hermes session and plan made afresh in a chat session
+/// scope (`ChatSessionScope`), from the same create functions: left to the
+/// root, they would follow the root's open chat, not the scope's.
+List<Override> chatSessionScopedHermesPlanOverrides() => <Override>[
+  hermesOpenChatSessionProvider.overrideWith(_hermesOpenChatSession),
+  hermesActiveTodoProvider.overrideWith(_hermesActiveTodo),
+];

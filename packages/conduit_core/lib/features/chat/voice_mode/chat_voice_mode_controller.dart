@@ -11,6 +11,7 @@ import 'dart:async';
 import 'dart:collection';
 
 import 'package:meta/meta.dart';
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/voice/voice_session.dart';
@@ -40,6 +41,7 @@ import 'package:conduit_core/features/chat/realtime_call/realtime_bridge_transpo
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart';
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_state.dart';
 import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dart';
+import 'package:conduit_core/features/chat/voice_mode/chat_voice_send.dart';
 import 'package:conduit_core/features/chat/voice_mode/voice_mode_ports.dart';
 
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
@@ -89,6 +91,17 @@ final chatVoiceModeControllerProvider =
     NotifierProvider<ChatVoiceModeController, ChatVoiceModeSnapshot>(
       ChatVoiceModeController.new,
     );
+
+/// What a chat session scope makes afresh for a call in its chat: the
+/// controller, and the admission and realtime voice it reads, which follow
+/// the scope's selected model and conversation rather than the root's. A
+/// host with several chats live (the desktop daemon) runs a call in the
+/// scope of the chat it is in; mobile never opens a scope.
+List<Override> chatSessionScopedVoiceOverrides() => <Override>[
+  chatVoiceModeControllerProvider.overrideWith(ChatVoiceModeController.new),
+  ...chatSessionScopedVoiceCallEligibilityOverrides(),
+  ...chatSessionScopedRealtimeCallOverrides(),
+];
 
 @visibleForTesting
 final chatVoiceModeServiceLifecycleTimeoutProvider = Provider<Duration>((ref) {
@@ -221,6 +234,19 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   bool _usesOpenWebUiTransport = false;
   List<String> _assistantSpeechChunks = const <String>[];
   int _activeAssistantSpeechChunkIndex = -1;
+  RealtimeCallBlock? _realtimeBlock;
+  bool _realtimeAudioMissing = false;
+
+  /// Whether the call under way talks to a realtime voice.
+  bool get isRealtimeCall => _realtime != null;
+
+  /// Why the call under way is turn by turn, when the core said: what the
+  /// user, the chat or the backend left it ([RealtimeCallBlock]).
+  RealtimeCallBlock? get realtimeBlock => _realtimeBlock;
+
+  /// Whether the call is turn by turn because this host has no realtime
+  /// audio or WebRTC, although the backend offers a realtime voice.
+  bool get realtimeAudioMissing => _realtimeAudioMissing;
 
   @override
   ChatVoiceModeSnapshot build() {
@@ -599,6 +625,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     Model model, {
     required bool newChat,
   }) async {
+    _realtimeBlock = null;
+    _realtimeAudioMissing = false;
     final RealtimeCallRoute route;
     try {
       route = await ref.read(realtimeCallRouteResolverProvider)(
@@ -640,6 +668,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         );
       }
     }
+    _realtimeBlock = route.block;
+    _realtimeAudioMissing = route.block == null;
     DebugLogger.log(
       'realtime-unavailable',
       scope: 'chat/voice_mode',
@@ -1638,10 +1668,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       await _backgroundCoordinator?.keepAlive();
       if (!_isCurrent(token)) return;
       final selectedToolIds = ref.read(selectedToolIdsProvider);
-      await durableSend(
+      await ref.read(chatVoiceSendProvider)(
         ref,
         transcript,
-        null,
         toolIds: selectedToolIds,
         isVoiceMode: true,
       );

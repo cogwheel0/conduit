@@ -3,8 +3,13 @@ import 'dart:async';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_open.dart'
+    show hermesSessionSourceName;
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart'
     show isNativeHermesConversation;
+
+export 'package:conduit_core/features/hermes/services/hermes_session_open.dart'
+    show hermesSessionSourceName;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -34,43 +39,6 @@ String? watchHermesReadOnlySessionSource(
     hermesReadOnlySessionsProvider.select((sessions) => sessions[sessionId]),
   );
 }
-
-/// The product name of the Hermes app a session [source] names ("cli" →
-/// "Hermes CLI", "telegram" → "Telegram"), or [source] as Hermes sent it.
-String hermesSessionSourceName(String source) =>
-    _hermesSessionSourceNames[source.trim().toLowerCase()] ?? source.trim();
-
-const Map<String, String> _hermesSessionSourceNames = {
-  'cli': 'Hermes CLI',
-  'tui': 'Hermes TUI',
-  'gui': 'Hermes Desktop',
-  'desktop': 'Hermes Desktop',
-  'webapp': 'Hermes Webapp',
-  'acp': 'ACP',
-  'cron': 'Hermes cron',
-  'telegram': 'Telegram',
-  'discord': 'Discord',
-  'slack': 'Slack',
-  'whatsapp': 'WhatsApp',
-  'whatsapp_cloud': 'WhatsApp',
-  'signal': 'Signal',
-  'matrix': 'Matrix',
-  'mattermost': 'Mattermost',
-  'email': 'Email',
-  'sms': 'SMS',
-  'teams': 'Microsoft Teams',
-  'msteams': 'Microsoft Teams',
-  'google_chat': 'Google Chat',
-  'homeassistant': 'Home Assistant',
-  'bluebubbles': 'iMessage',
-  'imessage': 'iMessage',
-  'feishu': 'Feishu',
-  'dingtalk': 'DingTalk',
-  'wecom': 'WeCom',
-  'weixin': 'WeChat',
-  'qqbot': 'QQ',
-  'webhook': 'Webhook',
-};
 
 /// Replaces the composer for a Hermes session another Hermes surface owns.
 ///
@@ -153,9 +121,9 @@ class _HermesReadOnlySessionNoticeState
       }
       HermesSessionSummary? fork;
       try {
-        fork = (await ref.read(
-          hermesSessionsProvider.future,
-        )).where((session) => session.id == forkId).firstOrNull;
+        fork = (await ref.read(hermesSessionsProvider.future))
+            .where((session) => session.id == forkId)
+            .firstOrNull;
       } catch (_) {
         // The fork exists; open it under the original's title.
       }

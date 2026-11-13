@@ -3,7 +3,6 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart'
     show isLocallyMintedDirectModel;
@@ -28,6 +27,7 @@ import 'package:conduit_core/features/channels/providers/channel_providers.dart'
 
 import '../../channels/utils/channel_request_owner.dart';
 import '../../channels/widgets/channel_form_dialog.dart';
+import 'package:conduit_core/features/channels/utils/channel_actions.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     as chat;
@@ -245,9 +245,9 @@ Future<void> _createChannel(BuildContext context, WidgetRef ref) async {
   }
 
   try {
-    final json = await api.createChannel(
+    final channel = await createGroupChannel(
+      api,
       name: result.name,
-      type: 'group',
       description: result.description,
       isPrivate: result.isPrivate,
     );
@@ -261,7 +261,7 @@ Future<void> _createChannel(BuildContext context, WidgetRef ref) async {
       return;
     }
 
-    ref.read(channelsListProvider.notifier).addChannel(Channel.fromJson(json));
+    ref.read(channelsListProvider.notifier).addChannel(channel);
   } catch (error, stackTrace) {
     DebugLogger.error(
       'create-channel-failed',

@@ -35,6 +35,63 @@ sealed class AutomationSchedule {
   ];
 }
 
+/// The kinds of schedule the editor's controls write.
+enum AutomationScheduleKind { once, daily, weekly }
+
+/// A schedule of [kind] that starts from [current], keeping its time of day
+/// when it has one (9:00 otherwise). A one-time run starts five minutes from
+/// [now]; a weekly one on [now]'s weekday. This is the explicit change that
+/// replaces a rule the controls could not edit.
+AutomationSchedule automationScheduleOfKind(
+  AutomationScheduleKind kind, {
+  required AutomationSchedule current,
+  required DateTime now,
+}) {
+  final (hour, minute) = switch (current) {
+    OnceAutomationSchedule(:final hour, :final minute) => (hour, minute),
+    DailyAutomationSchedule(:final hour, :final minute) => (hour, minute),
+    WeeklyAutomationSchedule(:final hour, :final minute) => (hour, minute),
+    RawAutomationSchedule() => (9, 0),
+  };
+  return switch (kind) {
+    AutomationScheduleKind.once => OnceAutomationSchedule.fromDateTime(
+      now.add(const Duration(minutes: 5)),
+    ),
+    AutomationScheduleKind.weekly => WeeklyAutomationSchedule(
+      hour: hour,
+      minute: minute,
+      days: {AutomationSchedule.weekdayCodes[now.weekday - 1]},
+    ),
+    AutomationScheduleKind.daily => DailyAutomationSchedule(
+      hour: hour,
+      minute: minute,
+    ),
+  };
+}
+
+/// [schedule] at another time of day. A rule the controls cannot edit has no
+/// time of its own, so setting one makes it daily, as the editor's time
+/// control does.
+AutomationSchedule automationScheduleAtTime(
+  AutomationSchedule schedule,
+  int hour,
+  int minute,
+) => switch (schedule) {
+  final OnceAutomationSchedule once => OnceAutomationSchedule(
+    year: once.year,
+    month: once.month,
+    day: once.day,
+    hour: hour,
+    minute: minute,
+  ),
+  final WeeklyAutomationSchedule weekly => WeeklyAutomationSchedule(
+    hour: hour,
+    minute: minute,
+    days: weekly.days,
+  ),
+  _ => DailyAutomationSchedule(hour: hour, minute: minute),
+};
+
 /// Runs once, at a wall-clock moment.
 final class OnceAutomationSchedule extends AutomationSchedule {
   const OnceAutomationSchedule({

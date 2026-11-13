@@ -571,12 +571,14 @@ void main() {
           ..event('tool.complete', {'name': 'terminal'})
           ..event('tool.start', {'name': 'delegate_task'})
           ..event('status.update', {'kind': 'process', 'text': 'done'})
+          // Hermes' process tool, which it also takes as `process`.
+          ..event('tool.complete', {'name': 'process_manage'})
           // Not about background work.
           ..event('tool.complete', {'name': 'read_file'})
           ..event('status.update', {'kind': 'compressing'});
         await _settle();
 
-        check(hints).deepEquals(List.filled(4, 'local-1'));
+        check(hints).deepEquals(List.filled(5, 'local-1'));
         check(service.isSameChat('local-1', gateway.runtimeId)).isTrue();
         check(service.isSameChat('local-1', 'local-other')).isFalse();
       });

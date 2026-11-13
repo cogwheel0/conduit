@@ -1670,16 +1670,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         final avatarUrl = _resolveAvatarUrl(api, message);
 
         // Determine the effective sender ID for
-        // grouping consecutive messages. Model
-        // messages use meta.model_id as the key,
-        // and app messages, which have no user_id,
-        // use the app id in their user object.
-        String? senderOf(ChannelMessage m) {
-          if (isModelMessage(m)) {
-            return m.meta?['model_id'] as String?;
-          }
-          return m.userId ?? m.user?.id;
-        }
+        // grouping consecutive messages (the core's
+        // channelMessageSender).
+        String? senderOf(ChannelMessage m) => channelMessageSender(m);
 
         // In a reversed list, index+1 is the
         // message visually above. Show profile

@@ -150,20 +150,9 @@ void _showInAppBanner(Ref ref, AppNotification notification) {
   );
 }
 
-void _bumpChannelUnread(Ref ref, AppNotification notification) {
-  final list = ref.read(channelsListProvider).value;
-  if (list == null) return;
-  for (final channel in list) {
-    if (channel.id == notification.sourceId) {
-      ref
-          .read(channelsListProvider.notifier)
-          .updateChannel(
-            channel.copyWith(unreadCount: channel.unreadCount + 1),
-          );
-      return;
-    }
-  }
-}
+void _bumpChannelUnread(Ref ref, AppNotification notification) => ref
+    .read(channelsListProvider.notifier)
+    .bumpUnread(notification.sourceId);
 
 /// Single global subscriber that turns socket events into notifications.
 ///

@@ -28,6 +28,7 @@ final accountFeaturesProvider = Provider<AccountFeatures>((ref) {
     folders: ref.watch(foldersAvailableProvider),
     calendar: openWebUi && ref.watch(calendarAvailableProvider),
     automations: openWebUi && ref.watch(automationsAvailableProvider),
+    scheduledTasks: openWebUi && ref.watch(scheduledTasksEntryVisibleProvider),
     webhooks: ref.watch(notificationTargetsAvailableProvider),
     memories: ref.watch(memoriesPermittedProvider).asData?.value ?? false,
     codeInterpreter: ref.watch(codeInterpreterAvailableProvider),

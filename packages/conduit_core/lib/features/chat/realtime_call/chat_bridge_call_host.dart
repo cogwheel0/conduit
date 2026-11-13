@@ -6,6 +6,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/voice_mode/chat_voice_send.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart'
     show kHermesApprovalMeta, kHermesDecisionMeta, kHermesTransport;
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
@@ -123,10 +124,9 @@ final class ChatBridgeCallHost implements BridgeCallHost {
 
   Future<void> _saveExchange(RealtimeVoiceExchange exchange) async {
     if (!_inCallChat) throw StateError("The call's chat is not open.");
-    await durableSend(
+    await _ref.read(chatVoiceSendProvider)(
       _ref,
       exchange.userText,
-      null,
       contextAttachments: const [],
       voice: ChatSendVoiceContext.answered(
         userVoice: exchange.userVoice,
@@ -157,10 +157,9 @@ final class ChatBridgeCallHost implements BridgeCallHost {
     ChatSendPlaceholderHandle? placeholder;
     _ChatTurn? turn;
     var sendFailed = false;
-    final sending = durableSend(
+    final sending = _ref.read(chatVoiceSendProvider)(
       _ref,
       text,
-      null,
       toolIds: _ref.read(selectedToolIdsProvider),
       contextAttachments: const [],
       voice: ChatSendVoiceContext.delegated(

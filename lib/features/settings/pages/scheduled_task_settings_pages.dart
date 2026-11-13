@@ -4,6 +4,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/automations/automation_destinations.dart';
 import 'package:conduit_core/features/automations/automation_draft.dart';
+import 'package:conduit_core/features/automations/automation_run_tracking.dart';
 import 'package:conduit_core/features/automations/automation_schedule.dart';
 import 'package:conduit_core/features/automations/models/automation.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart';
@@ -56,12 +57,12 @@ const scheduledTaskRowPrefix = 'scheduled-task.';
 
 /// How often history is read while waiting for a run the user asked for.
 @visibleForTesting
-const scheduledTaskRunPollInterval = Duration(seconds: 5);
+const scheduledTaskRunPollInterval = automationRunPollInterval;
 
 /// How many history reads a Run Now waits before it stops watching, about two
 /// minutes at [scheduledTaskRunPollInterval].
 @visibleForTesting
-const scheduledTaskRunPollLimit = 24;
+const scheduledTaskRunPollLimit = automationRunPollLimit;
 
 /// An example rule shown in the empty recurrence rule field.
 const _rruleExample = 'RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR;BYHOUR=9;BYMINUTE=0';
@@ -1840,20 +1841,10 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
         // The request still goes; what the page knew is the baseline.
       }
       if (!_current(view)) throw AutomationsOwnerChangedException();
-      final before = <AutomationRun>[
-        ...latest,
-        ...view.runs,
-        ?view.task?.lastRun,
-        ?view.requestedRun,
-      ];
-      final knownIds = {for (final run in before) run.id};
-      int? newestBefore = view.task?.lastRunAtNs;
-      for (final run in before) {
-        final at = run.createdAtNs;
-        if (at != null && (newestBefore == null || at > newestBefore)) {
-          newestBefore = at;
-        }
-      }
+      final baseline = AutomationRunBaseline.of(
+        runs: [...latest, ...view.runs, ?view.requestedRun],
+        task: view.task,
+      );
       final accepted = await _notifier.run(view.taskId, owner: owner);
       if (!_current(view)) throw AutomationsOwnerChangedException();
       view
@@ -1862,7 +1853,7 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
         ..runPolls = 0
         ..runPoll = Timer.periodic(
           scheduledTaskRunPollInterval,
-          (_) => _pollRun(l10n, view, knownIds, newestBefore),
+          (_) => _pollRun(l10n, view, baseline),
         );
     } catch (error) {
       if (!identical(_tasks[view.taskId], view)) return;
@@ -1882,8 +1873,7 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
   Future<void> _pollRun(
     AppLocalizations l10n,
     _TaskView view,
-    Set<String> knownIds,
-    int? newestBefore,
+    AutomationRunBaseline baseline,
   ) async {
     if (!identical(_tasks[view.taskId], view)) {
       view.stopPolling();
@@ -1908,19 +1898,9 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
       if (view.runPhase != ScheduledTaskRunPhase.waiting) return;
       // A run without a time can only be told apart from older ones when
       // nothing ran before.
-      final requested = page.where((run) {
-        if (knownIds.contains(run.id)) return false;
-        final at = run.createdAtNs;
-        return newestBefore == null || (at != null && at >= newestBefore);
-      }).firstOrNull;
+      final requested = baseline.requestedRun(page);
       view.runsMerges++;
-      final known = <String>{};
-      view.runs = [
-        for (final run in page)
-          if (known.add(run.id)) run,
-        for (final run in view.runs)
-          if (known.add(run.id)) run,
-      ];
+      view.runs = mergeAutomationRuns(page, view.runs);
       if (view.runsFailed || view.runs.length == page.length) {
         view.hasMoreRuns = page.length >= automationRunsPageSize;
       }
@@ -2238,47 +2218,26 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
   /// Starts a control schedule of [kind], keeping the time of day when there
   /// is one. This is the explicit change that replaces a rule the controls
   /// could not edit.
-  AutomationSchedule _kindSchedule(AutomationSchedule? schedule, String kind) {
-    final (hour, minute) = switch (schedule) {
-      OnceAutomationSchedule(:final hour, :final minute) => (hour, minute),
-      DailyAutomationSchedule(:final hour, :final minute) => (hour, minute),
-      WeeklyAutomationSchedule(:final hour, :final minute) => (hour, minute),
-      _ => (9, 0),
-    };
-    final now = DateTime.now();
-    return switch (kind) {
-      'once' => OnceAutomationSchedule.fromDateTime(
-        now.add(const Duration(minutes: 5)),
-      ),
-      'weekly' => WeeklyAutomationSchedule(
-        hour: hour,
-        minute: minute,
-        days: {AutomationSchedule.weekdayCodes[now.weekday - 1]},
-      ),
-      _ => DailyAutomationSchedule(hour: hour, minute: minute),
-    };
-  }
+  AutomationSchedule _kindSchedule(
+    AutomationSchedule? schedule,
+    String kind,
+  ) => automationScheduleOfKind(
+    switch (kind) {
+      'once' => AutomationScheduleKind.once,
+      'weekly' => AutomationScheduleKind.weekly,
+      _ => AutomationScheduleKind.daily,
+    },
+    // No schedule yet starts at 9:00, as a rule the controls cannot edit.
+    current: schedule ?? DailyAutomationSchedule(hour: 9, minute: 0),
+    now: DateTime.now(),
+  );
 
   /// Moves the schedule to [hour]:[minute], keeping its kind and day(s).
   AutomationSchedule _timeSchedule(
     AutomationSchedule schedule,
     int hour,
     int minute,
-  ) => switch (schedule) {
-    final OnceAutomationSchedule once => OnceAutomationSchedule(
-      year: once.year,
-      month: once.month,
-      day: once.day,
-      hour: hour,
-      minute: minute,
-    ),
-    final WeeklyAutomationSchedule weekly => WeeklyAutomationSchedule(
-      hour: hour,
-      minute: minute,
-      days: weekly.days,
-    ),
-    _ => DailyAutomationSchedule(hour: hour, minute: minute),
-  };
+  ) => automationScheduleAtTime(schedule, hour, minute);
 
   /// A choice from a picker: kept only while the account the editor opened
   /// for is still the one signed in. The choices came from that account.

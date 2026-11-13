@@ -31,10 +31,7 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
-import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
-import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_bot_chat.dart';
-import 'package:conduit_core/features/hermes/services/hermes_copied_history_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_decision_projection.dart';
@@ -43,6 +40,7 @@ import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_open.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 
 /// A single Hermes session row, styled to match the chat conversation tiles —
@@ -261,22 +259,6 @@ class HermesSessionTile extends ConsumerWidget {
   }
 }
 
-({String? endpointIdentity, String? connectionIdentity})
-_sessionConnectionIdentity(HermesBackendService service, String principalId) {
-  final endpointIdentity = HermesConfigController.connectionEndpoint(
-    service.config.baseUrl,
-  );
-  return (
-    endpointIdentity: endpointIdentity,
-    connectionIdentity: endpointIdentity == null
-        ? null
-        : HermesLocalDocumentTrustStore.connectionIdentity(
-            endpointIdentity: endpointIdentity,
-            principalId: principalId,
-          ),
-  );
-}
-
 /// Deletes a Hermes session and tears down its active chat binding.
 ///
 /// Clearing both providers prevents the next send from reusing a server-side
@@ -294,7 +276,7 @@ Future<void> deleteHermesSession(WidgetRef ref, String sessionId) async {
   final service = ref.read(hermesApiServiceProvider);
   if (service == null) return;
   final principalId = configController.documentTrustPrincipalId();
-  final connection = _sessionConnectionIdentity(service, principalId);
+  final connection = hermesSessionConnectionIdentity(service, principalId);
   final endpointIdentity = connection.endpointIdentity;
   final connectionIdentity = connection.connectionIdentity;
   final deleteCommitted = await ref
@@ -388,32 +370,6 @@ String? _hermesLoadFailureDetail(String raw) {
   );
 }
 
-/// [server] after the earlier messages saved for copy [sessionId], if any.
-Future<List<Map<String, dynamic>>> _withCopiedHistory(
-  HermesCopiedHistoryStore? store,
-  String? connectionIdentity,
-  String sessionId,
-  List<Map<String, dynamic>> server,
-) async {
-  if (store == null || connectionIdentity == null) return server;
-  try {
-    final saved = await store.load(
-      connectionIdentity: connectionIdentity,
-      sessionId: sessionId,
-    );
-    return saved == null ? server : mergeHermesCopiedHistory(saved, server);
-  } catch (error) {
-    // The server's messages are still the chat; only the copy's earlier
-    // context is missing.
-    DebugLogger.warning(
-      'copied-history-load-failed',
-      scope: 'hermes/sessions',
-      data: {'errorType': error.runtimeType.toString()},
-    );
-    return server;
-  }
-}
-
 /// Loads a Hermes session's transcript, binds it as the active chat, selects the
 /// Hermes model, and navigates to the chat view. Subsequent sends continue the
 /// same server-side session.
@@ -459,21 +415,23 @@ Future<void> openHermesSessionReading(
   final service = read(hermesApiServiceProvider);
   if (service == null) return;
   final trustPrincipalId = configController.documentTrustPrincipalId();
-  final connectionIdentity = _sessionConnectionIdentity(
+  final connectionIdentity = hermesSessionConnectionIdentity(
     service,
     trustPrincipalId,
   ).connectionIdentity;
-  final copiedHistory =
-      service is HermesApiService && connectionIdentity != null
-      ? read(hermesCopiedHistoryStoreProvider)
-      : null;
+  final reader = _ProviderReader(read);
+  final copiedHistory = hermesCopiedHistoryFor(
+    reader,
+    service,
+    connectionIdentity,
+  );
 
   List<Map<String, dynamic>> raw;
   var pendingDecisions = const <HermesPendingDesktopDecision>[];
   try {
     raw =
         transcript ??
-        await _withCopiedHistory(
+        await withHermesCopiedHistory(
           copiedHistory,
           connectionIdentity,
           session.id,
@@ -503,29 +461,16 @@ Future<void> openHermesSessionReading(
   if (transcript != null && copiedHistory != null) {
     // Saved even if this open is superseded: the session exists either way.
     try {
-      raw = await copiedHistory.save(
+      raw = await saveHermesCopyHistory(
+        store: copiedHistory,
         connectionIdentity: connectionIdentity!,
+        service: service,
         sessionId: session.id,
-        messages: transcript,
+        transcript: transcript,
       );
-      // Nothing fit (the newest message alone is over the limit): the copy
-      // would open blank and replay nothing, so it is a failed save too.
-      if (raw.isEmpty && transcript.isNotEmpty) {
-        throw StateError('No earlier message fits in the copy.');
-      }
-    } catch (error) {
-      DebugLogger.warning(
-        'copied-history-save-failed',
-        scope: 'hermes/sessions',
-        data: {'errorType': error.runtimeType.toString()},
-      );
-      // Unsaved, the earlier messages would vanish from the copy on its next
-      // open and from what its turns replay. Remove the copy instead.
-      try {
-        await service.deleteSession(session.id);
-      } catch (_) {
-        // Best effort: the copy stays as an empty session.
-      }
+    } on HermesCopyHistoryException {
+      // The copy is removed: unsaved, its earlier messages would vanish
+      // from it on its next open and from what its turns replay.
       if (context.mounted) {
         invalidate(hermesSessionsProvider);
         UiUtils.showMessage(
@@ -546,16 +491,7 @@ Future<void> openHermesSessionReading(
   }
   // Hermes v0.22.1+ refuses REST turns into sessions another Hermes surface
   // owns. Open those read-only so the chat offers a copy instead of failing.
-  var readOnly = false;
-  if (service is HermesApiService &&
-      isForeignHermesSessionSource(session.source)) {
-    try {
-      final capabilities = await read(hermesCapabilitiesProvider.future);
-      readOnly = capabilities.apiOwnsSessions;
-    } catch (_) {
-      // Unknown capabilities: a refused send still marks the session.
-    }
-  }
+  final readOnly = await hermesSessionOpensReadOnly(reader, service, session);
 
   var hermesModel = hermesSyntheticModel(name: service.config.name);
   try {
@@ -648,4 +584,13 @@ Future<void> openHermesSessionReading(
     NavigationService.router.go(Routes.chat);
     closeSidebarDrawerIfOverlay(context);
   }
+}
+
+/// Hands a provider reader to core helpers that read through a `ref`.
+final class _ProviderReader {
+  const _ProviderReader(this._read);
+
+  final T Function<T>(ProviderListenable<T> provider) _read;
+
+  T read<T>(ProviderListenable<T> provider) => _read(provider);
 }

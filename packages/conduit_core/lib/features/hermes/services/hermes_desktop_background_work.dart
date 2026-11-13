@@ -1,7 +1,8 @@
 part of 'hermes_desktop_api_service.dart';
 
-/// Tools whose calls start, check on or stop background processes.
-const _kHermesProcessTools = {'terminal', 'process'};
+/// Tools whose calls start, check on or stop background processes:
+/// Hermes' `process_manage` (which it also accepts as `process`).
+const _kHermesProcessTools = {'terminal', 'process', 'process_manage'};
 
 extension _HermesDesktopBackgroundWorkEvents on HermesDesktopApiService {
   /// Tells [HermesDesktopBackgroundWork.backgroundWorkHints] listeners that

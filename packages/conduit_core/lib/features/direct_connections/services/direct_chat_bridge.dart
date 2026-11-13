@@ -24,6 +24,20 @@ const String kDirectProviderMetadataKey = 'directProviderMetadata';
 const String kDirectMcpApprovalMetadataKey = 'directMcpApproval';
 const String kDirectContextSummaryMetadataKey = 'directContextSummaryV1';
 const int kDefaultDirectContextLength = 4096;
+
+/// The context limits a model that reports no window may be given, in
+/// tokens (Context Compaction's choices).
+const List<int> kDirectContextLengthOptions = <int>[
+  4096,
+  8192,
+  16384,
+  32768,
+  65536,
+  131072,
+  262144,
+  524288,
+  1048576,
+];
 const String kDirectGeneratedImageReplayText =
     'The requested image was generated and displayed to the user.';
 

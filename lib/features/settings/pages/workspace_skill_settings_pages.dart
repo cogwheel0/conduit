@@ -11,6 +11,7 @@ import 'package:conduit_core/features/workspace/providers/workspace_providers.da
 import 'package:conduit_core/utils/server_version_compat.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_session.dart';
 import 'package:conduit_core/navigation/routes.dart' show WorkspaceSection;
+import 'package:conduit_core/features/workspace/models/workspace_clone.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
@@ -779,8 +780,11 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
     }
     final base = editor.id.trim();
     final description = editor.description.trim();
-    final id = base.isEmpty ? 'skill_clone' : '${base}_clone';
-    final name = '${editor.name.trim()} ${l10n.workspaceSkillCloneSuffix}';
+    final id = WorkspaceClone.skillId(base);
+    final name = WorkspaceClone.name(
+      editor.name.trim(),
+      l10n.workspaceSkillCloneSuffix,
+    );
     // Clones never take the source skill's sharing grants.
     final form = WorkspaceSkillForm(
       id: id,
@@ -905,21 +909,17 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
     }
     // Cancelled, or the editor was left while the picker was open.
     if (text == null || !_current(editor)) return;
-    final front = WorkspaceSkillContent.parseFrontmatter(text);
-    final frontName = front['name']?.trim() ?? '';
-    final frontId = front['id']?.trim() ?? '';
-    final about = front['description']?.trim() ?? '';
-    editor.content = text;
-    if (frontName.isNotEmpty) {
-      editor.name = WorkspaceSkillContent.formatSkillName(frontName);
-    }
-    final idSource = frontId.isNotEmpty ? frontId : frontName;
-    if (idSource.isNotEmpty) {
+    // Honors a front-matter `id` even without a `name`, preferring the
+    // explicit id and otherwise deriving it from the name.
+    final read = WorkspaceSkillContent.fromMarkdown(text);
+    editor.content = read.content;
+    if (read.name.isNotEmpty) editor.name = read.name;
+    if (read.id.isNotEmpty) {
       editor
-        ..id = WorkspaceSkillContent.slugify(idSource)
+        ..id = read.id
         ..idTyped = false;
     }
-    if (about.isNotEmpty) editor.description = about;
+    if (read.description.isNotEmpty) editor.description = read.description;
     editor
       ..idError = false
       ..dirty = true;

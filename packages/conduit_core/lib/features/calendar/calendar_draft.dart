@@ -207,6 +207,28 @@ class CalendarEventDraft {
     );
   }
 
+  /// This draft starting at [wall]. An end that would fall before the new
+  /// start moves with it, keeping the event's length (an all-day event's end
+  /// moves to the new start day), as a calendar's own editor does.
+  CalendarEventDraft withStart(CalendarWallTime wall) {
+    var next = copyWith(start: wall);
+    final currentEnd = end;
+    if (currentEnd == null) return next;
+    final before = allDay
+        ? currentEnd.dateOnly.compareTo(wall.dateOnly) < 0
+        : currentEnd.compareTo(wall) < 0;
+    if (!before) return next;
+    final length = allDay
+        ? Duration.zero
+        : currentEnd.fields.difference(start.fields).abs();
+    next = next.copyWith(
+      end: allDay
+          ? wall.dateOnly
+          : CalendarWallTime.fromFields(wall.fields.add(length)),
+    );
+    return next;
+  }
+
   /// What keeps this draft from being saved, in the order to show it.
   List<CalendarDraftIssue> get issues {
     final found = <CalendarDraftIssue>[];

@@ -181,6 +181,18 @@ class ChannelsList extends _$ChannelsList {
     }
   }
 
+  /// Counts one more unread message in [channelId], as a message someone
+  /// else posted while the user was not looking at it does. No-op for a
+  /// channel the list does not hold.
+  void bumpUnread(String channelId) {
+    for (final channel in state.value ?? const <Channel>[]) {
+      if (channel.id == channelId) {
+        updateChannel(channel.copyWith(unreadCount: channel.unreadCount + 1));
+        return;
+      }
+    }
+  }
+
   /// Clears the unread badge for [channelId] when the user opens it
   /// (reset-on-visit), pairing with the server-side `emitLastReadAt`. No-ops if
   /// the channel is unknown or already read so it never triggers a rebuild
