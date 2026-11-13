@@ -3291,7 +3291,12 @@ const Map<String, String> protocolGoldens = <String, String>{
   "name": "Morning brief",
   "prompt": "Summarise the news",
   "schedule": "0 8 * * *",
-  "scheduleText": "At 08:00",
+  "scheduleText": "Every day at 8:00 AM",
+  "cadence": {
+    "kind": "daily",
+    "hour": 8,
+    "minute": 0
+  },
   "enabled": false,
   "lastStatus": "ok",
   "lastError": "none",
@@ -3334,6 +3339,21 @@ const Map<String, String> protocolGoldens = <String, String>{
   "notices": [],
   "savedId": "j3",
   "listFailed": true
+}''',
+
+  'hermesCadenceDto': r'''
+{
+  "kind": "everyHours",
+  "every": 6,
+  "minute": 30
+}''',
+
+  'hermesCadenceDtoWeekly': r'''
+{
+  "kind": "weekly",
+  "hour": 17,
+  "minute": 45,
+  "weekday": 4
 }''',
 
   'hermesJobEdit': r'''
@@ -5108,9 +5128,23 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'messageStatus': r'''
 {
-  "description": "Searching Knowledge",
+  "description": "Searching Knowledge for “tide tables”",
+  "phrase": "knowledgeSearch",
+  "query": "tide tables",
   "action": "knowledge_search",
   "done": false,
+  "queries": [],
+  "links": [],
+  "details": []
+}''',
+
+  'messageStatusSources': r'''
+{
+  "description": "Retrieved 3 sources",
+  "phrase": "sourcesRetrieved",
+  "count": 3,
+  "action": "sources_retrieved",
+  "done": true,
   "queries": [],
   "links": [],
   "details": []
@@ -8509,6 +8543,22 @@ const Map<String, String> protocolGoldens = <String, String>{
   "error": "Call permission denied",
   "notice": "replyIncomplete",
   "noticeCount": 1
+}''',
+
+  'callStateRefused': r'''
+{
+  "phase": "error",
+  "call": 0,
+  "transcript": "",
+  "reply": "",
+  "level": 0.0,
+  "muted": false,
+  "canPause": false,
+  "canResume": false,
+  "errorKind": "message",
+  "error": "Sign in to start a voice call.",
+  "noticeCount": 0,
+  "refusal": "signInRequired"
 }''',
 
   'callStateIdle': r'''
