@@ -9,6 +9,7 @@ import 'package:conduit_core/providers/backend_mode_providers.dart'
 import 'package:conduit_core/services/api_service.dart'
     show FileContentTooLargeException;
 import 'package:conduit_protocol/conduit_protocol.dart';
+import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' as shelf;
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_web_socket/shelf_web_socket.dart';
@@ -21,6 +22,8 @@ import 'chats_service.dart';
 import 'composer_service.dart';
 import 'direct_service.dart';
 import 'mcp_service.dart';
+import 'notes_service.dart';
+import 'channels_service.dart';
 import 'prompts_service.dart';
 import 'core_runtime.dart';
 import 'redact.dart';
@@ -36,7 +39,10 @@ import 'servers_service.dart';
 import 'settings_service.dart';
 import 'system_service.dart';
 import 'turns_service.dart';
+import 'workspace_service.dart';
+import 'terminals_service.dart';
 import 'hermes_service.dart';
+import 'voice_service.dart';
 
 /// The loopback server the desktop app talks to.
 ///
@@ -91,7 +97,12 @@ class DaemonServer {
   PromptsService? _prompts;
   DirectService? _direct;
   McpService? _mcp;
+  NotesService? _notes;
+  ChannelsService? _channels;
+  WorkspaceService? _workspace;
+  TerminalsService? _terminals;
   HermesService? _hermes;
+  VoiceService? _voice;
 
   /// What sessions see of the services above: none until [attachCore].
   CoreServices _coreServices = const CoreServices();
@@ -172,6 +183,17 @@ class DaemonServer {
     _prompts = PromptsService(core.container);
     _direct = DirectService(core.container);
     _mcp = McpService(core.container);
+    _notes = NotesService(core.container, events: events);
+    _channels = ChannelsService(core.container, events: events);
+    _workspace = WorkspaceService(core.container, events: events);
+    _terminals = TerminalsService(core.container, log: _log);
+    _voice = VoiceService(
+      core.container,
+      events: events,
+      whisperDirectory: Directory(
+        p.join(core.directories.paths.userData, 'whisper'),
+      ),
+    );
     // Every session reads this, including one that connected before now.
     _coreServices = CoreServices(
       accounts: _accounts,
@@ -186,7 +208,12 @@ class DaemonServer {
       prompts: _prompts,
       direct: _direct,
       mcp: _mcp,
+      notes: _notes,
+      channels: _channels,
+      workspace: _workspace,
+      terminals: _terminals,
       hermes: _hermes,
+      voice: _voice,
     );
     // An MCP sign-in opens the provider's page through a window.
     core.openUrl.attach(events);
@@ -307,7 +334,13 @@ class DaemonServer {
     final path = '/${request.url.path}';
     if (path == ConduitHttpRoutes.rpc) return _rpcHandler(request);
     if (path == ConduitHttpRoutes.upload) return _upload(request);
+    if (path == ConduitHttpRoutes.terminalUpload) {
+      return _terminalUpload(request);
+    }
+    if (path.startsWith('/terminal/')) return _terminalTunnel(request, path);
     if (path.startsWith('/files/')) return _file(request);
+    if (path == ConduitHttpRoutes.transcribe) return _transcribe(request);
+    if (path.startsWith('/tts/')) return _speech(request, path);
     if (path == '/health') {
       // Authenticated liveness probe for a supervisor; it does not
       // reveal anything a holder of the token cannot already ask for on /rpc.
@@ -322,6 +355,93 @@ class DaemonServer {
       );
     }
     return shelf.Response.notFound('no such endpoint');
+  }
+
+  /// `WS /terminal/{handle}` -- a shell, through the daemon. The auth
+  /// gate has checked the origin and the session token already; an unknown
+  /// handle is refused before the upgrade.
+  Future<shelf.Response> _terminalTunnel(
+    shelf.Request request,
+    String path,
+  ) async {
+    final terminals = _terminals;
+    final handle = path.substring('/terminal/'.length);
+    if (terminals == null || !terminals.knows(handle)) {
+      return shelf.Response.notFound('no such terminal');
+    }
+    return webSocketHandler(
+      (WebSocketChannel socket, String? _) =>
+          unawaited(terminals.tunnel(handle, socket)),
+      protocols: const <String>{negotiatedSubprotocol},
+      pingInterval: const Duration(seconds: 25),
+    )(request);
+  }
+
+  /// `POST /terminal-upload` -- a file into a terminal's machine.
+  /// The same body as `/upload`; the handle and directory come in headers.
+  Future<shelf.Response> _terminalUpload(shelf.Request request) async {
+    final terminals = _terminals;
+    if (terminals == null) {
+      return _problem(
+        503,
+        ConduitErrorCodes.daemonUnavailable,
+        'core starting',
+      );
+    }
+    if (request.method != 'POST') {
+      return shelf.Response(405, body: 'POST only');
+    }
+    final String name;
+    final String directory;
+    try {
+      name = Uri.decodeComponent(request.headers['x-conduit-filename'] ?? '');
+      directory = Uri.decodeComponent(
+        request.headers['x-conduit-directory'] ?? '',
+      );
+    } on FormatException {
+      return _problem(400, ConduitErrorCodes.invalidParams, 'bad headers');
+    }
+    final handle = request.headers['x-conduit-terminal'] ?? '';
+    if (name.trim().isEmpty || directory.isEmpty || handle.isEmpty) {
+      return _problem(
+        400,
+        ConduitErrorCodes.invalidParams,
+        'needs x-conduit-filename, -terminal and -directory',
+      );
+    }
+    try {
+      final bytes = await _collect(request.read());
+      await terminals.upload(
+        handle: handle,
+        directory: directory,
+        name: name,
+        bytes: bytes,
+      );
+      // An UploadedFile, as /upload answers; the id is where it went.
+      return shelf.Response.ok(
+        jsonEncode(
+          UploadedFile(
+            id: '$directory$name',
+            name: name,
+            size: bytes.length,
+          ).toJson(),
+        ),
+        headers: <String, String>{
+          'content-type': 'application/json',
+          ..._corsHeaders,
+        },
+      );
+    } on RpcError catch (error) {
+      final status = switch (error.code) {
+        ConduitErrorCodes.notFound => 404,
+        ConduitErrorCodes.unauthenticated => 401,
+        _ => 502,
+      };
+      return _problem(status, error.code, error.debugMessage);
+    } on Object catch (error, stack) {
+      _log.error('terminal upload failed', error, stack);
+      return _problem(502, ConduitErrorCodes.serverError, 'upload failed');
+    }
   }
 
   /// `POST /upload` -- an attachment on its way to the server.
@@ -446,6 +566,82 @@ class DaemonServer {
       return _problem(502, ConduitErrorCodes.serverError, 'download failed');
     }
   }
+
+  /// `POST /transcribe` -- a recording, as text. The body is the
+  /// recording and nothing else; its type is the content type.
+  Future<shelf.Response> _transcribe(shelf.Request request) async {
+    final voice = _voice;
+    if (voice == null) {
+      return _problem(
+        503,
+        ConduitErrorCodes.daemonUnavailable,
+        'core starting',
+      );
+    }
+    if (request.method != 'POST') {
+      return shelf.Response(405, body: 'POST only');
+    }
+    try {
+      final transcript = await voice.transcribe(
+        await _collect(request.read()),
+        contentType: request.headers['content-type'],
+      );
+      return shelf.Response.ok(
+        jsonEncode(transcript.toJson()),
+        headers: <String, String>{
+          'content-type': 'application/json',
+          ..._corsHeaders,
+        },
+      );
+    } on RpcError catch (error) {
+      return _problem(_statusFor(error), error.code, error.debugMessage);
+    } on Object catch (error, stack) {
+      _log.error('transcription failed', error, stack);
+      return _problem(502, ConduitErrorCodes.serverError, 'transcribe failed');
+    }
+  }
+
+  /// `GET /tts/{jobId}` -- a `voice.speak` job's audio. It needs the token,
+  /// as `/files/` does.
+  Future<shelf.Response> _speech(shelf.Request request, String path) async {
+    final voice = _voice;
+    if (voice == null) {
+      return _problem(
+        503,
+        ConduitErrorCodes.daemonUnavailable,
+        'core starting',
+      );
+    }
+    if (request.method != 'GET') {
+      return shelf.Response(405, body: 'GET only');
+    }
+    try {
+      final audio = await voice.audio(path.substring('/tts/'.length));
+      return shelf.Response.ok(
+        audio.bytes,
+        headers: <String, String>{
+          'content-type': audio.contentType,
+          'x-content-type-options': 'nosniff',
+          'cache-control': 'private, max-age=3600',
+          ..._corsHeaders,
+        },
+      );
+    } on RpcError catch (error) {
+      return _problem(_statusFor(error), error.code, error.debugMessage);
+    } on Object catch (error, stack) {
+      _log.error('speech failed', error, stack);
+      return _problem(502, ConduitErrorCodes.serverError, 'speech failed');
+    }
+  }
+
+  static int _statusFor(RpcError error) => switch (error.code) {
+    ConduitErrorCodes.unauthenticated ||
+    ConduitErrorCodes.sessionExpired => 401,
+    ConduitErrorCodes.unauthorized => 403,
+    ConduitErrorCodes.notFound => 404,
+    ConduitErrorCodes.invalidParams => 400,
+    _ => 502,
+  };
 
   /// The same error shape RPC uses, so the renderer has one thing to read.
   shelf.Response _problem(int status, String code, String? message) =>
@@ -634,6 +830,8 @@ class DaemonServer {
       await session.close();
     }
     _sessions.clear();
+    await _terminals?.dispose();
+    _terminals = null;
     await _server?.close(force: true);
     _server = null;
     // The services that hold chats and watches go while the core they read
