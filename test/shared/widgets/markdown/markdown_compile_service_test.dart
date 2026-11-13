@@ -150,6 +150,9 @@ void main() {
     'disposing while the prepare worker starts releases its request',
     (tester) async {
       final service = MarkdownCompileService(workerManager: WorkerManager());
+      // Should a step fail before the dispose under test, nothing outlives
+      // the test; disposing again is harmless.
+      addTearDown(service.dispose);
       const content = 'A **settled** reply prepared off the UI isolate.';
       String? prepared;
       unawaited(
