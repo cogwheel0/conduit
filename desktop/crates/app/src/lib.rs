@@ -350,7 +350,7 @@ pub fn run() {
         // The chat view over a fixture daemon (perf and AccessKit checks).
         #[cfg(all(target_os = "macos", feature = "harness"))]
         if let Some((mode, shots)) = chat_fixture.clone() {
-            chat_fixture::run(mode, shots, cx);
+            chat_fixture::run(mode, shots, settings.clone(), cx);
             return;
         }
         // A channel's timeline over a fixture daemon (perf).
