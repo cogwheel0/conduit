@@ -28,7 +28,7 @@ use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::IconName;
 use conduit_components::views::kit::{Button, IconButton, bare_input};
 use conduit_components::views::shell::{ChatToolbar, TitlePill};
-use conduit_protocol::{Event, NoticeLevel, events, methods};
+use conduit_protocol::{ComposerMentionDto, Event, NoteSave, NoticeLevel, events, methods};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -47,7 +47,8 @@ use crate::stores::chat::{
     CHAT_EVENTS, ChatAction, ChatStore, ChatStoreEvent, PendingMessage, Subscribe,
 };
 use crate::stores::composer::{
-    ComposerEvent, ComposerStore, UploadFuture, UploadRequest, Uploader,
+    ComposerEvent, ComposerPrefs, ComposerStore, DraftKey, UploadError, UploadFuture,
+    UploadRequest, Uploader,
 };
 use crate::stores::connection::{ConnectionEvent, ConnectionStore};
 use crate::stores::layout::LayoutStore;
@@ -56,6 +57,7 @@ use crate::stores::router::RouterEvent;
 use crate::views::approvals::ApprovalsView;
 use crate::views::chat::composer::{ChatComposer, ChatComposerEvent};
 use crate::views::chat::last_code_block;
+use crate::views::chat::queue::{QueueEditing, queue_panel};
 use crate::views::chat::rows::{RowHost, RowSink};
 use crate::views::chat::transcript::Transcript;
 use crate::views::main_window::SidebarReveal;
@@ -91,6 +93,17 @@ pub struct ChatPane {
     /// is crossfading from (a chat named after its first answer).
     title_shown: Option<(String, String)>,
     title_change: Option<(String, std::time::Instant)>,
+    /// A queued message being edited in place.
+    queue_edit: Option<QueueEditing>,
+    /// The first queued message of the session says the queue lives only
+    /// while Conduit is open (once).
+    queue_noted: bool,
+    /// The temporary switch was moved by hand: the setting's default does
+    /// not replace it.
+    temporary_chosen: bool,
+    /// The open new chat's temporary switch was moved by hand, so a later
+    /// change to the default leaves it alone (until another chat opens).
+    temporary_hand_chosen: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -135,7 +148,7 @@ pub fn daemon_uploader() -> Uploader {
         let http = CURRENT_HTTP.lock().ok().and_then(|h| h.clone());
         Box::pin(async move {
             let Some(http) = http else {
-                return Err("the daemon is not running".to_string());
+                return Err(UploadError::manual("the daemon is not running"));
             };
             conduit_daemon::runtime::shared().spawn(async move {
                 let progress = req.progress.clone();
@@ -145,17 +158,18 @@ pub fn daemon_uploader() -> Uploader {
                         req.content_type.as_deref(),
                         bytes::Bytes::from(req.bytes),
                         Some(Arc::new(move |sent, total| progress(sent, total))),
+                        req.attempt,
                     )
                     .await
-                    .map_err(|e| e.to_string())
+                    .map_err(|e| UploadError::from_rpc(&e))
                     .and_then(|v| {
                         serde_json::from_value::<conduit_protocol::UploadedFile>(v)
-                            .map_err(|e| e.to_string())
+                            .map_err(|e| UploadError::manual(e.to_string()))
                     });
                 let _ = tx.send(result);
             });
             rx.await
-                .unwrap_or_else(|_| Err("the upload was dropped".to_string()))
+                .unwrap_or_else(|_| Err(UploadError::manual("the upload was dropped")))
         })
     })
 }
@@ -188,6 +202,9 @@ impl ChatPane {
     ) -> Self {
         let rpc = stores.connection.read(cx).rpc();
         let composer_store = cx.new(|_| ComposerStore::new(rpc, Some(daemon_uploader())));
+        // Settings › Chat's choices, before the composer first draws.
+        let prefs = ComposerPrefs::from_settings(stores.app_settings.read(cx).settings());
+        composer_store.update(cx, |c, cx| c.set_prefs(prefs, cx));
         let composer = cx.new(|cx| {
             let mut c = ChatComposer::new(composer_store.clone(), window, cx);
             // The model and the temporary switch are in the toolbar here.
@@ -219,6 +236,8 @@ impl ChatPane {
                     this.composer.update(cx, |c, cx| c.forget_account(cx));
                 }
             }),
+            // Settings › Chat changes the composer as it changes.
+            cx.observe(&stores.app_settings, |this, _, cx| this.adopt_prefs(cx)),
             cx.observe(&layout, |_, _, cx| cx.notify()),
             cx.observe(&approvals, |_, _, cx| cx.notify()),
             follow_daemon_http(&stores.connection, cx),
@@ -236,15 +255,33 @@ impl ChatPane {
                 &composer,
                 window,
                 |this, _, event, window, cx| match event {
-                    ChatComposerEvent::Submit(text) => this.send_text(text.clone(), window, cx),
+                    ChatComposerEvent::Submit { text, mentions } => {
+                        this.send_text(text.clone(), mentions.clone(), window, cx)
+                    }
+                    ChatComposerEvent::Queue { text, mentions } => {
+                        this.queue_text(text.clone(), mentions.clone(), window, cx)
+                    }
+                    ChatComposerEvent::Steer {
+                        text,
+                        mentions,
+                        steer,
+                    } => this.steer_text(text.clone(), mentions.clone(), *steer, window, cx),
                     ChatComposerEvent::Stop => this.stop(cx),
                     ChatComposerEvent::Temporary(on) => {
                         let on = *on;
+                        this.temporary_chosen = true;
+                        this.temporary_hand_chosen = true;
                         this.stores
                             .navigation
                             .update(cx, |n, cx| n.new_chat(on, cx));
                     }
                     ChatComposerEvent::PickerChanged => cx.notify(),
+                    ChatComposerEvent::SaveAsNote(text) => {
+                        this.save_as_note(text.clone(), window, cx)
+                    }
+                    // The composer runs Compare Models itself, from its +
+                    // menu (`choose_compare_model`).
+                    ChatComposerEvent::CompareModels => {}
                 },
             ),
             // The title capsule shows the selected model.
@@ -258,6 +295,8 @@ impl ChatPane {
                         l10n.desktop_attachment_failed(name)
                     }
                     ComposerEvent::ModelNotSelected(_) => l10n.desktop_model_not_selected(),
+                    // The composer shows its drafts itself.
+                    ComposerEvent::DraftSwitched | ComposerEvent::DraftLoaded { .. } => return,
                 };
                 this.toast(NoticeLevel::Warning, text, cx);
             }),
@@ -278,6 +317,10 @@ impl ChatPane {
             dock_focus: cx.focus_handle(),
             title_shown: None,
             title_change: None,
+            queue_edit: None,
+            queue_noted: false,
+            temporary_chosen: false,
+            temporary_hand_chosen: false,
             _subscriptions: subscriptions,
         };
         // The composer follows the models on offer and the network.
@@ -331,6 +374,7 @@ impl ChatPane {
         let selection = self.stores.navigation.read(cx).selection().clone();
         match selection {
             Selection::Chat(id) => {
+                self.temporary_hand_chosen = false;
                 if let Some(chat) = &self.chat {
                     let current = chat.store.read(cx).chat_id().to_string();
                     let resolved = self.stores.router.read(cx).resolve(&current);
@@ -339,16 +383,53 @@ impl ChatPane {
                     }
                     if resolved == id {
                         chat.store.update(cx, |s, cx| s.remap(&current, &id, cx));
+                        self.composer_store.update(cx, |c, _| {
+                            c.rekey_draft(DraftKey {
+                                chat_id: Some(id.clone()),
+                                folder_id: None,
+                            })
+                        });
                         return;
                     }
                 }
+                self.switch_draft(
+                    Some(DraftKey {
+                        chat_id: Some(id.clone()),
+                        folder_id: None,
+                    }),
+                    cx,
+                );
                 self.open_chat(id, cx);
             }
             // Another area's item: the main window shows its pane, and the
             // chat stays loaded for when it comes back.
             Selection::Area(_) => return,
             Selection::New { temporary } => {
+                // A new chat starts temporary when the setting says so,
+                // unless the switch was just moved by hand.
+                let chosen = std::mem::take(&mut self.temporary_chosen);
+                self.temporary_hand_chosen = chosen;
+                let temporary = if chosen {
+                    temporary
+                } else {
+                    temporary || self.composer_store.read(cx).prefs.temporary_by_default
+                };
+                // A temporary chat keeps no draft.
+                let folder = self
+                    .stores
+                    .navigation
+                    .read(cx)
+                    .new_chat_folder()
+                    .map(str::to_string);
+                self.switch_draft(
+                    (!temporary).then_some(DraftKey {
+                        chat_id: None,
+                        folder_id: folder,
+                    }),
+                    cx,
+                );
                 self.chat = None;
+                self.queue_edit = None;
                 // Nothing to find in a new chat.
                 self.find_open = false;
                 (self.subscribe_hook())(None, cx);
@@ -356,11 +437,47 @@ impl ChatPane {
                     c.new_chat = true;
                     c.temporary = temporary;
                     c.streaming = false;
+                    c.queue_offer = false;
                     cx.notify();
                 });
             }
         }
         cx.notify();
+    }
+
+    /// Takes Settings › Chat's choices into the composer. A new chat nobody
+    /// has touched follows a changed "temporary by default" too: the first
+    /// one opens before the settings have arrived.
+    fn adopt_prefs(&mut self, cx: &mut Context<Self>) {
+        let prefs = ComposerPrefs::from_settings(self.stores.app_settings.read(cx).settings());
+        let store = self.composer_store.read(cx);
+        if store.prefs == prefs {
+            return;
+        }
+        let default_moved = store.prefs.temporary_by_default != prefs.temporary_by_default;
+        let untouched = store.attachments.is_empty()
+            && store.context.is_empty()
+            && self.composer.read(cx).text(cx).trim().is_empty();
+        self.composer_store
+            .update(cx, |c, cx| c.set_prefs(prefs, cx));
+        let new_chat = matches!(
+            self.stores.navigation.read(cx).selection(),
+            Selection::New { .. }
+        );
+        if default_moved && untouched && new_chat && !self.temporary_hand_chosen {
+            self.sync_selection(cx);
+        }
+    }
+
+    /// Keeps what the composer holds for the chat it was typed in, and shows
+    /// the next chat's draft once it is read.
+    fn switch_draft(&mut self, key: Option<DraftKey>, cx: &mut Context<Self>) {
+        if self.composer_store.read(cx).draft_key() == key.as_ref() {
+            return;
+        }
+        let text = self.composer.read(cx).text(cx);
+        self.composer_store
+            .update(cx, |c, cx| c.switch_draft(key, &text, cx));
     }
 
     /// Opens `id` in a fresh store and transcript.
@@ -383,9 +500,11 @@ impl ChatPane {
         let subscriptions = vec![
             cx.observe(&store, |this, store, cx| {
                 let streaming = store.read(cx).is_streaming();
+                let offer = store.read(cx).queue_offered();
                 this.composer.update(cx, |c, cx| {
-                    if c.streaming != streaming {
+                    if c.streaming != streaming || c.queue_offer != offer {
                         c.streaming = streaming;
+                        c.queue_offer = offer;
                         cx.notify();
                     }
                 });
@@ -474,7 +593,13 @@ impl ChatPane {
 
     /// Sends `text` with the composer's options: in the open chat, or as a
     /// new chat.
-    pub fn send_text(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn send_text(
+        &mut self,
+        text: String,
+        mentions: Vec<ComposerMentionDto>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if text.trim().is_empty() && !self.composer_store.read(cx).has_attachments() {
             return;
         }
@@ -493,7 +618,9 @@ impl ChatPane {
             .map(|m| m.name.clone());
         // Given back with the text if the send fails.
         let used = self.composer_store.read(cx).one_shot();
-        let options = self.composer_store.update(cx, |c, cx| c.take_turn(cx));
+        let options = self
+            .composer_store
+            .update(cx, |c, cx| c.take_turn(mentions, cx));
         let pending = PendingMessage {
             files,
             ..PendingMessage::new(text.clone())
@@ -595,6 +722,216 @@ impl ChatPane {
         .detach();
     }
 
+    /// Queues `text`, with the composer's files and context, behind the
+    /// open chat's running answer. Refused: it goes back in the composer.
+    fn queue_text(
+        &mut self,
+        text: String,
+        mentions: Vec<ComposerMentionDto>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(chat) = &self.chat else {
+            return;
+        };
+        let chat_id = chat.store.read(cx).chat_id().to_string();
+        // Given back with the text if the queue refuses it.
+        let used = self.composer_store.read(cx).one_shot();
+        let add = self
+            .composer_store
+            .update(cx, |c, cx| c.take_turn(mentions, cx))
+            .into_queued(text.clone(), chat_id);
+        let task = chat.store.update(cx, |s, cx| s.queue_add(add, cx));
+        cx.spawn_in(window, async move |this, cx| {
+            let queued = task.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                if queued {
+                    // The queue lives only while Conduit is open: said once.
+                    if !std::mem::replace(&mut this.queue_noted, true) {
+                        let note = cx.l10n().queued_drafts_session_note();
+                        this.toast(NoticeLevel::Info, note, cx);
+                    }
+                } else {
+                    this.composer
+                        .update(cx, |c, cx| c.give_back(&text, used, window, cx));
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Hands `text` to the running Hermes turn (`steer`), or as the next
+    /// message. Hermes not saying whether the turn saw it keeps the text, and
+    /// says so.
+    fn steer_text(
+        &mut self,
+        text: String,
+        mentions: Vec<ComposerMentionDto>,
+        steer: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(chat) = &self.chat else {
+            return;
+        };
+        let used = self.composer_store.read(cx).text_only();
+        let task = chat
+            .store
+            .update(cx, |s, cx| s.steer(text.clone(), mentions, steer, cx));
+        cx.spawn_in(window, async move |this, cx| {
+            let result = task.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                let l10n = cx.l10n().clone();
+                let failure = match result {
+                    Ok(r) if r.accepted => None,
+                    Ok(r) if r.uncertain => Some(l10n.hermes_steer_uncertain()),
+                    Ok(_) => Some(l10n.desktop_action_failed()),
+                    Err(e) => {
+                        log::warn!("turns.steer: {e}");
+                        Some(l10n.desktop_action_failed())
+                    }
+                };
+                if let Some(message) = failure {
+                    this.composer
+                        .update(cx, |c, cx| c.give_back(&text, used, window, cx));
+                    this.toast(NoticeLevel::Warning, message, cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Save as Note (from the + menu): the text becomes a new note named for
+    /// today, as on the phone, and leaves the composer.
+    fn save_as_note(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        let title = today_title();
+        let note = NoteSave {
+            id: None,
+            title,
+            // The text as one plain run: the note keeps its markdown as
+            // typed, as mobile's does.
+            ops: Some(vec![
+                serde_json::json!({ "insert": format!("{}\n", text.trim_end()) }),
+            ]),
+        };
+        let call = self
+            .stores
+            .connection
+            .read(cx)
+            .rpc()
+            .call::<methods::NotesSave>(&note);
+        let used = self.composer_store.read(cx).text_only();
+        self.composer.update(cx, |c, cx| c.clear_text(window, cx));
+        cx.spawn_in(window, async move |this, cx| {
+            let result = call.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                let l10n = cx.l10n().clone();
+                match result {
+                    Ok(_) => this.toast(NoticeLevel::Info, l10n.desktop_saved_as_note(), cx),
+                    Err(e) => {
+                        log::warn!("notes.save: {e}");
+                        this.composer
+                            .update(cx, |c, cx| c.give_back(&text, used, window, cx));
+                        this.toast(NoticeLevel::Warning, l10n.error_message(), cx);
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
+    // ── The queue ───────────────────────────────────────────────────────
+
+    pub fn edit_queued(
+        &mut self,
+        draft_id: &str,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let text = text.to_string();
+        let input = cx.new(|cx| {
+            let mut s = InputState::new(window, cx);
+            s.set_value(text, window, cx);
+            s
+        });
+        input.update(cx, |s, cx| s.focus(window, cx));
+        self._subscriptions.push(cx.subscribe_in(
+            &input,
+            window,
+            |this, _, e: &InputEvent, window, cx| {
+                if matches!(e, InputEvent::PressEnter { .. }) {
+                    this.save_queue_edit(window, cx);
+                }
+            },
+        ));
+        self.queue_edit = Some(QueueEditing {
+            draft_id: draft_id.to_string(),
+            input,
+        });
+        cx.notify();
+    }
+
+    pub fn save_queue_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(edit), Some(chat)) = (self.queue_edit.take(), &self.chat) else {
+            return;
+        };
+        let text = edit.input.read(cx).value().trim().to_string();
+        if !text.is_empty() {
+            chat.store
+                .update(cx, |s, cx| s.queue_edit(&edit.draft_id, &text, cx))
+                .detach();
+        }
+        self.focus_composer(window, cx);
+        cx.notify();
+    }
+
+    pub fn cancel_queue_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.queue_edit = None;
+        self.focus_composer(window, cx);
+        cx.notify();
+    }
+
+    pub fn remove_queued(&mut self, draft_id: &str, cx: &mut Context<Self>) {
+        if let Some(chat) = &self.chat {
+            chat.store
+                .update(cx, |s, cx| s.queue_remove(draft_id, cx))
+                .detach();
+            let text = cx.l10n().queued_draft_removed();
+            self.toast(NoticeLevel::Info, text, cx);
+        }
+    }
+
+    /// Stop & Send: the answer stops and this message goes now.
+    pub fn send_queued_now(&mut self, draft_id: &str, cx: &mut Context<Self>) {
+        let Some(chat) = &self.chat else {
+            return;
+        };
+        let task = chat
+            .store
+            .update(cx, |s, cx| s.queue_send_now(draft_id, cx));
+        cx.spawn(async move |this, cx| {
+            let outcome = task.await;
+            let _ = this.update(cx, |this, cx| {
+                let l10n = cx.l10n().clone();
+                let message = match outcome.as_deref() {
+                    Some("admitted") | None => return,
+                    Some("stopFailed") => l10n.queued_draft_stop_failed(),
+                    Some("blockedByUpload") => l10n.queued_draft_uploading(),
+                    _ => l10n.queued_drafts_send_failed(),
+                };
+                this.toast(NoticeLevel::Warning, message, cx);
+            });
+        })
+        .detach();
+    }
+
+    pub fn retry_queue(&mut self, cx: &mut Context<Self>) {
+        if let Some(chat) = &self.chat {
+            chat.store.update(cx, |s, cx| s.queue_retry(cx)).detach();
+        }
+    }
+
     /// Chat › Regenerate: the newest answer again.
     pub fn regenerate_last(&mut self, cx: &mut Context<Self>) {
         if let Some(chat) = &self.chat {
@@ -624,6 +961,31 @@ impl ChatPane {
 
     pub fn open_model_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.composer.update(cx, |c, cx| c.open_picker(window, cx));
+    }
+
+    /// Ask Conduit: the text selected in an answer goes into the composer,
+    /// at the caret, to edit and send (as on the phone).
+    pub fn ask_conduit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(text) = self
+            .chat
+            .as_ref()
+            .and_then(|c| c.transcript.read(cx).selected_reply_text(cx))
+        else {
+            return;
+        };
+        self.composer
+            .update(cx, |c, cx| c.insert_at_caret(&text, window, cx));
+    }
+
+    /// Copy, from an answer's menu: the selected text.
+    pub fn copy_selection(&mut self, cx: &mut Context<Self>) {
+        if let Some(text) = self
+            .chat
+            .as_ref()
+            .and_then(|c| c.transcript.read(cx).selected_reply_text(cx))
+        {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        }
     }
 
     fn last_reply(&self, cx: &App) -> Option<String> {
@@ -956,8 +1318,23 @@ impl ChatPane {
             .into_any_element()
     }
 
-    fn docked(&self, _: &App) -> Option<AnyElement> {
-        Some(self.approvals.clone().into_any_element())
+    /// What docks above the composer: the messages queued behind the
+    /// answer, and an approval card.
+    fn docked(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let queue = self.chat.as_ref().and_then(|chat| {
+            let t = cx.conduit().clone();
+            let queue = chat.store.read(cx).queue.clone();
+            let pane = cx.entity().downgrade();
+            queue_panel(&queue, self.queue_edit.as_ref(), pane, &t, window, cx)
+        });
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .children(queue)
+                .child(self.approvals.clone())
+                .into_any_element(),
+        )
     }
 }
 
@@ -1002,6 +1379,20 @@ pub fn register_actions(cx: &mut App) {
     cx.on_action(|_: &StopGenerating, cx| with_pane(cx, |p, _, cx| p.stop(cx)));
     cx.on_action(|_: &CopyLastResponse, cx| with_pane(cx, |p, _, cx| p.copy_last_response(cx)));
     cx.on_action(|_: &CopyLastCodeBlock, cx| with_pane(cx, |p, _, cx| p.copy_last_code_block(cx)));
+    cx.on_action(|_: &crate::actions::AskConduit, cx| {
+        with_pane(cx, |p, w, cx| p.ask_conduit(w, cx))
+    });
+    cx.on_action(|_: &crate::actions::CopySelection, cx| {
+        with_pane(cx, |p, _, cx| p.copy_selection(cx))
+    });
+    cx.on_action(|_: &crate::actions::ExpandEditor, cx| {
+        with_pane(cx, |p, w, cx| {
+            p.composer.update(cx, |c, cx| {
+                let on = !c.expanded;
+                c.set_expanded(on, w, cx)
+            })
+        })
+    });
 }
 
 impl Render for ChatPane {
@@ -1155,7 +1546,7 @@ impl Render for ChatPane {
                     .child(p)
                     .into_any_element()
             });
-        let docked = self.docked(cx);
+        let docked = self.docked(window, cx);
         let toasts = crate::views::toasts::toast_dock(&self.stores.toasts, window, cx)
             .map(IntoElement::into_any_element);
         let body: AnyElement = match &self.chat {
@@ -1448,7 +1839,7 @@ mod tests {
 
         use crate::stores::Stores;
         use crate::stores::accounts::tests::{account, list};
-        use crate::stores::composer::{Attachment, UploadState};
+        use crate::stores::composer::Attachment;
         use crate::stores::layout::LayoutStore;
         use crate::stores::rpc::fake::FakeDaemon;
         use crate::views::approvals::ApprovalsView;
@@ -1476,16 +1867,7 @@ mod tests {
         }
 
         fn uploaded(name: &str) -> Attachment {
-            Attachment {
-                local_id: 1,
-                name: name.into(),
-                size: 3,
-                content_type: None,
-                image: None,
-                state: UploadState::Done {
-                    file_id: format!("file-{name}"),
-                },
-            }
+            Attachment::uploaded_for_test(1, name, &format!("file-{name}"))
         }
 
         fn attachment_names(pane: &Entity<ChatPane>, vcx: &mut VisualTestContext) -> Vec<String> {
@@ -1575,7 +1957,7 @@ mod tests {
             pane.update_in(vcx, |p, window, cx| {
                 p.composer_store
                     .update(cx, |c, _| c.attachments.push(uploaded("plan.pdf")));
-                p.send_text("Read this".into(), window, cx);
+                p.send_text("Read this".into(), vec![], window, cx);
             });
             assert!(
                 attachment_names(&pane, vcx).is_empty(),
@@ -1613,7 +1995,7 @@ mod tests {
             pane.update_in(vcx, |p, window, cx| {
                 p.composer_store
                     .update(cx, |c, _| c.attachments.push(uploaded("a-plan.pdf")));
-                p.send_text("For account A".into(), window, cx);
+                p.send_text("For account A".into(), vec![], window, cx);
             });
             switch_account(&stores, vcx);
             vcx.run_until_parked();
@@ -1647,7 +2029,7 @@ mod tests {
             pane.update_in(vcx, |p, window, cx| {
                 p.composer_store
                     .update(cx, |c, _| c.attachments.push(uploaded("a-notes.md")));
-                p.send_text("Also for A".into(), window, cx);
+                p.send_text("Also for A".into(), vec![], window, cx);
             });
             switch_account(&stores, vcx);
             vcx.run_until_parked();
@@ -1669,7 +2051,9 @@ mod tests {
                 .unwrap(),
             );
             let held = daemon.hold::<methods::TurnsSend>();
-            pane.update_in(vcx, |p, window, cx| p.send_text("Hello".into(), window, cx));
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Hello".into(), vec![], window, cx)
+            });
             stores.navigation.update(vcx, |n, cx| n.open("chat-b", cx));
             held.release();
             vcx.run_until_parked();
@@ -1681,4 +2065,10 @@ mod tests {
             );
         }
     }
+}
+
+/// Today as `yyyy-MM-dd` in local time, the title a draft saved as a note
+/// gets (mobile's `DateFormat('yyyy-MM-dd')`).
+fn today_title() -> String {
+    chrono::Local::now().format("%Y-%m-%d").to_string()
 }

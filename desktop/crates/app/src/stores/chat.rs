@@ -38,11 +38,12 @@ use std::rc::Rc;
 
 use conduit_daemon::RpcError;
 use conduit_protocol::{
-    ChatDetail, ChatFileDto, ChatMessageDto, ChatRef, ChatSourceDto, EditTurn, Event,
-    KnowledgeSummary, MessageBlockDto, MessageBlockKind, RateTurn, RegenerateTurn, SendTurn,
-    SendTurnAccepted, StopTurn, events, methods,
+    ChatDetail, ChatFileDto, ChatMessageDto, ChatRef, ChatSourceDto, ComposerMentionDto,
+    ContextAttachmentDto, EditTurn, Event, KnowledgeSummary, MessageBlockDto, MessageBlockKind,
+    QueueAdd, QueueDraftRef, QueueEdit, QueueSendNowResult, QueueState, RateTurn, RegenerateTurn,
+    SendTurn, SendTurnAccepted, SteerResult, SteerTurn, StopTurn, events, methods,
 };
-use gpui_kit::{App, AsyncApp, Context, EventEmitter, Task, WeakEntity};
+use gpui_kit::{App, AppContext as _, AsyncApp, Context, EventEmitter, Task, WeakEntity};
 
 use super::rpc::Rpc;
 
@@ -56,6 +57,7 @@ pub const CHAT_EVENTS: &[&str] = &[
     events::TURN_FAILED,
     events::TURN_FINISHED,
     events::CHATS_CHANGED,
+    events::QUEUE_CHANGED,
 ];
 
 /// How many of the newest messages show at first, and how many more each
@@ -298,6 +300,8 @@ pub enum ChatAction {
     Regenerate,
     Edit,
     Rate,
+    /// A `queue.*` change the daemon refused.
+    Queue,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -346,8 +350,12 @@ pub struct ChatStore {
     /// copy, versions, ratings), and when the live answer does.
     stored_rev: u64,
     live_rev: u64,
+    /// Messages queued behind the running answer (`queue.*`), and whether
+    /// one typed now would be.
+    pub queue: QueueState,
     _fetch: Option<Task<()>>,
     _refetch: Option<Task<()>>,
+    _queue: Option<Task<()>>,
 }
 
 impl EventEmitter<ChatStoreEvent> for ChatStore {}
@@ -378,12 +386,147 @@ impl ChatStore {
             generation: 0,
             stored_rev: 0,
             live_rev: 0,
+            queue: empty_queue(String::new()),
             _fetch: None,
             _refetch: None,
+            _queue: None,
         };
+        store.queue.chat_id = store.chat_id.clone();
         store.resubscribe(cx);
         store.fetch(cx);
+        store.refresh_queue(cx);
         store
+    }
+
+    // ── Queue ───────────────────────────────────────────────────────────
+
+    /// A message typed now would be queued behind the running answer.
+    pub fn queue_offered(&self) -> bool {
+        self.queue.offer && self.is_streaming()
+    }
+
+    /// `queue.get`: the chat's queue as the daemon has it now.
+    pub fn refresh_queue(&mut self, cx: &mut Context<Self>) {
+        if self.temporary {
+            return;
+        }
+        let call = self.rpc.call::<methods::QueueGet>(&ChatRef {
+            id: self.chat_id.clone(),
+        });
+        self._queue = Some(
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                if let Ok(queue) = call.await {
+                    let _ = this.update(cx, |s, cx| s.set_queue(queue, cx));
+                }
+            }),
+        );
+    }
+
+    fn set_queue(&mut self, queue: QueueState, cx: &mut Context<Self>) {
+        if queue.chat_id == self.chat_id && queue != self.queue {
+            self.queue = queue;
+            cx.notify();
+        }
+    }
+
+    /// Runs a `queue.*` call and shows the queue it answers with; a refusal
+    /// is reported (the task says whether it went through).
+    fn queue_call<M>(&mut self, params: M::Params, cx: &mut Context<Self>) -> Task<bool>
+    where
+        M: conduit_daemon::protocol::RpcMethod<Result = QueueState>,
+    {
+        let call = self.rpc.call::<M>(&params);
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            this.update(cx, |s, cx| match result {
+                Ok(queue) => {
+                    s.set_queue(queue, cx);
+                    true
+                }
+                Err(e) => {
+                    s.failed(ChatAction::Queue, &e, cx);
+                    false
+                }
+            })
+            .unwrap_or(false)
+        })
+    }
+
+    /// Queues a message behind the running answer.
+    pub fn queue_add(&mut self, add: QueueAdd, cx: &mut Context<Self>) -> Task<bool> {
+        self.queue_call::<methods::QueueAdd>(add, cx)
+    }
+
+    pub fn queue_edit(&mut self, draft_id: &str, text: &str, cx: &mut Context<Self>) -> Task<bool> {
+        let edit = QueueEdit {
+            chat_id: self.chat_id.clone(),
+            draft_id: draft_id.to_string(),
+            text: text.to_string(),
+        };
+        self.queue_call::<methods::QueueEdit>(edit, cx)
+    }
+
+    pub fn queue_remove(&mut self, draft_id: &str, cx: &mut Context<Self>) -> Task<bool> {
+        let draft = QueueDraftRef {
+            chat_id: self.chat_id.clone(),
+            draft_id: draft_id.to_string(),
+        };
+        self.queue_call::<methods::QueueRemove>(draft, cx)
+    }
+
+    pub fn queue_retry(&mut self, cx: &mut Context<Self>) -> Task<bool> {
+        let chat = ChatRef {
+            id: self.chat_id.clone(),
+        };
+        self.queue_call::<methods::QueueRetry>(chat, cx)
+    }
+
+    /// Stops the running answer and sends one queued message now. The task
+    /// says the core's outcome (`admitted`, `stopFailed`, ...).
+    pub fn queue_send_now(
+        &mut self,
+        draft_id: &str,
+        cx: &mut Context<Self>,
+    ) -> Task<Option<String>> {
+        let call = self.rpc.call::<methods::QueueSendNow>(&QueueDraftRef {
+            chat_id: self.chat_id.clone(),
+            draft_id: draft_id.to_string(),
+        });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            this.update(cx, |s, cx| match result {
+                Ok(QueueSendNowResult { outcome, queue }) => {
+                    s.set_queue(queue, cx);
+                    Some(outcome)
+                }
+                Err(e) => {
+                    s.failed(ChatAction::Queue, &e, cx);
+                    None
+                }
+            })
+            .ok()
+            .flatten()
+        })
+    }
+
+    // ── Hermes busy turn ────────────────────────────────────────────────
+
+    /// A message typed while Hermes works: steers the running turn, or goes
+    /// as the next message (`turns.steer`).
+    pub fn steer(
+        &mut self,
+        text: String,
+        mentions: Vec<ComposerMentionDto>,
+        steer: bool,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<SteerResult, RpcError>> {
+        let call = self.rpc.call::<methods::TurnsSteer>(&SteerTurn {
+            chat_id: self.chat_id.clone(),
+            text,
+            mentions,
+            steer,
+        });
+        cx.background_spawn(call)
     }
 
     /// A chat this window just started with `turns.send`: the message sent
@@ -608,6 +751,7 @@ impl ChatStore {
             {
                 self.fetch(cx);
             }
+            Event::QueueChanged(queue) => self.set_queue(queue.clone(), cx),
             _ => {}
         }
     }
@@ -677,8 +821,10 @@ impl ChatStore {
             return;
         }
         self.chat_id = to.to_string();
+        self.queue.chat_id = self.chat_id.clone();
         self.resubscribe(cx);
         self.fetch(cx);
+        self.refresh_queue(cx);
         cx.notify();
     }
 
@@ -1335,11 +1481,29 @@ pub fn stored_behind(messages: &[ChatMessageDto], message_id: &str, live: &str) 
 pub struct TurnOptions {
     pub model: Option<String>,
     pub tool_ids: Vec<String>,
+    pub filter_ids: Vec<String>,
     pub knowledge: Vec<KnowledgeSummary>,
+    /// Notes, knowledge files, web pages and transcripts.
+    pub context: Vec<ContextAttachmentDto>,
+    /// `@` users and channels and `$` skills in the text.
+    pub mentions: Vec<ComposerMentionDto>,
     pub web_search: bool,
     pub image_generation: bool,
     pub code_interpreter: bool,
     pub file_ids: Vec<String>,
+    /// Compare Models: the two models to answer side by side.
+    pub compare_models: Vec<String>,
+}
+
+/// A chat's queue with nothing in it.
+pub fn empty_queue(chat_id: String) -> QueueState {
+    QueueState {
+        chat_id,
+        drafts: vec![],
+        phase: conduit_protocol::QueuePhase::Idle,
+        admission_failed: false,
+        offer: false,
+    }
 }
 
 impl TurnOptions {
@@ -1354,7 +1518,35 @@ impl TurnOptions {
             image_generation: self.image_generation,
             code_interpreter: self.code_interpreter,
             file_ids: self.file_ids,
+            context: self.context,
+            mentions: self.mentions,
+            filter_ids: self.filter_ids,
+            compare_models: self.compare_models,
             temporary,
+        }
+    }
+
+    /// The same message queued behind the running answer of `chat_id`. Its
+    /// knowledge bases go as context, as the core attaches a whole base (a
+    /// knowledge entry with no file). The switches and tools are the chat's
+    /// own when the queue sends it.
+    pub fn into_queued(self, text: String, chat_id: String) -> QueueAdd {
+        let mut context = self.context;
+        context.extend(self.knowledge.into_iter().map(|k| ContextAttachmentDto {
+            id: k.id,
+            kind: conduit_protocol::ContextAttachmentKind::Knowledge,
+            name: k.name,
+            url: None,
+            content: k.description,
+            collection_name: None,
+            file_id: None,
+        }));
+        QueueAdd {
+            chat_id,
+            text,
+            mentions: self.mentions,
+            file_ids: self.file_ids,
+            context,
         }
     }
 }
@@ -1369,7 +1561,7 @@ mod tests {
         TurnBlocks, TurnCompleted, TurnDelta, TurnFailed, TurnFinished, TurnStarted,
     };
     use futures::FutureExt as _;
-    use gpui_kit::{AppContext as _, Entity, TestAppContext};
+    use gpui_kit::{Entity, TestAppContext};
     use serde_json::json;
 
     use super::*;

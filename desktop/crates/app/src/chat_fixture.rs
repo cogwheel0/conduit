@@ -78,8 +78,7 @@ impl Daemon for FixtureDaemon {
             "composer.options" => Ok(serde_json::to_value(ComposerOptions {
                 web_search: true,
                 image_generation: true,
-                tools: vec![],
-                mcp_tools: vec![],
+                ..Default::default()
             })
             .unwrap()),
             other => Err(error(codes::METHOD_NOT_FOUND, other)),

@@ -14,18 +14,18 @@ gpui_kit::assets::icon_assets!(
     pub ConduitIcons,
     [
         AppWindow, Archive, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, AtSign, AudioLines, Bell,
-        BookOpen, Bot, Brain, Calendar, CalendarClock, Check, ChevronDown, ChevronLeft,
+        BookOpen, Bot, Brain, Calendar, CalendarClock, Captions, Check, ChevronDown, ChevronLeft,
         ChevronRight, ChevronsUpDown, ChevronUp, Circle, CircleAlert, CircleCheck, CircleUser,
         Clock, ClockFading, Cloud, CloudOff, Code, Coffee, Command, Copy, CornerDownLeft, Cpu,
         Database, DatabaseBackup, Download, Ellipsis, ExternalLink, Eye, EyeOff, FileCode,
-        FileText, FlaskConical, Folder, FolderClosed, FolderOpen, Github, Globe, Hash, Heart,
-        Image, ImageOff, Info, Keyboard, KeyRound, Laptop, Layers, LibraryBig, Link, List,
-        ListChecks, LoaderCircle, Lock, LogOut, Mail, Megaphone, MessageSquare, MessageSquarePlus,
-        Mic, Monitor, Moon, Network, Palette, PanelLeft, Paperclip, Pencil, Pin, PinOff, Play,
-        Plus, RefreshCw, RotateCcw, ScrollText, Search, Server, Settings, Share, ShieldAlert,
-        ShieldCheck, SlidersHorizontal, Smartphone, Sparkles, Square, SquarePen, SquareTerminal,
-        Sun, Terminal, TextCursorInput, TextQuote, ThumbsDown, ThumbsUp, Trash, Upload, User,
-        UserPlus, Users, WandSparkles, Wifi, Wrench, X, Zap
+        FileText, FlaskConical, Folder, FolderClosed, FolderOpen, Funnel, Github, Globe, Hash,
+        Heart, Image, ImageOff, Info, Keyboard, KeyRound, Laptop, Layers, LibraryBig, Link, List,
+        ListChecks, LoaderCircle, Lock, LogOut, Mail, Maximize2, Megaphone, MessageSquare,
+        MessageSquarePlus, Mic, Minimize2, Monitor, Moon, Network, NotebookPen, Palette, PanelLeft,
+        Paperclip, Pencil, Pin, PinOff, Play, Plus, RefreshCw, RotateCcw, ScrollText, Search,
+        Server, Settings, Share, ShieldAlert, ShieldCheck, SlidersHorizontal, Smartphone, Sparkles,
+        Square, SquarePen, SquareTerminal, Sun, Terminal, TextCursorInput, TextQuote, ThumbsDown,
+        ThumbsUp, Trash, Upload, User, UserPlus, Users, WandSparkles, Wifi, Wrench, X, Zap
     ]
 );
 

@@ -351,7 +351,9 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
                     .read(cx)
                     .attachments
                     .iter()
-                    .filter(|a| matches!(a.state, crate::stores::composer::UploadState::Failed(_)))
+                    .filter(|a| {
+                        matches!(a.state, crate::stores::composer::UploadState::Failed { .. })
+                    })
                     .count()
             })
             .unwrap_or(99)

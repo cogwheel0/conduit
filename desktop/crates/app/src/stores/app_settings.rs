@@ -35,13 +35,15 @@ pub struct AppSettingsStore {
     _health: Option<Task<()>>,
 }
 
-/// Core's defaults (`AppSettings()`), before the daemon answers.
-pub fn core_defaults() -> AppSettingsDto {
+/// What the daemon answers before anything is set, shown until it has:
+/// core's defaults (`AppSettings()`) with the desktop's own, which the
+/// daemon applies too (`AppSettingsHostDefaults`): Send with Enter on.
+pub fn desktop_defaults() -> AppSettingsDto {
     AppSettingsDto {
         computer_enabled: true,
         quick_pills: vec![],
         inline_message_actions: None,
-        send_on_enter: false,
+        send_on_enter: true,
         show_composer_notes_button: true,
         temporary_chat_by_default: false,
         citation_show_titles: false,
@@ -72,7 +74,7 @@ impl AppSettingsStore {
     pub fn new(rpc: Rpc) -> Self {
         Self {
             rpc,
-            settings: core_defaults(),
+            settings: desktop_defaults(),
             loaded: false,
             health: None,
             error: None,
@@ -219,10 +221,10 @@ mod tests {
 
     fn sample() -> AppSettingsDto {
         AppSettingsDto {
-            send_on_enter: true,
+            send_on_enter: false,
             quick_pills: vec!["web".into()],
             default_inline_message_actions: vec!["copy".into(), "tts".into()],
-            ..core_defaults()
+            ..desktop_defaults()
         }
     }
 
@@ -240,12 +242,13 @@ mod tests {
             Ok(serde_json::to_value(answer).unwrap())
         });
         let store = cx.new(|_| AppSettingsStore::new(daemon.rpc()));
-        assert!(!store.read_with(cx, |s, _| s.settings().send_on_enter));
+        // The desktop's default until the daemon answers.
+        assert!(store.read_with(cx, |s, _| s.settings().send_on_enter));
         store.update(cx, |s, cx| s.refresh(cx));
         cx.run_until_parked();
         store.read_with(cx, |s, _| {
             assert!(s.loaded);
-            assert!(s.settings().send_on_enter);
+            assert!(!s.settings().send_on_enter);
             assert_eq!(s.inline_message_actions(), vec!["copy", "tts"]);
         });
         store.update(cx, |s, cx| {
@@ -277,7 +280,7 @@ mod tests {
         store.update(cx, |s, cx| {
             s.set(
                 AppSettingsPatch {
-                    send_on_enter: Some(true),
+                    send_on_enter: Some(false),
                     ..Default::default()
                 },
                 cx,
@@ -285,7 +288,7 @@ mod tests {
         });
         cx.run_until_parked();
         store.read_with(cx, |s, _| {
-            assert!(!s.settings().send_on_enter);
+            assert!(s.settings().send_on_enter);
             assert!(s.error.is_some());
         });
     }

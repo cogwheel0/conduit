@@ -278,6 +278,8 @@ pub fn fixed_label(command: FixedCommand, l10n: &L10n) -> String {
         F::NextChat => l10n.desktop_menu_next_chat(),
         F::PreviousChat => l10n.desktop_menu_previous_chat(),
         F::Regenerate => l10n.regenerate(),
+        F::ExpandEditor => l10n.desktop_expand_editor(),
+        F::AskConduit => l10n.ask_conduit_action(),
         F::FindInChat => l10n.desktop_keyboard_find_in_chat(),
         F::FindNext => l10n.desktop_find_next(),
         F::FindPrevious => l10n.desktop_find_previous(),

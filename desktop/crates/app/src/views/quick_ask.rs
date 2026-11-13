@@ -33,7 +33,7 @@ use gpui_kit::{
 use crate::l10n::ActiveL10n as _;
 use crate::stores::Stores;
 use crate::stores::chat::{CHAT_EVENTS, ChatStore, PendingMessage, Subscribe};
-use crate::stores::composer::{ComposerEvent, ComposerStore};
+use crate::stores::composer::{ComposerEvent, ComposerPrefs, ComposerStore};
 use crate::stores::connection::ConnectionEvent;
 use crate::stores::router::RouterEvent;
 use crate::stores::session::Route;
@@ -103,6 +103,10 @@ impl QuickAskView {
     pub fn new(stores: Stores, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let rpc = stores.connection.read(cx).rpc();
         let composer_store = cx.new(|_| ComposerStore::new(rpc, Some(daemon_uploader())));
+        // Settings › Chat's choices (Send with Enter, quick pills, Save as
+        // Note), kept as they change.
+        let prefs = ComposerPrefs::from_settings(stores.app_settings.read(cx).settings());
+        composer_store.update(cx, |c, cx| c.set_prefs(prefs, cx));
         let placeholder = cx.l10n().message_hint_text();
         let composer = cx.new(|cx| {
             let mut c = ChatComposer::new(composer_store.clone(), window, cx);
@@ -124,6 +128,13 @@ impl QuickAskView {
                 }
             }),
             cx.observe(&stores.session, |_, _, cx| cx.notify()),
+            {
+                let composer_store = composer_store.clone();
+                cx.observe(&stores.app_settings, move |_, settings, cx| {
+                    let prefs = ComposerPrefs::from_settings(settings.read(cx).settings());
+                    composer_store.update(cx, |c, cx| c.set_prefs(prefs, cx));
+                })
+            },
             cx.observe_window_activation(window, |_, window, cx| {
                 if !window.is_window_active() {
                     cx.emit(QuickAskEvent::Blurred);
@@ -143,9 +154,18 @@ impl QuickAskView {
                 &composer,
                 window,
                 |this, _, event, window, cx| match event {
-                    ChatComposerEvent::Submit(text) => this.send_text(text.clone(), window, cx),
+                    ChatComposerEvent::Submit { text, mentions } => {
+                        this.send_text(text.clone(), mentions.clone(), window, cx)
+                    }
                     ChatComposerEvent::Stop => this.stop(cx),
-                    ChatComposerEvent::Temporary(_) | ChatComposerEvent::PickerChanged => {}
+                    // Quick Ask asks and answers: no queue, no Hermes steering,
+                    // no notes or comparisons from its small panel.
+                    ChatComposerEvent::Temporary(_)
+                    | ChatComposerEvent::PickerChanged
+                    | ChatComposerEvent::Queue { .. }
+                    | ChatComposerEvent::Steer { .. }
+                    | ChatComposerEvent::SaveAsNote(_)
+                    | ChatComposerEvent::CompareModels => {}
                 },
             ),
             cx.subscribe(&composer_store, |this, _, event, cx| {
@@ -155,6 +175,8 @@ impl QuickAskView {
                         l10n.desktop_attachment_failed(name)
                     }
                     ComposerEvent::ModelNotSelected(_) => l10n.desktop_model_not_selected(),
+                    // Quick Ask keeps no drafts.
+                    ComposerEvent::DraftSwitched | ComposerEvent::DraftLoaded { .. } => return,
                 });
                 cx.notify();
             }),
@@ -355,7 +377,13 @@ impl QuickAskView {
 
     /// Sends `text` (with the composer's options and attachments): in this
     /// chat, or as its first message.
-    pub fn send_text(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn send_text(
+        &mut self,
+        text: String,
+        mentions: Vec<conduit_protocol::ComposerMentionDto>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if text.trim().is_empty() && !self.composer_store.read(cx).has_attachments() {
             return;
         }
@@ -375,7 +403,9 @@ impl QuickAskView {
             .map(|m| m.name.clone());
         // Given back with the text if the send fails.
         let used = self.composer_store.read(cx).one_shot();
-        let options = self.composer_store.update(cx, |c, cx| c.take_turn(cx));
+        let options = self
+            .composer_store
+            .update(cx, |c, cx| c.take_turn(mentions, cx));
         let pending = PendingMessage {
             files,
             ..PendingMessage::new(text.clone())
@@ -786,16 +816,7 @@ mod tests {
     }
 
     fn uploaded(name: &str) -> Attachment {
-        Attachment {
-            local_id: 0,
-            name: name.into(),
-            size: 3,
-            content_type: None,
-            image: None,
-            state: UploadState::Done {
-                file_id: format!("file-{name}"),
-            },
-        }
+        Attachment::uploaded_for_test(0, name, &format!("file-{name}"))
     }
 
     #[gpui_kit::test]
@@ -821,7 +842,7 @@ mod tests {
             v.open_in_conduit(window, cx);
             // A follow-up from the transcript waits in the field.
             v.composer.update(cx, |c, cx| c.set_text("", window, cx));
-            v.send_text("Follow up".into(), window, cx);
+            v.send_text("Follow up".into(), vec![], window, cx);
         });
         vcx.run_until_parked();
         assert!(!opened.get(), "the draft left without its file");
@@ -901,7 +922,7 @@ mod tests {
         view.update_in(vcx, |v, window, cx| {
             v.composer_store
                 .update(cx, |c, cx| c.adopt_attachments(vec![uploaded("q.txt")], cx));
-            v.send_text("In the chat".into(), window, cx);
+            v.send_text("In the chat".into(), vec![], window, cx);
             v.new_chat(window, cx);
         });
         held.release();
@@ -923,7 +944,7 @@ mod tests {
             v.composer_store.update(cx, |c, cx| {
                 c.adopt_attachments(vec![uploaded("first.txt")], cx)
             });
-            v.send_text("First".into(), window, cx);
+            v.send_text("First".into(), vec![], window, cx);
         });
         stores.accounts.update(vcx, |a, cx| {
             a.adopt(
@@ -959,7 +980,7 @@ mod tests {
             v.composer_store.update(cx, |c, cx| {
                 c.adopt_attachments(vec![uploaded("old.txt")], cx)
             });
-            v.send_text("hello".into(), window, cx);
+            v.send_text("hello".into(), vec![], window, cx);
             v.composer_store.update(cx, |c, cx| {
                 c.adopt_attachments(vec![uploaded("next.txt")], cx)
             });

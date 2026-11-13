@@ -855,6 +855,98 @@
   "@desktopWaitingForAnswer": {"description": "Placeholder in an answer that has started but has no content yet."},
   "desktopKnowledgeChip": "Knowledge: {name}",
   "@desktopKnowledgeChip": {"description": "Chip in the composer for a knowledge base chosen with #; {name} is its name.", "placeholders": {"name": {"type": "String"}}},
+  "desktopAttachmentConverting": "Converting…",
+  "@desktopAttachmentConverting": {
+    "description": "Second line of an attachment in the composer while a HEIC, RAW or BMP picture is turned into a JPEG before it uploads."
+  },
+  "desktopAttachmentRetrying": "Retrying…",
+  "@desktopAttachmentRetrying": {
+    "description": "Second line of an attachment in the composer whose upload failed and is tried again shortly, by itself."
+  },
+  "desktopCollapseEditor": "Collapse Editor",
+  "@desktopCollapseEditor": {
+    "description": "Button and tooltip that shrinks the composer's large editor back to its usual size (⇧⌘E), in Title Case."
+  },
+  "desktopExpandEditor": "Expand Editor",
+  "@desktopExpandEditor": {
+    "description": "Button and tooltip that grows the composer into a larger editor for a long prompt (⇧⌘E), in Title Case."
+  },
+  "desktopContextFile": "Knowledge File",
+  "@desktopContextFile": {
+    "description": "What a file from a knowledge base is called in the composer's # menu (a row with no name of its own) and on its chip."
+  },
+  "desktopContextFiles": "Files",
+  "@desktopContextFiles": {
+    "description": "Heading of the knowledge files in the composer's # menu, after Notes and Knowledge."
+  },
+  "desktopMentionMenu": "Models and People",
+  "@desktopMentionMenu": {
+    "description": "Accessible name of the composer's @ menu, which lists models and, on Open WebUI, people and channels to mention."
+  },
+  "desktopMentionModels": "Models",
+  "@desktopMentionModels": {
+    "description": "Heading of the models in the composer's @ menu, above People and Channels."
+  },
+  "desktopMentionPeople": "People",
+  "@desktopMentionPeople": {
+    "description": "Heading of the server's users in the composer's @ menu."
+  },
+  "desktopNoFilesMatch": "No files match.",
+  "@desktopNoFilesMatch": {
+    "description": "The server-file picker when no file matches the search, or the account has none."
+  },
+  "desktopNoSkillsMatch": "No skills match.",
+  "@desktopNoSkillsMatch": {
+    "description": "The composer's $ menu when no Open WebUI skill matches what was typed."
+  },
+  "desktopQueueMessage": "Queue Message",
+  "@desktopQueueMessage": {
+    "description": "Tooltip of the composer's Queue button while an answer is written: the message waits and goes out when the answer ends."
+  },
+  "desktopQueuedMessageField": "Queued Message",
+  "@desktopQueuedMessageField": {
+    "description": "Accessible name of the field that edits a queued message in place."
+  },
+  "desktopReadingPage": "Reading the page…",
+  "@desktopReadingPage": {
+    "description": "The Web Page panel while the server reads the page (or the video's transcript)."
+  },
+  "desktopRemoveFromQueue": "Remove from Queue",
+  "@desktopRemoveFromQueue": {
+    "description": "Button and tooltip on a queued message that takes it out of the queue, in Title Case."
+  },
+  "desktopSavedAsNote": "Saved as a note.",
+  "@desktopSavedAsNote": {
+    "description": "Toast after the composer's text was kept as a new note (+ › Save as Note)."
+  },
+  "desktopSearchFiles": "Search files",
+  "@desktopSearchFiles": {
+    "description": "Placeholder and accessible name of the search field in the server-file picker."
+  },
+  "desktopServerFilesFailed": "The server's files couldn't be listed.",
+  "@desktopServerFilesFailed": {
+    "description": "The server-file picker when the server's files could not be listed."
+  },
+  "desktopSteerTooltip": "Tell the running turn now",
+  "@desktopSteerTooltip": {
+    "description": "Tooltip of Steer beside Stop while Hermes works: the typed text goes to the running turn now, to change what it is doing."
+  },
+  "desktopUntitledNote": "Untitled Note",
+  "@desktopUntitledNote": {
+    "description": "A note with no title of its own, in the composer's # menu."
+  },
+  "desktopWebPageAddress": "Web Page Address",
+  "@desktopWebPageAddress": {
+    "description": "Accessible name of the address field in the composer's Web Page panel."
+  },
+  "desktopWebPageHelp": "Paste a web page or YouTube address. Its text, or the video's transcript, goes with your message.",
+  "@desktopWebPageHelp": {
+    "description": "Help line in the composer's Web Page panel."
+  },
+  "desktopYoutubeTranscript": "YouTube Transcript",
+  "@desktopYoutubeTranscript": {
+    "description": "What a YouTube video's transcript attached to a message is called, for its chip's accessible name."
+  },
   "desktopNoPromptsMatch": "No prompts match.",
   "@desktopNoPromptsMatch": {"description": "The / menu when no saved prompt matches what was typed."},
   "desktopNoKnowledgeMatch": "No knowledge matches.",
@@ -2573,7 +2665,7 @@
   },
   "desktopLoading": "Loading…",
   "@desktopLoading": {
-    "description": "Shown while Settings reads a value from the server."
+    "description": "Shown while Settings reads a value from the server, and in a list (the server's files) until it has loaded."
   },
   "desktopLatencyMs": "{ms} ms",
   "@desktopLatencyMs": {

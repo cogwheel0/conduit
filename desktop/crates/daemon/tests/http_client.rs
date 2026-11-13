@@ -94,6 +94,7 @@ async fn upload_streams_the_body_with_auth_name_and_progress() {
             Some(Arc::new(move |sent, total| {
                 p.lock().unwrap().push((sent, total))
             })),
+            2,
         )
         .await
         .unwrap();
@@ -118,6 +119,8 @@ async fn upload_streams_the_body_with_auth_name_and_progress() {
         Some("application/pdf")
     );
     assert_eq!(req.header("content-length").as_deref(), Some("200000"));
+    // Which try this is, for the daemon's retry advice.
+    assert_eq!(req.header("x-conduit-attempt").as_deref(), Some("2"));
     assert_eq!(req.body, body.to_vec());
 
     let progress = progress.lock().unwrap().clone();
@@ -136,7 +139,7 @@ async fn upload_surfaces_the_daemons_error_code() {
     .await;
     let client = HttpClient::new(port, "t");
     let e = client
-        .upload("a.txt", None, Bytes::from_static(b"hi"), None)
+        .upload("a.txt", None, Bytes::from_static(b"hi"), None, 1)
         .await
         .unwrap_err();
     assert_eq!(e.code.as_str(), "rpc.daemonUnavailable");

@@ -1,19 +1,31 @@
 //! The composer.
 //!
 //! * **Text:** a GPUI Kit Textarea. Enter sends and Shift+Enter breaks the
-//!   line; nothing sends while an input method is composing
-//!   (`marked_text_range()`).
+//!   line (or, with Send on Enter off, Enter breaks it and ⌘↩ sends; ⌘↩
+//!   always sends); nothing sends while an input method is composing
+//!   (`marked_text_range()`). ⇧⌘E grows it into a larger
+//!   editor for a long prompt, and back.
+//! * **While an answer is written:** in an Open WebUI chat a message is
+//!   queued behind it (Queue); with Hermes on a Desktop Gateway it goes to
+//!   the running turn as the next message, or steers it (Steer).
 //! * **Attachments:** from +, a drop onto the composer, or a paste (images
-//!   and copied files), each uploading with its own progress.
-//! * **Menus:** `/` saved prompts (with the fill-in form for their fields,
-//!   select fields included), `@` a model for this message only, `#`
-//!   knowledge. Up/Down move, Enter or Tab choose, Esc closes; the keys go
-//!   to the menu, not the text, while one is open.
-//! * **Footer:** + attach, the feature switches `composer.options` allows
-//!   (web search, image generation, tools), the temporary-chat switch
-//!   before the first message, the model picker (`models.list` /
-//!   `models.select`), and Send, which becomes Stop while an answer is
-//!   written. Send waits while offline or while files upload.
+//!   and copied files), each uploading with its own progress; files already
+//!   on the server (Server Files…), a web page or a YouTube transcript (Web
+//!   Page…), and a Direct MCP server's prompts and resources (MCP
+//!   Content…).
+//! * **Menus at the caret:** `/` saved prompts (with the fill-in form for
+//!   their fields, select fields included), `@` a model for this message
+//!   only, or a person or channel to mention, `#` notes, knowledge bases and
+//!   their files, `$` skills. Up/Down move, Enter or Tab choose, Esc closes;
+//!   the keys go to the menu, not the text, while one is open. Mentions and
+//!   skills are atomic tokens in the text.
+//! * **Footer:** + (attachments, then the switches `composer.options`
+//!   allows: web search, image generation, the code interpreter, Compare
+//!   Models, Save as Note, then tools and filters), the quick pills chosen in
+//!   Settings, the temporary-chat switch before the first message, the model
+//!   picker (`models.list` / `models.select`), and Send, which becomes Stop
+//!   while an answer is written. Send waits while offline or while files
+//!   upload.
 //!
 //! The composer emits [`ChatComposerEvent`]s; the chat pane sends.
 
@@ -30,9 +42,13 @@ use conduit_components::views::focus::{
 use conduit_components::views::kit::{IconButton, icon_tile, overlay_shadow};
 use conduit_components::views::shell::ModelPickerButton;
 use conduit_protocol::{
-    KnowledgeSummary, ModelSummary, PromptInput, PromptSummary, RenderPrompt, RenderedPrompt,
+    ComposerMentionDto, ContextAttachmentDto, ContextAttachmentKind, ContextSuggestion,
+    ContextSuggestionKind, KnowledgeSummary, MentionTarget as Person, ModelSummary, PromptInput,
+    PromptSummary, RenderPrompt, RenderedPrompt, SkillSummary,
 };
-use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
+use gpui_kit::component::input::{
+    InlineToken, Input, InputEvent, InputState, Textarea, TextareaState,
+};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     AnyElement, App, ClipboardEntry, Context, ElementId, Entity, EntityInputHandler as _,
@@ -42,8 +58,8 @@ use gpui_kit::{
 
 use crate::l10n::ActiveL10n as _;
 use crate::stores::composer::{
-    Attachment, ComposerStore, Trigger, TriggerKind, UploadState, match_models, match_prompts,
-    model_label, trigger_at,
+    Attachment, ComposerEvent, ComposerStore, MentionTarget, Trigger, TriggerKind, UploadState,
+    match_models, match_prompts, mentions_in, model_label, trigger_at,
 };
 
 /// How many entries a `/`, `@` or `#` menu shows.
@@ -51,31 +67,92 @@ const MENU_LIMIT: usize = 8;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChatComposerEvent {
-    /// Send this text (the composer has already cleared itself).
-    Submit(String),
+    /// Send this text, with the mentions in it (the composer has already
+    /// cleared itself).
+    Submit {
+        text: String,
+        mentions: Vec<ComposerMentionDto>,
+    },
+    /// Queue this text behind the running answer.
+    Queue {
+        text: String,
+        mentions: Vec<ComposerMentionDto>,
+    },
+    /// Hand this text to the running Hermes turn: to steer it (`steer`), or
+    /// as the next message.
+    Steer {
+        text: String,
+        mentions: Vec<ComposerMentionDto>,
+        steer: bool,
+    },
     Stop,
     /// The temporary-chat switch moved.
     Temporary(bool),
     /// The model picker opened or closed (the chat pane draws it under its
     /// toolbar).
     PickerChanged,
+    /// + › Save as Note: keep this text as a new note instead of sending it.
+    SaveAsNote(String),
+    /// + › Compare Models.
+    CompareModels,
 }
 
-/// What the + menu's items do. The menu is native (NSMenu), as the phone's
-/// + opens its attach panel: files first, then the feature switches.
+/// What the + menu's items do. The menu is native (NSMenu), as the panel
+/// the phone's + opens: attachments first, then the features, then tools
+/// and filters, each group under its own separator.
 #[derive(Clone, Debug, PartialEq, gpui_kit::Action)]
 #[action(namespace = conduit_composer, no_json)]
 pub enum ComposerMenu {
     AttachFiles,
+    ServerFiles,
+    WebPage,
+    McpContent,
     WebSearch,
     ImageGeneration,
+    CodeInterpreter,
+    CompareModels,
+    SaveAsNote,
     Tool(String),
+    Filter(String),
+    /// A heading (disabled).
+    Heading,
 }
 
-/// A `/`, `@` or `#` menu open over the composer.
+/// A menu's rows as drawn: each one's group heading and title.
+pub type MenuRows = Vec<(Option<String>, String)>;
+
+/// A `/`, `@`, `#` or `$` menu open over the composer.
 struct Menu {
     trigger: Trigger,
     highlighted: usize,
+}
+
+/// What choosing a menu entry does.
+#[derive(Clone)]
+enum Pick {
+    Prompt(PromptSummary),
+    Model(ModelSummary),
+    Person(Person),
+    Channel(Person),
+    Skill(SkillSummary),
+    Context(ContextSuggestion),
+}
+
+/// One row of a `/`, `@`, `#` or `$` menu, under its group's heading.
+struct Entry {
+    group: Option<String>,
+    icon: IconName,
+    title: String,
+    detail: String,
+    pick: Pick,
+}
+
+/// A panel over the composer: the server's files, a web page to read, or a
+/// Direct MCP server's content.
+pub(crate) enum Panel {
+    ServerFiles(super::composer_panels::ServerFilesPanel),
+    WebPage(super::composer_panels::WebPagePanel),
+    Mcp(Box<super::composer_panels::McpPanel>),
 }
 
 /// One field of a prompt's fill-in form.
@@ -143,6 +220,18 @@ pub struct ChatComposer {
     /// Where the composer's frame was last drawn: the menu clears its top,
     /// whatever chips or attachments it holds above the field.
     frame_bounds: Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
+    /// A message typed now would be queued behind the running answer (the
+    /// open chat's `queue.offer`).
+    pub queue_offer: bool,
+    /// The field grown into a larger editor (⇧⌘E).
+    pub expanded: bool,
+    /// Enter sends (the Chats setting, as the field was last told).
+    send_on_enter: bool,
+    /// The + menu offers Compare Models. Off until a window draws two
+    /// answers side by side; the daemon already runs a comparison
+    /// (`turns.send` with `compareModels`).
+    pub compare_ui: bool,
+    pub(crate) panel: Option<Panel>,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -155,6 +244,15 @@ impl Focusable for ChatComposer {
     }
 }
 
+/// What a quick pill turns on (the daemon's `QuickPillOption::kind`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PillKind {
+    Web,
+    Image,
+    Filter,
+    Tool,
+}
+
 impl ChatComposer {
     pub fn new(
         composer: Entity<ComposerStore>,
@@ -162,11 +260,14 @@ impl ChatComposer {
         cx: &mut Context<Self>,
     ) -> Self {
         let placeholder = cx.l10n().message_hint_text();
+        // Send with Enter as the store already has it (the settings may have
+        // arrived before this view was made).
+        let send_on_enter = composer.read(cx).prefs.send_on_enter;
         let input = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 10)
                 .placeholder(placeholder)
-                .submit_on_enter(true)
+                .submit_on_enter(send_on_enter)
         });
         let weak = cx.entity().downgrade();
         let subscriptions = vec![
@@ -178,10 +279,12 @@ impl ChatComposer {
                         shift: false,
                         secondary: false,
                     } => {
-                        // An input method may hand Enter back while composing.
+                        // With Send on Enter off the field took Enter as a
+                        // new line (⌘↩ sends). An input method may hand
+                        // Enter back while composing.
                         let composing =
                             state.update(cx, |s, cx| s.marked_text_range(window, cx).is_some());
-                        if !composing {
+                        if this.send_on_enter && !composing {
                             this.submit(window, cx);
                         }
                     }
@@ -189,17 +292,60 @@ impl ChatComposer {
                     _ => {}
                 },
             ),
-            cx.observe(&composer, |_, _, cx| cx.notify()),
-            // The menu and picker keys, ahead of the text field's own.
+            // Drafts: another chat's replaces what was shown; a draft read
+            // shows unless something was typed meanwhile.
+            cx.subscribe_in(
+                &composer,
+                window,
+                |this, store, e: &ComposerEvent, window, cx| match e {
+                    ComposerEvent::DraftSwitched => {
+                        this.input.update(cx, |s, cx| s.set_value("", window, cx));
+                        this.menu = None;
+                        cx.notify();
+                    }
+                    ComposerEvent::DraftLoaded { key, text } => {
+                        let current = store.read(cx).draft_key() == Some(key);
+                        if current && this.text(cx).is_empty() && !text.is_empty() {
+                            this.set_text(text, window, cx);
+                        }
+                    }
+                    _ => {}
+                },
+            ),
+            cx.observe(&composer, |this, store, cx| {
+                // Send on Enter follows the Chats setting.
+                let on_enter = store.read(cx).prefs.send_on_enter;
+                if this.send_on_enter != on_enter {
+                    this.send_on_enter = on_enter;
+                    this.input
+                        .update(cx, |s, cx| s.set_submit_on_enter(on_enter, cx));
+                }
+                cx.notify()
+            }),
+            // The menu and picker keys, ahead of the text field's own; ⌘↩
+            // sends whatever Enter does.
             cx.intercept_keystrokes(move |event, window, cx| {
                 let key = event.keystroke.key.as_str();
-                let modified = event.keystroke.modifiers.modified();
-                if modified || !matches!(key, "up" | "down" | "enter" | "tab" | "escape") {
-                    return;
-                }
+                let m = event.keystroke.modifiers;
                 let Some(this) = weak.upgrade() else {
                     return;
                 };
+                if key == "enter" && m.platform && !m.shift && !m.alt && !m.control {
+                    let handled = this.update(cx, |c, cx| {
+                        let focused = c.input.read(cx).focus_handle(cx).is_focused(window);
+                        if focused {
+                            c.submit(window, cx);
+                        }
+                        focused
+                    });
+                    if handled {
+                        cx.stop_propagation();
+                    }
+                    return;
+                }
+                if m.modified() || !matches!(key, "up" | "down" | "enter" | "tab" | "escape") {
+                    return;
+                }
                 let handled = this.update(cx, |c, cx| {
                     // The input method's own keys while it composes (Enter
                     // confirms, arrows pick, Esc cancels), as for PressEnter.
@@ -231,6 +377,11 @@ impl ChatComposer {
             picker_closed_at: None,
             plus_bounds: Rc::default(),
             frame_bounds: Rc::default(),
+            queue_offer: false,
+            expanded: false,
+            send_on_enter,
+            compare_ui: false,
+            panel: None,
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         }
@@ -240,6 +391,11 @@ impl ChatComposer {
         self.input.update(cx, |s, cx| s.focus(window, cx));
     }
 
+    /// Enter sends, as the field was last told (Settings › Chat).
+    pub fn sends_on_enter(&self) -> bool {
+        self.send_on_enter
+    }
+
     /// The text field's placeholder (Quick Ask says "Ask Conduit…").
     pub fn set_placeholder(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         let text = text.to_string();
@@ -247,10 +403,42 @@ impl ChatComposer {
             .update(cx, |s, cx| s.set_placeholder(text, window, cx));
     }
 
-    /// A `/`, `@` or `#` menu, a prompt's form or the model picker is open
-    /// (Esc closes that first).
+    /// A `/`, `@`, `#` or `$` menu, a prompt's form, a panel or the model
+    /// picker is open, or the editor is expanded (Esc closes that first).
     pub fn has_popup(&self) -> bool {
-        self.menu.is_some() || self.form.is_some() || self.picker.is_some()
+        self.menu.is_some()
+            || self.form.is_some()
+            || self.picker.is_some()
+            || self.panel.is_some()
+            || self.expanded
+    }
+
+    /// Esc: closes what is open over the composer, the innermost first.
+    /// True when something was.
+    pub fn close_popup(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.menu.take().is_some() {
+        } else if self.picker.is_some() {
+            self.close_picker(window, cx);
+        } else if self.form.is_some() {
+            self.cancel_form(window, cx);
+        } else if self.panel.take().is_some() {
+            self.focus_input(window, cx);
+        } else if self.expanded {
+            self.set_expanded(false, window, cx);
+        } else {
+            return false;
+        }
+        cx.notify();
+        true
+    }
+
+    /// ⇧⌘E: the larger editor for a long prompt, or back.
+    pub fn set_expanded(&mut self, expanded: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.expanded = expanded;
+        let (min, max) = if expanded { (12, 36) } else { (1, 10) };
+        self.input.update(cx, |s, cx| s.set_auto_grow(min, max, cx));
+        self.focus_input(window, cx);
+        cx.notify();
     }
 
     pub fn text(&self, cx: &App) -> String {
@@ -269,32 +457,118 @@ impl ChatComposer {
 
     /// Whether Send would send now.
     pub fn can_send(&self, cx: &App) -> bool {
-        let composer = self.composer.read(cx);
-        let has_text = !self.text(cx).trim().is_empty();
-        !self.streaming
-            && !self.offline
-            && !composer.uploading()
-            && (has_text || composer.has_attachments())
+        !self.streaming && self.ready(cx)
     }
 
-    /// Enter or Send: emits the text and clears the field.
+    /// Something to send, and nothing holding it back but a running answer.
+    fn ready(&self, cx: &App) -> bool {
+        let composer = self.composer.read(cx);
+        let has_text = !self.text(cx).trim().is_empty();
+        !self.offline && !composer.uploading() && (has_text || composer.has_attachments())
+    }
+
+    /// Hermes on a Desktop Gateway takes a message while it works.
+    pub fn steers(&self, cx: &App) -> bool {
+        self.composer.read(cx).options.steer
+    }
+
+    /// What Enter does while an answer is written: queue (Open WebUI), hand
+    /// to Hermes (a Desktop Gateway), or nothing.
+    fn busy_action(&self, cx: &App) -> Option<bool> {
+        if !self.streaming || !self.ready(cx) || self.text(cx).trim().is_empty() {
+            return None;
+        }
+        if self.queue_offer {
+            Some(true)
+        } else if self.steers(cx) {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
+    /// The text as it goes out, and its mentions (UTF-16 ranges into it),
+    /// with the field cleared.
+    fn take_text(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> (String, Vec<ComposerMentionDto>) {
+        let state = self.input.read(cx);
+        let raw = state.value().to_string();
+        let tokens: Vec<_> = state
+            .tokens()
+            .iter()
+            .map(|span| {
+                (
+                    span.range(),
+                    span.token().id().to_string(),
+                    span.token().label().to_string(),
+                )
+            })
+            .collect();
+        // Trimmed, with the mentions moved to match.
+        let lead = raw.len() - raw.trim_start().len();
+        let text = raw.trim().to_string();
+        let tokens = tokens
+            .into_iter()
+            .filter(|(r, _, _)| r.start >= lead && r.end <= lead + text.len())
+            .map(|(r, id, label)| (r.start - lead..r.end - lead, id, label));
+        let mentions = mentions_in(&text, tokens);
+        // A prompt still being rendered belongs to the draft that just went.
+        self.prompt_request += 1;
+        self.input.update(cx, |s, cx| s.set_value("", window, cx));
+        self.menu = None;
+        self.composer.update(cx, |c, cx| c.clear_draft(cx));
+        (text, mentions)
+    }
+
+    /// Enter or Send: emits the text and clears the field. While an answer
+    /// is written: queues it, or hands it to Hermes as the next message.
     pub fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // A trigger menu with nothing in it is no menu: Send sends.
         if self.menu.is_some() && self.menu_len(cx) == 0 {
             self.menu = None;
         }
-        if self.menu.is_some() || self.form.is_some() {
+        if self.menu.is_some() || self.form.is_some() || self.panel.is_some() {
+            return;
+        }
+        if let Some(queue) = self.busy_action(cx) {
+            let (text, mentions) = self.take_text(window, cx);
+            cx.emit(if queue {
+                ChatComposerEvent::Queue { text, mentions }
+            } else {
+                ChatComposerEvent::Steer {
+                    text,
+                    mentions,
+                    steer: false,
+                }
+            });
+            cx.notify();
             return;
         }
         if !self.can_send(cx) {
             return;
         }
-        let text = self.text(cx).trim().to_string();
-        // A prompt still being rendered belongs to the draft that just went.
-        self.prompt_request += 1;
-        self.input.update(cx, |s, cx| s.set_value("", window, cx));
-        self.menu = None;
-        cx.emit(ChatComposerEvent::Submit(text));
+        let (text, mentions) = self.take_text(window, cx);
+        if self.expanded {
+            self.set_expanded(false, window, cx);
+        }
+        cx.emit(ChatComposerEvent::Submit { text, mentions });
+        cx.notify();
+    }
+
+    /// Steer: the text goes to the running Hermes turn now.
+    pub fn steer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy_action(cx) != Some(false) {
+            return;
+        }
+        let (text, mentions) = self.take_text(window, cx);
+        cx.emit(ChatComposerEvent::Steer {
+            text,
+            mentions,
+            steer: true,
+        });
         cx.notify();
     }
 
@@ -325,14 +599,31 @@ impl ChatComposer {
         let state = self.input.read(cx);
         let value = state.value().to_string();
         let cursor = state.cursor();
-        let trigger = trigger_at(&value, cursor);
+        self.composer
+            .update(cx, |c, cx| c.draft_changed(&value, cx));
+        let options = self.composer.read(cx).options.clone();
+        // A trigger the model cannot take is plain text: `$` without Open
+        // WebUI skills, `#` with Hermes.
+        let trigger = trigger_at(&value, cursor).filter(|t| match t.kind {
+            TriggerKind::Skill => options.skills,
+            TriggerKind::Knowledge => options.context,
+            _ => true,
+        });
         match &trigger {
             Some(t) if t.kind == TriggerKind::Prompt => {
                 self.composer.update(cx, |c, cx| c.load_prompts(cx));
             }
             Some(t) if t.kind == TriggerKind::Knowledge => {
                 let q = t.query.clone();
-                self.composer.update(cx, |c, cx| c.search_knowledge(&q, cx));
+                self.composer.update(cx, |c, cx| c.search_context(&q, cx));
+            }
+            Some(t) if t.kind == TriggerKind::Model => {
+                let q = t.query.clone();
+                self.composer.update(cx, |c, cx| c.search_mentions(&q, cx));
+            }
+            Some(t) if t.kind == TriggerKind::Skill => {
+                let q = t.query.clone();
+                self.composer.update(cx, |c, cx| c.search_skills(&q, cx));
             }
             _ => {}
         }
@@ -348,19 +639,119 @@ impl ChatComposer {
     }
 
     fn menu_len(&self, cx: &App) -> usize {
+        self.entries(cx).len()
+    }
+
+    /// The open menu's rows, in their groups.
+    fn entries(&self, cx: &App) -> Vec<Entry> {
         let Some(menu) = &self.menu else {
-            return 0;
+            return vec![];
         };
+        let l10n = cx.l10n();
         let c = self.composer.read(cx);
+        let query = &menu.trigger.query;
+        let mut entries = vec![];
         match menu.trigger.kind {
-            TriggerKind::Prompt => c.prompts.as_deref().map_or(0, |p| {
-                match_prompts(&menu.trigger.query, p, MENU_LIMIT).len()
-            }),
-            TriggerKind::Model => c.models.as_ref().map_or(0, |m| {
-                match_models(&menu.trigger.query, &m.models, MENU_LIMIT).len()
-            }),
-            TriggerKind::Knowledge => c.knowledge_results.len().min(MENU_LIMIT),
+            TriggerKind::Prompt => {
+                for p in c
+                    .prompts
+                    .as_deref()
+                    .map(|p| match_prompts(query, p, MENU_LIMIT))
+                    .unwrap_or_default()
+                {
+                    entries.push(Entry {
+                        group: None,
+                        icon: IconName::SquareTerminal,
+                        title: p.command.clone(),
+                        detail: p.title.clone(),
+                        pick: Pick::Prompt(p.clone()),
+                    });
+                }
+            }
+            TriggerKind::Model => {
+                let models = c
+                    .models
+                    .as_ref()
+                    .map(|m| match_models(query, &m.models, MENU_LIMIT))
+                    .unwrap_or_default();
+                let grouped = c.options.mentions
+                    && (!c.mention_results.users.is_empty()
+                        || !c.mention_results.channels.is_empty());
+                for m in models {
+                    entries.push(Entry {
+                        group: grouped.then(|| l10n.desktop_mention_models()),
+                        icon: IconName::Sparkles,
+                        title: model_label(m),
+                        detail: m.description.clone().unwrap_or_default(),
+                        pick: Pick::Model(m.clone()),
+                    });
+                }
+                if c.options.mentions {
+                    for u in &c.mention_results.users {
+                        entries.push(Entry {
+                            group: Some(l10n.desktop_mention_people()),
+                            icon: IconName::User,
+                            title: u.name.clone(),
+                            detail: u.detail.clone().unwrap_or_default(),
+                            pick: Pick::Person(u.clone()),
+                        });
+                    }
+                    for ch in &c.mention_results.channels {
+                        entries.push(Entry {
+                            group: Some(l10n.sidebar_channels_tab()),
+                            icon: IconName::Hash,
+                            title: ch.name.clone(),
+                            detail: ch.detail.clone().unwrap_or_default(),
+                            pick: Pick::Channel(ch.clone()),
+                        });
+                    }
+                }
+            }
+            TriggerKind::Knowledge => {
+                for k in &c.context_results {
+                    let (group, icon, fallback) = match k.kind {
+                        ContextSuggestionKind::Note => (
+                            l10n.notes(),
+                            IconName::NotebookPen,
+                            l10n.desktop_untitled_note(),
+                        ),
+                        ContextSuggestionKind::KnowledgeBase => (
+                            l10n.workspace_knowledge(),
+                            IconName::BookOpen,
+                            l10n.knowledge_base(),
+                        ),
+                        ContextSuggestionKind::KnowledgeFile | ContextSuggestionKind::Unknown => (
+                            l10n.desktop_context_files(),
+                            IconName::FileText,
+                            l10n.desktop_context_file(),
+                        ),
+                    };
+                    entries.push(Entry {
+                        group: Some(group),
+                        icon,
+                        title: if k.name.trim().is_empty() {
+                            fallback
+                        } else {
+                            k.name.clone()
+                        },
+                        detail: k.subtitle.clone().unwrap_or_default(),
+                        pick: Pick::Context(k.clone()),
+                    });
+                }
+            }
+            TriggerKind::Skill => {
+                for skill in c.skill_results.iter().take(MENU_LIMIT) {
+                    entries.push(Entry {
+                        group: None,
+                        icon: IconName::Zap,
+                        title: skill.name.clone(),
+                        detail: skill.description.clone().unwrap_or_default(),
+                        pick: Pick::Skill(skill.clone()),
+                    });
+                }
+            }
         }
+        entries
     }
 
     /// A key while a menu or the picker is open. True when it was used.
@@ -370,6 +761,13 @@ impl ChatComposer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        if self.panel.is_some() {
+            return self.panel_key(key, window, cx);
+        }
+        if key == "escape" && self.expanded && self.menu.is_none() && self.picker.is_none() {
+            self.set_expanded(false, window, cx);
+            return true;
+        }
         if let Some(picker) = &mut self.picker {
             let focused = picker.search.read(cx).focus_handle(cx).is_focused(window);
             if !focused {
@@ -416,6 +814,35 @@ impl ChatComposer {
         }
         cx.notify();
         true
+    }
+
+    /// The open menu's trigger and rows as `(group, title)`, as drawn (the
+    /// E2E pass reads them).
+    pub fn menu_rows(&self, cx: &App) -> Option<(TriggerKind, MenuRows)> {
+        let kind = self.menu.as_ref()?.trigger.kind;
+        Some((
+            kind,
+            self.entries(cx)
+                .into_iter()
+                .map(|e| (e.group, e.title))
+                .collect(),
+        ))
+    }
+
+    /// The mentions the field holds now, as they would go out.
+    pub fn mentions(&self, cx: &App) -> Vec<ComposerMentionDto> {
+        let state = self.input.read(cx);
+        let text = state.value().to_string();
+        mentions_in(
+            &text,
+            state.tokens().iter().map(|span| {
+                (
+                    span.range(),
+                    span.token().id().to_string(),
+                    span.token().label().to_string(),
+                )
+            }),
+        )
     }
 
     /// Chooses entry `index` of the open `/`, `@` or `#` menu (what a click
@@ -480,47 +907,94 @@ impl ChatComposer {
     }
 
     fn choose(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(menu) = &self.menu else {
+        let Some(pick) = self.entries(cx).into_iter().nth(index).map(|e| e.pick) else {
             return;
         };
-        let query = menu.trigger.query.clone();
-        match menu.trigger.kind {
-            TriggerKind::Prompt => {
-                let prompt = self.composer.read(cx).prompts.as_deref().and_then(|p| {
-                    match_prompts(&query, p, MENU_LIMIT)
-                        .get(index)
-                        .map(|p| (*p).clone())
-                });
-                let Some(prompt) = prompt else {
-                    return;
-                };
+        match pick {
+            Pick::Prompt(prompt) => {
                 let Some(at) = self.take_trigger(window, cx) else {
                     return;
                 };
                 self.render_prompt(prompt, at, BTreeMap::new(), window, cx);
             }
-            TriggerKind::Model => {
-                let model = self.composer.read(cx).models.as_ref().and_then(|m| {
-                    match_models(&query, &m.models, MENU_LIMIT)
-                        .get(index)
-                        .map(|m| (*m).clone())
-                });
+            Pick::Model(model) => {
                 self.take_trigger(window, cx);
-                if let Some(model) = model {
-                    self.composer
-                        .update(cx, |c, cx| c.set_mention(Some(model), cx));
-                }
+                self.composer
+                    .update(cx, |c, cx| c.set_mention(Some(model), cx));
             }
-            TriggerKind::Knowledge => {
-                let item = self.composer.read(cx).knowledge_results.get(index).cloned();
+            Pick::Person(p) => self.insert_mention(MentionTarget::User(p.id), &p.name, window, cx),
+            Pick::Channel(p) => {
+                self.insert_mention(MentionTarget::Channel(p.id), &p.name, window, cx)
+            }
+            Pick::Skill(skill) => {
+                self.insert_mention(MentionTarget::Skill(skill.id), &skill.name, window, cx)
+            }
+            Pick::Context(item) => {
                 self.take_trigger(window, cx);
-                if let Some(item) = item {
-                    self.composer.update(cx, |c, cx| c.add_knowledge(item, cx));
-                }
+                self.composer.update(cx, |c, cx| match item.kind {
+                    ContextSuggestionKind::KnowledgeBase => c.add_knowledge(
+                        KnowledgeSummary {
+                            id: item.id,
+                            name: item.name,
+                            description: item.subtitle,
+                        },
+                        cx,
+                    ),
+                    ContextSuggestionKind::Note => c.add_context(
+                        ContextAttachmentDto {
+                            id: item.id,
+                            kind: ContextAttachmentKind::Note,
+                            name: item.name,
+                            url: None,
+                            content: None,
+                            collection_name: None,
+                            file_id: None,
+                        },
+                        cx,
+                    ),
+                    ContextSuggestionKind::KnowledgeFile | ContextSuggestionKind::Unknown => c
+                        .add_context(
+                            ContextAttachmentDto {
+                                id: format!("file-{}", item.id),
+                                kind: ContextAttachmentKind::Knowledge,
+                                name: item.name,
+                                url: None,
+                                content: None,
+                                collection_name: item.collection_name,
+                                file_id: Some(item.id),
+                            },
+                            cx,
+                        ),
+                });
             }
         }
         self.focus_input(window, cx);
         cx.notify();
+    }
+
+    /// Replaces the trigger word with an atomic `@Name` or `$Name` token and
+    /// a space, as Open WebUI and the phone show a mention.
+    fn insert_mention(
+        &mut self,
+        target: MentionTarget,
+        name: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(start) = self.take_trigger(window, cx) else {
+            return;
+        };
+        let token = InlineToken::new(target.token_id(), format!("{}{name}", target.sigil()))
+            .with_label(name.to_string());
+        self.input.update(cx, |s, cx| {
+            if s.replace_range_with_token(start..start, token, window, cx)
+                .is_ok()
+            {
+                let at = s.cursor();
+                s.set_selected_range(at..at, cx);
+                s.insert(" ", window, cx);
+            }
+        });
     }
 
     /// `prompts.render`: inserts the text, or asks for the fields first.
@@ -800,8 +1274,11 @@ impl ChatComposer {
             .unwrap_or_else(|| cx.l10n().desktop_shortcut_focus_model_picker())
     }
 
-    /// The + menu: Attach Files, then the switches the model allows, each
-    /// with a check while on.
+    /// The + menu, in mobile's sections: attachments (Attach Files…, Server
+    /// Files…, Web Page…, MCP Content…), the features (Web Search, Image
+    /// Generation, Code Interpreter, Compare Models…, Save as Note), then
+    /// Tools and Filters under their headings. Switches show a check while
+    /// on.
     fn show_plus_menu(
         &mut self,
         position: gpui_kit::Point<gpui_kit::Pixels>,
@@ -810,42 +1287,178 @@ impl ChatComposer {
     ) {
         use gpui_kit::component::native_menu::NativeMenu;
         let l10n = cx.l10n().clone();
+        let has_text = !self.text(cx).trim().is_empty();
         let store = self.composer.read(cx);
         let options = store.options.clone();
-        let (web, image) = (store.web_search, store.image_generation);
+        let (web, image, code) = (
+            store.web_search,
+            store.image_generation,
+            store.code_interpreter,
+        );
         let tool_ids = store.tool_ids.clone();
+        let filter_ids = store.filter_ids.clone();
+        let notes_button = store.prefs.show_notes_button;
         // The entries as drawn, to measure the menu (`None`: a separator).
         let mut entries: Vec<Option<String>> = vec![];
-        let attach = format!("{}\u{2026}", l10n.desktop_attach_files());
-        entries.push(Some(attach.clone()));
-        let mut menu = NativeMenu::new().menu(attach, Box::new(ComposerMenu::AttachFiles));
-        let has_switches = options.web_search
-            || options.image_generation
-            || !options.tools.is_empty()
-            || !options.mcp_tools.is_empty();
-        if has_switches {
+        let mut menu = NativeMenu::new();
+        let item = |menu: NativeMenu,
+                    entries: &mut Vec<Option<String>>,
+                    label: String,
+                    disabled: bool,
+                    checked: Option<bool>,
+                    action: ComposerMenu| {
+            entries.push(Some(label.clone()));
+            match checked {
+                Some(on) if !disabled => menu.menu_with_check(label, on, Box::new(action)),
+                _ => menu.menu_with_disabled(label, disabled, Box::new(action)),
+            }
+        };
+        let a = &options.attachments;
+        let ellipsis = |s: String| format!("{s}\u{2026}");
+        menu = item(
+            menu,
+            &mut entries,
+            ellipsis(l10n.desktop_attach_files()),
+            !(a.files || a.images),
+            None,
+            ComposerMenu::AttachFiles,
+        );
+        if a.server_files {
+            menu = item(
+                menu,
+                &mut entries,
+                ellipsis(l10n.composer_attach_server_files()),
+                false,
+                None,
+                ComposerMenu::ServerFiles,
+            );
+        }
+        if a.web_page {
+            menu = item(
+                menu,
+                &mut entries,
+                ellipsis(l10n.web_page()),
+                false,
+                None,
+                ComposerMenu::WebPage,
+            );
+        }
+        if a.mcp_content {
+            menu = item(
+                menu,
+                &mut entries,
+                ellipsis(l10n.direct_mcp_content_action()),
+                false,
+                None,
+                ComposerMenu::McpContent,
+            );
+        }
+        // Features.
+        let code_shown = options.code_interpreter || code;
+        let draft_note = notes_button && options.notes && has_text && !self.streaming;
+        let compare = options.compare_models && self.compare_ui;
+        if options.web_search || options.image_generation || code_shown || compare || draft_note {
             entries.push(None);
             menu = menu.separator();
         }
         if options.web_search {
-            entries.push(Some(l10n.web_search()));
-            menu = menu.menu_with_check(l10n.web_search(), web, Box::new(ComposerMenu::WebSearch));
+            menu = item(
+                menu,
+                &mut entries,
+                l10n.web_search(),
+                false,
+                Some(web),
+                ComposerMenu::WebSearch,
+            );
         }
         if options.image_generation {
-            entries.push(Some(l10n.desktop_image_generation()));
-            menu = menu.menu_with_check(
+            menu = item(
+                menu,
+                &mut entries,
                 l10n.desktop_image_generation(),
-                image,
-                Box::new(ComposerMenu::ImageGeneration),
+                false,
+                Some(image),
+                ComposerMenu::ImageGeneration,
             );
         }
-        for tool in options.tools.iter().chain(&options.mcp_tools) {
-            entries.push(Some(tool.name.to_string()));
-            menu = menu.menu_with_check(
-                tool.name.clone(),
-                tool_ids.contains(&tool.id),
-                Box::new(ComposerMenu::Tool(tool.id.clone())),
+        if code_shown {
+            // One that will not run stays visible, off, to say so; one chosen
+            // can always be turned off.
+            let blocked = options.code_interpreter_block.is_some();
+            menu = item(
+                menu,
+                &mut entries,
+                l10n.code_interpreter(),
+                blocked && !code,
+                Some(code),
+                ComposerMenu::CodeInterpreter,
             );
+        }
+        if compare {
+            menu = item(
+                menu,
+                &mut entries,
+                ellipsis(l10n.chat_compare_models_action()),
+                !has_text,
+                None,
+                ComposerMenu::CompareModels,
+            );
+        }
+        if draft_note {
+            menu = item(
+                menu,
+                &mut entries,
+                l10n.composer_save_draft_as_note(),
+                false,
+                None,
+                ComposerMenu::SaveAsNote,
+            );
+        }
+        // Tools, then filters, each under its heading.
+        let tools: Vec<_> = options.tools.iter().chain(&options.mcp_tools).collect();
+        if !tools.is_empty() {
+            entries.push(None);
+            menu = menu.separator();
+            menu = item(
+                menu,
+                &mut entries,
+                l10n.tools(),
+                true,
+                None,
+                ComposerMenu::Heading,
+            );
+            for tool in tools {
+                menu = item(
+                    menu,
+                    &mut entries,
+                    tool.name.clone(),
+                    false,
+                    Some(tool_ids.contains(&tool.id)),
+                    ComposerMenu::Tool(tool.id.clone()),
+                );
+            }
+        }
+        if !options.filters.is_empty() {
+            entries.push(None);
+            menu = menu.separator();
+            menu = item(
+                menu,
+                &mut entries,
+                l10n.filters(),
+                true,
+                None,
+                ComposerMenu::Heading,
+            );
+            for filter in &options.filters {
+                menu = item(
+                    menu,
+                    &mut entries,
+                    filter.name.clone(),
+                    false,
+                    Some(filter_ids.contains(&filter.id)),
+                    ComposerMenu::Filter(filter.id.clone()),
+                );
+            }
         }
         // The menu's action goes to the focused element's path: keep focus
         // in the composer so its handler hears it.
@@ -888,16 +1501,161 @@ impl ChatComposer {
         click
     }
 
-    fn on_menu(&mut self, action: &ComposerMenu, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn on_menu(&mut self, action: &ComposerMenu, window: &mut Window, cx: &mut Context<Self>) {
         let composer = self.composer.clone();
         match action {
             ComposerMenu::AttachFiles => self.pick_files(window, cx),
+            ComposerMenu::ServerFiles => self.open_server_files(window, cx),
+            ComposerMenu::WebPage => self.open_web_page(window, cx),
+            ComposerMenu::McpContent => self.open_mcp(window, cx),
             ComposerMenu::WebSearch => composer.update(cx, |c, cx| c.toggle_web_search(cx)),
             ComposerMenu::ImageGeneration => {
                 composer.update(cx, |c, cx| c.toggle_image_generation(cx))
             }
+            ComposerMenu::CodeInterpreter => {
+                composer.update(cx, |c, cx| c.toggle_code_interpreter(cx))
+            }
+            ComposerMenu::CompareModels => cx.emit(ChatComposerEvent::CompareModels),
+            ComposerMenu::SaveAsNote => {
+                let text = self.text(cx);
+                if !text.trim().is_empty() {
+                    cx.emit(ChatComposerEvent::SaveAsNote(text));
+                }
+            }
             ComposerMenu::Tool(id) => composer.update(cx, |c, cx| c.toggle_tool(id, cx)),
+            ComposerMenu::Filter(id) => composer.update(cx, |c, cx| c.toggle_filter(id, cx)),
+            ComposerMenu::Heading => {}
         }
+    }
+
+    /// Clears the field after its text was kept as a note.
+    pub fn clear_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.take_text(window, cx);
+        cx.notify();
+    }
+
+    // ── Panels ──────────────────────────────────────────────────────────
+
+    fn open_server_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let panel = super::composer_panels::ServerFilesPanel::new(window, cx);
+        self.panel = Some(Panel::ServerFiles(panel));
+        self.search_server_files(String::new(), cx);
+        cx.notify();
+    }
+
+    pub(crate) fn search_server_files(&mut self, query: String, cx: &mut Context<Self>) {
+        let task = self.composer.update(cx, |c, cx| c.server_files(&query, cx));
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(Panel::ServerFiles(p)) = &mut this.panel {
+                    p.loaded(&query, result.map(|l| l.items), cx);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// The server-file picker's choice: attached as it is.
+    pub(crate) fn attach_server_file(
+        &mut self,
+        file: conduit_protocol::ServerFile,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.composer
+            .update(cx, |c, cx| c.add_server_file(&file, cx));
+        self.panel = None;
+        self.focus_input(window, cx);
+        cx.notify();
+    }
+
+    fn open_web_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let panel = super::composer_panels::WebPagePanel::new(window, cx);
+        self.panel = Some(Panel::WebPage(panel));
+        cx.notify();
+    }
+
+    /// Web Page › Attach: the server reads it; the panel says why when it
+    /// cannot.
+    pub(crate) fn fetch_web_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(Panel::WebPage(panel)) = &mut self.panel else {
+            return;
+        };
+        let url = panel.url.read(cx).value().trim().to_string();
+        let l10n = cx.l10n().clone();
+        if !url.starts_with("http://") && !url.starts_with("https://") {
+            panel.error = Some(l10n.invalid_http_url());
+            cx.notify();
+            return;
+        }
+        panel.busy = true;
+        panel.error = None;
+        let task = self.composer.update(cx, |c, cx| c.fetch_url(&url, cx));
+        cx.spawn_in(window, async move |this, cx| {
+            let result = task.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                let error = match result {
+                    Ok(fetched) => match (fetched.attachment, fetched.error.as_deref()) {
+                        (Some(attachment), _) => {
+                            this.composer
+                                .update(cx, |c, cx| c.add_context(attachment, cx));
+                            this.panel = None;
+                            this.focus_input(window, cx);
+                            None
+                        }
+                        (None, Some("invalidUrl")) => Some(l10n.invalid_http_url()),
+                        (None, Some("noContent")) => {
+                            Some(if super::composer_panels::is_youtube(&url) {
+                                l10n.youtube_transcript_fetch_failed()
+                            } else {
+                                l10n.webpage_no_readable_content()
+                            })
+                        }
+                        _ => Some(l10n.failed_to_attach_content()),
+                    },
+                    Err(e) => {
+                        log::warn!("context.fetchUrl: {e}");
+                        Some(l10n.failed_to_attach_content())
+                    }
+                };
+                if let Some(Panel::WebPage(panel)) = &mut this.panel {
+                    panel.busy = false;
+                    panel.error = error;
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn open_mcp(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rpc = self.composer.read(cx).rpc();
+        let panel = super::composer_panels::McpPanel::new(rpc, window, cx);
+        self.panel = Some(Panel::Mcp(Box::new(panel)));
+        cx.notify();
+    }
+
+    /// Puts `text` at the caret (Ask Conduit) and focuses the field.
+    pub fn insert_at_caret(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let at = self.input.read(cx).cursor();
+        self.insert_at(at, text, window, cx);
+        self.text_changed(cx);
+    }
+
+    /// MCP Content › Insert: the prompt's or resource's text, at the caret.
+    pub(crate) fn insert_text(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let at = self.input.read(cx).cursor();
+        self.panel = None;
+        self.insert_at(at, text, window, cx);
+        self.text_changed(cx);
+    }
+
+    pub(crate) fn close_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.panel = None;
+        self.focus_input(window, cx);
+        cx.notify();
     }
 
     fn choose_model(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -932,6 +1690,15 @@ impl ChatComposer {
     pub fn drop_paths(&mut self, paths: &ExternalPaths, cx: &mut Context<Self>) {
         let paths: Vec<_> = paths.paths().to_vec();
         self.composer.update(cx, |c, cx| c.add_paths(&paths, cx));
+    }
+}
+
+/// Why a chosen code interpreter will not run, by the core's
+/// `CodeInterpreterBlock` name, in mobile's words.
+fn code_interpreter_reason(block: &str, l10n: &crate::l10n::L10n) -> String {
+    match block {
+        "unsupportedEngine" => l10n.code_interpreter_browser_engine(),
+        _ => l10n.code_interpreter_unavailable(),
     }
 }
 
@@ -1009,6 +1776,68 @@ fn chip(
         .into_any_element()
 }
 
+/// A chip for context that goes with the message: a note, a knowledge file,
+/// a web page or a transcript.
+fn context_chip(
+    c: &ContextAttachmentDto,
+    composer: &Entity<ComposerStore>,
+    t: &ConduitTheme,
+    cx: &App,
+) -> AnyElement {
+    let r = t.roles;
+    let l10n = cx.l10n();
+    let ic = match c.kind {
+        ContextAttachmentKind::Note => IconName::NotebookPen,
+        ContextAttachmentKind::Knowledge => IconName::FileText,
+        ContextAttachmentKind::Web => IconName::Globe,
+        ContextAttachmentKind::Youtube => IconName::Captions,
+        ContextAttachmentKind::Unknown => IconName::FileText,
+    };
+    let kind = match c.kind {
+        ContextAttachmentKind::Note => l10n.alert_note(),
+        ContextAttachmentKind::Knowledge => l10n.desktop_context_file(),
+        ContextAttachmentKind::Web => l10n.web_page(),
+        ContextAttachmentKind::Youtube => l10n.desktop_youtube_transcript(),
+        ContextAttachmentKind::Unknown => l10n.desktop_context_file(),
+    };
+    let composer = composer.clone();
+    let id = c.id.clone();
+    div()
+        .id(ElementId::Name(format!("context-{}", c.id).into()))
+        .role(Role::Group)
+        .aria_label(SharedString::from(format!("{kind}: {}", c.name)))
+        .h(px(26.))
+        .max_w(px(260.))
+        .pl(px(8.))
+        .pr(px(3.))
+        .flex()
+        .items_center()
+        .gap(px(5.))
+        .rounded_full()
+        .bg(r.selected)
+        .text_size(px(t.metrics.small))
+        .text_color(r.text)
+        .child(icon(ic, 12., r.text_subtle))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .child(SharedString::from(c.name.clone())),
+        )
+        .child(
+            IconButton::new(
+                ElementId::Name(format!("context-{}-remove", c.id).into()),
+                IconName::X,
+                l10n.desktop_remove_attachment(&c.name),
+            )
+            .size(20., 11.)
+            .on_click(Rc::new(move |_, _, cx| {
+                composer.update(cx, |c, cx| c.remove_context(&id, cx))
+            })),
+        )
+        .into_any_element()
+}
+
 fn attachment_view(
     a: &Attachment,
     composer: &Entity<ComposerStore>,
@@ -1018,13 +1847,29 @@ fn attachment_view(
     let r = t.roles;
     let l10n = cx.l10n().clone();
     let progress = a.progress();
-    let failed = matches!(a.state, UploadState::Failed(_));
+    let failed = a.failed();
     let detail = match (&a.state, progress) {
-        (UploadState::Failed(_), _) => l10n.desktop_attachment_failed(&a.name),
+        (UploadState::Failed { .. }, _) => l10n.desktop_attachment_failed(&a.name),
+        (UploadState::Converting, _) => l10n.desktop_attachment_converting(),
+        (UploadState::Waiting, _) => l10n.desktop_attachment_retrying(),
         (_, Some(p)) => l10n.desktop_uploading_percent((p * 100.) as i64),
+        _ if a.server_file => l10n.composer_attach_server_files(),
         _ => human_size(a.size),
     };
     let id = a.local_id;
+    let retry = a.can_retry().then(|| {
+        let composer = composer.clone();
+        IconButton::new(
+            ElementId::NamedInteger("retry-attachment".into(), id),
+            IconName::RotateCcw,
+            l10n.desktop_try_again(),
+        )
+        .size(20., 12.)
+        .tooltip(l10n.desktop_try_again())
+        .on_click(Rc::new(move |_, _, cx| {
+            composer.update(cx, |c, cx| c.retry_attachment(id, cx));
+        }))
+    });
     let composer = composer.clone();
     let thumb: AnyElement = match &a.image {
         Some(image) => img(image.clone())
@@ -1080,6 +1925,7 @@ fn attachment_view(
                         .child(SharedString::from(detail)),
                 ),
         )
+        .children(retry)
         .child(
             IconButton::new(
                 ElementId::NamedInteger("remove-attachment".into(), id),
@@ -1114,63 +1960,123 @@ fn human_size(bytes: u64) -> String {
 }
 
 impl ChatComposer {
+    /// Where the open menu hangs, from the composer's top-left: over the
+    /// trigger's sigil, its bottom 6 pt above that line (above the whole
+    /// composer when the field is not laid out yet), kept inside the frame.
+    fn menu_anchor(&self, width: f32, cx: &App) -> (f32, f32) {
+        let (Some(menu), Some(frame)) = (&self.menu, self.frame_bounds.get()) else {
+            return (0., 0.);
+        };
+        let start = menu.trigger.start;
+        let Some(caret) = self.input.read(cx).range_to_bounds(&(start..start)) else {
+            return (0., f32::from(frame.size.height) + 6.);
+        };
+        let max_left = (f32::from(frame.size.width) - width).max(0.);
+        let left = (f32::from(caret.left() - frame.left()) - 8.).clamp(0., max_left);
+        let bottom = f32::from(frame.bottom() - caret.top()) + 6.;
+        (left, bottom)
+    }
+
     fn menu_view(&self, t: &ConduitTheme, cx: &mut Context<Self>) -> Option<AnyElement> {
         let menu = self.menu.as_ref()?;
         let l10n = cx.l10n().clone();
         let r = t.roles;
         let m = t.metrics;
-        let c = self.composer.read(cx);
-        let (label, entries): (String, Vec<(String, String)>) = match menu.trigger.kind {
-            TriggerKind::Prompt => (
-                l10n.desktop_prompt_menu(),
-                c.prompts
-                    .as_deref()
-                    .map(|p| {
-                        match_prompts(&menu.trigger.query, p, MENU_LIMIT)
-                            .into_iter()
-                            .map(|p| (p.command.clone(), p.title.clone()))
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-            ),
-            TriggerKind::Model => (
-                l10n.desktop_model_menu(),
-                c.models
-                    .as_ref()
-                    .map(|list| {
-                        match_models(&menu.trigger.query, &list.models, MENU_LIMIT)
-                            .into_iter()
-                            .map(|m| (model_label(m), m.description.clone().unwrap_or_default()))
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-            ),
-            TriggerKind::Knowledge => (
-                l10n.desktop_knowledge_menu(),
-                c.knowledge_results
-                    .iter()
-                    .take(MENU_LIMIT)
-                    .map(|k| (k.name.clone(), k.description.clone().unwrap_or_default()))
-                    .collect(),
-            ),
+        let label = match menu.trigger.kind {
+            TriggerKind::Prompt => l10n.desktop_prompt_menu(),
+            TriggerKind::Model => l10n.desktop_mention_menu(),
+            TriggerKind::Knowledge => l10n.desktop_knowledge_menu(),
+            TriggerKind::Skill => l10n.workspace_skills(),
         };
         let empty = match menu.trigger.kind {
             TriggerKind::Prompt => l10n.desktop_no_prompts_match(),
             TriggerKind::Model => l10n.desktop_no_models_available(),
             TriggerKind::Knowledge => l10n.desktop_no_knowledge_match(),
+            TriggerKind::Skill => l10n.desktop_no_skills_match(),
         };
+        let entries = self.entries(cx);
         let total = entries.len();
-        let highlighted = menu.highlighted;
+        let grouped = entries.iter().any(|e| e.group.is_some());
+        let highlighted = menu.highlighted.min(total.saturating_sub(1));
+        const WIDTH: f32 = 360.;
+        let (left, bottom) = self.menu_anchor(WIDTH, cx);
+        let mut rows: Vec<AnyElement> = vec![];
+        let mut group: Option<String> = None;
+        for (i, entry) in entries.into_iter().enumerate() {
+            if entry.group.is_some() && entry.group != group {
+                group = entry.group.clone();
+                rows.push(
+                    div()
+                        .px(px(8.))
+                        .pt(px(if i == 0 { 2. } else { 8. }))
+                        .pb(px(3.))
+                        .text_size(px(m.caption))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(r.text_subtle)
+                        .child(SharedString::from(group.clone().unwrap_or_default()))
+                        .into_any_element(),
+                );
+            }
+            let hot = i == highlighted;
+            rows.push(
+                div()
+                    .id(ElementId::NamedInteger(
+                        "composer-menu-item".into(),
+                        i as u64,
+                    ))
+                    .role(Role::MenuItem)
+                    .aria_label(SharedString::from(match &entry.group {
+                        Some(g) => format!("{}, {g}", entry.title),
+                        None => entry.title.clone(),
+                    }))
+                    .aria_selected(hot)
+                    .aria_position_in_set(i + 1)
+                    .aria_size_of_set(total)
+                    .min_h(px(m.row_height + 6.))
+                    .px(px(8.))
+                    .py(px(3.))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .rounded(px(7.))
+                    .when(hot, |d| d.bg(r.overlay_hover))
+                    .hover(|s| s.bg(r.overlay_hover))
+                    .cursor_pointer()
+                    .child(icon(entry.icon, 14., r.text_subtle))
+                    .child(
+                        div()
+                            .flex_none()
+                            .max_w(px(200.))
+                            .truncate()
+                            .text_size(px(m.control))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(r.text)
+                            .child(SharedString::from(entry.title)),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(m.small))
+                            .text_color(r.text_subtle)
+                            .child(SharedString::from(entry.detail)),
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| this.choose(i, window, cx)))
+                    .into_any_element(),
+            );
+        }
         Some(
             div()
                 .id("composer-menu")
                 .role(Role::Menu)
                 .aria_label(SharedString::from(label.clone()))
                 .absolute()
-                .bottom(gpui_kit::relative(1.))
-                .left_0()
-                .mb(px(6.))
-                .w(px(360.))
+                .bottom(px(bottom))
+                .left(px(left))
+                .w(px(WIDTH))
+                .max_h(px(340.))
+                .overflow_y_scroll()
                 .p(px(6.))
                 .flex()
                 .flex_col()
@@ -1180,16 +2086,18 @@ impl ChatComposer {
                 .bg(r.overlay)
                 .shadow(overlay_shadow(t))
                 .occlude()
-                .child(
-                    div()
-                        .px(px(8.))
-                        .pt(px(4.))
-                        .pb(px(4.))
-                        .text_size(px(m.caption))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(r.text_subtle)
-                        .child(SharedString::from(label)),
-                )
+                .when(!grouped, |d| {
+                    d.child(
+                        div()
+                            .px(px(8.))
+                            .pt(px(4.))
+                            .pb(px(4.))
+                            .text_size(px(m.caption))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(r.text_subtle)
+                            .child(SharedString::from(label)),
+                    )
+                })
                 .when(total == 0, |d| {
                     d.child(
                         div()
@@ -1200,47 +2108,7 @@ impl ChatComposer {
                             .child(SharedString::from(empty)),
                     )
                 })
-                .children(entries.into_iter().enumerate().map(|(i, (title, detail))| {
-                    div()
-                        .id(ElementId::NamedInteger(
-                            "composer-menu-item".into(),
-                            i as u64,
-                        ))
-                        .role(Role::MenuItem)
-                        .aria_label(SharedString::from(title.clone()))
-                        .aria_selected(i == highlighted)
-                        .aria_position_in_set(i + 1)
-                        .aria_size_of_set(total)
-                        .min_h(px(m.row_height + 6.))
-                        .px(px(8.))
-                        .py(px(3.))
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .rounded(px(7.))
-                        .when(i == highlighted, |d| d.bg(r.overlay_hover))
-                        .cursor_pointer()
-                        .child(
-                            div()
-                                .flex_none()
-                                .text_size(px(m.control))
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(r.text)
-                                .child(SharedString::from(title)),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .truncate()
-                                .text_size(px(m.small))
-                                .text_color(r.text_subtle)
-                                .child(SharedString::from(detail)),
-                        )
-                        .on_click(
-                            cx.listener(move |this, _, window, cx| this.choose(i, window, cx)),
-                        )
-                }))
+                .children(rows)
                 .into_any_element(),
         )
     }
@@ -1675,9 +2543,17 @@ impl Render for ChatComposer {
             .collect();
         let mention = store.mention.clone();
         let knowledge: Vec<KnowledgeSummary> = store.knowledge.clone();
+        let context: Vec<AnyElement> = store
+            .context
+            .iter()
+            .map(|c| context_chip(c, &composer, &t, cx))
+            .collect();
         let options = store.options.clone();
         let (web_search, image_generation) = (store.web_search, store.image_generation);
+        let code_interpreter = store.code_interpreter;
         let tool_ids = store.tool_ids.clone();
+        let filter_ids = store.filter_ids.clone();
+        let busy = self.busy_action(cx);
         let model_name = store
             .selected_model()
             .map(model_label)
@@ -1694,7 +2570,7 @@ impl Render for ChatComposer {
         let shadows = frame.shadow;
 
         let send: AnyElement = if self.streaming {
-            IconButton::new("stop", IconName::Square, l10n.desktop_stop_generating())
+            let stop = IconButton::new("stop", IconName::Square, l10n.desktop_stop_generating())
                 .size(32., 13.)
                 .filled(r.primary, r.primary_foreground)
                 .shortcut(conduit_components::views::focus::hints(cx).stop)
@@ -1703,7 +2579,73 @@ impl Render for ChatComposer {
                     move |_, _, cx| {
                         let _ = weak.update(cx, |_, cx| cx.emit(ChatComposerEvent::Stop));
                     }
-                }))
+                }));
+            // A message typed meanwhile: Queue (Open WebUI) or Steer and
+            // Send Next (Hermes), beside Stop, as on the phone.
+            let tip = |id: &'static str,
+                       button: conduit_components::views::kit::Button,
+                       label: String,
+                       keys: Option<&str>| {
+                div()
+                    .id(id)
+                    .tooltip(conduit_components::views::focus::tooltip_builder(
+                        label.into(),
+                        keys.map(SharedString::from),
+                    ))
+                    .tooltip_show_delay(std::time::Duration::from_millis(800))
+                    .child(button)
+                    .into_any_element()
+            };
+            let submit = |weak: gpui_kit::WeakEntity<Self>| {
+                Rc::new(
+                    move |_: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut App| {
+                        let _ = weak.update(cx, |c, cx| c.submit(window, cx));
+                    },
+                )
+            };
+            let busy_buttons: Vec<AnyElement> = match busy {
+                Some(true) => vec![tip(
+                    "queue-tip",
+                    conduit_components::views::kit::Button::new("queue", l10n.queue_draft_action())
+                        .on_click(submit(cx.entity().downgrade())),
+                    l10n.desktop_queue_message(),
+                    Some("\u{21a9}"),
+                )],
+                Some(false) => vec![
+                    tip(
+                        "steer-tip",
+                        conduit_components::views::kit::Button::new(
+                            "steer",
+                            l10n.hermes_turn_steer(),
+                        )
+                        .on_click(Rc::new({
+                            let weak = cx.entity().downgrade();
+                            move |_, window, cx| {
+                                let _ = weak.update(cx, |c, cx| c.steer(window, cx));
+                            }
+                        })),
+                        l10n.desktop_steer_tooltip(),
+                        None,
+                    ),
+                    tip(
+                        "send-next-tip",
+                        conduit_components::views::kit::Button::new(
+                            "send-next",
+                            l10n.hermes_turn_send_next(),
+                        )
+                        .on_click(submit(cx.entity().downgrade())),
+                        l10n.hermes_turn_send_next(),
+                        Some("\u{21a9}"),
+                    ),
+                ],
+                None => vec![],
+            };
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .children(busy_buttons)
+                .child(stop)
                 .into_any_element()
         } else {
             // Waiting on the connection: dimmed, its tooltip saying why
@@ -1807,9 +2749,96 @@ impl Render for ChatComposer {
         };
         let form = self.form_view(&t, window, cx);
 
+        // Quick pills, chosen in Settings: one-click switches for an Open
+        // WebUI model, on or off, as the phone's. The daemon sends the ones
+        // this model can turn on (the core's `composerQuickPills`).
+        let mut pilled: Vec<(PillKind, String)> = vec![];
+        for pill in &options.quick_pills {
+            let target = pill.target_id.clone();
+            let (element, ic, label, on, kind) = match pill.kind.as_str() {
+                "web" => (
+                    "pill-web".to_string(),
+                    IconName::Globe,
+                    l10n.web(),
+                    web_search,
+                    PillKind::Web,
+                ),
+                "image" => (
+                    "pill-image".to_string(),
+                    IconName::Image,
+                    l10n.image_gen(),
+                    image_generation,
+                    PillKind::Image,
+                ),
+                "filter" => (
+                    format!("pill-filter-{target}"),
+                    IconName::Funnel,
+                    pill.name.clone(),
+                    filter_ids.contains(&target),
+                    PillKind::Filter,
+                ),
+                "tool" => (
+                    format!("pill-tool-{target}"),
+                    IconName::Wrench,
+                    pill.name.clone(),
+                    tool_ids.contains(&target),
+                    PillKind::Tool,
+                ),
+                _ => continue,
+            };
+            pilled.push((kind, target.clone()));
+            let composer = composer.clone();
+            chips.push(
+                toggle_chip(ElementId::Name(element.into()), ic, label.into(), on, &t)
+                    .on_click(move |_, _, cx| {
+                        composer.update(cx, |c, cx| match kind {
+                            PillKind::Web => c.toggle_web_search(cx),
+                            PillKind::Image => c.toggle_image_generation(cx),
+                            PillKind::Filter => c.toggle_filter(&target, cx),
+                            PillKind::Tool => c.toggle_tool(&target, cx),
+                        })
+                    })
+                    .keyboard_control(Ring::Outset(14.), window, cx)
+                    .into_any_element(),
+            );
+        }
+        // A chosen code interpreter stays in view, to turn off; when it will
+        // not run for this model, it says why.
+        if code_interpreter {
+            let block = options.code_interpreter_block.clone();
+            let why = block.as_deref().map(|b| code_interpreter_reason(b, &l10n));
+            let composer = composer.clone();
+            chips.push(
+                toggle_chip(
+                    "toggle-code-interpreter",
+                    if why.is_some() {
+                        IconName::CircleAlert
+                    } else {
+                        IconName::Code
+                    },
+                    l10n.code_interpreter().into(),
+                    why.is_none(),
+                    &t,
+                )
+                .when_some(why, |d, why| {
+                    d.tooltip(conduit_components::views::focus::tooltip_builder(
+                        why.into(),
+                        None,
+                    ))
+                })
+                .on_click(move |_, _, cx| {
+                    composer.update(cx, |c, cx| c.toggle_code_interpreter(cx))
+                })
+                .keyboard_control(Ring::Outset(14.), window, cx)
+                .into_any_element(),
+            );
+        }
+        chips.extend(context);
         // Switches that are on show as chips, which turn them off; the +
         // menu holds them all, as the phone's attach panel does.
-        if options.web_search && web_search {
+        let pilled =
+            |kind: PillKind, target: &str| pilled.iter().any(|p| p.0 == kind && p.1 == target);
+        if options.web_search && web_search && !pilled(PillKind::Web, "") {
             let composer = composer.clone();
             chips.push(
                 toggle_chip(
@@ -1824,7 +2853,7 @@ impl Render for ChatComposer {
                 .into_any_element(),
             );
         }
-        if options.image_generation && image_generation {
+        if options.image_generation && image_generation && !pilled(PillKind::Image, "") {
             let composer = composer.clone();
             chips.push(
                 toggle_chip(
@@ -1841,11 +2870,31 @@ impl Render for ChatComposer {
                 .into_any_element(),
             );
         }
+        for filter in options
+            .filters
+            .iter()
+            .filter(|f| filter_ids.contains(&f.id) && !pilled(PillKind::Filter, &f.id))
+        {
+            let composer = composer.clone();
+            let id = filter.id.clone();
+            chips.push(
+                toggle_chip(
+                    ElementId::Name(format!("filter-{}", filter.id).into()),
+                    IconName::Funnel,
+                    filter.name.clone().into(),
+                    true,
+                    &t,
+                )
+                .on_click(move |_, _, cx| composer.update(cx, |c, cx| c.toggle_filter(&id, cx)))
+                .keyboard_control(Ring::Outset(14.), window, cx)
+                .into_any_element(),
+            );
+        }
         for tool in options
             .tools
             .iter()
             .chain(&options.mcp_tools)
-            .filter(|tool| tool_ids.contains(&tool.id))
+            .filter(|tool| tool_ids.contains(&tool.id) && !pilled(PillKind::Tool, &tool.id))
         {
             let composer = composer.clone();
             let id = tool.id.clone();
@@ -1863,6 +2912,37 @@ impl Render for ChatComposer {
             );
         }
 
+        let panel = self.panel_view(&t, window, cx);
+        // ⇧⌘E: the larger editor, from the field's top corner once it holds
+        // more than a line.
+        let multiline = self.text(cx).contains('\n') || self.expanded;
+        let expand = (multiline && !self.inline_model).then(|| {
+            IconButton::new(
+                "expand-editor",
+                if self.expanded {
+                    IconName::Minimize2
+                } else {
+                    IconName::Maximize2
+                },
+                if self.expanded {
+                    l10n.desktop_collapse_editor()
+                } else {
+                    l10n.desktop_expand_editor()
+                },
+            )
+            .size(24., 12.)
+            .color(r.text_subtle)
+            .shortcut(Some("\u{21e7}\u{2318}E".into()))
+            .on_click(Rc::new({
+                let weak = cx.entity().downgrade();
+                move |_, window, cx| {
+                    let _ = weak.update(cx, |c, cx| {
+                        let on = !c.expanded;
+                        c.set_expanded(on, window, cx)
+                    });
+                }
+            }))
+        });
         let plus = IconButton::new("attach", IconName::Plus, l10n.desktop_attach_files())
             .size(30., 17.)
             .color(r.text_subtle)
@@ -1886,6 +2966,7 @@ impl Render for ChatComposer {
                 cx.listener(|this, a: &ComposerMenu, window, cx| this.on_menu(a, window, cx)),
             )
             .children(form)
+            .children(panel)
             .child(
                 div()
                     .id("composer")
@@ -1950,6 +3031,9 @@ impl Render for ChatComposer {
                         div()
                             .flex()
                             .items_center()
+                            // The larger editor keeps + and Send at its
+                            // bottom edge, under the text.
+                            .when(self.expanded, |d| d.items_end())
                             .gap(px(4.))
                             .child(div().relative().child(plus).child({
                                 let at = self.plus_bounds.clone();
@@ -2034,6 +3118,7 @@ impl Render for ChatComposer {
                                     )
                                 },
                             )
+                            .children(expand)
                             .child(send),
                     )
                     .children(menu)
@@ -2052,6 +3137,7 @@ mod tests {
     use super::*;
     use crate::l10n::L10n;
     use crate::stores::rpc::fake::FakeDaemon;
+    use conduit_protocol::ComposerOptions;
 
     type Seen = Rc<RefCell<Vec<ChatComposerEvent>>>;
 
@@ -2099,7 +3185,10 @@ mod tests {
         cx.simulate_keystrokes("enter");
         assert_eq!(
             *seen.borrow(),
-            vec![ChatComposerEvent::Submit("first line\nsecond".into())]
+            vec![ChatComposerEvent::Submit {
+                text: "first line\nsecond".into(),
+                mentions: vec![],
+            }]
         );
         assert_eq!(value(&view, cx), "", "the field clears after sending");
         // An empty field sends nothing.
@@ -2262,7 +3351,10 @@ mod tests {
         view.update_in(cx, |c, window, cx| c.submit(window, cx));
         assert_eq!(
             *seen.borrow(),
-            vec![ChatComposerEvent::Submit("explain /nonexistent".into())]
+            vec![ChatComposerEvent::Submit {
+                text: "explain /nonexistent".into(),
+                mentions: vec![],
+            }]
         );
     }
 
@@ -2331,7 +3423,10 @@ mod tests {
         cx.simulate_keystrokes("enter");
         assert_eq!(
             *seen.borrow(),
-            vec![ChatComposerEvent::Submit("かな".into())]
+            vec![ChatComposerEvent::Submit {
+                text: "かな".into(),
+                mentions: vec![],
+            }]
         );
     }
 
@@ -2393,5 +3488,183 @@ mod tests {
             view.read_with(cx, |c, _| c.menu.as_ref().map(|m| m.trigger.kind)),
             Some(TriggerKind::Model)
         );
+    }
+
+    /// A composer over `daemon` (so its searches answer), focused.
+    fn composer_with<'a>(
+        daemon: &FakeDaemon,
+        cx: &'a mut TestAppContext,
+    ) -> (Entity<ChatComposer>, &'a mut VisualTestContext, Seen) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            install(
+                ConduitTheme::new("conduit", false, DesignPrefs::default(), gpui_kit::black()),
+                cx,
+            );
+            cx.set_global(L10n::new("en"));
+            cx.set_global(conduit_components::Strings::default());
+        });
+        let rpc = daemon.rpc();
+        let store = cx.new(|_| ComposerStore::new(rpc, None));
+        let seen: Seen = Rc::default();
+        let (view, vcx) = cx.add_window_view(|window, cx| ChatComposer::new(store, window, cx));
+        vcx.update(|window, cx| {
+            let seen = seen.clone();
+            cx.subscribe(&view, move |_, e: &ChatComposerEvent, _| {
+                seen.borrow_mut().push(e.clone())
+            })
+            .detach();
+            view.update(cx, |c, cx| {
+                c.offline = false;
+                c.focus_input(window, cx)
+            });
+            window.draw(cx).clear(cx);
+        });
+        (view, vcx, seen)
+    }
+
+    fn set_options(
+        view: &Entity<ChatComposer>,
+        options: ComposerOptions,
+        cx: &mut VisualTestContext,
+    ) {
+        let store = view.read_with(cx, |c, _| c.composer.clone());
+        cx.update(|_, cx| {
+            store.update(cx, |s, cx| {
+                s.options = options;
+                cx.notify()
+            })
+        });
+    }
+
+    #[gpui_kit::test]
+    fn while_an_answer_streams_enter_queues_or_goes_to_hermes(cx: &mut TestAppContext) {
+        let (view, cx, seen) = composer(cx);
+        view.update(cx, |c, _| {
+            c.streaming = true;
+            c.queue_offer = true;
+        });
+        cx.simulate_input("And the north side?");
+        cx.simulate_keystrokes("enter");
+        assert_eq!(
+            *seen.borrow(),
+            vec![ChatComposerEvent::Queue {
+                text: "And the north side?".into(),
+                mentions: vec![],
+            }]
+        );
+        assert_eq!(value(&view, cx), "", "queued, the field clears");
+        // Hermes on a Desktop Gateway: Enter sends it next; Steer steers.
+        view.update(cx, |c, _| c.queue_offer = false);
+        set_options(
+            &view,
+            ComposerOptions {
+                steer: true,
+                ..Default::default()
+            },
+            cx,
+        );
+        cx.simulate_input("Use the smaller set");
+        cx.simulate_keystrokes("enter");
+        cx.simulate_input("Stop at three");
+        cx.update(|window, cx| view.update(cx, |c, cx| c.steer(window, cx)));
+        assert_eq!(
+            seen.borrow()[1..],
+            [
+                ChatComposerEvent::Steer {
+                    text: "Use the smaller set".into(),
+                    mentions: vec![],
+                    steer: false,
+                },
+                ChatComposerEvent::Steer {
+                    text: "Stop at three".into(),
+                    mentions: vec![],
+                    steer: true,
+                },
+            ]
+        );
+        // Neither: Enter keeps the text for after the answer.
+        set_options(&view, ComposerOptions::default(), cx);
+        cx.simulate_input("Later");
+        cx.simulate_keystrokes("enter");
+        assert_eq!(seen.borrow().len(), 3);
+        // (The test platform types an Enter nothing took as a new line.)
+        assert_eq!(value(&view, cx).trim(), "Later");
+    }
+
+    #[gpui_kit::test]
+    fn with_send_on_enter_off_enter_breaks_the_line_and_cmd_enter_sends(cx: &mut TestAppContext) {
+        let (view, cx, seen) = composer(cx);
+        let store = view.read_with(cx, |c, _| c.composer.clone());
+        cx.update(|_, cx| {
+            store.update(cx, |s, cx| {
+                s.set_prefs(
+                    crate::stores::composer::ComposerPrefs {
+                        send_on_enter: false,
+                        ..Default::default()
+                    },
+                    cx,
+                )
+            })
+        });
+        cx.run_until_parked();
+        cx.simulate_input("one");
+        cx.simulate_keystrokes("enter");
+        cx.simulate_input("two");
+        assert!(seen.borrow().is_empty());
+        assert_eq!(value(&view, cx), "one\ntwo");
+        cx.simulate_keystrokes("cmd-enter");
+        assert_eq!(
+            *seen.borrow(),
+            vec![ChatComposerEvent::Submit {
+                text: "one\ntwo".into(),
+                mentions: vec![],
+            }]
+        );
+    }
+
+    #[gpui_kit::test]
+    fn a_picked_skill_is_a_token_and_goes_out_as_a_mention(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<conduit_protocol::methods::SkillsSearch>(conduit_protocol::SkillList {
+            items: vec![SkillSummary {
+                id: "plain-english".into(),
+                name: "Plain English".into(),
+                description: None,
+            }],
+        });
+        let (view, cx, seen) = composer_with(&daemon, cx);
+        set_options(
+            &view,
+            ComposerOptions {
+                skills: true,
+                ..Default::default()
+            },
+            cx,
+        );
+        cx.simulate_input("Say hi $pla");
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(200));
+        cx.run_until_parked();
+        let rows = view.read_with(cx, |c, cx| c.menu_rows(cx));
+        assert_eq!(
+            rows,
+            Some((
+                TriggerKind::Skill,
+                vec![(None, "Plain English".to_string())]
+            ))
+        );
+        cx.simulate_keystrokes("enter");
+        assert_eq!(value(&view, cx), "Say hi $Plain English ");
+        cx.simulate_keystrokes("enter");
+        let sent = seen.borrow();
+        let ChatComposerEvent::Submit { text, mentions } = &sent[0] else {
+            panic!("{sent:?}")
+        };
+        assert_eq!(text, "Say hi $Plain English");
+        assert_eq!(mentions.len(), 1);
+        assert_eq!((mentions[0].start, mentions[0].end), (7, 21));
+        assert_eq!(mentions[0].id, "plain-english");
+        assert_eq!(mentions[0].kind, conduit_protocol::MentionKind::Skill);
     }
 }

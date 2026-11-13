@@ -77,12 +77,16 @@ impl HttpClient {
     /// Uploads `body` as `name`; answers the daemon's `UploadedFile` JSON.
     /// `progress` sees `(sent, total)` as chunks go out, ending at
     /// `(total, total)`.
+    /// `POST /upload`. `attempt` (1 for the first) lets the daemon answer a
+    /// failure with the core's advice on trying again (the error's `retry`
+    /// and `retryAfterMs` args).
     pub async fn upload(
         &self,
         name: &str,
         content_type: Option<&str>,
         body: Bytes,
         progress: Option<Progress>,
+        attempt: u32,
     ) -> Result<Value, RpcError> {
         let total = body.len() as u64;
         let sent = Arc::new(AtomicU64::new(0));
@@ -102,6 +106,7 @@ impl HttpClient {
             .post(format!("{}/upload", self.base))
             .header("authorization", self.bearer())
             .header("x-conduit-filename", encode_component(name))
+            .header("x-conduit-attempt", attempt.max(1))
             .header("content-length", total)
             .body(reqwest::Body::wrap_stream(stream));
         if let Some(ct) = content_type {
