@@ -1163,7 +1163,7 @@
   "@desktopHermesSignInRequired": {
     "description": "Error when a message is sent to Hermes before signing in to its desktop gateway."
   },
-  "desktopStopDictation": "Stop dictation",
+  "desktopStopDictation": "Stop Dictation",
   "@desktopStopDictation": {
     "description": "Button that ends dictation and transcribes what was said."
   },
@@ -1182,6 +1182,84 @@
   "desktopShortcutDictate": "Start or Stop Dictation",
   "@desktopShortcutDictate": {
     "description": "Shortcuts overlay: the dictation shortcut."
+  },
+  "desktopCancelDictation": "Cancel Dictation",
+  "@desktopCancelDictation": {
+    "description": "Button and tooltip that ends dictation and drops what was said, putting the text back as it was (Esc). Title Case."
+  },
+  "desktopListening": "Listening…",
+  "@desktopListening": {
+    "description": "The composer's placeholder and status while dictation listens."
+  },
+  "desktopListeningFor": "Listening, {time}",
+  "@desktopListeningFor": {
+    "description": "Accessible name of the dictation status while it listens; time is how long, e.g. 0:07.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopTranscribing": "Transcribing…",
+  "@desktopTranscribing": {
+    "description": "Status while the server or Whisper turns a dictation or a saved recording into text."
+  },
+  "desktopRecordingNow": "Recording…",
+  "@desktopRecordingNow": {
+    "description": "Label of the recording being made by the dictation under way, above the composer."
+  },
+  "desktopTranscribeOnThisMac": "Transcribe on This Mac",
+  "@desktopTranscribeOnThisMac": {
+    "description": "Menu item on a saved recording: turn it into text on this Mac (its own speech recognition, or Whisper). Title Case."
+  },
+  "desktopExportRecording": "Export…",
+  "@desktopExportRecording": {
+    "description": "Menu item on a saved recording that saves it as a WAV file; a save panel follows. Title Case."
+  },
+  "desktopDiscardRecordingMenu": "Discard Recording…",
+  "@desktopDiscardRecordingMenu": {
+    "description": "Menu item on a saved recording that deletes it; a confirmation follows. Title Case."
+  },
+  "desktopDiscardRecordingTitle": "Discard This Recording?",
+  "@desktopDiscardRecordingTitle": {
+    "description": "Title of the alert before a saved recording is deleted."
+  },
+  "desktopDiscardRecordingBody": "Its audio is deleted from this Mac. You can’t undo this.",
+  "@desktopDiscardRecordingBody": {
+    "description": "Body of the alert before a saved recording is deleted."
+  },
+  "desktopRecordingActions": "Recording Actions",
+  "@desktopRecordingActions": {
+    "description": "Accessible name and tooltip of the button that opens a saved recording's menu. Title Case."
+  },
+  "desktopSpeechRecognitionOff": "Speech Recognition is off for Conduit. Turn it on in System Settings, or choose another engine in Settings › Audio.",
+  "@desktopSpeechRecognitionOff": {
+    "description": "Shown when dictation on this Mac cannot start because speech recognition is turned off for the app in macOS."
+  },
+  "desktopSpeechNotOnThisMac": "This Mac can’t recognize {language} on its own. Choose another language or engine in Settings › Audio.",
+  "@desktopSpeechNotOnThisMac": {
+    "description": "Shown when this Mac's own speech recognition cannot recognize the chosen transcription language without a network; language is a locale code, e.g. ko-KR.",
+    "placeholders": {
+      "language": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopServerDoesNotTranscribe": "This chat’s server doesn’t transcribe speech. Choose another engine in Settings › Audio.",
+  "@desktopServerDoesNotTranscribe": {
+    "description": "Shown when the server engine is chosen but the chat's backend does not transcribe speech."
+  },
+  "desktopWhisperNeedsModel": "To transcribe with Whisper on this Mac, download a model in Settings › Audio first.",
+  "@desktopWhisperNeedsModel": {
+    "description": "Shown when Whisper on this Mac is the chosen engine but no model has been downloaded yet."
+  },
+  "desktopRecordingSaveFailed": "Your recording couldn’t be saved on this Mac. Keep Conduit open and try again.",
+  "@desktopRecordingSaveFailed": {
+    "description": "Shown when a dictation's audio could not be saved as it was recorded; a Try Again button follows."
+  },
+  "desktopAudioSettingsButton": "Audio Settings…",
+  "@desktopAudioSettingsButton": {
+    "description": "Button that opens Settings at its Audio pane. Title Case; the ellipsis says a window opens."
   },
   "desktopMilliseconds": "{ms} ms",
   "@desktopMilliseconds": {
@@ -1302,7 +1380,7 @@
   "@desktopSttEngineLocalDescription": {
     "description": "Help under the on-this-computer speech-to-text choice."
   },
-  "desktopSttModelsTitle": "Speech models",
+  "desktopSttModelsTitle": "Speech Models",
   "@desktopSttModelsTitle": {
     "description": "Heading of the list of downloadable Whisper models."
   },
@@ -3008,7 +3086,7 @@
   "@desktopSilenceDuration": {
     "description": "Settings › Audio › Speech to Text: the row with the stepper for how long a pause ends dictation. Title Case."
   },
-  "desktopSilenceDurationDescription": "How long you pause before what you said is sent to be transcribed.",
+  "desktopSilenceDurationDescription": "How long a pause ends dictation.",
   "@desktopSilenceDurationDescription": {
     "description": "Settings › Audio, under Pause Length."
   },

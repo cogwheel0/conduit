@@ -244,10 +244,16 @@ impl ChatPane {
         // Settings › Chat's choices, before the composer first draws.
         let prefs = ComposerPrefs::from_settings(stores.app_settings.read(cx).settings());
         composer_store.update(cx, |c, cx| c.set_prefs(prefs, cx));
+        // Dictation into the composer (the mic, ⇧⌘L, saved recordings).
+        let dictation = {
+            let connection = stores.connection.clone();
+            cx.new(|cx| crate::stores::dictation::DictationStore::for_connection(connection, cx))
+        };
         let composer = cx.new(|cx| {
             let mut c = ChatComposer::new(composer_store.clone(), window, cx);
             // The model and the temporary switch are in the toolbar here.
             c.inline_model = false;
+            c.set_dictation(dictation.clone(), window, cx);
             c
         });
         let find_input = cx.new(|cx| InputState::new(window, cx));
@@ -278,6 +284,17 @@ impl ChatPane {
                     this.composer.update(cx, |c, cx| c.forget_account(cx));
                     // The new account's draft for what is shown.
                     this.sync_selection(cx);
+                }
+            }),
+            // The Chat menu says Start or Stop Dictation.
+            cx.observe(&dictation, {
+                let mut was = false;
+                move |_, store, cx| {
+                    let now = store.read(cx).is_active();
+                    if now != was {
+                        was = now;
+                        cx.defer(crate::menus::refresh_menus);
+                    }
                 }
             }),
             // Settings › Chat changes the composer as it changes.
@@ -1977,6 +1994,11 @@ pub fn register_actions(cx: &mut App) {
     });
     cx.on_action(|_: &crate::actions::ToolSettings, cx| {
         with_pane(cx, |p, w, cx| p.open_tool_settings(w, cx))
+    });
+    cx.on_action(|_: &crate::actions::Dictate, cx| {
+        with_pane(cx, |p, w, cx| {
+            p.composer.update(cx, |c, cx| c.toggle_dictation(w, cx))
+        })
     });
     cx.on_action(|_: &crate::actions::ExpandEditor, cx| {
         with_pane(cx, |p, w, cx| {

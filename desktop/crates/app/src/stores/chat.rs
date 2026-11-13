@@ -13,7 +13,10 @@
 //!   regenerate replaces; otherwise it goes at the end. Once the turn has
 //!   ended and the stored copy has the answer, the overlay *settles* and
 //!   the stored row shows. `turn.failed` keeps the partial answer and adds
-//!   the error block when the daemon's blocks have none.
+//!   the error block when the daemon's blocks have none. An answer the
+//!   daemon queued instead of starting (sent while the server is away) has
+//!   no turn events; its overlay settles once the stored row shows it
+//!   queued.
 //! * **Pending message:** what this window sent, until the stored copy has
 //!   it. An edit hides the question it replaces and everything after it.
 //!   While `turns.send` (or `turns.edit`) is on its way the answer's header
@@ -124,6 +127,12 @@ pub struct LiveTurn {
     /// Fetches since the turn ended that found the stored copy behind the
     /// answer (see [`stored_behind`]).
     pub behind: u8,
+    /// A `turn.*` event has named this answer. The overlay this window
+    /// opens for its own send, edit or regenerate has not been named yet;
+    /// one the daemon queued instead of starting (sent while the server is
+    /// away) never is, and gives way to the stored row that shows it
+    /// queued ([`ChatStore::settle`]).
+    pub heard: bool,
 }
 
 impl LiveTurn {
@@ -138,6 +147,7 @@ impl LiveTurn {
             stale_text: None,
             awaiting_id: false,
             behind: 0,
+            heard: false,
         }
     }
 
@@ -906,9 +916,10 @@ impl ChatStore {
         self.rebuild(cx);
     }
 
-    /// Drops the pending message and a finished overlay once the stored
-    /// copy has them, and ratings the stored copy now agrees with. Returns
-    /// whether the overlay stays because the stored copy is behind it.
+    /// Drops the pending message and a finished (or queued) overlay once
+    /// the stored copy has them, and ratings the stored copy now agrees
+    /// with. Returns whether the overlay stays because the stored copy is
+    /// behind it.
     ///
     /// The answer finishes in place: right after a turn ends the server
     /// can still hold the copy it saved mid-stream, the answer's opening
@@ -927,8 +938,12 @@ impl ChatStore {
             self.pending = None;
         }
         let mut behind = false;
+        // An answer the daemon queued instead of starting gets no turn
+        // events, so its overlay never stops streaming: the stored row that
+        // shows it queued takes its place. An answer that has streamed
+        // keeps its overlay until the turn's own events end it.
         if let Some(live) = &self.live
-            && !live.streaming()
+            && (!live.streaming() || (!live.heard && stored_queued(messages, &live.message_id)))
             && stored_has_answer(messages, &live.message_id, live.stale_text.as_deref())
         {
             if live.behind < BEHIND_TRIES && stored_behind(messages, &live.message_id, &live.text) {
@@ -984,6 +999,7 @@ impl ChatStore {
         match event {
             Event::TurnStarted(e) if e.chat_id == self.chat_id => {
                 let live = self.live_for(&e.message_id);
+                live.heard = true;
                 live.model = Some(e.model.clone());
                 live.phase = LivePhase::Streaming;
                 let hints = self.compare_hint.clone();
@@ -1017,6 +1033,7 @@ impl ChatStore {
             }
             Event::TurnDelta(e) if e.chat_id == self.chat_id => {
                 let live = self.live_for(&e.message_id);
+                live.heard = true;
                 if live.streaming() {
                     live.text = e.text.clone();
                 }
@@ -1031,6 +1048,7 @@ impl ChatStore {
                 }
                 let blocks = known_blocks(&e.blocks);
                 let live = self.live_for(&e.message_id);
+                live.heard = true;
                 live.blocks = blocks;
                 self.live_rev += 1;
                 // The overlay is new or it changed size: rows are rebuilt
@@ -1043,6 +1061,7 @@ impl ChatStore {
             }
             Event::TurnCompleted(e) if e.chat_id == self.chat_id => {
                 let live = self.live_for(&e.message_id);
+                live.heard = true;
                 live.text = e.text.clone();
                 live.phase = LivePhase::Completed;
                 self.fetch(cx);
@@ -1050,6 +1069,7 @@ impl ChatStore {
             }
             Event::TurnFailed(e) if e.chat_id == self.chat_id => {
                 let live = self.live_for(&e.message_id);
+                live.heard = true;
                 if live.text.is_empty() {
                     live.text = e.partial_text.clone();
                 }
@@ -2236,6 +2256,14 @@ pub fn stored_has_answer(
                 .iter()
                 .any(|v| v.id == message_id && !v.content.trim().is_empty())
     })
+}
+
+/// Whether the stored `message_id` shows its answer queued: its request
+/// waits to go out, and nothing streams it.
+pub fn stored_queued(messages: &[ChatMessageDto], message_id: &str) -> bool {
+    messages
+        .iter()
+        .any(|m| m.id == message_id && m.queued.is_some())
 }
 
 /// Whether the stored `message_id` is a strict beginning of the answer
@@ -3542,5 +3570,149 @@ mod tests {
             ..Default::default()
         });
         assert!(stored_has_answer(&[queued], "a1", None));
+    }
+
+    /// The stored copy with `a9`, the answer to "again", queued: its
+    /// request waits for the server.
+    fn queued_answer() -> ChatResult {
+        let mut answer = message("a9", "assistant", "");
+        answer.queued = Some(QueuedCompletionDto {
+            offline: true,
+            ..Default::default()
+        });
+        chat(
+            "c1",
+            vec![
+                message("u1", "user", "hi"),
+                message("a1", "assistant", "hello"),
+                message("u9", "user", "again"),
+                answer,
+            ],
+        )
+    }
+
+    #[gpui_kit::test]
+    fn a_send_the_daemon_queued_gives_way_to_the_queued_row(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "hi"),
+                message("a1", "assistant", "hello"),
+            ],
+        ));
+        // The server is away: the daemon queues the answer before its turn
+        // starts, answers `turns.send` and sends no turn events for it.
+        daemon.returns::<methods::TurnsSend>(SendTurnAccepted {
+            chat_id: "c1".into(),
+            user_message_id: "u9".into(),
+            assistant_message_id: "a9".into(),
+        });
+        let (store, _) = open(&daemon, "c1", cx);
+        store.update(cx, |s, cx| {
+            let turn = TurnOptions::default().into_turn("again".into(), None, false);
+            s.send(turn, PendingMessage::new("again"), cx).detach();
+        });
+        cx.run_until_parked();
+        assert!(store.read_with(cx, |s, _| s.is_streaming()));
+
+        // ... and tells the windows the chat changed, where it shows queued.
+        daemon.returns::<methods::ChatsGet>(queued_answer());
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::ChatsChanged(ChatsChanged {
+                    chat_id: Some("c1".into()),
+                }),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        assert_eq!(keys(&store, cx), vec!["u1", "a1", "u9", "a9"]);
+        store.read_with(cx, |s, _| {
+            assert!(s.live.is_none());
+            assert!(!s.is_streaming());
+            let answer = s.item(*s.rows().last().unwrap()).unwrap();
+            assert!(answer.stored);
+            assert!(answer.queued.as_ref().is_some_and(|q| q.offline));
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_new_chat_the_daemon_queued_shows_its_answer_queued(cx: &mut TestAppContext) {
+        // As the chat pane starts a new chat: the store is made and told
+        // what was sent before its first copy arrives, which already shows
+        // the answer queued.
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(queued_answer());
+        let accepted = SendTurnAccepted {
+            chat_id: "c1".into(),
+            user_message_id: "u9".into(),
+            assistant_message_id: "a9".into(),
+        };
+        let rpc = daemon.rpc();
+        let store = cx.new(|cx| ChatStore::new(rpc, Rc::new(|_, _| {}), "c1".into(), cx));
+        store.update(cx, |s, cx| {
+            s.started(PendingMessage::new("again"), &accepted, false, cx)
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.live.is_none());
+            assert!(!s.is_streaming());
+            let answer = s.item(*s.rows().last().unwrap()).unwrap();
+            assert!(answer.queued.is_some());
+        });
+    }
+
+    #[gpui_kit::test]
+    fn an_answer_streaming_keeps_its_overlay_over_a_queued_copy(cx: &mut TestAppContext) {
+        // A queued answer that went out streams as a turn of its own; a
+        // copy fetched just before it went still shows it queued.
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(queued_answer());
+        let (store, _) = open(&daemon, "c1", cx);
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::TurnStarted(TurnStarted {
+                    chat_id: "c1".into(),
+                    message_id: "a9".into(),
+                    model: "m".into(),
+                    companion_ids: vec![],
+                }),
+                cx,
+            );
+            s.fetch(cx);
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.live.as_ref().is_some_and(LiveTurn::streaming));
+            assert!(s.is_streaming());
+        });
+
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "hi"),
+                message("a1", "assistant", "hello"),
+                message("u9", "user", "again"),
+                message("a9", "assistant", "tern"),
+            ],
+        ));
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::TurnCompleted(TurnCompleted {
+                    chat_id: "c1".into(),
+                    message_id: "a9".into(),
+                    text: "tern".into(),
+                    reasoning: None,
+                    usage: None,
+                }),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.live.is_none());
+            assert!(!s.is_streaming());
+        });
     }
 }

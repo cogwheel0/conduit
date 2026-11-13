@@ -335,6 +335,7 @@ pub fn shortcut_hints(keymap: &Keymap, quick_ask: Option<&KeyStroke>) -> Shortcu
         find: Some(describe(&search_chats_stroke(), mac).into()),
         temporary_chat: Some(describe(&fixed_stroke(FixedCommand::NewTemporaryChat), mac).into()),
         regenerate: Some(describe(&fixed_stroke(FixedCommand::Regenerate), mac).into()),
+        dictate: chord(ShortcutAction::Dictate),
     }
 }
 
@@ -373,6 +374,8 @@ pub struct MenuState {
     pub tool_settings: bool,
     /// Chat › Save Chat: a temporary chat with messages is open.
     pub save_chat: bool,
+    /// The composer is dictating: Chat › Stop Dictation.
+    pub dictating: bool,
 }
 
 impl Default for MenuState {
@@ -389,6 +392,7 @@ impl Default for MenuState {
             chat_settings: false,
             tool_settings: false,
             save_chat: false,
+            dictating: false,
         }
     }
 }
@@ -479,6 +483,10 @@ pub fn menu_state(cx: &App) -> MenuState {
         .as_ref()
         .filter(|_| main)
         .is_some_and(|v| v.read(cx).chat_pane.read(cx).can_save_temporary(cx));
+    let dictating = state.main_view.as_ref().filter(|_| main).is_some_and(|v| {
+        let composer = v.read(cx).chat_pane.read(cx).composer.clone();
+        composer.read(cx).dictating(cx)
+    });
     MenuState {
         areas,
         can_go_back,
@@ -491,6 +499,7 @@ pub fn menu_state(cx: &App) -> MenuState {
         chat_settings: offer.chat_settings,
         tool_settings: !offer.tool_targets.is_empty(),
         save_chat,
+        dictating,
     }
 }
 
@@ -803,6 +812,14 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
         MenuItem::action(l10n.desktop_menu_choose_model(), FocusModelPicker),
         MenuItem::action(l10n.desktop_shortcut_focus_composer(), FocusComposer),
         MenuItem::action(l10n.desktop_expand_editor(), crate::actions::ExpandEditor),
+        MenuItem::action(
+            if state.dictating {
+                l10n.desktop_stop_dictation()
+            } else {
+                l10n.start_dictation()
+            },
+            crate::actions::Dictate,
+        ),
         MenuItem::action(l10n.ask_conduit_action(), crate::actions::AskConduit).disabled(no_chat),
         MenuItem::separator(),
         MenuItem::action(l10n.regenerate(), RegenerateLastAnswer).disabled(no_chat),
@@ -1051,6 +1068,7 @@ mod tests {
                 "Choose a Model…",
                 "Go to Message Field",
                 "Expand Editor",
+                "Start Dictation",
                 "Ask Conduit",
                 "—",
                 "Regenerate",
@@ -1060,6 +1078,15 @@ mod tests {
                 "Copy Last Code Block"
             ]
         );
+        // While dictating, the same item stops it.
+        let dictating = build_menus(
+            &l,
+            &MenuState {
+                dictating: true,
+                ..open_chat(None)
+            },
+        );
+        assert!(titles(menu(&dictating, "Chat")).contains(&"Stop Dictation".to_string()));
         let move_to = submenu(menu(&filed, "Chat"), "Move to");
         assert_eq!(titles(move_to), ["Garden", "Work"]);
         assert!(move_to.items[0].is_checked());

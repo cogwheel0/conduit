@@ -56,11 +56,13 @@ use gpui_kit::{
     SharedString, Subscription, Window, div, img, px,
 };
 
+use super::dictation::{self as dictation_view, RecordingMenu};
 use crate::l10n::ActiveL10n as _;
 use crate::stores::composer::{
     Attachment, ComposerEvent, ComposerStore, MentionTarget, Trigger, TriggerKind, UploadState,
     match_models, match_prompts, mentions_in, model_label, trigger_at,
 };
+use crate::stores::dictation::{DictationEvent, DictationStore, Target as DictationTarget};
 
 /// How many entries a `/`, `@` or `#` menu shows.
 const MENU_LIMIT: usize = 8;
@@ -262,6 +264,15 @@ pub struct ChatComposer {
     /// Ask, which only asks and answers, turns them off.
     pub follow_ups: bool,
     pub(crate) panel: Option<Panel>,
+    /// Dictation into this field (the chat pane gives it one).
+    pub dictation: Option<Entity<DictationStore>>,
+    /// The text before the dictation under way; its words follow it.
+    dictation_base: Option<String>,
+    /// The field's placeholder, put back after "Listening…".
+    placeholder: String,
+    /// The window this composer is in: Esc cancels dictation there only.
+    window_handle: gpui_kit::AnyWindowHandle,
+    _dictation: Vec<Subscription>,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -314,7 +325,7 @@ impl ChatComposer {
         let input = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 10)
-                .placeholder(placeholder)
+                .placeholder(placeholder.clone())
                 .submit_on_enter(send_on_enter)
         });
         let weak = cx.entity().downgrade();
@@ -373,6 +384,8 @@ impl ChatComposer {
                     this.input
                         .update(cx, |s, cx| s.set_submit_on_enter(on_enter, cx));
                 }
+                // Dictation follows the draft and its model.
+                this.sync_dictation_target(cx);
                 cx.notify()
             }),
             // The menu and picker keys, ahead of the text field's own; ⌘↩
@@ -399,6 +412,20 @@ impl ChatComposer {
                         cx.stop_propagation();
                     }
                     return;
+                }
+                // Esc while dictating cancels it, in this composer's window.
+                if key == "escape" && !m.modified() {
+                    let cancelled = this.update(cx, |c, cx| {
+                        if window.window_handle() != c.window_handle || !c.dictating(cx) {
+                            return false;
+                        }
+                        c.cancel_dictation(window, cx);
+                        true
+                    });
+                    if cancelled {
+                        cx.stop_propagation();
+                        return;
+                    }
                 }
                 if m.modified() || !matches!(key, "up" | "down" | "enter" | "tab" | "escape") {
                     return;
@@ -440,6 +467,11 @@ impl ChatComposer {
             send_on_enter,
             compare_ui: true,
             panel: None,
+            dictation: None,
+            dictation_base: None,
+            placeholder: placeholder.to_string(),
+            window_handle: window.window_handle(),
+            _dictation: vec![],
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         }
@@ -456,9 +488,244 @@ impl ChatComposer {
 
     /// The text field's placeholder (Quick Ask says "Ask Conduit…").
     pub fn set_placeholder(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.placeholder = text.to_string();
         let text = text.to_string();
         self.input
             .update(cx, |s, cx| s.set_placeholder(text, window, cx));
+    }
+
+    // ── Dictation ──────────────────────────────────────────────────────
+
+    /// Dictation for this field: the mic, ⇧⌘L, and the draft's saved
+    /// recordings.
+    pub fn set_dictation(
+        &mut self,
+        store: Entity<DictationStore>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self._dictation = vec![
+            cx.subscribe_in(&store, window, |this, _, e: &DictationEvent, window, cx| {
+                this.on_dictation(e, window, cx)
+            }),
+            cx.observe(&store, |_, _, cx| cx.notify()),
+        ];
+        self.dictation = Some(store);
+        self.sync_dictation_target(cx);
+    }
+
+    /// Listening, starting, or transcribing what was said.
+    pub fn dictating(&self, cx: &App) -> bool {
+        self.dictation
+            .as_ref()
+            .is_some_and(|d| d.read(cx).is_active())
+    }
+
+    fn sync_dictation_target(&mut self, cx: &mut Context<Self>) {
+        let Some(store) = self.dictation.clone() else {
+            return;
+        };
+        let composer = self.composer.read(cx);
+        let key = composer.draft_key().cloned();
+        let target = DictationTarget {
+            chat_id: key.as_ref().and_then(|k| k.chat_id.clone()),
+            folder_id: key.as_ref().and_then(|k| k.folder_id.clone()),
+            model_id: composer.selected_model().map(|m| m.id.clone()),
+            keeps_recordings: key.is_some(),
+        };
+        store.update(cx, |s, cx| s.set_target(target, cx));
+    }
+
+    /// ⇧⌘L and the mic: starts dictating after what is typed, or stops.
+    pub fn toggle_dictation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(store) = self.dictation.clone() else {
+            return;
+        };
+        if !store.read(cx).is_active() {
+            if self.streaming {
+                return;
+            }
+            self.dictation_base = Some(self.text(cx));
+            self.menu = None;
+            let listening = cx.l10n().desktop_listening();
+            self.input
+                .update(cx, |s, cx| s.set_placeholder(listening, window, cx));
+            self.focus_input(window, cx);
+        }
+        store.update(cx, |s, cx| s.toggle(cx));
+        cx.notify();
+    }
+
+    /// Stop: what was said is transcribed.
+    pub fn stop_dictation(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(store) = self.dictation.clone() {
+            store.update(cx, |s, cx| s.stop(cx));
+        }
+    }
+
+    /// Cancel (Esc): what was said is dropped and the text put back.
+    pub fn cancel_dictation(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(store) = self.dictation.clone() {
+            store.update(cx, |s, cx| s.cancel(cx));
+        }
+    }
+
+    fn on_dictation(
+        &mut self,
+        event: &DictationEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            DictationEvent::Text { text, .. } => {
+                if let Some(base) = self.dictation_base.clone() {
+                    self.set_text(&join_dictated(&base, text), window, cx);
+                }
+            }
+            DictationEvent::Transcribed(text) => {
+                let current = self.text(cx);
+                self.set_text(&join_dictated(&current, text), window, cx);
+                self.focus_input(window, cx);
+            }
+            DictationEvent::Heard => {
+                let placeholder = self.placeholder.clone();
+                self.input
+                    .update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
+            }
+            DictationEvent::Ended { restore } => {
+                if let Some(base) = self.dictation_base.take()
+                    && *restore
+                {
+                    self.set_text(&base, window, cx);
+                }
+                let placeholder = self.placeholder.clone();
+                self.input
+                    .update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
+                self.focus_input(window, cx);
+                cx.notify();
+            }
+        }
+    }
+
+    /// Transcribes saved recording `id` on the server or on this Mac.
+    pub fn transcribe_recording(
+        &mut self,
+        id: &str,
+        on_this_mac: bool,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(store) = self.dictation.clone() {
+            store.update(cx, |s, cx| s.transcribe_saved(id, on_this_mac, cx));
+        }
+    }
+
+    /// A saved recording's menu, under its button.
+    pub fn show_recording_menu(
+        &mut self,
+        id: &str,
+        position: gpui_kit::Point<gpui_kit::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use gpui_kit::component::native_menu::NativeMenu;
+        let l10n = cx.l10n().clone();
+        let id = id.to_string();
+        let menu = NativeMenu::new()
+            .menu_with_disabled(
+                l10n.transcribe_on_server(),
+                false,
+                Box::new(RecordingMenu::TranscribeOnServer(id.clone())),
+            )
+            .menu_with_disabled(
+                l10n.desktop_transcribe_on_this_mac(),
+                false,
+                Box::new(RecordingMenu::TranscribeOnThisMac(id.clone())),
+            )
+            .separator()
+            .menu_with_disabled(
+                l10n.desktop_export_recording(),
+                false,
+                Box::new(RecordingMenu::Export(id.clone())),
+            )
+            .separator()
+            .menu_with_disabled(
+                l10n.desktop_discard_recording_menu(),
+                false,
+                Box::new(RecordingMenu::Discard(id)),
+            );
+        // The menu's action goes to the focused element's path.
+        self.focus_input(window, cx);
+        menu.show(position, window, cx);
+    }
+
+    pub fn on_recording_menu(
+        &mut self,
+        action: &RecordingMenu,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match action {
+            RecordingMenu::TranscribeOnServer(id) => {
+                self.transcribe_recording(id, false, window, cx)
+            }
+            RecordingMenu::TranscribeOnThisMac(id) => {
+                self.transcribe_recording(id, true, window, cx)
+            }
+            RecordingMenu::Export(id) => self.export_recording(id, window, cx),
+            RecordingMenu::Discard(id) => self.confirm_discard_recording(id, window, cx),
+        }
+    }
+
+    /// Export…: a save panel (in Downloads), then the recording as WAV.
+    fn export_recording(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(store) = self.dictation.clone() else {
+            return;
+        };
+        let home = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("/"));
+        let downloads = home.join("Downloads");
+        let dir = if downloads.is_dir() { downloads } else { home };
+        let name = format!("{}.wav", cx.l10n().saved_recording());
+        let asked = cx.prompt_for_new_path(&dir, Some(&name));
+        let id = id.to_string();
+        window
+            .spawn(cx, async move |cx| {
+                let Ok(Ok(Some(path))) = asked.await else {
+                    return;
+                };
+                let _ = cx.update(|_, cx| {
+                    store
+                        .update(cx, |s, cx| s.export_to(&id, path, cx))
+                        .detach()
+                });
+            })
+            .detach();
+    }
+
+    /// Discard Recording…: asks first, as the phone does.
+    fn confirm_discard_recording(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::shell::sheet::{SheetSpec, present_sheet};
+        let Some(store) = self.dictation.clone() else {
+            return;
+        };
+        let l = cx.l10n().clone();
+        let spec = SheetSpec::new(
+            l.desktop_discard_recording_title(),
+            l.desktop_discard_recording_body(),
+            l.desktop_discard(),
+            l.cancel(),
+        )
+        .destructive();
+        let ask = present_sheet(window, spec, cx);
+        let id = id.to_string();
+        cx.spawn(async move |_, cx| {
+            if ask.await {
+                store.update(cx, |s, cx| s.discard(&id, cx));
+            }
+        })
+        .detach();
     }
 
     /// A `/`, `@`, `#` or `$` menu, a prompt's form, a panel or the model
@@ -578,6 +845,10 @@ impl ChatComposer {
         self.input.update(cx, |s, cx| s.set_value("", window, cx));
         self.menu = None;
         self.composer.update(cx, |c, cx| c.clear_draft(cx));
+        // The draft's recordings go with it, as on the phone.
+        if let Some(store) = self.dictation.clone() {
+            store.update(cx, |s, cx| s.sent(cx));
+        }
         (text, mentions)
     }
 
@@ -589,6 +860,10 @@ impl ChatComposer {
             self.menu = None;
         }
         if self.menu.is_some() || self.form.is_some() || self.panel.is_some() {
+            return;
+        }
+        // Enter while dictating does nothing; Stop ends it first.
+        if self.dictating(cx) {
             return;
         }
         if let Some(queue) = self.busy_action(cx) {
@@ -1968,6 +2243,18 @@ impl ChatComposer {
 
 /// Why a chosen code interpreter will not run, by the core's
 /// `CodeInterpreterBlock` name, in mobile's words.
+/// Dictated `words` after `base`: a space between, as the phone joins them.
+pub fn join_dictated(base: &str, words: &str) -> String {
+    let base = base.trim_end();
+    if base.is_empty() {
+        words.to_string()
+    } else if words.is_empty() {
+        base.to_string()
+    } else {
+        format!("{base} {words}")
+    }
+}
+
 fn code_interpreter_reason(block: &str, l10n: &crate::l10n::L10n) -> String {
     match block {
         "unsupportedEngine" => l10n.code_interpreter_browser_engine(),
@@ -3268,10 +3555,36 @@ impl Render for ChatComposer {
             ));
         }
 
+        // Dictation: the mic beside Send; while it listens, its mark where
+        // + was, its controls where Send was, and the field read-only.
+        let me = cx.entity();
+        let dictation = self.dictation.clone();
+        let dictating = self.dictating(cx);
+        let listening_mark = dictation
+            .as_ref()
+            .filter(|_| dictating)
+            .map(|d| dictation_view::listening_mark(d.read(cx), cx));
+        let listening_controls = dictation
+            .as_ref()
+            .filter(|_| dictating)
+            .map(|d| dictation_view::listening_controls(&me, d.read(cx), cx));
+        let mic = dictation
+            .as_ref()
+            .filter(|_| !dictating && !self.streaming)
+            .map(|_| dictation_view::mic_button(&me, cx));
+        let recordings = dictation
+            .as_ref()
+            .and_then(|d| dictation_view::recordings_list(&me, d.read(cx), cx));
+        let notice = dictation
+            .as_ref()
+            .and_then(|d| d.read(cx).notice.clone().map(|n| (d.clone(), n)))
+            .map(|(d, n)| dictation_view::notice_banner(&me, &d, &n, cx));
+
         let paste_store = composer.clone();
         let textarea = Textarea::new(&self.input)
             .appearance(false)
             .bordered(false)
+            .readonly(dictating)
             .text_size(px(m.body))
             .aria_label(l10n.desktop_message_field())
             .accessibility_id("composer-input")
@@ -3527,8 +3840,13 @@ impl Render for ChatComposer {
             .on_action(
                 cx.listener(|this, a: &ComposerMenu, window, cx| this.on_menu(a, window, cx)),
             )
+            .on_action(cx.listener(|this, a: &RecordingMenu, window, cx| {
+                this.on_recording_menu(a, window, cx)
+            }))
             .children(form)
             .children(panel)
+            .children(notice)
+            .children(recordings)
             .child(
                 div()
                     .id("composer")
@@ -3597,17 +3915,23 @@ impl Render for ChatComposer {
                             // bottom edge, under the text.
                             .when(self.expanded, |d| d.items_end())
                             .gap(px(4.))
-                            .child(div().relative().child(plus).child({
-                                let at = self.plus_bounds.clone();
-                                // Pinned to the corner: in a block wrapper an
-                                // absolute child's static place is below the
-                                // button.
-                                gpui_kit::canvas(move |b, _, _| at.set(Some(b)), |_, _, _, _| {})
+                            .when_some(listening_mark, |d, mark| d.child(mark))
+                            .when(!dictating, |d| {
+                                d.child(div().relative().child(plus).child({
+                                    let at = self.plus_bounds.clone();
+                                    // Pinned to the corner: in a block wrapper
+                                    // an absolute child's static place is below
+                                    // the button.
+                                    gpui_kit::canvas(
+                                        move |b, _, _| at.set(Some(b)),
+                                        |_, _, _, _| {},
+                                    )
                                     .absolute()
                                     .top_0()
                                     .left_0()
                                     .size_full()
-                            }))
+                                }))
+                            })
                             .child(
                                 div()
                                     .flex_1()
@@ -3680,8 +4004,10 @@ impl Render for ChatComposer {
                                     )
                                 },
                             )
+                            .children(mic)
                             .children(expand)
-                            .child(send),
+                            .when_some(listening_controls, |d, c| d.child(c))
+                            .when(!dictating, |d| d.child(send)),
                     )
                     .children(menu)
                     .children(picker),
@@ -3800,6 +4126,65 @@ mod tests {
 
     fn value(view: &Entity<ChatComposer>, cx: &mut VisualTestContext) -> String {
         view.read_with(cx, |c, cx| c.text(cx))
+    }
+
+    #[test]
+    fn dictated_words_follow_the_text_with_one_space() {
+        assert_eq!(join_dictated("", "Hello there"), "Hello there");
+        assert_eq!(join_dictated("Note:  ", "buy milk"), "Note: buy milk");
+        assert_eq!(join_dictated("Kept", ""), "Kept");
+    }
+
+    #[gpui_kit::test]
+    fn dictation_writes_after_the_text_and_cancel_puts_it_back(cx: &mut TestAppContext) {
+        use crate::stores::dictation::{DictationEvent, DictationStore};
+        let (view, cx, _) = composer(cx);
+        let dictation = cx.new(|_| DictationStore::new(FakeDaemon::new().rpc(), None));
+        cx.update(|window, cx| {
+            view.update(cx, |c, cx| {
+                c.set_dictation(dictation.clone(), window, cx);
+                c.set_text("Draft:", window, cx);
+                // As toggle_dictation does before the store starts.
+                c.dictation_base = Some(c.text(cx));
+            })
+        });
+        let emit = |e: DictationEvent, cx: &mut VisualTestContext| {
+            dictation.update(cx, |_, cx| cx.emit(e));
+            cx.run_until_parked();
+        };
+        // Words so far replace the last words so far.
+        emit(
+            DictationEvent::Text {
+                text: "plant the".into(),
+                done: false,
+            },
+            cx,
+        );
+        assert_eq!(value(&view, cx), "Draft: plant the");
+        emit(
+            DictationEvent::Text {
+                text: "plant the beans".into(),
+                done: true,
+            },
+            cx,
+        );
+        assert_eq!(value(&view, cx), "Draft: plant the beans");
+        emit(DictationEvent::Ended { restore: false }, cx);
+        assert_eq!(value(&view, cx), "Draft: plant the beans");
+        // Cancel: back to what was typed before.
+        cx.update(|_, cx| view.update(cx, |c, cx| c.dictation_base = Some(c.text(cx))));
+        emit(
+            DictationEvent::Text {
+                text: "and water".into(),
+                done: false,
+            },
+            cx,
+        );
+        emit(DictationEvent::Ended { restore: true }, cx);
+        assert_eq!(value(&view, cx), "Draft: plant the beans");
+        // A saved recording's words are added at the end.
+        emit(DictationEvent::Transcribed("Then rest.".into()), cx);
+        assert_eq!(value(&view, cx), "Draft: plant the beans Then rest.");
     }
 
     #[gpui_kit::test]

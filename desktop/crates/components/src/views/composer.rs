@@ -324,6 +324,14 @@ impl Render for Composer {
                     .when(show_model, |d| {
                         d.child(ModelPickerButton::new(self.model.clone()).compact())
                     })
+                    // Dictation, beside Send (the app's composer drives it).
+                    .when(!self.streaming, |d| {
+                        d.child(
+                            IconButton::new("dictate", IconName::Mic, "Start Dictation")
+                                .size(30., 16.)
+                                .color(r.text_subtle),
+                        )
+                    })
                     .child(send),
             )
     }

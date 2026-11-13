@@ -9,6 +9,7 @@ pub mod branches;
 pub mod composer;
 pub mod composer_panels;
 pub mod diagram;
+pub mod dictation;
 pub mod embed;
 pub mod export;
 pub mod inline_web;

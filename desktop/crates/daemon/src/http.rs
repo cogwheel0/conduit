@@ -4,6 +4,7 @@
 //!   percent-encoded `x-conduit-filename` header (headers are Latin-1, and
 //!   `résumé.pdf` must survive), progress reported as the body streams.
 //! * `GET /files/{server}/{id}`: an attachment's bytes and content type.
+//! * `POST /transcribe`, `GET /recordings/{id}`: dictation's recordings.
 //!
 //! The client never uses a proxy: the token is a bearer credential.
 
@@ -135,6 +136,61 @@ impl HttpClient {
     /// `GET /tts/{jobId}`: the audio of a `voice.speak` job.
     pub async fn speech(&self, job_id: &str) -> Result<FileBytes, RpcError> {
         let url = format!("{}/tts/{}", self.base, encode_component(job_id));
+        self.get_bytes(url).await
+    }
+
+    /// `POST /transcribe`: `wav` (16 kHz mono) as text, by `engine`
+    /// (`server`, `local`; the saved one when None) for `model`'s backend.
+    /// Answers the daemon's `VoiceTranscript` JSON.
+    pub async fn transcribe(
+        &self,
+        wav: Bytes,
+        engine: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<Value, RpcError> {
+        let mut url = format!("{}/transcribe", self.base);
+        let mut query = vec![];
+        if let Some(engine) = engine {
+            query.push(format!("engine={}", encode_component(engine)));
+        }
+        if let Some(model) = model {
+            query.push(format!("model={}", encode_component(model)));
+        }
+        if !query.is_empty() {
+            url = format!("{url}?{}", query.join("&"));
+        }
+        let response = self
+            .client
+            .post(url)
+            .header("authorization", self.bearer())
+            .header("content-type", "audio/wav")
+            .body(wav)
+            .send()
+            .await
+            .map_err(transport)?;
+        let status = response.status();
+        let text = response.text().await.map_err(transport)?;
+        if !status.is_success() {
+            return Err(problem(status.as_u16(), &text));
+        }
+        serde_json::from_str(&text).map_err(|e| error(codes::DECODE, e.to_string()))
+    }
+
+    /// `GET /recordings/{id}`: a draft's saved recording as WAV.
+    pub async fn recording(
+        &self,
+        id: &str,
+        chat_id: Option<&str>,
+        folder_id: Option<&str>,
+    ) -> Result<FileBytes, RpcError> {
+        let mut url = format!("{}/recordings/{}", self.base, encode_component(id));
+        let query: Vec<String> = [("chatId", chat_id), ("folderId", folder_id)]
+            .into_iter()
+            .filter_map(|(k, v)| v.map(|v| format!("{k}={}", encode_component(v))))
+            .collect();
+        if !query.is_empty() {
+            url = format!("{url}?{}", query.join("&"));
+        }
         self.get_bytes(url).await
     }
 

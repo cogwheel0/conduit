@@ -10,7 +10,8 @@
 
   No JIT or unsigned-memory exceptions: the app is native Rust, and
   WebKit (sign-in and Preview windows) runs its JIT in its own processes.
-  No audio input: nothing in the app records yet (dictation is later).
+  Audio input: dictation records from the microphone (the hardened
+  runtime refuses it otherwise); the user is asked once, by macOS.
 
   bundle.sh adds com.apple.security.cs.disable-library-validation for
   ad-hoc builds only, where the embedded Sparkle.framework has no team ID
@@ -21,6 +22,8 @@
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<key>com.apple.security.network.server</key>
+	<true/>
+	<key>com.apple.security.device.audio-input</key>
 	<true/>
 </dict>
 </plist>
