@@ -936,6 +936,12 @@ class SettingsController {
                 .read(appSettingsProvider.notifier)
                 .setNotificationScheduledEnabled(value);
           }
+        case 'notification-calendar':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setNotificationCalendarEnabled(value);
+          }
         case 'transport-auto':
           await ref
               .read(appSettingsProvider.notifier)

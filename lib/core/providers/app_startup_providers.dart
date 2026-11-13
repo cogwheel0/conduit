@@ -74,6 +74,7 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import '../../features/notifications/providers/direct_notification_bridge.dart';
 import '../../features/notifications/providers/hermes_notification_bridge.dart';
 import '../../features/notifications/providers/notification_socket_listener.dart';
+import '../../features/notifications/services/calendar_reminder_scheduler.dart';
 import '../../features/notifications/providers/notification_tap_listener.dart';
 import '../../features/notifications/providers/push_notification_listener.dart';
 import '../../shared/theme/theme_providers.dart';
@@ -1236,6 +1237,9 @@ class AppStartupFlow extends _$AppStartupFlow {
           .read(notificationTapListenerProvider.notifier)
           .handleLaunchTap(openWebUiReady: true),
     );
+    // Schedule this account's calendar reminders; the scheduler keeps them in
+    // line from here on (settings, account switches, calendar edits).
+    unawaited(ref.read(calendarReminderSchedulerProvider).sync());
     unawaited(
       ref
           .read(pushNotificationListenerProvider.notifier)
@@ -1489,6 +1493,11 @@ class _ForegroundRefreshObserver extends WidgetsBindingObserver {
           _ref.invalidate(threadMessagesProvider);
           _resetConversationWarmup(_ref);
           unawaited(_refreshActiveConversationOnResume(_ref));
+          // Events added or changed elsewhere (the web UI) while the app was
+          // away get their reminders now.
+          if (_ref.read(calendarReminderSchedulerProvider.exists)) {
+            unawaited(_ref.read(calendarReminderSchedulerProvider).sync());
+          }
         } catch (_) {}
         // Resume already kicked off a forced conversations refresh above; only
         // finish the warmup work that should run alongside it.

@@ -409,6 +409,10 @@ void main() {
                       local.cancelScope(
                         NotificationScope.openWebUi(accountId).value,
                       ),
+                      // Its calendar reminders that have not fired yet.
+                      local.cancelCalendarReminders(
+                        scope: NotificationScope.openWebUi(accountId).value,
+                      ),
                       // Pushes that arrived while the sign-out ran.
                       ref
                           .read(pushPlatformPortProvider)
