@@ -1021,6 +1021,43 @@ void main() {
       expect(session.row(rule, _row('rule')), isNull);
     });
 
+    testWidgets('Advanced switched off leaves open Days and Advanced Schedule '
+        'pages none of the schedule', (tester) async {
+      final session = await pumpAutomations(
+        tester,
+        tasks: [
+          taskJson(
+            'a',
+            rrule: 'RRULE:FREQ=WEEKLY;BYDAY=MO;BYHOUR=18;BYMINUTE=30',
+          ),
+        ],
+      );
+      // Settings keeps its pages' modules followed while it is open.
+      final modules = session.container.listen(
+        settingsPageModulesProvider,
+        (_, _) {},
+      );
+      addTearDown(modules.close);
+      await session.open(_editA);
+      final days = '$scheduledTaskDaysPagePrefix${Uri.encodeComponent('a')}';
+      final rule = '$scheduledTaskRulePagePrefix${Uri.encodeComponent('a')}';
+      await session.open(days);
+      await session.open(rule);
+      expect(session.row(days, _row('day', 'MO'))!.checked, isTrue);
+
+      await session.settle(
+        session.container
+            .read(appSettingsProvider.notifier)
+            .setAdvancedFeaturesEnabled(false),
+      );
+
+      for (final page in [_editA, days, rule]) {
+        expect(session.titles(page), [
+          _l10n.advancedRequiredMessage(_l10n.scheduledTasksTitle),
+        ], reason: page);
+      }
+    });
+
     testWidgets("the list follows the device's clock style once the app is "
         'back from its settings', (tester) async {
       tester.platformDispatcher.alwaysUse24HourFormatTestValue = false;

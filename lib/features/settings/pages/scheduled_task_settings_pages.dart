@@ -2157,22 +2157,19 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
     bool withPages = true,
   }) async {
     if (!identical(_editors[editor.key], editor)) return;
-    if (!_gateOpen) {
-      await _surface.applyDetail(
-        _gatePage(l10n, '$scheduledTaskEditorPagePrefix${editor.key}'),
-      );
-      return;
-    }
-    if (_stale(editor.owner)) {
-      // Its Days and Advanced Schedule pages too, when open over it: none of
-      // that account's schedule stays on screen.
+    // Closed to the account, or another account's form: its Days and
+    // Advanced Schedule pages too, when open over it, keep none of the
+    // schedule on screen.
+    final closed = !_gateOpen;
+    if (closed || _stale(editor.owner)) {
       for (final prefix in [
         scheduledTaskEditorPagePrefix,
         scheduledTaskDaysPagePrefix,
         scheduledTaskRulePagePrefix,
       ]) {
+        final pageId = '$prefix${editor.key}';
         await _surface.applyDetail(
-          _accountChangedPage(l10n, '$prefix${editor.key}'),
+          closed ? _gatePage(l10n, pageId) : _accountChangedPage(l10n, pageId),
         );
       }
       return;
