@@ -5,8 +5,15 @@ import 'package:conduit_core/features/chat/providers/attached_files_provider.dar
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/services/quick_pill_catalog.dart';
 import 'package:conduit_core/features/chat/services/url_context.dart';
+import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dart'
+    show voiceCallEligibilityProvider;
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart'
+    show isHermesModel;
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
+    show hermesSecretsLoadingProvider;
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/tool.dart';
@@ -104,7 +111,9 @@ final class ComposerService {
             filters: model?.filters ?? const [],
           )
         : const <QuickPillCandidate>[];
+    final voiceCall = await _voiceCallAdmitted(model);
     return ComposerOptions(
+      voiceCall: voiceCall,
       webSearch: webSearch,
       imageGeneration: imageGeneration,
       tools: tools,
@@ -151,6 +160,30 @@ final class ComposerService {
           ),
       ],
     );
+  }
+
+  /// Whether a voice call may start with [model]: the core's admission, as
+  /// the phone's launcher reads it. Hermes' secrets load at start; a Hermes
+  /// model waits for them (as the launcher does) rather than reading
+  /// "still loading" as "no".
+  Future<bool> _voiceCallAdmitted(Model? model) async {
+    if (model != null && isHermesModel(model)) {
+      final deadline = DateTime.now().add(const Duration(seconds: 3));
+      while (_container.read(hermesSecretsLoadingProvider) &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+    }
+    try {
+      return _container.read(voiceCallEligibilityProvider).canStart;
+    } on Object catch (error) {
+      DebugLogger.error(
+        'voice-call-admission-failed',
+        scope: 'daemon/composer',
+        error: error,
+      );
+      return false;
+    }
   }
 
   /// The server's users and channels matching [query], for `@`.

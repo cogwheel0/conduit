@@ -274,6 +274,11 @@ start() {
       AUDIO_TTS_ENGINE=openai AUDIO_TTS_MODEL=tts-1 AUDIO_TTS_VOICE=alloy \
       AUDIO_TTS_OPENAI_API_BASE_URL="http://127.0.0.1:$MODEL_PORT/v1" \
       AUDIO_TTS_OPENAI_API_KEY=sk-local-fake \
+      AUDIO_REALTIME_ENABLED=true \
+      AUDIO_REALTIME_OPENAI_API_BASE_URL="http://127.0.0.1:$MODEL_PORT/v1" \
+      AUDIO_REALTIME_OPENAI_API_KEY=sk-local-fake \
+      AUDIO_REALTIME_MODEL=fake-realtime AUDIO_REALTIME_VOICE=fake-voice \
+      AUDIO_REALTIME_TRANSCRIPTION_MODEL=fake-transcribe \
       nohup "$VENV/bin/open-webui" serve --host 127.0.0.1 --port "$PORT" \
       > "$STATE/server.log" 2>&1 &
     pid_record "$STATE/server.pid" $!

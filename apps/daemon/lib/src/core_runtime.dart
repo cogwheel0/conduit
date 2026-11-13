@@ -40,6 +40,12 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:mcp_dart/mcp_dart.dart' as mcp;
 import 'package:path/path.dart' as p;
+import 'package:conduit_core/features/chat/read_aloud/text_to_speech_controller.dart'
+    show textToSpeechServiceProvider;
+import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart'
+    show realtimePcmAudioFactoryProvider;
+import 'package:conduit_core/features/chat/voice_mode/voice_mode_ports.dart'
+    show voiceModeInputProvider, voiceModeSpeechProvider;
 import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 
@@ -47,6 +53,7 @@ import 'bootstrap.dart';
 import 'daemon_paths.dart';
 import 'hermes_service.dart' show hermesAwaitsSignIn;
 import 'log.dart';
+import 'calls_service.dart' show CallPorts;
 import 'ports/handoff.dart';
 import 'ports/connectivity.dart';
 import 'ports/database_opener.dart';
@@ -77,6 +84,7 @@ final class CoreRuntime {
     required this.openUrl,
     required this.uiRequests,
     required this.handoff,
+    required this.calls,
     required List<Box<dynamic>> boxes,
   }) : _connectivity = connectivity,
        _boxes = boxes;
@@ -96,6 +104,10 @@ final class CoreRuntime {
   /// How a server's `chat:handoff` is put to the user; the server attaches
   /// its handoff service once there is one.
   final DaemonHandoffPort handoff;
+
+  /// A voice call's microphone and realtime audio: the window, through the
+  /// calls service, which attaches once there is one.
+  final CallPorts calls;
 
   /// Takes a window's view of the network, which arrives as an event where
   /// the port can only poll.
@@ -236,6 +248,7 @@ final class CoreRuntime {
     final openUrl = DaemonOpenUrlPort();
     final uiRequests = DaemonUiRequestPort();
     final handoff = DaemonHandoffPort();
+    final calls = CallPorts();
 
     final container = ProviderContainer(
       observers: observers,
@@ -275,6 +288,16 @@ final class CoreRuntime {
         // The Mac's voices read aloud live, reporting each word, and the
         // reading moves from sentence to sentence (the phone renders clips).
         readAloudLiveDeviceSpeechProvider.overrideWithValue(true),
+        // A voice call listens through the window (dictation's engines),
+        // speaks through the read-aloud engine as the phone's does, and for
+        // a realtime voice runs the window's echo-cancelled audio.
+        voiceModeInputProvider.overrideWithValue(calls.input),
+        voiceModeSpeechProvider.overrideWith(
+          (ref) => ref.watch(textToSpeechServiceProvider),
+        ),
+        realtimePcmAudioFactoryProvider.overrideWithValue(
+          calls.newRealtimeAudio,
+        ),
         // The remaining ports keep the core's own defaults, and each is a
         // deliberate choice rather than an omission:
         //
@@ -353,6 +376,7 @@ final class CoreRuntime {
       openUrl: openUrl,
       uiRequests: uiRequests,
       handoff: handoff,
+      calls: calls,
       boxes: boxes.all,
     );
   }

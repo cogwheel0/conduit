@@ -106,6 +106,10 @@ abstract interface class ChatTurns {
   /// Waits (briefly) for [chatId]'s last answer to reach the stored copy, so
   /// nothing it pulls lands over a change made after.
   Future<void> settled(String chatId);
+
+  /// The messages of [chatId]'s open scope, as its turns left them; null
+  /// when it has none.
+  List<core.ChatMessage>? openMessages(String chatId);
 }
 
 /// [folder] as the sidebar shows it, with whose it is when it is another
@@ -438,7 +442,15 @@ final class ChatsService {
     // A Hermes session: its transcript is Hermes's, not the database's.
     if (hermesSessionOf(id) case final sessionId? when _hermes != null) {
       final hermes = _hermes;
-      final messages = await hermes.transcript(sessionId);
+      // While its scope is open (a window follows its agent's work there,
+      // or a turn just ran), the chat is what the scope holds: an answer a
+      // turn, with all it showed, under the names the scope answers to.
+      // Hermes's record has a row a tool step, which a turn's last row
+      // only partly says.
+      final open = turns?.openMessages(id);
+      final messages = open != null && open.isNotEmpty
+          ? open
+          : await hermes.transcript(sessionId);
       return ChatDetail(
         summary: ChatSummary(
           id: id,
