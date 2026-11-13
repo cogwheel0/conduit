@@ -191,6 +191,7 @@ pub fn empty_block(kind: MessageBlockKind) -> MessageBlockDto {
         files: None,
         sources: None,
         follow_ups: None,
+        embeds: None,
     }
 }
 
@@ -2190,6 +2191,7 @@ mod tests {
             } else {
                 vec![]
             },
+            queued: None,
         }
     }
 
@@ -2222,6 +2224,7 @@ mod tests {
                 },
                 messages,
                 system_prompt: None,
+                tasks: Default::default(),
             }),
         }
     }
@@ -2231,6 +2234,7 @@ mod tests {
             chat_id: chat.into(),
             message_id: message.into(),
             blocks,
+            tasks: None,
         })
     }
 

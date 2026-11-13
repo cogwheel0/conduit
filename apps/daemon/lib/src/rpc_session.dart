@@ -6,10 +6,12 @@ import 'package:stream_channel/stream_channel.dart';
 
 import 'accounts_service.dart';
 import 'auth_service.dart';
+import 'chat_prompts_service.dart';
 import 'chats_service.dart';
 import 'composer_service.dart';
 import 'drafts_service.dart';
 import 'direct_service.dart';
+import 'mcp_apps_service.dart';
 import 'mcp_service.dart';
 import 'notes_service.dart';
 import 'channels_service.dart';
@@ -49,6 +51,8 @@ final class CoreServices {
     this.turns,
     this.models,
     this.uiRequests,
+    this.chatPrompts,
+    this.mcpApps,
     this.composer,
     this.prompts,
     this.direct,
@@ -80,6 +84,8 @@ final class CoreServices {
   final TurnsService? turns;
   final ModelsService? models;
   final UiRequestsService? uiRequests;
+  final ChatPromptsService? chatPrompts;
+  final McpAppsService? mcpApps;
   final ComposerService? composer;
   final PromptsService? prompts;
   final DirectService? direct;
@@ -175,6 +181,8 @@ class RpcSession {
   CoreSettingsService? get _coreSettings => _services().coreSettings;
   ProfileService? get _profile => _services().profile;
   MemoriesService? get _memories => _services().memories;
+  ChatPromptsService? get _chatPrompts => _services().chatPrompts;
+  McpAppsService? get _mcpApps => _services().mcpApps;
   ReleaseNotesRpcService? get _releaseNotes => _services().releaseNotes;
   DataService? get _data => _services().data;
   ChatSettingsService? get _chatSettings => _services().chatSettings;
@@ -627,6 +635,38 @@ class RpcSession {
       if (handoff == null) return const HandoffAnswered(open: false);
       return handoff.answer(r);
     });
+
+    _on(
+      ConduitMethodSpecs.turnsRetryQueued,
+      (r) => _requireTurns().retryQueued(r),
+    );
+    _on(
+      ConduitMethodSpecs.turnsRemoveQueued,
+      (r) => _requireTurns().removeQueued(r),
+    );
+
+    // chatPrompts.*: Open WebUI's questions and approvals in a chat.
+    _on(ConduitMethodSpecs.chatPromptsGet, (r) => _need(_chatPrompts).get(r));
+    _on(
+      ConduitMethodSpecs.chatPromptsAnswer,
+      (r) => _need(_chatPrompts).answer(r),
+    );
+    _on(
+      ConduitMethodSpecs.chatPromptsDecide,
+      (r) => _need(_chatPrompts).decide(r),
+    );
+
+    // mcpApps.*: MCP Apps in Open WebUI chats, hosted here.
+    _on(ConduitMethodSpecs.mcpAppsOpen, (r) => _need(_mcpApps).open(r));
+    _on(ConduitMethodSpecs.mcpAppsMessage, (r) => _need(_mcpApps).message(r));
+    _on(
+      ConduitMethodSpecs.mcpAppsContext,
+      (r) async => _need(_mcpApps).context(r),
+    );
+    _on(
+      ConduitMethodSpecs.mcpAppsClose,
+      (r) async => _need(_mcpApps).close(r),
+    );
 
     // queue.*: messages queued behind a running answer.
     _on(ConduitMethodSpecs.queueGet, (r) => _requireTurns().queueGet(r.id));

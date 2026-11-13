@@ -158,6 +158,7 @@ fn chat_value() -> Value {
                 } else {
                     vec![]
                 },
+                queued: None,
             }
         })
         .collect();
@@ -182,6 +183,7 @@ fn chat_value() -> Value {
             },
             messages,
             system_prompt: None,
+            tasks: Default::default(),
         }),
     })
     .unwrap()
@@ -389,6 +391,7 @@ fn ticker(store: Entity<ChatStore>, cx: &mut App) {
                 chat_id: "fixture".into(),
                 message_id: "live".into(),
                 blocks: vec![text_block(markdown)],
+                tasks: None,
             });
             store.update(cx, |s, cx| s.on_event(&event, cx));
             cx.background_executor()
@@ -461,6 +464,7 @@ pub fn run(mode: String, shots: Option<PathBuf>, cx: &mut App) {
             chat_id: "fixture".into(),
             message_id: "live".into(),
             blocks: vec![text_block("The answer, *finished*.".into())],
+            tasks: None,
         });
         store.update(cx, |s, cx| s.on_event(&event, cx));
         let done = Event::TurnFinished(conduit_protocol::TurnFinished {

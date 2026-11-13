@@ -166,6 +166,33 @@ final class UiRequestsService implements UiRequestPort {
     return response.choice == 'allow';
   }
 
+  /// Asks whether an MCP App in a chat may call one of its server's tools,
+  /// as mobile asks before every call. Unanswered, it is refused.
+  Future<bool> askMcpAppToolCall({
+    required String serverName,
+    required String toolName,
+    required String argumentsJson,
+  }) async {
+    final response = await _ask(
+      UiRequestKind.mcpAppToolCall,
+      messageCode: 'mcpApp.toolCall',
+      args: <String, String>{'serverName': serverName, 'toolName': toolName},
+      detail: <String, dynamic>{'arguments': argumentsJson},
+    );
+    return response.choice == 'allow';
+  }
+
+  /// Asks whether to open [url], a page an MCP App asked for: an app can
+  /// ask at any time, not only when the user clicked something.
+  Future<bool> askMcpAppOpenLink({required String url}) async {
+    final response = await _ask(
+      UiRequestKind.mcpAppOpenLink,
+      messageCode: 'mcpApp.openLink',
+      args: <String, String>{'url': url},
+    );
+    return response.choice == 'allow';
+  }
+
   /// Asks whether a Hermes agent may go on with what it wants to do:
   /// run a command, write a file. [choices] are the agent's own -- `once`,
   /// `session`, `always`, `deny` -- and unanswered it is denied.

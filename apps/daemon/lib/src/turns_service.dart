@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:collection/collection.dart';
+
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/database/chat_database_repository.dart'
     show ChatStorageKind;
@@ -9,10 +11,12 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
 import 'package:conduit_core/features/chat/providers/openwebui_prompt_resolution.dart';
+import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
 import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
 import 'package:conduit_core/features/chat/services/historical_message_regeneration.dart';
 import 'package:conduit_core/features/chat/utils/message_targeting.dart';
+import 'package:conduit_core/features/chat/utils/openwebui_tasks.dart';
 import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
@@ -55,6 +59,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 
+import 'chat_prompts_service.dart';
 import 'chats_service.dart' show ChatTurns;
 import 'composer_wire.dart';
 import 'event_bus.dart';
@@ -62,6 +67,7 @@ import 'files_service.dart';
 import 'hermes_service.dart';
 import 'message_blocks.dart';
 import 'models_service.dart';
+import 'queued_completions_service.dart';
 import 'settled.dart';
 import 'temporary_chats.dart';
 import 'ui_requests_service.dart';
@@ -106,10 +112,28 @@ final class TurnsService implements ChatTurns {
     UiRequestsService? uiRequests,
     HermesService? hermes,
     FilesService? files,
+    ChatPromptsService? chatPrompts,
+    QueuedCompletionsService? queued,
   }) : temporary = temporary ?? TemporaryChats(),
        _uiRequests = uiRequests,
        _hermes = hermes,
-       _files = files {
+       _files = files,
+       _chatPrompts = chatPrompts,
+       _queuedCompletions = queued {
+    // A chat keeps its scope while it has answers waiting to go out, so one
+    // that goes out streams there; once none wait it may go.
+    queued?.onChanged = (chatId) {
+      for (final session in _sessions) {
+        if (session.chatId != chatId) continue;
+        _handOffQueued(session);
+        _scheduleLinger(session);
+      }
+    };
+    // Open WebUI's questions and approvals in a chat: the ones saved in a
+    // stored answer are found, and answered, in that chat's scope.
+    chatPrompts
+      ?..storedPrompt = storedPrompt
+      ..resolveStored = resolveStoredPrompt;
     // A chat belongs to the account it was opened under. On another
     // account, or none, every scope goes, and a running turn with it.
     _accountWatches = <ProviderSubscription<Object?>>[
@@ -148,6 +172,12 @@ final class TurnsService implements ChatTurns {
 
   /// What this daemon uploaded, to name a queued message's files.
   final FilesService? _files;
+
+  /// Where Open WebUI's prompts in a chat wait for an answer.
+  final ChatPromptsService? _chatPrompts;
+
+  /// Answers waiting in the outbox (sent while offline, or failed).
+  final QueuedCompletionsService? _queuedCompletions;
 
   late final List<ProviderSubscription<Object?>> _accountWatches;
   StreamSubscription<Object?>? _remaps;
@@ -483,7 +513,7 @@ final class TurnsService implements ChatTurns {
       }
       return await _run(
         session,
-        model: model,
+        modelId: model.id,
         userMessageId: null,
         start: (onPlaceholder) => durableSend(
           scope,
@@ -593,7 +623,7 @@ final class TurnsService implements ChatTurns {
     try {
       return await _run(
         session,
-        model: models.first,
+        modelId: models.first.id,
         userMessageId: null,
         compare: true,
         start: (onPlaceholder) {
@@ -682,7 +712,7 @@ final class TurnsService implements ChatTurns {
       }
       return await _run(
         session,
-        model: model,
+        modelId: model.id,
         userMessageId: target.userMessage.id,
         start: (_) => regenerateHistoricalMessageById(
           session.scope.container,
@@ -742,7 +772,7 @@ final class TurnsService implements ChatTurns {
       _choose(session.scope.container, model);
       return await _run(
         session,
-        model: model,
+        modelId: model.id,
         userMessageId: null,
         start: (_) async {
           final sent = await resendEditedUserMessage(
@@ -1378,7 +1408,7 @@ final class TurnsService implements ChatTurns {
     unawaited(
       _run(
         session,
-        model: model,
+        modelId: model.id,
         userMessageId: null,
         start: (onPlaceholder) async {
           // As before any turn ([_requireIdle]): the last turn's stored copy
@@ -1489,9 +1519,10 @@ final class TurnsService implements ChatTurns {
   /// appear in the scope.
   Future<SendTurnAccepted> _run(
     _ChatSession session, {
-    required Model model,
+    required String modelId,
     required String? userMessageId,
     bool compare = false,
+    String? assistantMessageId,
     required Future<void> Function(
       void Function(ChatSendPlaceholderHandle handle) onPlaceholder,
     )
@@ -1500,7 +1531,7 @@ final class TurnsService implements ChatTurns {
     session.linger?.cancel();
     session.ended = null;
     final pending = _PendingTurn(
-      model: model.id,
+      model: modelId,
       userMessageId: userMessageId,
       compare: compare,
       baseline: <String, ChatMessage>{
@@ -1508,6 +1539,9 @@ final class TurnsService implements ChatTurns {
           if (message.role == 'assistant') message.id: message,
       },
     );
+    // An answer that goes on where it stopped (a prompt answered) is
+    // known by its id from the start.
+    pending.assistantMessageId = assistantMessageId;
     session.pending = pending;
 
     Future<void> sending;
@@ -1575,7 +1609,13 @@ final class TurnsService implements ChatTurns {
     if (pending != null && !pending.started.isCompleted) {
       _maybeStart(session, pending, messages);
     }
-    final turn = session.turn;
+    var current = session.turn;
+    if ((current == null || current.finished) &&
+        (pending == null || pending.started.isCompleted)) {
+      current = _followQueued(session, messages) ?? current;
+    }
+    _handOffQueued(session);
+    final turn = current;
     if (turn == null || turn.finished) return;
     final answer = messages.where((m) => m.id == turn.messageId).lastOrNull;
     if (answer == null) return;
@@ -1789,6 +1829,151 @@ final class TurnsService implements ChatTurns {
     pending.started.complete(turn);
   }
 
+  /// A queued answer (sent while offline, or failed and retried) that has
+  /// gone out and streams into [session]'s scope, followed as a turn of its
+  /// own so the windows see it stream; null when there is none.
+  _Turn? _followQueued(_ChatSession session, List<ChatMessage> messages) {
+    final queued = _queuedCompletions;
+    final chatId = session.chatId;
+    if (queued == null || chatId == null) return null;
+    final answer = messages
+        .where(
+          (m) =>
+              m.role == 'assistant' &&
+              m.isStreaming &&
+              queued.wasQueued(chatId, m.id) &&
+              !queued.isQueued(chatId, m.id),
+        )
+        .lastOrNull;
+    if (answer == null) return null;
+    queued.followed(chatId, answer.id);
+    final index = messages.indexOf(answer);
+    final question = messages
+        .take(index < 0 ? 0 : index)
+        .where((m) => m.role == 'user')
+        .lastOrNull;
+    final turn = _Turn(
+      chatId: chatId,
+      messageId: answer.id,
+      model: answer.model ?? '',
+      userMessageId: question?.id,
+      clientOwned: false,
+    )..text = answer.content;
+    session.linger?.cancel();
+    session.ended = null;
+    session.turn = turn;
+    turn.announced = true;
+    _events.emit(
+      ConduitEventSpecs.turnStarted,
+      TurnStarted(chatId: chatId, messageId: turn.messageId, model: turn.model),
+      scope: chatId,
+    );
+    turn.ticker = Timer.periodic(
+      _deltaInterval,
+      (_) => _emitDelta(session, turn),
+    );
+    return turn;
+  }
+
+  /// [session]'s answer is queued by the core: its request waits in the
+  /// outbox (the server is out of reach, or the request keeps failing). The
+  /// turn ends here, with neither an answer nor a failure: `turns.send`
+  /// answers now if it has not yet, and the windows fetch the chat, where
+  /// the answer shows as queued, with Retry and Remove. Once the request
+  /// goes out the answer streams, and is followed as a turn of its own
+  /// ([_followQueued]).
+  void _handOffQueued(_ChatSession session) {
+    final queued = _queuedCompletions;
+    final chatId = session.chatId;
+    if (queued == null || chatId == null || session.scope.isDisposed) return;
+    final pending = session.pending;
+    if (pending != null && !pending.started.isCompleted) {
+      final answerId = pending.assistantMessageId;
+      if (answerId == null || !queued.isQueued(chatId, answerId)) return;
+      pending.started.complete(
+        _Turn(
+          chatId: chatId,
+          messageId: answerId,
+          model: pending.model,
+          userMessageId: pending.userMessageId,
+          clientOwned: false,
+        )..finished = true,
+      );
+      _announce(chatId);
+      return;
+    }
+    final turn = session.turn;
+    if (turn == null ||
+        turn.finished ||
+        turn.clientOwned ||
+        !queued.isQueued(chatId, turn.messageId)) {
+      return;
+    }
+    turn.finished = true;
+    turn.ticker?.cancel();
+    session.ended = null;
+    if (pending != null && pending.sendSettled) session.pending = null;
+    _events.emit(
+      ConduitEventSpecs.turnFinished,
+      TurnFinished(chatId: chatId, messageId: turn.messageId, ok: true),
+    );
+    _announce(chatId);
+  }
+
+  /// `turns.retryQueued`: sends a queued answer's request again now.
+  Future<OkResult> retryQueued(QueuedTurnRef ref) async {
+    final session = await _sessionFor(ref.chatId);
+    try {
+      final info = await _queuedInfo(session, ref.messageId);
+      final actions = session.scope.container.read(
+        queuedCompletionActionsProvider,
+      );
+      if (ref.withoutReasoningEffort) {
+        await actions.retryWithoutReasoningEffort(info);
+      } else {
+        await actions.retry(info);
+      }
+      _announce(ref.chatId);
+      return const OkResult(ok: true);
+    } finally {
+      _release(session);
+    }
+  }
+
+  /// `turns.removeQueued`: removes a queued answer before it goes out.
+  Future<OkResult> removeQueued(QueuedTurnRef ref) async {
+    final session = await _sessionFor(ref.chatId);
+    try {
+      final info = await _queuedInfo(session, ref.messageId);
+      final removed = await session.scope.container
+          .read(queuedCompletionActionsProvider)
+          .cancel(info);
+      _queuedCompletions?.followed(ref.chatId, ref.messageId);
+      _announce(ref.chatId);
+      return OkResult(ok: removed > 0);
+    } finally {
+      _release(session);
+    }
+  }
+
+  Future<QueuedCompletionInfo> _queuedInfo(
+    _ChatSession session,
+    String messageId,
+  ) async {
+    final infos = await readSettled(
+      session.scope.container,
+      queuedCompletionInfoByMessageProvider.future,
+    );
+    final info = infos[messageId];
+    if (info == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: 'that answer is not waiting to go out',
+      );
+    }
+    return info;
+  }
+
   /// Reads the answer as the scope's transcript has it right now, including
   /// what the core has buffered since it last published the text: the core
   /// paints a phone's screen at its own cadence, and the windows get frames
@@ -1885,10 +2070,17 @@ final class TurnsService implements ChatTurns {
         ),
       );
     }
+    final metadata = session.scope.isDisposed
+        ? null
+        : session.scope.conversation?.metadata;
     return TurnBlocks(
       chatId: turn.chatId,
       messageId: turn.messageId,
       blocks: turn.lastBlocks,
+      // The checklist as the turn left it, once it has one.
+      tasks: metadata?.containsKey(kOpenWebUiTasksMetadataKey) ?? false
+          ? chatTaskDtos(metadata)
+          : null,
     );
   }
 
@@ -2045,6 +2237,12 @@ final class TurnsService implements ChatTurns {
       if (session.pending != null) return;
       // Queued messages live in the scope until they have gone out.
       if (_queued(session)) return;
+      // So do answers waiting in the outbox: once one goes out, it streams
+      // here and the windows follow it.
+      final chatId = session.chatId;
+      if (chatId != null && (_queuedCompletions?.hasQueued(chatId) ?? false)) {
+        return;
+      }
       _close(session);
     });
   }
@@ -2071,9 +2269,13 @@ final class TurnsService implements ChatTurns {
       }
     }
     final toolPrompt = findPendingOpenWebUiToolPrompt(<ChatMessage>[answer]);
+    final promptChat = session.chatId;
     if (toolPrompt != null &&
+        promptChat != null &&
         session.asked.add('openwebui:${toolPrompt.callId}')) {
-      unawaited(_answerToolPrompt(session, toolPrompt));
+      // Docked above the chat's composer until answered there (or on
+      // another device).
+      _chatPrompts?.offerStored(promptChat, toolPrompt);
     }
     final hermes = pendingHermesApprovalOf(session.scope.container, answer);
     if (hermes != null &&
@@ -2132,116 +2334,120 @@ final class TurnsService implements ChatTurns {
     }
   }
 
-  /// Answers an Open WebUI tool prompt persisted on the answer (Open WebUI
-  /// 0.13's ask-user, tool approval and confirmation): the server resolves
-  /// the tool call, and the core resumes the turn.
-  Future<void> _answerToolPrompt(
+  /// Puts a prompt Open WebUI raised over the socket, and the core holds
+  /// for the chat, to the windows: a confirmation, or questions for the
+  /// user. Its card goes once the core lets go of it (answered here,
+  /// timed out, or cancelled by the server).
+  void _hostLivePrompt(
     _ChatSession session,
-    OpenWebUiPendingToolPrompt pending,
-  ) async {
-    final reply = await _askPrompt(pending.prompt);
-    final chatId = session.chatId;
-    if (session.scope.isDisposed || chatId == null) return;
-    try {
-      await resolvePersistedOpenWebUiPrompt(
-        session.scope.container,
-        ownerConversationId: chatId,
-        pending: pending,
-        action: reply.action,
-        answers: reply.answers,
-        isMounted: () => !session.scope.isDisposed,
-      );
-    } on Object catch (error, stackTrace) {
-      DebugLogger.error(
-        'openwebui-tool-prompt-failed',
-        scope: 'daemon/turns',
-        error: error,
-        stackTrace: stackTrace,
+    OpenWebUiLivePromptState? previous,
+    OpenWebUiLivePromptState? next,
+  ) {
+    final prompts = _chatPrompts;
+    if (prompts == null) return;
+    if (previous != null &&
+        (next == null || next.prompt.identity != previous.prompt.identity)) {
+      prompts.withdraw(
+        session.chatId ?? previous.conversationId,
+        previous.prompt.identity,
       );
     }
-  }
-
-  /// Answers a prompt Open WebUI raised over the socket and the core is
-  /// holding for the chat: a confirmation, or questions for the user.
-  Future<void> _hostLivePrompt(
-    _ChatSession session,
-    OpenWebUiLivePromptState? live,
-  ) async {
-    if (live == null || !session.asked.add('live:${live.prompt.identity}')) {
-      return;
-    }
-    final reply = await _askPrompt(live.prompt);
-    if (session.scope.isDisposed) return;
-    final prompts = session.scope.container.read(
-      openWebUiLivePromptProvider.notifier,
-    );
-    switch (reply.action) {
-      case OpenWebUiToolCallAction.approve:
-        prompts.decide(live.prompt.identity, true);
-      case OpenWebUiToolCallAction.answer:
-        prompts.answer(live.prompt.identity, reply.answers ?? const {});
-      case OpenWebUiToolCallAction.reject:
-        if (live.prompt.kind == OpenWebUiComposerPromptKind.confirmation) {
-          prompts.decide(live.prompt.identity, false);
+    if (next == null || session.scope.isDisposed) return;
+    final identity = next.prompt.identity;
+    final kind = next.prompt.kind;
+    final scope = session.scope;
+    OpenWebUiLivePromptNotifier? notifier() => scope.isDisposed
+        ? null
+        : scope.container.read(openWebUiLivePromptProvider.notifier);
+    prompts.offerLive(
+      session.chatId ?? next.conversationId,
+      next.prompt,
+      onAnswer: (answers) => notifier()?.answer(identity, answers),
+      onDecide: (approved) {
+        final live = notifier();
+        if (live == null) return;
+        if (kind == OpenWebUiComposerPromptKind.confirmation) {
+          live.decide(identity, approved);
         } else {
-          prompts.cancel();
+          // Questions declined.
+          live.cancel();
         }
-    }
+      },
+    );
   }
 
-  /// Puts [prompt] to the windows as `ui.request`s and returns what to tell
-  /// Open WebUI: an approval or confirmation as one yes-or-no, questions one
-  /// at a time, each answered with one of its options or, where the server
-  /// allows it, the user's own words. Unanswered, or with no window, it is
-  /// declined.
-  Future<({OpenWebUiToolCallAction action, Map<String, dynamic>? answers})>
-  _askPrompt(OpenWebUiComposerPrompt prompt) async {
-    const declined = (action: OpenWebUiToolCallAction.reject, answers: null);
-    final ask = _uiRequests;
-    if (ask == null) return declined;
-    final title = prompt.title.trim().isEmpty ? 'Open WebUI' : prompt.title;
-    switch (prompt.kind) {
-      case OpenWebUiComposerPromptKind.confirmation:
-        final approved = await ask.confirm(
-          title: title,
-          message: prompt.message,
+  /// The prompt Open WebUI saved in [chatId]'s stored answer (a tool
+  /// approval, `ask_user` in a saved chat, a coding agent's request), as a
+  /// chat opened later finds it: from its open scope, else its stored
+  /// transcript. None for a chat this server does not store.
+  Future<OpenWebUiPendingToolPrompt?> storedPrompt(String chatId) async {
+    if (temporary.contains(chatId) || hermesSessionOf(chatId) != null) {
+      return null;
+    }
+    final open = _sessions
+        .where((s) => !s.scope.isDisposed && s.chatId == chatId)
+        .firstOrNull;
+    final Conversation? conversation;
+    final List<ChatMessage> messages;
+    if (open != null) {
+      conversation = open.scope.conversation;
+      messages = open.scope.messages;
+    } else {
+      try {
+        conversation = await readSettled(
+          _container,
+          loadConversationProvider(chatId).future,
         );
-        return approved
-            ? (action: OpenWebUiToolCallAction.approve, answers: null)
-            : declined;
-      case OpenWebUiComposerPromptKind.toolApproval:
-        final approved = await ask.askToolApproval(
-          title: title,
-          message: prompt.message,
+      } on Object {
+        return null;
+      }
+      messages = conversation?.messages ?? const <ChatMessage>[];
+    }
+    if (conversation == null ||
+        !conversationUsesOpenWebUiStorage(conversation) ||
+        isTemporaryChat(conversation.id)) {
+      return null;
+    }
+    return findPendingOpenWebUiToolPrompt(messages);
+  }
+
+  /// Answers [pending], a prompt saved in [chatId]'s answer: the server
+  /// resolves the tool call, and the answer goes on where it stopped, as a
+  /// turn of its own (the windows see it stream again).
+  Future<void> resolveStoredPrompt(
+    String chatId,
+    OpenWebUiPendingToolPrompt pending,
+    OpenWebUiToolCallAction action,
+    Map<String, dynamic>? answers,
+  ) async {
+    final session = await _sessionFor(chatId);
+    try {
+      await _requireIdle(session);
+      final answer = session.scope.messages
+          .where((m) => m.id == pending.messageId)
+          .lastOrNull;
+      if (answer == null) {
+        throw const RpcError(
+          code: ConduitErrorCodes.notFound,
+          debugMessage: 'the answer that asked is no longer in that chat',
         );
-        return approved
-            ? (action: OpenWebUiToolCallAction.approve, answers: null)
-            : declined;
-      case OpenWebUiComposerPromptKind.askUser:
-        final answers = <String, dynamic>{};
-        for (final question in prompt.questions) {
-          final pick = question.options.isNotEmpty && !question.allowOther;
-          final text = await ask.promptForText(
-            title: question.header.trim().isEmpty ? title : question.header,
-            message: question.question,
-            inputType: pick ? UiTextInputType.select : UiTextInputType.text,
-            options: <UiSelectOption>[
-              for (final option in question.options)
-                UiSelectOption(value: option.label, label: option.label),
-            ],
-          );
-          if (text == null) return declined;
-          final index = question.options.indexWhere((o) => o.label == text);
-          answers[question.id] = index >= 0
-              ? <String, dynamic>{
-                  'type': 'option',
-                  'option_index': index,
-                  'label': question.options[index].label,
-                  'description': question.options[index].description,
-                }
-              : <String, dynamic>{'type': 'other', 'text': text.trim()};
-        }
-        return (action: OpenWebUiToolCallAction.answer, answers: answers);
+      }
+      await _run(
+        session,
+        modelId: answer.model ?? '',
+        userMessageId: null,
+        assistantMessageId: pending.messageId,
+        start: (_) => resolvePersistedOpenWebUiPrompt(
+          session.scope.container,
+          ownerConversationId: chatId,
+          pending: pending,
+          action: action,
+          answers: answers,
+          isMounted: () => !session.scope.isDisposed,
+        ),
+      );
+    } finally {
+      _release(session);
     }
   }
 
@@ -2391,7 +2597,7 @@ final class TurnsService implements ChatTurns {
       // A question or confirmation Open WebUI raised mid-turn.
       scope.container.listen<OpenWebUiLivePromptState?>(
         openWebUiLivePromptProvider,
-        (_, next) => _hostLivePrompt(session, next),
+        (previous, next) => _hostLivePrompt(session, previous, next),
       ),
       // A file the model's terminal tool asked to show.
       scope.container.listen<TerminalFileRequest?>(
@@ -2485,12 +2691,30 @@ final class TurnsService implements ChatTurns {
             !_sameTags(previous.tags, next.tags))) {
       _announce(next.id);
     }
+    // A tool updated the chat's task checklist: the running turn's next
+    // frame carries it, or the windows fetch the chat again.
+    if (previous != null &&
+        next != null &&
+        previous.id == next.id &&
+        !_deepEquality.equals(
+          previous.metadata[kOpenWebUiTasksMetadataKey],
+          next.metadata[kOpenWebUiTasksMetadataKey],
+        )) {
+      if (turn != null && !turn.finished) {
+        turn.blocksDirty = true;
+      } else {
+        _announce(next.id);
+      }
+    }
   }
+
+  static const DeepCollectionEquality _deepEquality = DeepCollectionEquality();
 
   static bool _sameTags(List<String> a, List<String> b) =>
       a.length == b.length && a.toSet().containsAll(b);
 
   void _followRemap(String fromId, String toId) {
+    _chatPrompts?.remap(fromId, toId);
     for (final session in _sessions) {
       if (session.turn case final turn? when turn.chatId == fromId) {
         turn.chatId = toId;
@@ -2529,6 +2753,8 @@ final class TurnsService implements ChatTurns {
   }
 
   void _closeAll({required String reason}) {
+    // Another account's prompts are not this one's to answer.
+    _chatPrompts?.clear();
     if (_sessions.isEmpty) return;
     DebugLogger.log(
       'chat-scopes-closed',

@@ -1,8 +1,11 @@
 import 'dart:collection';
+import 'dart:convert';
 
 import 'package:collection/collection.dart';
 import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart';
+import 'package:conduit_core/features/chat/utils/openwebui_tasks.dart';
 import 'package:conduit_core/features/chat/views/chat_status_display.dart';
+import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 import 'package:conduit_core/models/chat_message.dart' as core;
 import 'package:conduit_core/services/structured_output.dart'
     show displayedChatFiles;
@@ -88,10 +91,9 @@ final class MessageBlocks {
       kind: MessageBlockKind.files,
       files: chatFileDtos(files),
     ),
-    // No embed block on the wire yet: an embed shows as nothing.
-    AssistantEmbedsBlock() => MessageBlockDto(
-      kind: MessageBlockKind.text,
-      markdown: '',
+    AssistantEmbedsBlock(:final embeds) => MessageBlockDto(
+      kind: MessageBlockKind.embeds,
+      embeds: embedDtos(embeds),
     ),
     AssistantStatusBlock() => MessageBlockDto(
       kind: MessageBlockKind.status,
@@ -164,9 +166,9 @@ final class MessageBlocks {
       kind: MessageBlockKind.text,
       markdown: markdown,
     ),
-    // No alert block on the wire yet: an alert reads as its text.
-    md.AlertMessageBlock(:final markdown) => MessageBlockDto(
-      kind: MessageBlockKind.text,
+    md.AlertMessageBlock(:final type, :final markdown) => MessageBlockDto(
+      kind: MessageBlockKind.alert,
+      type: type,
       markdown: markdown,
     ),
     md.ReasoningMessageBlock() => _reasoningDto(block),
@@ -185,6 +187,9 @@ final class MessageBlocks {
             isError: call.isError,
             files: call.files,
             embeds: call.embeds,
+            shownEmbeds: embedDtos(
+              assistantEmbeds(call.embeds, argsText: call.arguments),
+            ),
           ),
       ],
     ),
@@ -249,6 +254,7 @@ int messageBlockInputsHash(core.ChatMessage message) => Object.hash(
   message.metadata?['responseDone'],
   message.metadata?['openwebuiRecoverableError'],
   _deep.hash(message.files),
+  _deep.hash(message.embeds),
   _deep.hash(displayedChatFiles(message.output)),
   _deep.hash(message.attachmentIds),
   _deep.hash(message.statusHistory),
@@ -260,6 +266,7 @@ int messageBlockInputsHash(core.ChatMessage message) => Object.hash(
 
 int _versionInputsHash(core.ChatMessageVersion version) => Object.hash(
   _deep.hash(version.files),
+  _deep.hash(version.embeds),
   _deep.hash(displayedChatFiles(version.output)),
   version.error,
   _deep.hash(version.codeExecutions),
@@ -270,6 +277,10 @@ int _versionInputsHash(core.ChatMessageVersion version) => Object.hash(
 /// Labels and links as the mobile app shows them, from the helper both
 /// apps share: Open WebUI nests a source's name differently for web
 /// results, files and knowledge bases.
+///
+/// An inline citation reads as the mobile app's badge does: the source's
+/// site ([ChatSourceDto.inlineLabel]), or with "show citation titles" its
+/// own title ([ChatSourceDto.inlineTitle]), shortened the same way.
 List<ChatSourceDto> chatSourceDtos(List<core.ChatSourceReference> sources) =>
     <ChatSourceDto>[
       for (var i = 0; i < sources.length; i++)
@@ -277,8 +288,50 @@ List<ChatSourceDto> chatSourceDtos(List<core.ChatSourceReference> sources) =>
           label: SourceReferenceHelper.getSourceLabel(sources[i], i),
           url: SourceReferenceHelper.getSourceUrl(sources[i]),
           snippet: sources[i].snippet,
+          inlineLabel: SourceReferenceHelper.formatDisplayTitle(
+            SourceReferenceHelper.getInlineSourceLabel(sources[i], i),
+          ),
+          inlineTitle: SourceReferenceHelper.formatDisplayTitle(
+            SourceReferenceHelper.getInlineSourceLabel(
+              sources[i],
+              i,
+              preferTitle: true,
+            ),
+          ),
+          type: (sources[i].type?.trim().isNotEmpty ?? false)
+              ? sources[i].type!.trim()
+              : null,
         ),
     ];
+
+/// The core's embeds, as the wire carries them.
+List<EmbedDto> embedDtos(List<AssistantEmbed> embeds) => <EmbedDto>[
+  for (final embed in embeds)
+    switch (embed.kind) {
+      AssistantEmbedKind.html => EmbedDto(
+        kind: EmbedKind.html,
+        source: embed.source,
+        argsText: embed.argsText,
+      ),
+      AssistantEmbedKind.url => EmbedDto(
+        kind: EmbedKind.url,
+        source: embed.source,
+      ),
+      AssistantEmbedKind.mcpApp => EmbedDto(
+        kind: EmbedKind.mcpApp,
+        app: mcpAppDto(embed.app!),
+      ),
+    },
+];
+
+/// [app] as the wire carries it: its input and result as JSON text.
+McpAppDto mcpAppDto(OpenWebUiMcpApp app) => McpAppDto(
+  serverId: app.serverId,
+  toolName: app.toolName,
+  binding: app.binding,
+  arguments: jsonEncode(app.arguments),
+  result: jsonEncode(app.result),
+);
 
 /// Open WebUI's file descriptors, reduced to what the window draws.
 ///
@@ -331,3 +384,10 @@ ChatFileDto? chatFileDto(Map<String, dynamic> file) {
     dataUrl: dataUrl,
   );
 }
+
+/// Open WebUI's task checklist in a conversation's [metadata], as the wire
+/// carries it.
+List<ChatTaskDto> chatTaskDtos(Map<String, dynamic>? metadata) => <ChatTaskDto>[
+  for (final task in openWebUiTasksOf(metadata))
+    ChatTaskDto(id: task.id, content: task.content, status: task.status),
+];

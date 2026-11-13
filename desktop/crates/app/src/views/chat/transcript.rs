@@ -1310,6 +1310,7 @@ mod tests {
             rating: None,
             files: vec![],
             blocks: vec![],
+            queued: None,
         }
     }
 
@@ -1372,6 +1373,7 @@ mod tests {
                 },
                 messages,
                 system_prompt: None,
+                tasks: Default::default(),
             }),
         });
         let subscribe: Subscribe = Rc::new(|_, _| {});
@@ -1483,6 +1485,7 @@ mod tests {
                     chat_id: "c1".into(),
                     message_id: "a2".into(),
                     blocks,
+                    tasks: None,
                 }),
                 cx,
             )
@@ -1607,6 +1610,7 @@ mod tests {
                         chat_id: "c1".into(),
                         message_id: "a2".into(),
                         blocks: snapshot(n),
+                        tasks: None,
                     }),
                     cx,
                 )
@@ -1658,6 +1662,7 @@ mod tests {
                 },
                 messages,
                 system_prompt: None,
+                tasks: Default::default(),
             }),
         };
         daemon.returns::<methods::ChatsGet>(detail(vec![
@@ -1741,6 +1746,7 @@ mod tests {
                 },
                 messages: vec![message("u1", "user", "How far is the moon?"), answer],
                 system_prompt: None,
+                tasks: Default::default(),
             }),
         };
         daemon.returns::<methods::ChatsGet>(detail(finished.clone()));
@@ -2037,6 +2043,7 @@ mod tests {
                     chat_id: "c1".into(),
                     message_id: "a1".into(),
                     blocks,
+                    tasks: None,
                 }),
                 cx,
             )

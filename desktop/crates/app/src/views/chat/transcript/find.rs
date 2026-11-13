@@ -461,6 +461,7 @@ mod tests {
             } else {
                 vec![]
             },
+            queued: None,
         }
     }
 
@@ -504,6 +505,7 @@ mod tests {
                 },
                 messages,
                 system_prompt: None,
+                tasks: Default::default(),
             }),
         });
         let subscribe: Subscribe = Rc::new(|_, _| {});
@@ -681,6 +683,7 @@ mod tests {
                             markdown: Some(text),
                             ..empty_block(MessageBlockKind::Text)
                         }],
+                        tasks: None,
                     }),
                     cx,
                 )
