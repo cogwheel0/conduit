@@ -6,7 +6,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show chatSessionRegistryProvider;
+    show
+        chatMessagesProvider,
+        chatSessionRegistryProvider,
+        isChatStreamingProvider;
 import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart'
     show chatDraftQueueSendProvider;
@@ -256,6 +259,52 @@ void main() {
     await turns.stop(accepted.chatId);
     provider.release('stop');
   });
+
+  test(
+    'Stop ends an answer left generating with nothing behind it, and the '
+    'chat takes the next message',
+    () async {
+      open('stranded');
+      final first = await turns.send(SendTurn(model: model, text: 'brief'));
+      subscribeWindow(events, turns, 'stranded', <String>[first.chatId]);
+      await until(() => ended('stranded', first.assistantMessageId));
+      // What an earlier build could leave (a request that never went out):
+      // the answer still marked as generating, with no run behind it.
+      final scope = await turns.holdScope(first.chatId);
+      scope
+          .read(chatMessagesProvider.notifier)
+          .updateLastMessageWithFunction((m) => m.copyWith(isStreaming: true));
+      expect(scope.read(isChatStreamingProvider), isTrue);
+      expect(turns.activeChatIds, isNot(contains(first.chatId)));
+      await expectLater(
+        turns.send(
+          SendTurn(model: model, chatId: first.chatId, text: 'still there?'),
+        ),
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.conflict,
+          ),
+        ),
+      );
+      final heard = of('stranded', ConduitEvents.chatsChanged).length;
+
+      await turns.stop(first.chatId);
+      expect(scope.read(isChatStreamingProvider), isFalse);
+      expect(scope.read(chatMessagesProvider).last.isStreaming, isFalse);
+      // The windows read the chat again: Send is back.
+      expect(
+        of('stranded', ConduitEvents.chatsChanged).length,
+        greaterThan(heard),
+      );
+      turns.releaseScope(first.chatId);
+      final next = await turns.send(
+        SendTurn(model: model, chatId: first.chatId, text: 'still there?'),
+      );
+      await until(() => ended('stranded', next.assistantMessageId));
+    },
+  );
 
   test('a second turn in a busy chat is refused', () async {
     final accepted = await turns.send(

@@ -1319,7 +1319,10 @@ final class TurnsService implements ChatTurns {
   Future<void> stop(String chatId) async {
     final session = _sessionOf(chatId);
     final turn = session?.turn;
-    if (session == null || turn == null || turn.finished) return;
+    if (session == null || turn == null || turn.finished) {
+      await _stopStranded(chatId, session);
+      return;
+    }
     await _stopTurn(session, turn);
   }
 
@@ -1340,6 +1343,52 @@ final class TurnsService implements ChatTurns {
     // Stopped is finished, whatever the transport did with its message.
     if (!session.scope.isDisposed) _project(session);
     if (!turn.finished) _finish(session, turn, _answerOf(session, turn));
+  }
+
+  /// Stop on an answer the core still shows as generating with no turn of
+  /// this daemon's behind it: one whose request never went out, which an
+  /// earlier build could leave stored that way (the same-second stale pull).
+  /// It refuses every later send ("already generating"), and the window
+  /// shows Stop for it as the phone does; the core's own stop settles it,
+  /// as the phone's Stop does (the answer marked done, the server's task
+  /// told to stop, a request that never started dropped). Nothing happens
+  /// for a chat that is quiet, or while a send is on its way (the window
+  /// stops that one once it is answered).
+  Future<void> _stopStranded(String chatId, _ChatSession? open) async {
+    if (_disposed || open?.pending != null) return;
+    final _ChatSession session;
+    try {
+      // The stored copy says so too: a chat with no scope open is opened.
+      session = await _sessionFor(chatId);
+    } on Object catch (error) {
+      // Not a chat this daemon can open: nothing of its to stop.
+      DebugLogger.warning(
+        'turn-stop-stranded-unopened',
+        scope: 'daemon/turns',
+        data: {'error': error.toString()},
+      );
+      return;
+    }
+    try {
+      if (session.scope.isDisposed || !session.scope.isStreaming) return;
+      DebugLogger.info(
+        'turn-stop-stranded',
+        scope: 'daemon/turns',
+        data: {'chatId': chatId},
+      );
+      await session.scope.container.read(stopGenerationSettledProvider)();
+      if (!session.scope.isDisposed) _project(session);
+      _announce(chatId);
+    } on Object catch (error, stackTrace) {
+      DebugLogger.error(
+        'turn-stop-stranded-failed',
+        scope: 'daemon/turns',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    } finally {
+      _release(session);
+    }
   }
 
   // ---------------------------------------------------------------------------
