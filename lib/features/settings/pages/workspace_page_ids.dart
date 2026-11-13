@@ -128,13 +128,3 @@ Uint8List? workspaceDataUrlBytes(String? url) {
     return null;
   }
 }
-
-extension WorkspacePageRename on NativeSheetDetailConfig {
-  /// This page's rows under another page's id.
-  NativeSheetDetailConfig withId(String id) => NativeSheetDetailConfig(
-    id: id,
-    title: title,
-    items: items,
-    sections: sections,
-  );
-}
