@@ -4030,6 +4030,14 @@ func iconBarButton(
     return button
 }
 
+/// The system's own Close button, read by VoiceOver as Close in the app's
+/// strings. Left to itself, it is read by its symbol's name, "close".
+func systemCloseBarButton(action: UIAction) -> UIBarButtonItem {
+    let button = UIBarButtonItem(systemItem: .close, primaryAction: action)
+    button.accessibilityLabel = nativeBarButtonLabel("xmark")
+    return button
+}
+
 /// What a bar button drawn as [systemName] alone does, in the device's
 /// language: Close, Done or Add.
 func nativeBarButtonLabel(_ systemName: String) -> String? {
@@ -4848,9 +4856,8 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
     }
 
     private func closeButton() -> UIBarButtonItem {
-        UIBarButtonItem(
-            systemItem: .close,
-            primaryAction: UIAction { [weak self] _ in self?.onClose() }
+        systemCloseBarButton(
+            action: UIAction { [weak self] _ in self?.onClose() }
         )
     }
 }
@@ -8152,9 +8159,8 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
     }
 
     private func closeButton() -> UIBarButtonItem {
-        UIBarButtonItem(
-            systemItem: .close,
-            primaryAction: UIAction { [weak self] _ in self?.onClose() }
+        systemCloseBarButton(
+            action: UIAction { [weak self] _ in self?.onClose() }
         )
     }
 
@@ -8773,9 +8779,8 @@ final class NativeOptionsSelectorTableViewController: UIViewController, UITableV
     }
 
     private func closeButton() -> UIBarButtonItem {
-        UIBarButtonItem(
-            systemItem: .close,
-            primaryAction: UIAction { [weak self] _ in self?.onClose() }
+        systemCloseBarButton(
+            action: UIAction { [weak self] _ in self?.onClose() }
         )
     }
 }
