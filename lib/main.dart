@@ -38,6 +38,7 @@ import 'package:conduit_core/services/share_staging_cleanup.dart'
 
 import 'platform/ios_share_staging.dart';
 import 'platform/just_audio_playback.dart';
+import 'platform/read_aloud_host.dart';
 import 'platform/record_audio_capture.dart';
 import 'platform/flutter_secure_key_value_store.dart';
 import 'platform/flutter_key_value_store.dart';
@@ -190,6 +191,7 @@ void main() {
   // Installed first, so startup itself is logged.
   DebugLogger.sink = const FlutterLogSink();
   AudioPlaybackPort.hostFactory = JustAudioPlayback.new;
+  installReadAloudHost();
   BackgroundExecutionPort.hostDefault = const MobileBackgroundExecution();
   DisplayBoostPort.hostDefault = const IosDisplayBoost();
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {

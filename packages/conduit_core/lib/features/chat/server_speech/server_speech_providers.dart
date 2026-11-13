@@ -1,3 +1,4 @@
+import 'package:riverpod/misc.dart' show ProviderListenable;
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/models/model.dart';
@@ -89,34 +90,51 @@ final libreChatServerSpeechProvider = FutureProvider<LibreChatServerSpeech?>((
 /// chats use their server's speech engines. Every other model belongs to the
 /// Open WebUI server. Audio is never sent to a backend the chat does not
 /// belong to; without one the device engines are used.
-final serverSpeechProviderProvider = Provider<ServerSpeechProvider?>((ref) {
-  final model = ref.watch(selectedModelProvider);
+final serverSpeechProviderProvider = Provider<ServerSpeechProvider?>(
+  (ref) => serverSpeechProviderFor(ref.watch, ref.watch(selectedModelProvider)),
+);
+
+/// Reads a provider: `ref.watch` in [serverSpeechProviderProvider], or a
+/// container's `read` for a host that names the model itself.
+typedef ServerSpeechRead = T Function<T>(ProviderListenable<T> provider);
+
+/// Speech for [model]'s own backend, as [serverSpeechProviderProvider]
+/// answers for the selected model; [read] reads everything else.
+///
+/// The desktop daemon, which keeps no model selected per chat, asks this for
+/// the model a window names. A LibreChat server's engines load once per
+/// account ([libreChatServerSpeechProvider]): until they have, this answers
+/// null for its models.
+ServerSpeechProvider? serverSpeechProviderFor(
+  ServerSpeechRead read,
+  Model? model,
+) {
   if (model != null && isLibreChatModel(model)) {
-    return ref.watch(libreChatServerSpeechProvider).asData?.value;
+    return read(libreChatServerSpeechProvider).asData?.value;
   }
   if (model != null && isHermesModel(model)) {
-    final service = ref.watch(hermesApiServiceProvider);
+    final service = read(hermesApiServiceProvider);
     return service is HermesDesktopApiService
         ? HermesServerSpeech(service)
         : null;
   }
   if (model != null && isLocallyMintedDirectModel(model)) {
     // The registry mutates in place; discovery is its invalidation signal.
-    ref.watch(directModelDiscoveryProvider);
+    read(directModelDiscoveryProvider);
   }
   if (model != null &&
-      isDeviceDirectModel(ref.watch(directModelRegistryProvider), model)) {
-    final voice = ref.watch(directVoiceProviderProvider);
+      isDeviceDirectModel(read(directModelRegistryProvider), model)) {
+    final voice = read(directVoiceProviderProvider);
     if (voice == null) return null;
     return DirectServerSpeech(
       profile: voice.profile,
       settings: voice.settings,
-      clientPool: ref.watch(directHttpClientPoolProvider),
+      clientPool: read(directHttpClientPoolProvider),
     );
   }
-  final api = ref.watch(apiServiceProvider);
+  final api = read(apiServiceProvider);
   return api == null ? null : OpenWebUiServerSpeech(api);
-});
+}
 
 /// Whether [model] is a Direct or Apple model run from this device, rather
 /// than a Direct connection an Open WebUI server relays.

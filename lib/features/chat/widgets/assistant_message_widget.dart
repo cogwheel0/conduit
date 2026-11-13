@@ -117,10 +117,6 @@ import 'code_execution_display.dart';
 import 'follow_up_suggestions.dart';
 import 'usage_stats_modal.dart';
 
-final _ttsDetailsPattern = RegExp(
-  r'<details[^>]*>[\s\S]*?<\/details>',
-  caseSensitive: false,
-);
 // Handle both URL formats: /api/v1/files/{id} and /api/v1/files/{id}/content
 final _fileIdPattern = RegExp(r'/api/v1/files/([^/]+)(?:/content)?$');
 
@@ -3274,15 +3270,7 @@ String _buildTtsPlainTextWorker(Map<String, dynamic> payload) {
   return _buildTtsPlainTextFromRaw(raw);
 }
 
-String _buildTtsPlainTextFromRaw(String raw) {
-  if (raw.trim().isEmpty) {
-    return '';
-  }
-
-  final sanitized = ConduitMarkdownPreprocessor.sanitize(raw);
-  final withoutDetails = sanitized.replaceAll(_ttsDetailsPattern, '');
-  return ConduitMarkdownPreprocessor.cleanText(withoutDetails).trim();
-}
+String _buildTtsPlainTextFromRaw(String raw) => readAloudTextOf(raw);
 
 /// Whether any of [statuses] carries the diff of a Hermes edit.
 bool _hasHermesDiff(List<ChatStatusUpdate> statuses) =>
