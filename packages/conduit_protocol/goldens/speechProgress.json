@@ -1,0 +1,16 @@
+{
+  "status": "speaking",
+  "reading": 3,
+  "chatId": "chat-harbour",
+  "messageId": "answer-harbour",
+  "engine": "device",
+  "sentence": 1,
+  "wordStart": 4,
+  "wordEnd": 9,
+  "wordsReported": true,
+  "elapsedMs": 2400,
+  "durationMs": 0,
+  "canSeek": false,
+  "canSeekSentences": true,
+  "seeking": false
+}

@@ -5891,6 +5891,370 @@ pub struct AboutInfo {
     pub github_sponsors_url: String,
 }
 
+/// Where a reading is: the phone's `TtsPlaybackStatus`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SpeechStatus {
+    #[serde(rename = "idle")]
+    Idle,
+    #[serde(rename = "initializing")]
+    Initializing,
+    #[serde(rename = "loading")]
+    Loading,
+    #[serde(rename = "speaking")]
+    Speaking,
+    #[serde(rename = "paused")]
+    Paused,
+    #[serde(rename = "error")]
+    Error,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// What reads aloud: the Mac's own voices (`device`) or the chat's server
+/// (`server`: Open WebUI, the Direct voice provider, Hermes or LibreChat).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SpeechEngine {
+    #[serde(rename = "device")]
+    Device,
+    #[serde(rename = "server")]
+    Server,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// A reading's progress: what `speech.changed` carries. Its sentences come
+/// with `SpeechState`, fetched once per `reading`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechProgress {
+    #[serde(default = "default_speech_progress_status")]
+    pub status: SpeechStatus,
+    /// Each reading's own number: when it changes, the sentences did too.
+    #[serde(default)]
+    pub reading: i64,
+    /// The chat the message is in. None for Settings' preview.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+    /// The message read: an answer's id (a version's while one is shown),
+    /// or `tts_preview` for Settings' preview.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine: Option<SpeechEngine>,
+    /// The sentence being said, or -1.
+    #[serde(default = "default_speech_progress_sentence")]
+    pub sentence: i64,
+    /// The word being said, as UTF-16 offsets in the sentence: reported by
+    /// the Mac's voices, estimated from the position for server speech.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub word_start: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub word_end: Option<i64>,
+    /// Whether the engine reports each word as it says it.
+    #[serde(default)]
+    pub words_reported: bool,
+    #[serde(default)]
+    pub elapsed_ms: i64,
+    /// The whole reading's length, once known (server speech); 0 otherwise.
+    #[serde(default)]
+    pub duration_ms: i64,
+    /// Whether the reading can move to a time (`durationMs` known).
+    #[serde(default)]
+    pub can_seek: bool,
+    /// Whether it can move from sentence to sentence.
+    #[serde(default)]
+    pub can_seek_sentences: bool,
+    #[serde(default)]
+    pub seeking: bool,
+    /// What went wrong, for the log; the window says it in its own words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl Default for SpeechProgress {
+    fn default() -> Self {
+        Self {
+            status: default_speech_progress_status(),
+            reading: Default::default(),
+            chat_id: None,
+            message_id: None,
+            engine: None,
+            sentence: default_speech_progress_sentence(),
+            word_start: None,
+            word_end: None,
+            words_reported: Default::default(),
+            elapsed_ms: Default::default(),
+            duration_ms: Default::default(),
+            can_seek: Default::default(),
+            can_seek_sentences: Default::default(),
+            seeking: Default::default(),
+            error: None,
+        }
+    }
+}
+
+fn default_speech_progress_status() -> SpeechStatus {
+    SpeechStatus::Idle
+}
+
+fn default_speech_progress_sentence() -> i64 {
+    -1
+}
+
+/// The reading now, with its sentences: what every `speech.*` call answers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechState {
+    pub progress: SpeechProgress,
+    /// The text read, as the engine says it, sentence by sentence.
+    #[serde(default)]
+    pub sentences: Vec<String>,
+}
+
+/// Params for `speech.toggle`: reads an answer aloud, or stops (pauses
+/// resume) the reading of it, as the phone's Read Aloud button does.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechToggle {
+    pub chat_id: String,
+    /// The answer's id (a version's while one is shown).
+    pub message_id: String,
+}
+
+/// Params for `speech.seek`: moves the reading to the start of a sentence,
+/// or by some sentences (`by`), or to a time (`ms`); exactly one is given.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechSeek {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sentence: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<i64>,
+}
+
+/// Params for `speech.preview`: Settings › Audio's sample, in the chosen
+/// engine, voice and speed. Pressing it again stops it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechPreview {
+    pub text: String,
+}
+
+/// What `speech.command` asks the window's speech engine to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SpeechCommandKind {
+    /// Whether the Mac's voices can speak: answered with `SpeechReport.value`.
+    #[serde(rename = "deviceAvailable")]
+    DeviceAvailable,
+    /// The installed voices: answered with `SpeechReport.voices`.
+    #[serde(rename = "deviceVoices")]
+    DeviceVoices,
+    /// Say `SpeechCommand.text` as utterance `SpeechCommand.utterance`,
+    /// replacing whatever is being said without reporting a cancel for it.
+    #[serde(rename = "deviceSpeak")]
+    DeviceSpeak,
+    #[serde(rename = "devicePause")]
+    DevicePause,
+    #[serde(rename = "deviceResume")]
+    DeviceResume,
+    /// Stop speaking; the utterance reports `cancel`.
+    #[serde(rename = "deviceStop")]
+    DeviceStop,
+    /// Replace the queue with `SpeechCommand.clips`, at
+    /// `SpeechCommand.index` and `SpeechCommand.positionMs`.
+    #[serde(rename = "playerSet")]
+    PlayerSet,
+    /// Append `SpeechCommand.clips` without interrupting.
+    #[serde(rename = "playerAdd")]
+    PlayerAdd,
+    #[serde(rename = "playerClear")]
+    PlayerClear,
+    #[serde(rename = "playerPlay")]
+    PlayerPlay,
+    #[serde(rename = "playerPause")]
+    PlayerPause,
+    #[serde(rename = "playerStop")]
+    PlayerStop,
+    /// Move to `SpeechCommand.positionMs` in clip `SpeechCommand.index` (the
+    /// current one when null).
+    #[serde(rename = "playerSeek")]
+    PlayerSeek,
+    /// Play at `SpeechCommand.speed` (1 is normal).
+    #[serde(rename = "playerSpeed")]
+    PlayerSpeed,
+    /// The length of clip `SpeechCommand.clips`' first, without playing it:
+    /// answered with `SpeechReport.durationMs`.
+    #[serde(rename = "playerDuration")]
+    PlayerDuration,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Payload of `speech.command`: the daemon runs the reading, the window
+/// speaks and plays it. Answered with `speech.report` naming `id`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechCommand {
+    pub id: i64,
+    pub kind: SpeechCommandKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// An installed voice's identifier, or null for the system's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
+    /// AVSpeech's rate (0.5 is the voice's own pace), pitch and volume.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pitch: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume: Option<f64>,
+    /// The utterance `text` is: events report it, so a replaced one's
+    /// late events are told apart.
+    #[serde(default)]
+    pub utterance: i64,
+    /// Clips, as paths the window fetches from the daemon (`/tts/{job}`).
+    #[serde(default)]
+    pub clips: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<f64>,
+}
+
+/// What a `SpeechReport` tells, besides answering a command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SpeechReportKind {
+    /// The Mac's voice: started, said a word (`SpeechReport.start` to
+    /// `SpeechReport.end`), finished, was cancelled, paused, continued, or
+    /// failed.
+    #[serde(rename = "start")]
+    Start,
+    #[serde(rename = "progress")]
+    Progress,
+    #[serde(rename = "complete")]
+    Complete,
+    #[serde(rename = "cancel")]
+    Cancel,
+    #[serde(rename = "pause")]
+    Pause,
+    #[serde(rename = "resume")]
+    Resume,
+    #[serde(rename = "failed")]
+    Failed,
+    /// The player: playing or not, how ready, which clip and where.
+    #[serde(rename = "player")]
+    Player,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// How ready the window's player is: core's `AudioProcessingState`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SpeechPlayerState {
+    #[serde(rename = "idle")]
+    Idle,
+    #[serde(rename = "loading")]
+    Loading,
+    #[serde(rename = "buffering")]
+    Buffering,
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "completed")]
+    Completed,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// An installed voice, for `deviceVoices`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechVoice {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub language: String,
+}
+
+/// Params for `speech.report`: a command's answer (`id`) and/or what the
+/// engine did (`kind`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechReport {
+    /// The command answered, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    /// Whether the command was carried out; `error` says why not.
+    #[serde(default = "default_speech_report_ok")]
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// A yes/no answer (`deviceAvailable`, `deviceSpeak`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<i64>,
+    #[serde(default)]
+    pub voices: Vec<SpeechVoice>,
+    /// What happened, when it reports an event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<SpeechReportKind>,
+    #[serde(default)]
+    pub utterance: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<i64>,
+    #[serde(default)]
+    pub playing: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<SpeechPlayerState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position_ms: Option<i64>,
+}
+
+impl Default for SpeechReport {
+    fn default() -> Self {
+        Self {
+            id: None,
+            ok: default_speech_report_ok(),
+            error: None,
+            value: None,
+            duration_ms: None,
+            voices: Default::default(),
+            kind: None,
+            utterance: Default::default(),
+            start: None,
+            end: None,
+            playing: Default::default(),
+            state: None,
+            index: None,
+            position_ms: None,
+        }
+    }
+}
+
+fn default_speech_report_ok() -> bool {
+    true
+}
+
 /// Reply to `system.ping`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -6523,6 +6887,12 @@ pub struct TurnFinished {
     /// Why it failed (a `ConduitErrorCodes` value); absent when `ok`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
+    /// The answer did not go out: its request waits in the outbox (sent
+    /// while offline) and the chat's stored copy shows it queued. Nothing
+    /// is ready yet, so no "answer ready"; when it goes out, its own
+    /// `turn.*` events follow. `ok` stays true: nothing failed.
+    #[serde(default)]
+    pub queued: bool,
 }
 
 /// Payload of `turn.completed`.
@@ -6984,6 +7354,11 @@ pub struct VoiceSpeak {
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voice: Option<String>,
+    /// The chat whose backend speaks it (its model's: Open WebUI, the
+    /// Direct voice provider, Hermes or LibreChat); the active server's
+    /// when null.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
 }
 
 /// Reply to `voice.speak`: the job whose audio `GET /tts/{jobId}` plays.
@@ -9985,6 +10360,110 @@ pub mod methods {
         type Result = super::OkResult;
     }
 
+    /// The reading now, with its sentences.
+    ///
+    /// `speech.get`: no params -> SpeechState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SpeechGet;
+
+    impl RpcMethod for SpeechGet {
+        const NAME: &'static str = "speech.get";
+        type Params = NoParams;
+        type Result = super::SpeechState;
+    }
+
+    /// Reads an answer aloud, or stops the reading of it (resumes it when
+    /// paused): the Read Aloud action.
+    ///
+    /// `speech.toggle`: SpeechToggle -> SpeechState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SpeechToggle;
+
+    impl RpcMethod for SpeechToggle {
+        const NAME: &'static str = "speech.toggle";
+        type Params = super::SpeechToggle;
+        type Result = super::SpeechState;
+    }
+
+    /// `speech.pause`: no params -> SpeechState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SpeechPause;
+
+    impl RpcMethod for SpeechPause {
+        const NAME: &'static str = "speech.pause";
+        type Params = NoParams;
+        type Result = super::SpeechState;
+    }
+
+    /// `speech.resume`: no params -> SpeechState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SpeechResume;
+
+    impl RpcMethod for SpeechResume {
+        const NAME: &'static str = "speech.resume";
+        type Params = NoParams;
+        type Result = super::SpeechState;
+    }
+
+    /// `speech.stop`: no params -> SpeechState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SpeechStop;
+
+    impl RpcMethod for SpeechStop {
+        const NAME: &'static str = "speech.stop";
+        type Params = NoParams;
+        type Result = super::SpeechState;
+    }
+
+    /// Reads the failed reading again.
+    ///
+    /// `speech.retry`: no params -> SpeechState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SpeechRetry;
+
+    impl RpcMethod for SpeechRetry {
+        const NAME: &'static str = "speech.retry";
+        type Params = NoParams;
+        type Result = super::SpeechState;
+    }
+
+    /// Moves the reading to a sentence, by some sentences, or to a time.
+    ///
+    /// `speech.seek`: SpeechSeek -> SpeechState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SpeechSeek;
+
+    impl RpcMethod for SpeechSeek {
+        const NAME: &'static str = "speech.seek";
+        type Params = super::SpeechSeek;
+        type Result = super::SpeechState;
+    }
+
+    /// Settings › Audio's sample, or stops it.
+    ///
+    /// `speech.preview`: SpeechPreview -> SpeechState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SpeechPreview;
+
+    impl RpcMethod for SpeechPreview {
+        const NAME: &'static str = "speech.preview";
+        type Params = super::SpeechPreview;
+        type Result = super::SpeechState;
+    }
+
+    /// The window's speech engine answers a `speech.command`, or says what
+    /// it did.
+    ///
+    /// `speech.report`: SpeechReport -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SpeechReport;
+
+    impl RpcMethod for SpeechReport {
+        const NAME: &'static str = "speech.report";
+        type Params = super::SpeechReport;
+        type Result = super::OkResult;
+    }
+
     /// Every note, or those matching a query; pinned first.
     ///
     /// `notes.list`: NoteQuery -> NoteList.
@@ -11796,6 +12275,51 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("OkResult"),
     },
     MethodSpec {
+        name: "speech.get",
+        params: None,
+        result: Some("SpeechState"),
+    },
+    MethodSpec {
+        name: "speech.toggle",
+        params: Some("SpeechToggle"),
+        result: Some("SpeechState"),
+    },
+    MethodSpec {
+        name: "speech.pause",
+        params: None,
+        result: Some("SpeechState"),
+    },
+    MethodSpec {
+        name: "speech.resume",
+        params: None,
+        result: Some("SpeechState"),
+    },
+    MethodSpec {
+        name: "speech.stop",
+        params: None,
+        result: Some("SpeechState"),
+    },
+    MethodSpec {
+        name: "speech.retry",
+        params: None,
+        result: Some("SpeechState"),
+    },
+    MethodSpec {
+        name: "speech.seek",
+        params: Some("SpeechSeek"),
+        result: Some("SpeechState"),
+    },
+    MethodSpec {
+        name: "speech.preview",
+        params: Some("SpeechPreview"),
+        result: Some("SpeechState"),
+    },
+    MethodSpec {
+        name: "speech.report",
+        params: Some("SpeechReport"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
         name: "notes.list",
         params: Some("NoteQuery"),
         result: Some("NoteList"),
@@ -12315,6 +12839,12 @@ pub mod events {
     /// page, a new height, a start or an end. Payload `McpAppEvent`, scoped
     /// to the app's chat.
     pub const MCP_APPS_EVENT: &str = "mcpApps.event";
+    /// The reading moved on: a word, a sentence, a pause, an end. Payload
+    /// `SpeechProgress`; a new `reading` means new sentences (`speech.get`).
+    pub const SPEECH_CHANGED: &str = "speech.changed";
+    /// The daemon asks the window's speech engine to speak or play. Payload
+    /// `SpeechCommand`; answered with `speech.report`.
+    pub const SPEECH_COMMAND: &str = "speech.command";
 }
 
 /// Every event, with its payload DTO by name and whether it is scoped.
@@ -12479,6 +13009,16 @@ pub const EVENTS: &[EventSpec] = &[
         payload: Some("McpAppEvent"),
         scoped: true,
     },
+    EventSpec {
+        name: "speech.changed",
+        payload: Some("SpeechProgress"),
+        scoped: false,
+    },
+    EventSpec {
+        name: "speech.command",
+        payload: Some("SpeechCommand"),
+        scoped: false,
+    },
 ];
 
 /// An event the daemon pushed, decoded from its envelope by name.
@@ -12634,6 +13174,16 @@ pub enum Event {
     ///
     /// `mcpApps.event`, scoped.
     McpAppsEvent(McpAppEvent),
+    /// The reading moved on: a word, a sentence, a pause, an end. Payload
+    /// `SpeechProgress`; a new `reading` means new sentences (`speech.get`).
+    ///
+    /// `speech.changed`.
+    SpeechChanged(SpeechProgress),
+    /// The daemon asks the window's speech engine to speak or play. Payload
+    /// `SpeechCommand`; answered with `speech.report`.
+    ///
+    /// `speech.command`.
+    SpeechCommand(SpeechCommand),
     /// An event this build does not know, from a newer daemon, kept as it came.
     Unknown {
         name: String,
@@ -12685,6 +13235,8 @@ impl Event {
                 Self::ChatPromptsChanged(serde_json::from_value(payload)?)
             }
             events::MCP_APPS_EVENT => Self::McpAppsEvent(serde_json::from_value(payload)?),
+            events::SPEECH_CHANGED => Self::SpeechChanged(serde_json::from_value(payload)?),
+            events::SPEECH_COMMAND => Self::SpeechCommand(serde_json::from_value(payload)?),
             _ => Self::Unknown {
                 name: name.to_owned(),
                 payload,
@@ -12727,6 +13279,8 @@ impl Event {
             Self::HandoffSettled(_) => events::HANDOFF_SETTLED,
             Self::ChatPromptsChanged(_) => events::CHAT_PROMPTS_CHANGED,
             Self::McpAppsEvent(_) => events::MCP_APPS_EVENT,
+            Self::SpeechChanged(_) => events::SPEECH_CHANGED,
+            Self::SpeechCommand(_) => events::SPEECH_COMMAND,
             Self::Unknown { name, .. } => name,
         }
     }
@@ -12760,6 +13314,8 @@ impl Event {
             Self::HandoffSettled(payload) => serde_json::to_value(payload),
             Self::ChatPromptsChanged(payload) => serde_json::to_value(payload),
             Self::McpAppsEvent(payload) => serde_json::to_value(payload),
+            Self::SpeechChanged(payload) => serde_json::to_value(payload),
+            Self::SpeechCommand(payload) => serde_json::to_value(payload),
             Self::ChannelsChanged
             | Self::SocketHealth
             | Self::CapabilitiesChanged
@@ -13076,6 +13632,14 @@ pub mod conformance {
         "SignOutAll",
         "SkillList",
         "SkillSummary",
+        "SpeechCommand",
+        "SpeechPreview",
+        "SpeechProgress",
+        "SpeechReport",
+        "SpeechSeek",
+        "SpeechState",
+        "SpeechToggle",
+        "SpeechVoice",
         "SteerResult",
         "SteerTurn",
         "StopTurn",
@@ -13484,6 +14048,14 @@ pub mod conformance {
             "SignOutAll" => roundtrip::<super::SignOutAll>(json),
             "SkillList" => roundtrip::<super::SkillList>(json),
             "SkillSummary" => roundtrip::<super::SkillSummary>(json),
+            "SpeechCommand" => roundtrip::<super::SpeechCommand>(json),
+            "SpeechPreview" => roundtrip::<super::SpeechPreview>(json),
+            "SpeechProgress" => roundtrip::<super::SpeechProgress>(json),
+            "SpeechReport" => roundtrip::<super::SpeechReport>(json),
+            "SpeechSeek" => roundtrip::<super::SpeechSeek>(json),
+            "SpeechState" => roundtrip::<super::SpeechState>(json),
+            "SpeechToggle" => roundtrip::<super::SpeechToggle>(json),
+            "SpeechVoice" => roundtrip::<super::SpeechVoice>(json),
             "SteerResult" => roundtrip::<super::SteerResult>(json),
             "SteerTurn" => roundtrip::<super::SteerTurn>(json),
             "StopTurn" => roundtrip::<super::StopTurn>(json),

@@ -240,6 +240,12 @@ abstract class TurnFinished with _$TurnFinished {
 
     /// Why it failed (a `ConduitErrorCodes` value); absent when [ok].
     String? code,
+
+    /// The answer did not go out: its request waits in the outbox (sent
+    /// while offline) and the chat's stored copy shows it queued. Nothing
+    /// is ready yet, so no "answer ready"; when it goes out, its own
+    /// `turn.*` events follow. [ok] stays true: nothing failed.
+    @Default(false) bool queued,
   }) = _TurnFinished;
 
   factory TurnFinished.fromJson(Map<String, dynamic> json) =>
