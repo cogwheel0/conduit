@@ -3263,4 +3263,335 @@ const Map<String, String> protocolGoldens = <String, String>{
   "cancelled": true
 }''',
 
+  'directVoiceProviderDto': r'''
+{
+  "profileId": "dc-lantern",
+  "transcriptionModel": "whisper-1",
+  "speechModel": "tts-1",
+  "speechVoice": "alloy",
+  "realtimeModel": "gpt-realtime-mini",
+  "realtimeVoice": "marin",
+  "realtimeInstructions": "Speak slowly."
+}''',
+
+  'appSettingsDto': r'''
+{
+  "computerEnabled": false,
+  "quickPills": [
+    "web",
+    "filter:translate"
+  ],
+  "inlineMessageActions": [
+    "copy",
+    "regenerate"
+  ],
+  "sendOnEnter": true,
+  "showComposerNotesButton": false,
+  "temporaryChatByDefault": true,
+  "citationShowTitles": true,
+  "citationBackground": false,
+  "advancedFeaturesEnabled": true,
+  "defaultModel": "fake-model",
+  "openRouterImageGenerationModel": "openai/gpt-5-image",
+  "socketTransportMode": "polling",
+  "voiceCallMode": "standard",
+  "sttPreference": "serverOnly",
+  "voiceLocaleId": "en_US",
+  "sttLanguageCode": "de",
+  "voiceSilenceDuration": 1500,
+  "voiceBargeInEnabled": true,
+  "ttsEngine": "server",
+  "ttsVoice": "com.apple.voice.compact.en-US.Samantha",
+  "ttsVoiceName": "Samantha",
+  "ttsServerVoiceId": "alloy",
+  "ttsServerVoiceName": "Alloy",
+  "ttsSpeed": 1.25,
+  "directVoiceProvider": {
+    "profileId": "dc-lantern"
+  },
+  "messageActions": [
+    "copy",
+    "tts",
+    "regenerate",
+    "delete"
+  ],
+  "defaultInlineMessageActions": [
+    "copy",
+    "tts",
+    "regenerate"
+  ]
+}''',
+
+  'appSettingsPatch': r'''
+{
+  "quickPills": [
+    "image"
+  ],
+  "sendOnEnter": true,
+  "ttsSpeed": 1.5,
+  "clear": [
+    "defaultModel",
+    "inlineMessageActions"
+  ]
+}''',
+
+  'accountSettingsDto': r'''
+{
+  "available": true,
+  "systemPrompt": "Keep answers short."
+}''',
+
+  'accountSettingsPatch': r'''
+{
+  "systemPrompt": "Answer in plain words."
+}''',
+
+  'modelPromptRef': r'''
+{
+  "modelId": "fake-model"
+}''',
+
+  'modelPrompt': r'''
+{
+  "modelId": "fake-model",
+  "editable": true,
+  "writable": true,
+  "prompt": "You are a patient tutor."
+}''',
+
+  'modelPromptEdit': r'''
+{
+  "modelId": "fake-model",
+  "prompt": "You are a terse reviewer."
+}''',
+
+  'quickPillOption': r'''
+{
+  "id": "filter:translate",
+  "kind": "filter",
+  "name": "Translate"
+}''',
+
+  'quickPillOptions': r'''
+{
+  "options": [
+    {
+      "id": "web",
+      "kind": "web",
+      "name": ""
+    },
+    {
+      "id": "weather",
+      "kind": "tool",
+      "name": "Weather"
+    }
+  ]
+}''',
+
+  'voiceProviderOption': r'''
+{
+  "id": "dc-lantern",
+  "name": "Lantern Labs"
+}''',
+
+  'voiceProviderOptions': r'''
+{
+  "connections": [
+    {
+      "id": "dc-lantern",
+      "name": ""
+    }
+  ]
+}''',
+
+  'aboutInfo': r'''
+{
+  "server": true,
+  "serverName": "Harbor Notes",
+  "serverVersion": "0.13.2",
+  "latestVersion": "0.13.3",
+  "repositoryUrl": "https://github.com/cogwheel0/conduit",
+  "buyMeACoffeeUrl": "https://www.buymeacoffee.com/cogwheel0",
+  "githubSponsorsUrl": "https://github.com/sponsors/cogwheel0"
+}''',
+
+  'profileDto': r'''
+{
+  "id": "u-ada",
+  "name": "Ada Example",
+  "email": "ada@example.com",
+  "role": "admin",
+  "username": "ada",
+  "image": "data:image/png;base64,iVBORw0KGgo=",
+  "bio": "Grows tomatoes on the balcony.",
+  "gender": "gardener",
+  "dateOfBirth": "1990-04-12",
+  "statusEmoji": "🌱",
+  "statusMessage": "Planting",
+  "isActive": true,
+  "passwordChangeAllowed": false
+}''',
+
+  'profileEdit': r'''
+{
+  "name": "Ada Example",
+  "gender": "female",
+  "clear": [
+    "bio"
+  ]
+}''',
+
+  'profileImageEdit': r'''
+{
+  "path": "/tmp/portrait.png",
+  "initials": false
+}''',
+
+  'passwordChange': r'''
+{
+  "currentPassword": "old-secret-1",
+  "newPassword": "new-secret-2"
+}''',
+
+  'passwordChangeResult': r'''
+{
+  "failure": "wrongPassword"
+}''',
+
+  'signOutAll': r'''
+{
+  "force": true
+}''',
+
+  'memoryDto': r'''
+{
+  "id": "m1",
+  "content": "Prefers metric units.",
+  "type": "user",
+  "path": "preferences/units",
+  "updatedAt": 1762790400
+}''',
+
+  'memoryList': r'''
+{
+  "available": true,
+  "enabled": true,
+  "items": [
+    {
+      "id": "m2",
+      "content": "Has a cat named Pip.",
+      "updatedAt": 0
+    }
+  ]
+}''',
+
+  'memoryEdit': r'''
+{
+  "id": "m1",
+  "content": "Prefers metric units and 24-hour time.",
+  "path": ""
+}''',
+
+  'memoryRef': r'''
+{
+  "id": "m1"
+}''',
+
+  'memoryToggle': r'''
+{
+  "enabled": false
+}''',
+
+  'releaseNoteBullet': r'''
+{
+  "text": "Settings has every page the phone has.",
+  "icon": "polish"
+}''',
+
+  'releaseNoteDto': r'''
+{
+  "version": "0.9.0",
+  "title": "What is new",
+  "intro": "A first look.",
+  "bullets": [
+    {
+      "text": "Release notes."
+    }
+  ]
+}''',
+
+  'releaseNotesQuery': r'''
+{
+  "currentVersion": "0.9.0-beta.4",
+  "languageCode": "zh",
+  "scriptCode": "Hant",
+  "catalogs": {
+    "en": "{}",
+    "zh_Hant": "{}"
+  }
+}''',
+
+  'releaseNotesState': r'''
+{
+  "currentVersion": "0.9.0",
+  "banner": true,
+  "notes": [
+    {
+      "version": "0.9.0",
+      "title": "",
+      "intro": "",
+      "bullets": []
+    }
+  ]
+}''',
+
+  'chatDataSummary': r'''
+{
+  "available": true,
+  "serverChats": 40,
+  "localOnly": 2,
+  "unsent": 1,
+  "running": 0,
+  "canExport": true,
+  "canImport": true,
+  "canDelete": false
+}''',
+
+  'dataExportRequest': r'''
+{
+  "path": "/tmp/chat-export.json"
+}''',
+
+  'dataImportRequest': r'''
+{
+  "path": "/tmp/chat-export.json"
+}''',
+
+  'dataDeleteAll': r'''
+{
+  "discardUnsent": true
+}''',
+
+  'dataActionResult': r'''
+{
+  "failure": "unrecognizedChat",
+  "count": 3,
+  "stored": 2,
+  "messages": 12,
+  "index": 1
+}''',
+
+  'connectionHealth': r'''
+{
+  "available": true,
+  "connected": true,
+  "transport": "websocket",
+  "latencyMs": 42,
+  "quality": "excellent",
+  "lastHeartbeatMs": 1762790400000,
+  "reconnects": 1,
+  "allowPolling": false,
+  "allowWebsocket": true
+}''',
+
 };

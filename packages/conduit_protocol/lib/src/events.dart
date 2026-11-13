@@ -42,7 +42,13 @@ abstract final class ConduitEvents {
   static const String channelsChanged = 'channels.changed';
 
   static const String syncStatus = 'sync.status';
+  /// The realtime socket's health changed (connected, transport, latency,
+  /// reconnects). No payload; `data.connection` says what it is now.
   static const String socketHealth = 'socket.health';
+
+  /// Core's `AppSettings` changed, from any window or the daemon itself.
+  /// No payload; `settings.get` says what they are now.
+  static const String settingsChanged = 'settings.changed';
 
   /// Ask the shell to raise an OS notification.
   static const String notifyShow = 'notify.show';
@@ -116,6 +122,7 @@ abstract final class ConduitEvents {
     hermesChanged,
     voiceChanged,
     terminalDisplayFile,
+    settingsChanged,
   };
 }
 

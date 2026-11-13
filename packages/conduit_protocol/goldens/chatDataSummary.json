@@ -1,0 +1,10 @@
+{
+  "available": true,
+  "serverChats": 40,
+  "localOnly": 2,
+  "unsent": 1,
+  "running": 0,
+  "canExport": true,
+  "canImport": true,
+  "canDelete": false
+}
