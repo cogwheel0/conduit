@@ -2416,10 +2416,6 @@
   "@workspaceKnowledgeDelete": {
     "description": "Overflow action that deletes the knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmTitle": "Wissensdatenbank löschen?",
-  "@workspaceKnowledgeDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a knowledge base."
-  },
   "workspaceKnowledgeDeleteConfirmMessage": "{name} wird dauerhaft entfernt, und die zugehörigen Dateien werden getrennt.",
   "@workspaceKnowledgeDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base.",
@@ -2432,10 +2428,6 @@
   "workspaceKnowledgeReset": "Zurücksetzen",
   "@workspaceKnowledgeReset": {
     "description": "Overflow action that removes all files from a knowledge base."
-  },
-  "workspaceKnowledgeResetConfirmTitle": "Wissensdatenbank zurücksetzen?",
-  "@workspaceKnowledgeResetConfirmTitle": {
-    "description": "Confirmation dialog title for resetting a knowledge base."
   },
   "workspaceKnowledgeResetConfirmMessage": "Dadurch werden alle Dateien aus {name} entfernt; die Wissensdatenbank selbst bleibt erhalten.",
   "@workspaceKnowledgeResetConfirmMessage": {
@@ -2506,22 +2498,6 @@
   "@workspaceKnowledgeFilesLoadFailed": {
     "description": "Error when the knowledge base file list fails to load."
   },
-  "workspaceKnowledgeRefreshFiles": "Aktualisieren",
-  "@workspaceKnowledgeRefreshFiles": {
-    "description": "Tooltip for the button that refreshes the knowledge file list."
-  },
-  "workspaceKnowledgeRoot": "Stammordner",
-  "@workspaceKnowledgeRoot": {
-    "description": "Breadcrumb label for the top level of a knowledge base."
-  },
-  "workspaceKnowledgeAddMenu": "Dateien hinzufügen",
-  "@workspaceKnowledgeAddMenu": {
-    "description": "Tooltip for the menu that adds files or folders to a knowledge base."
-  },
-  "workspaceKnowledgeUpload": "Datei hochladen",
-  "@workspaceKnowledgeUpload": {
-    "description": "Menu item to upload a single local file into a knowledge base."
-  },
   "workspaceKnowledgeUploading": "{name} wird hochgeladen…",
   "@workspaceKnowledgeUploading": {
     "description": "Progress label shown while a file uploads into a knowledge base.",
@@ -2534,10 +2510,6 @@
   "workspaceKnowledgeUploadFailed": "Die Datei konnte nicht hochgeladen werden.",
   "@workspaceKnowledgeUploadFailed": {
     "description": "Error when uploading a file into a knowledge base fails."
-  },
-  "workspaceKnowledgeBatchAttach": "Mehrere Dateien hochladen",
-  "@workspaceKnowledgeBatchAttach": {
-    "description": "Menu item to upload several local files into a knowledge base at once."
   },
   "workspaceKnowledgeAttachExisting": "Datei vom Server anhängen",
   "@workspaceKnowledgeAttachExisting": {
@@ -2582,10 +2554,6 @@
   "workspaceKnowledgeDeleteFolder": "Ordner löschen",
   "@workspaceKnowledgeDeleteFolder": {
     "description": "Action to delete a knowledge base directory."
-  },
-  "workspaceKnowledgeDeleteFolderConfirmTitle": "Ordner löschen?",
-  "@workspaceKnowledgeDeleteFolderConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a knowledge base directory."
   },
   "workspaceKnowledgeDeleteFolderConfirmMessage": "Dateien in {name} werden in den übergeordneten Ordner verschoben.",
   "@workspaceKnowledgeDeleteFolderConfirmMessage": {
@@ -4944,6 +4912,14 @@
         "type": "String"
       }
     }
+  },
+  "workspaceKnowledgeSourceLabel": "Quelle",
+  "@workspaceKnowledgeSourceLabel": {
+    "description": "Label of the menu on the Knowledge list in Settings that filters bases by where they come from (all, local, connected)."
+  },
+  "workspaceKnowledgeUploadFiles": "Dateien hochladen",
+  "@workspaceKnowledgeUploadFiles": {
+    "description": "Row in a knowledge base's files in Settings that opens the file picker to upload one or more files."
   },
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Neue Benachrichtigung",

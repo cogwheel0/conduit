@@ -21,6 +21,18 @@ const workspaceModelAdvancedPagePrefix = 'workspace-model-advanced:';
 /// kind's name, `:`, then the editor key.
 const workspaceModelRelationshipPagePrefix = 'workspace-model-relationship:';
 
+/// Prefix of a knowledge base's editor; the editor key follows.
+const workspaceKnowledgePagePrefix = 'workspace-knowledge:';
+
+/// Prefix of one folder of a knowledge base's files: the editor key, `:`,
+/// then the URI-encoded folder id, empty for the top level.
+const workspaceKnowledgeFolderPagePrefix = 'workspace-knowledge-folder:';
+
+/// Prefix of a small form acting on a knowledge base's files: its kind
+/// (`text`, `folder`, `rename-file`, `rename-folder`, `move`, `attach`),
+/// `:`, the editor key, `:`, then the URI-encoded folder or file it is for.
+const workspaceKnowledgeFormPagePrefix = 'workspace-knowledge-form:';
+
 /// Prefix of a prompt's editor; the editor key follows.
 const workspacePromptPagePrefix = 'workspace-prompt:';
 
@@ -60,6 +72,45 @@ String workspaceSectionPageId(WorkspaceSection section) =>
 
 String workspaceModelPageId(String? id) =>
     '$workspaceModelPagePrefix${workspaceEditorKey(id)}';
+
+String workspaceKnowledgePageId(String? id) =>
+    '$workspaceKnowledgePagePrefix${workspaceEditorKey(id)}';
+
+/// The page of folder [directoryId] (empty for the top level) of the
+/// knowledge base whose editor is [key].
+String workspaceKnowledgeFolderPageId(String key, String directoryId) =>
+    '$workspaceKnowledgeFolderPagePrefix$key:'
+    '${Uri.encodeComponent(directoryId)}';
+
+/// The form of [kind] for [target], a folder or file id, of the knowledge
+/// base whose editor is [key].
+String workspaceKnowledgeFormPageId(String kind, String key, String target) =>
+    '$workspaceKnowledgeFormPagePrefix$kind:$key:'
+    '${Uri.encodeComponent(target)}';
+
+/// The editor key and the decoded folder id of a knowledge folder page, or
+/// null for any other id.
+({String key, String directoryId})? workspaceKnowledgeFolderOf(String id) {
+  if (!id.startsWith(workspaceKnowledgeFolderPagePrefix)) return null;
+  final parts = id
+      .substring(workspaceKnowledgeFolderPagePrefix.length)
+      .split(':');
+  if (parts.length != 2) return null;
+  return (key: parts[0], directoryId: Uri.decodeComponent(parts[1]));
+}
+
+/// The kind, editor key and decoded target of a knowledge form page, or
+/// null for any other id.
+({String kind, String key, String target})? workspaceKnowledgeFormOf(
+  String id,
+) {
+  if (!id.startsWith(workspaceKnowledgeFormPagePrefix)) return null;
+  final parts = id
+      .substring(workspaceKnowledgeFormPagePrefix.length)
+      .split(':');
+  if (parts.length != 3) return null;
+  return (kind: parts[0], key: parts[1], target: Uri.decodeComponent(parts[2]));
+}
 
 String workspacePromptPageId(String? id) =>
     '$workspacePromptPagePrefix${workspaceEditorKey(id)}';

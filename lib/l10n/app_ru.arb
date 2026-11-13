@@ -2428,10 +2428,6 @@
   "@workspaceKnowledgeDelete": {
     "description": "Overflow action that deletes the knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmTitle": "Удалить базу знаний?",
-  "@workspaceKnowledgeDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a knowledge base."
-  },
   "workspaceKnowledgeDeleteConfirmMessage": "База знаний {name} будет удалена без возможности восстановления, а её файлы будут отсоединены.",
   "@workspaceKnowledgeDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base.",
@@ -2444,10 +2440,6 @@
   "workspaceKnowledgeReset": "Сбросить",
   "@workspaceKnowledgeReset": {
     "description": "Overflow action that removes all files from a knowledge base."
-  },
-  "workspaceKnowledgeResetConfirmTitle": "Сбросить базу знаний?",
-  "@workspaceKnowledgeResetConfirmTitle": {
-    "description": "Confirmation dialog title for resetting a knowledge base."
   },
   "workspaceKnowledgeResetConfirmMessage": "Из базы знаний {name} будут удалены все файлы, но сама база останется.",
   "@workspaceKnowledgeResetConfirmMessage": {
@@ -2518,22 +2510,6 @@
   "@workspaceKnowledgeFilesLoadFailed": {
     "description": "Error when the knowledge base file list fails to load."
   },
-  "workspaceKnowledgeRefreshFiles": "Обновить",
-  "@workspaceKnowledgeRefreshFiles": {
-    "description": "Tooltip for the button that refreshes the knowledge file list."
-  },
-  "workspaceKnowledgeRoot": "Корень",
-  "@workspaceKnowledgeRoot": {
-    "description": "Breadcrumb label for the top level of a knowledge base."
-  },
-  "workspaceKnowledgeAddMenu": "Добавить файлы",
-  "@workspaceKnowledgeAddMenu": {
-    "description": "Tooltip for the menu that adds files or folders to a knowledge base."
-  },
-  "workspaceKnowledgeUpload": "Загрузить файл",
-  "@workspaceKnowledgeUpload": {
-    "description": "Menu item to upload a single local file into a knowledge base."
-  },
   "workspaceKnowledgeUploading": "Загрузка {name}…",
   "@workspaceKnowledgeUploading": {
     "description": "Progress label shown while a file uploads into a knowledge base.",
@@ -2546,10 +2522,6 @@
   "workspaceKnowledgeUploadFailed": "Не удалось загрузить файл.",
   "@workspaceKnowledgeUploadFailed": {
     "description": "Error when uploading a file into a knowledge base fails."
-  },
-  "workspaceKnowledgeBatchAttach": "Загрузить несколько файлов",
-  "@workspaceKnowledgeBatchAttach": {
-    "description": "Menu item to upload several local files into a knowledge base at once."
   },
   "workspaceKnowledgeAttachExisting": "Прикрепить файл с сервера",
   "@workspaceKnowledgeAttachExisting": {
@@ -2594,10 +2566,6 @@
   "workspaceKnowledgeDeleteFolder": "Удалить папку",
   "@workspaceKnowledgeDeleteFolder": {
     "description": "Action to delete a knowledge base directory."
-  },
-  "workspaceKnowledgeDeleteFolderConfirmTitle": "Удалить папку?",
-  "@workspaceKnowledgeDeleteFolderConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a knowledge base directory."
   },
   "workspaceKnowledgeDeleteFolderConfirmMessage": "Файлы из папки {name} будут перемещены в родительскую папку.",
   "@workspaceKnowledgeDeleteFolderConfirmMessage": {
@@ -4982,6 +4950,14 @@
         "type": "String"
       }
     }
+  },
+  "workspaceKnowledgeSourceLabel": "Источник",
+  "@workspaceKnowledgeSourceLabel": {
+    "description": "Label of the menu on the Knowledge list in Settings that filters bases by where they come from (all, local, connected)."
+  },
+  "workspaceKnowledgeUploadFiles": "Загрузить файлы",
+  "@workspaceKnowledgeUploadFiles": {
+    "description": "Row in a knowledge base's files in Settings that opens the file picker to upload one or more files."
   },
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Новое уведомление",

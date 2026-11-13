@@ -2192,10 +2192,6 @@
   "@workspaceKnowledgeDelete": {
     "description": "Overflow action that deletes the knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmTitle": "지식 베이스를 삭제하시겠습니까?",
-  "@workspaceKnowledgeDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a knowledge base."
-  },
   "workspaceKnowledgeDeleteConfirmMessage": "{name}이(가) 영구적으로 삭제되고 파일 연결이 해제됩니다.",
   "@workspaceKnowledgeDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base.",
@@ -2208,10 +2204,6 @@
   "workspaceKnowledgeReset": "초기화",
   "@workspaceKnowledgeReset": {
     "description": "Overflow action that removes all files from a knowledge base."
-  },
-  "workspaceKnowledgeResetConfirmTitle": "지식 베이스를 초기화하시겠습니까?",
-  "@workspaceKnowledgeResetConfirmTitle": {
-    "description": "Confirmation dialog title for resetting a knowledge base."
   },
   "workspaceKnowledgeResetConfirmMessage": "{name}에서 모든 파일이 제거되지만 지식 베이스는 유지됩니다.",
   "@workspaceKnowledgeResetConfirmMessage": {
@@ -2282,22 +2274,6 @@
   "@workspaceKnowledgeFilesLoadFailed": {
     "description": "Error when the knowledge base file list fails to load."
   },
-  "workspaceKnowledgeRefreshFiles": "새로 고침",
-  "@workspaceKnowledgeRefreshFiles": {
-    "description": "Tooltip for the button that refreshes the knowledge file list."
-  },
-  "workspaceKnowledgeRoot": "루트",
-  "@workspaceKnowledgeRoot": {
-    "description": "Breadcrumb label for the top level of a knowledge base."
-  },
-  "workspaceKnowledgeAddMenu": "파일 추가",
-  "@workspaceKnowledgeAddMenu": {
-    "description": "Tooltip for the menu that adds files or folders to a knowledge base."
-  },
-  "workspaceKnowledgeUpload": "파일 업로드",
-  "@workspaceKnowledgeUpload": {
-    "description": "Menu item to upload a single local file into a knowledge base."
-  },
   "workspaceKnowledgeUploading": "{name} 업로드 중…",
   "@workspaceKnowledgeUploading": {
     "description": "Progress label shown while a file uploads into a knowledge base.",
@@ -2310,10 +2286,6 @@
   "workspaceKnowledgeUploadFailed": "파일을 업로드할 수 없습니다.",
   "@workspaceKnowledgeUploadFailed": {
     "description": "Error when uploading a file into a knowledge base fails."
-  },
-  "workspaceKnowledgeBatchAttach": "여러 파일 업로드",
-  "@workspaceKnowledgeBatchAttach": {
-    "description": "Menu item to upload several local files into a knowledge base at once."
   },
   "workspaceKnowledgeAttachExisting": "서버 파일 첨부",
   "@workspaceKnowledgeAttachExisting": {
@@ -2358,10 +2330,6 @@
   "workspaceKnowledgeDeleteFolder": "폴더 삭제",
   "@workspaceKnowledgeDeleteFolder": {
     "description": "Action to delete a knowledge base directory."
-  },
-  "workspaceKnowledgeDeleteFolderConfirmTitle": "폴더를 삭제하시겠습니까?",
-  "@workspaceKnowledgeDeleteFolderConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a knowledge base directory."
   },
   "workspaceKnowledgeDeleteFolderConfirmMessage": "{name} 안의 파일은 상위 폴더로 이동합니다.",
   "@workspaceKnowledgeDeleteFolderConfirmMessage": {
@@ -4716,6 +4684,14 @@
         "type": "String"
       }
     }
+  },
+  "workspaceKnowledgeSourceLabel": "출처",
+  "@workspaceKnowledgeSourceLabel": {
+    "description": "Label of the menu on the Knowledge list in Settings that filters bases by where they come from (all, local, connected)."
+  },
+  "workspaceKnowledgeUploadFiles": "파일 업로드",
+  "@workspaceKnowledgeUploadFiles": {
+    "description": "Row in a knowledge base's files in Settings that opens the file picker to upload one or more files."
   },
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "새 알림",

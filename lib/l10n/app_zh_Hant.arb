@@ -2414,10 +2414,6 @@
   "@workspaceKnowledgeDelete": {
     "description": "Overflow action that deletes the knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmTitle": "要刪除知識庫嗎？",
-  "@workspaceKnowledgeDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a knowledge base."
-  },
   "workspaceKnowledgeDeleteConfirmMessage": "這會永久移除 {name}，並解除其檔案的連結。",
   "@workspaceKnowledgeDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base.",
@@ -2430,10 +2426,6 @@
   "workspaceKnowledgeReset": "重設",
   "@workspaceKnowledgeReset": {
     "description": "Overflow action that removes all files from a knowledge base."
-  },
-  "workspaceKnowledgeResetConfirmTitle": "要重設知識庫嗎？",
-  "@workspaceKnowledgeResetConfirmTitle": {
-    "description": "Confirmation dialog title for resetting a knowledge base."
   },
   "workspaceKnowledgeResetConfirmMessage": "這會移除 {name} 中的所有檔案，但保留知識庫本身。",
   "@workspaceKnowledgeResetConfirmMessage": {
@@ -2504,22 +2496,6 @@
   "@workspaceKnowledgeFilesLoadFailed": {
     "description": "Error when the knowledge base file list fails to load."
   },
-  "workspaceKnowledgeRefreshFiles": "重新整理",
-  "@workspaceKnowledgeRefreshFiles": {
-    "description": "Tooltip for the button that refreshes the knowledge file list."
-  },
-  "workspaceKnowledgeRoot": "根目錄",
-  "@workspaceKnowledgeRoot": {
-    "description": "Breadcrumb label for the top level of a knowledge base."
-  },
-  "workspaceKnowledgeAddMenu": "新增檔案",
-  "@workspaceKnowledgeAddMenu": {
-    "description": "Tooltip for the menu that adds files or folders to a knowledge base."
-  },
-  "workspaceKnowledgeUpload": "上傳檔案",
-  "@workspaceKnowledgeUpload": {
-    "description": "Menu item to upload a single local file into a knowledge base."
-  },
   "workspaceKnowledgeUploading": "正在上傳 {name}…",
   "@workspaceKnowledgeUploading": {
     "description": "Progress label shown while a file uploads into a knowledge base.",
@@ -2532,10 +2508,6 @@
   "workspaceKnowledgeUploadFailed": "無法上傳檔案。",
   "@workspaceKnowledgeUploadFailed": {
     "description": "Error when uploading a file into a knowledge base fails."
-  },
-  "workspaceKnowledgeBatchAttach": "上傳多個檔案",
-  "@workspaceKnowledgeBatchAttach": {
-    "description": "Menu item to upload several local files into a knowledge base at once."
   },
   "workspaceKnowledgeAttachExisting": "附加伺服器檔案",
   "@workspaceKnowledgeAttachExisting": {
@@ -2580,10 +2552,6 @@
   "workspaceKnowledgeDeleteFolder": "刪除資料夾",
   "@workspaceKnowledgeDeleteFolder": {
     "description": "Action to delete a knowledge base directory."
-  },
-  "workspaceKnowledgeDeleteFolderConfirmTitle": "要刪除資料夾嗎？",
-  "@workspaceKnowledgeDeleteFolderConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a knowledge base directory."
   },
   "workspaceKnowledgeDeleteFolderConfirmMessage": "{name} 中的檔案將移至上層資料夾。",
   "@workspaceKnowledgeDeleteFolderConfirmMessage": {
@@ -4944,6 +4912,14 @@
         "type": "String"
       }
     }
+  },
+  "workspaceKnowledgeSourceLabel": "來源",
+  "@workspaceKnowledgeSourceLabel": {
+    "description": "Label of the menu on the Knowledge list in Settings that filters bases by where they come from (all, local, connected)."
+  },
+  "workspaceKnowledgeUploadFiles": "上傳檔案",
+  "@workspaceKnowledgeUploadFiles": {
+    "description": "Row in a knowledge base's files in Settings that opens the file picker to upload one or more files."
   },
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "新通知",

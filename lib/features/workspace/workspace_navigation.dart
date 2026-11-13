@@ -16,18 +16,18 @@ export 'package:conduit_core/navigation/routes.dart'
         workspaceSectionOrder;
 
 /// The Workspace sections drawn as pages of Settings: their routes open
-/// those pages, and the Workspace's own pages leave them out. Knowledge,
-/// Tools and Skills still open the Workspace's Flutter pages until their
-/// editors move to Settings too; move a section from
-/// [workspaceSectionsInFlutter] to here once it does.
+/// those pages, and the Workspace's own pages leave them out. Tools and
+/// Skills still open the Workspace's Flutter pages until their editors move
+/// to Settings too; move a section from [workspaceSectionsInFlutter] to here
+/// once it does.
 const workspaceSectionsInSettings = {
   WorkspaceSection.models,
+  WorkspaceSection.knowledge,
   WorkspaceSection.prompts,
 };
 
 /// The sections the Workspace's Flutter pages still show.
 const workspaceSectionsInFlutter = {
-  WorkspaceSection.knowledge,
   WorkspaceSection.tools,
   WorkspaceSection.skills,
 };

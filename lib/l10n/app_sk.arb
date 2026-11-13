@@ -4334,10 +4334,6 @@
   "@workspaceKnowledgeDelete": {
     "description": "Overflow action that deletes the knowledge base."
   },
-  "workspaceKnowledgeDeleteConfirmTitle": "Odstrániť znalostnú bázu?",
-  "@workspaceKnowledgeDeleteConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a knowledge base."
-  },
   "workspaceKnowledgeDeleteConfirmMessage": "Znalostná báza {name} sa natrvalo odstráni a jej súbory sa odpoja.",
   "@workspaceKnowledgeDeleteConfirmMessage": {
     "description": "Confirmation dialog body for deleting a knowledge base.",
@@ -4350,10 +4346,6 @@
   "workspaceKnowledgeReset": "Resetovať",
   "@workspaceKnowledgeReset": {
     "description": "Overflow action that removes all files from a knowledge base."
-  },
-  "workspaceKnowledgeResetConfirmTitle": "Resetovať znalostnú bázu?",
-  "@workspaceKnowledgeResetConfirmTitle": {
-    "description": "Confirmation dialog title for resetting a knowledge base."
   },
   "workspaceKnowledgeResetConfirmMessage": "Zo znalostnej bázy {name} sa odstránia všetky súbory, ale báza zostane zachovaná.",
   "@workspaceKnowledgeResetConfirmMessage": {
@@ -4424,22 +4416,6 @@
   "@workspaceKnowledgeFilesLoadFailed": {
     "description": "Error when the knowledge base file list fails to load."
   },
-  "workspaceKnowledgeRefreshFiles": "Obnoviť",
-  "@workspaceKnowledgeRefreshFiles": {
-    "description": "Tooltip for the button that refreshes the knowledge file list."
-  },
-  "workspaceKnowledgeRoot": "Koreň",
-  "@workspaceKnowledgeRoot": {
-    "description": "Breadcrumb label for the top level of a knowledge base."
-  },
-  "workspaceKnowledgeAddMenu": "Pridať súbory",
-  "@workspaceKnowledgeAddMenu": {
-    "description": "Tooltip for the menu that adds files or folders to a knowledge base."
-  },
-  "workspaceKnowledgeUpload": "Nahrať súbor",
-  "@workspaceKnowledgeUpload": {
-    "description": "Menu item to upload a single local file into a knowledge base."
-  },
   "workspaceKnowledgeUploading": "Nahráva sa {name}…",
   "@workspaceKnowledgeUploading": {
     "description": "Progress label shown while a file uploads into a knowledge base.",
@@ -4452,10 +4428,6 @@
   "workspaceKnowledgeUploadFailed": "Súbor sa nepodarilo nahrať.",
   "@workspaceKnowledgeUploadFailed": {
     "description": "Error when uploading a file into a knowledge base fails."
-  },
-  "workspaceKnowledgeBatchAttach": "Nahrať viac súborov",
-  "@workspaceKnowledgeBatchAttach": {
-    "description": "Menu item to upload several local files into a knowledge base at once."
   },
   "workspaceKnowledgeAttachExisting": "Pripojiť súbor zo servera",
   "@workspaceKnowledgeAttachExisting": {
@@ -4500,10 +4472,6 @@
   "workspaceKnowledgeDeleteFolder": "Odstrániť priečinok",
   "@workspaceKnowledgeDeleteFolder": {
     "description": "Action to delete a knowledge base directory."
-  },
-  "workspaceKnowledgeDeleteFolderConfirmTitle": "Odstrániť priečinok?",
-  "@workspaceKnowledgeDeleteFolderConfirmTitle": {
-    "description": "Confirmation dialog title for deleting a knowledge base directory."
   },
   "workspaceKnowledgeDeleteFolderConfirmMessage": "Súbory z priečinka {name} sa presunú do nadradeného priečinka.",
   "@workspaceKnowledgeDeleteFolderConfirmMessage": {
@@ -6864,6 +6832,14 @@
         "type": "String"
       }
     }
+  },
+  "workspaceKnowledgeSourceLabel": "Zdroj",
+  "@workspaceKnowledgeSourceLabel": {
+    "description": "Label of the menu on the Knowledge list in Settings that filters bases by where they come from (all, local, connected)."
+  },
+  "workspaceKnowledgeUploadFiles": "Nahrať súbory",
+  "@workspaceKnowledgeUploadFiles": {
+    "description": "Row in a knowledge base's files in Settings that opens the file picker to upload one or more files."
   },
   "pushFallbackTitle": "Conduit",
   "pushFallbackBody": "Nové upozornenie",

@@ -54,6 +54,15 @@ class _KnowledgeServer implements HttpClientAdapter {
 
   /// The receive timeout of every upload.
   final uploadTimeouts = <Duration?>[];
+
+  /// The body of every single-file link.
+  final links = <Map<String, dynamic>>[];
+
+  /// Holds the next upload until completed, when set.
+  Completer<void>? uploadGate;
+
+  /// Holds the next read of the pending files until completed, when set.
+  Completer<void>? pendingGate;
   var _uploads = 0;
   final _polls = <String, int>{};
 
@@ -82,6 +91,9 @@ class _KnowledgeServer implements HttpClientAdapter {
       };
     }
     if (path == '/api/v1/files/' && options.method == 'POST') {
+      final gate = uploadGate;
+      uploadGate = null;
+      await gate?.future;
       uploadQueries.add(Map<String, dynamic>.of(options.queryParameters));
       uploadTimeouts.add(options.receiveTimeout);
       if (++_uploads == failUpload) {
@@ -103,6 +115,9 @@ class _KnowledgeServer implements HttpClientAdapter {
           'errors': ['upload-2: Unsupported file'],
         },
       });
+    }
+    if (path.endsWith('/file/add')) {
+      links.add(Map<String, dynamic>.from(options.data as Map));
     }
     if (path.endsWith('/file/add') || path.endsWith('/files/batch/add')) {
       return attachStatus == 200
@@ -143,7 +158,12 @@ class _KnowledgeServer implements HttpClientAdapter {
       });
     }
     if (options.method == 'DELETE') return _json({'ok': true});
-    if (path.endsWith('/files/pending')) return _json(<Object>[]);
+    if (path.endsWith('/files/pending')) {
+      final gate = pendingGate;
+      pendingGate = null;
+      await gate?.future;
+      return _json(<Object>[]);
+    }
     if (path.endsWith('/files')) return _json({'items': <Object>[], 'total': 0});
     return _json(<String, dynamic>{});
   }
@@ -184,6 +204,78 @@ WorkspaceUploadSource _file(String name, int size) =>
     (name: name, size: size, read: () async => List<int>.filled(size, 1));
 
 void main() {
+  group('the folder open in the browser', () {
+    test('a file uploaded while another folder opens goes into the one it '
+        'began in', () async {
+      final server = _KnowledgeServer();
+      final container = await _container(server);
+      addTearDown(container.dispose);
+      final files = container.read(
+        workspaceKnowledgeFilesProvider('kb-1').notifier,
+      );
+      await files.openDirectory('dir-1');
+      final gate = server.uploadGate = Completer<void>();
+
+      final uploading = files.uploadBytes('trail.txt', [1, 2, 3]);
+      await pumpEventQueue();
+      // Back to the base's root while the upload is on its way.
+      await files.openDirectory('');
+      gate.complete();
+      await uploading;
+
+      check(server.links.single['directory_id']).equals('dir-1');
+    });
+
+    test(
+      'a batch says which file is on its way, as a single upload does',
+      () async {
+        final server = _KnowledgeServer();
+        final container = await _container(server);
+        addTearDown(container.dispose);
+        final provider = workspaceKnowledgeFilesProvider('kb-1');
+        final gate = server.uploadGate = Completer<void>();
+
+        final uploading = container.read(provider.notifier).uploadMany([
+          _file('a.txt', 3),
+          _file('b.txt', 7),
+        ]);
+        await pumpEventQueue();
+
+        check(container.read(provider).value!.upload)
+            .isNotNull()
+            .has((upload) => upload.filename, 'filename')
+            .equals('a.txt');
+        gate.complete();
+        await uploading;
+        // Done, nothing is on its way.
+        check(container.read(provider).value!.upload).isNull();
+      },
+    );
+
+    test('a pending read begun in one folder leaves the folder opened '
+        'meanwhile', () async {
+      final server = _KnowledgeServer();
+      final container = await _container(server);
+      addTearDown(container.dispose);
+      final files = container.read(
+        workspaceKnowledgeFilesProvider('kb-1').notifier,
+      );
+      final gate = server.pendingGate = Completer<void>();
+
+      final polling = files.refreshPending();
+      await pumpEventQueue();
+      await files.openDirectory('dir-1');
+      gate.complete();
+      await polling;
+
+      final browser = container
+          .read(workspaceKnowledgeFilesProvider('kb-1'))
+          .value!;
+      check(browser.directoryId).equals('dir-1');
+      check(browser.isLoading).isFalse();
+    });
+  });
+
   group('knowledge base file limits on upload (Open WebUI 0.13)', () {
     test('a batch is checked by count and largest size before any upload', () async {
       final server = _KnowledgeServer();
