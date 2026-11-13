@@ -863,6 +863,13 @@ class HermesMcpSettingsPages extends SettingsPageModule {
   int _catalogRead = 0;
 
   Future<void> _loadCatalog(AppLocalizations l10n) async {
+    // Taken first, so a read still on its way stops counting as this
+    // page's from the moment this one starts.
+    final connection = _ref.read(hermesActiveConnectionIdProvider);
+    final read = ++_catalogRead;
+    bool current() =>
+        read == _catalogRead &&
+        _ref.read(hermesActiveConnectionIdProvider) == connection;
     _catalogFailed = false;
     // The catalog read before (Settings closed and opened again) leads to
     // its entries' forms at once, while it is read again.
@@ -870,11 +877,6 @@ class HermesMcpSettingsPages extends SettingsPageModule {
       buildHermesMcpCatalogPage(l10n, entries: _catalog),
       detailSheets: _unknownEntryPages(l10n),
     );
-    final connection = _ref.read(hermesActiveConnectionIdProvider);
-    final read = ++_catalogRead;
-    bool current() =>
-        read == _catalogRead &&
-        _ref.read(hermesActiveConnectionIdProvider) == connection;
     try {
       final service = _service;
       if (service == null) {
