@@ -396,6 +396,8 @@ impl Render for Rows {
             time_spoken: "5:46 AM".into(),
             pinned: false,
             streaming: false,
+            working: false,
+            reduce_motion: false,
             status: None,
             note: None,
             unread: false,

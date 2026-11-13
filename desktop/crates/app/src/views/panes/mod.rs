@@ -51,6 +51,16 @@ pub struct AreaPane {
 impl AreaPane {
     pub fn new(stores: Stores, layout: Entity<LayoutStore>, cx: &mut Context<Self>) -> Self {
         let subscriptions = vec![
+            // Hidden Chats reads its list each time it opens.
+            cx.subscribe(&stores.navigation, |this, _, event, cx| {
+                let crate::stores::navigation::NavigationEvent::Changed(selection) = event;
+                if *selection == crate::stores::navigation::Selection::Area(AreaItem::HermesHidden)
+                {
+                    this.stores
+                        .areas
+                        .update(cx, |a, cx| a.refresh_hermes_hidden(cx));
+                }
+            }),
             cx.observe(&stores.navigation, |_, _, cx| cx.notify()),
             cx.observe(&stores.areas, |_, _, cx| cx.notify()),
             cx.observe(&layout, |_, _, cx| cx.notify()),
@@ -81,6 +91,7 @@ pub fn title_of(item: &AreaItem, stores: &Stores, cx: &App) -> String {
         AreaItem::Note(id) => areas.note(id).map(|n| n.title.clone()),
         AreaItem::Channel(id) => areas.channel(id).map(|c| c.name.clone()),
         AreaItem::HermesSession(id) => areas.hermes_session(id).map(|s| s.title.clone()),
+        AreaItem::HermesHidden => None,
         AreaItem::Terminal(id) => areas
             .terminal(id)
             .map(|t| t.name.clone())
@@ -143,7 +154,10 @@ impl Render for AreaPane {
         let body = match &item {
             AreaItem::Note(id) => notes::pane(id, &title, &t, &l),
             AreaItem::Channel(id) => channels::pane(id, &title, &t, &l),
-            AreaItem::HermesSession(id) => hermes::pane(id, &title, &t, &l),
+            // Shown in the chat pane; here only while the main window
+            // switches over.
+            AreaItem::HermesSession(_) => placeholder(&item, &title, &t, &l),
+            AreaItem::HermesHidden => hermes::hidden_pane(&self.stores, &t, &l, cx),
             AreaItem::Workspace(section) => workspace::pane(*section, &title, &t, &l),
             AreaItem::Terminal(id) => terminal::pane(id, &title, &t, &l),
             AreaItem::Calendar => calendar::pane(&title, &t, &l),

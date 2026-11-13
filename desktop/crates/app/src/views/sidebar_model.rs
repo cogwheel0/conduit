@@ -337,6 +337,9 @@ pub struct AreaRow {
     /// Unread messages (a channel).
     pub unread: i64,
     pub pinned: bool,
+    /// A Hermes session's row: the session (its commands, its running
+    /// reply), drawn as a chat's row is.
+    pub session: Option<HermesSessionDto>,
 }
 
 impl AreaRow {
@@ -347,6 +350,7 @@ impl AreaRow {
             updated_at_ms: None,
             unread: 0,
             pinned: false,
+            session: None,
         }
     }
 }
@@ -358,6 +362,9 @@ pub enum AreaHint {
     Empty,
     /// Its list could not be read: Try Again.
     Failed,
+    /// Hermes's archived sessions could not be read (its conversations
+    /// still show): Try Again.
+    ArchivedFailed,
 }
 
 /// What the areas other than Chats list (`None`: not listed yet).
@@ -556,6 +563,7 @@ pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Ve
         title: s.title.clone(),
         updated_at_ms: s.updated_at_ms,
         pinned: s.pinned,
+        session: Some(s.clone()),
         ..AreaRow::of(AreaItem::HermesSession(s.id.clone()))
     };
     match area {
@@ -605,6 +613,16 @@ pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Ve
                     );
                 }
             }
+            // The archived row has its own failure, as on a phone.
+            if hermes.archived_failed {
+                out.push(SidebarItem::AreaHint {
+                    area,
+                    hint: AreaHint::ArchivedFailed,
+                });
+            }
+            // The only way to the sessions hidden from every list, as
+            // Photos keeps its Hidden album in the sidebar.
+            out.push(SidebarItem::AreaRow(AreaRow::of(AreaItem::HermesHidden)));
             out
         }
         Area::Workspace => lists
@@ -1466,17 +1484,21 @@ mod tests {
             updated_at_ms: None,
             pinned: false,
             archived,
+            hidden: false,
+            source: None,
+            running: false,
         };
         let hermes = HermesSessions {
             sessions: vec![session("s1", false)],
             archived: vec![session("old", true)],
+            archived_failed: false,
         };
         let lists = AreaLists {
             hermes: Some(&hermes),
             ..Default::default()
         };
         let closed = area_rows(Area::Hermes, &lists, false, false);
-        assert_eq!(closed.len(), 2);
+        assert_eq!(closed.len(), 3);
         assert_eq!(
             closed[1],
             SidebarItem::HermesArchived {
@@ -1484,10 +1506,54 @@ mod tests {
                 visible: false
             }
         );
+        // Hidden Chats closes the section, always.
+        assert_eq!(
+            closed.last().and_then(SidebarItem::area_item),
+            Some(&AreaItem::HermesHidden)
+        );
+        // A session's row carries the session, for its menu and spinner.
+        assert!(matches!(
+            &closed[0],
+            SidebarItem::AreaRow(AreaRow { session: Some(s), .. }) if s.id == "s1"
+        ));
         let open = area_rows(Area::Hermes, &lists, false, true);
         assert_eq!(
-            open.last().and_then(SidebarItem::area_item),
+            open[open.len() - 2].area_item(),
             Some(&AreaItem::HermesSession("old".into()))
+        );
+        // The archived row's own failure; the list's, with nothing read.
+        let failed = HermesSessions {
+            archived_failed: true,
+            ..hermes.clone()
+        };
+        let rows = area_rows(
+            Area::Hermes,
+            &AreaLists {
+                hermes: Some(&failed),
+                ..Default::default()
+            },
+            false,
+            false,
+        );
+        assert!(rows.contains(&SidebarItem::AreaHint {
+            area: Area::Hermes,
+            hint: AreaHint::ArchivedFailed
+        }));
+        let rows = area_rows(
+            Area::Hermes,
+            &AreaLists {
+                failed: &[Area::Hermes],
+                ..Default::default()
+            },
+            false,
+            false,
+        );
+        assert_eq!(
+            rows,
+            [SidebarItem::AreaHint {
+                area: Area::Hermes,
+                hint: AreaHint::Failed
+            }]
         );
     }
 

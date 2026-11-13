@@ -1,7 +1,10 @@
 //! The actions under a message, as the phone offers them (mobile's
 //! `message_action_settings.dart`, core's `messageActionIds`): Copy, Read
 //! Aloud, Regenerate, Retry Without Reasoning Effort, Merge Responses,
-//! Usage, Fork Chat, Share and Delete, in that order.
+//! Usage, Fork Chat, Share and Delete, in that order. A Hermes chat's
+//! reply adds Branch from Here and Undo Last Turn after Fork Chat, always
+//! in More (core's `messageActionIsOverflowOnly`), and Settings never
+//! lists them.
 //!
 //! Which show as buttons under the answer and which go in its More menu is
 //! Settings › Chat › Message Actions: Automatic (the first three that may
@@ -31,12 +34,17 @@ pub enum MessageAction {
     Merge,
     Usage,
     Fork,
+    /// A Hermes chat's: a new session with the chat up to this reply.
+    BranchFromHere,
+    /// A Hermes chat's last reply, on a Desktop Gateway.
+    UndoLastTurn,
     Share,
     Delete,
 }
 
 impl MessageAction {
-    /// Every action, in the order Settings lists them.
+    /// Every action Settings lists, in its order (not Hermes's history
+    /// actions, which are always in More).
     pub const ALL: [Self; 9] = [
         Self::Copy,
         Self::ReadAloud,
@@ -59,14 +67,20 @@ impl MessageAction {
             Self::Merge => "merge",
             Self::Usage => "usage",
             Self::Fork => "fork",
+            Self::BranchFromHere => "hermes-branch",
+            Self::UndoLastTurn => "hermes-undo",
             Self::Share => "share",
             Self::Delete => "delete",
         }
     }
 
-    /// Share and Delete stay in More unless the user put them inline.
+    /// Share and Delete stay in More unless the user put them inline;
+    /// Hermes's history actions, always.
     fn more_only(self) -> bool {
-        matches!(self, Self::Share | Self::Delete)
+        matches!(
+            self,
+            Self::Share | Self::Delete | Self::BranchFromHere | Self::UndoLastTurn
+        )
     }
 }
 
@@ -123,6 +137,10 @@ pub enum RowCommand {
     StopMerge,
     Usage,
     Fork,
+    /// Branch from Here (a Hermes chat).
+    BranchFromHere,
+    /// Undo Last Turn (a Hermes chat on a Desktop Gateway).
+    UndoLastTurn,
     Share(String),
     Delete,
     /// Read Aloud, or Stop Speaking (resume, when paused) for this answer.
@@ -233,6 +251,19 @@ pub fn run(ctx: RowContext, command: RowCommand, window: &mut Window, cx: &mut A
             );
         }
         RowCommand::Delete => confirm_delete(ctx, window, cx),
+        history @ (RowCommand::BranchFromHere | RowCommand::UndoLastTurn) => {
+            let Some(chat_id) = store.upgrade().map(|s| s.read(cx).chat_id().to_string()) else {
+                return;
+            };
+            let Some(stores) = cx.try_global::<crate::AppState>().map(|s| s.stores.clone()) else {
+                return;
+            };
+            if history == RowCommand::UndoLastTurn {
+                crate::views::hermes_sessions::undo(&stores, &chat_id, cx);
+            } else {
+                crate::views::hermes_sessions::branch(&stores, &chat_id, &ctx.key, cx);
+            }
+        }
         RowCommand::ReadAloud => {
             let Some(chat_id) = store.upgrade().map(|s| s.read(cx).chat_id().to_string()) else {
                 return;
@@ -332,6 +363,18 @@ mod tests {
         let (inline, more) = layout(&all, Some(&[]));
         assert!(inline.is_empty());
         assert_eq!(more, all.to_vec());
+    }
+
+    #[test]
+    fn hermes_history_actions_are_always_in_more() {
+        let all = [Copy, Regenerate, Usage, BranchFromHere, UndoLastTurn, Share];
+        let (inline, more) = layout(&all, None);
+        assert_eq!(inline, vec![Copy, Regenerate, Usage]);
+        assert_eq!(more, vec![BranchFromHere, UndoLastTurn, Share]);
+        // Settings never lists them, so a saved choice leaves them in More.
+        let (inline, more) = layout(&all, Some(&ids(&["copy", "usage"])));
+        assert_eq!(inline, vec![Copy, Usage]);
+        assert_eq!(more, vec![Regenerate, BranchFromHere, UndoLastTurn, Share]);
     }
 
     #[test]

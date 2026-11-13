@@ -18,6 +18,11 @@ pub struct ChatRow {
     pub pinned: bool,
     /// A reply is streaming into this chat.
     pub streaming: bool,
+    /// Draw a running reply as a spinner (a Hermes session's row, as the
+    /// phone's), not the streaming dot.
+    pub working: bool,
+    /// The spinner stands still (Reduce Motion).
+    pub reduce_motion: bool,
     /// What VoiceOver adds after the title while streaming ("Answering");
     /// English when unset.
     pub status: Option<SharedString>,

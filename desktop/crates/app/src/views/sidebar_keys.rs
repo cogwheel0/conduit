@@ -661,6 +661,7 @@ mod tests {
                 updated_at_ms: None,
                 unread: 0,
                 pinned: false,
+                session: None,
             })
         };
         vec![

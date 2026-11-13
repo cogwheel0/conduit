@@ -46,10 +46,12 @@ use crate::l10n::ActiveL10n as _;
 use crate::stores::Stores;
 use crate::stores::connection::Status;
 use crate::stores::layout::LayoutStore;
+use crate::stores::navigation::AreaItem;
 use crate::stores::session::Route;
 use crate::stores::settings::SettingsStore;
 use crate::views::approvals::ApprovalsView;
 use crate::views::chat_pane::ChatPane;
+use crate::views::hermes_sessions::{HermesCommand, HermesMenu};
 use crate::views::palette::PaletteView;
 use crate::views::panes::AreaPane;
 use crate::views::sidebar::{
@@ -287,6 +289,30 @@ impl MainWindow {
             .map(|c| c.id.clone())
     }
 
+    /// The open Hermes session, as the sidebar lists it.
+    pub fn open_hermes(&self, cx: &App) -> Option<conduit_protocol::HermesSessionDto> {
+        match self.stores.navigation.read(cx).selected_item()? {
+            AreaItem::HermesSession(id) => self.stores.areas.read(cx).hermes_session(id).cloned(),
+            _ => None,
+        }
+    }
+
+    /// A Hermes session's command, from any of its menus: Rename shows the
+    /// sidebar first (the name is edited in its row).
+    pub fn run_hermes(
+        &mut self,
+        session_id: &str,
+        command: HermesCommand,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if command == HermesCommand::Rename && !self.layout.read(cx).state.sidebar_visible {
+            self.layout.update(cx, |l, cx| l.toggle_sidebar(cx));
+        }
+        self.sidebar
+            .update(cx, |s, cx| s.run_hermes(session_id, command, window, cx));
+    }
+
     /// A Chat menu command on the open chat (the sidebar carries it out, as
     /// its context menu's).
     fn chat_command(
@@ -295,6 +321,35 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A Hermes session open: the same commands, on it.
+        if let Some(session) = self.open_hermes(cx) {
+            let probe = conduit_protocol::ChatSummary {
+                id: session.chat_id.clone(),
+                title: session.title.clone(),
+                updated_at_ms: session.updated_at_ms.unwrap_or_default(),
+                pinned: session.pinned,
+                archived: session.archived,
+                folder_id: None,
+                model: None,
+                tags: vec![],
+                shared: false,
+                read_only: false,
+                unread: false,
+            };
+            let hermes = match command(&probe) {
+                ChatCommand::Pin => Some(HermesCommand::Pin),
+                ChatCommand::Unpin => Some(HermesCommand::Unpin),
+                ChatCommand::Rename => Some(HermesCommand::Rename),
+                ChatCommand::Archive => Some(HermesCommand::Archive),
+                ChatCommand::Unarchive => Some(HermesCommand::Unarchive),
+                ChatCommand::Delete => Some(HermesCommand::Delete),
+                _ => None,
+            };
+            if let Some(hermes) = hermes {
+                self.run_hermes(&session.id, hermes, window, cx);
+            }
+            return;
+        }
         let Some(id) = self.menu_chat(cx) else {
             return;
         };
@@ -615,6 +670,10 @@ impl Render for MainWindow {
                 let (id, command) = (a.chat_id.clone(), a.command.clone());
                 this.sidebar
                     .update(cx, |s, cx| s.run(&id, command, window, cx));
+            }))
+            .on_action(cx.listener(|this, a: &HermesMenu, window, cx| {
+                let (id, command) = (a.session_id.clone(), a.command);
+                this.run_hermes(&id, command, window, cx);
             }))
             .on_action(cx.listener(|this, a: &MoveSelected, window, cx| {
                 let folder = a.folder_id.clone();
