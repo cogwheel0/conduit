@@ -695,10 +695,7 @@ class RpcSession {
       ConduitMethodSpecs.mcpAppsContext,
       (r) async => _need(_mcpApps).context(r),
     );
-    _on(
-      ConduitMethodSpecs.mcpAppsClose,
-      (r) async => _need(_mcpApps).close(r),
-    );
+    _on(ConduitMethodSpecs.mcpAppsClose, (r) async => _need(_mcpApps).close(r));
 
     // queue.*: messages queued behind a running answer.
     _on(ConduitMethodSpecs.queueGet, (r) => _requireTurns().queueGet(r.id));
@@ -860,6 +857,38 @@ class RpcSession {
     _on(
       ConduitMethodSpecs.channelsMembers,
       (ref) => _requireChannels().members(ref.id),
+    );
+    _on(
+      ConduitMethodSpecs.channelsOpen,
+      (ref) => _requireChannels().open(ref.id),
+    );
+    _on(ConduitMethodSpecs.channelsFocus, (p) async {
+      await _requireChannels().focus(p.id);
+      return ok;
+    });
+    _on(
+      ConduitMethodSpecs.channelsSetMuted,
+      (p) => _requireChannels().setMuted(p),
+    );
+    _on(
+      ConduitMethodSpecs.channelsMentions,
+      (q) => _requireChannels().mentions(q),
+    );
+    _on(
+      ConduitMethodSpecs.channelsMemberPage,
+      (q) => _requireChannels().memberPage(q),
+    );
+    _on(
+      ConduitMethodSpecs.channelsAddMembers,
+      (p) => _requireChannels().addMembers(p),
+    );
+    _on(
+      ConduitMethodSpecs.channelsRemoveMember,
+      (p) => _requireChannels().removeMember(p),
+    );
+    _on(
+      ConduitMethodSpecs.channelsAppAction,
+      (p) => _requireChannels().appAction(p),
     );
 
     // hermes.*.

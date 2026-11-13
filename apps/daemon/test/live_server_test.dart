@@ -696,20 +696,26 @@ void main() {
           return (await ChatsService(runtime.container).get(chatId))!;
         }
 
-        test('a chat says what it offers, and its answers carry usage', () async {
-          final accepted = await answered('Say the word: offers');
-          final detail = await reopened(accepted.chatId);
-          expect(detail.abilities.fork, isTrue, reason: 'admin may import');
-          expect(detail.abilities.export, isTrue);
-          expect(detail.abilities.branch, isTrue);
-          expect(detail.abilities.deleteMessages, isTrue);
-          expect(detail.abilities.share, isTrue);
-          expect(detail.abilities.generateTitle, isTrue);
-          expect(detail.abilities.saveTemporary, isFalse);
-          final answer = detail.messages.lastWhere((m) => m.role == 'assistant');
-          expect(answer.parentId, accepted.userMessageId);
-          expect(answer.usage?.generationTokens, isNotNull);
-        }, timeout: const Timeout(Duration(minutes: 3)));
+        test(
+          'a chat says what it offers, and its answers carry usage',
+          () async {
+            final accepted = await answered('Say the word: offers');
+            final detail = await reopened(accepted.chatId);
+            expect(detail.abilities.fork, isTrue, reason: 'admin may import');
+            expect(detail.abilities.export, isTrue);
+            expect(detail.abilities.branch, isTrue);
+            expect(detail.abilities.deleteMessages, isTrue);
+            expect(detail.abilities.share, isTrue);
+            expect(detail.abilities.generateTitle, isTrue);
+            expect(detail.abilities.saveTemporary, isFalse);
+            final answer = detail.messages.lastWhere(
+              (m) => m.role == 'assistant',
+            );
+            expect(answer.parentId, accepted.userMessageId);
+            expect(answer.usage?.generationTokens, isNotNull);
+          },
+          timeout: const Timeout(Duration(minutes: 3)),
+        );
 
         test('compares two models: both stream under their own ids, then '
             'merge into one', () async {
@@ -795,9 +801,8 @@ void main() {
           expect(last.text, contains('merged'));
           await _waitFor(
             () async =>
-                (await reopened(accepted.chatId)).messages.any(
-                  (m) => (m.merged ?? '').contains('merged'),
-                ) ||
+                (await reopened(accepted.chatId)).messages
+                    .any((m) => (m.merged ?? '').contains('merged')) ||
                 (await reopened(accepted.chatId)).messages.any(
                   (m) => m.versions.any(
                     (v) => (v.merged ?? '').contains('merged'),
@@ -903,9 +908,9 @@ void main() {
             1,
           );
           await _waitFor(
-            () async => !(await reopened(
-              first.chatId,
-            )).messages.any((m) => m.id == second.assistantMessageId),
+            () async =>
+                !(await reopened(first.chatId)).messages
+                    .any((m) => m.id == second.assistantMessageId),
             seconds: 30,
           );
           final after = await reopened(first.chatId);
@@ -932,10 +937,10 @@ void main() {
           created.add(fork.chatId);
           expect(fork.chatId, isNot(first.chatId));
           final forked = await reopened(fork.chatId);
-          expect(
-            forked.messages.map((m) => m.content),
-            <String>['Say the word: trunk', 'trunk'],
-          );
+          expect(forked.messages.map((m) => m.content), <String>[
+            'Say the word: trunk',
+            'trunk',
+          ]);
 
           final json = await chats.export(
             ExportChat(chatId: first.chatId, format: ChatExportFormat.json),
@@ -2172,6 +2177,33 @@ void main() {
 
         expect((await channels.members(channel.id)).users, isNotEmpty);
 
+        // Its pane: a group the user made, whose members they manage.
+        final details = await channels.open(channel.id);
+        expect(details.channel.kind, ChannelKind.group);
+        expect(details.channel.title, name);
+        expect(details.canManageMembers, isTrue);
+        final page = await channels.memberPage(
+          ChannelMemberQuery(channelId: channel.id),
+        );
+        expect(page.phase, ChannelMemberListPhase.ready);
+        expect(page.canManage, isTrue);
+        expect(page.members.where((m) => m.me), hasLength(1));
+        // Notify for mentions only, and back.
+        var listed = await channels.setMuted(
+          ChannelMute(id: channel.id, muted: true),
+        );
+        expect(
+          listed.channels.firstWhere((c) => c.id == channel.id).muted,
+          isTrue,
+        );
+        listed = await channels.setMuted(
+          ChannelMute(id: channel.id, muted: false),
+        );
+        expect(
+          listed.channels.firstWhere((c) => c.id == channel.id).muted,
+          isFalse,
+        );
+
         await channels.deleteMessage(
           ChannelMessageRef(channelId: channel.id, messageId: posted.id),
         );
@@ -2189,6 +2221,46 @@ void main() {
         final after = await channels.delete(channel.id);
         deleted = true;
         expect(after.channels.map((c) => c.id), isNot(contains(channel.id)));
+      }, timeout: const Timeout(Duration(minutes: 2)));
+
+      // The seeded group with the second user: `@` offers its members, and
+      // the members sheet adds and removes them.
+      test('mentions and members of the seeded group', () async {
+        final channelId = credentials!.values['OWUI_CHANNEL'];
+        final second = credentials.values['OWUI_SECOND_NAME'];
+        if (channelId == null || second == null) {
+          markTestSkipped('no seeded group (owui.sh reset)');
+          return;
+        }
+        final channels = ChannelsService(runtime.container);
+        final details = await channels.open(channelId);
+        expect(details.channel.unread, 0);
+        final mentions = await channels.mentions(
+          ChannelMentionQuery(
+            channelId: channelId,
+            query: second.substring(0, 3),
+          ),
+        );
+        expect(mentions.users.map((u) => u.name), contains(second));
+        var page = await channels.memberPage(
+          ChannelMemberQuery(channelId: channelId),
+        );
+        final riley = page.members.firstWhere((m) => m.name == second);
+        expect(page.canManage, isTrue);
+        var change = await channels.removeMember(
+          ChannelMemberRemove(channelId: channelId, userId: riley.id),
+        );
+        expect(change.result, ChannelMemberChangeResult.done);
+        expect(change.page.members.map((m) => m.id), isNot(contains(riley.id)));
+        change = await channels.addMembers(
+          ChannelMembersAdd(channelId: channelId, userIds: <String>[riley.id]),
+        );
+        expect(change.result, ChannelMemberChangeResult.done);
+        expect(change.page.members.map((m) => m.id), contains(riley.id));
+        page = await channels.memberPage(
+          ChannelMemberQuery(channelId: channelId, query: 'zzz-nobody'),
+        );
+        expect(page.members, isEmpty);
       }, timeout: const Timeout(Duration(minutes: 2)));
 
       // A terminal. A fake terminal server on this computer, added to
