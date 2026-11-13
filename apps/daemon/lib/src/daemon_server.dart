@@ -281,7 +281,7 @@ class DaemonServer {
     );
     _chats?.chatSettings = _chatSettings;
     _valves = ValvesService(core.container);
-    _access = AccessService(core.container);
+    _access = AccessService(core.container, workspace: _workspace);
     _folderSettings = FolderSettingsService(core.container, events: events);
     final chats = _chats;
     _readAloud = SpeechService(

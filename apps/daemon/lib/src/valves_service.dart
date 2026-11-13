@@ -228,14 +228,18 @@ final class ValvesService {
           ? const <ValveField>[]
           : <ValveField>[
               for (final key in spec.properties.keys)
-                _field(spec, key, state.draft[key]),
+                fieldOf(spec, key, state.draft[key]),
             ],
     );
   }
 
   /// One valve as the form draws it, by the schema's `type`, `enum` and
   /// `input` hints, as Open WebUI's own valve form reads them.
-  static ValveField _field(WorkspaceValveSpec spec, String key, Object? value) {
+  static ValveField fieldOf(
+    WorkspaceValveSpec spec,
+    String key,
+    Object? value,
+  ) {
     final property = WorkspaceValveValues.propertySpec(spec, key);
     final options = property['enum'];
     final type = (options is List && options.isNotEmpty)

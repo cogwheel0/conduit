@@ -1130,6 +1130,18 @@ class RpcSession {
       ConduitMethodSpecs.workspaceKnowledgeCleanup,
       (p) => _requireWorkspace().knowledgeCleanup(p.id),
     );
+    _on(
+      ConduitMethodSpecs.workspaceDuplicate,
+      (p) => _requireWorkspace().duplicate(p),
+    );
+    _on(
+      ConduitMethodSpecs.workspaceAddText,
+      (p) => _requireWorkspace().addText(p),
+    );
+    _on(
+      ConduitMethodSpecs.workspaceSkillFromMarkdown,
+      (p) async => _requireWorkspace().skillFromMarkdown(p.text),
+    );
 
     // notes.*.
     _on(ConduitMethodSpecs.notesList, (r) => _requireNotes().list(r.query));
