@@ -4825,7 +4825,7 @@
   "showModelNameInComposerDescription": "비어 있는 메시지 입력란에 Conduit 대신 선택한 모델 이름을 표시합니다.",
   "workspaceEditorAccountChanged": "로그인한 계정이 변경되어 변경 사항을 저장하지 않았습니다.",
   "@workspaceEditorAccountChanged": {
-    "description": "Shown on a Workspace skill or tool editor that was read again because the signed-in account changed while a change was being saved; the change was not saved."
+    "description": "Shown on a Workspace skill or tool editor read again because the signed-in account changed while a change on it (a save, switch, duplicate, delete or valve save) was under way, when that change was never sent or failed."
   },
   "settingsAddAction": "추가",
   "@settingsAddAction": {

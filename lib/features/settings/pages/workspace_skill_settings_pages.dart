@@ -642,7 +642,7 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
     // Another account signed in while the editor was drawn busy: nothing is
     // sent, with no await between this and the write.
     if (!_current(editor)) {
-      await _sessionEnded(l10n, editor);
+      await _sessionEnded(l10n, editor, notSaved: true);
       return;
     }
     String? problem;
@@ -665,7 +665,7 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
           : l10n.workspaceSkillSaveFailed;
     }
     if (!_current(editor)) {
-      await _sessionEnded(l10n, editor);
+      await _sessionEnded(l10n, editor, notSaved: problem != null);
       return;
     }
     editor.busy = false;
@@ -692,11 +692,14 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
   /// afresh.
   Future<void> _sessionEnded(
     AppLocalizations l10n,
-    WorkspaceSkillEditor editor,
-  ) async {
+    WorkspaceSkillEditor editor, {
+    required bool notSaved,
+  }) async {
     editor.busy = false;
     if (!identical(_editors[editor.key], editor)) return;
-    _notSent.add(editor.key);
+    // The editor read afresh says the change was not saved only when it was
+    // not: never sent, or refused. One the server took already shows.
+    if (notSaved) _notSent.add(editor.key);
     await hydrate('$workspaceSkillPagePrefix${editor.key}', l10n);
   }
 
@@ -713,7 +716,7 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
     // Another account signed in while the editor was drawn busy: nothing is
     // sent, with no await between this and the operation.
     if (!_current(editor)) {
-      await _sessionEnded(l10n, editor);
+      await _sessionEnded(l10n, editor, notSaved: true);
       return false;
     }
     Object? failed;
@@ -729,7 +732,7 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
       );
     }
     if (!_current(editor)) {
-      await _sessionEnded(l10n, editor);
+      await _sessionEnded(l10n, editor, notSaved: failed != null);
       return false;
     }
     editor.busy = false;

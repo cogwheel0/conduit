@@ -1197,7 +1197,7 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     // Another account signed in while the editor was drawn busy: nothing is
     // sent, with no await between this and the write.
     if (!_current(editor)) {
-      await _sessionEnded(l10n, editor);
+      await _sessionEnded(l10n, editor, notSaved: true);
       return;
     }
     String? problem;
@@ -1220,7 +1220,7 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
           : l10n.workspaceToolSaveFailed;
     }
     if (!_current(editor)) {
-      await _sessionEnded(l10n, editor);
+      await _sessionEnded(l10n, editor, notSaved: problem != null);
       return;
     }
     editor.busy = false;
@@ -1248,13 +1248,16 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
   Future<void> _sessionEnded(
     AppLocalizations l10n,
     WorkspaceToolEditor editor, {
+    required bool notSaved,
     String? pageId,
   }) async {
     editor
       ..busy = false
       ..valvesBusy = false;
     if (!identical(_editors[editor.key], editor)) return;
-    _notSent.add(editor.key);
+    // The editor read afresh says the change was not saved only when it was
+    // not: never sent, or refused. One the server took already shows.
+    if (notSaved) _notSent.add(editor.key);
     await hydrate(pageId ?? '$workspaceToolPagePrefix${editor.key}', l10n);
   }
 
@@ -1273,7 +1276,7 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     // Another account signed in while the editor was drawn busy: nothing is
     // sent, with no await between this and the operation.
     if (!_current(editor)) {
-      await _sessionEnded(l10n, editor);
+      await _sessionEnded(l10n, editor, notSaved: true);
       return false;
     }
     Object? failed;
@@ -1289,7 +1292,7 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       );
     }
     if (!_current(editor)) {
-      await _sessionEnded(l10n, editor);
+      await _sessionEnded(l10n, editor, notSaved: failed != null);
       return false;
     }
     editor.busy = false;
@@ -1526,7 +1529,7 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     // sent, with no await between this and the write.
     final valvesPage = '$workspaceToolValvesPagePrefix${editor.key}';
     if (!_current(editor)) {
-      await _sessionEnded(l10n, editor, pageId: valvesPage);
+      await _sessionEnded(l10n, editor, notSaved: true, pageId: valvesPage);
       return;
     }
     var saved = false;
@@ -1546,7 +1549,7 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
       );
     }
     if (!_current(editor)) {
-      await _sessionEnded(l10n, editor, pageId: valvesPage);
+      await _sessionEnded(l10n, editor, notSaved: !saved, pageId: valvesPage);
       return;
     }
     editor.valvesBusy = false;

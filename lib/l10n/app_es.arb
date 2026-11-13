@@ -5053,7 +5053,7 @@
   "showModelNameInComposerDescription": "El cuadro de mensaje vacío muestra el nombre del modelo seleccionado en lugar de Conduit.",
   "workspaceEditorAccountChanged": "La cuenta con la sesión iniciada ha cambiado, así que tu cambio no se guardó.",
   "@workspaceEditorAccountChanged": {
-    "description": "Shown on a Workspace skill or tool editor that was read again because the signed-in account changed while a change was being saved; the change was not saved."
+    "description": "Shown on a Workspace skill or tool editor read again because the signed-in account changed while a change on it (a save, switch, duplicate, delete or valve save) was under way, when that change was never sent or failed."
   },
   "settingsAddAction": "Añadir",
   "@settingsAddAction": {

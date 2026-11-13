@@ -131,6 +131,9 @@ final class _Tools extends WorkspaceTools {
   /// Runs as a switch or a valve save is sent, before it answers.
   void Function()? onSend;
 
+  /// What a switch or a valve save fails with, once sent.
+  Object? sendError;
+
   @override
   Future<WorkspaceCollectionState<WorkspaceToolSummary>> build() async =>
       WorkspaceCollectionState(items: items, total: items.length);
@@ -155,6 +158,7 @@ final class _Tools extends WorkspaceTools {
   @override
   Future<WorkspaceToolDetail> toggle(String id) async {
     onSend?.call();
+    if (sendError case final error?) throw error;
     toggled.add(id);
     // As Open WebUI answers a toggle: no source, no write access.
     return const WorkspaceToolSummary(
@@ -210,6 +214,7 @@ final class _Tools extends WorkspaceTools {
   @override
   Future<void> updateToolValves(String id, Map<String, dynamic> valves) async {
     onSend?.call();
+    if (sendError case final error?) throw error;
     valveSaves.add((false, valves));
   }
 
@@ -292,6 +297,21 @@ final class _Surface extends SettingsSurface {
 
   String? answer;
   final asked = <String>[];
+
+  /// Runs once, as the next page is drawn, then is cleared.
+  void Function()? onNextApply;
+
+  @override
+  Future<bool> applyDetail(
+    NativeSheetDetailConfig detail, {
+    List<NativeSheetDetailConfig> detailSheets = const [],
+  }) async {
+    final applied = await super.applyDetail(detail, detailSheets: detailSheets);
+    final hook = onNextApply;
+    onNextApply = null;
+    hook?.call();
+    return applied;
+  }
 
   @override
   Future<String?> ask({
@@ -753,6 +773,33 @@ void main() {
       check(tools.toggled).deepEquals(['tool-1']);
       check(rig.page(_tool1).busy).not((it) => it.equals(true));
       check(rig.row(_tool1, _toolRow('active', _toolKey))).isNotNull();
+      // Sent and taken: nothing says it was not saved.
+      check(rig.page(_tool1).announcement)
+          .not((it) => it.equals(_l10n.workspaceEditorAccountChanged));
+    });
+
+    testWidgets('a switch not sent, or refused, as another account signs in '
+        'says so on the page read again', (tester) async {
+      final tools = _Tools();
+      final rig = await pump(tester, tools: tools, tool: _tool(isActive: true));
+      final surface = rig.container.read(settingsSurfaceProvider) as _Surface;
+      await rig.open(_tool1);
+
+      // Signed in while the switch is drawn busy: it is never sent.
+      surface.onNextApply = () =>
+          rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.change(_toolRow('active', _toolKey));
+      check(tools.toggled).isEmpty();
+      check(rig.page(_tool1).announcement)
+          .equals(_l10n.workspaceEditorAccountChanged);
+
+      // Sent, and refused, as the first account signs in again.
+      tools
+        ..sendError = StateError('offline')
+        ..onSend = () =>
+            rig.container.read(_signedInProvider.notifier).use(_user());
+      await rig.change(_toolRow('active', _toolKey));
+      check(tools.toggled).isEmpty();
       check(rig.page(_tool1).announcement)
           .equals(_l10n.workspaceEditorAccountChanged);
     });
@@ -860,7 +907,26 @@ void main() {
 
         check(tools.valveSaves).length.equals(1);
         check(rig.closed).deepEquals([valves]);
-        // Back on the editor, read afresh, it says why.
+        // Back on the editor, read afresh: the save was taken, so nothing
+        // says otherwise.
+        await rig.open(_tool1);
+        check(rig.page(_tool1).announcement)
+            .not((it) => it.equals(_l10n.workspaceEditorAccountChanged));
+      });
+
+      testWidgets('a save refused as another account signs in says so on '
+          'the editor read again', (tester) async {
+        final tools = _Tools()..sendError = StateError('offline');
+        final rig = await pump(tester, tools: tools);
+        tools.onSend = () =>
+            rig.container.read(_signedInProvider.notifier).use(_grace);
+        await rig.open(_tool1);
+        await rig.open(valves);
+        await rig.change(_toolRow('valve-mode', _toolKey, 'units'), 'custom');
+
+        await rig.change(_toolRow('valves-save', _toolKey));
+
+        check(rig.closed).deepEquals([valves]);
         await rig.open(_tool1);
         check(rig.page(_tool1).announcement)
             .equals(_l10n.workspaceEditorAccountChanged);
@@ -1224,6 +1290,24 @@ void main() {
       check(skills.cloned).deepEquals([('skill-1', 'skill-1_clone')]);
       check(rig.page(_skill1).busy).not((it) => it.equals(true));
       check(rig.row(_skill1, _skillRow('clone', _skillKey))).isNotNull();
+      // Made: nothing says it was not.
+      check(rig.page(_skill1).announcement)
+          .not((it) => it.equals(_l10n.workspaceEditorAccountChanged));
+    });
+
+    testWidgets('a save not sent as another account signs in says so on the '
+        'skill read again', (tester) async {
+      final skills = _Skills();
+      final rig = await pump(tester, skills: skills);
+      final surface = rig.container.read(settingsSurfaceProvider) as _Surface;
+      await rig.open(_skill1);
+      await rig.change(_skillRow('description', _skillKey), 'Plans a loop');
+
+      surface.onNextApply = () =>
+          rig.container.read(_signedInProvider.notifier).use(_grace);
+      await rig.change(_skillRow('save', _skillKey));
+
+      check(skills.updated).isEmpty();
       check(rig.page(_skill1).announcement)
           .equals(_l10n.workspaceEditorAccountChanged);
     });

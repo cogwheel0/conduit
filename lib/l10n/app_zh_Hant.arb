@@ -5053,7 +5053,7 @@
   "showModelNameInComposerDescription": "空白訊息框會顯示所選模型的名稱，而非 Conduit。",
   "workspaceEditorAccountChanged": "目前登入的帳戶已變更，因此未儲存你的變更。",
   "@workspaceEditorAccountChanged": {
-    "description": "Shown on a Workspace skill or tool editor that was read again because the signed-in account changed while a change was being saved; the change was not saved."
+    "description": "Shown on a Workspace skill or tool editor read again because the signed-in account changed while a change on it (a save, switch, duplicate, delete or valve save) was under way, when that change was never sent or failed."
   },
   "settingsAddAction": "新增",
   "@settingsAddAction": {
