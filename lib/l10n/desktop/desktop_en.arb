@@ -4605,6 +4605,35 @@
   "@desktopKeyboardGoToSection": {
     "description": "Settings › Keyboard row for ⌘1–⌘8: open the sidebar's sections in order."
   },
+  "desktopMenuNextArea": "Move Focus to Next Area",
+  "@desktopMenuNextArea": {
+    "description": "Go menu item and Settings › Keyboard row (⌥⌘`): moves keyboard focus to the next part of the window, even out of a view that keeps Tab for itself, such as the terminal. Title Case."
+  },
+  "desktopMenuPreviousArea": "Move Focus to Previous Area",
+  "@desktopMenuPreviousArea": {
+    "description": "Go menu item and Settings › Keyboard row (⌥⌘~): moves keyboard focus to the previous part of the window, even out of a view that keeps Tab for itself, such as the terminal. Title Case."
+  },
+  "desktopTerminalKeysHelp": "Tab goes to the shell. Press {next} to move focus to the next area, or {previous} to the previous one.",
+  "@desktopTerminalKeysHelp": {
+    "description": "VoiceOver help on the terminal's console: inside it Tab is typed into the shell, so it says which keys leave it. {next} and {previous} are the chords, such as ⌥⌘` and ⌥⌘~.",
+    "placeholders": {
+      "next": {
+        "type": "String"
+      },
+      "previous": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopTerminalLeaveHint": "Tab goes to the shell; press {key} to move focus out of the terminal.",
+  "@desktopTerminalLeaveHint": {
+    "description": "Caption under the terminal while its console has keyboard focus, and the last sentence of Settings › Keyboard's Terminal footer: Tab is typed into the shell, and {key} (such as ⌥⌘`) moves keyboard focus on to the next control. Sentence case.",
+    "placeholders": {
+      "key": {
+        "type": "String"
+      }
+    }
+  },
   "desktopKeyboardNotesFooter": "These work in Notes, where ⌘N makes a note instead of a chat.",
   "@desktopKeyboardNotesFooter": {
     "description": "Settings › Keyboard: footer under the Notes group, whose keys work only in Notes (there ⌘N makes a note; elsewhere it starts a chat). Sentence case."
@@ -5514,6 +5543,14 @@
       }
     }
   },
+  "desktopReadingPaused": "Reading paused",
+  "@desktopReadingPaused": {
+    "description": "VoiceOver announcement when a reading aloud pauses at the user's request (the bar's Pause, the media keys). Sentence case."
+  },
+  "desktopReadingResumed": "Reading resumed",
+  "@desktopReadingResumed": {
+    "description": "VoiceOver announcement when a paused reading aloud carries on at the user's request (the bar's Resume, the media keys). Sentence case."
+  },
   "desktopSpeechFailed": "Couldn't read this aloud.",
   "@desktopSpeechFailed": {
     "description": "The playback bar when the reading failed, beside Try Again. Sentence case."
@@ -6300,5 +6337,257 @@
   "desktopHermesHeadersTooMany": "A connection can send up to 10 headers.",
   "@desktopHermesHeadersTooMany": {
     "description": "Error in the Hermes connection editor when more than 10 custom headers were added."
+  },
+  "desktopAnnounceMenuRow": "{row}, {position} of {count}",
+  "@desktopAnnounceMenuRow": {
+    "description": "Spoken by VoiceOver (never shown) when the arrow keys move the highlight in a list the text field drives: the composer's / @ # $ menus, the model picker, the + menu's panels. {row} is the highlighted row's name, {position} its 1-based place and {count} the number of rows, e.g. 'Summarize, 2 of 5'.",
+    "placeholders": {
+      "row": {
+        "type": "String"
+      },
+      "position": {
+        "type": "String"
+      },
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAnnounceTemporaryOff": "This chat will appear in history",
+  "@desktopAnnounceTemporaryOff": {
+    "description": "Spoken by VoiceOver (never shown) when the user turns Temporary Chat off, the counterpart of the mobile app's 'This chat won't appear in history' when it turns on. Sentence case, no final period, as that one."
+  },
+  "desktopCodeBlockLabel": "{language} code",
+  "@desktopCodeBlockLabel": {
+    "description": "VoiceOver's name for a code block in an answer (never shown). {language} is the language's display name, e.g. 'Python code'.",
+    "placeholders": {
+      "language": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopStatusSearchingKnowledge": "Searching Knowledge for “{query}”",
+  "@desktopStatusSearchingKnowledge": {
+    "description": "A line of an answer's status timeline while it searches the Knowledge (Workspace › Knowledge) for {query}, the words it searched for.",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopStatusSearching": "Searching",
+  "@desktopStatusSearching": {
+    "description": "A line of an answer's status timeline once its web searches are under way."
+  },
+  "desktopStatusQuerying": "Querying",
+  "@desktopStatusQuerying": {
+    "description": "A line of an answer's status timeline once its knowledge queries are under way."
+  },
+  "desktopStatusSources": "{count, plural, =0{No sources found} =1{Retrieved 1 source} other{Retrieved # sources}}",
+  "@desktopStatusSources": {
+    "description": "A line of an answer's status timeline: how many sources its search found ({count}).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopStatusProcessing": "Processing",
+  "@desktopStatusProcessing": {
+    "description": "A line of an answer's status timeline for an update that says nothing more."
+  },
+  "desktopCallRefusalModelRequired": "Choose a model before starting a voice call.",
+  "@desktopCallRefusalModelRequired": {
+    "description": "Why a voice call can't start: no model is chosen. Shown where the call would be."
+  },
+  "desktopCallRefusalHermesLoading": "Hermes is still loading. Try again in a moment.",
+  "@desktopCallRefusalHermesLoading": {
+    "description": "Why a voice call can't start: Hermes's settings are still being read."
+  },
+  "desktopCallRefusalHermesUnavailable": "Hermes is unavailable. Check its server URL and API key.",
+  "@desktopCallRefusalHermesUnavailable": {
+    "description": "Why a voice call can't start: Hermes has no usable server URL or API key."
+  },
+  "desktopCallRefusalDirectUnavailable": "The selected Direct connection is unavailable.",
+  "@desktopCallRefusalDirectUnavailable": {
+    "description": "Why a voice call can't start: the chosen Direct connection is gone or turned off."
+  },
+  "desktopCallRefusalSignIn": "Sign in to start a voice call.",
+  "@desktopCallRefusalSignIn": {
+    "description": "Why a voice call can't start: the model needs a signed-in Open WebUI account."
+  },
+  "desktopHermesCadenceNone": "No schedule",
+  "@desktopHermesCadenceNone": {
+    "description": "On a Hermes scheduled agent's card (Scheduled Agents): its schedule, read from cron. The job has none."
+  },
+  "desktopHermesCadenceEveryMinute": "Every minute",
+  "@desktopHermesCadenceEveryMinute": {
+    "description": "On a Hermes scheduled agent's card (Scheduled Agents): its schedule, read from cron."
+  },
+  "desktopHermesCadenceEveryMinutes": "{count, plural, =1{Every minute} other{Every # minutes}}",
+  "@desktopHermesCadenceEveryMinutes": {
+    "description": "On a Hermes scheduled agent's card (Scheduled Agents): its schedule, read from cron. {count} is 2 or more.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopHermesCadenceEveryHour": "Every hour",
+  "@desktopHermesCadenceEveryHour": {
+    "description": "On a Hermes scheduled agent's card (Scheduled Agents): its schedule, read from cron. On the hour."
+  },
+  "desktopHermesCadenceEveryHourAt": "Every hour at :{minute}",
+  "@desktopHermesCadenceEveryHourAt": {
+    "description": "On a Hermes scheduled agent's card (Scheduled Agents): its schedule, read from cron. {minute} is the minute past the hour, two digits ('05').",
+    "placeholders": {
+      "minute": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesCadenceEveryHours": "{count, plural, =1{Every hour} other{Every # hours}}",
+  "@desktopHermesCadenceEveryHours": {
+    "description": "On a Hermes scheduled agent's card (Scheduled Agents): its schedule, read from cron. {count} (2 or more) hours, on the hour.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopHermesCadenceEveryHoursAt": "{count, plural, =1{Every hour at :{minute}} other{Every # hours at :{minute}}}",
+  "@desktopHermesCadenceEveryHoursAt": {
+    "description": "On a Hermes scheduled agent's card (Scheduled Agents): its schedule, read from cron. {count} (2 or more) hours, at {minute} past (two digits, '05').",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "minute": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesCadenceDaily": "Every day at {time}",
+  "@desktopHermesCadenceDaily": {
+    "description": "On a Hermes scheduled agent's card (Scheduled Agents): its schedule, read from cron. {time} is the time of day as this Mac writes it.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesCadenceWeekdays": "Weekdays at {time}",
+  "@desktopHermesCadenceWeekdays": {
+    "description": "On a Hermes scheduled agent's card (Scheduled Agents): its schedule, read from cron. Monday to Friday; {time} is the time of day.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesCadenceWeekends": "Weekends at {time}",
+  "@desktopHermesCadenceWeekends": {
+    "description": "On a Hermes scheduled agent's card (Scheduled Agents): its schedule, read from cron. Saturday and Sunday; {time} is the time of day.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesCadenceWeekly": "{weekday, select, 0{Every Sunday at {time}} 1{Every Monday at {time}} 2{Every Tuesday at {time}} 3{Every Wednesday at {time}} 4{Every Thursday at {time}} 5{Every Friday at {time}} 6{Every Saturday at {time}} other{Every Monday at {time}}}",
+  "@desktopHermesCadenceWeekly": {
+    "description": "On a Hermes scheduled agent's card (Scheduled Agents): its schedule, read from cron. One day a week: {weekday} is 0 (Sunday) to 6 (Saturday), each worded whole so the day takes its own grammar; {time} is the time of day.",
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesCadenceMonthly": "{day, plural, =1{Monthly on the 1st at {time}} =2{Monthly on the 2nd at {time}} =3{Monthly on the 3rd at {time}} =21{Monthly on the 21st at {time}} =22{Monthly on the 22nd at {time}} =23{Monthly on the 23rd at {time}} =31{Monthly on the 31st at {time}} other{Monthly on the #th at {time}}}",
+  "@desktopHermesCadenceMonthly": {
+    "description": "On a Hermes scheduled agent's card (Scheduled Agents): its schedule, read from cron. One day a month: {day} is the day of the month (1–31), an ordinal in English; {time} is the time of day.",
+    "placeholders": {
+      "day": {
+        "type": "int"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAppleErrorSystemTooOld": "Apple On-Device needs macOS 26 and a Mac with Apple Intelligence.",
+  "@desktopAppleErrorSystemTooOld": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: this Mac's macOS is older than 26."
+  },
+  "desktopAppleErrorIntelligenceOff": "Turn on Apple Intelligence to use Apple On-Device.",
+  "@desktopAppleErrorIntelligenceOff": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: Apple Intelligence is turned off."
+  },
+  "desktopAppleErrorModelNotReady": "Apple's on-device model is still downloading or isn't ready yet.",
+  "@desktopAppleErrorModelNotReady": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: the model is still downloading."
+  },
+  "desktopAppleErrorPccNotOffered": "Apple Private Cloud Compute isn't available in this version of Conduit.",
+  "@desktopAppleErrorPccNotOffered": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: Private Cloud Compute is not part of this build."
+  },
+  "desktopAppleErrorUnavailable": "Apple On-Device isn't available.",
+  "@desktopAppleErrorUnavailable": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: unavailable, for no reason it gave."
+  },
+  "desktopAppleErrorContextExceeded": "This chat is too long for Apple On-Device.",
+  "@desktopAppleErrorContextExceeded": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: the chat is longer than the model can read."
+  },
+  "desktopAppleErrorNotReady": "Apple's on-device model isn't ready yet.",
+  "@desktopAppleErrorNotReady": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: the model isn't ready."
+  },
+  "desktopAppleErrorGuardrail": "Apple On-Device blocked this request for safety reasons.",
+  "@desktopAppleErrorGuardrail": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: its safety guardrails stopped the request."
+  },
+  "desktopAppleErrorRefusal": "Apple On-Device declined this request.",
+  "@desktopAppleErrorRefusal": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: the model declined to answer."
+  },
+  "desktopAppleErrorUnsupported": "Apple On-Device can't handle this request.",
+  "@desktopAppleErrorUnsupported": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: the request asks for something it can't do."
+  },
+  "desktopAppleErrorDecoding": "Apple On-Device sent back an answer that couldn't be read.",
+  "@desktopAppleErrorDecoding": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: its answer could not be read."
+  },
+  "desktopAppleErrorBusy": "Apple On-Device is busy. Try again in a moment.",
+  "@desktopAppleErrorBusy": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: the model is busy with other work."
+  },
+  "desktopAppleErrorTimedOut": "Apple On-Device took too long to answer.",
+  "@desktopAppleErrorTimedOut": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: it took too long."
+  },
+  "desktopAppleErrorInvalidRequest": "Apple On-Device couldn't read this request.",
+  "@desktopAppleErrorInvalidRequest": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: the request Conduit built was not one it accepts."
+  },
+  "desktopAppleErrorInvalidSchema": "Apple On-Device can't answer in the format this request asks for.",
+  "@desktopAppleErrorInvalidSchema": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: the request asked for structured output in a shape it doesn't support."
+  },
+  "desktopAppleErrorInvalidToolSchema": "Apple On-Device can't use one of this chat's MCP tools.",
+  "@desktopAppleErrorInvalidToolSchema": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: one of the chat's MCP tools describes its input in a way it can't use."
+  },
+  "desktopAppleErrorInvalidStream": "Apple On-Device's answer stream couldn't be read.",
+  "@desktopAppleErrorInvalidStream": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer: its answer stopped arriving in a form that could be read."
+  },
+  "desktopAppleErrorFailed": "Apple On-Device couldn't answer.",
+  "@desktopAppleErrorFailed": {
+    "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer, for no reason it gave."
   }
 }

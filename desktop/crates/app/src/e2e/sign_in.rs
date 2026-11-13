@@ -356,6 +356,7 @@ pub async fn proxy(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
             false,
         );
     };
+    cx.update(conduit_components::announce::AnnouncementLog::install);
     let mut pass = fresh_profile(cx).await;
     pass &= ok("the setup window opened", wait_setup(cx).await.is_some());
     // Added through the proxy while it lets everything through, then it
@@ -429,20 +430,46 @@ pub async fn proxy(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
             && has(&controls, "Button", &l10n.proxy_auth_sign_in_again()),
     );
 
-    // Try Again cannot get past the proxy: the page stays, saying so.
-    in_setup(cx, |sw, window, cx| {
-        sw.connection_issue.update(cx, |v, cx| v.retry(window, cx))
-    });
-    let tried = wait_until(cx, Duration::from_secs(20), |cx| {
-        setup_window(cx).is_some_and(|(_, v)| !v.read(cx).connection_issue.read(cx).holds())
-    })
-    .await;
-    settle(cx, 800).await;
-    let page = in_setup(cx, |sw, _, cx| sw.page(cx));
-    pass &= ok(
-        &format!("Try Again keeps the issue while the proxy turns it away ({page:?})"),
-        tried && page == Some(crate::views::setup_window::Page::ConnectionIssue),
-    );
+    // Try Again cannot get past the proxy: the page stays, saying so, and
+    // VoiceOver hears what it says (the status line's live text); a second
+    // Try Again that comes back the same is heard again (each outcome is
+    // its own live region).
+    for attempt in 1..=2 {
+        let before = cx.update(|cx| conduit_components::announce::AnnouncementLog::len(cx));
+        in_setup(cx, |sw, window, cx| {
+            sw.connection_issue.update(cx, |v, cx| v.retry(window, cx))
+        });
+        let tried = wait_until(cx, Duration::from_secs(20), |cx| {
+            setup_window(cx).is_some_and(|(_, v)| {
+                let v = v.read(cx).connection_issue.read(cx);
+                !v.holds() && v.tries == attempt
+            })
+        })
+        .await;
+        settle(cx, 800).await;
+        let page = in_setup(cx, |sw, _, cx| sw.page(cx));
+        pass &= ok(
+            &format!(
+                "Try Again ({attempt}) keeps the issue while the proxy turns it away ({page:?})"
+            ),
+            tried && page == Some(crate::views::setup_window::Page::ConnectionIssue),
+        );
+        // What the page says now: the try's error, or the issue's own line.
+        let shown = in_setup(cx, |sw, _, cx| sw.connection_issue.read(cx).error.clone())
+            .flatten()
+            .unwrap_or_else(|| l10n.desktop_proxy_session_ended());
+        let said: Vec<String> = cx.update(|cx| {
+            conduit_components::announce::AnnouncementLog::texts(cx)
+                .into_iter()
+                .skip(before)
+                .map(|t| t.to_string())
+                .collect()
+        });
+        pass &= ok(
+            &format!("…and VoiceOver hears “{shown}” once ({said:?})"),
+            said.iter().filter(|t| **t == shown).count() == 1,
+        );
+    }
     shot(dir, "connection-issue-after-retry", cx).await;
 
     // Sign In to Proxy Again: its page sends the user straight back, and

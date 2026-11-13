@@ -1119,7 +1119,13 @@ pub fn diagram_block(
                 false,
             )
             .on_click(move |_, _, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(copy_code.clone()))
+                cx.write_to_clipboard(ClipboardItem::new_string(copy_code.clone()));
+                let said = cx.l10n().desktop_code_copied();
+                conduit_components::announce::announce(
+                    said,
+                    conduit_components::announce::Priority::Medium,
+                    cx,
+                );
             })
             .keyboard_control(Ring::Outset(5.), window, cx),
         )

@@ -106,6 +106,9 @@ pub enum LivePhase {
         code: String,
         /// The server's own words, when it gave any.
         detail: Option<String>,
+        /// Their code, when the daemon knows one (an error block's `type`,
+        /// such as Apple's engine's `appleFailure.*`).
+        kind: Option<String>,
     },
 }
 
@@ -165,11 +168,12 @@ impl LiveTurn {
     /// failed and the snapshot does not say so.
     pub fn display_blocks(&self) -> Vec<MessageBlockDto> {
         let mut blocks = self.blocks.clone();
-        if let LivePhase::Failed { detail, .. } = &self.phase
+        if let LivePhase::Failed { detail, kind, .. } = &self.phase
             && !blocks.iter().any(|b| b.kind == MessageBlockKind::Error)
         {
             let mut error = empty_block(MessageBlockKind::Error);
             error.error = Some(detail.clone().unwrap_or_default());
+            error.r#type = kind.clone();
             // Before sources and follow-ups, after the content.
             let at = blocks
                 .iter()
@@ -399,6 +403,28 @@ pub enum ChatStoreEvent {
     Missing,
     /// An MCP App's host has something for its view.
     McpApp(McpAppEvent),
+}
+
+/// Where a step of an answer's version arrows landed: version `index`
+/// (1-based) of `total`, and whether it switched the chat's branch on the
+/// server (what VoiceOver is told: "Continuing from version 2 of 3", or the
+/// arrows' own "Answer 2 of 3").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VersionStep {
+    pub index: usize,
+    pub total: usize,
+    pub branch: bool,
+}
+
+impl VersionStep {
+    /// What VoiceOver hears for this step, in the phone's words.
+    pub fn spoken(self, l: &crate::l10n::L10n) -> String {
+        if self.branch {
+            l.chat_branch_selected_notice(self.index as i64, self.total as i64)
+        } else {
+            l.desktop_version_of(self.index as i64, self.total as i64)
+        }
+    }
 }
 
 pub struct ChatStore {
@@ -1108,6 +1134,7 @@ impl ChatStore {
                 live.phase = LivePhase::Failed {
                     code: e.code.clone(),
                     detail: e.args.get("detail").cloned().filter(|d| !d.is_empty()),
+                    kind: e.args.get("type").cloned().filter(|d| !d.is_empty()),
                 };
                 self.fetch(cx);
                 self.rebuild(cx);
@@ -1126,6 +1153,7 @@ impl ChatStore {
                         LivePhase::Failed {
                             code: e.code.clone().unwrap_or_default(),
                             detail: None,
+                            kind: None,
                         }
                     };
                     self.fetch(cx);
@@ -1179,6 +1207,7 @@ impl ChatStore {
                 c.phase = LivePhase::Failed {
                     code: e.code.clone(),
                     detail: e.args.get("detail").cloned().filter(|d| !d.is_empty()),
+                    kind: e.args.get("type").cloned().filter(|d| !d.is_empty()),
                 };
                 self.fetch(cx);
             }
@@ -1865,23 +1894,31 @@ impl ChatStore {
     }
 
     /// Steps the shown version by `delta`, within bounds: in the server's
-    /// order, switching the chat's branch when it can branch.
-    pub fn step_version(&mut self, message_id: &str, delta: isize, cx: &mut Context<Self>) {
-        let Some(m) = self.messages().iter().find(|m| m.id == message_id) else {
-            return;
-        };
+    /// order, switching the chat's branch when it can branch. Says where it
+    /// landed, when it moved.
+    pub fn step_version(
+        &mut self,
+        message_id: &str,
+        delta: isize,
+        cx: &mut Context<Self>,
+    ) -> Option<VersionStep> {
+        let m = self.messages().iter().find(|m| m.id == message_id)?;
         if m.sibling_ids.len() > 1 {
             let shown = self.shown_version_id(m);
-            let Some(at) = m.sibling_ids.iter().position(|id| *id == shown) else {
-                return;
-            };
-            let last = m.sibling_ids.len() as isize - 1;
-            let next = (at as isize + delta).clamp(0, last) as usize;
-            if next != at {
-                let target = m.sibling_ids[next].clone();
-                self.choose_version(message_id, &target, cx);
+            let at = m.sibling_ids.iter().position(|id| *id == shown)?;
+            let total = m.sibling_ids.len();
+            let next = (at as isize + delta).clamp(0, total as isize - 1) as usize;
+            if next == at {
+                return None;
             }
-            return;
+            let target = m.sibling_ids[next].clone();
+            let branch = self.abilities().branch && !self.is_streaming();
+            self.choose_version(message_id, &target, cx);
+            return Some(VersionStep {
+                index: next + 1,
+                total,
+                branch,
+            });
         }
         let total = m.versions.len();
         let shown = self
@@ -1891,9 +1928,15 @@ impl ChatStore {
             .unwrap_or(total)
             .min(total);
         let next = (shown as isize + delta).clamp(0, total as isize) as usize;
-        if next != shown {
-            self.show_version(message_id, next, cx);
+        if next == shown {
+            return None;
         }
+        self.show_version(message_id, next, cx);
+        Some(VersionStep {
+            index: next + 1,
+            total: total + 1,
+            branch: false,
+        })
     }
 
     // ── Actions ─────────────────────────────────────────────────────────
@@ -3393,13 +3436,21 @@ mod tests {
             let item = s.item(s.rows()[1]).unwrap();
             assert_eq!(item.version, Some((2, 2)));
             assert_eq!(item.text, "new");
-            s.step_version("a2", -1, cx);
+            let step = s.step_version("a2", -1, cx);
+            assert_eq!(
+                step,
+                Some(VersionStep {
+                    index: 1,
+                    total: 2,
+                    branch: false
+                })
+            );
             let item = s.item(s.rows()[1]).unwrap();
             assert_eq!(item.version, Some((1, 2)));
             assert_eq!(item.blocks, vec![text_block("old")]);
             // No thumb on an older version.
             assert_eq!(item.rating, None);
-            s.step_version("a2", -1, cx);
+            assert_eq!(s.step_version("a2", -1, cx), None, "already the first");
             assert_eq!(s.item(s.rows()[1]).unwrap().version, Some((1, 2)));
         });
         assert_eq!(keys(&store, cx), vec!["u1", "a1"], "settled, the same row");

@@ -88,6 +88,13 @@ actions!(conduit, [NewTemporaryChat]);
 // included (`Transcript::tab`); elsewhere the window's own.
 actions!(conduit, [FocusNextControl, FocusPreviousControl]);
 
+// Go › Move Focus to Next Area (⌥⌘`) and Previous Area (⌥⌘~), as Xcode's,
+// beside the system's ⌘` for the next window: the window's next or
+// previous stop, as Tab and Shift-Tab, taken by the window before any view
+// that keeps Tab for itself (the terminal's console, whose Tab is the
+// shell's) can see it.
+actions!(conduit, [MoveFocusToNextArea, MoveFocusToPreviousArea]);
+
 // File › New Folder: a folder at the top of the sidebar's Folders, named in
 // place (also the list's own right-click menu).
 actions!(conduit, [NewFolder]);

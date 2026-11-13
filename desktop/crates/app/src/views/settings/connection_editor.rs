@@ -19,6 +19,7 @@
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::views::kit::{Button, Segment, Segmented, Switch, setting_row};
 use conduit_components::views::settings::settings_section;
 use conduit_daemon::RpcError;
@@ -936,7 +937,8 @@ impl ConnectionEditorSheet {
                                 .role(Role::Alert)
                                 .text_size(px(t.metrics.small))
                                 .text_color(t.roles.danger)
-                                .child(e),
+                                .child(e.clone())
+                                .child(live_text("live", Some(e.into()), Priority::High)),
                         )
                     })
                     .into_any_element(),

@@ -1,10 +1,17 @@
 //! Toasts: `notify.show` from the daemon, and the window's own short
 //! notices (an account switched, a sign-out handed over). Newest last; each
 //! leaves after its time, errors stay longer, and the user can dismiss one.
+//!
+//! VoiceOver hears each one as it is shown ([`announce`]: errors and
+//! warnings at once, the rest in turn), even when it repeats the toast on
+//! screen, which shows once: a second Copy is heard as a second "Copied".
+//! A toast's `Role::Alert`/`Status` node alone would be silent (GPUI marks
+//! no node live), so nothing else announces what a toast says.
 
 use std::rc::Rc;
 use std::time::Duration;
 
+use conduit_components::announce::{Priority, announce};
 use conduit_protocol::NoticeLevel;
 use gpui_kit::{App, AsyncApp, Context, WeakEntity};
 
@@ -49,6 +56,14 @@ pub fn lifetime(level: NoticeLevel) -> Duration {
         NoticeLevel::Error => Duration::from_secs(10),
         NoticeLevel::Warning => Duration::from_secs(7),
         _ => Duration::from_secs(5),
+    }
+}
+
+/// How urgently VoiceOver speaks a toast of `level`.
+pub fn priority(level: NoticeLevel) -> Priority {
+    match level {
+        NoticeLevel::Error | NoticeLevel::Warning => Priority::High,
+        _ => Priority::Medium,
     }
 }
 
@@ -106,6 +121,7 @@ impl ToastStore {
         if message.trim().is_empty() {
             return;
         }
+        announce(message.clone(), priority(level), cx);
         // The same notice twice in a row is one.
         if self
             .toasts
@@ -180,6 +196,38 @@ mod tests {
         cx.executor().advance_clock(Duration::from_secs(3));
         cx.run_until_parked();
         assert!(store.read_with(cx, |s, _| s.toasts.is_empty()));
+    }
+
+    #[gpui_kit::test]
+    fn each_toast_is_announced_even_when_it_shows_once(cx: &mut TestAppContext) {
+        use conduit_components::announce::{Announcement, AnnouncementLog};
+        cx.update(AnnouncementLog::install);
+        let store = cx.new(|_| ToastStore::new());
+        store.update(cx, |s, cx| {
+            s.show(NoticeLevel::Info, "Copied", cx);
+            s.show(NoticeLevel::Info, "Copied", cx);
+            s.show(NoticeLevel::Error, "Couldn't rename the chat.", cx);
+            s.show(NoticeLevel::Info, " ", cx);
+        });
+        assert_eq!(store.read_with(cx, |s, _| s.toasts.len()), 2);
+        let log = cx.update(|cx| cx.global::<AnnouncementLog>().0.clone());
+        assert_eq!(
+            log,
+            [
+                Announcement {
+                    text: "Copied".into(),
+                    priority: Priority::Medium
+                },
+                Announcement {
+                    text: "Copied".into(),
+                    priority: Priority::Medium
+                },
+                Announcement {
+                    text: "Couldn't rename the chat.".into(),
+                    priority: Priority::High
+                },
+            ]
+        );
     }
 
     #[gpui_kit::test]

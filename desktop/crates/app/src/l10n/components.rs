@@ -48,6 +48,8 @@ pub fn component_strings(l: &L10n) -> Strings {
         previous_version: s(l.desktop_previous_answer()),
         next_version: s(l.desktop_next_answer()),
         copy: s(l.copy()),
+        code_copied: s(l.desktop_code_copied()),
+        code_block: s(l.desktop_code_block_label(NAME)),
         edit: s(l.edit()),
         regenerate: s(l.regenerate()),
         good_response: s(l.desktop_good_response()),
@@ -144,6 +146,7 @@ mod tests {
             // Templates keep their placeholders for the components.
             assert!(s.more_actions_for.contains(NAME), "{locale}");
             assert!(s.server_chip.contains(NAME), "{locale}");
+            assert!(s.code_block.contains(NAME), "{locale}");
             assert!(
                 s.position.contains(INDEX) && s.position.contains(COUNT),
                 "{locale}"

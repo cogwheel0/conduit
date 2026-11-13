@@ -262,6 +262,11 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
         KeyBinding::new("cmd-6", GoToSection { index: 6 }, None),
         KeyBinding::new("cmd-7", GoToSection { index: 7 }, None),
         KeyBinding::new("cmd-8", GoToSection { index: 8 }, None),
+        // Go › Move Focus to Next and Previous Area: ⌥⌘` and ⌥⌘~ (the Mac
+        // reports Shift with ` as ~), as Xcode's, from a text field and the
+        // terminal too.
+        KeyBinding::new("alt-cmd-`", crate::actions::MoveFocusToNextArea, None),
+        KeyBinding::new("alt-cmd-~", crate::actions::MoveFocusToPreviousArea, None),
         // Tab through the chat in the messages' order, rows off screen
         // included (the window's own order holds only what is drawn).
         KeyBinding::new(
@@ -839,6 +844,17 @@ fn go_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
             GoToSection { index: i + 1 },
         ));
     }
+    // The keyboard's way between the window's areas, and out of the
+    // terminal, whose Tab is the shell's.
+    items.push(MenuItem::separator());
+    items.push(MenuItem::action(
+        l10n.desktop_menu_next_area(),
+        crate::actions::MoveFocusToNextArea,
+    ));
+    items.push(MenuItem::action(
+        l10n.desktop_menu_previous_area(),
+        crate::actions::MoveFocusToPreviousArea,
+    ));
     items
 }
 
@@ -1150,7 +1166,13 @@ mod tests {
     fn go_lists_back_forward_and_the_shown_sections_in_order() {
         let l = L10n::new("en");
         let none = build_menus(&l, &MenuState::default());
-        assert_eq!(titles(menu(&none, "Go")), ["Back", "Forward"]);
+        // Moving focus between the window's areas is always there: the
+        // keyboard's way out of the terminal, whose Tab is the shell's.
+        let focus = ["Move Focus to Next Area", "Move Focus to Previous Area"];
+        assert_eq!(
+            titles(menu(&none, "Go")),
+            ["Back", "Forward", "—", focus[0], focus[1]]
+        );
         assert!(disabled(menu(&none, "Go"), "Back"));
         let state = MenuState {
             areas: vec![Area::Chats, Area::Notes, Area::Channels],
@@ -1161,7 +1183,9 @@ mod tests {
         let go = menu(&menus, "Go");
         assert_eq!(
             titles(go),
-            ["Back", "Forward", "—", "Chats", "Notes", "Channels"]
+            [
+                "Back", "Forward", "—", "Chats", "Notes", "Channels", "—", focus[0], focus[1]
+            ]
         );
         assert!(!disabled(go, "Back"));
         assert!(disabled(go, "Forward"));
@@ -1702,6 +1726,8 @@ mod tests {
             F::GoToSection(n) => Box::new(GoToSection {
                 index: usize::from(n),
             }),
+            F::NextArea => Box::new(crate::actions::MoveFocusToNextArea),
+            F::PreviousArea => Box::new(crate::actions::MoveFocusToPreviousArea),
         }
     }
 

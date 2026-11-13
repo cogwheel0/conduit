@@ -12,6 +12,7 @@ use std::rc::Rc;
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::with_alpha;
+use conduit_components::views::focus::ControlExt as _;
 use conduit_components::views::kit::{Button, IconButton, Segment, Segmented, bare_input};
 use conduit_protocol::{
     Event, TerminalAttach, TerminalAttached, TerminalHandleRef, TerminalPort, TerminalWatch,
@@ -103,6 +104,11 @@ pub struct TerminalPane {
     shell_title: Option<String>,
     find_input: Entity<InputState>,
     find_open: bool,
+    /// Whether the console had focus when the pane last drew, and whether
+    /// the keyboard brought it there (Tab, Go › Move Focus to Next Area):
+    /// then the bar under it says how to leave, since Tab is the shell's.
+    console_focused: bool,
+    keyboard_entry: bool,
     /// Bumped by each attach: late answers to older ones are dropped.
     generation: u64,
     _tasks: Vec<Task<()>>,
@@ -222,6 +228,8 @@ impl TerminalPane {
             shell_title: None,
             find_input,
             find_open: false,
+            console_focused: false,
+            keyboard_entry: false,
             generation: 0,
             _tasks: vec![],
             _subscriptions: subscriptions,
@@ -251,6 +259,12 @@ impl TerminalPane {
 
     pub fn ports(&self) -> &[TerminalPort] {
         &self.ports
+    }
+
+    /// Whether the bar under the console says how to leave it: the console
+    /// has focus, and the keyboard brought it there.
+    pub fn shows_leave_hint(&self) -> bool {
+        self.console_focused && self.keyboard_entry
     }
 
     pub fn shell_title(&self) -> Option<&str> {
@@ -638,7 +652,8 @@ impl TerminalPane {
     }
 
     /// The listening ports under the console: a disclosure with the count,
-    /// then one row per port, as mobile's.
+    /// then one row per port, as mobile's. While the keyboard has brought
+    /// focus into the console, the bar also says how to leave it.
     fn ports_section(&self, cx: &mut Context<Self>) -> AnyElement {
         let l = cx.l10n().clone();
         let t = cx.conduit().clone();
@@ -666,6 +681,7 @@ impl TerminalPane {
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(r.text_subtle)
             .hover(|s| s.text_color(r.text))
+            .keyboard_shadow(cx)
             .on_click(cx.listener(|p, _, _, cx| p.toggle_ports(cx)))
             .child(icon(
                 if open {
@@ -677,6 +693,26 @@ impl TerminalPane {
                 r.text_subtle,
             ))
             .child(SharedString::from(header_label));
+        // Tab is the shell's in the console: the way out, beside the
+        // disclosure (not in it: a click there toggles the ports).
+        let hint = self.shows_leave_hint().then(|| {
+            let (next, _) = console::leave_keys();
+            div()
+                .id("terminal-leave-hint")
+                .flex_1()
+                .min_w_0()
+                .pr(px(10.))
+                .flex()
+                .justify_end()
+                .text_size(px(m.small))
+                .text_color(r.text_subtle)
+                .child(
+                    div()
+                        .truncate()
+                        .child(SharedString::from(l.desktop_terminal_leave_hint(&next))),
+                )
+        });
+        let header = div().flex().items_center().child(header).children(hint);
         let mut section = div()
             .id("terminal-ports")
             .role(Role::Group)
@@ -736,6 +772,7 @@ impl TerminalPane {
                         .cursor_pointer()
                         .hover(|s| s.bg(r.hover))
                         .active(|s| s.bg(r.selected))
+                        .keyboard_shadow(cx)
                         .on_click(cx.listener(move |p, _, _, cx| p.open_port(number as u16, cx)))
                         .child(icon(IconName::Globe, 14., r.text_subtle))
                         .child(
@@ -804,6 +841,15 @@ impl Render for TerminalPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = cx.conduit().clone();
         let r = t.roles;
+        // Focus that came into the console from the keyboard (not a click)
+        // shows the way out until it leaves.
+        let focused = self.console.read(cx).is_focused(window);
+        if focused && !self.console_focused {
+            self.keyboard_entry = window.last_input_was_keyboard();
+        } else if !focused {
+            self.keyboard_entry = false;
+        }
+        self.console_focused = focused;
         let body = match self.mode {
             Mode::Console => {
                 let overlay = self.overlay(cx);

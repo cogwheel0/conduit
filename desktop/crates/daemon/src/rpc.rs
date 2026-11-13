@@ -241,7 +241,7 @@ impl RpcClient {
         let (events, event_rx) = mpsc::unbounded_channel();
         let (endpoint, endpoint_rx) = watch::channel(None);
         let call_timeout = config.call_timeout;
-        let conn = Connection {
+        let mut conn = Connection {
             config,
             events,
             cmds: cmd_rx,
@@ -252,6 +252,13 @@ impl RpcClient {
             next_id: 1,
             state: None,
         };
+        // The first state is known here (no daemon yet): sent now, from the
+        // caller's thread, so whoever reads the events finds it waiting
+        // instead of being woken from the I/O thread at some later moment
+        // (GPUI's test scheduler fails a test woken from another thread;
+        // on a busy machine the I/O thread got there late). The loop's own
+        // first `WaitingForDaemon` is then no change and sends nothing.
+        conn.set_state(ConnectionState::WaitingForDaemon);
         rt.spawn(conn.run());
         (
             Self {

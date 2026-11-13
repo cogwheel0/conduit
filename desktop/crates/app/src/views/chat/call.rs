@@ -23,10 +23,13 @@ use std::rc::Rc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::{ConduitTheme, with_alpha};
 use conduit_components::views::kit::{Button, IconButton};
-use conduit_protocol::{CallErrorKind, CallListenFailure, CallMode, CallPhase, CallStandardReason};
+use conduit_protocol::{
+    CallErrorKind, CallListenFailure, CallMode, CallPhase, CallRefusal, CallStandardReason,
+};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     Animation, AnimationExt as _, AnyElement, App, Entity, Role, SharedString, div, px,
@@ -62,6 +65,20 @@ pub fn status_text(phase: CallPhase, l10n: &L10n) -> String {
     }
 }
 
+/// Why core would not start a call, in this language (None for a reason
+/// this build doesn't know, which keeps core's English).
+pub fn refusal_text(refusal: CallRefusal, l10n: &L10n) -> Option<String> {
+    Some(match refusal {
+        CallRefusal::ModelRequired => l10n.desktop_call_refusal_model_required(),
+        CallRefusal::HermesLoading => l10n.desktop_call_refusal_hermes_loading(),
+        CallRefusal::HermesUnavailable => l10n.desktop_call_refusal_hermes_unavailable(),
+        CallRefusal::DirectUnavailable => l10n.desktop_call_refusal_direct_unavailable(),
+        CallRefusal::SignInRequired => l10n.desktop_call_refusal_sign_in(),
+        CallRefusal::BackendUnsupported => l10n.voice_call_libre_chat_unavailable(),
+        CallRefusal::Unknown => return None,
+    })
+}
+
 /// "Listening · 0:42".
 pub fn status_line(store: &CallStore, l10n: &L10n) -> String {
     let state = store.state();
@@ -92,10 +109,12 @@ pub fn error_text(store: &CallStore, l10n: &L10n) -> String {
         Some(CallErrorKind::InputUnavailable) => l10n.voice_input_unavailable(),
         Some(CallErrorKind::Timeout) => l10n.voice_call_start_timeout(),
         Some(CallErrorKind::NoSpeech) => l10n.voice_call_no_speech(),
+        // Core's refusals in this language; other messages (the server's
+        // reply error) as they came.
         Some(CallErrorKind::Message) => state
-            .error
-            .clone()
-            .filter(|e| !e.trim().is_empty())
+            .refusal
+            .and_then(|r| refusal_text(r, l10n))
+            .or_else(|| state.error.clone().filter(|e| !e.trim().is_empty()))
             .unwrap_or_else(|| l10n.voice_call_failed()),
         _ => l10n.voice_call_failed(),
     }
@@ -448,6 +467,11 @@ fn failed(call: &Entity<CallStore>, cx: &App) -> AnyElement {
         .id("call-failed")
         .role(Role::Alert)
         .aria_label(SharedString::from(text.clone()))
+        .child(live_text(
+            "live",
+            Some(SharedString::from(text.clone())),
+            Priority::High,
+        ))
         .w_full()
         .flex()
         .items_center()

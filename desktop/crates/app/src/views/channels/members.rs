@@ -9,6 +9,7 @@
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::with_alpha;
 use conduit_components::views::kit::{Button, IconButton, avatar};
@@ -731,7 +732,8 @@ impl Render for MembersSheet {
                         .role(Role::Alert)
                         .text_size(px(m.small))
                         .text_color(r.danger)
-                        .child(SharedString::from(e)),
+                        .child(SharedString::from(e.clone()))
+                        .child(live_text("live", Some(e.into()), Priority::High)),
                 )
             })
             .child(

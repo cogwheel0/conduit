@@ -24,6 +24,7 @@ pub mod new_calendar;
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::with_alpha;
 use conduit_components::views::focus::{ControlExt as _, Ring};
@@ -354,6 +355,10 @@ impl CalendarPane {
             (false, Some(i)) => i.saturating_sub(1),
         };
         let (row, key, day) = items[next].clone();
+        // The pane has the keyboard, not the row: say which.
+        if let Some(item) = agenda.days[day].items.iter().find(|i| i.key == key) {
+            crate::views::a11y::announce_row(&item.title, next, items.len(), cx);
+        }
         self.selected = Some((key, day));
         self.scroll
             .scroll_to_item(row, gpui_kit::ScrollStrategy::Nearest);
@@ -623,7 +628,7 @@ impl CalendarPane {
                     .child(
                         heading(
                             "calendar-range",
-                            SharedString::from(range),
+                            SharedString::from(range.clone()),
                             2,
                             t.metrics.body + 3.,
                             FontWeight::SEMIBOLD,
@@ -631,6 +636,13 @@ impl CalendarPane {
                         )
                         .truncate(),
                     )
+                    // The range is heard as the arrows move it, as the
+                    // phone's header is.
+                    .child(live_text(
+                        "calendar-range-live",
+                        (!range.is_empty()).then(|| range.into()),
+                        Priority::Medium,
+                    ))
                     .when(paging, |d| {
                         d.child(
                             div()

@@ -18,6 +18,7 @@ use std::time::Duration;
 
 use chrono::Local;
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::ConduitTheme;
 use conduit_components::views::kit::{Button, ClickHandler, IconButton, bare_input, field_frame};
@@ -735,6 +736,12 @@ impl Render for NotesList {
                 .justify_center()
                 .text_color(r.text_subtle)
                 .child(l.loading_notes())
+                // Said aloud, as the phone's loading state is.
+                .child(live_text(
+                    "notes-loading",
+                    Some(l.loading_notes().into()),
+                    Priority::Medium,
+                ))
                 .into_any_element()
         } else if empty {
             let (title, hint) = if searching {

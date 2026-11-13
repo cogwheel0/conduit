@@ -416,6 +416,19 @@ impl ChatPane {
                     ChatComposerEvent::Stop => this.stop(cx),
                     ChatComposerEvent::Temporary(on) => {
                         let on = *on;
+                        // Said aloud, as the phone says it when it turns on
+                        // (and the counterpart when it turns off): the
+                        // switch's own state is all VoiceOver reads else.
+                        let said = if on {
+                            cx.l10n().temporary_chat_tooltip()
+                        } else {
+                            cx.l10n().desktop_announce_temporary_off()
+                        };
+                        conduit_components::announce::announce(
+                            said,
+                            conduit_components::announce::Priority::Medium,
+                            cx,
+                        );
                         this.temporary_chosen = true;
                         this.temporary_hand_chosen = true;
                         // The same new chat, in its folder, with the

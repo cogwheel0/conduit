@@ -34,7 +34,7 @@ use crate::views::terminal::pane::TerminalPane;
 pub const SERVER: &str = "buildbox";
 
 /// The pane of the Build box, once opened.
-fn pane(cx: &mut App) -> Option<Entity<TerminalPane>> {
+pub(super) fn pane(cx: &mut App) -> Option<Entity<TerminalPane>> {
     let view = cx.try_global::<AppState>()?.main_view.clone()?;
     view.read(cx).area_pane.read(cx).shown_terminal(cx)
 }

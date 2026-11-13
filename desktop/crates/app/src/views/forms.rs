@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::with_alpha;
 use conduit_components::views::kit::{Button, ClickHandler, IconButton, bare_input, field_frame};
@@ -361,6 +362,8 @@ fn field_with(
                 div()
                     .id(help_id)
                     .when(error.is_some(), |d| d.role(Role::Alert))
+                    // Heard when it appears, as the phone's field errors.
+                    .child(live_text("live", error.clone(), Priority::High))
                     .text_size(px(m.small))
                     .line_height(relative(1.35))
                     .text_color(if error.is_some() {
@@ -418,10 +421,12 @@ pub fn form_error(
                 .child(icon(IconName::CircleAlert, 14., color)),
         )
         // Wraps rather than running past the form's edge.
-        .child(div().flex_1().min_w_0().child(message))
+        .child(div().flex_1().min_w_0().child(message.clone()))
+        .child(live_text("live", Some(message), Priority::High))
 }
 
-/// A status line under a form (a test result, "Saved").
+/// A status line under a form (a test result, "Saved"), announced when it
+/// appears or changes.
 pub fn form_note(message: impl Into<SharedString>, ok: bool, cx: &App) -> gpui_kit::Stateful<Div> {
     let t = cx.conduit().clone();
     let r = t.roles;
@@ -430,6 +435,7 @@ pub fn form_note(message: impl Into<SharedString>, ok: bool, cx: &App) -> gpui_k
     } else {
         r.text_subtle
     };
+    let message = message.into();
     div()
         .id("form-note")
         .role(Role::Status)
@@ -439,7 +445,8 @@ pub fn form_note(message: impl Into<SharedString>, ok: bool, cx: &App) -> gpui_k
         .text_size(px(t.metrics.small))
         .text_color(color)
         .when(ok, |d| d.child(icon(IconName::CircleCheck, 13., color)))
-        .child(message.into())
+        .child(message.clone())
+        .child(live_text("live", Some(message), Priority::Medium))
 }
 
 /// The URL a user typed, as the daemon takes it: an absolute http(s) URL

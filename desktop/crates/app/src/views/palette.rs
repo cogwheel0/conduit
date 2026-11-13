@@ -170,12 +170,20 @@ impl PaletteView {
         self.stores.palette.update(cx, |p, cx| p.set_query(q, cx));
     }
 
-    /// Moves the highlight.
+    /// Moves the highlight, and says where it landed (VoiceOver; the query
+    /// field keeps focus).
     pub fn step(&mut self, down: bool, cx: &mut Context<Self>) {
         let count = self.entries.len();
         self.stores
             .palette
             .update(cx, |p, cx| p.move_selection(down, count, cx));
+        let index = self.stores.palette.read(cx).index;
+        let label = match self.entries.get(index) {
+            Some(PaletteEntry::Chat { title, .. }) => title.clone(),
+            Some(PaletteEntry::Command(c)) => c.label.clone(),
+            None => return,
+        };
+        super::a11y::announce_row(&label, index, count, cx);
     }
 
     /// Opens row `index` (a chat, or runs a command) and closes.

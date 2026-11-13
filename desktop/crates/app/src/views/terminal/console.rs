@@ -163,7 +163,8 @@ pub fn palette(t: &ConduitTheme) -> Palette {
     } else {
         [
             0x1d1d1f, 0xc4262e, 0x1d7f3a, 0x946200, 0x0a55b0, 0x8250c8, 0x167a85, 0x6e6e73,
-            0x5a5a5f, 0xe0393f, 0x2a9e4c, 0xb57a00, 0x1a6fd6, 0xa16ae8, 0x2193a0, 0x3a3a3c,
+            // The bright colours as dark as AA (4.5:1) on white needs.
+            0x5a5a5f, 0xde2e34, 0x248640, 0x9e6b00, 0x1a6fd6, 0x9252e4, 0x1d808b, 0x3a3a3c,
         ]
     };
     Palette {
@@ -176,7 +177,8 @@ pub fn palette(t: &ConduitTheme) -> Palette {
 
 impl Console {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        let focus = cx.focus_handle();
+        // A stop for Tab, as a text view is; inside, Tab is the shell's.
+        let focus = cx.focus_handle().tab_stop(true);
         Self {
             emulator: Emulator::new(GridSize { cols: 80, rows: 24 }),
             focus,
@@ -1162,6 +1164,17 @@ fn context_menu(
         .show(position, window, cx);
 }
 
+/// The chords that leave the console, whose Tab is the shell's: Go › Move
+/// Focus to Next Area and Previous Area, as menus write them (⌥⌘`, ⌥⌘~).
+pub fn leave_keys() -> (String, String) {
+    use crate::keymap::{FixedCommand, describe, fixed_stroke};
+    let mac = cfg!(target_os = "macos");
+    (
+        describe(&fixed_stroke(FixedCommand::NextArea), mac),
+        describe(&fixed_stroke(FixedCommand::PreviousArea), mac),
+    )
+}
+
 /// The console as an element: the grid, with the pointer and keys wired to
 /// `console`.
 pub fn view(
@@ -1178,10 +1191,14 @@ pub fn view(
     let wheel = console.clone();
     use crate::l10n::ActiveL10n as _;
     let label = cx.l10n().terminal();
+    // VoiceOver's help on it: Tab is the shell's here, so which keys leave.
+    let (next, previous) = leave_keys();
+    let help = cx.l10n().desktop_terminal_keys_help(&next, &previous);
     div()
         .id("terminal-console")
         .role(gpui_kit::Role::Terminal)
         .aria_label(SharedString::from(label))
+        .aria_description(SharedString::from(help))
         .key_context(CONSOLE_CONTEXT)
         .track_focus(&focus)
         .size_full()
@@ -1238,3 +1255,39 @@ pub fn view(
 /// How long a console waits before taking a burst of output as finished,
 /// for the E2E's "the output arrived" checks.
 pub const SETTLE: Duration = Duration::from_millis(150);
+
+#[cfg(test)]
+mod contrast_tests {
+    use conduit_components::theme::{ConduitTheme, DesignPrefs, contrast_ratio};
+
+    use super::*;
+
+    /// Text in every ANSI colour reads at WCAG AA (4.5:1) on the console's
+    /// background in light and dark, but the one colour a palette means
+    /// as a background: black on dark (ANSI 0), whose text would be a
+    /// background-on-background.
+    #[test]
+    fn ansi_text_meets_wcag_aa_on_the_console_in_both_modes() {
+        let mut low = vec![];
+        for dark in [false, true] {
+            let t = ConduitTheme::new("conduit", dark, DesignPrefs::default(), gpui_kit::black());
+            let p = palette(&t);
+            let bg = hsla(p.background);
+            let fg = contrast_ratio(hsla(p.foreground), bg);
+            assert!(fg >= 4.5, "dark={dark}: foreground {fg:.2}");
+            for (i, c) in p.ansi.iter().enumerate() {
+                if dark && i == 0 {
+                    continue;
+                }
+                let r = contrast_ratio(hsla(*c), bg);
+                if r < 4.5 {
+                    low.push(format!(
+                        "dark={dark}: ANSI {i} {c:?} on {:?} is {r:.2}:1",
+                        p.background
+                    ));
+                }
+            }
+        }
+        assert!(low.is_empty(), "{low:#?}");
+    }
+}

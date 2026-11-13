@@ -48,6 +48,35 @@ pub enum RemoteCommand {
 /// transcript's highlight).
 pub struct SpeechChanged;
 
+/// A Pause or Resume the user asked for, said to VoiceOver once the
+/// reading is so: the daemon's answer, or a later `speech.changed`, shows
+/// it paused (or speaking again). The status follows the commands: a
+/// desktop reading is marked paused from the Pause request itself, and
+/// speaking again once the voice answered Resume, so `speech.resume`'s own
+/// answer may still say paused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Said {
+    Paused,
+    Resumed,
+}
+
+impl Said {
+    /// Whether a reading in `status` did what was asked.
+    pub fn reached(self, status: SpeechStatus) -> bool {
+        match self {
+            Self::Paused => status == SpeechStatus::Paused,
+            Self::Resumed => status == SpeechStatus::Speaking,
+        }
+    }
+
+    /// Whether a reading in `status` can no longer get there: it stopped
+    /// or failed. (A Resume answered while still paused is waiting for the
+    /// voice; a Pause or Resume asked for after replaces it.)
+    pub fn abandoned(self, status: SpeechStatus) -> bool {
+        matches!(status, SpeechStatus::Idle | SpeechStatus::Error)
+    }
+}
+
 /// What a reading does when dictation starts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DictationYield {
@@ -75,6 +104,8 @@ pub struct SpeechStore {
     sentences: Vec<String>,
     sentences_of: i64,
     _sentences: Option<Task<()>>,
+    /// A Pause or Resume asked for and not yet reached, with its reading.
+    say: Option<(Said, i64)>,
 
     voice: Voice,
     queue: ClipQueue,
@@ -114,6 +145,7 @@ impl SpeechStore {
             sentences: vec![],
             sentences_of: -1,
             _sentences: None,
+            say: None,
             voice: Voice::new(tx, muted),
             queue: ClipQueue::new(speech_engine::clip_loader(muted)),
             commands: VecDeque::new(),
@@ -184,14 +216,32 @@ impl SpeechStore {
         self.adopt(call, cx);
     }
 
+    /// Pause (the bar, the media keys, another chat opening): VoiceOver
+    /// hears "Reading paused" once the reading is.
     pub fn pause(&mut self, cx: &mut Context<Self>) {
+        self.expect(Said::Paused);
+        self.pause_quietly(cx);
+    }
+
+    /// Pause without a word: dictation starting, whose microphone would
+    /// hear VoiceOver say it.
+    fn pause_quietly(&mut self, cx: &mut Context<Self>) {
         let call = self.rpc.call::<methods::SpeechPause>(&NoParams {});
         self.adopt(call, cx);
     }
 
+    /// Resume: VoiceOver hears "Reading resumed" once it speaks again.
     pub fn resume(&mut self, cx: &mut Context<Self>) {
+        self.expect(Said::Resumed);
         let call = self.rpc.call::<methods::SpeechResume>(&NoParams {});
         self.adopt(call, cx);
+    }
+
+    /// Keeps what a Pause or Resume will say, when the reading is not so
+    /// already (a second Pause says nothing).
+    fn expect(&mut self, said: Said) {
+        self.say = (self.is_active() && !said.reached(self.progress.status))
+            .then_some((said, self.progress.reading));
     }
 
     /// Play/Pause: resumes a paused reading, pauses one that speaks.
@@ -209,7 +259,10 @@ impl SpeechStore {
     /// loading stops.
     pub fn yield_to_dictation(&mut self, cx: &mut Context<Self>) {
         match yield_for_dictation(self.progress.status) {
-            Some(DictationYield::Pause) => self.pause(cx),
+            Some(DictationYield::Pause) => {
+                self.say = None;
+                self.pause_quietly(cx)
+            }
             Some(DictationYield::Stop) => self.stop(cx),
             None => {}
         }
@@ -339,6 +392,24 @@ impl SpeechStore {
             }));
         }
         self.progress = progress;
+        if let Some((said, reading)) = self.say {
+            let status = self.progress.status;
+            if self.progress.reading != reading || said.abandoned(status) {
+                self.say = None;
+            } else if said.reached(status) {
+                self.say = None;
+                use crate::l10n::ActiveL10n as _;
+                let text = match said {
+                    Said::Paused => cx.l10n().desktop_reading_paused(),
+                    Said::Resumed => cx.l10n().desktop_reading_resumed(),
+                };
+                conduit_components::announce::announce(
+                    text,
+                    conduit_components::announce::Priority::Medium,
+                    cx,
+                );
+            }
+        }
         crate::shell::now_playing::update(&self.progress, self.sentences());
         cx.emit(SpeechChanged);
         cx.notify();
@@ -622,6 +693,21 @@ pub fn wire(stores: &Stores, cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pause_or_resume_is_said_once_the_reading_is_so() {
+        use SpeechStatus as S;
+        // Pause: said when paused; kept while loading; dropped once the
+        // reading stopped or failed.
+        assert!(Said::Paused.reached(S::Paused) && !Said::Paused.reached(S::Speaking));
+        assert!(!Said::Paused.abandoned(S::Loading) && !Said::Paused.abandoned(S::Speaking));
+        assert!(Said::Paused.abandoned(S::Idle) && Said::Paused.abandoned(S::Error));
+        // Resume: said once it speaks; its own answer may still say paused
+        // (the voice answers after), and a server clip may load first.
+        assert!(Said::Resumed.reached(S::Speaking) && !Said::Resumed.reached(S::Paused));
+        assert!(!Said::Resumed.abandoned(S::Paused) && !Said::Resumed.abandoned(S::Loading));
+        assert!(Said::Resumed.abandoned(S::Idle) && Said::Resumed.abandoned(S::Error));
+    }
 
     #[test]
     fn dictation_pauses_a_reading_that_speaks_and_stops_one_starting() {

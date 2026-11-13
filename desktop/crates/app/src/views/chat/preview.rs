@@ -558,6 +558,12 @@ mod macos {
     impl PreviewWindow {
         fn copy(&mut self, cx: &mut Context<Self>) {
             cx.write_to_clipboard(ClipboardItem::new_string(self.opened.code.clone()));
+            let said = cx.l10n().desktop_code_copied();
+            conduit_components::announce::announce(
+                said,
+                conduit_components::announce::Priority::Medium,
+                cx,
+            );
             self.copied = true;
             self._reset = Some(cx.spawn(async move |this: WeakEntity<Self>, cx| {
                 cx.background_executor()

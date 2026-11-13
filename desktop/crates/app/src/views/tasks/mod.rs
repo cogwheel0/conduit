@@ -407,6 +407,8 @@ impl TasksPane {
                 self.scroll
                     .scroll_to_item(next, gpui_kit::ScrollStrategy::Nearest);
                 self.select(&items[next].id.clone(), cx);
+                // The pane has the keyboard, not the row: say which.
+                crate::views::a11y::announce_row(&items[next].name, next, items.len(), cx);
                 true
             }
             "backspace" | "delete" if m.platform && !(m.alt || m.control || m.shift) => {

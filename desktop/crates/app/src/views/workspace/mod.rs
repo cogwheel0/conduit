@@ -29,6 +29,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::with_alpha;
 use conduit_components::views::focus::{ControlExt as _, Ring};
@@ -1047,6 +1048,9 @@ impl WorkspacePane {
                     let id = shown[next].id.clone();
                     self.scroll
                         .scroll_to_item(next, gpui_kit::ScrollStrategy::Nearest);
+                    // The pane has the keyboard, not the row: say which.
+                    let name = display_name(&shown[next]);
+                    crate::views::a11y::announce_row(&name, next, shown.len(), cx);
                     self.open(id, window, cx);
                 }
                 true
@@ -1689,7 +1693,17 @@ impl WorkspacePane {
                 .text_center()
                 .text_size(px(t.metrics.control))
                 .text_color(r.text_subtle)
-                .child(text)
+                .child(text.clone())
+                // Loading, then what came: said as the phone's gate says it.
+                .child(live_text(
+                    "live",
+                    Some(text.into()),
+                    if retry {
+                        Priority::High
+                    } else {
+                        Priority::Medium
+                    },
+                ))
                 .when(retry, |d| {
                     d.child(
                         conduit_components::views::kit::Button::new(

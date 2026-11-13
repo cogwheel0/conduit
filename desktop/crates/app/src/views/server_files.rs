@@ -118,9 +118,15 @@ impl ServerFilesPicker {
     }
 
     /// ↑ or ↓ (`up`, `down`) through the rows.
+    /// Moves the highlight, and says where it landed (VoiceOver; the
+    /// search field keeps focus).
     pub fn step(&mut self, key: &str, cx: &mut Context<Self>) {
         let len = self.files().len();
         self.highlighted = crate::views::chat::composer::menu_step(key, self.highlighted, len);
+        if let Some(file) = self.files().get(self.highlighted) {
+            let name = file.name.clone();
+            crate::views::a11y::announce_row(&name, self.highlighted, len, cx);
+        }
         cx.notify();
     }
 
