@@ -132,7 +132,7 @@ pub enum ComposerMenu {
 pub type MenuRows = Vec<(Option<String>, String)>;
 
 /// One row of the + menu.
-enum PlusRow {
+pub(crate) enum PlusRow {
     Item {
         label: String,
         disabled: bool,
@@ -1929,17 +1929,65 @@ impl ChatComposer {
             .unwrap_or_else(|| cx.l10n().desktop_shortcut_focus_model_picker())
     }
 
-    /// The + menu, in mobile's sections: attachments (Attach Files…, Server
-    /// Files…, Web Page…, MCP Content…), the features (Web Search, Image
-    /// Generation, Code Interpreter, Compare Models…, Save as Note), then
-    /// Tools and Filters under their headings. Switches show a check while
-    /// on.
+    /// The + menu, in mobile's sections: attachments (Attach Files…,
+    /// Continuity Camera's place, Server Files…, Web Page…, MCP
+    /// Content…), the features (Web Search, Image Generation, Code
+    /// Interpreter, Compare Models…, Save as Note), then Tools (the
+    /// server's, the personal tool servers, the Direct MCP servers,
+    /// LibreChat's), Filters and Terminal under their headings. Switches
+    /// show a check while on. AppKit shows it on macOS (with Continuity
+    /// Camera's items), GPUI Kit's native menu elsewhere: both from
+    /// [`Self::plus_rows`].
     pub(crate) fn show_plus_menu(
         &mut self,
         position: gpui_kit::Point<gpui_kit::Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let rows = self.plus_rows(window, cx);
+        // The menu's action goes to the focused element's path: keep focus
+        // in the composer so its handler hears it.
+        self.focus_input(window, cx);
+        // The entries as drawn, to measure the menu (`None`: a separator).
+        let entries: Vec<Option<String>> = rows
+            .iter()
+            .filter_map(|r| match r {
+                PlusRow::Item { label, .. } => Some(Some(label.clone())),
+                PlusRow::Separator => Some(None),
+                PlusRow::ImportFromDevice => None,
+            })
+            .collect();
+        let origin = self.plus_menu_origin(&entries, position);
+        #[cfg(target_os = "macos")]
+        self.show_plus_rows(rows, origin, window, cx);
+        #[cfg(not(target_os = "macos"))]
+        {
+            use gpui_kit::component::native_menu::NativeMenu;
+            let mut menu = NativeMenu::new();
+            for row in rows {
+                menu = match row {
+                    PlusRow::Item {
+                        label,
+                        disabled,
+                        checked: Some(on),
+                        action,
+                    } if !disabled => menu.menu_with_check(label, on, Box::new(action)),
+                    PlusRow::Item {
+                        label,
+                        disabled,
+                        action,
+                        ..
+                    } => menu.menu_with_disabled(label, disabled, Box::new(action)),
+                    PlusRow::Separator => menu.separator(),
+                    PlusRow::ImportFromDevice => menu,
+                };
+            }
+            menu.show(origin, window, cx);
+        }
+    }
+
+    /// The + menu's rows, in order (see [`Self::show_plus_menu`]).
+    pub(crate) fn plus_rows(&self, window: &Window, cx: &App) -> Vec<PlusRow> {
         let l10n = cx.l10n().clone();
         let has_text = !self.text(cx).trim().is_empty();
         let store = self.composer.read(cx);
@@ -2177,45 +2225,7 @@ impl ChatComposer {
                 );
             }
         }
-        // The menu's action goes to the focused element's path: keep focus
-        // in the composer so its handler hears it.
-        self.focus_input(window, cx);
-        // The entries as drawn, to measure the menu (`None`: a separator).
-        let entries: Vec<Option<String>> = rows
-            .iter()
-            .filter_map(|r| match r {
-                PlusRow::Item { label, .. } => Some(Some(label.clone())),
-                PlusRow::Separator => Some(None),
-                PlusRow::ImportFromDevice => None,
-            })
-            .collect();
-        let origin = self.plus_menu_origin(&entries, position);
-        #[cfg(target_os = "macos")]
-        self.show_plus_rows(rows, origin, window, cx);
-        #[cfg(not(target_os = "macos"))]
-        {
-            use gpui_kit::component::native_menu::NativeMenu;
-            let mut menu = NativeMenu::new();
-            for row in rows {
-                menu = match row {
-                    PlusRow::Item {
-                        label,
-                        disabled,
-                        checked: Some(on),
-                        action,
-                    } if !disabled => menu.menu_with_check(label, on, Box::new(action)),
-                    PlusRow::Item {
-                        label,
-                        disabled,
-                        action,
-                        ..
-                    } => menu.menu_with_disabled(label, disabled, Box::new(action)),
-                    PlusRow::Separator => menu.separator(),
-                    PlusRow::ImportFromDevice => menu,
-                };
-            }
-            menu.show(origin, window, cx);
-        }
+        rows
     }
 
     /// The + menu built by the app (AppKit's NSMenu), with Continuity

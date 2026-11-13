@@ -45,8 +45,8 @@ pub const MESSAGES: usize = 10_000;
 pub const ANSWER_CHARS: usize = 32 * 1024;
 
 /// A daemon that answers from memory.
-struct FixtureDaemon {
-    chat: Value,
+pub(crate) struct FixtureDaemon {
+    pub(crate) chat: Value,
 }
 
 impl Daemon for FixtureDaemon {
@@ -90,7 +90,7 @@ impl Daemon for FixtureDaemon {
     }
 }
 
-fn text_block(markdown: String) -> conduit_protocol::MessageBlockDto {
+pub(crate) fn text_block(markdown: String) -> conduit_protocol::MessageBlockDto {
     conduit_protocol::MessageBlockDto {
         markdown: Some(markdown),
         ..empty_block(conduit_protocol::MessageBlockKind::Text)
@@ -406,12 +406,15 @@ fn ticker(store: Entity<ChatStore>, cx: &mut App) {
     .detach();
 }
 
-/// Runs the fixture: `mode` is `perf` or `a11y`.
+/// Runs the fixture: `mode` is `perf`, `diagrams` or `a11y`.
 pub fn run(mode: String, shots: Option<PathBuf>, cx: &mut App) {
     // English labels whatever the Mac's languages: the AccessKit test reads
     // them, as the shell fixture's does.
     cx.set_global(crate::l10n::L10n::new("en"));
     crate::install_component_strings(cx);
+    if mode == "diagrams" {
+        return crate::diagram_fixture::run(shots, cx);
+    }
     let rpc = Rpc::new(FixtureDaemon { chat: chat_value() });
     let subscribe: Subscribe = Rc::new(|_, _| {});
     let store = cx.new(|cx| ChatStore::new(rpc.clone(), subscribe, "fixture".into(), cx));

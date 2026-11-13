@@ -498,6 +498,8 @@ pub enum AreaKey {
     TerminalSelectAll,
     /// ⌥⌘K in the console, as Terminal's Clear Scrollback.
     TerminalClearScrollback,
+    /// ⌘S in the window of a PDF a terminal shows: Save….
+    SavePdf,
     /// ⌘↩ in a Group Chat's field: sends, whatever Return is set to do.
     SendInRoom,
     /// ⌘↩ in the scheduled agent sheet.
@@ -520,7 +522,8 @@ impl AreaKey {
             | A::TerminalCopy
             | A::TerminalPaste
             | A::TerminalSelectAll
-            | A::TerminalClearScrollback => KeyGroup::Terminal,
+            | A::TerminalClearScrollback
+            | A::SavePdf => KeyGroup::Terminal,
             A::SendInRoom => KeyGroup::HermesRooms,
             A::SaveHermesJob => KeyGroup::HermesJobs,
             _ => KeyGroup::Notes,
@@ -563,6 +566,7 @@ pub fn area_shortcuts() -> Vec<(AreaKey, KeyStroke)> {
         (A::TerminalPaste, k("v").primary()),
         (A::TerminalSelectAll, k("a").primary()),
         (A::TerminalClearScrollback, k("k").primary().alt()),
+        (A::SavePdf, k("s").primary()),
         (A::SendInRoom, k("enter").primary()),
         (A::SaveHermesJob, k("enter").primary()),
     ]
@@ -607,7 +611,8 @@ pub enum KeyGroup {
     Calendar,
     /// Delete and Save, in Scheduled Tasks.
     ScheduledTasks,
-    /// Find, the Edit menu's commands and Clear Scrollback, in a terminal.
+    /// Find, the Edit menu's commands and Clear Scrollback, in a terminal;
+    /// Save… in the window of a PDF it shows.
     Terminal,
     /// Send, in a Hermes Group Chat.
     HermesRooms,
@@ -1129,9 +1134,10 @@ mod tests {
             assert_eq!(n, 1, "{key:?}");
         }
         // 15 rebindable, 18 fixed (⌘1…⌘8 as one row), Quick Ask, 16 in
-        // Notes, Workspace's Save, 5 in the terminal, 5 in Calendar, 2 in
-        // Scheduled Tasks, a room's Send and a scheduled agent's Save.
-        assert_eq!(rows.len(), 66);
+        // Notes, Workspace's Save, 6 in the terminal (its PDF window's Save
+        // among them), 5 in Calendar, 2 in Scheduled Tasks, a room's Send
+        // and a scheduled agent's Save.
+        assert_eq!(rows.len(), 67);
         // One area's keys share no chord among themselves (areas may: only
         // the one in front takes its keys); where one is a fixed command's
         // too (⌘I Chat Settings), Notes takes it only in its own contexts.
@@ -1176,6 +1182,12 @@ mod tests {
             area_stroke(AreaKey::TerminalFind),
             fixed_stroke(FixedCommand::FindInChat)
         );
+        // A terminal's PDF window saves with ⌘S, as an editor does; no
+        // command takes ⌘S everywhere.
+        let save_pdf = area_stroke(AreaKey::SavePdf);
+        assert_eq!(describe(&save_pdf, true), "⌘S");
+        assert_eq!(fixed_conflict(&save_pdf, None), None);
+        assert!(default_shortcuts().iter().all(|s| s.stroke != save_pdf));
         assert_eq!(shown(AreaKey::SendInRoom), "⌘↩");
         assert_eq!(shown(AreaKey::SaveHermesJob), "⌘↩");
         // Start Voice Call takes no chord the menus have.

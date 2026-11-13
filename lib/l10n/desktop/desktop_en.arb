@@ -4629,7 +4629,7 @@
   "@desktopKeyboardTasksFooter": {
     "description": "Settings › Keyboard: footer under the Scheduled Tasks group, whose keys work only in the Scheduled Tasks pane (Delete on the selected task; Save in the task editor). Sentence case."
   },
-  "desktopKeyboardTerminalFooter": "These work in a terminal: Find searches its output, and Clear Scrollback clears the history above the screen.",
+  "desktopKeyboardTerminalFooter": "These work in a terminal: Find searches its output, and Clear Scrollback clears the history above the screen. In a PDF the terminal shows, Save… keeps a copy.",
   "@desktopKeyboardTerminalFooter": {
     "description": "Settings › Keyboard: footer under the Terminal group, whose keys work only in a terminal's console (Find opens its own Find bar; Clear Scrollback, ⌥⌘K as in Terminal, clears the lines scrolled off above the screen). Sentence case."
   },
@@ -4765,6 +4765,82 @@
   "@desktopImageLoadFailed": {
     "description": "Under the file name on the tile shown in place of an image in a message that could not be loaded, beside a Retry button."
   },
+  "desktopOpenImageMenu": "Open Image",
+  "@desktopOpenImageMenu": {"description": "Context menu item on a picture in an answer: shows it in the image viewer. Title Case."},
+  "desktopImageName": "Image",
+  "@desktopImageName": {"description": "A picture's name when its address and alt text give none (its viewer window's title, Save Image's file name)."},
+  "desktopCopyImage": "Copy Image",
+  "@desktopCopyImage": {"description": "Context menu item on a picture in an answer: puts the picture on the clipboard. Title Case."},
+  "desktopSaveImage": "Save Image…",
+  "@desktopSaveImage": {"description": "Context menu item on a picture in an answer: a save panel for the picture. Title Case, with an ellipsis."},
+  "desktopAlwaysLoadImagesFrom": "Always Load Images from {host}",
+  "@desktopAlwaysLoadImagesFrom": {"description": "Menu item on a picture from another site: from now on every picture from that site ({host}, e.g. pictures.example.org) loads without a click. Title Case.", "placeholders": {"host": {"type": "String"}}},
+  "desktopImageLoading": "Loading",
+  "@desktopImageLoading": {"description": "Spoken description of a picture in an answer while it loads."},
+  "desktopImageTooLarge": "This image is too large to load.",
+  "@desktopImageTooLarge": {"description": "Under a picture's name when the picture from another site is larger than Conduit loads."},
+  "desktopImageNotAnImage": "This link isn't an image.",
+  "@desktopImageNotAnImage": {"description": "Under a picture's name when its address answered with something that is not a picture (a web page)."},
+  "desktopRemoteImageFrom": "Image from {host}",
+  "@desktopRemoteImageFrom": {"description": "Title of the placeholder for a picture from another site that has not been loaded ({host}, e.g. pictures.example.org).", "placeholders": {"host": {"type": "String"}}},
+  "desktopRemoteImageLabel": "Remote image from {host}, not loaded",
+  "@desktopRemoteImageLabel": {"description": "What VoiceOver says for the placeholder of a picture from another site that has not been loaded; the picture's alt text may follow.", "placeholders": {"host": {"type": "String"}}},
+  "desktopLoadImage": "Load Image",
+  "@desktopLoadImage": {"description": "Button (and menu item) on the placeholder of a picture from another site: loads that one picture. Title Case."},
+  "desktopImageOptions": "Image Options",
+  "@desktopImageOptions": {"description": "Tooltip and VoiceOver name of the small menu button beside Load Image. Title Case."},
+  "desktopDiagram": "Diagram",
+  "@desktopDiagram": {"description": "What a Mermaid diagram drawn in an answer is called (VoiceOver, its block's name)."},
+  "desktopChart": "Chart",
+  "@desktopChart": {"description": "What a chart drawn in an answer is called (VoiceOver, its block's name)."},
+  "desktopShowCode": "Show Code",
+  "@desktopShowCode": {"description": "Button on a diagram or chart drawn in an answer: shows its code under the picture. Title Case."},
+  "desktopHideCode": "Hide Code",
+  "@desktopHideCode": {"description": "The same button while the code shows: hides it again. Title Case."},
+  "desktopOpenInPreview": "Open in Preview",
+  "@desktopOpenInPreview": {"description": "Button on a diagram or chart drawn in an answer: opens it larger in Conduit's sandboxed Preview window. Title Case."},
+  "desktopDiagramDrawing": "{kind}, drawing…",
+  "@desktopDiagramDrawing": {"description": "What VoiceOver says while a diagram or chart ({kind}: Diagram or Chart) is being drawn.", "placeholders": {"kind": {"type": "String"}}},
+  "desktopDiagramFailed": "Couldn't draw this diagram, so its code is shown.",
+  "@desktopDiagramFailed": {"description": "Note above a Mermaid diagram's code when it could not be drawn (a syntax error)."},
+  "desktopChartFailed": "Couldn't draw this chart, so its code is shown.",
+  "@desktopChartFailed": {"description": "Note above a chart's code when it could not be drawn (not a chart configuration, or a script, which only Preview runs)."},
+  "desktopPdfDocument": "PDF Document",
+  "@desktopPdfDocument": {"description": "A PDF card's title when the link's text and address give no name."},
+  "desktopPdfNotLoaded": "PDF {title} from {host}, preview not loaded",
+  "@desktopPdfNotLoaded": {"description": "What VoiceOver says for a PDF card from another site whose preview has not been loaded ({title}: the card's title; {host}: the site).", "placeholders": {"title": {"type": "String"}, "host": {"type": "String"}}},
+  "desktopOpenPdf": "Open PDF: {title}",
+  "@desktopOpenPdf": {"description": "What VoiceOver says for a PDF card in an answer; a click opens it ({title}: the card's title).", "placeholders": {"title": {"type": "String"}}},
+  "desktopPdfPages": "{count, plural, =1{1 page} other{# pages}}",
+  "@desktopPdfPages": {"description": "A PDF card's page count, beside its title.", "placeholders": {"count": {"type": "int"}}},
+  "desktopLoadPreview": "Load Preview",
+  "@desktopLoadPreview": {"description": "Button on a PDF card from another site: loads that one PDF's preview. Title Case."},
+  "desktopAlwaysLoadPreviewsFrom": "Always Load Previews from {host}",
+  "@desktopAlwaysLoadPreviewsFrom": {"description": "Menu item on a PDF card from another site: from now on previews (and pictures) from that site ({host}) load without a click. Title Case.", "placeholders": {"host": {"type": "String"}}},
+  "desktopPdfFrom": "PDF from {host}",
+  "@desktopPdfFrom": {"description": "On a PDF card from another site whose preview has not been loaded ({host}, e.g. docs.example.org).", "placeholders": {"host": {"type": "String"}}},
+  "desktopPreviewOptions": "Preview Options",
+  "@desktopPreviewOptions": {"description": "Tooltip and VoiceOver name of the small menu button beside Load Preview. Title Case."},
+  "desktopPdfTooLarge": "This PDF is too large to preview.",
+  "@desktopPdfTooLarge": {"description": "In a PDF card's preview area when the PDF is larger than Conduit previews; a click still opens it."},
+  "desktopPdfPreviewFailed": "Couldn't load the preview.",
+  "@desktopPdfPreviewFailed": {"description": "In a PDF card's preview area when the preview could not be loaded, beside Try Again; a click still opens the PDF."},
+  "desktopOpenPdfMenu": "Open PDF",
+  "@desktopOpenPdfMenu": {"description": "Context menu item on a PDF card: opens the PDF (in its app or the browser). Title Case."},
+  "desktopRemoteContent": "Remote Content",
+  "@desktopRemoteContent": {"description": "Settings › Chats section header: the sites whose pictures and PDF previews load without a click. Title Case."},
+  "desktopRemoteContentFooter": "Images and PDF previews from these sites load automatically. Others wait until you load them.",
+  "@desktopRemoteContentFooter": {"description": "Footer under the Remote Content list in Settings › Chats when it lists sites."},
+  "desktopRemoteContentFooterEmpty": "Images and PDF previews from other sites wait until you load them. Sites you always load are listed here.",
+  "@desktopRemoteContentFooterEmpty": {"description": "Footer under the Remote Content list in Settings › Chats while it lists no sites."},
+  "desktopRemoteContentNone": "No Sites",
+  "@desktopRemoteContentNone": {"description": "The Remote Content list's only row while it lists no sites. Title Case."},
+  "desktopRemoveSite": "Remove",
+  "@desktopRemoveSite": {"description": "Button on a site's row in Settings › Chats › Remote Content: its pictures wait for a click again. Title Case."},
+  "desktopLiveUpdatesRetryFailed": "Live updates are still disconnected.",
+  "@desktopLiveUpdatesRetryFailed": {"description": "In the Live Updates popover after Retry, when the realtime connection is still down."},
+  "desktopConnectionSettings": "Connection Settings…",
+  "@desktopConnectionSettings": {"description": "Button in the Live Updates popover: opens Settings › Connection. Title Case, with an ellipsis."},
   "desktopPreviewHtmlTitle": "HTML Preview",
   "@desktopPreviewHtmlTitle": {
     "description": "Title of the window that previews an HTML (or SVG) code block from a message."
@@ -6175,9 +6251,9 @@
   "@desktopUsageSpeechRecognition": {
     "description": "macOS privacy prompt text (Info.plist NSSpeechRecognitionUsageDescription), shown by the system when Conduit first uses the Mac's own speech recognizer. 'On This Mac' is the speech-to-text choice in Settings › Audio; use the same words as that setting. Sentence case."
   },
-  "desktopUsageLocalNetwork": "Conduit uses your local network to connect to model providers and configured MCP tool servers.",
+  "desktopUsageLocalNetwork": "Conduit connects to servers on your local network that you add, such as Open WebUI, model providers and MCP tool servers.",
   "@desktopUsageLocalNetwork": {
-    "description": "macOS privacy prompt text (Info.plist NSLocalNetworkUsageDescription), shown by the system when Conduit first reaches a server on the local network (a self-hosted Open WebUI, a model provider, an MCP tool server). Same wording as the phone app's. Sentence case."
+    "description": "macOS privacy prompt text (Info.plist NSLocalNetworkUsageDescription), shown by the system when Conduit first reaches a server on the local network (a self-hosted Open WebUI, a model provider, an MCP tool server). The Mac's own wording: names Open WebUI, the main reason the Mac reaches the local network. Sentence case."
   },
   "desktopBackendAppleOnDeviceSubtitle": "Run Apple's private model on this Mac, even offline.",
   "@desktopBackendAppleOnDeviceSubtitle": {
@@ -6187,10 +6263,12 @@
   "@desktopHermesDashboardWindowTitle": {
     "description": "Title of the window a Hermes Desktop Gateway dashboard sign-in runs in."
   },
-  "desktopHermesDashboardHeadersUnsupported": "Dashboard sign-in can't send custom headers on this Mac. Use Hermes Sign-In, or remove the headers.",
+  "desktopHermesDashboardHeadersUnsupported": "Dashboard sign-in can't send custom headers on this Mac. Use a session token, or remove the headers.",
   "@desktopHermesDashboardHeadersUnsupported": {
     "description": "Shown in the Hermes connection editor when Dashboard sign-in is chosen for a connection with custom headers, which the sign-in window cannot send."
   },
+  "desktopHermesNativeHeadersUnsupported": "Hermes Sign-In can't send custom headers. Use a session token, or remove the headers.",
+  "@desktopHermesNativeHeadersUnsupported": {"description": "Note under Hermes Sign-In in a Hermes connection editor when access headers are set: the Mac's Hermes Sign-In (in the browser) cannot send them. Hermes Sign-In and Session Token are the names of two sign-in choices beside it."},
   "desktopHermesDashboardFailed": "Hermes sign-in could not be loaded.",
   "@desktopHermesDashboardFailed": {
     "description": "Shown in the Hermes connection editor when the dashboard sign-in window could not load or failed."

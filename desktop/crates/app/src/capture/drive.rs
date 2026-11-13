@@ -295,6 +295,21 @@ pub async fn click_with(
     );
 }
 
+/// A scroll wheel's turn of `dy` points at `at` (positive scrolls down).
+pub fn scroll(handle: AnyWindowHandle, at: Point<Pixels>, dy: f32, cx: &mut AsyncApp) {
+    dispatch(
+        handle,
+        PlatformInput::Scroll(gpui_kit::ScrollEvent {
+            position: at,
+            delta: gpui_kit::ScrollDelta::Pixels(point(px(0.), px(-dy))),
+            modifiers: Modifiers::default(),
+            touch_phase: gpui_kit::TouchPhase::Moved,
+            source: Default::default(),
+        }),
+        cx,
+    );
+}
+
 /// A click: hover, press, release.
 pub async fn click(handle: AnyWindowHandle, at: Point<Pixels>, cx: &mut AsyncApp) {
     hover(handle, at, cx);

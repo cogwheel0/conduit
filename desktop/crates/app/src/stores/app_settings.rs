@@ -28,6 +28,11 @@ pub struct AppSettingsStore {
     /// The daemon has answered at least once since connecting.
     pub loaded: bool,
     pub health: Option<ConnectionHealth>,
+    /// Live Updates › Retry is trying to reconnect.
+    pub reconnecting: bool,
+    /// The last Retry ended still disconnected (until the next one, or the
+    /// connection comes back).
+    pub reconnect_failed: bool,
     /// Why the last change was refused, until the next one.
     pub error: Option<RpcError>,
     generation: u64,
@@ -77,11 +82,43 @@ impl AppSettingsStore {
             settings: desktop_defaults(),
             loaded: false,
             health: None,
+            reconnecting: false,
+            reconnect_failed: false,
             error: None,
             generation: 0,
             _fetch: None,
             _health: None,
         }
+    }
+
+    /// Live Updates › Retry: asks the daemon to reconnect the realtime
+    /// socket now (`data.reconnect`), as the phone's button does.
+    pub fn reconnect(&mut self, cx: &mut Context<Self>) {
+        if self.reconnecting {
+            return;
+        }
+        self.reconnecting = true;
+        self.reconnect_failed = false;
+        cx.notify();
+        let call = self.rpc.call::<methods::DataReconnect>(&NoParams);
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| {
+                s.reconnecting = false;
+                match result {
+                    Ok(health) => {
+                        s.reconnect_failed = health.available && !health.connected;
+                        s.health = Some(health);
+                    }
+                    Err(e) => {
+                        log::debug!("data.reconnect: {e}");
+                        s.reconnect_failed = true;
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// The settings as the daemon has them.
@@ -175,7 +212,12 @@ impl AppSettingsStore {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
                     match result {
-                        Ok(health) => s.health = Some(health),
+                        Ok(health) => {
+                            if health.connected {
+                                s.reconnect_failed = false;
+                            }
+                            s.health = Some(health);
+                        }
                         Err(e) => log::debug!("data.connection: {e}"),
                     }
                     cx.notify();

@@ -250,6 +250,12 @@ pub struct Preferences {
     pub shortcuts: BTreeMap<String, String>,
     /// Menu bar, open at login, Quick Ask, notifications.
     pub desktop: DesktopPrefs,
+    /// Sites whose pictures (and PDF previews) in answers load without a
+    /// click, by host: Always Load Images from … adds one, Settings › Chats
+    /// lists and removes them. Lower case, sorted, no repeats. App-wide,
+    /// not per account: a site is trusted or not whichever server's model
+    /// linked it, as core keeps look-and-feel settings device-wide.
+    pub remote_image_hosts: Vec<String>,
 }
 
 /// Reads `path`, or the default when it is missing.

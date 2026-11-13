@@ -19,6 +19,7 @@
 //! ordinal so a new block in front (a status line arriving) does not
 //! reset the text after it.
 
+use std::rc::Rc;
 use std::time::Instant;
 
 use conduit_components::ActiveConduitTheme as _;
@@ -36,7 +37,7 @@ use gpui_kit::{
     SharedString, Stateful, Transformation, Window, div, img, percentage, px, relative,
 };
 
-use super::markdown::{chat_text, decode_data_image, stable_chunks, streaming_cut};
+use super::markdown::{chat_text, chat_text_live, decode_data_image, stable_chunks, streaming_cut};
 use super::pace::Pace;
 use super::rows::AssistantRow;
 use crate::l10n::{ActiveL10n as _, L10n};
@@ -597,7 +598,7 @@ impl AssistantRow {
                         md
                     };
                     let state = self.text_state(&state_key, md, window, cx);
-                    vec![chat_text(&state, key.clone().into()).into_any_element()]
+                    vec![chat_text_live(&state, key.clone().into(), streaming).into_any_element()]
                 } else {
                     chunks
                         .iter()
@@ -610,7 +611,8 @@ impl AssistantRow {
                                 chunk = self.held(&state_key, chunk);
                             }
                             let state = self.text_state(&state_key, chunk, window, cx);
-                            chat_text(&state, key.clone().into()).into_any_element()
+                            chat_text_live(&state, key.clone().into(), streaming && k == last)
+                                .into_any_element()
                         })
                         .collect()
                 };
@@ -1538,12 +1540,22 @@ pub fn file_list(
                     crate::views::image_viewer::open(images.clone(), start, cx)
                 }) as OpenImage
             });
+            // Open Image, Copy Image and Save Image…, as an answer's
+            // other pictures have them (`remote_image`).
+            let menu = gallery.iter().find(|(k, _)| *k == n).map(|(_, image)| {
+                Rc::new(super::remote_image::file_image_menu(
+                    &format!("file-{id}-{n}"),
+                    image,
+                    l10n,
+                )) as ImageMenu
+            });
             children.push(image_tile(
                 element_id,
                 &name,
                 state,
                 file_ref.clone(),
                 open,
+                menu,
                 l10n,
                 t,
             ));
@@ -1645,6 +1657,9 @@ pub fn image_label(name: &str) -> Option<String> {
 /// Shows an image in the viewer.
 type OpenImage = std::rc::Rc<dyn Fn(&mut App)>;
 
+/// A picture's context menu.
+type ImageMenu = Rc<dyn Fn(&gpui_kit::MouseDownEvent, &mut Window, &mut App)>;
+
 /// Whether `file` is a video (by its type, else its name), which plays
 /// inline.
 pub fn is_video(file: &ChatFileDto) -> bool {
@@ -1658,12 +1673,14 @@ pub fn is_video(file: &ChatFileDto) -> bool {
 }
 
 /// One inline image in its state. `open` shows it in the viewer.
+#[allow(clippy::too_many_arguments)]
 fn image_tile(
     element_id: ElementId,
     name: &str,
     state: ImageState,
     file: Option<FileRef>,
     open: Option<OpenImage>,
+    menu: Option<ImageMenu>,
     l10n: &L10n,
     t: &ConduitTheme,
 ) -> AnyElement {
@@ -1702,6 +1719,11 @@ fn image_tile(
                     if let Some(open) = &open {
                         open(cx);
                     }
+                })
+                .when_some(menu, |d, menu| {
+                    d.on_mouse_down(gpui_kit::MouseButton::Right, move |e, window, cx| {
+                        menu(e, window, cx)
+                    })
                 })
                 .into_any_element()
         }

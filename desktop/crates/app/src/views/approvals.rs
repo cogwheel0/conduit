@@ -110,6 +110,13 @@ impl ApprovalsView {
         self.stores.ui_requests.read(cx).top().is_some()
     }
 
+    /// The request the card on screen was last drawn for (its fields
+    /// belong to it): a field filled before the card first draws a new
+    /// request is reset by that draw.
+    pub fn drawn_for(&self) -> Option<&str> {
+        self.for_request.as_deref()
+    }
+
     /// Resets the card's local state when the top request changes: another
     /// request id. The same request raised again (Hermes replays what a
     /// resumed chat still waits on; a prompt can be refreshed) keeps what

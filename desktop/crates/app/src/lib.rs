@@ -28,6 +28,7 @@ pub mod channel_fixture;
 pub mod chat_fixture;
 pub mod desktop;
 #[cfg(feature = "harness")]
+pub mod diagram_fixture;
 #[cfg(all(target_os = "macos", feature = "harness"))]
 pub mod e2e;
 #[cfg(all(target_os = "macos", feature = "harness"))]
@@ -296,9 +297,13 @@ pub fn run() {
     let scripted = shots.is_some() || capture.is_some();
     #[cfg(not(all(target_os = "macos", feature = "harness")))]
     let scripted = shots.is_some();
-    // `{{USER_LOCATION}}`: a scripted run answers with a stand-in and never
+    // `{{USER_LOCATION}}`: a scripted run (any pass, the capture, a probe
+    // or a fixture: `scripted::active`) answers with a stand-in and never
     // reaches CoreLocation (no test may raise the system's prompt).
-    shell::location::choose(scripted, std::env::var("CONDUIT_LOCATION_STANDIN").ok());
+    shell::location::choose(
+        scripted::active(),
+        std::env::var("CONDUIT_LOCATION_STANDIN").ok(),
+    );
 
     let app = gpui_kit::application().with_assets(crate::views::model_logo::AppAssets);
     // `conduit://` links and "Open with" files, cold launch included: they
@@ -593,6 +598,7 @@ fn install_menu_observers(cx: &mut App) {
 }
 
 fn register_actions(cx: &mut App) {
+    views::chat::remote_image::register(cx);
     cx.on_action(|_: &Quit, cx| crate::views::sheet::quit(cx));
     cx.on_action(|_: &About, cx| open_settings(Some(Tab::About), cx));
     cx.on_action(|_: &Hide, cx| cx.hide());

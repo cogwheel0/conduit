@@ -197,13 +197,18 @@ const CITATION_LEAVE_MS: u64 = 250;
 
 /// The citation popover's width, and its tail's height.
 const POPOVER_WIDTH: f32 = 320.;
-const TAIL_HEIGHT: f32 = 8.;
+pub(crate) const TAIL_HEIGHT: f32 = 8.;
 
 /// The popover's tail: a small triangle in the card's fill with its
 /// outline on the two slanted edges, its tip `x` from the card's left, on
 /// the top edge (`up`) or the bottom one. It overlaps the card's border by
 /// a point so the two read as one shape.
-fn popover_tail(x: Pixels, up: bool, fill: gpui_kit::Hsla, line: gpui_kit::Hsla) -> AnyElement {
+pub(crate) fn popover_tail(
+    x: Pixels,
+    up: bool,
+    fill: gpui_kit::Hsla,
+    line: gpui_kit::Hsla,
+) -> AnyElement {
     let half = px(TAIL_HEIGHT);
     canvas(
         |_, _, _| {},

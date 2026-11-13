@@ -353,6 +353,40 @@ impl SettingsStore {
     }
 
     /// Settings › Desktop: changes one of its settings.
+    /// Whether pictures from `host` load without a click.
+    pub fn image_host_allowed(&self, host: &str) -> bool {
+        let host = crate::stores::media::normalize_host(host);
+        self.prefs.remote_image_hosts.binary_search(&host).is_ok()
+    }
+
+    /// Always Load Images from `host`: pictures and PDF previews from it
+    /// load without a click from now on, in every chat.
+    pub fn allow_image_host(&mut self, host: &str, cx: &mut Context<Self>) {
+        let host = crate::stores::media::normalize_host(host);
+        if host.is_empty() {
+            return;
+        }
+        if let Err(at) = self.prefs.remote_image_hosts.binary_search(&host) {
+            self.prefs.remote_image_hosts.insert(at, host);
+            self.save();
+            cx.notify();
+            cx.refresh_windows();
+        }
+    }
+
+    /// Settings › Chats › Remove: pictures and PDF previews from `host`
+    /// wait for a click again (one loaded with Load Image stays loaded
+    /// until the app quits).
+    pub fn forget_image_host(&mut self, host: &str, cx: &mut Context<Self>) {
+        let host = crate::stores::media::normalize_host(host);
+        if let Ok(at) = self.prefs.remote_image_hosts.binary_search(&host) {
+            self.prefs.remote_image_hosts.remove(at);
+            self.save();
+            cx.notify();
+            cx.refresh_windows();
+        }
+    }
+
     pub fn set_desktop(&mut self, edit: impl FnOnce(&mut DesktopPrefs), cx: &mut Context<Self>) {
         let before = self.prefs.desktop.clone();
         edit(&mut self.prefs.desktop);

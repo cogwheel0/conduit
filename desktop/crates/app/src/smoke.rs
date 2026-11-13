@@ -247,7 +247,7 @@ pub(crate) fn set_mode(mode: ThemeMode, cx: &mut App) {
     }
 }
 
-fn mode_name(mode: ThemeMode) -> &'static str {
+pub(crate) fn mode_name(mode: ThemeMode) -> &'static str {
     match mode {
         ThemeMode::Light => "light",
         ThemeMode::Dark => "dark",

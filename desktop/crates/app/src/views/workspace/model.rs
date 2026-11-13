@@ -34,6 +34,7 @@ use super::{WorkspacePane, prompt::command_from_name};
 use crate::actions::SettingsChoice;
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::stores::Stores;
+use crate::stores::media;
 use crate::stores::navigation::WorkspaceSection;
 use crate::stores::rpc::Rpc;
 use crate::views::forms;
@@ -456,29 +457,59 @@ impl ModelEditor {
     }
 
     /// The picture the editor shows: one drawn here, else the server's
-    /// once loaded; None for the model's initial.
-    ///
-    /// A picture on another site ([`WorkspaceImageSource::Remote`]) is not
-    /// fetched: loading it would tell that site the user opened the model.
-    /// TODO: give a `Remote` picture the answers' click-to-load once it
-    /// exists: classify `image_url`
-    /// with `stores::media::classify`, show its placeholder with Load Image
-    /// (session-only) and Always Load Images from the host
-    /// (`prefs.remote_image_hosts`), and load through the daemon's
-    /// anonymous `GET /media/image?url=` as `views/chat/remote_image.rs`
-    /// does for markdown images. Until then the initial stands in.
+    /// once loaded, else one on another site once the user lets it load;
+    /// None for the model's initial.
     fn picture(&self, window: &mut Window, cx: &mut App) -> Option<gpui_kit::ImageSource> {
         if let Some(image) = &self.image {
             return Some(gpui_kit::ImageSource::Image(image.clone()));
         }
-        if self.image_removed || self.id.is_none() {
+        if self.image_removed {
             return None;
         }
+        if let Some((url, host)) = self.remote_picture(cx) {
+            if !media::may_load(&url, &host, cx) {
+                return None;
+            }
+            return match media::image_state(&url, window, cx)? {
+                Ok(loaded) => Some(gpui_kit::ImageSource::Render(loaded.render)),
+                Err(_) => None,
+            };
+        }
+        // The server's: only for a model it has.
+        self.id.as_ref()?;
         let picture = self.server_picture(&self.model, cx)?;
         match crate::stores::files::model_image_state(&picture, window, cx)? {
             Ok(image) => Some(gpui_kit::ImageSource::Render(image)),
             Err(_) => None,
         }
+    }
+
+    /// A picture on another site ([`WorkspaceImageSource::Remote`]): its
+    /// address and host. It follows an answer's pictures' rule
+    /// ([`media::classify`]): fetching it tells that site the user opened
+    /// the model, so it loads only after Load Image (until the app quits)
+    /// or while its host is in Settings › Chats › Remote Content, and then
+    /// through the daemon's anonymous `/media/image`.
+    fn remote_picture(&self, cx: &App) -> Option<(String, String)> {
+        if self.image.is_some()
+            || self.image_removed
+            || self.model.image_source != WorkspaceImageSource::Remote
+        {
+            return None;
+        }
+        let raw = self.model.image_url.as_deref()?;
+        match media::classify(raw, media::ServerOrigin::active(cx).as_ref()) {
+            media::LinkTarget::Remote { url, host } => Some((url, host)),
+            _ => None,
+        }
+    }
+
+    /// Whether the model has a picture on another site that has not been
+    /// let load: the E2E pass.
+    pub fn remote_picture_waits(&self, cx: &App) -> Option<String> {
+        self.remote_picture(cx)
+            .filter(|(url, host)| !media::may_load(url, host, cx))
+            .map(|(_, host)| host)
     }
 
     /// The built-in tools field's error, once a save was tried: the E2E
@@ -1268,6 +1299,7 @@ impl Render for ModelEditor {
         let pick = view.clone();
         let clear = view.clone();
         let has_image = self.model.image_url.is_some();
+        let waiting = self.remote_picture_waits(cx).zip(self.remote_picture(cx));
         body.push(
             div()
                 .id("model-image")
@@ -1277,6 +1309,9 @@ impl Render for ModelEditor {
                 .items_center()
                 .gap(px(14.))
                 .child(avatar)
+                .when_some(waiting, |d, (host, (url, _))| {
+                    d.child(remote_picture_prompt(&url, &host, &l, &t))
+                })
                 .when(writable, |d| {
                     d.child(
                         Button::new("model-image-change", l.desktop_workspace_change_image())
@@ -1725,6 +1760,72 @@ impl Render for ModelEditor {
             cx,
         )
     }
+}
+
+/// Beside a model's initial while its picture on another site waits:
+/// where the picture is, Load Image, and a menu with Always Load Images
+/// from that site, as an answer's picture offers.
+fn remote_picture_prompt(
+    url: &str,
+    host: &str,
+    l: &L10n,
+    t: &conduit_components::theme::ConduitTheme,
+) -> AnyElement {
+    use crate::views::chat::remote_image::ImageAction;
+    use gpui_kit::component::native_menu::NativeMenu;
+
+    let r = t.roles;
+    let load_url = url.to_string();
+    let menu = {
+        let load = (l.desktop_load_image(), url.to_string());
+        let always = (l.desktop_always_load_images_from(host), host.to_string());
+        move |position, window: &mut Window, cx: &mut App| {
+            NativeMenu::new()
+                .menu(load.0.clone(), Box::new(ImageAction::Load(load.1.clone())))
+                .separator()
+                .menu(
+                    always.0.clone(),
+                    Box::new(ImageAction::AllowHost(always.1.clone())),
+                )
+                .show(position, window, cx);
+        }
+    };
+    div()
+        .id("model-image-remote")
+        .role(Role::Group)
+        .aria_label(SharedString::from(l.desktop_remote_image_label(host)))
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .min_w_0()
+        .child(
+            div()
+                .truncate()
+                .text_size(px(t.metrics.small))
+                .text_color(r.text_subtle)
+                .child(SharedString::from(l.desktop_remote_image_from(host))),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .child(
+                    Button::new("model-image-load", l.desktop_load_image())
+                        .on_click(Rc::new(move |_, _, cx| media::load_once(&load_url, cx))),
+                )
+                .child(
+                    IconButton::new(
+                        "model-image-options",
+                        IconName::ChevronDown,
+                        l.desktop_image_options(),
+                    )
+                    .size(24., 14.)
+                    .round()
+                    .on_click(Rc::new(move |e, window, cx| menu(e.position(), window, cx))),
+                ),
+        )
+        .into_any_element()
 }
 
 #[cfg(test)]
