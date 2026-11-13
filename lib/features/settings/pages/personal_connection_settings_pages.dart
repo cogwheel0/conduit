@@ -38,8 +38,10 @@ String personalConnectionEditorKey(
   PersonalConnectionKind kind,
   String? identity,
 ) =>
+    // A new one's key holds no identity: no connection's, whatever it is
+    // called, can be taken for it.
     '${personalConnectionKindRouteValue(kind)}|'
-    '${Uri.encodeComponent(identity ?? personalConnectionNewRouteValue)}';
+    '${identity == null ? '' : Uri.encodeComponent(identity)}';
 
 String personalConnectionEditorPageId(
   PersonalConnectionKind kind,
@@ -308,7 +310,7 @@ final class _ConnectionEditor {
   final String key;
   final PersonalConnectionKind kind;
 
-  /// The identity of the connection, or [personalConnectionNewRouteValue].
+  /// The identity of the connection, or empty for a new one.
   final String identity;
 
   /// The account the form acts for. Opened before any account had loaded,
@@ -350,7 +352,7 @@ final class _ConnectionEditor {
   String? message;
   bool messageIsError = false;
 
-  bool get isNew => identity == personalConnectionNewRouteValue;
+  bool get isNew => identity.isEmpty;
   bool get isTool => kind == PersonalConnectionKind.toolServer;
   bool get busy => saving || test == _TestState.testing || deleting;
   bool get readOnly => existing != null && !existing!.editable;
@@ -394,13 +396,17 @@ final class _ConnectionEditor {
     }
     if (isNew) {
       initialized = true;
+      // A new entry starts as its draft does, switched on or off.
       if (isTool) {
         const draft = PersonalToolServerDraft();
         path = draft.path;
         authType = draft.authType;
         specType = draft.specType;
+        enabled = draft.enabled;
       } else {
-        path = const PersonalTerminalDraft().path;
+        const draft = PersonalTerminalDraft();
+        path = draft.path;
+        enabled = draft.enabled;
       }
       start = values();
       return;

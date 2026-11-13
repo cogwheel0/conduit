@@ -280,7 +280,10 @@ class SettingsRow extends StatelessWidget {
               current.minute,
             );
     }
-    if (picked != null) onChanged(item, nativeSheetDateValue(picked));
+    // The page may have closed while the picker was open.
+    if (picked != null && context.mounted) {
+      onChanged(item, nativeSheetDateValue(picked));
+    }
   }
 
   Widget _buildNavigation(BuildContext context) {

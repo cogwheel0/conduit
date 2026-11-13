@@ -5623,6 +5623,25 @@ func makeNativeDetailPageForTesting(
     )
 }
 
+/// Gives [page] (made by [makeNativeDetailPageForTesting]) the page
+/// [payload], as Dart sending it again does, for tests.
+func applyNativeDetailPageForTesting(_ page: UITableViewController, _ payload: [String: Any]) {
+    guard let page = page as? NativeDetailTableViewController,
+          let detail = NativeSheetDetail(payload)
+    else { return }
+    page.applyUpdatedDetail(detail)
+}
+
+/// Lets [page] come back as a leave of it was let go of, for tests.
+func resumeNativeDetailPageForTesting(_ page: UITableViewController) {
+    (page as? NativeDetailTableViewController)?.resumeSearch()
+}
+
+/// Starts [page] leaving, as a back swipe does, for tests.
+func leaveNativeDetailPageForTesting(_ page: UITableViewController) {
+    (page as? NativeDetailTableViewController)?.startLeavingForTesting()
+}
+
 private final class NativeDetailTableViewController: UITableViewController, NativeSheetLeaveGuarding {
     private var detail: NativeSheetDetail
     private let canNavigate: (NativeSheetItem) -> Bool
@@ -5659,6 +5678,9 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     private var searchDebounce: Timer?
     /// Set as the page is popped or its sheet closes: it sends no search.
     private var leaving = false
+    /// The query waiting for typing to pause, kept when a back swipe drops
+    /// its wait: a swipe let go of sends it after all.
+    private var pendingSearchQuery: String?
 
     var detailId: String { detail.id }
 
@@ -5829,7 +5851,9 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             // An echo of a query sent -- the last or an earlier one answered
             // late -- leaves what is typed alone.
             if let echo = unechoedSearchQueries.firstIndex(of: trimmed(search.value)) {
-                unechoedSearchQueries.removeFirst(echo + 1)
+                // Only this one: an earlier query answered later is still
+                // known as an echo.
+                unechoedSearchQueries.remove(at: echo)
             } else if trimmed(controller.searchBar.text) != trimmed(search.value) {
                 searchDebounce?.invalidate()
                 searchDebounce = nil
@@ -5843,6 +5867,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
     fileprivate func sendSearch(_ query: String) {
         searchDebounce?.invalidate()
         searchDebounce = nil
+        pendingSearchQuery = nil
         guard !leaving, let search = detail.search,
               let item = NativeSheetItem([
                   "id": search.id,
@@ -5866,12 +5891,26 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             sendSearch("")
             return
         }
+        pendingSearchQuery = query
         searchDebounce = Timer.scheduledTimer(
             withTimeInterval: 0.25,
             repeats: false
         ) { [weak self] _ in
             self?.sendSearch(query)
         }
+    }
+
+    fileprivate func startLeavingForTesting() {
+        leaving = true
+        searchDebounce?.invalidate()
+        searchDebounce = nil
+    }
+
+    /// Back on screen after a leave was let go of: what was typed and not yet
+    /// sent is searched for, so the rows match the field.
+    fileprivate func resumeSearch() {
+        leaving = false
+        if let pending = pendingSearchQuery { sendSearch(pending) }
     }
 
     func applyUpdatedDetail(_ newDetail: NativeSheetDetail) {
@@ -5931,7 +5970,7 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
         super.viewWillAppear(animated)
         // Back on screen, as after a back swipe or a pull of the sheet let go
         // of: the page is not leaving, and searches again.
-        leaving = false
+        resumeSearch()
         NativeSheetBridge.shared.markDetailVisible(self)
         refreshNavigationAction()
     }
@@ -6053,9 +6092,9 @@ private final class NativeDetailTableViewController: UITableViewController, Nati
             searchDebounce?.invalidate()
             searchDebounce = nil
             // A swipe let go of before it finishes leaves the page where it
-            // was: it searches again.
+            // was: it searches again, for what was waiting too.
             transitionCoordinator?.notifyWhenInteractionChanges { [weak self] context in
-                if context.isCancelled { self?.leaving = false }
+                if context.isCancelled { self?.resumeSearch() }
             }
         }
         view.endEditing(true)

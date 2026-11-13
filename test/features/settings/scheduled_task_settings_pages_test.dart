@@ -5,6 +5,7 @@ import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:dio/dio.dart' show RequestOptions;
+import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_test/flutter_test.dart';
 
 import '../automations/automation_harness.dart';
@@ -324,6 +325,44 @@ void main() {
         session.page(_pageA).sections.map((s) => s.footer),
         contains(_l10n.scheduledTaskTerminalKept),
       );
+    });
+
+    testWidgets('a task read again that fails says so, not its last copy', (
+      tester,
+    ) async {
+      final session = await pumpAutomations(tester);
+      await session.open(_pageA);
+      expect(session.row(_pageA, _row('active')), isNotNull);
+
+      // Deleted elsewhere; the page is shown again and reads it.
+      session.wire.tasks.removeWhere((task) => task['id'] == 'a');
+      await session.open(_pageA);
+
+      expect(session.row(_pageA, '$_pageA-load-error'), isNotNull);
+      expect(session.row(_pageA, _row('active')), isNull);
+    });
+
+    testWidgets("a task moved to another terminal leaves the last one's "
+        'folder behind', (tester) async {
+      final session = await pumpAutomations(
+        tester,
+        tasks: [
+          taskJson('a', terminal: {'server_id': 't1', 'cwd': '/work'}),
+        ],
+      );
+      session.wire.terminals.addAll([
+        {'id': 't1', 'name': 'Studio'},
+        {'id': 't2', 'name': 'Lab'},
+      ]);
+      await session.open(_editA);
+
+      await session.change(_row('terminal'), 't2');
+      await session.change(_row('save'));
+
+      final terminal = _data(session.wire, '/a/update')['terminal'];
+      expect(terminal, isA<Map<String, dynamic>>());
+      expect((terminal as Map)['server_id'], 't2');
+      expect(terminal['cwd'], isNot('/work'));
     });
 
     testWidgets("pausing is one toggle, and the switch shows the server's "
@@ -875,9 +914,8 @@ void main() {
         expect(session.closed, isEmpty);
       });
 
-      testWidgets('after an account switch sends nothing and keeps the form', (
-        tester,
-      ) async {
+      testWidgets('after an account switch sends nothing and shows none of '
+          "the form, the previous account's", (tester) async {
         final session = await pumpAutomations(tester);
         await session.open(_editA);
         await session.change(_row('name'), 'Evening digest');
@@ -890,7 +928,7 @@ void main() {
           session.row(_editA, '$_editA-error')!.title,
           _l10n.scheduledTasksAccountChanged,
         );
-        expect(session.row(_editA, _row('name'))!.value, 'Evening digest');
+        expect(session.row(_editA, _row('name')), isNull);
       });
 
       testWidgets('a save answered after the account changed does not close '
@@ -924,6 +962,58 @@ void main() {
       await session.settle(change);
 
       expect(session.page(_list).announcement, isNull);
+    });
+
+    testWidgets("an account switch shows the next account none of the last "
+        "one's task", (tester) async {
+      final session = await pumpAutomations(tester);
+      await session.open(_pageA);
+      expect(session.row(_pageA, _row('active')), isNotNull);
+      final taskTitle = session.page(_pageA).title;
+
+      session.switchAccount();
+      await session.settle(Future<void>.value());
+
+      expect(session.page(_pageA).title, isNot(taskTitle));
+      expect(session.row(_pageA, _row('active')), isNull);
+      expect(
+        session.row(_pageA, '$_pageA-error')!.title,
+        _l10n.scheduledTasksAccountChanged,
+      );
+    });
+
+    testWidgets("the list follows the device's clock style once the app is "
+        'back from its settings', (tester) async {
+      tester.platformDispatcher.alwaysUse24HourFormatTestValue = false;
+      addTearDown(tester.platformDispatcher.clearAlwaysUse24HourTestValue);
+      final session = await pumpAutomations(
+        tester,
+        tasks: [taskJson('a', rrule: 'RRULE:FREQ=DAILY;BYHOUR=17;BYMINUTE=0')],
+      );
+      await session.open(_list);
+      expect(
+        session.row(_list, scheduledTaskPageId('a'))!.subtitle,
+        contains('PM'),
+      );
+
+      // The 24-hour clock is switched on in the device's settings.
+      tester.platformDispatcher.alwaysUse24HourFormatTestValue = true;
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+      await session.settle(Future<void>.value());
+
+      expect(
+        session.row(_list, scheduledTaskPageId('a'))!.subtitle,
+        contains('17:'),
+      );
     });
 
     testWidgets('a saved task left as it was is not written on Save', (

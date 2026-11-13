@@ -10,6 +10,66 @@ import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+  /// Runs the main loop for [seconds], however often it returns early.
+  private func spin(_ seconds: TimeInterval) {
+    let deadline = Date().addingTimeInterval(seconds)
+    while Date() < deadline { RunLoop.main.run(until: deadline) }
+  }
+
+  private func searchPage(_ sent: @escaping (Any?) -> Void) throws -> UITableViewController {
+    try XCTUnwrap(
+      makeNativeDetailPageForTesting(
+        [
+          "id": "test-tasks", "title": "Tasks", "items": [],
+          "search": ["id": "test-search", "placeholder": "Search", "value": ""],
+        ],
+        onControlChanged: { _, value in sent(value) }))
+  }
+
+  @MainActor
+  func testNativeSheetSearchEchoesAnsweredOutOfOrderKeepTheField() throws {
+    var sent: [Any?] = []
+    let page = try searchPage { sent.append($0) }
+    let search = try XCTUnwrap(page.navigationItem.searchController)
+    let delegate = try XCTUnwrap(search.searchBar.delegate)
+    // "a" then "ab" are sent (Search tapped after each).
+    search.searchBar.text = "a"
+    delegate.searchBarSearchButtonClicked?(search.searchBar)
+    search.searchBar.text = "ab"
+    delegate.searchBarSearchButtonClicked?(search.searchBar)
+    XCTAssertEqual(sent.compactMap { $0 as? String }, ["a", "ab"])
+
+    // The page answers "ab" first, then "a", late.
+    func answering(_ value: String) -> [String: Any] {
+      [
+        "id": "test-tasks", "title": "Tasks", "items": [],
+        "search": ["id": "test-search", "placeholder": "Search", "value": value],
+      ]
+    }
+    applyNativeDetailPageForTesting(page, answering("ab"))
+    applyNativeDetailPageForTesting(page, answering("a"))
+
+    XCTAssertEqual(search.searchBar.text, "ab")
+  }
+
+  @MainActor
+  func testNativeSheetSearchWaitingWhenALeaveIsLetGoOfIsSent() throws {
+    var sent: [Any?] = []
+    let page = try searchPage { sent.append($0) }
+    let search = try XCTUnwrap(page.navigationItem.searchController)
+    let delegate = try XCTUnwrap(search.searchBar.delegate)
+    search.searchBar.text = "lamp"
+    delegate.searchBar?(search.searchBar, textDidChange: "lamp")
+
+    // A back swipe starts, dropping the wait, and is let go of.
+    leaveNativeDetailPageForTesting(page)
+    spin(0.35)
+    XCTAssertTrue(sent.isEmpty)
+    resumeNativeDetailPageForTesting(page)
+
+    XCTAssertEqual(sent.compactMap { $0 as? String }, ["lamp"])
+  }
+
   @MainActor
   func testNativeSheetSearchCancelEmptiesTheField() throws {
     var sent: [Any?] = []

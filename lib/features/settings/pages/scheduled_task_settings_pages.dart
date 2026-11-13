@@ -17,6 +17,7 @@ import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleListener;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
@@ -445,7 +446,9 @@ NativeSheetDetailConfig _buildTaskPage(
   final pageId = scheduledTaskPageId(view.taskId);
   final key = _taskKey(view.taskId);
   final task = view.task;
-  if (task == null) {
+  // A read that failed -- the task deleted meanwhile, say -- says so, rather
+  // than leave the copy read before as if it were current.
+  if (task == null || view.loadError != null) {
     final error = view.loadError;
     return NativeSheetDetailConfig(
       id: pageId,
@@ -1321,6 +1324,9 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
       final taskId = Uri.decodeComponent(
         detailId.substring(scheduledTaskPagePrefix.length),
       );
+      // Another account's page, asked for again: this account's task is
+      // read afresh in its place.
+      if (_stale(_tasks[taskId]?.owner)) _tasks.remove(taskId);
       final view = _tasks[taskId] ??= _TaskView(
         taskId,
         _notifier.captureOwner(),
@@ -1330,6 +1336,9 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
       if (_gateOpen) unawaited(_loadTask(view));
     } else if (detailId.startsWith(scheduledTaskEditorPagePrefix)) {
       final key = detailId.substring(scheduledTaskEditorPagePrefix.length);
+      // Another account's form, asked for again: dropped unseen, and this
+      // account's task read afresh.
+      if (_stale(_editors[key]?.owner)) _editors.remove(key)?.dispose();
       final editor = _editors[key];
       if (editor != null) {
         // Back from its Days or Advanced Schedule page.
@@ -1352,13 +1361,17 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
     } else if (detailId.startsWith(scheduledTaskDaysPagePrefix)) {
       final editor =
           _editors[detailId.substring(scheduledTaskDaysPagePrefix.length)];
-      if (editor != null) {
+      if (_stale(editor?.owner)) {
+        await _surface.applyDetail(_accountChangedPage(l10n, detailId));
+      } else if (editor != null) {
         await _surface.applyDetail(_buildDaysPage(l10n, _clock(l10n), editor));
       }
     } else if (detailId.startsWith(scheduledTaskRulePagePrefix)) {
       final editor =
           _editors[detailId.substring(scheduledTaskRulePagePrefix.length)];
-      if (editor != null) {
+      if (_stale(editor?.owner)) {
+        await _surface.applyDetail(_accountChangedPage(l10n, detailId));
+      } else if (editor != null) {
         await _surface.applyDetail(_buildRulePage(l10n, _clock(l10n), editor));
       }
     }
@@ -1405,6 +1418,20 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
   void _follow() {
     if (_following.isNotEmpty) return;
     void redraw(Object? _, Object? _) => _queueRedraw();
+    // Back from the device's settings, say, with the 12 or 24 hour clock
+    // changed: the times shown follow.
+    if (_lifecycle == null) {
+      _lifecycle = AppLifecycleListener(
+        onResume: () {
+          if (_ref.mounted) _queueRedraw();
+        },
+      );
+      // Gone with Settings's modules, it hears the app no more.
+      _ref.onDispose(() {
+        _lifecycle?.dispose();
+        _lifecycle = null;
+      });
+    }
     _following.addAll([
       _ref.listen(automationsAvailableProvider, redraw),
       _ref.listen(
@@ -1439,7 +1466,11 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
     }
     _following.clear();
     _followingData.clear();
+    _lifecycle?.dispose();
+    _lifecycle = null;
   }
+
+  AppLifecycleListener? _lifecycle;
 
   /// Page [pageId] while the pages are closed to the account: why.
   NativeSheetDetailConfig _gatePage(AppLocalizations l10n, String pageId) =>
@@ -1604,6 +1635,23 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
     ];
   }
 
+  /// Whether [owner] -- a page's or a form's -- is no longer the account
+  /// signed in: what it read or holds is not shown to the one there now.
+  bool _stale(AutomationsOwner? owner) =>
+      owner != null && !_notifier.isCurrentOwner(owner);
+
+  /// Page [pageId] of another account's task or form: only why it shows
+  /// nothing, none of that account's data.
+  NativeSheetDetailConfig _accountChangedPage(
+    AppLocalizations l10n,
+    String pageId,
+  ) => NativeSheetDetailConfig(
+    id: pageId,
+    title: l10n.scheduledTasksTitle,
+    announcement: l10n.scheduledTasksAccountChanged,
+    items: [_warning('$pageId-error', l10n.scheduledTasksAccountChanged)],
+  );
+
   bool _current(_TaskView view) =>
       identical(_tasks[view.taskId], view) &&
       view.owner != null &&
@@ -1614,6 +1662,12 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
     if (!_gateOpen) {
       await _surface.applyDetail(
         _gatePage(l10n, scheduledTaskPageId(view.taskId)),
+      );
+      return;
+    }
+    if (_stale(view.owner)) {
+      await _surface.applyDetail(
+        _accountChangedPage(l10n, scheduledTaskPageId(view.taskId)),
       );
       return;
     }
@@ -1706,7 +1760,9 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
         // A page shorter than the page size is the last one.
         ..hasMoreRuns = page.length >= automationRunsPageSize;
     } catch (_) {
-      view.runsFailed = true;
+      // Refused for an account since gone: the page says the account
+      // changed, not that its history failed.
+      if (_current(view)) view.runsFailed = true;
     } finally {
       view.runsLoading = false;
     }
@@ -2107,6 +2163,15 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
       );
       return;
     }
+    if (_stale(editor.owner)) {
+      await _surface.applyDetail(
+        _accountChangedPage(
+          l10n,
+          '$scheduledTaskEditorPagePrefix${editor.key}',
+        ),
+      );
+      return;
+    }
     _followData();
     editor.shownEdited = editor.edited;
     final clock = _clock(l10n);
@@ -2204,13 +2269,16 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
     final draft = editor.draft!;
     final agentTerminal = parseTerminalAgentModelId(draft.modelId.trim())
         ?.terminalId;
-    if (id == null) {
-      // The folder belonged to the terminal: one chosen later starts from its
-      // own default.
+    final moved = id != draft.terminalId;
+    if (id == null || moved) {
+      // The folder belonged to the terminal: another, or one chosen later,
+      // starts from its own default.
       editor.agentCwd = null;
     }
     final next = id == null
         ? draft.copyWith(clearTerminal: true)
+        : moved
+        ? draft.copyWith(clearTerminal: true).copyWith(terminalId: id)
         : draft.copyWith(terminalId: id);
     return agentTerminal != null && agentTerminal != id
         ? next.copyWith(modelId: '')

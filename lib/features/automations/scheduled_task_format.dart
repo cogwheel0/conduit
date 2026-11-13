@@ -19,11 +19,16 @@ TaskClock taskClockFor(AppLocalizations l10n) => (
   use24Hour: WidgetsBinding.instance.platformDispatcher.alwaysUse24HourFormat,
 );
 
+/// A time of day on the device's clock. The device says whether that is the
+/// 24 hour one; when it is not, it is the 12 hour one, whatever the
+/// language's own habit.
+DateFormat _timeOfDay(TaskClock clock) => clock.use24Hour
+    ? DateFormat.Hm(clock.locale)
+    : DateFormat('h:mm a', clock.locale);
+
 /// A date with its time of day.
-DateFormat _dateAndTime(TaskClock clock) {
-  final date = DateFormat.yMMMd(clock.locale);
-  return clock.use24Hour ? date.add_Hm() : date.add_jm();
-}
+DateFormat _dateAndTime(TaskClock clock) =>
+    DateFormat.yMMMd(clock.locale).addPattern(_timeOfDay(clock).pattern);
 
 /// A server nanosecond timestamp as a local date and time, or null when the
 /// server sent none.
@@ -38,10 +43,8 @@ String? formatServerTime(TaskClock clock, int? nanoseconds) {
 String _plain(String text) => text.replaceAll('\u202f', ' ');
 
 /// A wall clock time.
-String formatWallClockTime(TaskClock clock, int hour, int minute) => _plain(
-  (clock.use24Hour ? DateFormat.Hm(clock.locale) : DateFormat.jm(clock.locale))
-      .format(DateTime(2000, 1, 1, hour, minute)),
-);
+String formatWallClockTime(TaskClock clock, int hour, int minute) =>
+    _plain(_timeOfDay(clock).format(DateTime(2000, 1, 1, hour, minute)));
 
 /// Short weekday name for a rule code such as `MO`, in the app's language.
 String weekdayLabel(TaskClock clock, String code) {

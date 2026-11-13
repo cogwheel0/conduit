@@ -461,6 +461,38 @@ void main() {
       expect(rig.closed, [page]);
     });
 
+    testWidgets('a new terminal starts switched off, as its draft does', (
+      tester,
+    ) async {
+      final rig = await pump(tester);
+      final key = personalConnectionEditorKey(_terminals, null);
+      final page = personalConnectionEditorPageId(_terminals, null);
+      await rig.open(page);
+
+      expect(
+        rig.row(page, personalConnectionRowId('enabled', key))?.value,
+        isFalse,
+      );
+    });
+
+    testWidgets("a connection whose id is '__new__' opens its own editor", (
+      tester,
+    ) async {
+      server.settings['ui'] = <String, dynamic>{
+        'toolServers': <dynamic>[_tool('__new__', 'Odd tools')],
+        'terminalServers': <dynamic>[],
+      };
+      final rig = await pump(tester);
+      final key = personalConnectionEditorKey(_tools, '__new__');
+      final page = personalConnectionEditorPageId(_tools, '__new__');
+      await rig.open(page);
+
+      expect(
+        rig.row(page, personalConnectionRowId('name', key))?.value,
+        'Odd tools',
+      );
+    });
+
     testWidgets('each field shows its own issue after the first Save', (
       tester,
     ) async {
@@ -524,6 +556,14 @@ void main() {
     testWidgets('a failed Test shows under Test and goes on the next edit', (
       tester,
     ) async {
+      // A port on this machine that nothing listens on: Test fails at once,
+      // with no name to look up and nothing to wait for.
+      server.settings['ui'] = <String, dynamic>{
+        'toolServers': <dynamic>[
+          _tool('alpha', 'Alpha tools', url: 'http://127.0.0.1:9'),
+        ],
+        'terminalServers': <dynamic>[],
+      };
       final rig = await pump(tester);
       await rig.open(_alpha);
 

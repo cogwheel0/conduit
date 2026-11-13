@@ -16,7 +16,7 @@ final class NativeSheetNavigationOrigin {
 
 typedef NativeSheetNavigationRequest = ({String routeName, Object extra});
 
-/// The calendar is pushed as the native profile sheet starts to slide away,
+/// The calendar is pushed as the native Settings sheet starts to slide away,
 /// so the page is already underneath when it has gone. Keep its route and
 /// transition marker coupled so this entry point cannot accidentally restore
 /// a second Cupertino transition over the native sheet.
