@@ -703,6 +703,9 @@ class _SettingsTextRowState extends State<_SettingsTextRow> {
             // Code is typed as is.
             autocorrect: !code && !secure && keyboard == null,
             enableSuggestions: !code && !secure && keyboard == null,
+            // Quotes and dashes stay as typed in code, as on the native sheet.
+            smartDashesType: code ? SmartDashesType.disabled : null,
+            smartQuotesType: code ? SmartQuotesType.disabled : null,
             // The account's own password is AutoFill's to fill and save;
             // any other secret (a key, a token) is kept out of it, and an
             // ordinary field is left for the platform to judge.

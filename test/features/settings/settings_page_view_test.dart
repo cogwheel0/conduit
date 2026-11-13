@@ -376,6 +376,10 @@ void main() {
     check(field.enableSuggestions).isFalse();
     check(field.maxLines).isNull();
     check(field.style?.fontFamily).isNotNull();
+    // Quotes and dashes stay straight, as Python needs them.
+    final editable = tester.widget<EditableText>(find.byType(EditableText));
+    check(editable.smartQuotesType).equals(SmartQuotesType.disabled);
+    check(editable.smartDashesType).equals(SmartDashesType.disabled);
 
     await tester.enterText(find.byType(EditableText), 'class Tools:\n    pass');
     await tester.pump();
