@@ -1368,7 +1368,11 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
     } else if (detailId.startsWith(scheduledTaskDaysPagePrefix)) {
       final editor =
           _editors[detailId.substring(scheduledTaskDaysPagePrefix.length)];
-      if (_stale(editor?.owner)) {
+      // Shown again (a back swipe let go of, say) while the pages are
+      // closed to the account: none of the schedule comes back.
+      if (!_gateOpen) {
+        await _surface.applyDetail(_gatePage(l10n, detailId));
+      } else if (_stale(editor?.owner)) {
         await _surface.applyDetail(_accountChangedPage(l10n, detailId));
       } else if (editor != null) {
         await _surface.applyDetail(_buildDaysPage(l10n, _clock(l10n), editor));
@@ -1376,7 +1380,9 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
     } else if (detailId.startsWith(scheduledTaskRulePagePrefix)) {
       final editor =
           _editors[detailId.substring(scheduledTaskRulePagePrefix.length)];
-      if (_stale(editor?.owner)) {
+      if (!_gateOpen) {
+        await _surface.applyDetail(_gatePage(l10n, detailId));
+      } else if (_stale(editor?.owner)) {
         await _surface.applyDetail(_accountChangedPage(l10n, detailId));
       } else if (editor != null) {
         await _surface.applyDetail(_buildRulePage(l10n, _clock(l10n), editor));

@@ -1056,6 +1056,14 @@ void main() {
           _l10n.advancedRequiredMessage(_l10n.scheduledTasksTitle),
         ], reason: page);
       }
+
+      // Shown again, as after a back swipe let go of: still nothing.
+      for (final page in [days, rule]) {
+        await session.open(page);
+        expect(session.titles(page), [
+          _l10n.advancedRequiredMessage(_l10n.scheduledTasksTitle),
+        ], reason: '$page shown again');
+      }
     });
 
     testWidgets("the list follows the device's clock style once the app is "
