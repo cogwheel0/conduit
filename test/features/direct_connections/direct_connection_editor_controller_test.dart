@@ -64,7 +64,7 @@ void main() {
         value,
         ollamaDefaultName: 'Ollama Cloud',
         openRouterDefaultName: 'OpenRouter',
-      rapidMlxDefaultName: 'Rapid-MLX',
+        rapidMlxDefaultName: 'Rapid-MLX',
       );
       preset(kOpenRouterProviderPreset);
       check(form.openAiApiMode).equals(DirectOpenAiApiMode.chatCompletions);
@@ -252,6 +252,57 @@ void main() {
     );
     editor.form.baseUrl.text = 'https://new.example/v1';
     editor.form.headerName.text = 'X-Pending';
+
+    check(editor.form.originBoundSecretsReviewed).isFalse();
+  });
+
+  test('switching a keyed connection to Rapid-MLX needs no key review', () {
+    final editor = _EditorHarness(isNew: false);
+    addTearDown(editor.dispose);
+    editor.form.hydrate(
+      DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://old.example/v1',
+        apiKey: 'saved-key',
+      ),
+      authentication: DirectAuthenticationMode.bearer,
+    );
+    editor.form.baseUrl.text = 'https://new.example/v1';
+    check(editor.form.originBoundSecretsReviewed).isFalse();
+
+    editor.form.selectProviderPreset(
+      kRapidMlxProviderPreset,
+      ollamaDefaultName: 'Ollama Cloud',
+      openRouterDefaultName: 'OpenRouter',
+      rapidMlxDefaultName: 'Rapid-MLX',
+    );
+
+    check(editor.form.authentication).equals(DirectAuthenticationMode.none);
+    check(editor.form.originBoundSecretsReviewed).isTrue();
+  });
+
+  test('keyless draft still requires review of saved custom headers', () {
+    final editor = _EditorHarness(isNew: false);
+    addTearDown(editor.dispose);
+    editor.form.hydrate(
+      DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://old.example/v1',
+        apiKey: 'saved-key',
+        customHeaders: {'X-Tenant': 'secret'},
+      ),
+      authentication: DirectAuthenticationMode.bearer,
+    );
+    editor.form.selectProviderPreset(
+      kRapidMlxProviderPreset,
+      ollamaDefaultName: 'Ollama Cloud',
+      openRouterDefaultName: 'OpenRouter',
+      rapidMlxDefaultName: 'Rapid-MLX',
+    );
 
     check(editor.form.originBoundSecretsReviewed).isFalse();
   });

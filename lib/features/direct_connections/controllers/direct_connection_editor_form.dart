@@ -95,7 +95,11 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
   bool get originBoundSecretsReviewed {
     final saved = savedProfile;
     if (saved == null || !originChanged) return true;
-    final apiKeyReviewed = !(saved.apiKey?.isNotEmpty ?? false) || apiKeyDirty;
+    // A keyless draft does not carry the saved key to the new origin.
+    final apiKeyReviewed =
+        authentication == DirectAuthenticationMode.none ||
+        !(saved.apiKey?.isNotEmpty ?? false) ||
+        apiKeyDirty;
     final headersReviewed = saved.customHeaders.isEmpty || headers.isDirty;
     return apiKeyReviewed && headersReviewed;
   }
