@@ -38,6 +38,60 @@ const _sectionGap = SizedBox(height: Spacing.lg);
 ///
 /// It asks for its rows when it appears and again whenever a page opened
 /// from it closes, as the native sheet fills a page in each time it shows.
+/// A page of Settings that its own feature draws, such as the calendar.
+/// Shown as a route over the root list, it is known to the column move as
+/// the other pages are, so a window widening while it has a sheet or
+/// question open waits for that to close before moving it beside the list.
+class SettingsFeaturePage extends ConsumerStatefulWidget {
+  const SettingsFeaturePage({
+    super.key,
+    required this.pageId,
+    required this.child,
+  });
+
+  final String pageId;
+  final Widget child;
+
+  @override
+  ConsumerState<SettingsFeaturePage> createState() =>
+      _SettingsFeaturePageState();
+}
+
+class _SettingsFeaturePageState extends ConsumerState<SettingsFeaturePage> {
+  late final SettingsColumnMove _move;
+  Route<Object?>? _route;
+
+  @override
+  void initState() {
+    super.initState();
+    _move = ref.read(settingsColumnMoveProvider);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = SettingsPageColumn.maybeOf(context) == null
+        ? ModalRoute.of(context)
+        : null;
+    if (route != null && !identical(route, _route)) {
+      if (_route case final old?) _move.routeClosed(widget.pageId, old);
+      _route = route;
+      _move.routeOpened(widget.pageId, route);
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_route case final route?) _move.routeClosed(widget.pageId, route);
+    // Gone as it moved beside the list: the move is done with it.
+    _move.movedToColumn(widget.pageId);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 class SettingsDetailPage extends ConsumerStatefulWidget {
   const SettingsDetailPage({
     super.key,

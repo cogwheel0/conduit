@@ -225,6 +225,38 @@ class RunnerTests: XCTestCase {
   }
 
   @MainActor
+  func testSettingsColumnsKeepARootPickerAsTheyNarrowAndWiden() {
+    let root = UIViewController()
+    let columns = NativeSettingsColumnsController(root: root)
+    columns.defaultRootId = { "test-page" }
+    columns.makePage = { _ in UIViewController() }
+    columns.loadViewIfNeeded()
+    func resize(_ width: CGFloat) {
+      columns.view.frame = CGRect(x: 0, y: 0, width: width, height: 800)
+      columns.view.setNeedsLayout()
+      columns.view.layoutIfNeeded()
+    }
+    resize(1000)
+    XCTAssertTrue(columns.isExpanded)
+    // A root row's picker, opened over the list beside a page.
+    let picker = UIViewController()
+    columns.sidebar.pushViewController(picker, animated: false)
+
+    resize(500)
+    XCTAssertFalse(columns.isExpanded)
+    XCTAssertTrue(columns.sidebar.viewControllers.last === picker)
+    XCTAssertEqual(columns.sidebar.viewControllers.count, 3)
+
+    // One column with the picker over the list: widening keeps it there.
+    columns.sidebar.setViewControllers([root, picker], animated: false)
+    resize(1000)
+    XCTAssertTrue(columns.isExpanded)
+    XCTAssertEqual(columns.sidebar.viewControllers.count, 2)
+    XCTAssertTrue(columns.sidebar.viewControllers.last === picker)
+    XCTAssertEqual(columns.pages.viewControllers.count, 1)
+  }
+
+  @MainActor
   func testNativeProfilePresentationIsSingleUntilDismissed() throws {
     let presenter = ProfilePresentationTestController()
     let host = SelectionMenuTestHost(

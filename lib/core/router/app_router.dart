@@ -351,7 +351,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         // Settings's Calendar is the Flutter calendar wherever Flutter
         // draws Settings; the native sheet has a calendar page of its own.
         child: state.pathParameters['id'] == NativeSheetRoutes.calendar
-            ? const CalendarPage()
+            ? const SettingsFeaturePage(
+                pageId: NativeSheetRoutes.calendar,
+                child: CalendarPage(),
+              )
             : SettingsDetailPage(
                 key: ValueKey<String>(
                   'settings-page-${state.pathParameters['id']}',

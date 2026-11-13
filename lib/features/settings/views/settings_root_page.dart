@@ -86,10 +86,40 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
   /// move beside the list, whether it has closed.
   Timer? _waitingToWiden;
 
+  /// Checks again, while a sheet or question is open in the page column,
+  /// whether it has closed.
+  Timer? _waitingToNarrow;
+
+  /// The page column's narrowest, kept while a sheet or question open in it
+  /// holds the window at two columns.
+  static const double _narrowestPageColumn = 320;
+
   @override
   void dispose() {
     _waitingToWiden?.cancel();
+    _waitingToNarrow?.cancel();
     super.dispose();
+  }
+
+  /// Whether the window keeps two columns though it narrowed past them: a
+  /// sheet or question a page beside the list opened is open in the page
+  /// column, and moving the pages to one column would close it, with what it
+  /// holds. Two columns stay until it has gone, room allowing.
+  bool _waitToNarrow(Size size) {
+    final columns = _columns.currentState;
+    if (columns == null || !columns.holdsOverPages) return false;
+    if (size.width < settingsListColumnWidth + _narrowestPageColumn) {
+      return false;
+    }
+    _waitingToNarrow ??= Timer.periodic(const Duration(milliseconds: 250), (
+      timer,
+    ) {
+      if (_columns.currentState?.holdsOverPages ?? false) return;
+      timer.cancel();
+      _waitingToNarrow = null;
+      if (mounted) setState(() {});
+    });
+    return true;
   }
 
   /// The window widened to two columns: the pages open over the list move
@@ -237,7 +267,8 @@ class _SettingsRootPageState extends ConsumerState<SettingsRootPage> {
     );
     // A tablet's window shows the root list beside the page it opened;
     // narrower, each page is pushed over the last, as on a phone.
-    final wide = _isWide(MediaQuery.sizeOf(context));
+    final size = MediaQuery.sizeOf(context);
+    final wide = _isWide(size) || (_wasWide && _waitToNarrow(size));
     if (_wasWide && !wide) _moveToOneColumn();
     List<String>? opened;
     if (!_wasWide && wide) {

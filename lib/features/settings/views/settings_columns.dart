@@ -207,9 +207,44 @@ final class _ColumnEntry {
   }
 }
 
+/// Counts what is open in the page column besides its pages: the sheets and
+/// questions those pages open there.
+final class _OverPages extends NavigatorObserver {
+  int open = 0;
+
+  static bool _overPage(Route<dynamic> route) => route.settings is! _ColumnPage;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (_overPage(route)) open++;
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (_overPage(route)) open--;
+  }
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (_overPage(route)) open--;
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    if (oldRoute != null && _overPage(oldRoute)) open--;
+    if (newRoute != null && _overPage(newRoute)) open++;
+  }
+}
+
 class SettingsColumnsState extends ConsumerState<SettingsColumns>
     implements SettingsColumnController {
   final _pane = GlobalKey<NavigatorState>();
+  final _overPages = _OverPages();
+
+  /// Whether a sheet or question one of the column's pages opened is open
+  /// in the column: moving the pages to one column would close it, with
+  /// what it holds.
+  bool get holdsOverPages => _overPages.open > 0;
   final List<_ColumnEntry> _entries = [];
   final List<SettingsColumnMember> _members = [];
   String? _selected;
@@ -350,6 +385,7 @@ class SettingsColumnsState extends ConsumerState<SettingsColumns>
             onPopWithResult: (_) => _pane.currentState?.maybePop(),
             child: Navigator(
               key: _pane,
+              observers: [_overPages],
               pages: [
                 for (final entry in _entries)
                   _ColumnPage(entry: entry, child: _pageFor(entry.id)),

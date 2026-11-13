@@ -4225,7 +4225,7 @@ private final class NativeSignOutOptionsViewController: UITableViewController {
 /// in a column of its own, beside the page it opened. Narrower than two
 /// columns allow (Slide Over, a narrow Split View), every page stacks on the
 /// root in one column, as on iPhone, and the page shown is kept.
-private final class NativeSettingsColumnsController: UIViewController, NativeSheetCloseGuarding {
+final class NativeSettingsColumnsController: UIViewController, NativeSheetCloseGuarding {
     /// The width below which Settings keeps one column.
     static let minimumTwoColumnWidth: CGFloat = 700
 
@@ -4331,6 +4331,21 @@ private final class NativeSettingsColumnsController: UIViewController, NativeShe
         }
     }
 
+    /// The window's size as it changes. A sheet sized to its window keeps
+    /// that size as the window widens, and is told nothing then; this sizes
+    /// it again, so a wider window gets two columns.
+    private var windowGeometry: NSKeyValueObservation?
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard windowGeometry == nil, let scene = view.window?.windowScene else { return }
+        windowGeometry = scene.observe(\.effectiveGeometry, options: [.new]) { [weak self] scene, _ in
+            DispatchQueue.main.async {
+                self?.sizeToFit(scene.coordinateSpace.bounds.size)
+            }
+        }
+    }
+
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
         let wantsTwoColumns = view.bounds.width >= Self.minimumTwoColumnWidth
@@ -4384,10 +4399,13 @@ private final class NativeSettingsColumnsController: UIViewController, NativeShe
             return
         }
         var opened = Array(stack.dropFirst())
+        var overList: [UIViewController] = []
         if let first = opened.first as? NativeDetailTableViewController {
             selectedRootId = first.detailId
         } else {
-            // A root row's picker is passing; the page beside it opens anew.
+            // A root row's picker stays over the list, with what is typed
+            // into it; the page beside it opens anew.
+            overList = opened
             opened = []
         }
         if opened.isEmpty,
@@ -4397,7 +4415,7 @@ private final class NativeSettingsColumnsController: UIViewController, NativeShe
             opened = [page]
         }
         movedPage = opened.last.flatMap { stack.contains($0) ? $0 : nil }
-        sidebar.setViewControllers([root], animated: false)
+        sidebar.setViewControllers([root] + overList, animated: false)
         pages.setViewControllers(opened, animated: false)
         addChild(pages)
         view.insertSubview(pages.view, belowSubview: separator)
@@ -4422,7 +4440,10 @@ private final class NativeSettingsColumnsController: UIViewController, NativeShe
         pages.removeFromParent()
         pages.setViewControllers([], animated: false)
         let root = Array(sidebar.viewControllers.prefix(1))
-        sidebar.setViewControllers(root + opened, animated: false)
+        // A picker a root row opened over the list stays on top, with what
+        // is typed into it.
+        let overList = Array(sidebar.viewControllers.dropFirst())
+        sidebar.setViewControllers(root + opened + overList, animated: false)
         isExpanded = false
         separator.isHidden = true
         view.accessibilityElements = nil

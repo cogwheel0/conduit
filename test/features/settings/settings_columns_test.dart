@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/features/settings/settings_controller.dart';
@@ -176,10 +178,16 @@ Future<({_RecordingController controller, GoRouter router})> _pump(
       GoRoute(
         path: Routes.settingsPage,
         name: RouteNames.settingsPage,
-        builder: (_, state) => SettingsDetailPage(
-          detailId: state.pathParameters['id']!,
-          reopened: state.extra is SettingsPageReopened,
-        ),
+        // A page its own feature draws, as the calendar is.
+        builder: (_, state) => state.pathParameters['id'] == 'test-feature'
+            ? const SettingsFeaturePage(
+                pageId: 'test-feature',
+                child: Scaffold(body: Text('Feature page')),
+              )
+            : SettingsDetailPage(
+                detailId: state.pathParameters['id']!,
+                reopened: state.extra is SettingsPageReopened,
+              ),
       ),
     ],
   );
@@ -523,6 +531,66 @@ void main() {
 
     check(rig.router.state.uri.toString()).equals('/');
     check(_column(tester)).deepEquals(['test-form']);
+  });
+
+  testWidgets('narrowing waits for a sheet open beside the list, then moves '
+      'the pages', (tester) async {
+    final rig = await _pump(tester, _tablet);
+    await _openBeside(tester, 'test-form');
+    final asking = showDialog<void>(
+      context: tester.element(find.byType(SettingsDetailPage).last),
+      useRootNavigator: false,
+      builder: (_) => const Text('An event being written'),
+    );
+    await tester.pumpAndSettle();
+
+    tester.view.physicalSize = const Size(800, 1280);
+    await tester.pumpAndSettle();
+    // Still two columns: moving would close the sheet and what it holds.
+    check(find.text('An event being written').evaluate()).isNotEmpty();
+    check(_column(tester)).deepEquals(['test-form']);
+
+    Navigator.of(tester.element(find.text('An event being written'))).pop();
+    await asking;
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+
+    check(find.byType(SettingsColumns).evaluate()).isEmpty();
+    check(rig.router.state.uri.toString()).equals('/profile/page/test-form');
+  });
+
+  testWidgets('widening leaves a sheet open over a page its own feature '
+      'draws, and moves it once closed', (tester) async {
+    final rig = await _pump(tester, const Size(800, 1280));
+    unawaited(
+      rig.router.pushNamed(
+        RouteNames.settingsPage,
+        pathParameters: {'id': 'test-feature'},
+      ),
+    );
+    await tester.pumpAndSettle();
+    final asking = showDialog<void>(
+      context: tester.element(find.text('Feature page')),
+      builder: (_) => const Text('An event being written'),
+    );
+    await tester.pumpAndSettle();
+
+    tester.view.physicalSize = _tablet;
+    await tester.pumpAndSettle();
+    check(find.text('An event being written').evaluate()).isNotEmpty();
+    check(rig.router.state.uri.toString()).equals('/profile/page/test-feature');
+
+    Navigator.of(tester.element(find.text('An event being written'))).pop();
+    await asking;
+    await tester.pump(const Duration(milliseconds: 300));
+    // The page in the column is drawn by its feature, which this rig
+    // leaves loading: no settling.
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    check(rig.router.state.uri.toString()).equals('/');
+    check(_column(tester)).deepEquals(['test-feature']);
   });
 
   test('a draft kept by one move outlasts the next, before its page is '
