@@ -2164,12 +2164,17 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
       return;
     }
     if (_stale(editor.owner)) {
-      await _surface.applyDetail(
-        _accountChangedPage(
-          l10n,
-          '$scheduledTaskEditorPagePrefix${editor.key}',
-        ),
-      );
+      // Its Days and Advanced Schedule pages too, when open over it: none of
+      // that account's schedule stays on screen.
+      for (final prefix in [
+        scheduledTaskEditorPagePrefix,
+        scheduledTaskDaysPagePrefix,
+        scheduledTaskRulePagePrefix,
+      ]) {
+        await _surface.applyDetail(
+          _accountChangedPage(l10n, '$prefix${editor.key}'),
+        );
+      }
       return;
     }
     _followData();
