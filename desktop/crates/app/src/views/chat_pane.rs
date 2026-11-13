@@ -104,7 +104,32 @@ pub struct ChatPane {
     /// The open new chat's temporary switch was moved by hand, so a later
     /// change to the default leaves it alone (until another chat opens).
     temporary_hand_chosen: bool,
+    /// What the Chat and More menus offer for this chat: Chat Settings
+    /// (Open WebUI chats with something to show or edit) and Tool Settings
+    /// (the tools, filters and pipe with personal valves).
+    pub settings_offer: SettingsOffer,
+    settings_key: Option<OfferKey>,
+    _offer: Option<gpui_kit::Task<()>>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// What [`ChatPane::settings_offer`] holds.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SettingsOffer {
+    pub chat_settings: bool,
+    /// Offered with Settings › Chat › Advanced on, as on the phone.
+    pub tool_targets: Vec<conduit_protocol::ValveTarget>,
+}
+
+/// What the offer depends on: asked again when it changes.
+#[derive(Clone, Debug, PartialEq)]
+struct OfferKey {
+    chat_id: Option<String>,
+    model_id: Option<String>,
+    tool_ids: Vec<String>,
+    filter_ids: Vec<String>,
+    advanced: bool,
+    has_draft: bool,
 }
 
 /// A new chat's first send, as Messages hands over: the greeting fades out
@@ -242,7 +267,10 @@ impl ChatPane {
                 }
             }),
             // Settings › Chat changes the composer as it changes.
-            cx.observe(&stores.app_settings, |this, _, cx| this.adopt_prefs(cx)),
+            cx.observe(&stores.app_settings, |this, _, cx| {
+                this.adopt_prefs(cx);
+                this.sync_settings_offer(cx);
+            }),
             cx.observe(&layout, |_, _, cx| cx.notify()),
             cx.observe(&approvals, |_, _, cx| cx.notify()),
             follow_daemon_http(&stores.connection, cx),
@@ -289,8 +317,12 @@ impl ChatPane {
                     ChatComposerEvent::CompareModels => {}
                 },
             ),
-            // The title capsule shows the selected model.
-            cx.observe(&composer_store, |_, _, cx| cx.notify()),
+            // The title capsule shows the selected model; the menus follow
+            // what the chat's settings offer.
+            cx.observe(&composer_store, |this, _, cx| {
+                this.sync_settings_offer(cx);
+                cx.notify()
+            }),
             // Toasts dock above the composer.
             cx.observe(&stores.toasts, |_, _, cx| cx.notify()),
             cx.subscribe(&composer_store, |this, _, event, cx| {
@@ -326,6 +358,9 @@ impl ChatPane {
             queue_noted: false,
             temporary_chosen: false,
             temporary_hand_chosen: false,
+            settings_offer: SettingsOffer::default(),
+            settings_key: None,
+            _offer: None,
             _subscriptions: subscriptions,
         };
         // The composer follows the models on offer and the network.
@@ -666,13 +701,9 @@ impl ChatPane {
             .read(cx)
             .rpc()
             .call::<methods::TurnsSend>(&turn);
-        // "New Chat in Folder": the chat goes in the folder once it exists.
-        let folder = self
-            .stores
-            .navigation
-            .read(cx)
-            .new_chat_folder()
-            .map(str::to_string);
+        // "New Chat in Folder": the daemon makes the chat in the folder (its
+        // draft key says which), so the folder's prompt and knowledge apply
+        // to the first answer.
         self.starting = true;
         // The new chat this send came from: if the user has gone elsewhere
         // by the reply, the chat is made but not opened over their choice.
@@ -691,23 +722,12 @@ impl ChatPane {
                 this.starting = false;
                 let still_here = *this.stores.navigation.read(cx).selection() == origin;
                 match result {
-                    Ok(accepted) if !still_here => {
-                        if let Some(folder) = folder.as_deref() {
-                            let id = accepted.chat_id.clone();
-                            this.stores
-                                .chat_list
-                                .update(cx, |c, cx| c.move_to(&id, Some(folder), cx))
-                                .detach();
-                        }
-                    }
+                    // Made (in its folder, by the daemon), but not opened over
+                    // where the user went since.
+                    Ok(_) if !still_here => {}
                     Ok(accepted) => {
-                        if let Some(folder) = folder.as_deref() {
-                            let id = accepted.chat_id.clone();
-                            this.stores
-                                .chat_list
-                                .update(cx, |c, cx| c.move_to(&id, Some(folder), cx))
-                                .detach();
-                        }
+                        // Its folder's model and its own settings went with it.
+                        this.composer_store.update(cx, |m, cx| m.new_chat_sent(cx));
                         let greeting = this.greeting(cx);
                         let store = this.open_chat(accepted.chat_id.clone(), cx);
                         this.handoff = Some(Handoff {
@@ -1024,6 +1044,156 @@ impl ChatPane {
 
     pub fn open_model_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.composer.update(cx, |c, cx| c.open_picker(window, cx));
+    }
+
+    // ── Chat Settings and Tool Settings ─────────────────────────────────
+
+    /// The open chat's id (None for a new chat).
+    fn open_chat_id(&self, cx: &App) -> Option<String> {
+        self.chat
+            .as_ref()
+            .map(|c| c.store.read(cx).chat_id().to_string())
+    }
+
+    /// Asks the daemon again what the menus offer, when what that depends
+    /// on changed.
+    pub fn sync_settings_offer(&mut self, cx: &mut Context<Self>) {
+        let composer = self.composer_store.read(cx);
+        let key = OfferKey {
+            chat_id: self.open_chat_id(cx),
+            model_id: composer.selected_model().map(|m| m.id.clone()),
+            tool_ids: composer.tool_ids.iter().cloned().collect(),
+            filter_ids: composer.filter_ids.iter().cloned().collect(),
+            advanced: self
+                .stores
+                .app_settings
+                .read(cx)
+                .settings()
+                .advanced_features_enabled,
+            has_draft: composer
+                .draft_params
+                .as_object()
+                .is_some_and(|o| !o.is_empty()),
+        };
+        if self.settings_key.as_ref() == Some(&key) {
+            return;
+        }
+        // Nothing to ask before the models are known.
+        if key.model_id.is_none() {
+            return;
+        }
+        self.settings_key = Some(key.clone());
+        let rpc = self.stores.connection.read(cx).rpc();
+        let draft = composer.draft_params.clone();
+        let settings = rpc.call::<methods::ChatSettingsGet>(&conduit_protocol::ChatSettingsQuery {
+            chat_id: key.chat_id.clone(),
+            model_id: key.model_id.clone(),
+            draft: if draft.is_null() {
+                serde_json::json!({})
+            } else {
+                draft
+            },
+        });
+        let targets = rpc.call::<methods::ValvesTargets>(&conduit_protocol::ValveTargetsQuery {
+            model_id: key.model_id.clone(),
+            tool_ids: key.tool_ids.clone(),
+            filter_ids: key.filter_ids.clone(),
+        });
+        self._offer = Some(cx.spawn(async move |this: gpui_kit::WeakEntity<Self>, cx| {
+            let settings = settings.await;
+            let targets = targets.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.settings_key.as_ref() != Some(&key) {
+                    return;
+                }
+                let offer = SettingsOffer {
+                    chat_settings: settings
+                        .map(|s| s.entry != conduit_protocol::ChatSettingsEntry::None)
+                        .unwrap_or(false),
+                    tool_targets: targets
+                        .ok()
+                        .filter(|t| t.advanced)
+                        .map(|t| t.targets)
+                        .unwrap_or_default(),
+                };
+                if this.settings_offer != offer {
+                    this.settings_offer = offer;
+                    // After this update: the menus read the pane.
+                    cx.defer(crate::menus::refresh_menus);
+                    cx.notify();
+                }
+                let _ = cx;
+            });
+        }));
+    }
+
+    /// Chat › Chat Settings… (⌘I): the open chat's settings, or the new
+    /// chat's (kept for its first message).
+    pub fn open_chat_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.settings_offer.chat_settings {
+            return;
+        }
+        let composer = self.composer_store.read(cx);
+        let target = crate::views::chat_settings::ChatSettingsTarget {
+            chat_id: self.open_chat_id(cx),
+            model_id: composer.selected_model().map(|m| m.id.clone()),
+            draft: if composer.draft_params.is_null() {
+                serde_json::json!({})
+            } else {
+                composer.draft_params.clone()
+            },
+        };
+        let store = self.composer_store.downgrade();
+        let sink: crate::views::chat_settings::DraftSink = Rc::new(move |params, cx| {
+            let _ = store.update(cx, |s, cx| s.set_draft_params(params, cx));
+        });
+        let stores = self.stores.clone();
+        crate::views::sheet::open(
+            window,
+            crate::views::chat_settings::WIDTH,
+            cx,
+            move |w, cx| {
+                crate::views::chat_settings::ChatSettingsSheet::new(
+                    stores,
+                    target,
+                    Some(sink),
+                    w,
+                    cx,
+                )
+            },
+        );
+    }
+
+    /// Chat › Tool Settings…: the user's own settings for the tools,
+    /// filters and pipe this chat uses.
+    pub fn open_tool_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let targets = self.settings_offer.tool_targets.clone();
+        if targets.is_empty() {
+            return;
+        }
+        let stores = self.stores.clone();
+        crate::views::sheet::open(window, crate::views::valves::WIDTH, cx, move |w, cx| {
+            crate::views::valves::ValvesSheet::new(stores, targets, w, cx)
+        });
+    }
+
+    /// The More menu's leading items: Chat Settings… and Tool Settings…
+    pub fn more_menu_items(&self, cx: &App) -> Vec<(String, Box<dyn gpui_kit::Action>)> {
+        let l10n = cx.l10n();
+        let mut items: Vec<(String, Box<dyn gpui_kit::Action>)> = vec![];
+        if self.settings_offer.chat_settings {
+            items.push((
+                l10n.desktop_chat_settings_menu(),
+                Box::new(crate::actions::ChatSettings),
+            ));
+        }
+        if !self.settings_offer.tool_targets.is_empty() {
+            items.push((
+                l10n.desktop_tool_settings_menu(),
+                Box::new(crate::actions::ToolSettings),
+            ));
+        }
+        items
     }
 
     /// Ask Conduit: the text selected in an answer goes into the composer,
@@ -1448,6 +1618,14 @@ pub fn register_actions(cx: &mut App) {
     cx.on_action(|_: &crate::actions::CopySelection, cx| {
         with_pane(cx, |p, _, cx| p.copy_selection(cx))
     });
+    // ⌘I is Get Info: the chat's settings (the sidebar's list takes it
+    // first for a folder its keyboard is on).
+    cx.on_action(|_: &crate::actions::ChatSettings, cx| {
+        with_pane(cx, |p, w, cx| p.open_chat_settings(w, cx))
+    });
+    cx.on_action(|_: &crate::actions::ToolSettings, cx| {
+        with_pane(cx, |p, w, cx| p.open_tool_settings(w, cx))
+    });
     cx.on_action(|_: &crate::actions::ExpandEditor, cx| {
         with_pane(cx, |p, w, cx| {
             p.composer.update(cx, |c, cx| {
@@ -1858,7 +2036,10 @@ fn show_chat_menu(
         return;
     };
     let sidebar = view.read(cx).sidebar.clone();
-    sidebar.update(cx, |s, cx| s.context_menu(&chat_id, position, window, cx));
+    let leading = view.read(cx).chat_pane.read(cx).more_menu_items(cx);
+    sidebar.update(cx, |s, cx| {
+        s.context_menu_with(&chat_id, leading, position, window, cx)
+    });
 }
 
 #[cfg(test)]

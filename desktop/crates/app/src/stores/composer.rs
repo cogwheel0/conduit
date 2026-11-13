@@ -342,6 +342,18 @@ pub struct ComposerStore {
     /// `#` notes and knowledge files, and web pages: context for the next
     /// message.
     pub context: Vec<ContextAttachmentDto>,
+    /// A new chat's own settings (Chat Settings on a new chat): its first
+    /// message takes them. Dropped once another chat opens, as mobile drops
+    /// its pending settings.
+    pub draft_params: serde_json::Value,
+    /// The model a new chat in a folder starts on: the folder's default
+    /// (`folders.draftModel`), until the user picks another.
+    pub draft_model: Option<String>,
+    _draft_model: Option<Task<()>>,
+    /// The picker's extras for the selected model: reasoning effort (an
+    /// Ollama model's thinking level) and Hermes' Fast tier.
+    pub model_options: Option<conduit_protocol::ModelOptionsDto>,
+    _model_options: Option<Task<()>>,
     /// The draft the composer holds, and what was last kept of it.
     draft: Option<DraftKey>,
     draft_saved: String,
@@ -391,6 +403,11 @@ impl ComposerStore {
             mention: None,
             knowledge: vec![],
             context: vec![],
+            draft_params: serde_json::Value::Null,
+            draft_model: None,
+            _draft_model: None,
+            model_options: None,
+            _model_options: None,
             draft: None,
             draft_saved: String::new(),
             next_id: 0,
@@ -436,6 +453,14 @@ impl ComposerStore {
     /// The composer shows that model rather than "Choose a model".
     pub fn selected_model(&self) -> Option<&ModelSummary> {
         let list = self.models.as_ref()?;
+        // A new chat in a folder starts on the folder's model.
+        if let Some(model) = self
+            .draft_model
+            .as_deref()
+            .and_then(|id| list.models.iter().find(|m| m.id == id))
+        {
+            return Some(model);
+        }
         list.selected_id
             .as_deref()
             .and_then(|id| list.models.iter().find(|m| m.id == id))
@@ -466,6 +491,129 @@ impl ComposerStore {
         );
     }
 
+    /// The open chat (None for a new or temporary chat): a reasoning pick
+    /// is saved on it.
+    fn chat_id(&self) -> Option<String> {
+        self.draft.as_ref().and_then(|k| k.chat_id.clone())
+    }
+
+    /// `models.options` for the selected model.
+    pub fn refresh_model_options(&mut self, cx: &mut Context<Self>) {
+        let Some(model_id) = self.selected_model().map(|m| m.id.clone()) else {
+            self.model_options = None;
+            return;
+        };
+        let call = self
+            .rpc
+            .call::<methods::ModelsOptions>(&conduit_protocol::ModelOptionsQuery {
+                model_id: Some(model_id.clone()),
+                chat_id: self.chat_id(),
+            });
+        self._model_options = Some(cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let result = call.await;
+                let _ = this.update(cx, |s, cx| match result {
+                    Ok(options) if options.model_id.as_deref() == Some(model_id.as_str()) => {
+                        s.model_options = Some(options);
+                        cx.notify();
+                    }
+                    Ok(_) => {}
+                    Err(e) => log::info!("models.options: {e}"),
+                });
+            },
+        ));
+    }
+
+    /// The picker's reasoning effort: `automatic`, a preset or a typed one.
+    /// For a new chat it lands in its settings (as mobile's pending ones).
+    pub fn set_reasoning_effort(&mut self, effort: &str, cx: &mut Context<Self>) {
+        let Some(model_id) = self.selected_model().map(|m| m.id.clone()) else {
+            return;
+        };
+        let chat_id = self.chat_id();
+        let new_chat = chat_id.is_none();
+        let call = self.rpc.call::<methods::ModelsSetReasoningEffort>(
+            &conduit_protocol::SetReasoningEffort {
+                model_id,
+                chat_id,
+                draft: if self.draft_params.is_null() {
+                    serde_json::json!({})
+                } else {
+                    self.draft_params.clone()
+                },
+                effort: effort.to_string(),
+            },
+        );
+        self._model_options = Some(cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let result = call.await;
+                let _ = this.update(cx, |s, cx| match result {
+                    Ok(options) => {
+                        if new_chat && let Some(draft) = options.draft.clone() {
+                            s.draft_params = draft;
+                        }
+                        s.model_options = Some(options);
+                        cx.notify();
+                    }
+                    Err(e) => {
+                        log::warn!("models.setReasoningEffort: {e}");
+                        cx.emit(ComposerEvent::ModelNotSelected(e.to_string()));
+                    }
+                });
+            },
+        ));
+    }
+
+    /// Hermes' Fast tier, on or off.
+    pub fn set_fast_tier(&mut self, on: bool, cx: &mut Context<Self>) {
+        let call = self
+            .rpc
+            .call::<methods::ModelsSetFastTier>(&conduit_protocol::SetFastTier {
+                model_id: self.selected_model().map(|m| m.id.clone()),
+                on,
+            });
+        self._model_options = Some(cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let result = call.await;
+                let _ = this.update(cx, |s, cx| {
+                    if let Ok(options) = result {
+                        s.model_options = Some(options);
+                        cx.notify();
+                    }
+                });
+            },
+        ));
+    }
+
+    /// Pins or unpins a model in the account's settings.
+    pub fn set_pinned(&mut self, id: &str, pinned: bool, cx: &mut Context<Self>) {
+        // Shown at once; the daemon's answer replaces it.
+        if let Some(list) = &mut self.models
+            && let Some(m) = list.models.iter_mut().find(|m| m.id == id)
+        {
+            m.pinned = pinned;
+        }
+        cx.notify();
+        let call = self
+            .rpc
+            .call::<methods::ModelsSetPinned>(&conduit_protocol::SetModelPinned {
+                id: id.to_string(),
+                pinned,
+            });
+        self._models = Some(
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let result = call.await;
+                let _ = this.update(cx, |s, cx| match result {
+                    Ok(list) => s.set_models(list, cx),
+                    Err(e) => {
+                        log::warn!("models.setPinned: {e}");
+                        s.refresh_models(cx);
+                    }
+                });
+            }),
+        );
+    }
+
     fn set_models(&mut self, list: ModelList, cx: &mut Context<Self>) {
         // An `@` model that is no longer offered is dropped.
         if let Some(m) = &self.mention
@@ -474,11 +622,24 @@ impl ComposerStore {
             self.mention = None;
         }
         self.models = Some(list);
+        self.follow_model_options(cx);
         cx.notify();
+    }
+
+    /// Asks for the picker's extras again when the selected model is not
+    /// the one they are for.
+    fn follow_model_options(&mut self, cx: &mut Context<Self>) {
+        let selected = self.selected_model().map(|m| m.id.clone());
+        let shown = self.model_options.as_ref().and_then(|o| o.model_id.clone());
+        if selected != shown {
+            self.refresh_model_options(cx);
+        }
     }
 
     /// `models.select`: the daemon keeps it with the account.
     pub fn select_model(&mut self, id: &str, cx: &mut Context<Self>) {
+        // A pick wins over a folder's default.
+        self.draft_model = None;
         // Shown at once; the daemon's answer replaces it.
         if let Some(list) = &mut self.models {
             list.selected_id = Some(id.to_string());
@@ -1079,8 +1240,21 @@ impl ComposerStore {
     /// The options the next turn would take, with `mentions` from the text,
     /// leaving the composer as it is.
     pub fn turn_options(&self, mentions: Vec<ComposerMentionDto>) -> TurnOptions {
+        // A new chat's own: its folder and settings.
+        let new_chat = self.draft.as_ref().is_none_or(|k| k.chat_id.is_none());
         TurnOptions {
-            model: self.mention.as_ref().map(|m| m.id.clone()),
+            model: self
+                .mention
+                .as_ref()
+                .map(|m| m.id.clone())
+                .or_else(|| self.draft_model.clone()),
+            folder_id: self
+                .draft
+                .as_ref()
+                .filter(|k| k.chat_id.is_none())
+                .and_then(|k| k.folder_id.clone()),
+            chat_params: (new_chat && has_params(&self.draft_params))
+                .then(|| self.draft_params.clone()),
             tool_ids: self.tool_ids.iter().cloned().collect(),
             filter_ids: self.filter_ids.iter().cloned().collect(),
             knowledge: self.knowledge.clone(),
@@ -1092,6 +1266,51 @@ impl ComposerStore {
             file_ids: self.file_ids(),
             compare_models: vec![],
         }
+    }
+
+    /// Keeps a new chat's settings for its first message.
+    pub fn set_draft_params(&mut self, params: serde_json::Value, cx: &mut Context<Self>) {
+        self.draft_params = params;
+        cx.notify();
+    }
+
+    /// A new chat was made with what this composer held for it.
+    pub fn new_chat_sent(&mut self, cx: &mut Context<Self>) {
+        self.draft_params = serde_json::Value::Null;
+        self.draft_model = None;
+        self._draft_model = None;
+        cx.notify();
+    }
+
+    /// The folder's default model for a new chat in `folder_id`.
+    fn resolve_draft_model(&mut self, folder_id: String, cx: &mut Context<Self>) {
+        let call = self
+            .rpc
+            .call::<methods::FoldersDraftModel>(&conduit_protocol::FolderRef {
+                folder_id: folder_id.clone(),
+            });
+        self._draft_model = Some(cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let result = call.await;
+                let _ = this.update(cx, |s, cx| {
+                    let still = s.draft.as_ref().is_some_and(|k| {
+                        k.chat_id.is_none() && k.folder_id.as_deref() == Some(&folder_id)
+                    });
+                    if !still {
+                        return;
+                    }
+                    match result {
+                        Ok(found) => {
+                            s.draft_model = found.model_ids.first().cloned();
+                            s.refresh_options(cx);
+                            s.follow_model_options(cx);
+                        }
+                        Err(e) => log::info!("folders.draftModel: {e}"),
+                    }
+                    cx.notify();
+                });
+            },
+        ));
     }
 
     /// Clears what applies to one message: the `@` model, `#` context,
@@ -1170,6 +1389,20 @@ impl ComposerStore {
         // Another chat's draft: a send still on its way from the last one
         // gives nothing back to this one.
         self.draft_round += 1;
+        // A folder's model belongs to its new chat alone; an opened chat
+        // drops a new chat's settings (mobile drops its pending ones).
+        self.draft_model = None;
+        self._draft_model = None;
+        match key.as_ref() {
+            Some(DraftKey {
+                chat_id: None,
+                folder_id: Some(folder),
+            }) => self.resolve_draft_model(folder.clone(), cx),
+            Some(DraftKey {
+                chat_id: Some(_), ..
+            }) => self.draft_params = serde_json::Value::Null,
+            _ => {}
+        }
         cx.emit(ComposerEvent::DraftSwitched);
         let Some(key) = key else {
             return;
@@ -1338,6 +1571,8 @@ impl ComposerStore {
         self.draft_round += 1;
         self._searches = [None, None, None];
         self._options = None;
+        self._model_options = None;
+        self.model_options = None;
         self.models = None;
         self.options = ComposerOptions::default();
         self.prompts = None;
@@ -1358,10 +1593,18 @@ impl ComposerStore {
         self.draft = None;
         self.draft_saved = String::new();
         self._draft = None;
+        self.draft_params = serde_json::Value::Null;
+        self.draft_model = None;
+        self._draft_model = None;
         self.refresh_models(cx);
         // The last account's text, panel and prompt leave the field.
         cx.emit(ComposerEvent::DraftSwitched);
     }
+}
+
+/// Whether `params` holds any setting.
+fn has_params(params: &serde_json::Value) -> bool {
+    params.as_object().is_some_and(|o| !o.is_empty())
 }
 
 fn search(query: &str) -> ComposerSearch {
@@ -1542,6 +1785,59 @@ pub fn model_label(model: &ModelSummary) -> String {
 }
 
 /// Models whose name or id matches `query`: those that start with it first.
+/// One row of the model picker's list.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PickerRow {
+    /// A group's title under More Models (an agent section).
+    Heading(String),
+    Model(ModelSummary),
+}
+
+/// Whether the picker has models past its featured ones.
+pub fn has_more_models(list: &ModelList) -> bool {
+    !list.featured_ids.is_empty() && list.more_sections.iter().any(|s| !s.ids.is_empty())
+}
+
+/// The picker's rows, as mobile's sheet lays them out (the daemon says
+/// which are featured): with a `query`, every match, pinned first; without,
+/// the featured models (the pinned ones, or the first few, the default and
+/// the selected), and with `more` the rest, each titled group under its
+/// heading. A daemon that sent no layout gets every model.
+pub fn picker_rows(list: &ModelList, query: &str, more: bool) -> Vec<PickerRow> {
+    let by_id = |id: &str| list.models.iter().find(|m| m.id == id).cloned();
+    if !query.trim().is_empty() || list.featured_ids.is_empty() {
+        let mut models: Vec<ModelSummary> = if query.trim().is_empty() {
+            list.models.clone()
+        } else {
+            match_models(query.trim(), &list.models, usize::MAX)
+                .into_iter()
+                .cloned()
+                .collect()
+        };
+        models.sort_by_key(|m| !m.pinned);
+        return models.into_iter().map(PickerRow::Model).collect();
+    }
+    let mut rows: Vec<PickerRow> = list
+        .featured_ids
+        .iter()
+        .filter_map(|id| by_id(id))
+        .map(PickerRow::Model)
+        .collect();
+    if more {
+        for section in &list.more_sections {
+            let models: Vec<_> = section.ids.iter().filter_map(|id| by_id(id)).collect();
+            if models.is_empty() {
+                continue;
+            }
+            if !section.label.is_empty() {
+                rows.push(PickerRow::Heading(section.label.clone()));
+            }
+            rows.extend(models.into_iter().map(PickerRow::Model));
+        }
+    }
+    rows
+}
+
 pub fn match_models<'a>(
     query: &str,
     models: &'a [ModelSummary],
@@ -1661,6 +1957,76 @@ fn extension_for(format: ImageFormat) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    fn summary(id: &str, pinned: bool) -> ModelSummary {
+        ModelSummary {
+            id: id.into(),
+            name: id.into(),
+            description: None,
+            pinned,
+            capabilities: vec![],
+            connection: None,
+        }
+    }
+
+    fn laid_out() -> ModelList {
+        ModelList {
+            models: vec![
+                summary("a", true),
+                summary("b", false),
+                summary("c", false),
+                summary("agent", false),
+            ],
+            selected_id: Some("a".into()),
+            featured_ids: vec!["a".into()],
+            more_sections: vec![
+                conduit_protocol::ModelSection {
+                    label: String::new(),
+                    ids: vec!["b".into(), "c".into()],
+                },
+                conduit_protocol::ModelSection {
+                    label: "Agents".into(),
+                    ids: vec!["agent".into()],
+                },
+            ],
+            can_pin: true,
+            default_id: None,
+        }
+    }
+
+    fn ids(rows: &[PickerRow]) -> Vec<String> {
+        rows.iter()
+            .map(|r| match r {
+                PickerRow::Heading(h) => format!("# {h}"),
+                PickerRow::Model(m) => m.id.clone(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_picker_shows_the_featured_models_then_more_under_their_headings() {
+        let list = laid_out();
+        assert!(has_more_models(&list));
+        assert_eq!(ids(&picker_rows(&list, "", false)), ["a"]);
+        assert_eq!(
+            ids(&picker_rows(&list, "", true)),
+            ["a", "b", "c", "# Agents", "agent"]
+        );
+    }
+
+    #[test]
+    fn a_search_finds_every_model_pinned_first() {
+        let mut list = laid_out();
+        list.models[2].pinned = true;
+        assert_eq!(ids(&picker_rows(&list, "c", false)), ["c"]);
+        assert_eq!(ids(&picker_rows(&list, " ", false)), ["a"]);
+        list.featured_ids.clear();
+        assert!(!has_more_models(&list));
+        assert_eq!(
+            ids(&picker_rows(&list, "", false)),
+            ["a", "c", "b", "agent"]
+        );
+    }
+
     use std::sync::Mutex;
 
     use conduit_protocol::{ContextSuggestions, ToolSummary, UploadedFile};
@@ -1865,10 +2231,7 @@ mod tests {
         daemon.returns::<methods::ModelsList>(ModelList {
             models: vec![model("k", "Kestrel"), model("b", "B")],
             selected_id: None,
-            featured_ids: Default::default(),
-            more_sections: Default::default(),
-            can_pin: false,
-            default_id: None,
+            ..Default::default()
         });
         daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
         let store = store(&daemon, Arc::default(), cx);
@@ -1881,10 +2244,7 @@ mod tests {
         daemon.returns::<methods::ModelsList>(ModelList {
             models: vec![model("b", "B")],
             selected_id: Some("gone".into()),
-            featured_ids: Default::default(),
-            more_sections: Default::default(),
-            can_pin: false,
-            default_id: None,
+            ..Default::default()
         });
         store.update(cx, |s, cx| s.refresh_models(cx));
         cx.run_until_parked();
@@ -1899,10 +2259,7 @@ mod tests {
         daemon.returns::<methods::ModelsList>(ModelList {
             models: vec![model("a", "A")],
             selected_id: Some("a".into()),
-            featured_ids: Default::default(),
-            more_sections: Default::default(),
-            can_pin: false,
-            default_id: None,
+            ..Default::default()
         });
         daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
         let store = store(&daemon, Arc::default(), cx);
@@ -1950,10 +2307,7 @@ mod tests {
         daemon.returns::<methods::ModelsList>(ModelList {
             models: vec![model("a", "A"), model("b", "B")],
             selected_id: Some("a".into()),
-            featured_ids: Default::default(),
-            more_sections: Default::default(),
-            can_pin: false,
-            default_id: None,
+            ..Default::default()
         });
         daemon.returns::<methods::ComposerOptions>(ComposerOptions {
             web_search: true,
@@ -1968,10 +2322,7 @@ mod tests {
         daemon.returns::<methods::ModelsSelect>(ModelList {
             models: vec![model("a", "A"), model("b", "B")],
             selected_id: Some("b".into()),
-            featured_ids: Default::default(),
-            more_sections: Default::default(),
-            can_pin: false,
-            default_id: None,
+            ..Default::default()
         });
         let store = store(&daemon, Arc::default(), cx);
         store.update(cx, |s, cx| s.refresh_models(cx));

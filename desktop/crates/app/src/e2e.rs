@@ -55,6 +55,7 @@
 //! typed.
 
 mod chat;
+mod chat_settings;
 mod composer;
 mod integration;
 mod offline;
@@ -710,6 +711,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "integration" => integration::run(&inputs, &dir, cx).await,
         "sections" => sections::run(&inputs, &dir, cx).await,
         "composer" => composer::run(&inputs, &dir, cx).await,
+        "chat-settings" => chat_settings::run(&inputs, &dir, cx).await,
         "shell" | "shell-notify" | "shell-close" => shell::run(&inputs, &dir, cx).await,
         "offline-setup" => offline::setup(&inputs, &dir, cx).await,
         "offline" => offline::run(&inputs, &dir, cx).await,
@@ -1482,11 +1484,15 @@ async fn sidebar_folders(
     .unwrap_or_default();
     println!("SMOKE folder menus {menus:?}");
     pass &= ok(
-        "a folder's menu offers New Chat, New Subfolder, Rename…, Expand, Delete Folder…",
+        "a folder's menu offers New Chat, New Subfolder, Folder Settings…, Share Folder…, \
+         Rename…, Expand, Delete Folder…",
         menus.0
             == [
                 "New Chat in Folder",
                 "New Subfolder",
+                "—",
+                "Folder Settings…",
+                "Share Folder…",
                 "—",
                 "Rename…",
                 "Expand",

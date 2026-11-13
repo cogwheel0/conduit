@@ -193,6 +193,22 @@ struct PromptForm {
 struct Picker {
     search: Entity<InputState>,
     highlighted: usize,
+    /// More Models: every model, past the featured ones.
+    more: bool,
+    /// Custom… under Reasoning Effort: the field a value is typed in.
+    custom: Option<Entity<InputState>>,
+}
+
+/// What the picker's native menus and rows do.
+#[derive(Clone, Debug, PartialEq, gpui_kit::Action)]
+#[action(namespace = conduit_composer, no_json)]
+pub enum PickerAction {
+    /// A reasoning effort preset (`automatic`, `low`, ...).
+    Effort(String),
+    /// Custom…: type an effort.
+    CustomEffort,
+    /// Pin or unpin a model.
+    Pin(String, bool),
 }
 
 pub struct ChatComposer {
@@ -814,6 +830,18 @@ impl ChatComposer {
             return true;
         }
         if let Some(picker) = &mut self.picker {
+            // Esc in Custom…'s field puts the picker back.
+            if let Some(custom) = &picker.custom
+                && custom.read(cx).focus_handle(cx).is_focused(window)
+            {
+                if key == "escape" {
+                    picker.custom = None;
+                    picker.search.update(cx, |s, cx| s.focus(window, cx));
+                    cx.notify();
+                    return true;
+                }
+                return false;
+            }
             let focused = picker.search.read(cx).focus_handle(cx).is_focused(window);
             if !focused {
                 return false;
@@ -1235,7 +1263,8 @@ impl ChatComposer {
         self.picker.is_some()
     }
 
-    fn picker_models(&self, cx: &App) -> Vec<ModelSummary> {
+    /// The picker's rows as drawn ([`crate::stores::composer::picker_rows`]).
+    fn picker_rows(&self, cx: &App) -> Vec<crate::stores::composer::PickerRow> {
         let Some(picker) = self.picker.as_ref().or(self.leaving_picker.as_ref()) else {
             return vec![];
         };
@@ -1243,13 +1272,134 @@ impl ChatComposer {
         let Some(list) = &self.composer.read(cx).models else {
             return vec![];
         };
-        let mut models: Vec<ModelSummary> = match_models(&query, &list.models, usize::MAX)
+        crate::stores::composer::picker_rows(list, &query, picker.more)
+    }
+
+    /// The models the arrows step through, in the order drawn.
+    fn picker_models(&self, cx: &App) -> Vec<ModelSummary> {
+        self.picker_rows(cx)
             .into_iter()
-            .cloned()
-            .collect();
-        // Pinned first, as the server orders them otherwise.
-        models.sort_by_key(|m| !m.pinned);
-        models
+            .filter_map(|r| match r {
+                crate::stores::composer::PickerRow::Model(m) => Some(m),
+                crate::stores::composer::PickerRow::Heading(_) => None,
+            })
+            .collect()
+    }
+
+    /// More Models, and back to the short list.
+    pub fn toggle_more_models(&mut self, cx: &mut Context<Self>) {
+        if let Some(p) = &mut self.picker {
+            p.more = !p.more;
+            cx.notify();
+        }
+    }
+
+    /// The reasoning effort menu (a native menu): the presets, the current
+    /// one checked, then Custom… when the model takes another value.
+    fn show_effort_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use gpui_kit::component::native_menu::NativeMenu;
+        let Some(options) = self.composer.read(cx).model_options.clone() else {
+            return;
+        };
+        let l10n = cx.l10n().clone();
+        let reasoning = options.reasoning;
+        let mut menu = NativeMenu::new();
+        let current = reasoning.current.clone();
+        let mut custom = !reasoning.options.contains(&current);
+        for option in &reasoning.options {
+            menu = menu.menu_with_check(
+                crate::views::chat_settings::effort_label(option, &l10n),
+                *option == current,
+                Box::new(PickerAction::Effort(option.clone())),
+            );
+        }
+        if reasoning.allows_custom {
+            menu = menu.separator();
+            if custom {
+                menu = menu.menu_with_check(
+                    current.clone(),
+                    true,
+                    Box::new(PickerAction::CustomEffort),
+                );
+                custom = false;
+            }
+            menu = menu.menu(
+                l10n.desktop_custom_ellipsis(),
+                Box::new(PickerAction::CustomEffort),
+            );
+        }
+        let _ = custom;
+        menu.show(window.mouse_position(), window, cx);
+    }
+
+    fn on_picker_action(
+        &mut self,
+        action: &PickerAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match action {
+            PickerAction::Effort(effort) => {
+                let effort = effort.clone();
+                self.composer
+                    .update(cx, |c, cx| c.set_reasoning_effort(&effort, cx));
+                if let Some(p) = &mut self.picker {
+                    p.custom = None;
+                }
+            }
+            PickerAction::CustomEffort => self.start_custom_effort(window, cx),
+            PickerAction::Pin(id, pinned) => {
+                let (id, pinned) = (id.clone(), *pinned);
+                self.composer
+                    .update(cx, |c, cx| c.set_pinned(&id, pinned, cx));
+            }
+        }
+        cx.notify();
+    }
+
+    /// Custom…: a field under Reasoning Effort; Return saves what is typed,
+    /// Esc puts the picker back.
+    fn start_custom_effort(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let placeholder = cx.l10n().desktop_custom_effort_hint();
+        let current = self
+            .composer
+            .read(cx)
+            .model_options
+            .as_ref()
+            .map(|o| o.reasoning.current.clone())
+            .filter(|c| c != "automatic")
+            .unwrap_or_default();
+        let input = cx.new(|cx| {
+            let mut s = InputState::new(window, cx).placeholder(placeholder);
+            s.set_value(current, window, cx);
+            s
+        });
+        self._subscriptions.push(cx.subscribe_in(
+            &input,
+            window,
+            |this, state, e: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { .. } = e {
+                    let text = state.read(cx).value().trim().to_string();
+                    if !text.is_empty() {
+                        this.composer
+                            .update(cx, |c, cx| c.set_reasoning_effort(&text, cx));
+                    }
+                    if let Some(p) = &mut this.picker {
+                        p.custom = None;
+                        p.search.update(cx, |s, cx| s.focus(window, cx));
+                    }
+                    cx.notify();
+                }
+            },
+        ));
+        input.update(cx, |s, cx| {
+            s.focus(window, cx);
+            s.select_all(window, cx);
+        });
+        if let Some(p) = &mut self.picker {
+            p.custom = Some(input);
+        }
+        cx.notify();
     }
 
     /// Opens the model picker (⇧⌘M, the palette's "Choose model").
@@ -1278,6 +1428,8 @@ impl ChatComposer {
         self.picker = Some(Picker {
             search,
             highlighted: 0,
+            more: false,
+            custom: None,
         });
         if let Some(id) = selected
             && let Some(i) = self.picker_models(cx).iter().position(|m| m.id == id)
@@ -1285,7 +1437,10 @@ impl ChatComposer {
         {
             p.highlighted = i;
         }
-        self.composer.update(cx, |c, cx| c.refresh_models(cx));
+        self.composer.update(cx, |c, cx| {
+            c.refresh_models(cx);
+            c.refresh_model_options(cx);
+        });
         cx.emit(ChatComposerEvent::PickerChanged);
         cx.notify();
     }
@@ -2425,25 +2580,155 @@ impl ChatComposer {
     }
 
     fn picker_menu(&self, t: &ConduitTheme, cx: &mut Context<Self>) -> Option<AnyElement> {
+        use crate::stores::composer::PickerRow;
         let picker = self.picker.as_ref().or(self.leaving_picker.as_ref())?;
         let l10n = cx.l10n().clone();
         let r = t.roles;
         let m = t.metrics;
-        let models = self.picker_models(cx);
-        let selected = self
-            .composer
-            .read(cx)
-            .selected_model()
-            .map(|m| m.id.clone());
-        let total = models.len();
+        let rows = self.picker_rows(cx);
+        let store = self.composer.read(cx);
+        let selected = store.selected_model().map(|m| m.id.clone());
+        let can_pin = store.models.as_ref().is_some_and(|l| l.can_pin);
+        let searching = !picker.search.read(cx).value().trim().is_empty();
+        let has_more = store
+            .models
+            .as_ref()
+            .is_some_and(crate::stores::composer::has_more_models);
+        let options = store.model_options.clone();
+        let total = rows
+            .iter()
+            .filter(|r| matches!(r, PickerRow::Model(_)))
+            .count();
         let weak = cx.entity().downgrade();
+        let mut index = 0usize;
+        let list_rows: Vec<AnyElement> = rows
+            .into_iter()
+            .map(|row| match row {
+                PickerRow::Heading(label) => div()
+                    .px(px(8.))
+                    .pt(px(8.))
+                    .pb(px(2.))
+                    .text_size(px(m.caption))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(r.text_subtle)
+                    .child(SharedString::from(label))
+                    .into_any_element(),
+                PickerRow::Model(model) => {
+                    let i = index;
+                    index += 1;
+                    self.picker_row(
+                        i,
+                        total,
+                        &model,
+                        selected.as_deref(),
+                        can_pin,
+                        picker,
+                        t,
+                        &l10n,
+                        cx,
+                    )
+                }
+            })
+            .collect();
+        // The footer: More Models, then the selected model's extras.
+        let mut footer: Vec<AnyElement> = vec![];
+        if has_more && !searching {
+            let more = picker.more;
+            footer.push(self.picker_footer_row(
+                "model-menu-more",
+                if more {
+                    l10n.desktop_fewer_models()
+                } else {
+                    l10n.desktop_more_models()
+                },
+                None,
+                if more {
+                    IconName::ChevronUp
+                } else {
+                    IconName::ChevronDown
+                },
+                t,
+                cx.listener(|this, _, _, cx| this.toggle_more_models(cx)),
+            ));
+        }
+        if let Some(options) = options.as_ref() {
+            if options.reasoning.visible {
+                let label = if options.reasoning.ollama {
+                    l10n.desktop_thinking()
+                } else {
+                    l10n.desktop_reasoning_effort()
+                };
+                let value =
+                    crate::views::chat_settings::effort_label(&options.reasoning.current, &l10n);
+                footer.push(self.picker_footer_row(
+                    "model-menu-effort",
+                    label,
+                    Some(value),
+                    IconName::ChevronsUpDown,
+                    t,
+                    cx.listener(|this, _, window, cx| this.show_effort_menu(window, cx)),
+                ));
+                if let Some(custom) = &picker.custom {
+                    footer.push(
+                        div()
+                            .id("model-menu-custom-effort")
+                            .mx(px(2.))
+                            .px(px(8.))
+                            .h(px(m.control_height + 2.))
+                            .flex()
+                            .items_center()
+                            .rounded(px(7.))
+                            .bg(with_alpha(r.text, if t.dark { 0.08 } else { 0.05 }))
+                            .child(
+                                Input::new(custom)
+                                    .appearance(false)
+                                    .bordered(false)
+                                    .px_0()
+                                    .text_size(px(m.control))
+                                    .aria_label(SharedString::from(
+                                        l10n.desktop_custom_effort_hint(),
+                                    )),
+                            )
+                            .into_any_element(),
+                    );
+                }
+            }
+            if let Some(on) = options.fast_tier {
+                footer.push(
+                    div()
+                        .id("model-menu-fast-tier")
+                        .min_h(px(m.row_height + 6.))
+                        .px(px(8.))
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(SharedString::from(l10n.hermes_fast_tier()))
+                        .child(
+                            conduit_components::views::kit::Switch::new(
+                                "model-menu-fast-tier-switch",
+                                l10n.hermes_fast_tier(),
+                                on,
+                            )
+                            .on_click(Rc::new({
+                                let weak = weak.clone();
+                                move |_, _, cx| {
+                                    let _ = weak.update(cx, |c, cx| {
+                                        c.composer.update(cx, |s, cx| s.set_fast_tier(!on, cx))
+                                    });
+                                }
+                            })),
+                        )
+                        .into_any_element(),
+                );
+            }
+        }
         Some(
             div()
                 .id("model-menu")
                 .role(Role::Dialog)
                 .aria_label(SharedString::from(l10n.desktop_model_menu()))
                 .w(px(320.))
-                .max_h(px(420.))
+                .max_h(px(460.))
                 .p(px(6.))
                 .flex()
                 .flex_col()
@@ -2453,6 +2738,9 @@ impl ChatComposer {
                 .bg(r.overlay)
                 .shadow(overlay_shadow(t))
                 .occlude()
+                .on_action(cx.listener(|this, a: &PickerAction, window, cx| {
+                    this.on_picker_action(a, window, cx)
+                }))
                 .on_mouse_down_out(move |_, window, cx| {
                     let _ = weak.update(cx, |c, cx| c.close_picker(window, cx));
                 })
@@ -2463,6 +2751,7 @@ impl ChatComposer {
                         .mb(px(4.))
                         .px(px(8.))
                         .flex()
+                        .flex_none()
                         .items_center()
                         .gap(px(6.))
                         .rounded(px(7.))
@@ -2496,78 +2785,213 @@ impl ChatComposer {
                         .aria_label(SharedString::from(l10n.desktop_model_menu()))
                         .flex()
                         .flex_col()
+                        .flex_shrink(1.)
+                        .min_h_0()
                         .overflow_y_scroll()
-                        .children(models.into_iter().enumerate().map(|(i, model)| {
-                            let on = selected.as_deref() == Some(model.id.as_str());
-                            let hot = i == picker.highlighted;
-                            let id = model.id.clone();
-                            let provider = model.connection.clone().unwrap_or_default();
-                            // As the palette's rows: the highlighted one is
-                            // the selected option (VoiceOver follows it as the
-                            // arrows move), the model in use is checked.
-                            div()
-                                .id(ElementId::Name(format!("model-{}", model.id).into()))
-                                .role(Role::ListBoxOption)
-                                .aria_label(SharedString::from(model_label(&model)))
-                                .aria_selected(hot)
-                                .aria_toggled(if on {
-                                    gpui_kit::Toggled::True
-                                } else {
-                                    gpui_kit::Toggled::False
-                                })
-                                .aria_position_in_set(i + 1)
-                                .aria_size_of_set(total)
-                                .min_h(px(m.row_height + 10.))
-                                .px(px(8.))
-                                .flex()
-                                .flex_none()
-                                .items_center()
-                                .gap(px(10.))
-                                .rounded(px(7.))
-                                .when(hot, |d| d.bg(r.overlay_hover))
-                                .hover(|s| s.bg(r.overlay_hover))
-                                .cursor_pointer()
-                                .child(icon(
-                                    if model.pinned {
-                                        IconName::Pin
-                                    } else {
-                                        IconName::Sparkles
-                                    },
-                                    14.,
-                                    r.text_subtle,
-                                ))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .flex()
-                                        .flex_col()
-                                        .child(
-                                            div()
-                                                .truncate()
-                                                .text_size(px(m.control))
-                                                .font_weight(FontWeight::MEDIUM)
-                                                .text_color(r.text)
-                                                .child(SharedString::from(model.name.clone())),
-                                        )
-                                        .when(!provider.is_empty(), |d| {
-                                            d.child(
-                                                div()
-                                                    .truncate()
-                                                    .text_size(px(m.caption))
-                                                    .text_color(r.text_subtle)
-                                                    .child(SharedString::from(provider)),
-                                            )
-                                        }),
-                                )
-                                .when(on, |d| d.child(icon(IconName::Check, 15., r.selected_icon)))
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.choose_model(&id, window, cx)
-                                }))
-                        })),
+                        .children(list_rows),
                 )
+                .when(!footer.is_empty(), |d| {
+                    d.child(
+                        div()
+                            .my(px(4.))
+                            .mx(px(6.))
+                            .h(px(1.))
+                            .flex_none()
+                            .bg(r.divider),
+                    )
+                    .child(div().flex().flex_none().flex_col().children(footer))
+                })
                 .into_any_element(),
         )
+    }
+
+    /// One model in the picker: its name and connection, the model in use
+    /// checked, and a pin button (shown on hover, or when pinned). A right
+    /// click offers Pin or Unpin.
+    #[allow(clippy::too_many_arguments)]
+    fn picker_row(
+        &self,
+        i: usize,
+        total: usize,
+        model: &ModelSummary,
+        selected: Option<&str>,
+        can_pin: bool,
+        picker: &Picker,
+        t: &ConduitTheme,
+        l10n: &crate::l10n::L10n,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let r = t.roles;
+        let m = t.metrics;
+        let on = selected == Some(model.id.as_str());
+        let hot = i == picker.highlighted;
+        let id = model.id.clone();
+        let provider = model.connection.clone().unwrap_or_default();
+        let label = model_label(model);
+        let group = SharedString::from(format!("model-row-{}", model.id));
+        let pinned = model.pinned;
+        let pin_label = if pinned {
+            l10n.desktop_unpin_model(&model.name)
+        } else {
+            l10n.desktop_pin_model(&model.name)
+        };
+        let (pin_id, menu_id) = (model.id.clone(), model.id.clone());
+        let (pin_text, unpin_text) = (l10n.pin(), l10n.unpin());
+        // As the palette's rows: the highlighted one is the selected option
+        // (VoiceOver follows it as the arrows move), the model in use is
+        // checked.
+        div()
+            .id(ElementId::Name(format!("model-{}", model.id).into()))
+            .group(group.clone())
+            .role(Role::ListBoxOption)
+            .aria_label(SharedString::from(label))
+            .aria_selected(hot)
+            .aria_toggled(if on {
+                gpui_kit::Toggled::True
+            } else {
+                gpui_kit::Toggled::False
+            })
+            .aria_position_in_set(i + 1)
+            .aria_size_of_set(total)
+            .min_h(px(m.row_height + 10.))
+            .px(px(8.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(10.))
+            .rounded(px(7.))
+            .when(hot, |d| d.bg(r.overlay_hover))
+            .hover(|s| s.bg(r.overlay_hover))
+            .cursor_pointer()
+            .child(icon(
+                if pinned {
+                    IconName::Pin
+                } else {
+                    IconName::Sparkles
+                },
+                14.,
+                r.text_subtle,
+            ))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(px(m.control))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(r.text)
+                            .child(SharedString::from(model.name.clone())),
+                    )
+                    .when(!provider.is_empty(), |d| {
+                        d.child(
+                            div()
+                                .truncate()
+                                .text_size(px(m.caption))
+                                .text_color(r.text_subtle)
+                                .child(SharedString::from(provider)),
+                        )
+                    }),
+            )
+            .when(can_pin, |d| {
+                d.child(
+                    div()
+                        .opacity(if pinned { 1. } else { 0. })
+                        .group_hover(group.clone(), |s| s.opacity(1.))
+                        .child(
+                            IconButton::new(
+                                ElementId::Name(format!("model-pin-{}", model.id).into()),
+                                if pinned {
+                                    IconName::PinOff
+                                } else {
+                                    IconName::Pin
+                                },
+                                pin_label,
+                            )
+                            .size(24., 13.)
+                            .on_click(Rc::new({
+                                let weak = cx.entity().downgrade();
+                                move |_, _, cx| {
+                                    let id = pin_id.clone();
+                                    let _ = weak.update(cx, |c, cx| {
+                                        c.composer
+                                            .update(cx, |s, cx| s.set_pinned(&id, !pinned, cx))
+                                    });
+                                }
+                            })),
+                        ),
+                )
+            })
+            .when(on, |d| d.child(icon(IconName::Check, 15., r.selected_icon)))
+            .on_mouse_down(gpui_kit::MouseButton::Right, move |e, window, cx| {
+                if !can_pin {
+                    return;
+                }
+                let menu = gpui_kit::component::native_menu::NativeMenu::new().menu(
+                    if pinned {
+                        unpin_text.clone()
+                    } else {
+                        pin_text.clone()
+                    },
+                    Box::new(PickerAction::Pin(menu_id.clone(), !pinned)),
+                );
+                menu.show(e.position, window, cx);
+                cx.stop_propagation();
+            })
+            .on_click(cx.listener(move |this, _, window, cx| this.choose_model(&id, window, cx)))
+            .into_any_element()
+    }
+
+    /// A row under the picker's list: a label, its value, a trailing glyph.
+    fn picker_footer_row(
+        &self,
+        id: &'static str,
+        label: String,
+        value: Option<String>,
+        glyph: IconName,
+        t: &ConduitTheme,
+        on_click: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> AnyElement {
+        let r = t.roles;
+        let m = t.metrics;
+        let name = match &value {
+            Some(v) => format!("{label}: {v}"),
+            None => label.clone(),
+        };
+        div()
+            .id(id)
+            .role(Role::Button)
+            .aria_label(SharedString::from(name))
+            .min_h(px(m.row_height + 6.))
+            .px(px(8.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(8.))
+            .rounded(px(7.))
+            .cursor_pointer()
+            .hover(|s| s.bg(r.overlay_hover))
+            .child(
+                div()
+                    .flex_1()
+                    .text_size(px(m.control))
+                    .text_color(r.text)
+                    .child(SharedString::from(label)),
+            )
+            .when_some(value, |d, v| {
+                d.child(
+                    div()
+                        .text_size(px(m.control))
+                        .text_color(r.text_subtle)
+                        .child(SharedString::from(v)),
+                )
+            })
+            .child(icon(glyph, 13., r.text_subtle))
+            .on_click(on_click)
+            .into_any_element()
     }
 }
 

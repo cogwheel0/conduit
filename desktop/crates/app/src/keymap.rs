@@ -319,6 +319,8 @@ pub enum FixedCommand {
     ExpandEditor,
     /// Puts the text selected in an answer into the composer.
     AskConduit,
+    /// The open chat's settings, or the selected folder's (⌘I, Get Info).
+    ChatSettings,
     FindInChat,
     FindNext,
     FindPrevious,
@@ -381,6 +383,7 @@ pub fn fixed_shortcuts() -> Vec<(FixedCommand, KeyStroke)> {
         (F::Regenerate, k("r").primary()),
         (F::ExpandEditor, k("e").primary().shift()),
         (F::AskConduit, k("a").primary().shift()),
+        (F::ChatSettings, k("i").primary()),
         (F::FindInChat, k("f").primary()),
         (F::FindNext, k("g").primary()),
         (F::FindPrevious, k("g").primary().shift()),
@@ -476,6 +479,7 @@ pub fn keyboard_groups() -> Vec<(KeyGroup, Vec<KeyRow>)> {
                 Fixed(F::Regenerate),
                 Fixed(F::ExpandEditor),
                 Fixed(F::AskConduit),
+                Fixed(F::ChatSettings),
                 R(A::CopyLastResponse),
                 R(A::CopyLastCodeBlock),
                 R(A::AllowRequest),
@@ -929,7 +933,7 @@ mod tests {
         }
         assert_eq!(rows.iter().filter(|r| **r == KeyRow::QuickAsk).count(), 1);
         // 12 rebindable, 17 fixed (⌘1…⌘8 as one row), Quick Ask.
-        assert_eq!(rows.len(), 30);
+        assert_eq!(rows.len(), 31);
         // Go › Back and Forward are Finder's ⌘[ and ⌘].
         assert_eq!(describe(&fixed_stroke(FixedCommand::Back), true), "⌘[");
         assert_eq!(describe(&fixed_stroke(FixedCommand::Forward), true), "⌘]");

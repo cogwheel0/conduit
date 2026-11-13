@@ -513,7 +513,7 @@ pub fn run(dir: PathBuf, options: SmokeOptions, cx: &mut App) {
         }
         cx.update(|cx| set_mode(original, cx));
         println!("SMOKE quitting");
-        cx.update(|cx| cx.quit());
+        cx.update(crate::views::sheet::quit);
     })
     .detach();
 }
