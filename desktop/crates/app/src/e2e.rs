@@ -98,6 +98,7 @@ mod settings;
 mod share;
 pub mod shell;
 mod tasks;
+mod terminal;
 mod voice_call;
 mod widget;
 mod workspace;
@@ -775,6 +776,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "tasks" => tasks::run(&inputs, &dir, cx).await,
         "widget" => widget::run(&inputs, &dir, cx).await,
         "intents" => intents::run(&inputs, &dir, cx).await,
+        "terminal" => terminal::run(&inputs, &dir, cx).await,
         other => ok(&format!("unknown scenario {other}"), false),
     }
 }

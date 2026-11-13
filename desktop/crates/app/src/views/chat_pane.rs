@@ -127,6 +127,13 @@ pub struct ChatPane {
     context_offered: std::cell::Cell<bool>,
     settings_key: Option<OfferKey>,
     _offer: Option<gpui_kit::Task<()>>,
+    /// Whether the header offers Computer for the open chat, and what the
+    /// answer was asked for (the chat, the setting, the selected terminal,
+    /// a revision bumped by a reconnect).
+    pub computer: Option<crate::views::terminal::chat::ComputerOffer>,
+    computer_key: Option<(String, bool, Option<String>, u64)>,
+    computer_revision: u64,
+    _computer: Option<gpui_kit::Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -440,6 +447,10 @@ impl ChatPane {
             context_offered: std::cell::Cell::new(false),
             settings_key: None,
             _offer: None,
+            computer: None,
+            computer_key: None,
+            computer_revision: 0,
+            _computer: None,
             _subscriptions: subscriptions,
         };
         // The composer follows the models on offer and the network.
@@ -1067,6 +1078,10 @@ impl ChatPane {
                     chat.store.update(cx, |s, cx| s.on_reconnected(cx));
                 }
                 self.composer_store.update(cx, |c, cx| c.refresh_models(cx));
+                // A new daemon session: handles and the Computer offer anew.
+                crate::views::terminal::chat::forget_handles(cx);
+                self.computer_revision += 1;
+                cx.notify();
             }
             ConnectionEvent::Gap => {
                 if let Some(chat) = &self.chat {
@@ -1093,6 +1108,21 @@ impl ChatPane {
                             } else {
                                 self.handoff_ask = Some((id, closer));
                             }
+                        }
+                    }
+                    Event::TerminalDisplayFile(request)
+                        if self.open_chat_id(cx).as_deref() == Some(request.chat_id.as_str()) =>
+                    {
+                        if let Some(window) = cx
+                            .try_global::<crate::AppState>()
+                            .and_then(|s| s.main_window)
+                        {
+                            crate::views::terminal::chat::display_file(
+                                self.stores.clone(),
+                                window,
+                                request.clone(),
+                                cx,
+                            );
                         }
                     }
                     _ => {}
@@ -1855,6 +1885,49 @@ impl ChatPane {
 
     /// Asks the daemon again what the menus offer, when what that depends
     /// on changed.
+    /// Asks again whether the header offers Computer, when what it
+    /// depends on moved.
+    fn sync_computer(&mut self, cx: &mut Context<Self>) {
+        let Some(chat_id) = self.open_chat_id(cx) else {
+            self.computer = None;
+            self.computer_key = None;
+            return;
+        };
+        let enabled = self
+            .stores
+            .app_settings
+            .read(cx)
+            .settings()
+            .computer_enabled;
+        let selected = self.stores.areas.read(cx).terminal_selected.clone();
+        let key = (chat_id.clone(), enabled, selected, self.computer_revision);
+        if self.computer_key.as_ref() == Some(&key) {
+            return;
+        }
+        self.computer_key = Some(key.clone());
+        if self.computer.as_ref().is_some_and(|c| c.chat_id != chat_id) {
+            self.computer = None;
+        }
+        if !enabled {
+            self.computer = None;
+            return;
+        }
+        let rpc = self.stores.connection.read(cx).rpc();
+        let asked = crate::views::terminal::chat::computer_status(&rpc, chat_id, cx);
+        self._computer = Some(cx.spawn(async move |this: gpui_kit::WeakEntity<Self>, cx| {
+            let offer = asked.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.computer_key.as_ref() != Some(&key) {
+                    return;
+                }
+                if this.computer != offer {
+                    this.computer = offer;
+                    cx.notify();
+                }
+            });
+        }));
+    }
+
     pub fn sync_settings_offer(&mut self, cx: &mut Context<Self>) {
         let composer = self.composer_store.read(cx);
         let key = OfferKey {
@@ -2609,6 +2682,7 @@ pub fn register_actions(cx: &mut App) {
 
 impl Render for ChatPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_computer(cx);
         let l10n = cx.l10n().clone();
         let t = cx.conduit().clone();
         let r = t.roles;
@@ -2726,9 +2800,33 @@ impl Render for ChatPane {
                         })),
                 );
             }
-            // The chat's commands, as the sidebar's context menu has them.
+            // The chat's commands, as the sidebar's context menu has them;
+            // Computer before them when the chat's terminal has one.
             Some(chat) if !read_only => {
                 let chat_id = chat.store.read(cx).chat_id().to_string();
+                if self
+                    .computer
+                    .as_ref()
+                    .is_some_and(|c| c.available() && c.chat_id == chat_id)
+                {
+                    let offer = self.computer.clone();
+                    let stores = self.stores.clone();
+                    toolbar = toolbar.trailing(
+                        IconButton::new("chat-computer", IconName::Monitor, l10n.computer_title())
+                            .size(30., 16.)
+                            .round()
+                            .on_click(Rc::new(move |_, _, cx| {
+                                if let Some(offer) = &offer {
+                                    crate::views::terminal::computer::open(
+                                        stores.clone(),
+                                        offer.chat_id.clone(),
+                                        offer.status.clone(),
+                                        cx,
+                                    );
+                                }
+                            })),
+                    );
+                }
                 toolbar = toolbar.trailing(
                     IconButton::new("chat-more", IconName::Ellipsis, l10n.more())
                         .size(30., 16.)

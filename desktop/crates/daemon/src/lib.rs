@@ -23,6 +23,7 @@ pub mod rpc;
 pub mod runtime;
 pub mod secrets;
 pub mod supervisor;
+pub mod terminal;
 
 pub use protocol::{Event, EventEnvelope, RpcError, RpcMethod};
 pub use rpc::{ClientEvent, ConnectionState, Handshake, RpcClient, RpcConfig};

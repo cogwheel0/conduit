@@ -129,9 +129,11 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     };
 
     // ── Scheduled tasks wait for Settings' Advanced, as on the phone ──
+    // The seed's server offers a terminal (owui.sh's "Build box").
     let without = [
         Area::Chats,
         Area::Notes,
+        Area::Terminal,
         Area::Channels,
         Area::Workspace,
         Area::Calendar,
@@ -158,9 +160,11 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     });
 
     // ── Sections, as the capabilities say ─────────────────────────────
+    // The seed's server offers a terminal (owui.sh's "Build box").
     let expected = [
         Area::Chats,
         Area::Notes,
+        Area::Terminal,
         Area::Channels,
         Area::Workspace,
         Area::Calendar,
@@ -193,7 +197,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
                 && c.scheduled_tasks
                 && c.workspace_prompts
                 && c.folders
-                && !c.terminal
+                && c.terminal
                 && !c.hermes_only
         }),
     );
@@ -327,16 +331,17 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     );
 
     // ── The keyboard crosses the sections ─────────────────────────────
+    // From the section under Notes: Terminal on the seeded server.
     in_main(cx, |mw, window, cx| {
         mw.sidebar
-            .update(cx, |s, cx| s.go_to_area(Area::Channels, window, cx))
+            .update(cx, |s, cx| s.go_to_area(Area::Terminal, window, cx))
     });
     settle(cx, 300).await;
     pass &= ok(
         "Go to a section puts the keyboard on its heading",
-        cx.update(cursor) == Some(KeyRow::Area(Area::Channels)),
+        cx.update(cursor) == Some(KeyRow::Area(Area::Terminal)),
     );
-    // ↑ from Channels: the closed Notes heading (its rows are hidden).
+    // ↑ from Terminal: the closed Notes heading (its rows are hidden).
     press(main, "up", cx);
     settle(cx, 200).await;
     pass &= ok(

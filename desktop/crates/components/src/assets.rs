@@ -20,18 +20,18 @@ gpui_kit::assets::icon_assets!(
         Clock, ClockFading, Cloud, CloudOff, Code, Coffee, Columns2, Command, Copy, CornerDownLeft,
         Cpu, Database, DatabaseBackup, Download, Ellipsis, ExternalLink, Eye, EyeOff,
         FaceSlightlySmilingPlus, FileCode, FileDown, FileMusic, FileText, Film, FlaskConical,
-        Folder, FolderClosed, FolderOpen, Funnel, GitBranch, Github, GitMerge, Globe, Hash,
-        Heading1, Heading2, Heading3, Heart, Image, ImageOff, Info, Italic, Keyboard, KeyRound,
-        Laptop, Layers, LayoutGrid, LibraryBig, Lightbulb, Link, List, ListChecks, ListOrdered,
-        ListTodo, ListTree, LoaderCircle, Lock, LogOut, Mail, Maximize2, Megaphone, MessageSquare,
-        MessageSquareDot, MessageSquarePlus, MessagesSquare, Mic, MicOff, Minimize2, Monitor, Moon,
-        Network, NotebookPen, OctagonAlert, Palette, PanelLeft, Paperclip, Pause, Pencil, PhoneOff,
-        Pilcrow, Pin, PinOff, Play, Plus, RefreshCw, Reply, RotateCcw, Save, ScrollText, Search,
-        Server, Settings, Share, ShieldAlert, ShieldCheck, SkipBack, SkipForward,
-        SlidersHorizontal, Smartphone, Sparkles, Split, Square, SquareCode, SquarePen,
-        SquareTerminal, Strikethrough, Sun, Terminal, TextCursorInput, TextQuote, ThumbsDown,
-        ThumbsUp, Timer, Trash, TriangleAlert, Undo2, Unlink, Upload, User, UserMinus, UserPlus,
-        Users, WandSparkles, Wifi, Wrench, X, Zap, ZoomIn, ZoomOut
+        Folder, FolderClosed, FolderOpen, FolderPlus, Funnel, GitBranch, Github, GitMerge, Globe,
+        Hash, Heading1, Heading2, Heading3, Heart, House, Image, ImageOff, Info, Italic, Keyboard,
+        KeyRound, Laptop, Layers, LayoutGrid, LibraryBig, Lightbulb, Link, List, ListChecks,
+        ListOrdered, ListTodo, ListTree, LoaderCircle, Lock, LogOut, Mail, Maximize2, Megaphone,
+        MessageSquare, MessageSquareDot, MessageSquarePlus, MessagesSquare, Mic, MicOff, Minimize2,
+        Monitor, Moon, Network, NotebookPen, OctagonAlert, Palette, PanelLeft, Paperclip, Pause,
+        Pencil, PhoneOff, Pilcrow, Pin, PinOff, Play, Plug, Plus, RefreshCw, Reply, RotateCcw,
+        RotateCw, Save, ScrollText, Search, Server, Settings, Share, ShieldAlert, ShieldCheck,
+        SkipBack, SkipForward, SlidersHorizontal, Smartphone, Sparkles, Split, Square, SquareCode,
+        SquarePen, SquareTerminal, Strikethrough, Sun, Terminal, TextCursorInput, TextQuote,
+        ThumbsDown, ThumbsUp, Timer, Trash, TriangleAlert, Undo2, Unlink, Unplug, Upload, User,
+        UserMinus, UserPlus, Users, WandSparkles, Wifi, Wrench, X, Zap, ZoomIn, ZoomOut
     ]
 );
 

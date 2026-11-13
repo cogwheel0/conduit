@@ -1029,6 +1029,36 @@ impl SettingsView {
             });
             sections.push(settings_section(title, footer, rows, cx).into_any_element());
         }
+        // The terminal's Option key: Meta, or the character it types.
+        let meta = desktop.terminal_option_as_meta;
+        let settings = self.settings.clone();
+        let meta_switch = Switch::new(
+            "terminal-option-as-meta",
+            l10n.desktop_terminal_option_as_meta(),
+            meta,
+        )
+        .on_click(Rc::new(move |_, _, cx| {
+            settings.update(cx, |s, cx| {
+                s.set_desktop(|d| d.terminal_option_as_meta = !meta, cx)
+            });
+        }));
+        sections.push(
+            settings_section(
+                l10n.terminal(),
+                Some(l10n.desktop_terminal_option_as_meta_footer().into()),
+                vec![
+                    setting_row(
+                        l10n.desktop_terminal_option_as_meta(),
+                        None,
+                        meta_switch,
+                        cx,
+                    )
+                    .into_any_element(),
+                ],
+                cx,
+            )
+            .into_any_element(),
+        );
         let s = self.settings.clone();
         sections.push(
             div()

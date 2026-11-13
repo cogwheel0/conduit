@@ -134,6 +134,20 @@ def bundled(repo: Path, args) -> list[str]:
             ],
         )
     )
+    novnc = read(repo / "assets/computer/novnc-LICENSE.txt")
+    novnc_version = re.search(r"noVNC (\d+\.\d+\.\d+)", novnc).group(1)
+    out.append(
+        section(
+            f"noVNC {novnc_version}",
+            [
+                "The Computer viewer's remote desktop client, in the app's copy of",
+                "assets/computer/viewer.js (MPL-2.0; the notice says what the build changes",
+                "and where its source is).",
+                "",
+                fence(novnc),
+            ],
+        )
+    )
     lucide = sorted(registry.glob("gpui-kit-assets-*/LICENSE-LUCIDE"))
     if lucide:
         out.append(

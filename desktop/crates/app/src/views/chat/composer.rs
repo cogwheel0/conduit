@@ -121,6 +121,9 @@ pub enum ComposerMenu {
     Filter(String),
     /// A LibreChat MCP server to sign in to: its web app opens.
     ConnectInLibreChat,
+    /// A terminal server for the chat's terminal tool: selects it, or
+    /// (selected already) none.
+    Terminal(String),
     /// A heading (disabled).
     Heading,
 }
@@ -2063,6 +2066,61 @@ impl ChatComposer {
                 );
             }
         }
+        // The terminal its tool uses, as mobile's Tools section offers it
+        // (Open WebUI turns only; a server that needs a saved chat waits
+        // for one).
+        let chat_saved = self
+            .composer
+            .read(cx)
+            .draft_key()
+            .is_some_and(|k| k.chat_id.is_some());
+        let terminals: Vec<(String, String, bool)> = cx
+            .try_global::<crate::AppState>()
+            .map(|s| s.stores.areas.read(cx))
+            .filter(|_| options.context)
+            .map(|areas| {
+                areas
+                    .terminals
+                    .iter()
+                    .flatten()
+                    .filter(|t| chat_saved || !t.requires_saved_chat)
+                    .map(|t| {
+                        let name = if t.name.trim().is_empty() {
+                            t.id.clone()
+                        } else {
+                            t.name.clone()
+                        };
+                        (
+                            t.id.clone(),
+                            name,
+                            areas.terminal_selected.as_deref() == Some(t.id.as_str()),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !terminals.is_empty() {
+            entries.push(None);
+            menu = menu.separator();
+            menu = item(
+                menu,
+                &mut entries,
+                l10n.terminal(),
+                true,
+                None,
+                ComposerMenu::Heading,
+            );
+            for (id, name, selected) in terminals {
+                menu = item(
+                    menu,
+                    &mut entries,
+                    name,
+                    false,
+                    Some(selected),
+                    ComposerMenu::Terminal(id),
+                );
+            }
+        }
         // The menu's action goes to the focused element's path: keep focus
         // in the composer so its handler hears it.
         self.focus_input(window, cx);
@@ -2133,6 +2191,9 @@ impl ChatComposer {
                 }
             }
             ComposerMenu::Filter(id) => composer.update(cx, |c, cx| c.toggle_filter(id, cx)),
+            ComposerMenu::Terminal(id) => {
+                crate::views::terminal::chat::toggle_terminal(id.clone(), cx)
+            }
             ComposerMenu::Heading => {}
         }
     }

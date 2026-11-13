@@ -96,6 +96,8 @@ pub struct AreasStore {
     /// The areas whose list could not be read (and none is held): the
     /// sidebar offers Try Again instead of a loading line.
     pub failed: BTreeSet<Area>,
+    /// The server chats send as `terminal_id` (`terminal.select`).
+    pub terminal_selected: Option<String>,
     /// The areas shown, whose lists are kept.
     wanted: BTreeSet<Area>,
     /// Bumped whenever a list changes (the sidebar's rows cache).
@@ -326,7 +328,10 @@ impl AreasStore {
                     this.update(cx, |s, cx| {
                         if s.generation == generation {
                             match result {
-                                Ok(list) => s.terminals = Some(list.servers),
+                                Ok(list) => {
+                                    s.terminals = Some(list.servers);
+                                    s.terminal_selected = list.selected_id;
+                                }
                                 Err(e) => {
                                     log::warn!("terminal.servers: {e}");
                                     s.failed.insert(Area::Terminal);
@@ -342,6 +347,18 @@ impl AreasStore {
             Area::Chats | Area::Workspace | Area::Calendar | Area::Automations => return,
         };
         self.fetches.insert(area, task);
+    }
+
+    /// The terminal servers and the selection, as `terminal.select`
+    /// answered them.
+    pub fn set_terminals(
+        &mut self,
+        servers: conduit_protocol::TerminalServers,
+        cx: &mut Context<Self>,
+    ) {
+        self.terminals = Some(servers.servers);
+        self.terminal_selected = servers.selected_id;
+        self.changed(cx);
     }
 
     fn changed(&mut self, cx: &mut Context<Self>) {

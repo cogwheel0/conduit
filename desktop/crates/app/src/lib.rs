@@ -41,6 +41,8 @@ pub mod shell;
 #[cfg(target_os = "macos")]
 pub mod smoke;
 pub mod stores;
+#[cfg(all(target_os = "macos", feature = "harness"))]
+pub mod terminal_fixture;
 pub mod updates;
 pub mod views;
 pub mod voice;
@@ -273,6 +275,8 @@ pub fn run() {
     let chat_fixture = chat_fixture::requested(&args);
     #[cfg(all(target_os = "macos", feature = "harness"))]
     let channel_fixture = channel_fixture::requested(&args);
+    #[cfg(all(target_os = "macos", feature = "harness"))]
+    let terminal_fixture = terminal_fixture::requested(&args);
     // `--capture <dir>`: screenshots and motion strips of every screen,
     // for design review (capture/).
     #[cfg(all(target_os = "macos", feature = "harness"))]
@@ -334,6 +338,12 @@ pub fn run() {
         #[cfg(all(target_os = "macos", feature = "harness"))]
         if let Some((mode, shots)) = channel_fixture.clone() {
             channel_fixture::run(mode, shots, cx);
+            return;
+        }
+        // The console under a flood of output (perf).
+        #[cfg(all(target_os = "macos", feature = "harness"))]
+        if terminal_fixture {
+            terminal_fixture::run(cx);
             return;
         }
         let layout = cx.new(|_| LayoutStore::load(app_paths.window_state_file()));

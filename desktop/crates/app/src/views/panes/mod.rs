@@ -19,6 +19,7 @@ pub mod hermes;
 pub mod terminal;
 pub mod workspace;
 
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
@@ -58,6 +59,12 @@ pub struct AreaPane {
     /// The item the pane showed last, so an area that comes back is read
     /// again (as the phone's page is when it reopens).
     last_item: Option<AreaItem>,
+    /// Each terminal server's pane, once opened: its shell and folder live
+    /// on while another item shows, as mobile's terminal tab keeps alive.
+    /// Dropped (and their handles let go) when the account changes.
+    terminals: HashMap<String, Entity<crate::views::terminal::pane::TerminalPane>>,
+    /// The account the terminal panes belong to.
+    terminals_account: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -106,7 +113,47 @@ impl AreaPane {
             calendar: None,
             tasks: None,
             last_item: None,
+            terminals: HashMap::new(),
+            terminals_account: None,
             _subscriptions: subscriptions,
+        }
+    }
+
+    /// The pane of terminal server `id`, made on first use.
+    pub fn terminal(
+        &mut self,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<crate::views::terminal::pane::TerminalPane> {
+        let account = self.stores.accounts.read(cx).active().map(|a| a.id.clone());
+        if account != self.terminals_account {
+            for (_, pane) in self.terminals.drain() {
+                pane.update(cx, |p, cx| p.release(cx));
+            }
+            self.terminals_account = account;
+        }
+        if let Some(pane) = self.terminals.get(id) {
+            return pane.clone();
+        }
+        let stores = self.stores.clone();
+        let server = id.to_string();
+        let pane = cx
+            .new(|cx| crate::views::terminal::pane::TerminalPane::new(stores, server, window, cx));
+        self._subscriptions
+            .push(cx.observe(&pane, |_, _, cx| cx.notify()));
+        self.terminals.insert(id.to_string(), pane.clone());
+        pane
+    }
+
+    /// The pane of the terminal server shown now, if any.
+    pub fn shown_terminal(
+        &self,
+        cx: &App,
+    ) -> Option<Entity<crate::views::terminal::pane::TerminalPane>> {
+        match self.item(cx)? {
+            AreaItem::Terminal(id) => self.terminals.get(&id).cloned(),
+            _ => None,
         }
     }
 
@@ -203,8 +250,13 @@ impl Render for AreaPane {
         channels::sync(self, Some(&item), window, cx);
         let title = channels::shown_title(self, &item, cx)
             .unwrap_or_else(|| title_of(&item, &self.stores, cx));
+        let terminal = match &item {
+            AreaItem::Terminal(id) => Some(self.terminal(id, window, cx)),
+            _ => None,
+        };
         // The shown item's own buttons, at the toolbar's trailing edge: a
-        // note's or a channel's.
+        // note's or a channel's. A terminal's sit beside its
+        // leading title instead (below).
         let trailing = match &item {
             AreaItem::Note(_) => self
                 .notes
@@ -232,7 +284,10 @@ impl Render for AreaPane {
                 workspace::pane(&mut self.workspace, &self.stores, *section, window, cx)
                     .into_any_element()
             }
-            AreaItem::Terminal(id) => terminal::pane(id, &title, &t, &l),
+            AreaItem::Terminal(_) => match &terminal {
+                Some(pane) => terminal::pane(pane),
+                None => placeholder(&item, &title, &t, &l),
+            },
             AreaItem::Calendar => {
                 calendar::pane(&mut self.calendar, returning, &self.stores, window, cx)
                     .into_any_element()
@@ -281,35 +336,110 @@ impl Render for AreaPane {
                     ),
                 )
             })
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .left(px(TRAFFIC_LIGHTS_WIDTH + 48.))
-                    .right(px(TRAFFIC_LIGHTS_WIDTH + 48.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        div()
-                            .id("area-pane-title")
-                            // The item's name, as VoiceOver's headings list
-                            // finds it (a note's own title is a field).
-                            .role(Role::Heading)
-                            .aria_level(1)
-                            .aria_label(SharedString::from(title.clone()))
-                            .truncate()
-                            .text_size(px(t.metrics.control))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(r.text)
-                            .child(SharedString::from(title)),
-                    ),
-            )
-            .child(div().flex_1())
-            .children(trailing);
+            .when(terminal.is_none(), |d| {
+                d.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .left(px(TRAFFIC_LIGHTS_WIDTH + 48.))
+                        .right(px(TRAFFIC_LIGHTS_WIDTH + 48.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            div()
+                                .id("area-pane-title")
+                                // The item's name, as VoiceOver's headings list
+                                // finds it (a note's own title is a field).
+                                .role(Role::Heading)
+                                .aria_level(1)
+                                .aria_label(SharedString::from(title.clone()))
+                                .truncate()
+                                .text_size(px(t.metrics.control))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(r.text)
+                                .child(SharedString::from(title.clone())),
+                        ),
+                )
+                .child(div().flex_1())
+                .children(trailing)
+            })
+            // A terminal's controls fill the trailing edge, so its title
+            // leads, as a unified toolbar's does.
+            .when_some(terminal.as_ref(), |d, pane| {
+                let subtitle = pane.read(cx).shell_title().map(str::to_string);
+                d.child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .pl(px(if reveal < 1. { 10. } else { 4. }))
+                        .flex()
+                        .flex_col()
+                        .child({
+                            // The server picker: the title opens a menu of the
+                            // account's terminal servers.
+                            let current = pane.read(cx).server_id().to_string();
+                            let focus = gpui_kit::Focusable::focus_handle(pane.read(cx), cx);
+                            div()
+                                .id("area-pane-title")
+                                .role(Role::Button)
+                                .aria_label(SharedString::from(
+                                    l.desktop_terminal_server_picker(&title),
+                                ))
+                                .flex()
+                                .items_center()
+                                .gap(px(4.))
+                                .max_w_full()
+                                .px(px(6.))
+                                .ml(px(-6.))
+                                .rounded(px(6.))
+                                .cursor_pointer()
+                                .hover(|s| s.bg(r.hover))
+                                .on_click(move |e, window, cx| {
+                                    // The menu's command goes through the pane.
+                                    window.focus(&focus, cx);
+                                    crate::views::terminal::pane::server_menu(
+                                        &current,
+                                        e.position(),
+                                        window,
+                                        cx,
+                                    );
+                                })
+                                .child(
+                                    div()
+                                        .truncate()
+                                        .text_size(px(t.metrics.control))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(r.text)
+                                        .child(SharedString::from(title.clone())),
+                                )
+                                .child(icon(IconName::ChevronDown, 11., r.text_subtle))
+                        })
+                        .when_some(subtitle, |d, sub| {
+                            d.child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(t.metrics.small))
+                                    .text_color(r.text_subtle)
+                                    .child(SharedString::from(sub)),
+                            )
+                        }),
+                )
+                .child(crate::views::terminal::pane::TerminalPane::toolbar(
+                    pane, window, cx,
+                ))
+            });
         div()
             .id("area-pane")
+            .on_action(cx.listener(
+                |this, a: &crate::views::terminal::pane::SwitchServer, _, cx| {
+                    let item = AreaItem::Terminal(a.0.clone());
+                    this.stores
+                        .navigation
+                        .update(cx, |n, cx| n.open_item(item, cx));
+                },
+            ))
             .size_full()
             .flex()
             .flex_col()

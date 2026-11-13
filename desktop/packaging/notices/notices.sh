@@ -1,8 +1,8 @@
 #!/bin/bash
 # Generates THIRD_PARTY_NOTICES.md for Conduit Desktop: the components bundled
 # directly (vendored gpui-pre, Sparkle, whisper.cpp, SQLite, the Dart
-# runtime, mermaid, Chart.js, Lucide, KaTeX fonts), the Rust crates in the
-# conduit-desktop binary (cargo-about) and the Dart packages in conduitd.
+# runtime, mermaid, Chart.js, noVNC, Lucide, KaTeX fonts), the Rust crates in
+# the conduit-desktop binary (cargo-about) and the Dart packages in conduitd.
 #
 #   desktop/packaging/notices/notices.sh [--out FILE]
 #   desktop/packaging/notices/notices.sh --check

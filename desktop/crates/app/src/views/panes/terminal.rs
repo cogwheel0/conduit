@@ -1,12 +1,11 @@
-//! A terminal server's pane: a placeholder until the terminal.
+//! A terminal server's pane: [`crate::views::terminal::pane`], kept alive
+//! per server by [`super::AreaPane`] so a shell survives a trip to a chat.
 
-use conduit_components::theme::ConduitTheme;
-use gpui_kit::AnyElement;
+use gpui_kit::{AnyElement, Entity, IntoElement as _};
 
-use crate::l10n::L10n;
-use crate::stores::navigation::AreaItem;
+use crate::views::terminal::pane::TerminalPane;
 
-/// Terminal server `id`, named `title`.
-pub fn pane(id: &str, title: &str, t: &ConduitTheme, l: &L10n) -> AnyElement {
-    super::placeholder(&AreaItem::Terminal(id.to_string()), title, t, l)
+/// The pane for a server, drawn.
+pub fn pane(pane: &Entity<TerminalPane>) -> AnyElement {
+    pane.clone().into_any_element()
 }
