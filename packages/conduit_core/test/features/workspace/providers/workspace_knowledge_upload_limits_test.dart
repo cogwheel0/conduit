@@ -226,6 +226,32 @@ void main() {
       check(server.links.single['directory_id']).equals('dir-1');
     });
 
+    test(
+      'a batch says which file is on its way, as a single upload does',
+      () async {
+        final server = _KnowledgeServer();
+        final container = await _container(server);
+        addTearDown(container.dispose);
+        final provider = workspaceKnowledgeFilesProvider('kb-1');
+        final gate = server.uploadGate = Completer<void>();
+
+        final uploading = container.read(provider.notifier).uploadMany([
+          _file('a.txt', 3),
+          _file('b.txt', 7),
+        ]);
+        await pumpEventQueue();
+
+        check(container.read(provider).value!.upload)
+            .isNotNull()
+            .has((upload) => upload.filename, 'filename')
+            .equals('a.txt');
+        gate.complete();
+        await uploading;
+        // Done, nothing is on its way.
+        check(container.read(provider).value!.upload).isNull();
+      },
+    );
+
     test('a pending read begun in one folder leaves the folder opened '
         'meanwhile', () async {
       final server = _KnowledgeServer();

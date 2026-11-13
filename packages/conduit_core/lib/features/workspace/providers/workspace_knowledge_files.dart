@@ -371,7 +371,28 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
         for (final file in files) {
           final bytes = await file.read();
           if (bytes.isEmpty) continue;
-          final id = await session.api.uploadFileBytes(file.name, bytes);
+          session.ensureCurrent(ref);
+          // Which file is on its way, and how far, as a single upload says.
+          state = AsyncData(
+            _current.copyWith(
+              upload: WorkspaceUploadProgress(filename: file.name, fraction: 0),
+            ),
+          );
+          final id = await session.api.uploadFileBytes(
+            file.name,
+            bytes,
+            onProgress: (sent, total) {
+              if (!session.isCurrent(ref)) return;
+              state = AsyncData(
+                _current.copyWith(
+                  upload: WorkspaceUploadProgress(
+                    filename: file.name,
+                    fraction: total > 0 ? sent / total : null,
+                  ),
+                ),
+              );
+            },
+          );
           uploaded.add(id);
           names[id] = file.name;
           session.ensureCurrent(ref);
