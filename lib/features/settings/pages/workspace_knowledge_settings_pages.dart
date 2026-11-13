@@ -1282,7 +1282,19 @@ class WorkspaceKnowledgeSettingsPages extends SettingsPageModule {
       if (l10n == null) return;
       for (final editor in _editors.values.toList()) {
         final folder = editor.foldersShown.lastOrNull;
-        if (folder != null) await _applyFolder(l10n, editor, folder);
+        if (folder == null) continue;
+        // Another account's editor: its folder pages close rather than show
+        // its files and the actions its rights allowed.
+        if (!_current(editor)) {
+          await _surface.closeDetail(
+            workspaceKnowledgeFolderPageId(
+              editor.key,
+              editor.foldersShown.first,
+            ),
+          );
+          continue;
+        }
+        await _applyFolder(l10n, editor, folder);
       }
     });
   }

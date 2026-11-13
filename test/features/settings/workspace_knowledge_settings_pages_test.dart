@@ -1247,6 +1247,33 @@ void main() {
       check(browser.reindexed).isEmpty();
     });
 
+    testWidgets("another account signing in closes the last one's folder "
+        'pages rather than drawing them again', (tester) async {
+      final rig = await files(tester, browser: _Files());
+      // Settings keeps its pages' modules followed while it is open.
+      final modules = rig.container.listen(
+        settingsPageModulesProvider,
+        (_, _) {},
+      );
+      addTearDown(modules.close);
+
+      rig.container
+          .read(_signedInProvider.notifier)
+          .use(
+            const User(
+              id: 'user-2',
+              username: 'grace',
+              email: 'grace@example.com',
+              role: 'user',
+            ),
+          );
+      // The base's files are read again for the account signed in now.
+      rig.container.invalidate(workspaceKnowledgeFilesProvider('kb-1'));
+      await rig.settle(Future<void>.value());
+
+      check(rig.closed).contains(_root);
+    });
+
     testWidgets('back from a folder, the one below is read again, and what '
         'is made goes there', (tester) async {
       // As on Settings's own pages, which do not say they appeared again.
