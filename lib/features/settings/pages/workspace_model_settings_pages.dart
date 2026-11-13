@@ -6,8 +6,6 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/workspace/editor/workspace_model_editor_state.dart';
 import 'package:conduit_core/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit_core/features/workspace/models/workspace_common.dart';
-import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart'
-    show WorkspaceKnowledgeSummary;
 import 'package:conduit_core/features/workspace/models/workspace_model_draft.dart';
 import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart';
@@ -796,10 +794,16 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
     }
     final key = detailId.substring(workspaceModelPagePrefix.length);
     final open = _editors[key];
-    if (open != null) {
+    if (open != null && _current(open)) {
       // Back from one of its own pages.
       await _applyEditor(l10n, open);
       return;
+    }
+    // Another account's editor, kept from before it signed in: dropped
+    // unseen, with its access draft, and this account's model read afresh.
+    if (open != null) {
+      _editors.remove(key);
+      _access.forget(key);
     }
     final editor = _editors[key] = WorkspaceModelEditor(key, _session());
     unawaited(_loadBaseModels());
@@ -969,33 +973,34 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
     await _applyRelationship(l10n, editor, kind);
   }
 
+  /// Every item of a paged list, a page at a time until the server's total
+  /// is reached or a page brings nothing new.
+  static Future<List<T>> _readAllPages<T>(
+    Future<WorkspacePagedResponse<T>> Function(int page) read,
+  ) async {
+    final items = <T>[];
+    for (var page = 1; ; page++) {
+      final response = await read(page);
+      items.addAll(response.items);
+      if (response.items.isEmpty || items.length >= response.total) {
+        return items;
+      }
+    }
+  }
+
   Future<List<WorkspaceRelationshipOption>> _readOptions(
     WorkspaceModelRelationshipKind kind,
   ) async {
     switch (kind) {
       case WorkspaceModelRelationshipKind.knowledge:
-        // Every page, not only the first the list read: any of them may be
-        // chosen.
-        final listening = _ref.listen(workspaceKnowledgeProvider, (_, _) {});
-        // The first read too: one that fails leaves no subscription open.
-        late WorkspaceCollectionState<WorkspaceKnowledgeSummary> state;
-        try {
-          state = await _ref.read(workspaceKnowledgeProvider.future);
-          while (state.hasMore) {
-            await _ref.read(workspaceKnowledgeProvider.notifier).loadMore();
-            final next = _ref.read(workspaceKnowledgeProvider).value;
-            if (next == null ||
-                next.error != null ||
-                next.items.length <= state.items.length) {
-              break;
-            }
-            state = next;
-          }
-        } finally {
-          listening.close();
-        }
+        // Every page, read without the filters the Workspace list is
+        // browsing with: any base may be chosen.
+        final api = WorkspaceSessionIdentity.read(_ref).api;
+        final items = await _readAllPages(
+          (page) => api.getWorkspaceKnowledge(page: page),
+        );
         return [
-          for (final item in state.items)
+          for (final item in items)
             WorkspaceRelationshipOption(
               id: item.id,
               label: item.name,
@@ -1012,26 +1017,14 @@ class WorkspaceModelSettingsPages extends SettingsPageModule {
             WorkspaceRelationshipOption(id: tool.id, label: tool.name),
         ];
       case WorkspaceModelRelationshipKind.skills:
-        final listening = _ref.listen(workspaceSkillsProvider, (_, _) {});
-        // The first read too: one that fails leaves no subscription open.
-        late WorkspaceCollectionState<WorkspaceSkillSummary> state;
-        try {
-          state = await _ref.read(workspaceSkillsProvider.future);
-          while (state.hasMore) {
-            await _ref.read(workspaceSkillsProvider.notifier).loadMore();
-            final next = _ref.read(workspaceSkillsProvider).value;
-            if (next == null ||
-                next.error != null ||
-                next.items.length <= state.items.length) {
-              break;
-            }
-            state = next;
-          }
-        } finally {
-          listening.close();
-        }
+        // Every page, read without the filters the Workspace list is
+        // browsing with: any skill may be chosen.
+        final api = WorkspaceSessionIdentity.read(_ref).api;
+        final skills = await _readAllPages(
+          (page) => api.getWorkspaceSkills(page: page),
+        );
         return [
-          for (final skill in state.items)
+          for (final skill in skills)
             WorkspaceRelationshipOption(
               id: skill.id,
               label: skill.name,

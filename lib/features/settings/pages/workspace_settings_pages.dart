@@ -883,7 +883,13 @@ class WorkspaceSettingsPages extends SettingsPageModule {
     if (_running.containsKey(section)) return;
     _running[section] = 'export';
     _notices.remove(section);
+    // The library shared is the account's that asked for it.
+    final account = _account();
     await _applyList(l10n, section);
+    if (_account() != account) {
+      _running.remove(section);
+      return;
+    }
     try {
       final List<Map<String, dynamic>> payload;
       final String filename;
@@ -901,8 +907,9 @@ class WorkspaceSettingsPages extends SettingsPageModule {
           payload = prompts.map(workspacePromptExportMap).toList();
           filename = 'prompts';
       }
-      // Left meanwhile, nobody is there to share it with.
-      if (_listsShown.contains(section)) {
+      // Left meanwhile, nobody is there to share it with; read for an
+      // account since gone, it is not this one's to share.
+      if (_listsShown.contains(section) && _account() == account) {
         await _ref
             .read(workspaceExportControllerProvider)
             .shareJson(
@@ -1025,7 +1032,12 @@ class WorkspaceSettingsPages extends SettingsPageModule {
       }
       _running.remove(section);
     }
-    if (_account() != account) return;
+    if (_account() != account) {
+      // Another account's list, shown meanwhile, no longer waits on this
+      // import; it says nothing of it.
+      if (_listsShown.contains(section)) await _applyList(l10n, section);
+      return;
+    }
     if (cancelled) {
       // Stopped by an account change, and back on this account: the list
       // no longer waits on the import, which says nothing more.

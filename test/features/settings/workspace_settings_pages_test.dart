@@ -334,6 +334,34 @@ final class _Knowledge extends WorkspaceKnowledge {
   }
 }
 
+/// The server's knowledge bases and skills, a page at a time, whatever the
+/// Workspace list is browsing with.
+final class _PagedApi extends ApiService {
+  _PagedApi()
+    : super(
+        serverConfig: _server,
+        workerManager: WorkerManager(),
+        authToken: 'token-a',
+      );
+
+  final knowledgeQueries = <String?>[];
+
+  @override
+  Future<WorkspacePagedResponse<WorkspaceKnowledgeSummary>>
+  getWorkspaceKnowledge({
+    String? query,
+    String? viewOption,
+    String? source,
+    int page = 1,
+  }) async {
+    knowledgeQueries.add(query);
+    return WorkspacePagedResponse(
+      items: page == 1 ? [_Knowledge._all.first] : [_Knowledge._all.last],
+      total: _Knowledge._all.length,
+    );
+  }
+}
+
 /// Settings as the pages see it: each question is answered with [answer].
 final class _Surface extends SettingsSurface {
   _Surface(super.ref);
@@ -459,11 +487,7 @@ void main() {
   late ApiService api;
 
   setUp(() {
-    api = ApiService(
-      serverConfig: _server,
-      workerManager: WorkerManager(),
-      authToken: 'token-a',
-    );
+    api = _PagedApi();
   });
 
   Future<_Rig> pump(
@@ -1135,6 +1159,31 @@ void main() {
           .isFalse();
     });
 
+    testWidgets("an editor kept from another account is not shown to the "
+        'next', (tester) async {
+      final rig = await pump(
+        tester,
+        modelDetails: {'model-1': _writableModel()},
+      );
+      await rig.open(_model1);
+      await rig.change(_modelRow('name', _model1Key), 'Private Model');
+
+      rig.container
+          .read(_signedInProvider.notifier)
+          .use(
+            const User(
+              id: 'user-2',
+              username: 'grace',
+              email: 'grace@example.com',
+              role: 'user',
+            ),
+          );
+      await rig.open(_model1);
+
+      check(rig.row(_model1, _modelRow('name', _model1Key))?.value)
+          .not((it) => it.equals('Private Model'));
+    });
+
     testWidgets('knowledge past the first page can be chosen', (tester) async {
       final rig = await pump(
         tester,
@@ -1150,6 +1199,32 @@ void main() {
       check(
         rig.row(page, _modelRow('relationship', _model1Key, 'knowledge|kb-2')),
       ).isNotNull();
+    });
+
+    testWidgets("a search on the Workspace list leaves the editor's knowledge "
+        'whole', (tester) async {
+      final rig = await pump(
+        tester,
+        modelDetails: {'model-1': _writableModel()},
+      );
+      await rig.container
+          .read(workspaceKnowledgeProvider.notifier)
+          .setQuery('star');
+      await rig.open(_model1);
+      final page = workspaceModelRelationshipPageId(
+        WorkspaceModelRelationshipKind.knowledge,
+        _model1Key,
+      );
+      final queries = (api as _PagedApi).knowledgeQueries;
+      final before = queries.length;
+      await rig.open(page);
+
+      check(
+        rig.row(page, _modelRow('relationship', _model1Key, 'knowledge|kb-2')),
+      ).isNotNull();
+      final asked = queries.skip(before).toList();
+      check(asked).isNotEmpty();
+      check(asked).every((it) => it.isNull());
     });
 
     testWidgets('a capability switched on Advanced marks the editor edited', (
