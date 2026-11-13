@@ -92,4 +92,54 @@ void main() {
       expect(list.connections, isEmpty);
     },
   );
+
+  test('the first-run Apple row prefers Direct on the model only while it '
+      'answers, history kept on this Mac', () async {
+    final bus = EventBus();
+    runtime.apple.bind(bus);
+    final apple = AppleModelsService(runtime.container, bridge: runtime.apple);
+    var engine = const AppleEngineStatus(
+      availability: AppleAvailability.unavailable,
+      reason: AppleUnavailableReason.appleIntelligenceNotEnabled,
+      supportsCurrentLocale: true,
+    );
+    bus.attach('window', (envelope) {
+      if (envelope.event != ConduitEvents.appleCommand) return;
+      final command = AppleCommand.fromJson(envelope.payload);
+      if (command.kind == AppleCommandKind.status) {
+        scheduleMicrotask(
+          () => apple.report(
+            AppleReport(id: command.id, status: engine),
+            from: 'window',
+          ),
+        );
+      }
+    });
+    addTearDown(() => bus.detach('window'));
+    final direct = DirectService(runtime.container);
+    await direct.setPreferred(preferred: false);
+    apple.report(
+      const AppleReport(kind: AppleReportKind.ready, supported: true),
+      from: 'window',
+    );
+
+    // Not answering: the reason, and nothing chosen.
+    final refused = await apple.choose();
+    expect(refused.availability, AppleAvailability.unavailable);
+    expect(refused.reason, AppleUnavailableReason.appleIntelligenceNotEnabled);
+    expect((await direct.list()).preferred, isFalse);
+
+    // Answering: Direct is preferred and usable, history on this Mac.
+    engine = const AppleEngineStatus(
+      availability: AppleAvailability.available,
+      contextSize: 4096,
+      supportsCurrentLocale: true,
+    );
+    final chosen = await apple.choose();
+    expect(chosen.availability, AppleAvailability.available);
+    final list = await direct.list();
+    expect(list.preferred, isTrue);
+    expect(list.usable, isTrue);
+    expect(list.localHistory, isTrue);
+  });
 }

@@ -503,6 +503,31 @@ class RpcSession {
       ConduitMethodSpecs.authSetReviewerMode,
       (p) => _requireAuth().setReviewerMode(enabled: p.enabled),
     );
+    _on(
+      ConduitMethodSpecs.authTwoStepSetup,
+      (_) => _requireAuth().twoStepSetup(),
+    );
+    _on(
+      ConduitMethodSpecs.authTwoStepVerify,
+      (p) => _requireAuth().twoStepVerify(p),
+    );
+    _on(
+      ConduitMethodSpecs.authTwoStepRedeem,
+      (p) => _requireAuth().twoStepRedeem(p),
+    );
+    _on(
+      ConduitMethodSpecs.authTwoStepFinish,
+      (_) => _requireAuth().twoStepFinish(),
+    );
+    _on(
+      ConduitMethodSpecs.authTwoStepCancel,
+      (_) => _requireAuth().twoStepCancel(),
+    );
+    _on(ConduitMethodSpecs.authRetry, (_) => _requireAuth().retry());
+    _on(
+      ConduitMethodSpecs.authRenewProxy,
+      (p) => _requireAuth().renewProxy(p),
+    );
   }
 
   void _registerSettings() {
@@ -1395,6 +1420,7 @@ class RpcSession {
     // the window.
     _on(ConduitMethodSpecs.appleStatus, (_) => _need(_apple).status());
     _on(ConduitMethodSpecs.appleRefresh, (_) => _need(_apple).refresh());
+    _on(ConduitMethodSpecs.appleChoose, (_) => _need(_apple).choose());
     _on(ConduitMethodSpecs.appleReport, (p) async {
       _need(_apple).report(p, from: sessionId);
       return const OkResult(ok: true);

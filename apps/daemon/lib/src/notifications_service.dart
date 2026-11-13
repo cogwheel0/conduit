@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'dart:collection';
 
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
+import 'package:conduit_core/features/notifications/models/notification_scope.dart';
+import 'package:conduit_core/features/notifications/services/notification_event_classifier.dart';
 import 'package:conduit_core/features/notifications/services/notification_policy.dart';
 import 'package:conduit_core/features/notifications/services/notification_prefs_sync.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -20,17 +25,47 @@ import 'event_bus.dart';
 /// Open WebUI account, as the phone mirrors them. `notifications.changed`
 /// follows the notifier, whoever changed it (the server's mirror at sign-in
 /// too).
+///
+/// Answers this Mac did not run: like the phone's notification listener,
+/// every chat's events on the Open WebUI socket are heard, and the core's
+/// classifier picks each answer's last frame (`chat:completion`, done).
+/// One the daemon announced itself ([announced], its own turns and those
+/// it followed in a chat it holds) is left to `turn.finished`; any other,
+/// from another device or a scheduled task's run, goes to the windows as
+/// `notifications.answered`, a moment later (the daemon may still be about
+/// to announce it).
 final class NotificationsService {
-  NotificationsService(this._container, {EventBus? events}) {
+  NotificationsService(
+    this._container, {
+    EventBus? events,
+    bool Function(String messageId)? announced,
+    Duration answerGrace = const Duration(milliseconds: 1500),
+  }) : _events = events,
+       _announced = announced,
+       _answerGrace = answerGrace {
     if (events != null) {
       _container.listen<AppSettings>(appSettingsProvider, (previous, next) {
         if (previous != null && _dto(previous) == _dto(next)) return;
         events.emit(ConduitEventSpecs.notificationsChanged, null);
       });
+      _bindSocket(_container.read(socketServiceProvider));
+      _socket = _container.listen<SocketService?>(
+        socketServiceProvider,
+        (_, next) => _bindSocket(next),
+      );
     }
   }
 
   final ProviderContainer _container;
+  final EventBus? _events;
+  final bool Function(String messageId)? _announced;
+  final Duration _answerGrace;
+  ProviderSubscription<SocketService?>? _socket;
+  SocketService? _boundSocket;
+  SocketEventSubscription? _chatEvents;
+  final Set<Timer> _waiting = <Timer>{};
+  final LinkedHashSet<String> _seen = LinkedHashSet<String>();
+  static const _classifier = NotificationEventClassifier();
 
   AppSettingsNotifier get _notifier =>
       _container.read(appSettingsProvider.notifier);
@@ -86,6 +121,74 @@ final class NotificationsService {
       ),
     );
     return get();
+  }
+
+  void dispose() {
+    _socket?.close();
+    _socket = null;
+    _chatEvents?.dispose();
+    _chatEvents = null;
+    for (final timer in _waiting) {
+      timer.cancel();
+    }
+    _waiting.clear();
+  }
+
+  void _bindSocket(SocketService? socket) {
+    if (identical(socket, _boundSocket)) return;
+    _boundSocket = socket;
+    _chatEvents?.dispose();
+    _chatEvents = null;
+    if (socket == null) return;
+    // Every chat's events, open or not, as the phone's listener hears them.
+    _chatEvents = socket.addChatEventHandler(
+      requireFocus: false,
+      handler: (event, _) => _onChatEvent(event),
+    );
+  }
+
+  /// The notification scope of the account the socket belongs to: the
+  /// active Open WebUI account. Null before an account settles, when
+  /// nothing can be attributed to one.
+  String? get _notificationScope {
+    final accountId = _container.read(settledActiveAccountIdProvider);
+    if (accountId == null || accountId.isEmpty) return null;
+    return NotificationScope.openWebUi(accountId).value;
+  }
+
+  void _onChatEvent(Map<String, dynamic> event) {
+    try {
+      final me = _container.read(currentUserProvider2)?.id ?? '';
+      final scope = _notificationScope;
+      if (scope == null) return;
+      final notification = _classifier.classifyChatEvent(
+        event,
+        currentUserId: me,
+        scope: scope,
+      );
+      if (notification == null) return;
+      if (!_seen.add(notification.dedupKey)) return;
+      if (_seen.length > 256) _seen.remove(_seen.first);
+      final messageId = event['message_id'] is String
+          ? event['message_id'] as String
+          : '';
+      final notice = AnswerNotice(
+        chatId: notification.sourceId,
+        messageId: messageId,
+        title: notification.title,
+      );
+      late final Timer timer;
+      timer = Timer(_answerGrace, () {
+        _waiting.remove(timer);
+        if (messageId.isNotEmpty && (_announced?.call(messageId) ?? false)) {
+          return;
+        }
+        _events?.emit(ConduitEventSpecs.notificationsAnswered, notice);
+      });
+      _waiting.add(timer);
+    } on Object {
+      // A malformed envelope is no answer: nothing to say.
+    }
   }
 
   /// Core's decision for one notification. The window says what only it

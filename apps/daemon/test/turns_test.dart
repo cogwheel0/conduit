@@ -12,7 +12,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         isChatStreamingProvider;
 import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart'
-    show chatDraftQueueSendProvider;
+    show chatDraftQueueAdmissionWaitProvider;
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
     show terminalDisplayFileProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
@@ -634,8 +634,15 @@ void main() {
 
   // The queue's batch is the core's own send: it can come while a delete
   // is out, and a delete the server refuses puts the transcript back as it
-  // was before, without the batch. So the batch waits for the delete.
-  test('a queued batch that comes while messages are deleted waits', () async {
+  // was before, without the batch. So the core's admission wait holds the
+  // batch until the delete is done (the send itself needs an Open WebUI
+  // outbox, which this harness has not).
+  test('a queued batch waits for a delete that is out', () async {
+    // Queued drafts keep a chat's scope open; this test queues none, so its
+    // scope stays for the batch's settle.
+    final linger = TurnsService.lingerAfterTurn;
+    TurnsService.lingerAfterTurn = const Duration(seconds: 10);
+    addTearDown(() => TurnsService.lingerAfterTurn = linger);
     open('deleting-queue');
     final chat = await turns.send(SendTurn(model: model, text: 'drop this'));
     subscribeWindow(events, turns, 'deleting-queue', <String>[chat.chatId]);
@@ -654,21 +661,15 @@ void main() {
         )
         .whenComplete(() => deleted = true);
     // The delete is admitted, and waits for a quiet transcript (at least
-    // half a second) when the batch comes.
+    // half a second) when the batch asks to go.
     await Future<void>.delayed(const Duration(milliseconds: 10));
-    final queued = scope.container.read(chatDraftQueueSendProvider)(
-      scope.container,
-      'queued words',
-      null,
-    );
-    await until(
-      () => scope.messages.any(
-        (m) => m.role == 'user' && m.content == 'queued words',
-      ),
-    );
-    expect(deleted, isTrue, reason: 'the batch went in while the delete was out');
+    var deletedFirst = false;
+    final admitted = scope.container
+        .read(chatDraftQueueAdmissionWaitProvider)()!
+        .then((_) => deletedFirst = deleted);
     expect(await deleting, 1);
-    await queued;
+    await admitted;
+    expect(deletedFirst, isTrue, reason: 'the batch went while the delete was out');
   });
 
   test('a merge naming one answer twice is refused', () async {
