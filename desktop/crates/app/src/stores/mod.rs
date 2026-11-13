@@ -1,0 +1,199 @@
+//! GPUI entities the views read.
+//!
+//! * [`connection`]: supervisor + RPC client, the connection status, and the
+//!   event fan-out.
+//! * [`session`]: auth, server status, Direct/Hermes signals and the
+//!   tri-state route; [`accounts`]: the account list and its changes.
+//! * [`ui_requests`]: `ui.request` → a queue, answered with `ui.respond`.
+//! * [`router`]: `route.remap`; [`toasts`]: `notify.show` and the window's
+//!   own notices.
+//! * [`navigation`]: which chat the main window shows (the sidebar sets it,
+//!   the chat pane follows it).
+//! * [`chat_list`]: the sidebar's chats, folders, sync state and search;
+//!   [`palette`]: the ⌘K palette's query and hits.
+//! * [`chat`]: one open chat (the chat pane's): its transcript, the live
+//!   answer and this window's choices about it; [`composer`]: models,
+//!   features, prompts and attachments for the next message.
+//! * [`files`]: `/files` images (bearer token added) and attachment opening.
+//! * [`settings`] and [`layout`]: preferences and window geometry.
+//! * [`shell`]: the macOS shell extras' state (links waiting for the main
+//!   window, the hotkey, notification and login-item statuses).
+//!
+//! [`Stores`] owns them; [`Stores::install`] wires each to the daemon
+//! events it follows. Every store mutates through the daemon and refetches;
+//! none patches what the daemon answered.
+
+pub mod accounts;
+pub mod chat;
+pub mod chat_list;
+pub mod composer;
+pub mod connection;
+pub mod files;
+pub mod layout;
+pub mod navigation;
+pub mod palette;
+pub mod router;
+pub mod rpc;
+pub mod session;
+pub mod settings;
+pub mod shell;
+pub mod toasts;
+pub mod ui_requests;
+
+use conduit_protocol::{Event, NoticeLevel, events};
+use gpui_kit::{App, AppContext as _, Entity};
+
+use accounts::{AccountsEvent, AccountsStore};
+use chat_list::ChatListStore;
+use connection::{ConnectionEvent, ConnectionStore};
+use navigation::NavigationStore;
+use palette::PaletteStore;
+use router::RouterStore;
+use session::{SessionEvent, SessionStore};
+use toasts::ToastStore;
+use ui_requests::UiRequestsStore;
+
+/// The session layer the sidebar and the chat view build on.
+#[derive(Clone)]
+pub struct Stores {
+    pub connection: Entity<ConnectionStore>,
+    pub accounts: Entity<AccountsStore>,
+    pub session: Entity<SessionStore>,
+    pub ui_requests: Entity<UiRequestsStore>,
+    pub router: Entity<RouterStore>,
+    pub toasts: Entity<ToastStore>,
+    pub navigation: Entity<NavigationStore>,
+    pub chat_list: Entity<ChatListStore>,
+    pub palette: Entity<PaletteStore>,
+}
+
+/// The session-wide events the stores follow (the views add their own scopes
+/// with [`ConnectionStore::subscribe`]).
+pub const SESSION_EVENTS: &[&str] = &[
+    events::ACCOUNTS_CHANGED,
+    events::UI_REQUEST,
+    events::UI_SETTLED,
+    events::NOTIFY_SHOW,
+    events::ROUTE_REMAP,
+    events::HERMES_CHANGED,
+    events::CAPABILITIES_CHANGED,
+];
+
+impl Stores {
+    /// Creates the stores over `connection` and wires the events.
+    pub fn install(connection: Entity<ConnectionStore>, cx: &mut App) -> Self {
+        let rpc = connection.read(cx).rpc();
+        let accounts = cx.new(|_| AccountsStore::new(rpc.clone()));
+        let session = {
+            let accounts = accounts.clone();
+            let rpc = rpc.clone();
+            cx.new(|cx| SessionStore::new(rpc, accounts, cx))
+        };
+        let ui_requests = cx.new(|_| UiRequestsStore::new(rpc.clone()));
+        let router = cx.new(|_| RouterStore::new());
+        let toasts = cx.new(|_| ToastStore::new());
+        let navigation = cx.new(|_| NavigationStore::new());
+        let chat_list = cx.new(|_| ChatListStore::new(rpc.clone()));
+        let palette = cx.new(|_| PaletteStore::new(rpc.clone()));
+        let stores = Self {
+            connection: connection.clone(),
+            accounts,
+            session,
+            ui_requests,
+            router,
+            toasts,
+            navigation,
+            chat_list,
+            palette,
+        };
+        connection.update(cx, |c, _| c.subscribe("session", SESSION_EVENTS, vec![]));
+        chat_list::wire(&stores, cx);
+        {
+            // The server answers again after the window opened without it:
+            // the session (a token may have lapsed meanwhile) and the chat
+            // list (the daemon pulls on a list) catch up without a relaunch.
+            let s = stores.clone();
+            cx.subscribe(&stores.session, move |_, event, cx| match event {
+                SessionEvent::ServerBack => {
+                    s.session.update(cx, |s, cx| s.refresh(cx));
+                    if s.session.read(cx).route(cx) == session::Route::Main {
+                        s.chat_list.update(cx, |c, cx| {
+                            c.refresh(cx);
+                            c.refresh_sync(cx);
+                        });
+                    }
+                }
+            })
+            .detach();
+        }
+        {
+            let s = stores.clone();
+            cx.subscribe(&connection, move |_, event, cx| s.on_connection(event, cx))
+                .detach();
+        }
+        stores
+    }
+
+    fn on_connection(&self, event: &ConnectionEvent, cx: &mut App) {
+        match event {
+            ConnectionEvent::Connected { handshake, request } => {
+                self.ui_requests.update(cx, |u, cx| u.reset(cx));
+                self.router.update(cx, |r, _| r.reset());
+                let request = request.clone();
+                self.session
+                    .update(cx, |s, cx| s.on_connected(handshake, request, cx));
+            }
+            ConnectionEvent::Gap => {
+                self.accounts.update(cx, |a, cx| a.refresh(cx));
+                self.session.update(cx, |s, cx| s.refresh(cx));
+            }
+            ConnectionEvent::LocalDataReset { .. } => {}
+            ConnectionEvent::Daemon(event) => self.on_event(event, cx),
+        }
+    }
+
+    fn on_event(&self, event: &Event, cx: &mut App) {
+        match event {
+            Event::AccountsChanged(_) => self.accounts.update(cx, |a, cx| a.refresh(cx)),
+            Event::UiRequest(request) => {
+                let request = request.clone();
+                self.ui_requests
+                    .update(cx, |u, cx| u.on_request(request, cx));
+            }
+            Event::UiSettled(settled) => {
+                let id = settled.request_id.clone();
+                self.ui_requests.update(cx, |u, cx| u.on_settled(&id, cx));
+            }
+            Event::NotifyShow(notice) => {
+                let (level, message) = (notice.level, notice.message.clone());
+                self.toasts.update(cx, |t, cx| t.show(level, message, cx));
+            }
+            Event::RouteRemap(remap) => {
+                let (from, to) = (remap.from_id.clone(), remap.to_id.clone());
+                self.navigation
+                    .update(cx, |n, cx| n.on_remap(&from, &to, cx));
+                self.router.update(cx, |r, cx| r.on_remap(from, to, cx));
+            }
+            Event::HermesChanged => self.session.update(cx, |s, cx| s.refresh(cx)),
+            Event::CapabilitiesChanged => self.session.update(cx, |s, cx| s.refresh_server(cx)),
+            _ => {}
+        }
+    }
+
+    /// Shows account notices as toasts. `word` turns one into text.
+    pub fn toast_account_notices(
+        &self,
+        word: impl Fn(&accounts::AccountNotice, &App) -> Option<(NoticeLevel, String)> + 'static,
+        cx: &mut App,
+    ) {
+        let toasts = self.toasts.clone();
+        cx.subscribe(&self.accounts, move |_, event, cx| {
+            if let AccountsEvent::Notice(notice) = event
+                && let Some((level, text)) = word(notice, cx)
+            {
+                toasts.update(cx, |t, cx| t.show(level, text, cx));
+            }
+        })
+        .detach();
+    }
+}

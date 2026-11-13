@@ -1,0 +1,972 @@
+//! The session: who is signed in where, and where the window goes.
+//!
+//! Holds the auth snapshot (`auth.status`), the active server's live status
+//! (`servers.status`), the Direct connections and the Hermes connection (for
+//! the direct-only and Hermes-only signals), and the core's onboarding
+//! answer. The account list and the active account live in
+//! [`AccountsStore`], which this observes.
+//!
+//! **Tri-state routing.** [`Route::Unknown`] until every input is known, so
+//! the window never redirects on a guess. The handshake's `needsOnboarding`
+//! is not routed on: while the core is still starting the daemon answers
+//! `false` as a guess. The core is asked again after a core-gated call
+//! (`accounts.list`, which the client retries through
+//! `rpc.daemonUnavailable`) has answered, and that answer, from mobile's own
+//! routing policy in the core, routes, together with the account list, the
+//! auth snapshot. With no account the core's answer decides alone, as on a
+//! phone: a Direct or Hermes setup finished in onboarding is the core's
+//! preferred backend (`direct.setPreferred`, `hermes.saveSettings` with
+//! `onboarding`), and one chosen but not finished (a gateway still to sign
+//! in) is still onboarding. The Direct/Hermes signals pick the backend the
+//! main window chats through.
+//!
+//! Everything is refetched, never patched: on a new daemon session, on
+//! `accounts.changed` (through the accounts store), on `hermes.changed` and
+//! `capabilities.changed`, and after the window changes something.
+//!
+//! **Asked again until it routes.** A daemon that restarted while starting,
+//! or a core still restoring the session, answers `loading` or nothing at
+//! first, and no event follows when that settles. So while the route is
+//! unknown the session asks again, quickly at first, for about half a minute
+//! ([`RESOLVE_ATTEMPTS`]). After that, the window shows the last error with
+//! Retry instead of "Opening your data" for ever.
+//!
+//! **Offline.** Routing never waits on the server: the account, its auth and
+//! its chats come from what the daemon stored. `servers.status` follows on
+//! its own. While it says the server is out of reach, the session asks again
+//! every [`SERVER_RECHECK`], and [`SessionEvent::ServerBack`] tells the stores
+//! when the server answers again.
+
+use std::time::Duration;
+
+use conduit_daemon::{Handshake, RpcError};
+use conduit_protocol::{
+    AccountList, AuthPhase, AuthSnapshot, Capabilities, DirectConnectionList, HandshakeRequest,
+    HandshakeResponse, HermesSettings, NoParams, ServerReachability, ServerStatus, methods,
+};
+use gpui_kit::{AsyncApp, Context, Entity, EventEmitter, Subscription, Task, WeakEntity};
+use serde_json::Value;
+
+use super::accounts::AccountsStore;
+use super::rpc::Rpc;
+
+/// How many more times the session asks while the route is unknown before
+/// it says why (about 35 s with [`resolve_delay`]).
+pub const RESOLVE_ATTEMPTS: u32 = 20;
+
+/// The wait before ask number `attempt` (from 0). It is short at first,
+/// because a core restoring a session settles in moments, then 2 s.
+pub fn resolve_delay(attempt: u32) -> Duration {
+    Duration::from_millis(match attempt {
+        0 => 250,
+        1 => 500,
+        2 => 1000,
+        _ => 2000,
+    })
+}
+
+/// How long to wait before asking about a server that was out of reach.
+pub const SERVER_RECHECK: Duration = Duration::from_secs(5);
+
+/// The code of the error shown when the route stayed unknown.
+pub const UNRESOLVED: &str = "session.unresolved";
+
+/// What the session tells the stores.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SessionEvent {
+    /// The active server answers again after being out of reach. Lists
+    /// that were served from what the daemon stored can catch up now.
+    ServerBack,
+}
+
+/// Where the window sends the user.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Route {
+    /// Not known yet: never redirect on a guess.
+    Unknown,
+    /// No backend chosen yet: the backend chooser.
+    Onboarding,
+    /// An Open WebUI account is active and needs a sign-in (a first sign-in,
+    /// an addition, or an expired session).
+    SignIn,
+    /// Ready: signed in, or a Direct-only or Hermes-only setup.
+    Main,
+}
+
+/// What the main window chats through.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Backend {
+    OpenWebUi,
+    Direct,
+    Hermes,
+    /// The reviewer/demo session, with no server.
+    Demo,
+}
+
+/// The facts a route is decided on.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RouteInputs<'a> {
+    /// The core's confirmed onboarding answer.
+    pub needs_onboarding: Option<bool>,
+    pub accounts: Option<&'a AccountList>,
+    pub auth: Option<&'a AuthSnapshot>,
+}
+
+/// The route for `inputs`; [`Route::Unknown`] while any is missing.
+pub fn derive_route(inputs: RouteInputs<'_>) -> Route {
+    // Even the handshake's `true` waits for the rest: an account restored
+    // here would otherwise flash onboarding on every launch.
+    let (Some(accounts), Some(auth)) = (inputs.accounts, inputs.auth) else {
+        return Route::Unknown;
+    };
+    if auth.is_reviewer_mode {
+        return Route::Main;
+    }
+    if accounts.adding_account {
+        return Route::SignIn;
+    }
+    if accounts.active_account_id.is_some() {
+        if auth.is_authenticated {
+            return Route::Main;
+        }
+        return match auth.phase {
+            // Restoring a session: wait rather than flash the sign-in form.
+            AuthPhase::Initial | AuthPhase::Loading => Route::Unknown,
+            _ if auth.is_loading => Route::Unknown,
+            _ => Route::SignIn,
+        };
+    }
+    match inputs.needs_onboarding {
+        Some(true) => Route::Onboarding,
+        // No account, but the core says there is a backend: Direct or
+        // Hermes, chosen and ready.
+        Some(false) => Route::Main,
+        None => Route::Unknown,
+    }
+}
+
+pub struct SessionStore {
+    rpc: Rpc,
+    accounts: Entity<AccountsStore>,
+    pub auth: Option<AuthSnapshot>,
+    pub server: Option<ServerStatus>,
+    pub direct: Option<DirectConnectionList>,
+    pub hermes: Option<HermesSettings>,
+    /// The core's onboarding answer, once confirmed (see the module docs).
+    pub needs_onboarding: Option<bool>,
+    /// The connect handshake: daemon paths and capabilities.
+    pub handshake: Option<HandshakeResponse>,
+    /// What this window handshakes with, to ask the core's onboarding
+    /// answer again.
+    request: Option<HandshakeRequest>,
+    pub error: Option<RpcError>,
+    /// Shows `route` instead of the derived one (the `--shots` pass).
+    pub preview: Option<Route>,
+    generation: u64,
+    /// The account-list signature the last refresh saw.
+    seen_accounts: Option<String>,
+    /// Asks made since the route was last known ([`RESOLVE_ATTEMPTS`]).
+    resolve_attempts: u32,
+    _refresh: Option<Task<()>>,
+    _status: Option<Task<()>>,
+    _resolve: Option<Task<()>>,
+    _recheck: Option<Task<()>>,
+    _accounts: Subscription,
+}
+
+impl EventEmitter<SessionEvent> for SessionStore {}
+
+fn signature(list: &AccountList) -> String {
+    let mut s = format!("{:?}|{}", list.active_account_id, list.adding_account);
+    for a in &list.accounts {
+        s.push_str(&format!("|{}:{}", a.id, a.has_session));
+    }
+    s
+}
+
+impl SessionStore {
+    pub fn new(rpc: Rpc, accounts: Entity<AccountsStore>, cx: &mut Context<Self>) -> Self {
+        let subscription = cx.observe(&accounts, |this, accounts, cx| {
+            let sig = accounts.read(cx).list.as_ref().map(signature);
+            if sig.is_some() && sig != this.seen_accounts {
+                this.seen_accounts = sig;
+                this.refresh(cx);
+            }
+            cx.notify();
+        });
+        Self {
+            rpc,
+            accounts,
+            auth: None,
+            server: None,
+            direct: None,
+            hermes: None,
+            needs_onboarding: None,
+            handshake: None,
+            request: None,
+            error: None,
+            preview: None,
+            generation: 0,
+            seen_accounts: None,
+            resolve_attempts: 0,
+            _refresh: None,
+            _status: None,
+            _resolve: None,
+            _recheck: None,
+            _accounts: subscription,
+        }
+    }
+
+    pub fn accounts(&self) -> &Entity<AccountsStore> {
+        &self.accounts
+    }
+
+    pub fn route(&self, cx: &gpui_kit::App) -> Route {
+        if let Some(route) = self.preview {
+            return route;
+        }
+        derive_route(RouteInputs {
+            needs_onboarding: self.needs_onboarding,
+            accounts: self.accounts.read(cx).list.as_ref(),
+            auth: self.auth.as_ref(),
+        })
+    }
+
+    /// Direct connections chosen and usable, with no Open WebUI account.
+    pub fn direct_only(&self, cx: &gpui_kit::App) -> bool {
+        self.accounts.read(cx).active().is_none()
+            && self
+                .direct
+                .as_ref()
+                .is_some_and(|d| d.preferred && d.usable)
+    }
+
+    /// Hermes usable, with no Open WebUI account and no Direct preference.
+    pub fn hermes_only(&self, cx: &gpui_kit::App) -> bool {
+        self.accounts.read(cx).active().is_none()
+            && !self.direct_only(cx)
+            && self.hermes.as_ref().is_some_and(|h| h.usable)
+    }
+
+    pub fn backend(&self, cx: &gpui_kit::App) -> Option<Backend> {
+        if self.auth.as_ref().is_some_and(|a| a.is_reviewer_mode) {
+            return Some(Backend::Demo);
+        }
+        if self.accounts.read(cx).active().is_some() {
+            return Some(Backend::OpenWebUi);
+        }
+        if self.direct_only(cx) {
+            return Some(Backend::Direct);
+        }
+        if self.hermes_only(cx) {
+            return Some(Backend::Hermes);
+        }
+        None
+    }
+
+    /// The active Open WebUI server is out of reach, as `servers.status`
+    /// last said. The window still shows what the daemon stored.
+    pub fn server_unreachable(&self, cx: &gpui_kit::App) -> bool {
+        self.backend(cx) == Some(Backend::OpenWebUi)
+            && self
+                .server
+                .as_ref()
+                .is_some_and(|s| s.reachability == ServerReachability::Unreachable)
+    }
+
+    pub fn capabilities(&self) -> Capabilities {
+        self.server
+            .as_ref()
+            .map(|s| s.capabilities.clone())
+            .or_else(|| self.handshake.as_ref().map(|h| h.capabilities.clone()))
+            .unwrap_or_default()
+    }
+
+    /// A new daemon session: forget everything and ask again. Only a `true`
+    /// onboarding answer from the handshake is taken as it is.
+    pub fn on_connected(
+        &mut self,
+        handshake: &Handshake,
+        request: HandshakeRequest,
+        cx: &mut Context<Self>,
+    ) {
+        self.generation += 1;
+        self.request = Some(request);
+        self.auth = None;
+        self.server = None;
+        self.direct = None;
+        self.hermes = None;
+        self.error = None;
+        self.seen_accounts = None;
+        self.resolve_attempts = 0;
+        self._refresh = None;
+        self._status = None;
+        self._resolve = None;
+        self._recheck = None;
+        self.handshake = handshake.response.as_deref().cloned();
+        self.needs_onboarding = (handshake.needs_onboarding == Some(true)).then_some(true);
+        self.accounts.update(cx, |a, cx| {
+            a.reset(cx);
+            a.refresh(cx);
+        });
+        self.refresh(cx);
+        cx.notify();
+    }
+
+    /// Refetches the session: once `accounts.list` has answered (the core is
+    /// up), `auth.status`, `direct.list`, `hermes.settings` and the core's
+    /// onboarding answer; `servers.status` follows on its own, since it
+    /// costs a request to the server. Asks again while the route stays
+    /// unknown (see the module docs), with a fresh count of attempts.
+    pub fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.resolve_attempts = 0;
+        if self.route(cx) == Route::Unknown {
+            // Retry after giving up: "Opening your data" again, not the
+            // old error, while it asks.
+            self.error = None;
+            cx.notify();
+        }
+        self.fetch(cx);
+    }
+
+    fn fetch(&mut self, cx: &mut Context<Self>) {
+        self.generation += 1;
+        let generation = self.generation;
+        let rpc = self.rpc.clone();
+        let request = self.request.clone();
+        let accounts = rpc.call::<methods::AccountsList>(&NoParams);
+        self._refresh = Some(
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                match accounts.await {
+                    Ok(list) => {
+                        // The daemon's list: the accounts store shows it too
+                        // (its own fetch may have failed while the core
+                        // started).
+                        let _ = this.update(cx, |s, cx| {
+                            if s.generation == generation {
+                                s.seen_accounts = Some(signature(&list));
+                                s.accounts.update(cx, |a, cx| a.adopt(list, cx));
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        let _ = this.update(cx, |s, cx| {
+                            if s.generation == generation {
+                                log::warn!("session: core not answering: {e}");
+                                s.keep_resolving(Some(e), cx);
+                            }
+                        });
+                        return;
+                    }
+                }
+                let auth = rpc.call::<methods::AuthStatus>(&NoParams);
+                let direct = rpc.call::<methods::DirectList>(&NoParams);
+                let hermes = rpc.call::<methods::HermesSettings>(&NoParams);
+                // Asked again now that the core is up: its own answer.
+                let onboarding = async {
+                    match &request {
+                        Some(request) => rpc.call::<OnboardingProbe>(request).await,
+                        None => Ok(Value::Null),
+                    }
+                };
+                let (auth, direct, hermes, onboarding) =
+                    futures::join!(auth, direct, hermes, onboarding);
+                let _ = this.update(cx, |s, cx| {
+                    if s.generation != generation {
+                        return;
+                    }
+                    s.error = None;
+                    let mut failed = None;
+                    match auth {
+                        Ok(a) => s.auth = Some(a),
+                        Err(e) => failed = Some(e),
+                    }
+                    // A daemon without Direct or Hermes answers as none.
+                    s.direct = Some(direct.unwrap_or_default());
+                    s.hermes = Some(hermes.unwrap_or_default());
+                    match onboarding {
+                        Ok(v) => {
+                            if let Some(needs) = v.get("needsOnboarding").and_then(Value::as_bool) {
+                                s.needs_onboarding = Some(needs);
+                            }
+                        }
+                        Err(e) => failed = failed.or(Some(e)),
+                    }
+                    s.refresh_server(cx);
+                    s.keep_resolving(failed, cx);
+                    cx.notify();
+                });
+            }),
+        );
+    }
+
+    /// While the route is unknown, asks again after [`resolve_delay`]; after
+    /// [`RESOLVE_ATTEMPTS`], shows why. A known route ends the asking.
+    fn keep_resolving(&mut self, failed: Option<RpcError>, cx: &mut Context<Self>) {
+        if self.preview.is_some() || self.route(cx) != Route::Unknown {
+            self.resolve_attempts = 0;
+            self._resolve = None;
+            return;
+        }
+        if self.resolve_attempts >= RESOLVE_ATTEMPTS {
+            log::warn!("session: still no route after {RESOLVE_ATTEMPTS} attempts");
+            self.error = Some(failed.unwrap_or_else(|| {
+                conduit_daemon::protocol::error(
+                    UNRESOLVED,
+                    "the core did not finish opening the account",
+                )
+            }));
+            cx.notify();
+            return;
+        }
+        let delay = resolve_delay(self.resolve_attempts);
+        self.resolve_attempts += 1;
+        let generation = self.generation;
+        self._resolve = Some(
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                cx.background_executor().timer(delay).await;
+                let _ = this.update(cx, |s, cx| {
+                    // Another refresh since: that one decides what follows.
+                    if s.generation == generation {
+                        s.fetch(cx);
+                    }
+                });
+            }),
+        );
+    }
+
+    /// Refetches `servers.status` (reachability, version, capabilities).
+    pub fn refresh_server(&mut self, cx: &mut Context<Self>) {
+        let generation = self.generation;
+        let call = self.rpc.call::<methods::ServersStatus>(&NoParams);
+        self._status = Some(
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let result = call.await;
+                let _ = this.update(cx, |s, cx| {
+                    if s.generation == generation {
+                        match result {
+                            Ok(status) => s.adopt_server(status, cx),
+                            Err(e) => log::warn!("servers.status: {e}"),
+                        }
+                        cx.notify();
+                    }
+                });
+            }),
+        );
+    }
+
+    /// Takes a `servers.status` answer. Out of reach: asked again after
+    /// [`SERVER_RECHECK`]. Back from that: [`SessionEvent::ServerBack`].
+    fn adopt_server(&mut self, status: ServerStatus, cx: &mut Context<Self>) {
+        let was_unreachable = self
+            .server
+            .as_ref()
+            .is_some_and(|s| s.reachability == ServerReachability::Unreachable);
+        let unreachable = status.reachability == ServerReachability::Unreachable;
+        let back = was_unreachable && status.reachability == ServerReachability::Reachable;
+        self.server = Some(status);
+        if unreachable {
+            self._recheck = Some(cx.spawn(
+                async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                    cx.background_executor().timer(SERVER_RECHECK).await;
+                    let _ = this.update(cx, |s, cx| s.refresh_server(cx));
+                },
+            ));
+        } else {
+            self._recheck = None;
+        }
+        if back {
+            log::info!("session: the server answers again");
+            cx.emit(SessionEvent::ServerBack);
+        }
+    }
+
+    /// Adopts an auth snapshot the daemon answered a sign-in with, then
+    /// refetches the rest (the account list changes with it).
+    pub fn adopt_auth(&mut self, snapshot: AuthSnapshot, cx: &mut Context<Self>) {
+        self.auth = Some(snapshot);
+        cx.notify();
+        self.accounts.update(cx, |a, cx| a.refresh(cx));
+        self.refresh(cx);
+    }
+
+    /// Shows `route` without asking the daemon (the `--shots` pass).
+    pub fn preview_route(&mut self, route: Option<Route>, cx: &mut Context<Self>) {
+        self.preview = route;
+        cx.notify();
+    }
+}
+
+/// `system.handshake` again, for the core's onboarding answer: the reply is
+/// read as a value because only `needsOnboarding` matters here, and a
+/// missing one must stay unknown rather than read as `false`.
+struct OnboardingProbe;
+
+impl conduit_protocol::RpcMethod for OnboardingProbe {
+    const NAME: &'static str = <methods::SystemHandshake as conduit_protocol::RpcMethod>::NAME;
+    type Params = HandshakeRequest;
+    type Result = Value;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use gpui_kit::{AppContext as _, TestAppContext};
+    use serde_json::json;
+
+    use super::*;
+    use crate::stores::accounts::tests::{account, list};
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    fn auth(phase: AuthPhase, authenticated: bool) -> AuthSnapshot {
+        AuthSnapshot {
+            phase,
+            is_authenticated: authenticated,
+            is_loading: false,
+            has_token: authenticated,
+            user: None,
+            error_code: None,
+            error_args: BTreeMap::new(),
+            is_reviewer_mode: false,
+        }
+    }
+
+    fn route(onb: Option<bool>, accounts: Option<&AccountList>, a: Option<&AuthSnapshot>) -> Route {
+        derive_route(RouteInputs {
+            needs_onboarding: onb,
+            accounts,
+            auth: a,
+        })
+    }
+
+    #[test]
+    fn unknown_until_every_input_is_known() {
+        let signed_in = auth(AuthPhase::Authenticated, true);
+        let one = list(vec![account("a", "Avery", true, true)]);
+        assert_eq!(route(None, None, None), Route::Unknown);
+        assert_eq!(route(Some(false), None, Some(&signed_in)), Route::Unknown);
+        assert_eq!(route(Some(false), Some(&one), None), Route::Unknown);
+        // Not even the handshake's `true` routes on its own.
+        assert_eq!(route(Some(true), None, None), Route::Unknown);
+    }
+
+    #[test]
+    fn a_signed_in_account_goes_to_main() {
+        let one = list(vec![account("a", "Avery", true, true)]);
+        let signed_in = auth(AuthPhase::Authenticated, true);
+        assert_eq!(
+            route(Some(false), Some(&one), Some(&signed_in)),
+            Route::Main
+        );
+        // Even if the onboarding answer is stale.
+        assert_eq!(route(Some(true), Some(&one), Some(&signed_in)), Route::Main);
+    }
+
+    #[test]
+    fn an_active_account_without_a_session_signs_in() {
+        let one = list(vec![account("a", "Avery", true, false)]);
+        for phase in [
+            AuthPhase::Unauthenticated,
+            AuthPhase::TokenExpired,
+            AuthPhase::CredentialError,
+            AuthPhase::Error,
+        ] {
+            assert_eq!(
+                route(Some(false), Some(&one), Some(&auth(phase, false))),
+                Route::SignIn,
+                "{phase:?}"
+            );
+        }
+        // Restoring: no guess.
+        for phase in [AuthPhase::Initial, AuthPhase::Loading] {
+            assert_eq!(
+                route(Some(false), Some(&one), Some(&auth(phase, false))),
+                Route::Unknown
+            );
+        }
+    }
+
+    #[test]
+    fn adding_an_account_signs_in_even_while_signed_in() {
+        let mut adding = list(vec![
+            account("a", "Avery", false, true),
+            account("n", "New", true, false),
+        ]);
+        adding.adding_account = true;
+        let signed_in = auth(AuthPhase::Authenticated, true);
+        assert_eq!(
+            route(Some(false), Some(&adding), Some(&signed_in)),
+            Route::SignIn
+        );
+    }
+
+    #[test]
+    fn no_account_follows_the_core() {
+        let none = list(vec![]);
+        let out = auth(AuthPhase::Unauthenticated, false);
+        assert_eq!(
+            route(Some(true), Some(&none), Some(&out)),
+            Route::Onboarding
+        );
+        // Direct-only or Hermes-only: the core says there is a backend.
+        assert_eq!(route(Some(false), Some(&none), Some(&out)), Route::Main);
+        assert_eq!(route(None, Some(&none), Some(&out)), Route::Unknown);
+        let mut demo = out.clone();
+        demo.is_reviewer_mode = true;
+        assert_eq!(route(Some(true), Some(&none), Some(&demo)), Route::Main);
+        // A Hermes or Direct setup the core says is chosen and ready is Main
+        // only once the account list and auth are known.
+        assert_eq!(route(Some(false), None, Some(&out)), Route::Unknown);
+    }
+
+    fn handshake(needs: Option<bool>) -> Handshake {
+        let mut raw = json!({
+            "protocolVersion": conduit_protocol::PROTOCOL_VERSION,
+            "daemonVersion": "0.1.0",
+            "sessionId": "s",
+            "platform": "macos",
+            "capabilities": {},
+            "paths": {"userData": "/u", "database": "/d", "cache": "/c", "logs": "/l", "staging": "/s"},
+        });
+        if let Some(n) = needs {
+            raw["needsOnboarding"] = json!(n);
+        }
+        Handshake::from_value(raw)
+    }
+
+    fn request() -> HandshakeRequest {
+        HandshakeRequest {
+            protocol_version: conduit_protocol::PROTOCOL_VERSION.into(),
+            client_name: "test".into(),
+            client_version: "0".into(),
+            window_kind: conduit_protocol::WindowKind::Main,
+            locale: "en".into(),
+        }
+    }
+
+    fn session(cx: &mut TestAppContext, daemon: &FakeDaemon) -> Entity<SessionStore> {
+        let rpc = daemon.rpc();
+        let accounts = cx.new(|_| AccountsStore::new(rpc.clone()));
+        cx.new(|cx| SessionStore::new(rpc, accounts, cx))
+    }
+
+    #[gpui_kit::test]
+    fn an_early_false_is_not_trusted_until_the_core_confirms(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        // The core is still starting: every core-gated call fails.
+        daemon.on::<methods::AccountsList>(|_| {
+            Err(conduit_daemon::protocol::error(
+                "rpc.daemonUnavailable",
+                "starting",
+            ))
+        });
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| {
+            s.on_connected(&handshake(Some(false)), request(), cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(store.read_with(cx, |s, cx| s.route(cx)), Route::Unknown);
+
+        // Up: no account, and the core's own answer is "onboard".
+        daemon.returns::<methods::AccountsList>(list(vec![]));
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Unauthenticated, false));
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": true})));
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+        assert_eq!(store.read_with(cx, |s, cx| s.route(cx)), Route::Onboarding);
+        assert!(
+            daemon
+                .log()
+                .iter()
+                .filter(|m| **m == "system.handshake")
+                .count()
+                >= 1,
+            "asked the core again"
+        );
+    }
+
+    #[gpui_kit::test]
+    fn a_true_handshake_still_waits_for_the_core(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.on::<methods::AccountsList>(|_| {
+            Err(conduit_daemon::protocol::error(
+                "rpc.daemonUnavailable",
+                "starting",
+            ))
+        });
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| {
+            s.on_connected(&handshake(Some(true)), request(), cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(store.read_with(cx, |s, cx| s.route(cx)), Route::Unknown);
+        // Up, with Hermes chosen in onboarding: the core's own answer.
+        daemon.returns::<methods::AccountsList>(list(vec![]));
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Unauthenticated, false));
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+        daemon.returns::<methods::HermesSettings>(HermesSettings {
+            usable: true,
+            ..Default::default()
+        });
+        let accounts = store.read_with(cx, |s, _| s.accounts().clone());
+        accounts.update(cx, |a, cx| a.refresh(cx));
+        cx.run_until_parked();
+        assert_eq!(store.read_with(cx, |s, cx| s.route(cx)), Route::Main);
+        assert_eq!(
+            store.read_with(cx, |s, cx| s.backend(cx)),
+            Some(Backend::Hermes)
+        );
+    }
+
+    #[gpui_kit::test]
+    fn a_usable_backend_the_core_does_not_count_is_still_onboarding(cx: &mut TestAppContext) {
+        // Hermes saved and usable, but not the backend the app is used
+        // through (saved from settings, or a gateway that still has to sign
+        // in): the core says onboarding, and that decides.
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(list(vec![]));
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Unauthenticated, false));
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": true})));
+        daemon.returns::<methods::HermesSettings>(HermesSettings {
+            usable: true,
+            ..Default::default()
+        });
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| s.on_connected(&handshake(None), request(), cx));
+        cx.run_until_parked();
+        assert_eq!(store.read_with(cx, |s, cx| s.route(cx)), Route::Onboarding);
+    }
+
+    #[gpui_kit::test]
+    fn signing_in_moves_from_sign_in_to_main(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(list(vec![account("a", "Avery", true, false)]));
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Unauthenticated, false));
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| {
+            s.on_connected(&handshake(Some(false)), request(), cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(store.read_with(cx, |s, cx| s.route(cx)), Route::SignIn);
+
+        // `accounts.changed` → the accounts store refetches → the session
+        // sees a new signature and refetches auth.
+        daemon.returns::<methods::AccountsList>(list(vec![account("a", "Avery", true, true)]));
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Authenticated, true));
+        let accounts = store.read_with(cx, |s, _| s.accounts().clone());
+        accounts.update(cx, |a, cx| a.refresh(cx));
+        cx.run_until_parked();
+        assert_eq!(store.read_with(cx, |s, cx| s.route(cx)), Route::Main);
+        assert_eq!(
+            store.read_with(cx, |s, cx| s.backend(cx)),
+            Some(Backend::OpenWebUi)
+        );
+    }
+
+    fn loading() -> AuthSnapshot {
+        let mut a = auth(AuthPhase::Loading, false);
+        a.is_loading = true;
+        a
+    }
+
+    fn signed_in() -> AccountList {
+        list(vec![account("a", "Avery", true, true)])
+    }
+
+    fn server(reachability: ServerReachability) -> ServerStatus {
+        ServerStatus {
+            active_server_id: Some("a".into()),
+            capabilities: Capabilities::default(),
+            reachability,
+            version: None,
+            is_version_supported: true,
+            max_supported_version: "0.13.2".into(),
+            error_code: None,
+        }
+    }
+
+    fn route_of(store: &Entity<SessionStore>, cx: &mut TestAppContext) -> Route {
+        store.read_with(cx, |s, cx| s.route(cx))
+    }
+
+    /// Lets every pending ask run, one [`resolve_delay`] after another.
+    fn wait_asks(n: u32, cx: &mut TestAppContext) {
+        for attempt in 0..n {
+            cx.executor().advance_clock(resolve_delay(attempt));
+            cx.run_until_parked();
+        }
+    }
+
+    #[gpui_kit::test]
+    fn a_core_still_restoring_the_session_is_asked_again(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(signed_in());
+        daemon.returns::<methods::AuthStatus>(loading());
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| {
+            s.on_connected(&handshake(Some(false)), request(), cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(route_of(&store, cx), Route::Unknown);
+
+        // It settles, and no event says so: the session asks again.
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Authenticated, true));
+        wait_asks(1, cx);
+        assert_eq!(route_of(&store, cx), Route::Main);
+        assert!(store.read_with(cx, |s, _| s.error.is_none()));
+    }
+
+    #[gpui_kit::test]
+    fn a_daemon_that_restarts_mid_start_is_routed_after_the_reconnect(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        // The first daemon dies while the window asks.
+        daemon.on::<methods::AccountsList>(|_| {
+            Err(conduit_daemon::protocol::error(
+                conduit_daemon::protocol::codes::DISCONNECTED,
+                "the daemon went away",
+            ))
+        });
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| {
+            s.on_connected(&handshake(Some(false)), request(), cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(route_of(&store, cx), Route::Unknown);
+        // Asking again, not failing: the supervisor is bringing it back.
+        assert!(store.read_with(cx, |s, _| s.error.is_none()));
+
+        // The restarted daemon: its core restores the session first.
+        daemon.returns::<methods::AccountsList>(signed_in());
+        daemon.returns::<methods::AuthStatus>(loading());
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+        store.update(cx, |s, cx| {
+            s.on_connected(&handshake(Some(false)), request(), cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(route_of(&store, cx), Route::Unknown);
+
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Authenticated, true));
+        wait_asks(2, cx);
+        assert_eq!(route_of(&store, cx), Route::Main);
+    }
+
+    #[gpui_kit::test]
+    fn a_route_that_never_comes_says_why_and_retry_starts_over(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(signed_in());
+        daemon.returns::<methods::AuthStatus>(loading());
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| {
+            s.on_connected(&handshake(Some(false)), request(), cx)
+        });
+        cx.run_until_parked();
+        wait_asks(RESOLVE_ATTEMPTS + 1, cx);
+        let asked = daemon.calls::<methods::AuthStatus>().len();
+        store.read_with(cx, |s, cx| {
+            assert_eq!(s.route(cx), Route::Unknown);
+            let error = s.error.as_ref().expect("an error to show with Retry");
+            assert_eq!(
+                error.code,
+                conduit_protocol::ErrorCode::from_code(UNRESOLVED)
+            );
+        });
+        // Bounded: no more asks once it has said why.
+        wait_asks(3, cx);
+        assert_eq!(daemon.calls::<methods::AuthStatus>().len(), asked);
+
+        // Retry: asked again from the start, and this time it settles.
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Authenticated, true));
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, cx| {
+            assert_eq!(s.route(cx), Route::Main);
+            assert!(s.error.is_none());
+        });
+    }
+
+    #[gpui_kit::test]
+    fn an_unreachable_server_still_opens_main_and_says_when_it_is_back(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(signed_in());
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Authenticated, true));
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+        daemon.returns::<methods::ServersStatus>(server(ServerReachability::Unreachable));
+        let store = session(cx, &daemon);
+        let back = std::rc::Rc::new(std::cell::Cell::new(0));
+        {
+            let back = back.clone();
+            cx.update(|cx| {
+                cx.subscribe(&store, move |_, event, _| {
+                    if *event == SessionEvent::ServerBack {
+                        back.set(back.get() + 1);
+                    }
+                })
+                .detach()
+            });
+        }
+        store.update(cx, |s, cx| {
+            s.on_connected(&handshake(Some(false)), request(), cx)
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, cx| {
+            assert_eq!(s.route(cx), Route::Main);
+            assert!(s.server_unreachable(cx));
+        });
+
+        // Still down at the next check, then back.
+        cx.executor().advance_clock(SERVER_RECHECK);
+        cx.run_until_parked();
+        assert!(store.read_with(cx, |s, cx| s.server_unreachable(cx)));
+        assert_eq!(back.get(), 0);
+        daemon.returns::<methods::ServersStatus>(server(ServerReachability::Reachable));
+        cx.executor().advance_clock(SERVER_RECHECK);
+        cx.run_until_parked();
+        assert!(!store.read_with(cx, |s, cx| s.server_unreachable(cx)));
+        assert_eq!(back.get(), 1);
+
+        // Reachable: no more checks of its own.
+        let checks = daemon.calls::<methods::ServersStatus>().len();
+        cx.executor().advance_clock(SERVER_RECHECK * 3);
+        cx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::ServersStatus>().len(), checks);
+    }
+
+    #[gpui_kit::test]
+    fn direct_and_hermes_only_signals(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(list(vec![]));
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Unauthenticated, false));
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+        daemon.returns::<methods::DirectList>(DirectConnectionList {
+            preferred: true,
+            usable: true,
+            ..Default::default()
+        });
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| s.on_connected(&handshake(None), request(), cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, cx| {
+            assert_eq!(s.route(cx), Route::Main);
+            assert!(s.direct_only(cx));
+            assert!(!s.hermes_only(cx));
+            assert_eq!(s.backend(cx), Some(Backend::Direct));
+        });
+
+        daemon.returns::<methods::DirectList>(DirectConnectionList::default());
+        daemon.returns::<methods::HermesSettings>(HermesSettings {
+            usable: true,
+            ..Default::default()
+        });
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, cx| {
+            assert!(!s.direct_only(cx));
+            assert!(s.hermes_only(cx));
+            assert_eq!(s.backend(cx), Some(Backend::Hermes));
+        });
+    }
+}
