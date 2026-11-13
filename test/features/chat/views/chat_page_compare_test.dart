@@ -77,6 +77,21 @@ void main() {
     }
   }
 
+  /// Closes the page [compareOnPage] opened; a second call does nothing.
+  Future<void> Function() closePage = () async {};
+
+  /// A test of the page from [compareOnPage], which it closes before
+  /// returning. A tear-down would be too late: flutter_test checks for pending
+  /// timers as soon as a test returns, and a send can leave the page's
+  /// Markdown service starting a worker isolate, whose timers end only when
+  /// the container disposes the service.
+  void testPage(String description, WidgetTesterCallback body) {
+    testWidgets(description, (tester) async {
+      await body(tester);
+      await closePage();
+    });
+  }
+
   /// Opens the page on a stored chat and runs the real command to its start
   /// button: overflow menu, "Compare models", a second slot, Compare. [db] is
   /// the database a turn is admitted into; without one admission is refused.
@@ -93,7 +108,11 @@ void main() {
     final originalErrorWidgetBuilder = ErrorWidget.builder;
     final originalFlutterErrorOnError = FlutterError.onError;
     late final ProviderContainer container;
-    addTearDown(() async {
+    var closed = false;
+    closePage = () async {
+      if (closed) return;
+      closed = true;
+      // Dropping the streaming placeholders ends the task poll they started.
       container.read(chatMessagesProvider.notifier)
         ..clearMessages()
         ..finishStreaming();
@@ -103,7 +122,9 @@ void main() {
       if (db != null) await pumpDatabaseOperation(tester, db.close);
       ErrorWidget.builder = originalErrorWidgetBuilder;
       FlutterError.onError = originalFlutterErrorOnError;
-    });
+    };
+    // A test that fails before the end still closes the page.
+    addTearDown(closePage);
     final chat = withChatStorageProvenance(
       Conversation(
         id: 'stored-chat',
@@ -200,7 +221,7 @@ void main() {
   String composerText(WidgetTester tester) =>
       tester.widget<TextField>(find.byType(TextField)).controller!.text;
 
-  testWidgets('a refused comparison explains itself and keeps the draft', (
+  testPage('a refused comparison explains itself and keeps the draft', (
     tester,
   ) async {
     final container = await compareOnPage(tester);
@@ -211,7 +232,7 @@ void main() {
     expect(container.read(chatMessagesProvider), isEmpty);
   });
 
-  testWidgets('an admitted comparison puts both answers in the chat and '
+  testPage('an admitted comparison puts both answers in the chat and '
       'clears the draft', (tester) async {
     final db = AppDatabase(NativeDatabase.memory());
     await tester.runAsync(
@@ -235,13 +256,9 @@ void main() {
       [for (final message in turn) message.role],
       ['user', 'assistant', 'assistant'],
     );
-    // Dropping the streaming placeholders ends the task poll they started.
-    container.read(chatMessagesProvider.notifier)
-      ..clearMessages()
-      ..finishStreaming();
   });
 
-  testWidgets(
+  testPage(
     'ordinary admission clears its draft before the network drain completes',
     (tester) async {
       final db = AppDatabase(NativeDatabase.memory());
@@ -285,9 +302,6 @@ void main() {
       } finally {
         engine.gate.complete();
         await settle(tester);
-        container.read(chatMessagesProvider.notifier)
-          ..clearMessages()
-          ..finishStreaming();
       }
     },
   );
@@ -296,7 +310,7 @@ void main() {
   // when it reached its run: its draft is let go once the send is accepted,
   // as for any server model. Treated like a device Direct turn, it stayed
   // in the composer to be sent again.
-  testWidgets('an Open WebUI Direct send clears its draft', (tester) async {
+  testPage('an Open WebUI Direct send clears its draft', (tester) async {
     final registry = DirectModelRegistry();
     final direct = registry
         .replaceProfileModels(
@@ -333,7 +347,7 @@ void main() {
 
   // A Hermes turn gives up its words once it goes to its run. One whose new
   // session could not be made never did, and the page cleared them anyway.
-  testWidgets('a Hermes send whose session cannot be made keeps its draft', (
+  testPage('a Hermes send whose session cannot be made keeps its draft', (
     tester,
   ) async {
     final db = AppDatabase(NativeDatabase.memory());
