@@ -920,6 +920,9 @@ void main() {
     test('unless the choice is undone', () async {
       await saveAccounts(['a']);
       final session = await signInWithBrowser('a');
+      // Only the deletions of the choice below count: setting up deleted
+      // keys too.
+      secure.deletedKeys.clear();
       var bothGone = false;
 
       await storage.selectUnauthenticatedServerConfig(
