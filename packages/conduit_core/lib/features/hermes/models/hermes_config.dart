@@ -10,6 +10,28 @@ enum HermesBackendMode { responsesApi, desktopGateway }
 
 enum HermesDesktopAuthKind { legacyToken, nativePkce, dashboardCookie }
 
+/// What keeps a connection's access headers from being saved
+/// ([HermesConfig.accessHeadersProblem]).
+enum HermesAccessHeaderIssue {
+  /// More than [HermesConfig.maxAccessHeaders].
+  tooMany,
+
+  /// A name that is not an HTTP token, or has spaces around it.
+  invalidName,
+
+  /// Two headers with one name (compared without case).
+  duplicate,
+
+  /// A name the connection sets itself ([HermesConfig.reservedAccessHeaderNames]).
+  reserved,
+
+  /// A name over 64 characters or a value over 1024.
+  tooLong,
+
+  /// A value with characters a header cannot carry.
+  invalidValue,
+}
+
 enum HermesDesktopTurnState {
   idle,
   running,
@@ -269,28 +291,51 @@ class HermesConfig {
   };
 
   static String? validateAccessHeaders(Map<String, String> headers) {
+    final problem = accessHeadersProblem(headers);
+    return switch (problem?.issue) {
+      null => null,
+      HermesAccessHeaderIssue.tooMany => 'At most 10 headers are allowed.',
+      HermesAccessHeaderIssue.invalidName => 'A header name is invalid.',
+      HermesAccessHeaderIssue.duplicate => 'Header names must be unique.',
+      HermesAccessHeaderIssue.reserved => '${problem!.name} is reserved.',
+      HermesAccessHeaderIssue.tooLong => 'A header is too long.',
+      HermesAccessHeaderIssue.invalidValue => 'A header value is invalid.',
+    };
+  }
+
+  /// The first thing wrong with [headers] as a connection's access headers,
+  /// and the header it is about (null for [HermesAccessHeaderIssue.tooMany]),
+  /// or null when they can be saved. [validateAccessHeaders] words it.
+  static ({HermesAccessHeaderIssue issue, String? name})? accessHeadersProblem(
+    Map<String, String> headers,
+  ) {
     if (headers.length > maxAccessHeaders) {
-      return 'At most 10 headers are allowed.';
+      return (issue: HermesAccessHeaderIssue.tooMany, name: null);
     }
     final seen = <String>{};
     for (final entry in headers.entries) {
       final name = entry.key.trim();
-      if (name != entry.key) return 'A header name is invalid.';
+      ({HermesAccessHeaderIssue issue, String? name}) problem(
+        HermesAccessHeaderIssue issue,
+      ) => (issue: issue, name: entry.key);
+      if (name != entry.key) {
+        return problem(HermesAccessHeaderIssue.invalidName);
+      }
       final lower = name.toLowerCase();
       if (!RegExp(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$").hasMatch(name)) {
-        return 'A header name is invalid.';
+        return problem(HermesAccessHeaderIssue.invalidName);
       }
-      if (!seen.add(lower)) return 'Header names must be unique.';
+      if (!seen.add(lower)) return problem(HermesAccessHeaderIssue.duplicate);
       if (reservedAccessHeaderNames.contains(lower) ||
           lower.startsWith('sec-websocket-')) {
-        return '$name is reserved.';
+        return problem(HermesAccessHeaderIssue.reserved);
       }
       if (name.length > 64 || entry.value.length > 1024) {
-        return 'A header is too long.';
+        return problem(HermesAccessHeaderIssue.tooLong);
       }
       for (final codeUnit in entry.value.codeUnits) {
         if (codeUnit != 0x09 && (codeUnit < 0x20 || codeUnit >= 0x7f)) {
-          return 'A header value is invalid.';
+          return problem(HermesAccessHeaderIssue.invalidValue);
         }
       }
     }

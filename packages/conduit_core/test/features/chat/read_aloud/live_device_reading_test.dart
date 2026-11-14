@@ -141,6 +141,158 @@ void main() {
     check(manager.isPlaying).isTrue();
   });
 
+  test('a pause the voice never reports still pauses the reading', () async {
+    await manager.speak(text);
+    events.clear();
+
+    // The engine pauses and answers, but sends no `pause` of its own.
+    await manager.pause();
+    await pumpEventQueue();
+    check(events.whereType<TtsPaused>()).length.equals(1);
+
+    await manager.resume();
+    await pumpEventQueue();
+    check(engine.resumes).equals(1);
+    check(events.last).isA<TtsResumed>();
+  });
+
+  test(
+    'a sentence that ends while a pause is on its way holds the next one',
+    () async {
+      await manager.speak(text);
+      // The first sentence ends just as the engine is asked to pause.
+      engine.duringPause = () async {
+        engine.emit('complete');
+        await pumpEventQueue();
+      };
+      await manager.pause();
+      await pumpEventQueue();
+
+      check(
+        because: 'nothing more is said',
+        engine.spoken,
+      ).deepEquals(['A red kite.']);
+      check(manager.currentChunkIndex).equals(1);
+      check(events.last).isA<TtsPaused>();
+
+      await manager.resume();
+      await pumpEventQueue();
+      check(engine.spoken.last).equals('Two green frogs.');
+      check(events.last).isA<TtsResumed>();
+    },
+  );
+
+  for (final refusal in ['refuses', 'fails']) {
+    test('a pause the voice $refusal leaves the reading going on', () async {
+      await manager.speak(text);
+      events.clear();
+      if (refusal == 'refuses') {
+        engine.pauseAnswer = false;
+      } else {
+        engine.pauseError = StateError('voice busy');
+      }
+      // The first sentence ends while the engine is asked.
+      engine.duringPause = () async {
+        engine.emit('complete');
+        await pumpEventQueue();
+      };
+      await manager.pause();
+      await pumpEventQueue();
+
+      check(events.whereType<TtsPaused>()).isEmpty();
+      check(events.whereType<TtsError>()).length
+          .equals(refusal == 'fails' ? 1 : 0);
+      // Not held: the next sentence is said.
+      check(engine.spoken.last).equals('Two green frogs.');
+    });
+  }
+
+  test('an older pause refused after a newer one took leaves it paused',
+      () async {
+    await manager.speak(text);
+    final first = Completer<bool>();
+    engine.pauseTurns
+      ..add(() => first.future)
+      ..add(() async => true);
+    final older = manager.pause();
+    await manager.pause();
+    first.complete(false);
+    await older;
+    await pumpEventQueue();
+
+    // Still paused: moving says nothing until it resumes.
+    final said = engine.spoken.length;
+    check(await manager.seekToChunk(1)).equals(1);
+    check(engine.spoken).length.equals(said);
+  });
+
+  test('an older resume refused after a newer one took leaves it going',
+      () async {
+    await manager.speak(text);
+    await manager.pause();
+    await pumpEventQueue();
+    final first = Completer<bool>();
+    engine.resumeTurns
+      ..add(() => first.future)
+      ..add(() async => true);
+    final older = manager.resume();
+    await manager.resume();
+    first.complete(false);
+    await older;
+
+    // Not held: the next sentence is said when this one ends.
+    engine.emit('complete');
+    await pumpEventQueue();
+    check(engine.spoken.last).equals('Two green frogs.');
+  });
+
+  test('a resume the voice refuses leaves the reading paused', () async {
+    await manager.speak(text);
+    await manager.pause();
+    await pumpEventQueue();
+    events.clear();
+
+    engine.resumeAnswer = false;
+    await manager.resume();
+    await pumpEventQueue();
+    check(events.whereType<TtsResumed>()).isEmpty();
+
+    engine.resumeAnswer = true;
+    await manager.resume();
+    await pumpEventQueue();
+    check(engine.resumes).equals(2);
+    check(events.last).isA<TtsResumed>();
+  });
+
+  test('a sentence picked while a pause is on its way is where it resumes',
+      () async {
+    await manager.speak(text);
+    // While the engine is asked to pause, the second sentence is picked,
+    // and then the first one ends.
+    engine.duringPause = () async {
+      await manager.seekToChunk(1);
+      engine.emit('complete');
+      await pumpEventQueue();
+    };
+    await manager.pause();
+    await pumpEventQueue();
+
+    await manager.resume();
+    await pumpEventQueue();
+    check(engine.spoken.last).equals('Two green frogs.');
+  });
+
+  test('a late pause report does not pause a reading resumed since', () async {
+    await manager.speak(text);
+    await manager.pause();
+    await manager.resume();
+    await pumpEventQueue();
+
+    engine.emit('pause');
+    await pumpEventQueue();
+    check(events.last).isA<TtsResumed>();
+  });
+
   test(
     'a new speed says the rest of the sentence from the word reached',
     () async {
@@ -245,6 +397,9 @@ class _Engine implements DeviceSpeechEngine {
   bool replaces = true;
   int resumes = 0;
 
+  /// Runs while a pause is being answered.
+  Future<void> Function()? duringPause;
+
   void emit(String type) => _events.add(NativeTtsEvent(type: type));
 
   void emitProgress(int start, int end) =>
@@ -314,15 +469,35 @@ class _Engine implements DeviceSpeechEngine {
   /// Holds [pause] until completed.
   Completer<void>? pauseGate;
 
+  /// What the next [pause] answers, or the error it fails with.
+  bool pauseAnswer = true;
+  Object? pauseError;
+
+  /// What [resume] answers.
+  bool resumeAnswer = true;
+
+  /// Answers for the next calls, one per call, before the fields above.
+  final pauseTurns = <Future<bool> Function()>[];
+  final resumeTurns = <Future<bool> Function()>[];
+
+  @override
   @override
   Future<bool> pause() async {
+    if (pauseTurns.isNotEmpty) return pauseTurns.removeAt(0)();
     await pauseGate?.future;
-    return true;
+    await duringPause?.call();
+    final error = pauseError;
+    pauseError = null;
+    if (error != null) throw error;
+    final answer = pauseAnswer;
+    pauseAnswer = true;
+    return answer;
   }
 
   @override
   Future<bool> resume() async {
     resumes++;
-    return true;
+    if (resumeTurns.isNotEmpty) return resumeTurns.removeAt(0)();
+    return resumeAnswer;
   }
 }

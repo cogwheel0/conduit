@@ -943,15 +943,55 @@ class TtsManager {
                 _isTransitioningChunks)) {
           _emitEvent(const TtsPaused());
         }
+      } else if (_nativeTts.replacesOnSpeak) {
+        // Paused from the moment it is asked: a sentence that ends while the
+        // engine is being asked holds the next one ([_onDeviceChunkComplete]).
+        _devicePaused = true;
+        final command = ++_deviceCommand;
+        // Only the latest pause or resume of the reading applies what the
+        // engine answers: an older one answering late changes nothing.
+        bool latest() => _owns(session) && command == _deviceCommand;
+        final bool paused;
+        try {
+          paused = await _nativeTts.pause();
+        } catch (_) {
+          if (latest()) await _undoDevicePause(session);
+          rethrow;
+        }
+        if (!latest()) return;
+        // Refused: the reading goes on, and nothing says it paused.
+        if (!paused) {
+          await _undoDevicePause(session);
+          return;
+        }
+        // The engine answering is the pause. Its own report can come late
+        // or never (the Mac's voice pausing a sentence it has only begun
+        // says nothing), and the reading would show as speaking for good.
+        if (_devicePaused) _emitEvent(const TtsPaused());
       } else {
         await _nativeTts.pause();
-        // A reading that replaced this one while it paused is not paused.
-        if (_activeSession?.id != session.id) return;
-        if (_nativeTts.replacesOnSpeak) _devicePaused = true;
       }
     } catch (e) {
       if (_activeSession?.id != session.id) return;
       _emitEvent(TtsError(e.toString()));
+    }
+  }
+
+  /// Counts the device pause and resume commands, so an older one answering
+  /// late does not undo a newer one ([pause], [resume]).
+  int _deviceCommand = 0;
+
+  /// Takes back a pause the engine did not make: the reading is not paused,
+  /// and a sentence held back meanwhile ([_onDeviceChunkComplete]) is said.
+  Future<void> _undoDevicePause(TtsPlaybackSession session) async {
+    _devicePaused = false;
+    final at = _deviceResumeAt;
+    if (at == null) return;
+    _currentChunkIndex = at.index;
+    try {
+      await _speakDeviceChunk(session.chunks[at.index], from: at.from);
+    } catch (error) {
+      _failDevicePlayback(session, error);
     }
   }
 
@@ -973,12 +1013,33 @@ class TtsManager {
         if (_activeSession?.id != session.id) return;
         _emitEvent(const TtsResumed());
       } else if (_deviceResumeAt case final at?) {
-        // It moved while paused: say it from there instead.
+        ++_deviceCommand;
+        // It moved while paused, or was paused between two sentences: say it
+        // from there instead.
         _devicePaused = false;
         _currentChunkIndex = at.index;
         await _speakDeviceChunk(session.chunks[at.index], from: at.from);
         if (_activeSession?.id != session.id) return;
         _emitEvent(const TtsResumed());
+      } else if (_nativeTts.replacesOnSpeak) {
+        _devicePaused = false;
+        final command = ++_deviceCommand;
+        bool latest() => _owns(session) && command == _deviceCommand;
+        final bool resumed;
+        try {
+          resumed = await _nativeTts.resume();
+        } catch (_) {
+          if (latest()) _devicePaused = true;
+          rethrow;
+        }
+        if (!latest()) return;
+        // Refused: still paused, and nothing says it resumed.
+        if (!resumed) {
+          _devicePaused = true;
+          return;
+        }
+        // As with [pause]: the engine answering is the resume.
+        if (!_devicePaused) _emitEvent(const TtsResumed());
       } else {
         await _nativeTts.resume();
       }
@@ -1384,10 +1445,15 @@ class TtsManager {
         _activeSession = null;
         _resetPlaybackState();
         _emitEvent(const TtsCancelled());
+      // An engine that replaces what it says is paused and resumed by
+      // [pause] and [resume] alone, which say so: its own reports can come
+      // after the reading moved on, or not at all.
       case 'pause':
+        if (_nativeTts.replacesOnSpeak) return;
         _devicePaused = true;
         _emitEvent(const TtsPaused());
       case 'continue':
+        if (_nativeTts.replacesOnSpeak) return;
         _devicePaused = false;
         _emitEvent(const TtsResumed());
       case 'progress':
@@ -1432,6 +1498,15 @@ class TtsManager {
     final session = _activeSession;
     if (session == null || session.usesAudioPlayer) return;
 
+    // Paused with a sentence already picked (moved to while paused): the
+    // sentence that just ended was said before that pick, and the reading
+    // resumes at the pick, not after it.
+    if (_nativeTts.replacesOnSpeak &&
+        _devicePaused &&
+        _deviceResumeAt != null) {
+      return;
+    }
+
     final nextIndex = _currentChunkIndex + 1;
 
     // Check if there are more chunks
@@ -1450,6 +1525,14 @@ class TtsManager {
     // Play next chunk
     _currentChunkIndex = nextIndex;
     _emitEvent(TtsChunkStarted(nextIndex));
+
+    // Paused as the sentence ended: the next one is said on resuming, as a
+    // move made while paused is.
+    if (_nativeTts.replacesOnSpeak && _devicePaused) {
+      _deviceResumeAt = (index: nextIndex, from: 0);
+      _deviceWordStart = 0;
+      return;
+    }
 
     _speakDeviceChunk(session.chunks[nextIndex]).catchError((Object error) {
       _failDevicePlayback(session, error);

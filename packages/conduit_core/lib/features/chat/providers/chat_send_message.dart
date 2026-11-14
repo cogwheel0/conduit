@@ -1413,6 +1413,10 @@ Future<void> _sendMessageInternal(
         ref,
         now: DateTime.now(),
         userSettings: userSettingsData,
+        prompts: _openWebUiRequestPrompts(
+          requestMessages,
+          models: <Model?>[selectedModel],
+        ),
       );
     } catch (e) {
       DebugLogger.error(

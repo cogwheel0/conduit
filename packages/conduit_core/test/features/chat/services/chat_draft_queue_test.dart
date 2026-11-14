@@ -300,6 +300,7 @@ class _Session {
     bool advanced = true,
     bool online = true,
     Model? model,
+    ChatDraftQueueAdmissionWait? admissionWait,
   }) async {
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);
@@ -348,6 +349,8 @@ class _Session {
         selectedTerminalIdProvider.overrideWithValue(null),
         syncEngineProvider.overrideWith(() => engine),
         attachedFilesProvider.overrideWith(_Tray.new),
+        if (admissionWait != null)
+          chatDraftQueueAdmissionWaitProvider.overrideWithValue(admissionWait),
       ],
     );
     addTearDown(container.dispose);
@@ -409,6 +412,24 @@ class _Session {
   void signInElsewhere(_Api api) {
     container.read(_wires.api.notifier).use(api);
     container.read(_wires.epoch.notifier).use(Object());
+  }
+
+  /// Completes once the queue reaches [condition]: at once if it holds now,
+  /// else at the first change of the queue that makes it hold.
+  Future<void> reaches(bool Function() condition) {
+    if (condition()) return Future<void>.value();
+    final reached = Completer<void>();
+    late final ProviderSubscription<List<ChatDraftQueue>> watch;
+    // Asked once the change has reached what is derived from the queue.
+    watch = container.listen(chatDraftQueueProvider, (_, _) {
+      scheduleMicrotask(() {
+        if (!reached.isCompleted && condition()) {
+          reached.complete();
+          watch.close();
+        }
+      });
+    });
+    return reached.future;
   }
 
   Future<void> until(bool Function() condition) async {
@@ -669,6 +690,102 @@ void main() {
       check(rows.single.content).equals('frozen');
       check(s.active!.drafts.single.text).equals('later');
       check(await s.completions()).length.equals(1);
+    });
+
+    test('a batch the host holds before admission leaves the composer free: '
+        'a message sent meanwhile goes first, and the batch follows its '
+        'answer', () async {
+      final hold = Completer<void>();
+      var waits = 0;
+      final s = await _Session.start(
+        // The host lets the chat settle after the first answer only.
+        admissionWait: () => ++waits == 1 ? hold.future : null,
+      );
+      addTearDown(() {
+        if (!hold.isCompleted) hold.complete();
+      });
+      final queued = s.queue.enqueue('queued')!;
+
+      s.finishResponse();
+      await s.reaches(() => s.active?.phase == ChatDraftQueuePhase.admitting);
+      check(s.active!.frozenDraftIds).deepEquals([queued.id]);
+      check(await s.sentUserRows()).isEmpty();
+      // Nothing is running while the host holds the batch, so the composer
+      // sends, as it does while a Stop waits on the server.
+      check(s.container.read(chatMainAnswerActiveProvider)).isFalse();
+      await s.container.read(_sendOrdinaryMessage)('sent meanwhile');
+      check(s.container.read(chatMainAnswerActiveProvider)).isTrue();
+
+      hold.complete();
+      await s.reaches(() => s.active?.phase == ChatDraftQueuePhase.idle);
+      // Nothing was sent over the newer answer; the draft waits, editable,
+      // without a Retry.
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['sent meanwhile']);
+      check(s.active!.drafts.map((d) => d.id)).deepEquals([queued.id]);
+      check(s.active!.frozenDraftIds).isEmpty();
+      check(s.active!.admissionFailed).isFalse();
+
+      s.finishResponse();
+      await s.reaches(() => s.active == null);
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['sent meanwhile', 'queued']);
+      check(await s.completions()).length.equals(2);
+      check(waits).equals(2);
+    });
+
+    for (final (name, wait) in <(String, ChatDraftQueueAdmissionWait)>[
+      ('fails', () => Future<void>.error(StateError('host'))),
+      ('throws instead of waiting', () => throw StateError('host')),
+    ]) {
+      test('a host wait that $name admits nothing and keeps the drafts',
+          () async {
+        final s = await _Session.start(admissionWait: wait);
+        final queued = s.queue.enqueue('queued')!;
+
+        s.finishResponse();
+        await s.reaches(() => s.active?.admissionFailed == true);
+
+        check(await s.sentUserRows()).isEmpty();
+        check(s.active!.drafts.map((d) => d.id)).deepEquals([queued.id]);
+        check(s.active!.phase).equals(ChatDraftQueuePhase.idle);
+      });
+    }
+
+    test('a Stop pressed while the host holds the batch is settled before '
+        'the batch goes', () async {
+      final hold = Completer<void>();
+      var waits = 0;
+      final s = await _Session.start(
+        admissionWait: () => ++waits == 1 ? hold.future : null,
+      );
+      addTearDown(() {
+        if (!hold.isCompleted) hold.complete();
+      });
+      s.queue.enqueue('queued');
+      s.finishResponse();
+      await s.reaches(() => s.active?.phase == ChatDraftQueuePhase.admitting);
+
+      // Meanwhile a message is sent, and its answer stopped; the server has
+      // not taken the Stop yet.
+      await s.container.read(_sendOrdinaryMessage)('sent meanwhile');
+      final stop = s.api.stopGate = Completer<void>();
+      addTearDown(() {
+        if (!stop.isCompleted) stop.complete();
+      });
+      s.container.read(stopGenerationProvider)();
+      hold.complete();
+      await pumpEventQueue();
+
+      // The batch waits on the Stop: still frozen, nothing more sent.
+      check(s.active!.phase).equals(ChatDraftQueuePhase.admitting);
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['sent meanwhile']);
+
+      stop.complete();
+      await s.reaches(() => s.active == null);
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['sent meanwhile', 'queued']);
     });
 
     test('a send refused before it commits keeps every draft and shows nothing',

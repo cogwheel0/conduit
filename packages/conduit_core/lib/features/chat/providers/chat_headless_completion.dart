@@ -186,6 +186,17 @@ Future<void> runQueuedCompletion(
       ref,
       now: DateTime.now(),
       userSettings: userSettingsData,
+      prompts: _openWebUiRequestPrompts(
+        requestMessages,
+        // The model the request goes to, which the picker may not show.
+        models: <Model?>[
+          _openWebUiRequestModel(
+            ref,
+            effectiveModelId,
+            selected: selectedModel,
+          ),
+        ],
+      ),
     );
   } catch (_) {}
   try {
@@ -498,6 +509,17 @@ Future<void> runHeadlessCompletion(
       ref,
       now: DateTime.now(),
       userSettings: userSettingsData,
+      prompts: _openWebUiRequestPrompts(
+        requestMessages,
+        // The model the request goes to, which the picker may not show.
+        models: <Model?>[
+          _openWebUiRequestModel(
+            ref,
+            effectiveModelId,
+            selected: selectedModel,
+          ),
+        ],
+      ),
     );
   } catch (_) {}
   requireCurrentOwner();

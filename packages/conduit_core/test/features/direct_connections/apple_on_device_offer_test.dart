@@ -49,12 +49,18 @@ void main() {
   tearDown(PreferencesStore.debugReset);
 
   /// An iPhone where Apple's models can exist, with Apple On-Device on (its
-  /// default) and Private Cloud Compute as [pccEnabled] says.
-  Future<ProviderContainer> iPhone({bool pccEnabled = false}) async {
+  /// default) and Private Cloud Compute as [pccEnabled] says; [pccEntitled]
+  /// false is a build without Private Cloud Compute's entitlement.
+  Future<ProviderContainer> iPhone({
+    bool pccEnabled = false,
+    bool pccEntitled = true,
+  }) async {
     await PreferencesStore.put(PreferenceKeys.applePccEnabled, pccEnabled);
     final container = ProviderContainer(
       overrides: [
         applePccPlatformSupportedProvider.overrideWithValue(true),
+        if (!pccEntitled)
+          applePrivateCloudComputeSupportedProvider.overrideWithValue(false),
         applePccHostProvider.overrideWithValue(host),
         hostDirectProviderAdaptersProvider.overrideWith(
           (ref) => [ref.watch(applePccAdapterProvider)],
@@ -84,7 +90,8 @@ void main() {
         .isEmpty();
   });
 
-  test('Apple On-Device is offered once its model answers', () async {
+  test('Apple On-Device is offered once its model answers, alone where '
+      'Private Cloud Compute lacks its entitlement', () async {
     host.onDevice = PlatformPccAvailability.available;
     final container = await iPhone();
 
@@ -93,6 +100,22 @@ void main() {
     check(profiles).length.equals(1);
     check(profiles.single.isAppleOnDevice).isTrue();
     check(profiles.single.isUsable).isTrue();
+
+    host.pcc = PlatformPccAvailability.available;
+    final unentitled = await iPhone(pccEnabled: true, pccEntitled: false);
+    await unentitled.read(appleOnDeviceStatusProvider.future);
+    check(
+      unentitled
+          .read(effectiveDirectConnectionProfilesProvider)
+          .requireValue
+          .map((profile) => profile.id),
+    ).deepEquals([kAppleOnDeviceProfileId]);
+    check(
+      (await effective(unentitled)).map((profile) => profile.id),
+    ).deepEquals([kAppleOnDeviceProfileId]);
+    check(
+      (await unentitled.read(applePccStatusProvider.future)).availability,
+    ).equals(PlatformPccAvailability.unsupported);
   });
 
   test(

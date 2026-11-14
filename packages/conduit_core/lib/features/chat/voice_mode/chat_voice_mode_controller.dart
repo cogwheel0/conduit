@@ -454,7 +454,11 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             return;
           }
           if (!eligibility.canStart) {
-            _setError(eligibility.errorMessage!, ChatVoiceModeError.message);
+            _setError(
+              eligibility.errorMessage!,
+              ChatVoiceModeError.message,
+              eligibility.refusal,
+            );
             return;
           }
           if (shouldStart != null && !shouldStart()) {
@@ -2058,11 +2062,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   void _setError(
     String message, [
     ChatVoiceModeError kind = ChatVoiceModeError.other,
+    VoiceCallRefusal? refusal,
   ]) {
     state = state.copyWith(
       phase: ChatVoiceModePhase.error,
       errorMessage: message,
       errorKind: kind,
+      refusal: refusal,
       clearActiveCallId: true,
       clearSpokenResponse: true,
       intensity: 0,

@@ -5,25 +5,14 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit_core/features/notifications/models/notification_scope.dart';
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
+import 'package:conduit_core/features/notifications/services/notification_policy.dart';
 import 'package:conduit_core/features/notifications/services/notification_preview_text.dart';
 
 import 'local_notification_service.dart';
 import 'notification_sound_service.dart';
 
-/// The visible surface a notification was routed to (or why it was dropped).
-enum NotificationSurface {
-  /// In-app banner (app foreground).
-  banner,
-
-  /// OS system notification (app background).
-  system,
-
-  /// Passed gating but no visible surface (the relevant surface pref is off).
-  silent,
-
-  /// Suppressed by gating (pref off, duplicate, or currently viewing target).
-  suppressed,
-}
+export 'package:conduit_core/features/notifications/services/notification_policy.dart'
+    show NotificationSurface;
 
 /// Claims [dedupKey] before a system notification for it is posted, and says
 /// whether this app may post it. [localNotificationId] is the id the posted
@@ -179,7 +168,7 @@ class NotificationRouter {
     if (!enabled) return NotificationSurface.suppressed;
 
     // 2. Per-kind toggle.
-    if (!_kindEnabled(notification.kind, settings)) {
+    if (!notificationKindEnabled(notification.kind, settings)) {
       return NotificationSurface.suppressed;
     }
 
@@ -292,21 +281,6 @@ class NotificationRouter {
         return NotificationSurface.system;
       }
       return NotificationSurface.silent;
-    }
-  }
-
-  bool _kindEnabled(NotificationKind kind, AppSettings settings) {
-    switch (kind) {
-      case NotificationKind.chatCompletion:
-      case NotificationKind.replyFailed:
-        return settings.notificationChatEnabled;
-      case NotificationKind.channelMessage:
-        return settings.notificationChannelEnabled;
-      case NotificationKind.scheduledTask:
-        return settings.notificationScheduledEnabled;
-      case NotificationKind.pushTest:
-        // A test push only proves delivery; it is never shown here.
-        return false;
     }
   }
 

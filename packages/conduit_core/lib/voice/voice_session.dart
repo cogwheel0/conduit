@@ -53,6 +53,29 @@ enum ChatVoiceModeError {
 
 enum ChatVoiceModeStartResult { started, alreadyActive, cancelled, failed }
 
+/// Why core refused to start a call, beside its English
+/// [ChatVoiceModeSnapshot.errorMessage]: a code a client words in its own
+/// language (the phone shows the English as it is).
+enum VoiceCallRefusal {
+  /// No model is chosen.
+  modelRequired,
+
+  /// Hermes's settings are still being read.
+  hermesLoading,
+
+  /// Hermes has no usable server URL or API key.
+  hermesUnavailable,
+
+  /// The chosen Direct connection is gone or turned off.
+  directUnavailable,
+
+  /// The model needs a signed-in Open WebUI account.
+  signInRequired,
+
+  /// The model's backend has no voice calls (LibreChat).
+  backendUnsupported,
+}
+
 /// Something worth telling the user mid-call that does not end it.
 enum ChatVoiceModeNotice {
   /// The user's words could not be made out.
@@ -80,6 +103,7 @@ class ChatVoiceModeSnapshot {
     this.activeCallId,
     this.errorMessage,
     this.errorKind,
+    this.refusal,
     this.isCollapsed = false,
     this.isMuted = false,
     this.isSpeakerphoneEnabled = false,
@@ -101,6 +125,11 @@ class ChatVoiceModeSnapshot {
 
   /// Why [errorMessage] is set; null when there is none.
   final ChatVoiceModeError? errorKind;
+
+  /// When core refused to start the call, why, as a code; [errorMessage]
+  /// is its English. It goes with the error it came with: a new
+  /// [errorMessage] replaces it, and clearing the error clears it.
+  final VoiceCallRefusal? refusal;
   final bool isCollapsed;
   final bool isMuted;
   final bool isSpeakerphoneEnabled;
@@ -147,6 +176,7 @@ class ChatVoiceModeSnapshot {
     bool clearActiveCallId = false,
     String? errorMessage,
     ChatVoiceModeError? errorKind,
+    VoiceCallRefusal? refusal,
     bool clearErrorMessage = false,
     bool? isCollapsed,
     bool? isMuted,
@@ -177,6 +207,11 @@ class ChatVoiceModeSnapshot {
           ? null
           : errorMessage ?? this.errorMessage,
       errorKind: clearErrorMessage ? null : errorKind ?? this.errorKind,
+      refusal: clearErrorMessage
+          ? null
+          : errorMessage != null
+          ? refusal
+          : refusal ?? this.refusal,
       isCollapsed: isCollapsed ?? this.isCollapsed,
       isMuted: isMuted ?? this.isMuted,
       isSpeakerphoneEnabled:

@@ -258,10 +258,74 @@ Map<String, dynamic> buildOpenWebUiBackgroundTasksForTest({
   );
 }
 
+/// The texts Open WebUI fills `{{USER_LOCATION}}` into for a request: the
+/// system text it sends ([messages]' system messages) and each of [models]'
+/// own system prompt, as far as the model list shows it.
+List<String?> _openWebUiRequestPrompts(
+  Iterable<Map<String, dynamic>> messages, {
+  Iterable<Model?> models = const <Model?>[],
+}) {
+  String? textOf(Object? content) => switch (content) {
+    final String text => text,
+    final List<dynamic> parts =>
+      parts
+          .map((part) => part is Map ? part['text']?.toString() ?? '' : '')
+          .join('\n'),
+    _ => null,
+  };
+  String? modelSystem(Model? model) {
+    final info = model?.metadata?['info'];
+    final params = info is Map ? info['params'] : null;
+    final system = params is Map ? params['system'] : null;
+    return system is String ? system : null;
+  }
+
+  return <String?>[
+    for (final message in messages)
+      if ((message['role']?.toString().toLowerCase() ?? '') == 'system')
+        textOf(message['content']),
+    for (final model in models) modelSystem(model),
+  ];
+}
+
+/// The model a request for [modelId] goes to: [selected] when it is that
+/// model, else the account's model list's, as loaded. Null when neither has
+/// it.
+Model? _openWebUiRequestModel(dynamic ref, String modelId, {Model? selected}) {
+  if (selected != null && selected.id == modelId) return selected;
+  try {
+    final loaded = ref.read(modelsProvider) as AsyncValue<List<Model>>;
+    return loaded.asData?.value
+        .where((model) => model.id == modelId)
+        .firstOrNull;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Exposes [_openWebUiRequestModel] for focused unit tests.
+@visibleForTesting
+Model? openWebUiRequestModelForTest(
+  dynamic ref,
+  String modelId, {
+  Model? selected,
+}) => _openWebUiRequestModel(ref, modelId, selected: selected);
+
+/// Exposes [_openWebUiRequestPrompts] for focused unit tests.
+@visibleForTesting
+List<String?> openWebUiRequestPromptsForTest(
+  Iterable<Map<String, dynamic>> messages, {
+  Iterable<Model?> models = const <Model?>[],
+}) => _openWebUiRequestPrompts(messages, models: models);
+
+/// [prompts]: the request's texts that may name `{{USER_LOCATION}}`
+/// ([_openWebUiRequestPrompts]); a host whose [LocationService.policy] asks
+/// the device only when one does reads them.
 Future<Map<String, dynamic>> _buildOpenWebUiPromptVariablesForRequest(
   dynamic ref, {
   required DateTime now,
   required Map<String, dynamic>? userSettings,
+  Iterable<String?> prompts = const <String?>[],
 }) async {
   String userName = 'User';
   String userEmail = 'Unknown';
@@ -291,9 +355,10 @@ Future<Map<String, dynamic>> _buildOpenWebUiPromptVariablesForRequest(
   try {
     final locationService = ref.read(locationServiceProvider);
     final api = ref.read(apiServiceProvider);
-    userLocation = await locationService.resolveLocationForUserSettings(
+    userLocation = await locationService.resolveLocationForRequest(
       userSettings,
       api: api,
+      prompts: prompts,
     );
   } catch (error, stackTrace) {
     DebugLogger.error(

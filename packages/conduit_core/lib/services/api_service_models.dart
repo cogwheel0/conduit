@@ -397,6 +397,64 @@ mixin _ModelsApi on _ApiServiceBase {
     }
   }
 
+  /// A model's profile image for a host that holds no credential of its
+  /// own (the desktop's window): what [getWorkspaceModelProfileImage]
+  /// serves, else, when the model's [imageUrl] is an address on this server
+  /// (which the endpoint answers with a redirect), the picture there,
+  /// fetched with the account's credential. Null when neither has one, and
+  /// never a fetch from another site.
+  Future<List<int>?> getWorkspaceModelAvatar(
+    String id, {
+    String? imageUrl,
+  }) async {
+    final kept = await getWorkspaceModelProfileImage(id);
+    if (kept != null) {
+      return kept.length > maxWorkspaceModelAvatarBytes ? null : kept;
+    }
+    final url = imageUrl?.trim() ?? '';
+    if (workspaceModelAvatarSource(url, serverBaseUrl: serverConfig.url) !=
+            WorkspaceModelAvatarSource.server ||
+        !url.toLowerCase().startsWith('http')) {
+      return null;
+    }
+    // Called off as soon as the picture passes the limit: leaving the read
+    // alone does not stop the download underneath.
+    final download = CancelToken();
+    try {
+      final response = await _dio.get<ResponseBody>(
+        url,
+        cancelToken: download,
+        options: Options(
+          responseType: ResponseType.stream,
+          followRedirects: false,
+          validateStatus: (status) => status != null && status < 300,
+          // A redirect here is the server's answer (no picture of its own),
+          // not a proxy turning the request away.
+          extra: const {_redirectIsAnswerKey: true},
+        ),
+      );
+      final body = response.data;
+      if (body == null) return null;
+      final data = <int>[];
+      await for (final chunk in body.stream) {
+        data.addAll(chunk);
+        if (data.length > maxWorkspaceModelAvatarBytes) {
+          download.cancel('avatar too large');
+          return null;
+        }
+      }
+      return data.isEmpty ? null : data;
+    } catch (_) {
+      // A refusal, or a download that broke off midway (the body's own
+      // socket or HTTP error, which Dio passes on as it is): no picture.
+      if (!download.isCancelled) download.cancel('avatar failed');
+      return null;
+    }
+  }
+
+  /// The largest profile image [getWorkspaceModelAvatar] hands over.
+  static const int maxWorkspaceModelAvatarBytes = 10 * 1024 * 1024;
+
   Future<WorkspaceModelDetail?> toggleWorkspaceModel(String id) async {
     final response = await _dio.post(
       '/api/v1/models/model/toggle',

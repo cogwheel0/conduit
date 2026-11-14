@@ -85,3 +85,31 @@ SignInFailure classifySignInFailure(String error) {
   }
   return SignInFailure.failed;
 }
+
+/// What is wrong with a session token typed or pasted to sign in.
+enum JwtTokenProblem {
+  /// Nothing was entered.
+  missing,
+
+  /// An API key (`sk-`, `api-`, `key-`), which cannot sign in.
+  apiKey,
+
+  /// Too short to be a session token.
+  tooShort,
+}
+
+/// The problem with [value] as a session token to sign in with, or null when
+/// it may be one. API keys do not work with the socket's authentication,
+/// whatever their case.
+JwtTokenProblem? jwtSignInTokenProblem(String? value) {
+  if (value == null || value.isEmpty) return JwtTokenProblem.missing;
+  final trimmed = value.trim();
+  final lower = trimmed.toLowerCase();
+  if (lower.startsWith('sk-') ||
+      lower.startsWith('api-') ||
+      lower.startsWith('key-')) {
+    return JwtTokenProblem.apiKey;
+  }
+  if (trimmed.length < 10) return JwtTokenProblem.tooShort;
+  return null;
+}

@@ -151,6 +151,11 @@ final class PreferenceKeys {
   /// When every target was last checked against its server, in epoch ms.
   static const String pushLastFullReconcile = 'push_last_full_reconcile_v1';
 
+  /// Channel messages alert only when they mention the user or arrive in a
+  /// direct message. Local only; the desktop offers it.
+  static const String notificationChannelMentionsOnly =
+      'notification_channel_mentions_only';
+
   // Hermes Agent (direct second backend) — non-secret config. The API key and
   // long-term memory session key are secrets and live in SecureCredentialStorage.
   /// Global master switch; applies to whichever saved connection is active.

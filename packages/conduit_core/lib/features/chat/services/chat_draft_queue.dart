@@ -354,6 +354,21 @@ final chatDraftQueueSendProvider = Provider<ChatDraftQueueSend>(
   (_) => _durableQueueSend,
 );
 
+/// What a queue's batch waits for before it is admitted, once the stop or the
+/// stopped answers the chat owed are settled; null when it waits for nothing.
+typedef ChatDraftQueueAdmissionWait = Future<void>? Function();
+
+/// What a batch waits for before it is admitted: it runs after the batch's
+/// answer has ended and before the batch is admitted. Nothing everywhere
+/// mobile runs, so the batch goes the moment its answer ends. The composer is
+/// free meanwhile, as while a Stop waits on the server: a message sent then
+/// goes first, and the batch follows that answer. A wait that fails admits
+/// nothing, and the drafts stay.
+final chatDraftQueueAdmissionWaitProvider =
+    Provider<ChatDraftQueueAdmissionWait>((_) => _noAdmissionWait);
+
+Future<void>? _noAdmissionWait() => null;
+
 Future<void> _durableQueueSend(
   dynamic ref,
   String text,
@@ -786,21 +801,56 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
     // response being idle says nothing about its cancellation: a turn is not
     // admitted over one the server has not accepted, and a refused one is asked
     // again here.
-    final cancelling = _owedCancellation(queueId);
-    if (cancelling != null) {
-      final refused = await _settleOwedWork(queueId, draftIds, cancelling);
-      if (refused != null) return refused;
+    //
+    // Nothing owed, nothing awaited: the batch is frozen in the same turn as
+    // the queue was found on screen.
+    Future<ChatDraftSendNowOutcome?>? settleOwedStops() {
+      final cancelling = _owedCancellation(queueId);
+      final owed = cancelling == null ? _owedStoppedAnswers(queueId) : null;
+      if (cancelling == null && owed == null) return null;
+      return () async {
+        if (cancelling != null) {
+          final refused = await _settleOwedWork(queueId, draftIds, cancelling);
+          if (refused != null) return refused;
+        }
+        final stopped = owed ?? _owedStoppedAnswers(queueId);
+        if (stopped != null) {
+          final refused = await _settleOwedWork(queueId, draftIds, stopped);
+          if (refused != null) return refused;
+        }
+        return null;
+      }();
     }
-    final owed = _owedStoppedAnswers(queueId);
-    if (owed != null) {
-      final refused = await _settleOwedWork(queueId, draftIds, owed);
-      if (refused != null) return refused;
+
+    final refusedBefore = await settleOwedStops();
+    if (refusedBefore != null) return refusedBefore;
+    // A wait that fails, or a host that throws instead of waiting, admits
+    // nothing: the drafts stay, as when a cancellation is refused.
+    Future<bool>? settled;
+    try {
+      settled = ref
+          .read(chatDraftQueueAdmissionWaitProvider)()
+          ?.then((_) => true, onError: (Object _) => false);
+    } catch (_) {
+      settled = Future<bool>.value(false);
     }
-    // Waiting on the server leaves the composer free, so another answer may have
-    // started meanwhile. A turn is not sent over it: the drafts stay whole, and
-    // the queue drains when that answer is done, as it does after any other.
+    if (settled != null) {
+      final refused = await _settleOwedWork(queueId, draftIds, settled);
+      if (refused != null) return refused;
+      // The composer was free while the host waited: a Stop pressed meanwhile
+      // is settled before the batch goes, as one pressed before.
+      if (!ref.mounted) return ChatDraftSendNowOutcome.changed;
+      final refusedAfter = await settleOwedStops();
+      if (refusedAfter != null) return refusedAfter;
+    }
+    // Waiting on the server (or the host) leaves the composer free, so another
+    // answer may have started meanwhile. A turn is not sent over it: the drafts
+    // stay whole, and the queue drains when that answer is done, as it does
+    // after any other.
     if (!ref.mounted) return ChatDraftSendNowOutcome.changed;
-    if (ref.read(chatMainAnswerActiveProvider)) {
+    // Nor is it sent into a chat opened meanwhile: the batch is its own
+    // chat's, and waits for it.
+    if (_active?.id != queueId || ref.read(chatMainAnswerActiveProvider)) {
       _replace(
         queueId,
         (queue) => queue.phase == ChatDraftQueuePhase.admitting

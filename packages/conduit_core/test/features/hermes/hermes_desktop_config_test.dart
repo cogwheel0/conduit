@@ -148,6 +148,29 @@ void main() {
         .contains('invalid');
   });
 
+  test('access header problems name the issue and the header', () {
+    check(HermesConfig.accessHeadersProblem({'CF-Access-Client-Id': 'a'}))
+        .isNull();
+    check(HermesConfig.accessHeadersProblem({'Cookie': 'x'}))
+        .equals((issue: HermesAccessHeaderIssue.reserved, name: 'Cookie'));
+    check(HermesConfig.accessHeadersProblem({'X-A': '1', 'x-a': '2'}))
+        .equals((issue: HermesAccessHeaderIssue.duplicate, name: 'x-a'));
+    check(HermesConfig.accessHeadersProblem({'X A': '1'}))
+        .equals((issue: HermesAccessHeaderIssue.invalidName, name: 'X A'));
+    check(HermesConfig.accessHeadersProblem({'X-A': 'v' * 1025}))
+        .equals((issue: HermesAccessHeaderIssue.tooLong, name: 'X-A'));
+    check(HermesConfig.accessHeadersProblem({'X-A': 'café'}))
+        .equals((issue: HermesAccessHeaderIssue.invalidValue, name: 'X-A'));
+    check(
+      HermesConfig.accessHeadersProblem({
+        for (var index = 0; index < 11; index++) 'X-Access-$index': 'value',
+      }),
+    ).equals((issue: HermesAccessHeaderIssue.tooMany, name: null));
+    // The phone's wording is unchanged.
+    check(HermesConfig.validateAccessHeaders({'Cookie': 'x'}))
+        .equals('Cookie is reserved.');
+  });
+
   test('Desktop credential document round-trips all origin-bound secrets', () {
     final expiry = DateTime.utc(2030, 1, 2, 3, 4, 5);
     final credentials = HermesDesktopCredentials(

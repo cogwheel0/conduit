@@ -1,3 +1,5 @@
+import 'package:checks/checks.dart';
+import 'package:conduit_core/persistence/account_scoped_preferences.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
@@ -27,43 +29,100 @@ void main() {
     return container;
   }
 
-  test("without host defaults, Send with Enter keeps core's default", () {
-    expect(launch().read(appSettingsProvider).sendOnEnter, isFalse);
-  });
+  // Each setting a host can default: what turns it on, how it reads, how
+  // the user sets it, and where it is stored.
+  final rows = <({
+    String name,
+    AppSettingsHostDefaults on,
+    bool Function(AppSettings) read,
+    Future<void> Function(AppSettingsNotifier, bool) set,
+    String key,
+    String? account,
+  })>[
+    (
+      name: 'Send with Enter',
+      on: const AppSettingsHostDefaults(sendOnEnter: true),
+      read: (settings) => settings.sendOnEnter,
+      set: (notifier, value) => notifier.setSendOnEnter(value),
+      key: PreferenceKeys.sendOnEnterKey,
+      account: null,
+    ),
+    (
+      name: 'notifications',
+      on: const AppSettingsHostDefaults(notificationsEnabled: true),
+      read: (settings) => settings.notificationsEnabled,
+      set: (notifier, value) => notifier.setNotificationsEnabled(value),
+      key: PreferenceKeys.notificationsEnabled,
+      account: null,
+    ),
+    // Stored for the account in use as well as for the device.
+    (
+      name: 'notifications, with an account signed in',
+      on: const AppSettingsHostDefaults(notificationsEnabled: true),
+      read: (settings) => settings.notificationsEnabled,
+      set: (notifier, value) => notifier.setNotificationsEnabled(value),
+      key: PreferenceKeys.notificationsEnabled,
+      account: 'acct-1',
+    ),
+  ];
 
-  test('a host default turns Send with Enter on while it was never set', () {
-    final container = launch(
-      hostDefaults: const AppSettingsHostDefaults(sendOnEnter: true),
-    );
-    expect(container.read(appSettingsProvider).sendOnEnter, isTrue);
-  });
+  for (final row in rows) {
+    test('${row.name}: the host default stands until the user sets it, '
+        'and again after a reset', () async {
+      final account = row.account;
+      if (account != null) {
+        await PreferencesStore.put(PreferenceKeys.activeServerId, account);
+      }
+      bool stored() =>
+          PreferencesStore.containsKey(row.key) ||
+          (account != null &&
+              PreferencesStore.containsKey(
+                accountScopedPreferenceKey(row.key, account),
+              ));
+      check(row.read(launch().read(appSettingsProvider))).isFalse();
+      final container = launch(hostDefaults: row.on);
+      check(row.read(container.read(appSettingsProvider))).isTrue();
 
-  test('a stored choice wins over the host default', () async {
-    final container = launch(
-      hostDefaults: const AppSettingsHostDefaults(sendOnEnter: true),
-    );
-    await container.read(appSettingsProvider.notifier).setSendOnEnter(false);
-    expect(container.read(appSettingsProvider).sendOnEnter, isFalse);
+      // A choice is stored and wins, after a relaunch too.
+      await row.set(container.read(appSettingsProvider.notifier), false);
+      final relaunched = launch(hostDefaults: row.on);
+      check(row.read(relaunched.read(appSettingsProvider))).isFalse();
+      check(stored()).isTrue();
 
-    // Read back from storage, as after a relaunch.
-    final relaunched = launch(
-      hostDefaults: const AppSettingsHostDefaults(sendOnEnter: true),
-    );
-    expect(relaunched.read(appSettingsProvider).sendOnEnter, isFalse);
-    expect(PreferencesStore.containsKey(PreferenceKeys.sendOnEnterKey), isTrue);
+      // A reset goes back to the host's default, and leaves it unset.
+      await relaunched.read(appSettingsProvider.notifier).resetToDefaults();
+      check(row.read(relaunched.read(appSettingsProvider))).isTrue();
+      check(stored()).isFalse();
+      // Saving another setting afterwards keeps it unset.
+      await relaunched.read(appSettingsProvider.notifier).setTtsSpeed(1.5);
+      check(stored()).isFalse();
+      check(
+        row.read(launch(hostDefaults: row.on).read(appSettingsProvider)),
+      ).isTrue();
+    });
+  }
 
-    // A reset goes back to the host's default, and leaves it unset.
-    await relaunched.read(appSettingsProvider.notifier).resetToDefaults();
-    expect(relaunched.read(appSettingsProvider).sendOnEnter, isTrue);
-    expect(
-      PreferencesStore.containsKey(PreferenceKeys.sendOnEnterKey),
-      isFalse,
-    );
-    // Saving another setting afterwards keeps it unset.
-    await relaunched.read(appSettingsProvider.notifier).setTtsSpeed(1.5);
-    expect(
-      PreferencesStore.containsKey(PreferenceKeys.sendOnEnterKey),
-      isFalse,
-    );
+  test('mentions only is off until set, and is stored', () async {
+    final container = launch();
+    check(
+      container.read(appSettingsProvider).notificationChannelMentionsOnly,
+    ).isFalse();
+    await container
+        .read(appSettingsProvider.notifier)
+        .setNotificationChannelMentionsOnly(true);
+    check(
+      launch().read(appSettingsProvider).notificationChannelMentionsOnly,
+    ).isTrue();
+
+    // A bulk save of an older snapshot (another setting's) leaves it.
+    await SettingsService.saveSettings(const AppSettings());
+    check(
+      launch().read(appSettingsProvider).notificationChannelMentionsOnly,
+    ).isTrue();
+    // A reset clears it.
+    await container.read(appSettingsProvider.notifier).resetToDefaults();
+    check(
+      launch().read(appSettingsProvider).notificationChannelMentionsOnly,
+    ).isFalse();
   });
 }

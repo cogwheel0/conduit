@@ -70,15 +70,8 @@ class _HermesRoomCreateSheetState extends ConsumerState<HermesRoomCreateSheet> {
 
   /// The picked bots, each resolved against the roster now listed; null
   /// when one of them is no longer listed.
-  List<HermesRoomMember>? _members(List<HermesBot> bots) {
-    final members = <HermesRoomMember>[];
-    for (final name in _picked) {
-      final bot = hermesRoomMemberBot(bots, name);
-      if (bot == null) return null;
-      members.add(HermesRoomMember.forBot(bot));
-    }
-    return members;
-  }
+  List<HermesRoomMember>? _members(List<HermesBot> bots) =>
+      hermesRoomMembersFor(bots, _picked);
 
   Future<void> _create(List<HermesBot> bots) async {
     final service = ref.read(hermesApiServiceProvider);

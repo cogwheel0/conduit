@@ -304,3 +304,27 @@ final class TerminalPreviewNavigator {
       uri.host.toLowerCase() == _base.host.toLowerCase() &&
       uri.port == _base.port;
 }
+
+/// Open WebUI 0.13 and Open Terminal pages report a link's destination to
+/// the page that frames them rather than following it. Shown top-level, as
+/// the apps show a preview, they post to themselves, so a preview's web view
+/// runs this to follow them: the host's navigation rules then map an address
+/// on the terminal's machine into the preview and send any other outside.
+const terminalPreviewNavigationScript = r'''
+(() => {
+  'use strict';
+  addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    const data = event.data;
+    if (!data || typeof data !== 'object') return;
+    if (typeof data.url !== 'string') return;
+    if (data.type !== 'terminal-browser-navigate' &&
+        data.type !== 'terminal-browser-popup') return;
+    let url;
+    try { url = new URL(data.url, location.href); } catch (_) { return; }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+    if (data.replace === true) location.replace(url.href);
+    else location.assign(url.href);
+  });
+})();
+''';

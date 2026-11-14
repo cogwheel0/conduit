@@ -59,6 +59,46 @@ final class HermesPendingDecision {
       kind == HermesDecisionKind.sudo || kind == HermesDecisionKind.secret;
 }
 
+/// Whether [a] and [b] ask the same question of the same answer: the same
+/// message, kind, prompt, choices, MCP server and form questions. The ids
+/// Hermes keys the request by and its expiry are left out: a resumed session
+/// replays its open requests under its new runtime (and may renew them), and
+/// such a replay is the question already shown, not a new one. A question's
+/// lock is left out too, as a lock does not make it another question.
+bool hermesDecisionsAskTheSame(
+  HermesPendingDecision a,
+  HermesPendingDecision b,
+) {
+  bool sameList(List<String> x, List<String> y) {
+    if (x.length != y.length) return false;
+    for (var i = 0; i < x.length; i++) {
+      if (x[i] != y[i]) return false;
+    }
+    return true;
+  }
+
+  if (a.messageId != b.messageId ||
+      a.kind != b.kind ||
+      (a.prompt?.trim() ?? '') != (b.prompt?.trim() ?? '') ||
+      !sameList(a.choices, b.choices) ||
+      a.multiSelect != b.multiSelect ||
+      a.mcpServer != b.mcpServer ||
+      a.mcpAction != b.mcpAction ||
+      a.questions.length != b.questions.length) {
+    return false;
+  }
+  for (var i = 0; i < a.questions.length; i++) {
+    final (x, y) = (a.questions[i], b.questions[i]);
+    if (x.id != y.id ||
+        x.text != y.text ||
+        x.multiSelect != y.multiSelect ||
+        !sameList(x.choices, y.choices)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 String? _nonEmptyDecisionString(Object? value) {
   final text = value?.toString();
   return text == null || text.isEmpty ? null : text;
