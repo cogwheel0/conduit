@@ -593,6 +593,38 @@ void main() {
       check(rig.statuses).deepEquals([AuthStatus.authenticated]);
     });
 
+    test('a sign-in begun while a renewal reads the saved sign-in is not '
+        'ended by it', () async {
+      final token = _jwt(const Duration(hours: 1), tag: 'live');
+      final rig = await _Rig.start(
+        storedToken: token,
+        saved: _savedBrowserSignIn(token),
+        renew: () async => (token: _renewed, session: _session),
+      );
+      final readHeld = Completer<void>();
+      var reads = 0;
+      when(() => rig.storage.getSavedCredentialsStrict()).thenAnswer((_) async {
+        if (reads++ == 0) await readHeld.future;
+        return rig.saved;
+      });
+
+      rig.service.browserOpen = Completer<void>();
+
+      rig.auth.onAuthIssue(AuthFailureKind.sessionRejected);
+      await pumpEventQueue();
+      // The user signs in while the renewal reads, and is in the browser
+      // when the read comes back.
+      final signIn = rig.auth.loginWithBrowser(config: _config);
+      await pumpEventQueue();
+      readHeld.complete();
+      await pumpEventQueue();
+      rig.service.browserOpen!.complete();
+
+      check(await signIn).isTrue();
+      check(rig.service.renewals).equals(0);
+      check(rig.state.token).equals(_issued);
+    });
+
     test('a burst of refusals renews once', () async {
       final token = _jwt(const Duration(hours: 1), tag: 'live');
       final release = Completer<void>();
@@ -1279,6 +1311,9 @@ final class _Service extends BrowserSignInService {
   final revoked = <BrowserSignInSession>[];
   BrowserSignInGrant? grant = _grant();
   void Function()? duringBrowser;
+
+  /// Keeps the browser open until completed.
+  Completer<void>? browserOpen;
   BrowserSignInAnswer Function() answer = () =>
       BrowserSignInSessionToken(_issued);
   BrowserSignInException? exchangeError;
@@ -1333,6 +1368,7 @@ final class _Service extends BrowserSignInService {
       loginHint: loginHint,
     ));
     duringBrowser?.call();
+    await browserOpen?.future;
     return grant;
   }
 
