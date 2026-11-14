@@ -711,6 +711,38 @@ void main() {
     );
   });
 
+  test('a server that cannot be reached is retried on its WebSocket, not '
+      'moved to polling', () async {
+    // A WebSocket-only server answers every polling handshake 400: moved to
+    // polling while it was down, the socket would never reach it again.
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
+    final socketFactory = _RecordingSocketFactory();
+    final service = SocketService(
+      lifecycle: lifecycle,
+      serverConfig: _serverConfig,
+      websocketOnly: true,
+      socketFactory: socketFactory.create,
+    );
+    addTearDown(service.dispose);
+
+    await service.connect();
+    socketFactory.sockets.single.emitReserved(
+      'connect_error',
+      const SocketException('Connection refused'),
+    );
+    await _flushMicrotasks(4);
+    expect(socketFactory.sockets, hasLength(1));
+
+    // A WebSocket that is refused still falls back (issue #172).
+    socketFactory.sockets.single.emitReserved(
+      'connect_error',
+      StateError('websocket failed'),
+    );
+    await _flushMicrotasks(4);
+    expect(socketFactory.sockets, hasLength(2));
+  });
+
   test('resuming from background forces a fresh socket connection', () async {
     final lifecycle = FakeAppLifecycle();
     addTearDown(lifecycle.dispose);

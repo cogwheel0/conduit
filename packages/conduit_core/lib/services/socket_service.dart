@@ -1438,8 +1438,14 @@ class SocketService {
     );
 
     // If WebSocket-only handshake fails, retry once with polling+websocket
-    // transports to avoid endless spinners (issue #172).
-    if (_triesWebsocketFirst && !_forcePollingFallback) {
+    // transports to avoid endless spinners (issue #172). Not when the server
+    // could not be reached at all (refused, no route, no such host): polling
+    // would fail the same way, and the fallback, cleared only by a successful
+    // connection, would keep a WebSocket-only server's later recovery out of
+    // reach (it answers every polling handshake 400).
+    if (_triesWebsocketFirst &&
+        !_forcePollingFallback &&
+        !_serverUnreachable(err)) {
       _forcePollingFallback = true;
       DebugLogger.warning(
         'WebSocket connect failed; retrying with polling fallback',
@@ -1454,6 +1460,12 @@ class SocketService {
     }
     _runPendingForcedConnectBestEffort(reason: 'connect-error');
   }
+
+  /// Whether a connect error says the server could not be reached at all:
+  /// a socket error from the platform (connection refused, no route, a failed
+  /// host lookup), not a WebSocket that was refused or broke.
+  static bool _serverUnreachable(Object? err) =>
+      '$err'.startsWith('SocketException');
 
   void _handleReconnectFailed(dynamic _) {
     _isConnecting = false;
