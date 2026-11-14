@@ -94,6 +94,30 @@ final class PrimaryAccountSwitcher {
     return next;
   }
 
+  /// Hands the Chats tab over after a sign-out left it with no account: to
+  /// LibreChat account [libreChatId], else Open WebUI account [openWebUiId],
+  /// else to choosing the backend again. It waits for the switches asked
+  /// for before it, and goes ahead only if [unclaimed] still holds then: a
+  /// switch that ran meanwhile keeps the tab. Returns whether it handed the
+  /// tab over.
+  Future<bool> handOverUnclaimedTab({
+    required bool Function() unclaimed,
+    String? libreChatId,
+    String? openWebUiId,
+  }) => _afterLastSwitch(() async {
+    if (!unclaimed()) return false;
+    if (libreChatId != null) {
+      await _useLibreChat(libreChatId, force: true);
+    } else if (openWebUiId != null) {
+      await _useOpenWebUi(openWebUiId, force: true);
+    } else {
+      await _ref
+          .read(preferredBackendProvider.notifier)
+          .set(PreferredBackend.unset);
+    }
+    return true;
+  });
+
   /// Makes LibreChat account [accountId] the primary account.
   Future<PrimarySwitchResult> useLibreChat(
     String accountId, {
@@ -338,16 +362,12 @@ Future<bool> signOutOfLibreChatAndHandOver(
   final openWebUi = remaining.isEmpty
       ? await container.read(openWebUiAccountsProvider.future)
       : const <OpenWebUiAccountEntry>[];
-  if (!tabStillUnclaimed()) return false;
-  final switcher = container.read(primaryAccountSwitcherProvider);
-  if (remaining.isNotEmpty) {
-    await switcher.useLibreChat(remaining.first.id, force: true);
-  } else if (openWebUi.isNotEmpty) {
-    await switcher.useOpenWebUi(openWebUi.first.id, force: true);
-  } else {
-    await container
-        .read(preferredBackendProvider.notifier)
-        .set(PreferredBackend.unset);
-  }
-  return true;
+  // Asked once more as its turn comes, after any switch already under way.
+  return container
+      .read(primaryAccountSwitcherProvider)
+      .handOverUnclaimedTab(
+        unclaimed: tabStillUnclaimed,
+        libreChatId: remaining.firstOrNull?.id,
+        openWebUiId: openWebUi.firstOrNull?.id,
+      );
 }
