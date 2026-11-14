@@ -108,5 +108,29 @@ void main() {
       'Hello there',
       'no tool',
     ]);
+
+    // Managed where it is kept, with no Open WebUI account to ask.
+    ChatSummary summary(ChatList list) =>
+        list.chats.singleWhere((c) => c.id == accepted.chatId);
+    expect(
+      summary(await chats.rename(accepted.chatId, 'Kept here')).title,
+      'Kept here',
+    );
+    expect(
+      summary(await chats.setPinned(accepted.chatId, value: true)).pinned,
+      isTrue,
+    );
+    final tree = await chats.tree(accepted.chatId);
+    expect(tree.nodes, hasLength(2));
+    final archived = await chats.bulk(
+      BulkChats(
+        action: BulkChatAction.archive,
+        chatIds: <String>[accepted.chatId],
+      ),
+    );
+    expect(archived.failed, isEmpty);
+    await chats.setArchived(accepted.chatId, value: false);
+    final deleted = await chats.delete(accepted.chatId);
+    expect(deleted.chats.map((c) => c.id), isNot(contains(accepted.chatId)));
   });
 }

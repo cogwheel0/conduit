@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:conduit_core/models/chat_message.dart' as core;
 import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    as mutations;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
     show currentUserProvider2;
 import 'package:conduit_core/models/conversation.dart';
@@ -591,6 +593,13 @@ final class ChatsService {
   // keeps showing the old title until something else happens to invalidate
   // it, which reads as the rename having failed.
 
+  //
+  // A direct chat kept on this computer (`direct-local:`) is not on the
+  // server: it changes in the core's direct-local database, as mobile's
+  // does, and needs no Open WebUI account.
+
+  static bool _isDirectLocal(String id) => id.startsWith('direct-local:');
+
   Future<ChatList> rename(String id, String title) async {
     final trimmed = title.trim();
     if (trimmed.isEmpty) {
@@ -599,22 +608,38 @@ final class ChatsService {
         debugMessage: 'a chat title must not be empty',
       );
     }
+    if (_isDirectLocal(id)) {
+      await mutations.renameDirectLocalConversation(_container, id, trimmed);
+      return _refresh();
+    }
     await _api.updateConversation(id, title: trimmed);
     await _afterEnvelopeChange(id);
     return _refresh();
   }
 
   Future<ChatList> setPinned(String id, {required bool value}) async {
-    await _api.pinConversation(id, value);
+    if (_isDirectLocal(id)) {
+      await mutations.pinConversation(_container, id, value);
+    } else {
+      await _api.pinConversation(id, value);
+    }
     return _refresh();
   }
 
   Future<ChatList> setArchived(String id, {required bool value}) async {
-    await _api.archiveConversation(id, value);
+    await _archive(id, value);
     return _refresh();
   }
 
+  Future<void> _archive(String id, bool value) => _isDirectLocal(id)
+      ? mutations.archiveConversation(_container, id, value)
+      : _api.archiveConversation(id, value);
+
   Future<ChatList> delete(String id) async {
+    if (_isDirectLocal(id)) {
+      await mutations.deleteDirectLocalConversation(_container, id);
+      return _refresh();
+    }
     await _api.deleteConversation(id);
     // The local row too. A pull reconciles additions and edits, but a row the
     // server no longer has is not something the next pull will mention -- so
@@ -636,9 +661,11 @@ final class ChatsService {
       try {
         switch (request.action) {
           case BulkChatAction.archive:
-            await _api.archiveConversation(id, true);
+            await _archive(id, true);
           case BulkChatAction.unarchive:
-            await _api.archiveConversation(id, false);
+            await _archive(id, false);
+          case BulkChatAction.delete when _isDirectLocal(id):
+            await mutations.deleteDirectLocalConversation(_container, id);
           case BulkChatAction.delete:
             await _api.deleteConversation(id);
             _conversations.removeConversation(id);
@@ -662,7 +689,9 @@ final class ChatsService {
   /// Every message on every branch, for the overview, from the
   /// local copy -- which keeps the whole tree, not just the path shown.
   Future<ChatTree> tree(String chatId) async {
-    final database = _container.read(appDatabaseProvider);
+    final database = _isDirectLocal(chatId)
+        ? _container.read(directLocalDatabaseProvider)
+        : _container.read(appDatabaseProvider);
     if (database == null) return ChatTree(chatId: chatId);
     final chat = await database.chatsDao.getChat(chatId);
     final rows = await database.messagesDao.getForChat(chatId);
