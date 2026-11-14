@@ -619,6 +619,19 @@ void main() {
       }
     }
 
+    test('a host\'s lookup of the defaults answers none once another '
+        'account signs in', () async {
+      final c = await draftIn(saved: ['m-a']);
+
+      final resolving = resolveFolderDefaultModels(c, 'f-1');
+      c.read(_epochProvider.notifier).rotate();
+      modelsGate.complete(_offered);
+      final resolved = await resolving;
+
+      check(resolved.usable).isEmpty();
+      check(resolved.missing).isFalse();
+    });
+
     test('an existing chat is never given a folder default', () async {
       final c = await draftIn(
         active: Conversation(

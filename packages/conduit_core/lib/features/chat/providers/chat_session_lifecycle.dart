@@ -316,22 +316,30 @@ Future<FolderDefaultModels> resolveFolderDefaultModels(
   dynamic ref,
   String folderId,
 ) async {
+  const none = FolderDefaultModels(usable: <Model>[]);
+  // The account asked for: one signed in meanwhile has other folders and
+  // models, so the answer is none rather than a mix of the two.
+  final owner = captureOpenWebUiConversationSelectionOwner(ref);
+  if (owner == null) return none;
+  bool sameAccount() =>
+      openWebUiConversationSelectionOwnerIsCurrent(ref, owner);
   final folders = ref.read(foldersProvider.notifier) as Folders;
   final saved = await _folderSavedModelIds(
     ref,
     folderId,
     folders: folders,
     projectOwner: folders.captureProjectOwner(),
-    keepGoing: () => true,
+    keepGoing: sameAccount,
   );
-  if (saved.isEmpty) return const FolderDefaultModels(usable: <Model>[]);
+  if (saved.isEmpty || !sameAccount()) return none;
   var models = const <Model>[];
   try {
     models = await ref.read(modelsProvider.future) as List<Model>;
   } catch (_) {
     // No model list: nothing can be matched, and nothing is claimed missing.
-    return const FolderDefaultModels(usable: <Model>[]);
+    return none;
   }
+  if (!sameAccount()) return none;
   final usable = folderUsableDefaultModels(saved, models);
   return FolderDefaultModels(
     usable: List<Model>.unmodifiable(usable),
