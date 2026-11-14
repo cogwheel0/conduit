@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Review rules for this repository. Anything not set here keeps the value from
+# the CodeRabbit dashboard.
+inheritance: true
+reviews:
+  path_filters:
+    # Reference sources and vendored code: not ours to review.
+    - "!openwebui-src/**"
+    - "!hermes-src/**"
+    - "!librechat-src/**"
+    - "!third_party/**"
+    # Generated: Riverpod, Freezed, JSON, Drift, Pigeon, and localization
+    # output.
+    - "!**/*.g.dart"
+    - "!**/*.freezed.dart"
+    - "!**/*.g.swift"
+    - "!lib/l10n/app_localizations*.dart"
+    - "!assets/computer/**"
+    - "!**/pubspec.lock"
+    - "!**/Podfile.lock"
+    - "!**/Cargo.lock"
+  path_instructions:
+    - path: "**/*_test.dart"
+      instructions: >-
+        Hold changed tests to the rules in docs/internals/testing.md. Request
+        tests only as those rules allow. Ask for fewer or smaller tests where
+        a new test breaks them; never ask for one assertion per constant,
+        label, or switch case.
+    - path: "lib/**/*.dart"
+      instructions: >-
+        Platform widgets are used only through lib/shared/widgets/platform_ui.
+        Flag a new import of material_ui or cupertino_ui, or a new use of a
+        raw platform control, outside that directory, and any added entry or
+        raised count in tool/platform_ui_allowlist.yaml: the allow-list only
+        shrinks. Flag business logic (networking, parsing, sync, persistence)
+        added under lib/ that has no Flutter dependency and belongs in
+        packages/conduit_core.
+    - path: "packages/**/*.dart"
+      instructions: >-
+        These packages are pure Dart. Flag any import of Flutter. In
+        conduit_markdown and conduit_theme, also flag dart:io and anything
+        else that cannot compile with `dart compile js`.
+    - path: "lib/l10n/*.arb"
+      instructions: >-
+        Every key in app_en.arb needs an @key entry with a description, and
+        every other locale carries the same keys and placeholder names. Flag a
+        new English key that is missing from another locale or left
+        untranslated there.
+    - path: "{lib,packages}/**/*.dart"
+      instructions: >-
+        Diagnostics go through DebugLogger, never print. Credentials, tokens,
+        and API keys are stored only through SecureCredentialStorage. Treat
+        text from a model or a server as untrusted wherever it reaches a
+        WebView, a URL, or a file path.
+knowledge_base:
+  code_guidelines:
+    filePatterns:
+      - files: "docs/internals/testing.md"
+        applyTo: "**/*_test.dart"

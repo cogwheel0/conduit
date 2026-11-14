@@ -327,8 +327,11 @@ Conduit is actively developed and feedback is welcome.
 - Features, deployment notes, questions →
   [GitHub Discussions](https://github.com/cogwheel0/conduit/discussions)
 
-Unsolicited pull requests are not the primary contribution path right now. Open
-an issue or discussion first so changes line up with the roadmap.
+Pull requests that fix a bug are welcome. A feature needs an issue or
+discussion where it was agreed first, so changes line up with the roadmap.
+[CONTRIBUTING.md](CONTRIBUTING.md) has the rules for a pull request, and
+[the security policy](.github/SECURITY.md) says how to report a vulnerability
+privately.
 
 ## Enterprise and white-label
 

@@ -106,20 +106,39 @@ LibreChat applies to non-browser clients, and recording stream fixtures.
 ## Verify
 
 ```bash
-flutter pub get
-dart run build_runner build
+dart tool/setup_worktree.dart        # once per clone or worktree
+dart run tool/check_changed.dart     # before you push
+```
+
+`tool/setup_worktree.dart` fetches the two submodules the build needs if they
+are missing, runs `flutter pub get`, and generates code for the app and the
+packages. It is the same as running those steps by hand.
+
+`tool/check_changed.dart` is the local gate before handing work off. It
+compares the branch with `origin/main` (or the ref you pass) and runs CI's fast
+checks for what changed: the platform UI seam, the package boundaries, the ARB
+checks, the analyzer for each changed workspace package and everything that
+depends on it, the test files beside the changed files, and the relay's format
+and lint checks. `--list` prints the steps without running them. It ends by
+naming the CI jobs it left out.
+
+CI (`.github/workflows/ci.yml`) runs everything on pushes to `main` and on pull
+requests. To run the whole app suite yourself, for a dependency bump or a
+change to shared test setup:
+
+```bash
 flutter analyze
 dart run tool/run_test_shards.dart
 ```
 
-`flutter analyze` and the test suite are the local gates before handing work
-off. `tool/run_test_shards.dart` runs every test file through a few combined
+`tool/run_test_shards.dart` runs every test file through a few combined
 entrypoints, which is much faster than plain `flutter test`; use
-`flutter test <file>` for a single file. CI (`.github/workflows/ci.yml`) runs
-the analyzer and this test runner on pushes to `main` and on pull requests.
+`flutter test <file>` for a single file.
 
 Tests use `flutter_test` with `package:checks` for assertions and `mocktail` for
 mocks. Lints come from `flutter_lints` plus `riverpod_lint`.
+[internals/testing.md](internals/testing.md) says what to test and how tests
+wait for work.
 
 ## Release builds
 
@@ -217,15 +236,16 @@ lib/
 
 ## Conventions
 
-- Diagnostics go through `DebugLogger` (`lib/core/utils/debug_logger.dart`) with
+- Diagnostics go through `DebugLogger`
+  (`packages/conduit_core/lib/utils/debug_logger.dart`) with
   slash-scoped `scope:` values like `auth/proxy`, `streaming/helper`, or
   `models/default`. No raw `print` calls.
 - Credentials and auth tokens belong in `flutter_secure_storage` via
   `SecureCredentialStorage`. Auth-bearing headers stay scoped to Dio clients
   configured for the selected `ServerConfig.url`.
-- `lib/core/services/api_service.dart` is roughly 6000 lines and mixes many
-  endpoint families. Verify endpoint names against `openwebui-src/` before
-  adding or changing API calls.
+- The Open WebUI client is `packages/conduit_core/lib/services/api_service.dart`
+  and the `api_service_*.dart` files beside it, one per endpoint family. Verify
+  endpoint names against `openwebui-src/` before adding or changing API calls.
 - Chat markdown is sanitized in `lib/features/chat/views/chat_page.dart`, but
   Chart.js blocks still render through a WebView in
   `lib/shared/widgets/markdown/markdown_config.dart`. Treat model output as

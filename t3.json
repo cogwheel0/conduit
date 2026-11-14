@@ -1,0 +1,12 @@
+{
+  "$schema": "https://t3.codes/schema/t3.json",
+  "iconPath": "assets/icons/app_icon_square.png",
+  "scripts": [
+    {
+      "name": "Setup Worktree",
+      "command": "dart tool/setup_worktree.dart",
+      "icon": "configure",
+      "runOnWorktreeCreate": true
+    }
+  ]
+}
