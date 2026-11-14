@@ -194,13 +194,23 @@ final class SignOutCoordinator {
       libreChatRegistry.finishAppDataClear();
     }
 
+    // And their browser sign-ins' refresh tokens, active account's included,
+    // revoked at the identity provider once the wipe has committed. No
+    // renewal runs from this read until the wipe is done: one would rotate a
+    // refresh token the read missed.
+    final wipeDone = Completer<void>();
+    final browserSessions = await _ref
+        .read(authStateManagerProvider.notifier)
+        .browserSignInSessionsForRevocation(holdRenewalsUntil: wipeDone.future);
+
     try {
       outcome = await _ref
           .read(authStateManagerProvider.notifier)
           .logoutAndClearAppData(
             keepServerDetails: keepServerDetails,
             beforeClear: prepareForClear,
-          );
+          )
+          .whenComplete(wipeDone.complete);
       switch (outcome) {
         case FullAppDataClearOutcome.cleared ||
             FullAppDataClearOutcome.localDataClearedSessionCleanupIncomplete:
@@ -208,6 +218,18 @@ final class SignOutCoordinator {
           // Signed out for good: every account's notifications go now, so a
           // purge below that fails can't leave their previews on screen.
           notifyHostSignedOut(_ref, null);
+          // The wipe took the sessions' tokens with it: tell the servers and
+          // identity providers now, before a purge below can fail.
+          unawaited(
+            _ref
+                .read(authStateManagerProvider.notifier)
+                .revokeSessions(inactiveSessions),
+          );
+          unawaited(
+            _ref
+                .read(authStateManagerProvider.notifier)
+                .revokeBrowserSignInSessions(browserSessions),
+          );
           // The auth transaction has committed and did not yield to a newer
           // session. Only now is it safe to destructively remove the
           // app-global direct-local database; beforeClear is a reversible
@@ -216,11 +238,6 @@ final class SignOutCoordinator {
           directLocalPurgeCompleted = true;
           await _purgeAccountDatabases();
           await forgetLibreChatAccounts();
-          unawaited(
-            _ref
-                .read(authStateManagerProvider.notifier)
-                .revokeSessions(inactiveSessions),
-          );
           await disarmIncompleteAppDataClearMarker();
           directProfiles.finishAppDataClear();
           directMcpServers.finishAppDataClear();

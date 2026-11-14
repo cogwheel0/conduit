@@ -1609,3 +1609,65 @@ abstract class PushFlutterApi {
   void onUnregistered(String sid);
   void onUnifiedPushEndpoint(String sid, String endpoint);
 }
+
+/// How a system-browser sign-in ended.
+enum PlatformBrowserAuthOutcome { success, cancelled, unavailable, failed }
+
+/// A sign-in page to open in the system browser, and the redirect that ends
+/// it. The redirect is matched exactly: scheme, host (empty when the redirect
+/// has none, as `com.googleusercontent.apps.<id>:/oauth2redirect` does) and
+/// path.
+class PlatformBrowserAuthRequest {
+  PlatformBrowserAuthRequest({
+    required this.authorizationUrl,
+    required this.callbackScheme,
+    required this.callbackHost,
+    required this.callbackPath,
+    required this.preferEphemeralSession,
+  });
+
+  String authorizationUrl;
+  String callbackScheme;
+  String callbackHost;
+  String callbackPath;
+
+  /// Asks the browser not to share cookies with its other sessions.
+  bool preferEphemeralSession;
+}
+
+class PlatformBrowserAuthResult {
+  PlatformBrowserAuthResult({
+    required this.outcome,
+    this.callbackUrl,
+    this.errorCode,
+    this.channel,
+  });
+
+  PlatformBrowserAuthOutcome outcome;
+
+  /// The redirect the browser ended on, for [PlatformBrowserAuthOutcome.success].
+  String? callbackUrl;
+
+  /// Why the sign-in did not finish: `presentation_failed`, `no_browser`,
+  /// `start_failed`, `unexpected_callback`, `auth_tab_required`,
+  /// `superseded` or `invalid_request`.
+  String? errorCode;
+
+  /// The browser surface used: `web_authentication_session` (iOS),
+  /// `auth_tab`, `custom_tabs` or `external_browser` (Android).
+  String? channel;
+}
+
+/// iOS and Android. Runs a sign-in page in the system browser, where
+/// passkeys and security keys work, and returns the redirect it ends on.
+/// Never throws: every ending is a [PlatformBrowserAuthResult].
+@HostApi()
+abstract class BrowserAuthHostApi {
+  /// Completes when the browser reaches the redirect, is dismissed, or
+  /// fails. Starting another sign-in ends this one as `superseded`.
+  @async
+  PlatformBrowserAuthResult authenticate(PlatformBrowserAuthRequest request);
+
+  /// Ends the sign-in in progress as cancelled, if any.
+  void cancel();
+}

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart' show mapEquals, visibleForTesting;
 import 'package:material_ui/material_ui.dart';
@@ -5,8 +7,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/browser_sign_in_config.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/services/api_service.dart';
 
@@ -20,6 +24,9 @@ import '../../profile/widgets/account_actions.dart'
     show abandonAddedAccount, confirmLeavingActiveAccount;
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/auth/browser_sign_in/browser_sign_in_failure.dart';
+import 'package:conduit_core/auth/browser_sign_in/browser_sign_in_service.dart';
+import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/auth/openwebui_two_step.dart';
 import 'package:conduit_core/auth/sign_in_failure.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -32,13 +39,16 @@ import '../../../platform/webview_cookie_helper.dart' show isWebViewSupported;
 import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../widgets/auth_grouped_form.dart';
+import '../utils/browser_sign_in_messages.dart';
+import '../widgets/browser_sign_in_section.dart';
+import '../widgets/browser_sign_in_settings_sheet.dart';
 import '../widgets/openwebui_two_step_form.dart';
 
 /// Authentication mode options
 enum AuthMode {
   credentials, // Email/password
   token, // JWT token
-  sso, // OAuth/OIDC via WebView
+  sso, // OAuth/OIDC in the system browser or the in-app WebView
   ldap, // LDAP username/password
 }
 
@@ -141,8 +151,33 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   /// way, when it was saved for one.
   bool Function()? _additionInProgress;
 
+  /// Whether the user picked the sign-in method, which a browser sign-in
+  /// config loaded later must not override.
+  bool _authModeChosen = false;
+
+  /// The browser sign-in config chosen on this page, once one was saved or
+  /// removed here ([_browserConfigChosen]). A server being added keeps it
+  /// here until its first sign-in saves the server
+  /// ([_browserConfigPersisted]).
+  BrowserSignInConfig? _chosenBrowserConfig;
+  bool _browserConfigChosen = false;
+  bool _browserConfigPersisted = false;
+
+  /// Why the last browser sign-in failed, for the section's actions.
+  BrowserSignInFailure? _browserFailure;
+
+  /// Whether the system browser is open for a sign-in.
+  bool _browserOpen = false;
+
+  /// The actions of the browser sign-in waiting on the browser, to cancel
+  /// it with.
+  AuthActions? _browserActions;
+
   ConnectionAttemptState get _attemptState {
     final l10n = AppLocalizations.of(context)!;
+    if (_browserOpen) {
+      return ConnectionAttemptState.connecting(l10n.browserSignInWaiting);
+    }
     if (_isSigningIn) {
       return ConnectionAttemptState.connecting(l10n.signingIn);
     }
@@ -151,9 +186,53 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     return const ConnectionAttemptState.idle();
   }
 
-  /// Whether the server has OAuth/SSO providers configured.
+  /// Whether the server has OAuth/SSO providers configured: signed in to
+  /// in the in-app WebView, or through the system browser.
   bool get _hasSsoEnabled =>
+      _hasWebViewSso || _browserConfigured || _canSetUpBrowserSignIn;
+
+  /// Whether the server's SSO can run in the in-app WebView.
+  bool get _hasWebViewSso =>
       isWebViewSupported && (_backendConfig?.hasSsoEnabled ?? true);
+
+  /// Which of the server's providers can sign in through the system browser,
+  /// and whether the device and server can.
+  BrowserSignInAvailability get _browserAvailability =>
+      browserSignInAvailabilityFor(
+        port: ref.read(browserAuthPortProvider),
+        backendConfig: _backendConfig,
+      );
+
+  /// Whether browser sign-in can be set up for this server.
+  bool get _canSetUpBrowserSignIn {
+    final availability = _browserAvailability;
+    return availability.browserSupported &&
+        availability.serverSupported &&
+        availability.providers.isNotEmpty;
+  }
+
+  /// The account this page signs in: the server being added, or the active
+  /// account.
+  String? get _signInAccountId =>
+      (_serverConfig ?? ref.read(activeServerProvider).value)?.id;
+
+  /// Whether the account this page signs in is saved, so browser sign-in
+  /// settings can be saved on its server.
+  bool get _signInAccountSaved => _serverConfig == null || _serverConfigSaved;
+
+  /// The browser sign-in config of the account's server: the one chosen on
+  /// this page, else the saved one.
+  BrowserSignInConfig? get _browserConfig {
+    if (_browserConfigChosen) return _chosenBrowserConfig;
+    if (!ref.read(browserAuthPortProvider).isSupported) return null;
+    final accountId = _signInAccountId;
+    if (accountId == null) return null;
+    return ref.read(browserSignInConfigProvider(accountId)).value;
+  }
+
+  /// Whether the page's SSO continues in the system browser.
+  bool get _browserConfigured =>
+      ref.read(browserAuthPortProvider).isSupported && _browserConfig != null;
 
   /// Whether LDAP authentication is enabled on the server.
   bool get _hasLdapEnabled => _backendConfig?.enableLdap == true;
@@ -243,7 +322,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   /// Set the default auth mode based on what the server supports.
   void _setDefaultAuthMode() {
     // Priority: SSO > Credentials > LDAP > Token
-    if (_hasSsoEnabled && _oauthProviders.enabledProviders.length == 1) {
+    if (_browserConfigured) {
+      // Browser sign-in was set up for this server: that is how it signs in.
+      _authMode = AuthMode.sso;
+    } else if (_hasSsoEnabled && _oauthProviders.enabledProviders.length == 1) {
       // If only one SSO provider, that's probably the intended method
       _authMode = AuthMode.sso;
     } else if (_hasLoginFormEnabled) {
@@ -315,6 +397,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     _ldapUsernameFocus.dispose();
     _ldapPasswordFocus.dispose();
     _tokenFocus.dispose();
+    // Left while the browser is open: nothing waits for its answer now.
+    if (_browserOpen) unawaited(_browserActions?.cancelBrowserSignIn());
     _usernameController.dispose();
     _passwordController.dispose();
     _apiKeyController.dispose();
@@ -540,6 +624,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   String _formatLoginError(String error) {
     final l10n = AppLocalizations.of(context)!;
     return switch (classifySignInFailure(error)) {
+      SignInFailure.browserSignInSessionExpired =>
+        l10n.browserSignInSessionExpired,
       SignInFailure.twoStepRequired => l10n.signInTwoStepVerificationRequired,
       SignInFailure.twoStepSessionRejected => l10n.twoStepExpired,
       SignInFailure.accountPendingApproval => l10n.signInAccountPendingApproval,
@@ -578,6 +664,26 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         // the redirect and duplicate the shell navigator during auth recovery.
       }
     });
+
+    // Rebuilt when the browser sign-in config of the account's server loads
+    // or changes; a config that loads after the page opened makes browser
+    // sign-in the method, unless the user picked one already.
+    if (ref.watch(browserAuthPortProvider).isSupported) {
+      final accountId = _resolvedServerConfig?.id;
+      if (accountId != null) {
+        ref.watch(browserSignInConfigProvider(accountId));
+        ref.listen(browserSignInConfigProvider(accountId), (previous, next) {
+          if (!mounted ||
+              _authModeChosen ||
+              _browserConfigChosen ||
+              previous?.value != null ||
+              next.value == null) {
+            return;
+          }
+          setState(() => _authMode = AuthMode.sso);
+        });
+      }
+    }
 
     final l10n = AppLocalizations.of(context)!;
     final abandonable =
@@ -813,23 +919,101 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           ],
         );
       case AuthMode.sso:
-        return AuthGroupedSection(
-          key: const ValueKey<String>('sso_form'),
-          footer: _ssoSubtitle(l10n),
-          error: error,
-          children: const [],
-        );
+        return _buildCupertinoSsoSection(l10n, error: error);
       case AuthMode.credentials || AuthMode.ldap:
         return const SizedBox.shrink();
     }
   }
 
+  /// The SSO method as grouped rows: the ways in and out of browser sign-in
+  /// that [BrowserSignInSection] offers on other platforms.
+  Widget _buildCupertinoSsoSection(AppLocalizations l10n, {String? error}) {
+    final theme = context.conduitTheme;
+    final configured = _browserConfigured;
+    final idle = !_isSigningIn;
+    final address = Uri.tryParse(_resolvedServerConfig?.url ?? '');
+    AuthGroupedRow action(
+      String key,
+      String title,
+      VoidCallback onTap, {
+      bool chevron = false,
+    }) => AuthGroupedRow(
+      key: ValueKey<String>(key),
+      title: title,
+      titleColor: idle ? theme.buttonPrimary : theme.textTertiary,
+      showChevron: chevron,
+      onTap: idle ? onTap : null,
+    );
+    return AuthGroupedSection(
+      key: const ValueKey<String>('sso_form'),
+      footer: _browserOpen
+          ? l10n.browserSignInWaiting
+          : [
+              if (configured) l10n.browserSignInContinueSubtitle,
+              _ssoSubtitle(l10n),
+              if (configured && address?.scheme.toLowerCase() == 'http')
+                l10n.browserSignInHttpWarning,
+            ].join('\n'),
+      error: error,
+      children: [
+        if (configured &&
+            _browserFailure == BrowserSignInFailure.userNotFound) ...[
+          action(
+            'browser-sign-in-open-web',
+            l10n.browserSignInOpenWebSignIn,
+            _openWebSignIn,
+          ),
+          action('browser-sign-in-retry', l10n.retry, _retryBrowserSignIn),
+        ],
+        if (configured && _hasWebViewSso)
+          action(
+            'browser-sign-in-use-in-app',
+            l10n.browserSignInUseInApp,
+            _navigateToSso,
+          ),
+        if (configured)
+          action(
+            'browser-sign-in-settings',
+            l10n.browserSignInSettings,
+            _openBrowserSignInSettings,
+            chevron: true,
+          )
+        else if (_canSetUpBrowserSignIn)
+          action(
+            'browser-sign-in-set-up',
+            l10n.browserSignInSetUp,
+            _openBrowserSignInSettings,
+            chevron: true,
+          ),
+      ],
+    );
+  }
+
   void _submitFromKeyboard() {
     if (!_canSubmit) return;
     if (_authMode == AuthMode.sso) {
-      _navigateToSso();
+      _signInWithSso();
     } else {
       _signIn();
+    }
+  }
+
+  /// The SSO method signs in through the browser when it is set up for this
+  /// server.
+  bool get _ssoInBrowser => _authMode == AuthMode.sso && _browserConfigured;
+
+  /// The SSO method can only set up browser sign-in: it is not set up, and
+  /// the in-app page cannot run here.
+  bool get _ssoSetUpOnly =>
+      _authMode == AuthMode.sso && !_browserConfigured && !_hasWebViewSso;
+
+  void _signInWithSso() {
+    if (_ssoInBrowser) {
+      unawaited(_signInWithBrowser());
+    } else if (_ssoSetUpOnly) {
+      unawaited(_openBrowserSignInSettings());
+    } else {
+      unawaited(_navigateToSso());
     }
   }
 
@@ -846,13 +1030,26 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   /// Account's sign-in does, rather than repeat it.
   Widget _buildCupertinoSignInButton() {
     final l10n = AppLocalizations.of(context)!;
+    if (_browserOpen) {
+      return AuthPrimaryButton(
+        key: const ValueKey<String>('authentication-submit'),
+        label: l10n.cancel,
+        onPressed: _cancelBrowserSignIn,
+      );
+    }
     final sso = _authMode == AuthMode.sso;
     return AuthPrimaryButton(
       key: const ValueKey<String>('authentication-submit'),
-      label: sso ? l10n.signInContinueWithSso : l10n.continueButton,
+      label: _ssoInBrowser
+          ? l10n.browserSignInContinue
+          : _ssoSetUpOnly
+          ? l10n.browserSignInSetUp
+          : sso
+          ? l10n.signInContinueWithSso
+          : l10n.continueButton,
       busyLabel: l10n.signingIn,
       busy: _isSigningIn,
-      onPressed: !_canSubmit ? null : (sso ? _navigateToSso : _signIn),
+      onPressed: !_canSubmit ? null : (sso ? _signInWithSso : _signIn),
     );
   }
 
@@ -904,6 +1101,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           final mode = methods[index];
           if (mode == _authMode) return;
           setState(() {
+            _authModeChosen = true;
             _authMode = mode;
             _loginError = null;
             _obscurePassword = true;
@@ -944,7 +1142,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       AuthMode.credentials when _hasLoginFormEnabled => _buildCredentialsForm(),
       AuthMode.ldap when _hasLdapEnabled => _buildLdapForm(),
       AuthMode.token => _buildApiKeyForm(),
-      AuthMode.sso => _buildSsoMethodDescription(),
+      AuthMode.sso => _buildSsoSection(),
       _ => const SizedBox.shrink(),
     };
 
@@ -960,14 +1158,199 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     );
   }
 
-  Widget _buildSsoMethodDescription() => Text(
-    _ssoSubtitle(AppLocalizations.of(context)!),
-    key: const ValueKey<String>('sso_form'),
-    style: context.conduitTheme.bodyMedium?.copyWith(
-      color: context.conduitTheme.textSecondary,
-      height: 1.4,
+  Widget _buildSsoSection() {
+    final configured = _browserConfigured;
+    final address = Uri.tryParse(_resolvedServerConfig?.url ?? '');
+    return BrowserSignInSection(
+      description: _ssoSubtitle(AppLocalizations.of(context)!),
+      configured: configured,
+      canSetUp: _canSetUpBrowserSignIn,
+      busy: _isSigningIn,
+      insecureAddress: configured && address?.scheme.toLowerCase() == 'http',
+      failure: _browserFailure,
+      onUseInApp: configured && _hasWebViewSso ? _navigateToSso : null,
+      onOpenSettings: configured || _canSetUpBrowserSignIn
+          ? _openBrowserSignInSettings
+          : null,
+      onOpenWebSignIn: _openWebSignIn,
+      onRetry: _retryBrowserSignIn,
+    );
+  }
+
+  /// Opens the browser sign-in settings of the account's server.
+  Future<void> _openBrowserSignInSettings() async {
+    final current = _browserConfig;
+    final failure = _browserFailure;
+    await BrowserSignInSettingsSheet.show(
+      context,
+      providers: _browserAvailability.providers,
+      providerLabel: _oauthProviders.getProviderDisplayName,
+      initial: current,
+      revealIssuer: failure != null && browserSignInNeedsIssuer(failure),
+      onTest: (config) => ref
+          .read(authActionsProvider)
+          .diagnoseBrowserSignIn(config, server: _serverConfig),
+      onSave: _saveBrowserSignInConfig,
+      onRemove: current == null ? null : () => _saveBrowserSignInConfig(null),
+    );
+  }
+
+  /// Saves [config] as the browser sign-in settings of the account's server,
+  /// or removes them. A server being added keeps them on this page until its
+  /// first sign-in saves the server.
+  Future<void> _saveBrowserSignInConfig(BrowserSignInConfig? config) async {
+    final accountId = _signInAccountId;
+    final persist = _signInAccountSaved && accountId != null;
+    if (persist) {
+      await ref
+          .read(authActionsProvider)
+          .saveBrowserSignInConfig(accountId: accountId, config: config);
+    }
+    if (!mounted) return;
+    setState(() {
+      _chosenBrowserConfig = config;
+      _browserConfigChosen = true;
+      _browserConfigPersisted = persist;
+      _browserFailure = null;
+      _loginError = null;
+      if (config != null) _authMode = AuthMode.sso;
+    });
+  }
+
+  /// Signs in through the system browser, behind the same gates as the
+  /// in-app SSO: the server is saved first, and must still be selected.
+  Future<void> _signInWithBrowser() => _runBrowserSignIn(
+    (actions, config) => actions.loginWithBrowser(
+      config: config,
+      canCommit: _additionInProgress,
     ),
   );
+
+  /// Trades the access token of a sign-in Open WebUI refused for want of a
+  /// user again, once the user signed in on the web; or signs in through the
+  /// browser again when that is too late.
+  Future<void> _retryBrowserSignIn() => _runBrowserSignIn(opensBrowser: false, (
+    actions,
+    config,
+  ) async {
+    if (await actions.retryBrowserExchange(canCommit: _additionInProgress)) {
+      return true;
+    }
+    if (!mounted) return false;
+    setState(() => _browserOpen = true);
+    return actions.loginWithBrowser(
+      config: config,
+      canCommit: _additionInProgress,
+    );
+  });
+
+  /// Runs [attempt] with the server's browser sign-in config once the
+  /// server it signs in to is saved and still selected; [opensBrowser] says
+  /// whether it opens the browser straight away.
+  Future<void> _runBrowserSignIn(
+    Future<bool> Function(AuthActions actions, BrowserSignInConfig config)
+    attempt, {
+    bool opensBrowser = true,
+  }) async {
+    final config = _browserConfig;
+    if (!mounted || _isSigningIn || config == null) return;
+    if (!await _mayLeaveActiveAccount() || !mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    setState(() {
+      _isSigningIn = true;
+      _loginError = null;
+      _browserFailure = null;
+    });
+
+    try {
+      if (_serverConfig != null && !_serverConfigSaved) {
+        await _saveServerConfig(_serverConfig!);
+        _serverConfigSaved = true;
+      }
+      if (!await _signInTargetStillSelected()) {
+        throw StateError(
+          'The selected server changed before sign-in was ready.',
+        );
+      }
+      if (!mounted) return;
+      final actions = ref.read(authActionsProvider);
+      _browserActions = actions;
+      // Chosen for a server being added: saved on its server now that the
+      // server is, before the browser opens, so a cancel keeps it.
+      final accountId = _signInAccountId;
+      if (_browserConfigChosen &&
+          !_browserConfigPersisted &&
+          accountId != null) {
+        await actions.saveBrowserSignInConfig(
+          accountId: accountId,
+          config: config,
+        );
+        _browserConfigPersisted = true;
+        if (!mounted) return;
+      }
+      if (opensBrowser) setState(() => _browserOpen = true);
+      if (await attempt(actions, config)) ConduitHaptics.success();
+    } on OpenWebUiTwoStepRequired catch (e) {
+      // The browser sign-in was right; the server asks for a second step
+      // before it issues a session.
+      if (!mounted) return;
+      final accountId = _signInAccountId;
+      setState(() {
+        _twoStep = e.challenge;
+        _twoStepAccount = accountId == null
+            ? ''
+            : ref.read(openWebUiAccountSummariesProvider)[accountId]?.email ??
+                  '';
+      });
+    } on BrowserSignInException catch (e) {
+      if (!mounted) return;
+      final message = browserSignInFailureMessage(l10n, e.failure);
+      setState(() {
+        _browserFailure = e.failure;
+        _loginError = message;
+      });
+      if (message != null) ConduitHaptics.error();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loginError = _formatLoginError(e.toString()));
+      ConduitHaptics.error();
+    } finally {
+      _browserActions = null;
+      if (mounted) {
+        setState(() {
+          _isSigningIn = false;
+          _browserOpen = false;
+        });
+      }
+    }
+  }
+
+  /// Ends the browser sign-in waiting on the browser, as closing the browser
+  /// would. Some browsers can't be closed from the app (Android's default
+  /// browser), and the sign-in would wait for them until it timed out.
+  void _cancelBrowserSignIn() {
+    final actions = _browserActions;
+    if (actions != null) unawaited(actions.cancelBrowserSignIn());
+  }
+
+  /// Opens the server's own sign-in in the browser: a first sign-in there
+  /// creates the Open WebUI user that a browser sign-in exchanges for.
+  Future<void> _openWebSignIn() async {
+    final base = _resolvedServerConfig?.url.trim();
+    if (base == null || base.isEmpty) return;
+    var root = base;
+    while (root.endsWith('/')) {
+      root = root.substring(0, root.length - 1);
+    }
+    final url = Uri.tryParse('$root/auth');
+    if (url == null) return;
+    final opened = await ref.read(openExternalUrlProvider).open(url);
+    if (!opened && mounted) {
+      setState(
+        () => _loginError = AppLocalizations.of(context)!.genericSignInFailed,
+      );
+    }
+  }
 
   /// Validates that a token is a JWT and not an API key.
   /// API keys (sk-, api-, key-) don't work with WebSocket authentication.
@@ -1228,9 +1611,26 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   Widget _buildSignInButton() {
     final l10n = AppLocalizations.of(context)!;
 
+    final browser = _ssoInBrowser;
+    final setUpOnly = _ssoSetUpOnly;
+
+    if (_browserOpen) {
+      return ConduitButton(
+        key: const ValueKey<String>('authentication-sign-in-button'),
+        text: l10n.cancel,
+        onPressed: _cancelBrowserSignIn,
+        isSecondary: true,
+        isFullWidth: true,
+      );
+    }
+
     String buttonText;
     if (_isSigningIn) {
       buttonText = l10n.signingIn;
+    } else if (browser) {
+      buttonText = l10n.browserSignInContinue;
+    } else if (setUpOnly) {
+      buttonText = l10n.browserSignInSetUp;
     } else {
       switch (_authMode) {
         case AuthMode.credentials:
@@ -1245,11 +1645,12 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     }
 
     return ConduitButton(
+      key: const ValueKey<String>('authentication-sign-in-button'),
       text: buttonText,
       onPressed: _isSigningIn || !_canSubmit
           ? null
           : _authMode == AuthMode.sso
-          ? _navigateToSso
+          ? _signInWithSso
           : _signIn,
       isLoading: _isSigningIn,
       isFullWidth: true,

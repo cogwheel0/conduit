@@ -11,6 +11,7 @@ import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:conduit_core/auth/oidc/oidc_pkce.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/network/external_link.dart';

@@ -2655,6 +2655,296 @@
   "@ssoLoadingLogin": {
     "description": "Loading message while SSO login page loads."
   },
+  "browserSignInContinue": "Continue in Browser",
+  "@browserSignInContinue": {
+    "description": "Button that signs in through the device's system browser, where passkeys and security keys work."
+  },
+  "browserSignInContinueSubtitle": "Works with passkeys and security keys",
+  "@browserSignInContinueSubtitle": {
+    "description": "Subtitle under the button that signs in through the system browser."
+  },
+  "browserSignInWaiting": "Waiting for the browser…",
+  "@browserSignInWaiting": {
+    "description": "Shown on the sign-in button while the system browser is open for a sign-in."
+  },
+  "browserSignInUseInApp": "Use In-App Sign-In",
+  "@browserSignInUseInApp": {
+    "description": "Button that signs in with the server's SSO page inside the app instead of the system browser."
+  },
+  "browserSignInSettings": "Browser Sign-In Settings…",
+  "@browserSignInSettings": {
+    "description": "Link that opens the settings for signing in through the system browser."
+  },
+  "browserSignInSetUp": "Set Up Browser Sign-In (Passkeys)",
+  "@browserSignInSetUp": {
+    "description": "Link that opens the setup for signing in through the system browser, where passkeys work."
+  },
+  "browserSignInHttpWarning": "This server's address uses http, so your sign-in crosses the network unencrypted. Use an https address where you can.",
+  "@browserSignInHttpWarning": {
+    "description": "Warning on the sign-in page when browser sign-in is used with a server reached over plain http."
+  },
+  "browserSignInOpenWebSignIn": "Open Sign-In in Browser",
+  "@browserSignInOpenWebSignIn": {
+    "description": "Button that opens the server's own sign-in page in the browser, so a first web sign-in creates the user."
+  },
+  "browserSignInSessionExpired": "Your browser sign-in has ended. Continue in browser to sign in again.",
+  "@browserSignInSessionExpired": {
+    "description": "Sign-in error when a session signed in through the system browser could not be renewed."
+  },
+  "browserSignInSettingsTitle": "Browser Sign-In",
+  "@browserSignInSettingsTitle": {
+    "description": "Title of the sheet with the settings for signing in through the system browser."
+  },
+  "browserSignInSettingsDescription": "Sign in through this device's browser, where passkeys and security keys work. Your identity provider needs a client registered for Conduit.",
+  "@browserSignInSettingsDescription": {
+    "description": "Explanation at the top of the browser sign-in settings."
+  },
+  "browserSignInSharedNote": "These settings apply to every account on this server.",
+  "@browserSignInSharedNote": {
+    "description": "Note in the browser sign-in settings that they are shared by all accounts on the server."
+  },
+  "browserSignInProvider": "Provider",
+  "@browserSignInProvider": {
+    "description": "Label of the choice of the server's sign-in provider to use in the browser."
+  },
+  "browserSignInClientId": "Client ID",
+  "@browserSignInClientId": {
+    "description": "Label of the field for the ID of the identity provider client registered for Conduit."
+  },
+  "browserSignInClientIdHint": "The ID of the client registered for Conduit",
+  "@browserSignInClientIdHint": {
+    "description": "Hint in the client ID field of the browser sign-in settings."
+  },
+  "browserSignInAdvanced": "Advanced",
+  "@browserSignInAdvanced": {
+    "description": "Title of the expandable advanced section of the browser sign-in settings."
+  },
+  "browserSignInIssuer": "Issuer",
+  "@browserSignInIssuer": {
+    "description": "Label of the field for the identity provider's issuer URL."
+  },
+  "browserSignInIssuerDescription": "Only needed when Conduit can't find your identity provider. Enter its issuer, or the URL of its discovery document.",
+  "@browserSignInIssuerDescription": {
+    "description": "Explanation under the issuer field of the browser sign-in settings."
+  },
+  "browserSignInRedirectUri": "Redirect URI",
+  "@browserSignInRedirectUri": {
+    "description": "Label of the redirect URI to register on the identity provider's client."
+  },
+  "browserSignInRedirectUriDescription": "Register this redirect URI on the client. Tap to copy it.",
+  "@browserSignInRedirectUriDescription": {
+    "description": "Explanation of the copyable redirect URI in the browser sign-in settings."
+  },
+  "browserSignInGoogleClientIdHint": "Enter the client ID of an iOS-type Google client to see its redirect URI.",
+  "@browserSignInGoogleClientIdHint": {
+    "description": "Shown instead of the redirect URI while the Google client ID entered is not a valid one."
+  },
+  "browserSignInTest": "Test",
+  "@browserSignInTest": {
+    "description": "Button that checks the browser sign-in settings against the server and identity provider."
+  },
+  "browserSignInTestIdentityProvider": "Identity Provider",
+  "@browserSignInTestIdentityProvider": {
+    "description": "Label of the test result row about finding the identity provider."
+  },
+  "browserSignInTestFound": "Found {issuer}",
+  "@browserSignInTestFound": {
+    "description": "Test result when the identity provider was found.",
+    "placeholders": {
+      "issuer": {
+        "type": "String",
+        "example": "https://id.example.com"
+      }
+    }
+  },
+  "browserSignInTestExchange": "Token Exchange",
+  "@browserSignInTestExchange": {
+    "description": "Label of the test result row about Open WebUI's token exchange."
+  },
+  "browserSignInTestExchangeOn": "Turned on",
+  "@browserSignInTestExchangeOn": {
+    "description": "Test result when Open WebUI's token exchange is on."
+  },
+  "browserSignInRemove": "Remove",
+  "@browserSignInRemove": {
+    "description": "Button that removes the browser sign-in settings of the server."
+  },
+  "browserSignInRemoveTitle": "Remove Browser Sign-In?",
+  "@browserSignInRemoveTitle": {
+    "description": "Title of the confirmation before removing the browser sign-in settings."
+  },
+  "browserSignInRemoveMessage": "Accounts on this server that signed in through the browser will have to sign in again.",
+  "@browserSignInRemoveMessage": {
+    "description": "Message of the confirmation before removing the browser sign-in settings."
+  },
+  "browserSignInChecklistTitle": "On the Server and Identity Provider",
+  "@browserSignInChecklistTitle": {
+    "description": "Heading of the setup checklist in the browser sign-in settings."
+  },
+  "browserSignInChecklistExchange": "Open WebUI 0.8 or later, with ENABLE_OAUTH_TOKEN_EXCHANGE=true.",
+  "@browserSignInChecklistExchange": {
+    "description": "Checklist item: the server must allow token exchange. Keep the variable name untranslated."
+  },
+  "browserSignInChecklistClient": "A public client with PKCE and no secret, with the redirect URI above and the scopes openid, email, profile and offline_access.",
+  "@browserSignInChecklistClient": {
+    "description": "Checklist item: the client to register on the identity provider. Keep the scope names untranslated."
+  },
+  "browserSignInChecklistUsers": "Each user signs in once on the web first: token exchange doesn't create accounts.",
+  "@browserSignInChecklistUsers": {
+    "description": "Checklist item: users must already exist in Open WebUI."
+  },
+  "browserSignInChecklistMicrosoft": "Microsoft: set OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true. It matches users by email for every provider, so use it only if each one verifies email addresses.",
+  "@browserSignInChecklistMicrosoft": {
+    "description": "Checklist item for Microsoft sign-in. Keep the variable name untranslated."
+  },
+  "browserSignInChecklistGoogle": "Google: use an iOS-type client. Its redirect URI comes from its client ID.",
+  "@browserSignInChecklistGoogle": {
+    "description": "Checklist item for Google sign-in."
+  },
+  "browserSignInChecklistTrustedClients": "If the provider supports token introspection, set OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS to include this client ID (Open WebUI 0.11 or later). Without it, any app holding a user's token from this provider can exchange it for that user's Open WebUI session.",
+  "@browserSignInChecklistTrustedClients": {
+    "description": "Checklist item for providers that may support token introspection: limit token exchange to listed clients, and the risk without it. Keep the variable name untranslated."
+  },
+  "browserSignInChecklistNoClientCheck": "This provider works only with OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS unset, since it has no token introspection. The list covers every provider on the server, so without it any app holding a user's token from any of them can exchange it for that user's Open WebUI session. Turn on token exchange only if you accept this.",
+  "@browserSignInChecklistNoClientCheck": {
+    "description": "Checklist item for Google and Microsoft: they work only with the server-wide trusted-client list unset, and the risk that comes with it. Keep the variable name untranslated."
+  },
+  "browserSignInChecklistClaims": "If Open WebUI takes roles or groups from claims, give this client the same claims.",
+  "@browserSignInChecklistClaims": {
+    "description": "Checklist item: role and group claims must match Open WebUI's own client."
+  },
+  "browserSignInErrorBrowserUnavailable": "No browser on this device can run the sign-in. Use in-app sign-in instead.",
+  "@browserSignInErrorBrowserUnavailable": {
+    "description": "Browser sign-in error: no system browser is available."
+  },
+  "browserSignInErrorAuthTabRequired": "Google sign-in needs a browser that supports Auth Tab, such as Chrome. Make one your default browser, or use in-app sign-in.",
+  "@browserSignInErrorAuthTabRequired": {
+    "description": "Browser sign-in error on Android when the default browser can't return a Google sign-in."
+  },
+  "browserSignInErrorPresentationFailed": "The browser couldn't open over the app. Try again.",
+  "@browserSignInErrorPresentationFailed": {
+    "description": "Browser sign-in error when the system browser could not be shown."
+  },
+  "browserSignInErrorInvalidClientId": "That isn't a Google client ID. It ends in .apps.googleusercontent.com.",
+  "@browserSignInErrorInvalidClientId": {
+    "description": "Browser sign-in error when the Google client ID entered is not valid."
+  },
+  "browserSignInErrorProxySignInRequired": "Something in front of this server asked for its own sign-in. Use in-app sign-in instead.",
+  "@browserSignInErrorProxySignInRequired": {
+    "description": "Browser sign-in error when a reverse proxy answered instead of Open WebUI."
+  },
+  "browserSignInErrorProbeNotFound": "This server doesn't offer sign-in with this provider.",
+  "@browserSignInErrorProbeNotFound": {
+    "description": "Browser sign-in error when Open WebUI has no sign-in for the provider."
+  },
+  "browserSignInErrorProviderNotConfigured": "Open WebUI doesn't have this provider set up for token exchange.",
+  "@browserSignInErrorProviderNotConfigured": {
+    "description": "Browser sign-in error when Open WebUI's token exchange doesn't know the provider."
+  },
+  "browserSignInErrorDiscoveryNotFound": "Couldn't find your identity provider. Enter its issuer in the browser sign-in settings.",
+  "@browserSignInErrorDiscoveryNotFound": {
+    "description": "Browser sign-in error when the identity provider could not be discovered."
+  },
+  "browserSignInErrorInvalidIssuer": "The issuer isn't a valid https URL.",
+  "@browserSignInErrorInvalidIssuer": {
+    "description": "Browser sign-in error when the issuer entered is not a URL."
+  },
+  "browserSignInErrorEndpointMismatch": "That issuer isn't the identity provider this server signs in with.",
+  "@browserSignInErrorEndpointMismatch": {
+    "description": "Browser sign-in error when the issuer entered belongs to another identity provider."
+  },
+  "browserSignInErrorInsecureIdp": "The identity provider must use https.",
+  "@browserSignInErrorInsecureIdp": {
+    "description": "Browser sign-in error when the identity provider is not served over https."
+  },
+  "browserSignInErrorCallbackMismatch": "The browser came back with an unexpected answer. Try again.",
+  "@browserSignInErrorCallbackMismatch": {
+    "description": "Browser sign-in error when the browser returned to an unexpected address."
+  },
+  "browserSignInErrorStateMismatch": "The sign-in that came back wasn't the one Conduit started. Try again.",
+  "@browserSignInErrorStateMismatch": {
+    "description": "Browser sign-in error when the returned sign-in does not match the one started."
+  },
+  "browserSignInErrorIssuerMismatch": "The sign-in came back from a different identity provider. Try again.",
+  "@browserSignInErrorIssuerMismatch": {
+    "description": "Browser sign-in error when the returned sign-in names another issuer."
+  },
+  "browserSignInErrorNonceMismatch": "The identity provider's answer didn't match this sign-in. Try again.",
+  "@browserSignInErrorNonceMismatch": {
+    "description": "Browser sign-in error when the ID token was not for this sign-in."
+  },
+  "browserSignInErrorAccessDenied": "The sign-in was declined.",
+  "@browserSignInErrorAccessDenied": {
+    "description": "Browser sign-in error when the user or identity provider declined."
+  },
+  "browserSignInErrorClientRejected": "The identity provider doesn't accept this client. Check the client ID, that the client is public, and its redirect URI.",
+  "@browserSignInErrorClientRejected": {
+    "description": "Browser sign-in error when the identity provider rejects Conduit's client."
+  },
+  "browserSignInErrorIdpError": "The identity provider couldn't complete the sign-in. Try again.",
+  "@browserSignInErrorIdpError": {
+    "description": "Browser sign-in error for any other failure at the identity provider."
+  },
+  "browserSignInErrorRefreshExpired": "Your sign-in with the identity provider has ended. Continue in browser to sign in again.",
+  "@browserSignInErrorRefreshExpired": {
+    "description": "Browser sign-in error when the saved refresh token is no longer accepted."
+  },
+  "browserSignInErrorConfigMismatch": "This server's browser sign-in settings changed. Continue in browser to sign in again.",
+  "@browserSignInErrorConfigMismatch": {
+    "description": "Browser sign-in error when the settings changed since the account signed in."
+  },
+  "browserSignInErrorExchangeDisabled": "Token exchange is turned off on this server. An administrator can turn it on with ENABLE_OAUTH_TOKEN_EXCHANGE=true.",
+  "@browserSignInErrorExchangeDisabled": {
+    "description": "Browser sign-in error when Open WebUI's token exchange is off. Keep the variable name untranslated."
+  },
+  "browserSignInErrorServerTooOld": "This server is too old for browser sign-in. It needs Open WebUI 0.8 or later.",
+  "@browserSignInErrorServerTooOld": {
+    "description": "Browser sign-in error when the server has no token exchange."
+  },
+  "browserSignInErrorCannotDetermineClient": "Open WebUI only accepts tokens issued to listed clients, and couldn't ask the identity provider which client this one was issued to. Use in-app sign-in, or ask an administrator to review OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS: it needs token introspection, which Google and Microsoft don't have.",
+  "@browserSignInErrorCannotDetermineClient": {
+    "description": "Browser sign-in error when Open WebUI only trusts listed clients and cannot identify this token's client. Keep the variable name untranslated."
+  },
+  "browserSignInErrorAccessProhibited": "Open WebUI refused this account. Its email domain, role, or this client may not be allowed.",
+  "@browserSignInErrorAccessProhibited": {
+    "description": "Browser sign-in error when Open WebUI prohibits the account."
+  },
+  "browserSignInErrorMissingClaims": "The identity provider didn't share the account's email or ID. Allow the email and profile scopes for this client.",
+  "@browserSignInErrorMissingClaims": {
+    "description": "Browser sign-in error when the identity provider's user info lacks required claims."
+  },
+  "browserSignInErrorUserNotFound": "No Open WebUI account goes with this sign-in yet. Sign in once on the web, then try again.",
+  "@browserSignInErrorUserNotFound": {
+    "description": "Browser sign-in error when Open WebUI has no user for this identity yet."
+  },
+  "browserSignInErrorUserMismatch": "That sign-in belongs to a different Open WebUI user than this account.",
+  "@browserSignInErrorUserMismatch": {
+    "description": "Browser sign-in error when the sign-in was for another user than the account."
+  },
+  "browserSignInErrorTokenRejected": "Open WebUI couldn't check the sign-in with the identity provider. Try again.",
+  "@browserSignInErrorTokenRejected": {
+    "description": "Browser sign-in error when Open WebUI could not validate the token with the identity provider."
+  },
+  "browserSignInErrorAuthenticationChanged": "Your sign-in changed on the server in the meantime. Try again.",
+  "@browserSignInErrorAuthenticationChanged": {
+    "description": "Browser sign-in error when the account's sign-in changed on the server during the attempt."
+  },
+  "browserSignInErrorRateLimited": "Too many sign-in attempts. Wait a moment, then try again.",
+  "@browserSignInErrorRateLimited": {
+    "description": "Browser sign-in error when requests are rate limited."
+  },
+  "browserSignInErrorNetwork": "Couldn't reach the server or identity provider. Check your connection.",
+  "@browserSignInErrorNetwork": {
+    "description": "Browser sign-in error when the server or identity provider could not be reached."
+  },
+  "browserSignInErrorTls": "The certificate of the server or identity provider isn't trusted.",
+  "@browserSignInErrorTls": {
+    "description": "Browser sign-in error when a TLS certificate was not trusted."
+  },
+  "browserSignInErrorServerError": "The server or identity provider failed. Try again later.",
+  "@browserSignInErrorServerError": {
+    "description": "Browser sign-in error when the server or identity provider answered with a server error."
+  },
   "ldap": "LDAP",
   "@ldap": {
     "description": "Label for LDAP authentication option."

@@ -51,11 +51,12 @@ final apiServiceProvider = Provider<ApiService?>((ref) {
 
       // Keep callbacks in sync so interceptor can notify auth manager
       apiService.setAuthCallbacks(
-        onAuthTokenInvalid: () {
-          // Called when auth errors occur (401/403)
-          // Show connection issue page instead of logging out
+        onAuthTokenInvalid: (kind) {
+          // Called when auth errors occur (401/403). Shows the connection
+          // issue page instead of logging out, once a browser sign-in's
+          // session, refused by Open WebUI, could not be renewed.
           final authManager = ref.read(authStateManagerProvider.notifier);
-          authManager.onAuthIssue();
+          authManager.onAuthIssue(kind);
         },
         onTokenInvalidated: () async {
           // Called for token expiry - attempt silent re-login
@@ -72,10 +73,10 @@ final apiServiceProvider = Provider<ApiService?>((ref) {
       };
 
       // Keep legacy callback for backward compatibility during transition
-      apiService.onAuthTokenInvalid = () {
+      apiService.onAuthTokenInvalid = (kind) {
         // Show connection issue page instead of logging out
         final authManager = ref.read(authStateManagerProvider.notifier);
-        authManager.onAuthIssue();
+        authManager.onAuthIssue(kind);
       };
 
       ref.onDispose(apiService.dispose);

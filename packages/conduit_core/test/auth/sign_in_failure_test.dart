@@ -36,6 +36,8 @@ void main() {
         .equals(SignInFailure.invalidCredentials);
     check(classifySignInFailure('accountPendingApproval'))
         .equals(SignInFailure.accountPendingApproval);
+    check(classifySignInFailure('browserSignInSessionExpired'))
+        .equals(SignInFailure.browserSignInSessionExpired);
     check(classifySignInFailure('Sign-in failed. Please try again.'))
         .equals(SignInFailure.failed);
   });

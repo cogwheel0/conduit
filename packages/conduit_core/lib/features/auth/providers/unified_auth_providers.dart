@@ -1,8 +1,11 @@
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/auth/browser_sign_in/browser_sign_in_failure.dart';
+import 'package:conduit_core/auth/browser_sign_in/browser_sign_in_service.dart';
 import 'package:conduit_core/auth/openwebui_two_step.dart';
 
+import 'package:conduit_core/models/browser_sign_in_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
@@ -108,6 +111,47 @@ class AuthActions {
       ),
     );
   }
+
+  /// Signs the active account in through the system browser with [config].
+  /// See [AuthStateManager.loginWithBrowser]: false means it stopped with
+  /// nothing to say; it throws [OpenWebUiTwoStepRequired] for a second step,
+  /// and [BrowserSignInException] for a failure.
+  Future<bool> loginWithBrowser({
+    required BrowserSignInConfig config,
+    bool Function()? canCommit,
+  }) {
+    return _completeOpenWebUiAuth(
+      () => _auth.loginWithBrowser(config: config, canCommit: canCommit),
+    );
+  }
+
+  /// Trades the access token of a browser sign-in refused with
+  /// [BrowserSignInFailure.userNotFound] again. False when there is nothing
+  /// to retry: sign in with [loginWithBrowser] again then.
+  Future<bool> retryBrowserExchange({bool Function()? canCommit}) {
+    return _completeOpenWebUiAuth(
+      () => _auth.retryBrowserExchange(canCommit: canCommit),
+    );
+  }
+
+  /// Checks [config] against the active account's server, or [server] when
+  /// it is one being added: the Test button.
+  Future<BrowserSignInDiagnosis> diagnoseBrowserSignIn(
+    BrowserSignInConfig config, {
+    ServerConfig? server,
+  }) => _auth.diagnoseBrowserSignIn(config, server: server);
+
+  /// Saves, or with a null [config] removes, the browser sign-in settings of
+  /// [accountId]'s server.
+  Future<void> saveBrowserSignInConfig({
+    required String accountId,
+    BrowserSignInConfig? config,
+  }) => _auth.saveBrowserSignInConfig(accountId: accountId, config: config);
+
+  /// Calls off the browser sign-in in progress, if any, at whatever step it
+  /// is: its [loginWithBrowser] returns false, as when the browser is
+  /// closed.
+  Future<void> cancelBrowserSignIn() => _auth.cancelBrowserSignIn();
 
   Future<bool> ldapLogin(
     String username,
