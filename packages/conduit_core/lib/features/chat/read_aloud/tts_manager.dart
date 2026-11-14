@@ -920,6 +920,8 @@ class TtsManager {
         }
       } else {
         await _nativeTts.pause();
+        // A reading that replaced this one while it paused is not paused.
+        if (_activeSession?.id != session.id) return;
         if (_nativeTts.replacesOnSpeak) _devicePaused = true;
       }
     } catch (e) {

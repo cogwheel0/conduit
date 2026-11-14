@@ -74,6 +74,20 @@ void main() {
     },
   );
 
+  test('a pause that ends after its reading was replaced leaves the new '
+      'one playing', () async {
+    await manager.speak(text);
+    final pauseGate = Completer<void>();
+    engine.pauseGate = pauseGate;
+    final pausing = manager.pause();
+    await manager.speak('One blue boat.\n\nTwo white gulls.');
+    pauseGate.complete();
+    await pausing;
+
+    expect(await manager.seekToChunk(1), 1);
+    expect(engine.spoken.last, 'Two white gulls.');
+  });
+
   test(
     'a new speed says the rest of the sentence from the word reached',
     () async {
@@ -227,8 +241,14 @@ class _Engine implements DeviceSpeechEngine {
   @override
   Future<bool> stop() async => true;
 
+  /// Holds [pause] until completed.
+  Completer<void>? pauseGate;
+
   @override
-  Future<bool> pause() async => true;
+  Future<bool> pause() async {
+    await pauseGate?.future;
+    return true;
+  }
 
   @override
   Future<bool> resume() async {
