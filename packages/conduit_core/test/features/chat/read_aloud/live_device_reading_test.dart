@@ -264,6 +264,24 @@ void main() {
     check(events.last).isA<TtsResumed>();
   });
 
+  test('a sentence picked while a pause is on its way is where it resumes',
+      () async {
+    await manager.speak(text);
+    // While the engine is asked to pause, the second sentence is picked,
+    // and then the first one ends.
+    engine.duringPause = () async {
+      await manager.seekToChunk(1);
+      engine.emit('complete');
+      await pumpEventQueue();
+    };
+    await manager.pause();
+    await pumpEventQueue();
+
+    await manager.resume();
+    await pumpEventQueue();
+    check(engine.spoken.last).equals('Two green frogs.');
+  });
+
   test('a late pause report does not pause a reading resumed since', () async {
     await manager.speak(text);
     await manager.pause();

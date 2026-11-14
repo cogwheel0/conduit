@@ -1498,6 +1498,15 @@ class TtsManager {
     final session = _activeSession;
     if (session == null || session.usesAudioPlayer) return;
 
+    // Paused with a sentence already picked (moved to while paused): the
+    // sentence that just ended was said before that pick, and the reading
+    // resumes at the pick, not after it.
+    if (_nativeTts.replacesOnSpeak &&
+        _devicePaused &&
+        _deviceResumeAt != null) {
+      return;
+    }
+
     final nextIndex = _currentChunkIndex + 1;
 
     // Check if there are more chunks
