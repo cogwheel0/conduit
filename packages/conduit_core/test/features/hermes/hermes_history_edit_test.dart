@@ -1370,6 +1370,41 @@ void main() {
       check(changed.calls('prompt.submit')).isEmpty();
     });
 
+    test('a kept prompt whose replay Hermes never took stays unsent',
+        () async {
+      final gateway = _Gateway();
+      var submits = 0;
+      gateway.handler = (method, params) {
+        if (method != 'prompt.submit') return null;
+        if (submits++ == 0) throw const _Refusal(5000, 'Synthetic failure.');
+        scheduleMicrotask(gateway.finishTurn);
+        return null;
+      };
+      final service = _service(gateway, _Rest(_transcript));
+      // Kept with other words than the turn sent after it.
+      final container = await _turnContainer(service, [
+        for (final message in _keptChat)
+          message.id == 'k1' ? message.copyWith(content: 'And ice?') : message,
+      ]);
+
+      await regenerateHistoricalMessageById(container, 'k2');
+      check(container.read(chatMessagesProvider).last.error).isNotNull();
+
+      // Sent again, it still cuts the turn that left the chat.
+      await regenerateMessage(container, 'And ice?', null);
+
+      final retried = gateway.calls('prompt.submit').last;
+      check(gateway.calls('prompt.submit')).length.equals(2);
+      check(retried['text']).equals('And ice?');
+      check(retried['truncate_before_row_id']).equals(15);
+      // Taken by Hermes now, the prompt counts as sent.
+      check(
+        container.read(chatMessagesProvider).last.metadata?[
+          kHermesModelSwitchKeptKey
+        ],
+      ).isNull();
+    });
+
     test('editing a kept prompt cuts the turns sent after it', () async {
       final gateway = _Gateway();
       gateway.handler = (method, params) {

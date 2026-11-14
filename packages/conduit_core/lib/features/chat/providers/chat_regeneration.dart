@@ -194,6 +194,12 @@ Future<void> _regenerateHermesMessage(
   final replayedFiles = replayedUser?.files ?? const <Map<String, dynamic>>[];
   final replayedAttachments = replayedUser?.attachmentIds ?? const <String>[];
   final assistantMessageId = previousAssistant?.id ?? const Uuid().v4();
+  // A prompt kept off a model switch stays unsent until Hermes takes it: a
+  // replay that ends before then leaves it as it was.
+  final keptUnsent =
+      promptNeverSent ||
+      (replayedUserIndex >= 0 &&
+          hermesUserTurnNeverSent(existingMessages, replayedUserIndex));
   final notifier = ref.read(chatMessagesProvider.notifier);
   ChatMessage assistantMessage({
     required bool isStreaming,
@@ -209,7 +215,11 @@ Future<void> _regenerateHermesMessage(
     versions: previousAssistant == null
         ? const <ChatMessageVersion>[]
         : _buildReplayVersions(previousAssistant),
-    metadata: {'modelName': selectedModel.name, 'transport': kHermesTransport},
+    metadata: {
+      'modelName': selectedModel.name,
+      'transport': kHermesTransport,
+      if (keptUnsent) kHermesModelSwitchKeptKey: true,
+    },
   );
   void installAssistant(ChatMessage message) {
     if (previousAssistant == null) {

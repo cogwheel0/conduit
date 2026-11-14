@@ -5,10 +5,18 @@ import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 
 final class HermesResponseStream {
-  const HermesResponseStream({required this.events, this.sessionId});
+  const HermesResponseStream({
+    required this.events,
+    this.sessionId,
+    this.promptAccepted,
+  });
 
   final Stream<HermesRunEvent> events;
   final String? sessionId;
+
+  /// Whether Hermes took the turn's prompt into its session; null when the
+  /// transport does not say, and then it counts as taken.
+  final bool Function()? promptAccepted;
 }
 
 final class HermesDesktopSessionOptions {

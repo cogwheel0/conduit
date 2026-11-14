@@ -2314,6 +2314,15 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
             .read(composerTextInsertionProvider.notifier)
             .insert(targetId: chatComposerTextInsertionTargetId, text: text);
       },
+      // A prompt kept off a model switch counts as sent once Hermes took it.
+      onTurnAccepted: () => updateProjectedMessage(
+        (message) => message.metadata?[kHermesModelSwitchKeptKey] == true
+            ? message.copyWith(
+                metadata: {...?message.metadata}
+                  ..remove(kHermesModelSwitchKeptKey),
+              )
+            : message,
+      ),
       // Kept on its model, the chat gets its message back to send there,
       // and its picker back to that model.
       onModelSwitchDeclined: (declined) {
