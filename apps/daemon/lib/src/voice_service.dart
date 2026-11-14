@@ -244,7 +244,11 @@ final class VoiceService {
     final id =
         'tts-${_random.nextInt(1 << 32).toRadixString(16)}'
         '${_random.nextInt(1 << 32).toRadixString(16)}';
-    _jobs[id] = _SpeechJob(text, voice);
+    _jobs[id] = _SpeechJob(
+      text,
+      voice,
+      _container.read(openWebUiAuthSessionEpochProvider),
+    );
     while (_jobs.length > _maxJobs) {
       _jobs.remove(_jobs.keys.first);
     }
@@ -253,7 +257,18 @@ final class VoiceService {
 
   /// The audio for job [id], generated on first request.
   Future<({Uint8List bytes, String contentType})> audio(String id) async {
-    final job = _jobs[id];
+    var job = _jobs[id];
+    // The text is the account's it was made under: after a switch or a
+    // sign-out it is spoken by no one, rather than sent to the next
+    // account's server.
+    if (job != null &&
+        !identical(
+          job.session,
+          _container.read(openWebUiAuthSessionEpochProvider),
+        )) {
+      _jobs.remove(id);
+      job = null;
+    }
     if (job == null) {
       throw const RpcError(
         code: ConduitErrorCodes.notFound,
@@ -446,9 +461,12 @@ final class VoiceService {
 }
 
 final class _SpeechJob {
-  _SpeechJob(this.text, this.voice);
+  _SpeechJob(this.text, this.voice, this.session);
 
   final String text;
   final String? voice;
+
+  /// The account session it was made under.
+  final Object session;
   Future<({Uint8List bytes, String mimeType})>? audio;
 }
