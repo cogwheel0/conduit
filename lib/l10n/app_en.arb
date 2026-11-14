@@ -2655,7 +2655,7 @@
   "@ssoLoadingLogin": {
     "description": "Loading message while SSO login page loads."
   },
-  "browserSignInContinue": "Continue in browser",
+  "browserSignInContinue": "Continue in Browser",
   "@browserSignInContinue": {
     "description": "Button that signs in through the device's system browser, where passkeys and security keys work."
   },
@@ -2667,15 +2667,15 @@
   "@browserSignInWaiting": {
     "description": "Shown on the sign-in button while the system browser is open for a sign-in."
   },
-  "browserSignInUseInApp": "Use in-app sign-in",
+  "browserSignInUseInApp": "Use In-App Sign-In",
   "@browserSignInUseInApp": {
     "description": "Button that signs in with the server's SSO page inside the app instead of the system browser."
   },
-  "browserSignInSettings": "Browser sign-in settings…",
+  "browserSignInSettings": "Browser Sign-In Settings…",
   "@browserSignInSettings": {
     "description": "Link that opens the settings for signing in through the system browser."
   },
-  "browserSignInSetUp": "Set up browser sign-in (passkeys)",
+  "browserSignInSetUp": "Set Up Browser Sign-In (Passkeys)",
   "@browserSignInSetUp": {
     "description": "Link that opens the setup for signing in through the system browser, where passkeys work."
   },
@@ -2683,7 +2683,7 @@
   "@browserSignInHttpWarning": {
     "description": "Warning on the sign-in page when browser sign-in is used with a server reached over plain http."
   },
-  "browserSignInOpenWebSignIn": "Open sign-in in browser",
+  "browserSignInOpenWebSignIn": "Open Sign-In in Browser",
   "@browserSignInOpenWebSignIn": {
     "description": "Button that opens the server's own sign-in page in the browser, so a first web sign-in creates the user."
   },
@@ -2691,7 +2691,7 @@
   "@browserSignInSessionExpired": {
     "description": "Sign-in error when a session signed in through the system browser could not be renewed."
   },
-  "browserSignInSettingsTitle": "Browser sign-in",
+  "browserSignInSettingsTitle": "Browser Sign-In",
   "@browserSignInSettingsTitle": {
     "description": "Title of the sheet with the settings for signing in through the system browser."
   },
@@ -2743,7 +2743,7 @@
   "@browserSignInTest": {
     "description": "Button that checks the browser sign-in settings against the server and identity provider."
   },
-  "browserSignInTestIdentityProvider": "Identity provider",
+  "browserSignInTestIdentityProvider": "Identity Provider",
   "@browserSignInTestIdentityProvider": {
     "description": "Label of the test result row about finding the identity provider."
   },
@@ -2757,7 +2757,7 @@
       }
     }
   },
-  "browserSignInTestExchange": "Token exchange",
+  "browserSignInTestExchange": "Token Exchange",
   "@browserSignInTestExchange": {
     "description": "Label of the test result row about Open WebUI's token exchange."
   },
@@ -2769,7 +2769,7 @@
   "@browserSignInRemove": {
     "description": "Button that removes the browser sign-in settings of the server."
   },
-  "browserSignInRemoveTitle": "Remove browser sign-in?",
+  "browserSignInRemoveTitle": "Remove Browser Sign-In?",
   "@browserSignInRemoveTitle": {
     "description": "Title of the confirmation before removing the browser sign-in settings."
   },
@@ -2777,7 +2777,7 @@
   "@browserSignInRemoveMessage": {
     "description": "Message of the confirmation before removing the browser sign-in settings."
   },
-  "browserSignInChecklistTitle": "On the server and identity provider",
+  "browserSignInChecklistTitle": "On the Server and Identity Provider",
   "@browserSignInChecklistTitle": {
     "description": "Heading of the setup checklist in the browser sign-in settings."
   },

@@ -1069,7 +1069,7 @@ void main() {
     }
 
     Future<void> continueInBrowser(WidgetTester tester) async {
-      await tester.tap(find.text('Continue in browser'));
+      await tester.tap(find.text('Continue in Browser'));
       await settle(tester);
     }
 
@@ -1078,8 +1078,8 @@ void main() {
 
       expect(find.byKey(const ValueKey('sso_form')), findsOneWidget);
       expect(find.byKey(const ValueKey('browser-sign-in-set-up')), findsOne);
-      expect(find.text('Sign in with SSO'), findsOneWidget);
-      expect(find.text('Continue in browser'), findsNothing);
+      expect(find.text('Sign In with SSO'), findsOneWidget);
+      expect(find.text('Continue in Browser'), findsNothing);
 
       await harness.unmount(tester);
     });
@@ -1124,7 +1124,7 @@ void main() {
         actions: actions,
       );
 
-      expect(find.text('Continue in browser'), findsOneWidget);
+      expect(find.text('Continue in Browser'), findsOneWidget);
       expect(find.text('Works with passkeys and security keys'), findsOne);
       expect(find.byKey(const ValueKey('browser-sign-in-use-in-app')), findsOne);
       expect(find.byKey(const ValueKey('browser-sign-in-settings')), findsOne);
@@ -1147,7 +1147,7 @@ void main() {
 
       check(actions.events).deepEquals(['login:oidc:conduit-app']);
       expect(find.byType(ConnectionAttemptBanner), findsNothing);
-      expect(find.text('Continue in browser'), findsOneWidget);
+      expect(find.text('Continue in Browser'), findsOneWidget);
       await harness.unmount(tester);
     });
 
@@ -1192,7 +1192,7 @@ void main() {
 
       await continueInBrowser(tester);
 
-      expect(find.text('Verify your sign-in'), findsOneWidget);
+      expect(find.text('Verify Your Sign-In'), findsOneWidget);
       await tester.enterText(
         find.descendant(
           of: find.byKey(const ValueKey('two-step-code-field')),
@@ -1222,7 +1222,7 @@ void main() {
         tester.element(find.byType(AuthenticationPage)),
       );
 
-      await tester.tap(find.text('Continue in browser'));
+      await tester.tap(find.text('Continue in Browser'));
       await settle(tester);
       check(actions.events).deepEquals(['login:oidc:conduit-app']);
       expect(find.text('Waiting for the browser…'), findsWidgets);
@@ -1244,7 +1244,7 @@ void main() {
       final actions = _BrowserAuthActions(held: Completer<void>());
       final harness = await openSignIn(tester, saved: config, actions: actions);
 
-      await tester.tap(find.text('Continue in browser'));
+      await tester.tap(find.text('Continue in Browser'));
       await settle(tester);
       expect(find.text('Waiting for the browser…'), findsWidgets);
 
@@ -1256,7 +1256,7 @@ void main() {
       check(actions.events).deepEquals(['login:oidc:conduit-app', 'cancel']);
       check(actions.signedIn).equals(0);
       expect(find.byType(ConnectionAttemptBanner), findsNothing);
-      expect(find.text('Continue in browser'), findsOneWidget);
+      expect(find.text('Continue in Browser'), findsOneWidget);
       await harness.unmount(tester);
     });
 
@@ -1265,7 +1265,7 @@ void main() {
       final actions = _BrowserAuthActions(held: Completer<void>());
       final harness = await openSignIn(tester, saved: config, actions: actions);
 
-      await tester.tap(find.text('Continue in browser'));
+      await tester.tap(find.text('Continue in Browser'));
       await settle(tester);
       await harness.unmount(tester);
 
@@ -1296,7 +1296,7 @@ void main() {
 
       // Not saved anywhere yet: the server itself is not.
       check(actions.events).isEmpty();
-      expect(find.text('Continue in browser'), findsOneWidget);
+      expect(find.text('Continue in Browser'), findsOneWidget);
 
       await continueInBrowser(tester);
 
