@@ -933,6 +933,21 @@ impl WorkspacePane {
         cx: &mut Context<Self>,
     ) {
         let l10n = cx.l10n().clone();
+        // The server copies a skill as saved, its files with it: a draft of
+        // it is saved or discarded first, as on a phone.
+        if section == WorkspaceSection::Skills
+            && self
+                .editors
+                .get(&section)
+                .is_some_and(|e| e.item_id(cx).as_deref() == Some(id.as_str()) && e.is_dirty(cx))
+        {
+            self.toast(
+                NoticeLevel::Warning,
+                l10n.workspace_skill_clone_save_first(),
+                cx,
+            );
+            return;
+        }
         let suffix = match section {
             WorkspaceSection::Models => l10n.desktop_workspace_model_clone_suffix(),
             WorkspaceSection::Prompts => l10n.desktop_workspace_prompt_clone_suffix(),

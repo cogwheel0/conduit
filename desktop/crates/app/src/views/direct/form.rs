@@ -202,6 +202,8 @@ pub struct DirectView {
     pub api_key: Entity<InputState>,
     pub auth: Auth,
     pub api_mode: DirectApiMode,
+    /// The user chose the API mode: it no longer follows the address.
+    pub api_mode_picked: bool,
     pub api_version: Entity<InputState>,
     pub model_prefix: Entity<InputState>,
     pub tags: Entity<InputState>,
@@ -303,6 +305,7 @@ impl DirectView {
                         }
                         // A Test's result was for the draft as it was.
                         this.note = None;
+                        this.follow_url_mode(cx);
                         cx.notify();
                     }
                     _ => {}
@@ -321,6 +324,7 @@ impl DirectView {
             api_key,
             auth: Auth::Bearer,
             api_mode: DirectApiMode::Chat,
+            api_mode_picked: false,
             api_version,
             model_prefix,
             tags,
@@ -452,10 +456,25 @@ impl DirectView {
         if preset == Preset::Ollama && self.auth == Auth::ApiKeyHeader {
             self.auth = Auth::Bearer;
         }
+        self.follow_url_mode(cx);
         if previous != preset {
             self.note = None;
         }
         cx.notify();
+    }
+
+    /// A new OpenAI-compatible connection, while its API mode is not
+    /// chosen, uses the Responses API on the OpenAI platform itself and Chat
+    /// Completions elsewhere, as on a phone. A saved one keeps its own.
+    pub fn follow_url_mode(&mut self, cx: &App) {
+        if self.editing.is_some() || self.api_mode_picked || self.preset != Preset::OpenAi {
+            return;
+        }
+        self.api_mode = if is_openai_platform_url(&forms::text(&self.base_url, cx)) {
+            DirectApiMode::Responses
+        } else {
+            DirectApiMode::Chat
+        };
     }
 
     /// The authentication choices this connection offers.
@@ -496,6 +515,7 @@ impl DirectView {
                 }
             }
             MENU_API => {
+                self.api_mode_picked = true;
                 self.api_mode = if action.value == "responses" {
                     DirectApiMode::Responses
                 } else {
@@ -1429,6 +1449,26 @@ pub fn lines(text: &str) -> Vec<String> {
 }
 
 /// What a refused save says.
+/// Whether `value` is the OpenAI platform's own API (`https`, the default
+/// port, `api.openai.com` or a host under it): core's
+/// `isOpenAiPlatformBaseUrl`, which the editor needs on every keystroke.
+pub fn is_openai_platform_url(value: &str) -> bool {
+    let Ok(url) = url::Url::parse(value.trim()) else {
+        return false;
+    };
+    if url.scheme() != "https"
+        || url.port().is_some_and(|p| p != 443)
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return false;
+    }
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    host == "api.openai.com" || host.ends_with(".api.openai.com")
+}
+
 fn save_error(e: &RpcError, l10n: &L10n) -> String {
     match e.code {
         ErrorCode::Conflict => l10n.direct_connection_save_conflict(),
@@ -1439,6 +1479,9 @@ fn save_error(e: &RpcError, l10n: &L10n) -> String {
 
 impl Render for DirectView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The address as it is now, however it got there (typed, pasted,
+        // set by a preset).
+        self.follow_url_mode(cx);
         let l10n = cx.l10n().clone();
         let body = self.body(window, cx);
         if !self.onboarding {
@@ -1657,6 +1700,29 @@ mod tests {
             sent[1]["id"], "made",
             "the second Connect edits what the first made"
         );
+    }
+
+    #[test]
+    fn the_openai_platform_is_known_by_its_own_address() {
+        for yes in [
+            "https://api.openai.com/v1",
+            " https://API.openai.com/v1/ ",
+            "https://api.openai.com:443/v1",
+            "https://eu.api.openai.com/v1",
+        ] {
+            assert!(is_openai_platform_url(yes), "{yes}");
+        }
+        for no in [
+            "http://api.openai.com/v1",
+            "https://api.openai.com:8443/v1",
+            "https://user@api.openai.com/v1",
+            "https://api.openai.com/v1?x=1",
+            "https://api.openai.com.example.net/v1",
+            "https://openrouter.ai/api/v1",
+            "",
+        ] {
+            assert!(!is_openai_platform_url(no), "{no}");
+        }
     }
 
     #[test]

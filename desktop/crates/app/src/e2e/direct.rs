@@ -397,6 +397,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= gateway(&openai, &log, dir, cx).await;
     pass &= mcp_oauth(&origin, &log, dir, cx).await;
     pass &= web_search(&log, cx).await;
+    pass &= openai_default(cx).await;
     pass &= responses(&log, cx).await;
     pass &= history((&url, &email, &password), cx).await;
     pass &= open_web_ui_connection(&openai, &log, cx).await;
@@ -862,6 +863,54 @@ async fn web_search(log: &Path, cx: &mut AsyncApp) -> bool {
         "the request offers the on-device web_search and web_fetch tools",
         tools.iter().any(|t| t == "web_search") && tools.iter().any(|t| t == "web_fetch"),
     );
+    pass
+}
+
+/// A new OpenAI-compatible connection follows its address to the
+/// Responses API on the OpenAI platform itself (Chat Completions elsewhere)
+/// until a mode is picked; nothing is saved or sent.
+async fn openai_default(cx: &mut AsyncApp) -> bool {
+    in_pane_settings(cx, |p, window, cx| p.open_editor(None, false, window, cx));
+    let mut pass = ok(
+        "Add Connection opens a sheet",
+        wait_sheet::<DirectEditorSheet>(cx).await,
+    );
+    async fn mode(url: &'static str, cx: &mut AsyncApp) -> Option<conduit_protocol::DirectApiMode> {
+        in_sheet::<DirectEditorSheet, _>(cx, move |s, window, cx| {
+            s.form
+                .update(cx, |f, cx| set_text(&f.base_url.clone(), url, window, cx))
+        });
+        settle(cx, 300).await;
+        in_sheet::<DirectEditorSheet, _>(cx, |s, _, cx| s.form.read(cx).api_mode)
+    }
+    let responses = conduit_protocol::DirectApiMode::Responses;
+    let chat = conduit_protocol::DirectApiMode::Chat;
+    pass &= ok(
+        "on the OpenAI platform's address it starts on Responses",
+        mode("https://api.openai.com/v1", cx).await == Some(responses),
+    );
+    pass &= ok(
+        "elsewhere on Chat Completions",
+        mode("http://127.0.0.1:19799/v1", cx).await == Some(chat),
+    );
+    in_sheet::<DirectEditorSheet, _>(cx, |s, window, cx| {
+        s.form.update(cx, |f, cx| {
+            f.on_choice(
+                &SettingsChoice {
+                    menu: form::MENU_API.into(),
+                    value: "chat".into(),
+                },
+                window,
+                cx,
+            )
+        })
+    });
+    pass &= ok(
+        "a mode picked stays, whatever the address",
+        mode("https://api.openai.com/v1", cx).await == Some(chat),
+    );
+    cx.update(sheet::dismiss);
+    pass &= ok("closed unsaved", wait_closed(cx).await);
     pass
 }
 

@@ -260,6 +260,9 @@ pub fn pretty(text: &str) -> String {
 pub fn error_text(block: &MessageBlockDto, l10n: &L10n) -> String {
     let typed = match block.r#type.as_deref() {
         Some("directToolsUnsupported") => Some(l10n.direct_model_tools_unsupported()),
+        // A polling-only server may still be writing it (the core's English
+        // stays out of the window).
+        Some("heldReplyStillRunning") => Some(l10n.held_reply_still_running()),
         Some(t) => apple_error_text(t, l10n),
         None => None,
     };
@@ -1870,6 +1873,15 @@ mod tests {
         // Finished: final.
         assert_eq!(text_mode(false, false), (false, false));
         assert_eq!(text_mode(false, true), (false, false));
+    }
+
+    #[test]
+    fn a_held_reply_on_a_polling_only_server_is_worded_here() {
+        let l10n = L10n::new("en");
+        let mut block = empty_block(MessageBlockKind::Error);
+        block.error = Some("The server is still working on it (core's own English).".into());
+        block.r#type = Some("heldReplyStillRunning".into());
+        assert_eq!(error_text(&block, &l10n), l10n.held_reply_still_running());
     }
 
     #[test]

@@ -1006,6 +1006,57 @@ async fn skills(dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= ok("an edited skill saves", edited);
     settle(cx, 400).await;
     shoot_main(dir, "workspace-skill", cx).await;
+
+    // Duplicate: a skill with unsaved edits is saved or discarded first;
+    // then the server copies it (its `clone`, files and all).
+    in_editor(cx, skill_editor, |e, window, cx| {
+        e.set_field("description", "A draft not saved yet.", window, cx)
+    });
+    settle(cx, 200).await;
+    command(s, &seeded, ItemCommand::Duplicate, cx);
+    let refused = wait_until(cx, Duration::from_secs(10), |cx| {
+        super::hermes_admin::toasts(cx)
+            .iter()
+            .any(|t| t.contains("Save or discard your changes before duplicating"))
+    })
+    .await;
+    pass &= ok(
+        "Duplicate asks for a skill's edits to be saved or discarded first",
+        refused && cx.update(|cx| listed(s, "Plain English (Clone)", cx).is_none()),
+    );
+    in_editor(cx, skill_editor, |e, window, cx| {
+        e.set_field(
+            "description",
+            "Short sentences, everyday words, no jargon.",
+            window,
+            cx,
+        )
+    });
+    settle(cx, 300).await;
+    command(s, &seeded, ItemCommand::Duplicate, cx);
+    let copied = wait_until(cx, Duration::from_secs(20), |cx| {
+        listed(s, "Plain English (Clone)", cx).is_some()
+    })
+    .await;
+    let cloned = std::env::var("CONDUIT_OWUI_DIR")
+        .ok()
+        .and_then(|d| std::fs::read_to_string(format!("{d}/state/server.log")).ok())
+        .is_some_and(|log| {
+            log.lines()
+                .any(|l| l.contains("POST /api/v1/skills/id/") && l.contains("/clone HTTP"))
+        });
+    pass &= ok(
+        "Duplicate has the server copy the skill (its clone, files kept)",
+        copied && cloned,
+    );
+    if let Some(copy) = cx.update(|cx| listed(s, "Plain English (Clone)", cx).map(|i| i.id)) {
+        command(s, &copy, ItemCommand::Delete, cx);
+        let gone = wait_until(cx, Duration::from_secs(15), |cx| {
+            listed(s, "Plain English (Clone)", cx).is_none()
+        })
+        .await;
+        pass &= ok("the copy is deleted", gone);
+    }
     new_item(s, cx);
     settle(cx, 300).await;
     in_editor(cx, skill_editor, |e, window, cx| {
