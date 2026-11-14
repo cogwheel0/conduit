@@ -1265,6 +1265,10 @@
   "@japanese": {
     "description": "Language name: Japanese."
   },
+  "portugueseBrazilian": "Portuguese (Brazil)",
+  "@portugueseBrazilian": {
+    "description": "Language name: Portuguese (Brazil)."
+  },
   "czech": "Čeština",
   "@czech": {
     "description": "Language name: Czech."
