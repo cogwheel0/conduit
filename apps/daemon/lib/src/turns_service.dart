@@ -83,6 +83,7 @@ import 'librechat_pauses.dart';
 import 'message_blocks.dart';
 import 'models_service.dart';
 import 'queued_completions_service.dart';
+import 'servers_service.dart' show AddressReplies;
 import 'settled.dart';
 import 'temporary_chats.dart';
 import 'ui_requests_service.dart';
@@ -119,7 +120,7 @@ import 'ui_requests_service.dart';
 /// for the title, tags and follow-ups the server sends once the answer is
 /// done. It is disposed sooner when the account changes or the user signs
 /// out: its chat belongs to the account it was opened under.
-final class TurnsService implements ChatTurns {
+final class TurnsService implements ChatTurns, AddressReplies {
   TurnsService(
     this._container,
     this._events, {
@@ -276,6 +277,31 @@ final class TurnsService implements ChatTurns {
     for (final session in _sessions)
       if (session.turn case final turn? when !turn.finished) turn.chatId,
   ];
+
+  /// Whether an Open WebUI answer is being written: one that arrives
+  /// through the active account's address, unlike a direct or Hermes one,
+  /// which this process talks to the provider for itself.
+  @override
+  bool get addressAnswering => _sessions.any(
+    (session) => switch (session.turn) {
+      final turn? => !turn.finished && !turn.clientOwned,
+      null => false,
+    },
+  );
+
+  /// Stops the answers [addressAnswering] counts.
+  @override
+  Future<void> stopAddressAnswers() async {
+    final chats = [
+      for (final session in _sessions)
+        if (session.turn case final turn?
+            when !turn.finished && !turn.clientOwned)
+          turn.chatId,
+    ];
+    for (final chatId in chats) {
+      await stop(chatId);
+    }
+  }
 
   /// Whether [chatId] is answering, or about to.
   @override

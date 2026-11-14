@@ -1,42 +1,96 @@
 import 'dart:async';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/auth/openwebui_server_address.dart' as core;
 import 'package:conduit_core/auth/proxy_renewal.dart';
+import 'package:conduit_core/auth/proxy_session.dart'
+    show mergeCapturedProxyCookiesIntoHeaders;
+import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
+    show addressChangeReplyGuardProvider, addressChangeStopRepliesProvider;
+import 'package:conduit_core/providers/openwebui_route_resolver.dart'
+    show OpenWebUiRouteStatus, openWebUiRouteResolverProvider;
 import 'package:conduit_core/models/backend_config.dart';
-import 'package:conduit_core/services/api_service.dart' show HealthCheckResult;
+import 'package:conduit_core/services/api_service.dart'
+    show ApiService, HealthCheckResult;
 import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/utils/server_version_compat.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import 'account_scope.dart';
+import 'event_bus.dart';
 import 'settled.dart';
 import 'voice_service.dart';
 
-/// Implements `servers.update` and `servers.status` over the core's storage
-/// service.
+/// Implements `servers.*` over the core: editing the server an account is
+/// on, a saved server's addresses (`servers.addresses.*`, over the core's
+/// `openwebui_server_address.dart`, which mobile's Settings pages call too),
+/// and asking how the active server is doing.
 ///
 /// Adding, removing and switching accounts -- each a saved server entry --
 /// is `accounts.*`, over the core's accounts controller, which keeps the
-/// account registry and its data purge in step. What stays here is editing
-/// the server an account is on, and asking how the active one is doing.
+/// account registry and its data purge in step.
 ///
 /// The one rule this file exists to enforce is that nothing secret leaves.
-/// [summarize] is the only path from a `ServerConfig` to the wire, and it
-/// names each field it copies rather than spreading the object, so adding a
-/// secret to `ServerConfig` cannot silently start publishing it.
+/// [summarize] and [_address] are the only paths from a saved connection to
+/// the wire, and they name each field they copy rather than spreading the
+/// object, so adding a secret to `ServerConfig` or an endpoint cannot
+/// silently start publishing it. An address's header values, client key and
+/// key password stay here: the window sends replacements, never reads them.
 final class ServersService {
-  ServersService(this._container);
+  ServersService(this._container, {EventBus? events}) : _events = events {
+    _routeWatch = _container.listen<(String?, String?)>(
+      openWebUiRouteResolverProvider.select(
+        (route) => (route.serverId, route.endpointId),
+      ),
+      // A server's address in use moved to another of its addresses (an
+      // edit, or one stopped answering). Not the route first resolving or
+      // going with the account: nothing shown of a server changes then.
+      (previous, next) {
+        final (from, to) = (previous?.$1, next.$1);
+        if (from != null && to != null && previous != next) _changed(to);
+      },
+    );
+  }
 
   final ProviderContainer _container;
+  final EventBus? _events;
+  late final ProviderSubscription<(String?, String?)> _routeWatch;
+
+  /// The daemon's own running answers, which the core's guard cannot see:
+  /// they stream in chat scopes, not in the root's open chat. Set once the
+  /// turns service exists.
+  AddressReplies? replies;
+
+  /// Addresses checked and not yet saved, by check id.
+  final Map<String, _CheckedAddress> _checked = <String, _CheckedAddress>{};
+
+  /// How long a checked address waits for its save.
+  static const Duration checkLifetime = Duration(minutes: 15);
+
+  static const Uuid _uuid = Uuid();
 
   OptimizedStorageService get _storage =>
       _container.read(optimizedStorageServiceProvider);
 
+  void dispose() => _routeWatch.close();
+
+  void _changed(String? serverId) => _events?.emit(
+    ConduitEventSpecs.serversChanged,
+    ServersChanged(serverId: serverId),
+  );
+
   /// Edits in place. A null secret means "leave alone", which is what lets
   /// the setup form save a rename without ever having been given the key.
+  ///
+  /// [ServerDraft.id] may name a saved server rather than an account: then
+  /// only its name changes, whatever else the draft says.
   Future<ServerSummary> update(ServerDraft draft) async {
     final id = draft.id;
     if (id == null) {
@@ -44,6 +98,10 @@ final class ServersService {
         code: ConduitErrorCodes.invalidParams,
         debugMessage: 'servers.update needs an id',
       );
+    }
+    final registry = await _storage.getOpenWebUiRegistryStrict();
+    if (registry.server(id) != null && registry.account(id) == null) {
+      return _rename(id, validateName(draft.name));
     }
     final configs = await _storage.getServerConfigsStrict();
     final index = configs.indexWhere((config) => config.id == id);
@@ -77,6 +135,7 @@ final class ServersService {
     await _storage.saveServerConfigs(next);
     await _endSessionIfMoved(hadSession: hadSession);
     _republishServerConfigs();
+    _changed(registry.account(id)?.serverId);
     return summarize(
       updated,
       hasStoredSession: (await _storage.accountIdsWithSession()).contains(id),
@@ -100,6 +159,509 @@ final class ServersService {
         .read(authStateManagerProvider.notifier)
         .onTokenInvalidated();
   }
+
+  /// Renames the saved server [serverId]: its accounts' connections carry
+  /// the server's name, and saving them with a new one renames it, nothing
+  /// else changing.
+  Future<ServerSummary> _rename(String serverId, String name) async {
+    final registry = await _storage.getOpenWebUiRegistryStrict();
+    final accounts = {
+      for (final account in registry.accountsOn(serverId)) account.id,
+    };
+    final configs = await _storage.getServerConfigsStrict();
+    final next = [
+      for (final config in configs)
+        accounts.contains(config.id) ? config.copyWith(name: name) : config,
+    ];
+    final renamed = next.where((config) => accounts.contains(config.id));
+    if (renamed.isEmpty) throw _notFound(serverId);
+    await _storage.saveServerConfigs(next);
+    _republishServerConfigs();
+    _changed(serverId);
+    return summarize(renamed.first);
+  }
+
+  // ---------------------------------------------------------------------
+  // servers.addresses.*
+  // ---------------------------------------------------------------------
+
+  /// [serverId]'s addresses in the order they are tried.
+  Future<ServerAddresses> addresses(ServerRef request) async {
+    final registry = await _storage.getOpenWebUiRegistryStrict();
+    final server = registry.server(request.serverId);
+    if (server == null) throw _notFound(request.serverId);
+    return _addressesOf(server, registry);
+  }
+
+  ServerAddresses _addressesOf(
+    OpenWebUiServer server,
+    OpenWebUiRegistry registry,
+  ) {
+    final inUse = _addressInUse(server.id, registry);
+    return ServerAddresses(
+      serverId: server.id,
+      name: server.name,
+      addresses: [
+        for (final endpoint in server.endpoints)
+          _address(endpoint, inUse: endpoint.id == inUse),
+      ],
+      removable: core.serverAddressesRemovable(server),
+    );
+  }
+
+  /// The address of [serverId] the active account reaches it through: the
+  /// route the resolver settled on, else the one selected for the server.
+  String? _addressInUse(String serverId, OpenWebUiRegistry registry) {
+    final OpenWebUiRouteStatus route = _container.read(
+      openWebUiRouteResolverProvider,
+    );
+    if (route.serverId == serverId && route.endpointId != null) {
+      return route.endpointId;
+    }
+    if (route.serverId != null) return null;
+    final active = _container.read(activeServerProvider).asData?.value;
+    if (active == null) return null;
+    final account = registry.account(active.id);
+    if (account == null || account.serverId != serverId) return null;
+    return registry
+        .server(serverId)
+        ?.routeForConnection(
+          active,
+          selectedEndpointId: _storage.endpointSelection[serverId],
+        )
+        .id;
+  }
+
+  /// The only endpoint -> wire conversion: names, labels and flags, never a
+  /// header value, a key or its password.
+  static ServerAddressDto _address(
+    OpenWebUiEndpoint endpoint, {
+    required bool inUse,
+  }) => ServerAddressDto(
+    id: endpoint.id,
+    url: endpoint.url,
+    label: endpoint.label,
+    inUse: inUse,
+    allowSelfSignedCertificates: endpoint.allowSelfSignedCertificates,
+    customHeaderNames: [
+      for (final name in endpoint.customHeaders.keys)
+        if (!isCapturedSessionHeader(name)) name,
+    ],
+    hasMutualTlsCredentials:
+        (endpoint.mtlsCertificateChainPem?.isNotEmpty ?? false) &&
+        (endpoint.mtlsPrivateKeyPem?.isNotEmpty ?? false),
+    mtlsCertificateLabel: endpoint.mtlsCertificateLabel,
+    mtlsPrivateKeyLabel: endpoint.mtlsPrivateKeyLabel,
+    hasPrivateKeyPassword: endpoint.mtlsPrivateKeyPassword?.isNotEmpty ?? false,
+  );
+
+  /// Checks an address of a saved server ([core.checkServerAddressDraft]):
+  /// what the window's form holds, with the values it was never given (a
+  /// saved header's value, the client key) taken from the address it edits.
+  /// Each header is checked as the phone's Add Header page checks it.
+  Future<ServerAddressCheckResult> check(
+    ServerAddressCheckRequest request,
+  ) async {
+    _forgetStale();
+    final registry = await _storage.getOpenWebUiRegistryStrict();
+    final server = registry.server(request.serverId);
+    if (server == null) {
+      return _unusable(core.ServerAddressProblem.serverMissing);
+    }
+    final endpointId = request.endpointId;
+    final saved = endpointId == null ? null : server.endpoint(endpointId);
+    if (endpointId != null && saved == null) {
+      return _unusable(core.ServerAddressProblem.serverMissing);
+    }
+    final form = request.form;
+    // As [validateUrl]: a server's credentials go in the sign-in, never in
+    // its address, which is stored and shown.
+    if (Uri.tryParse(form.url.trim())?.userInfo.isNotEmpty ?? false) {
+      return _unusable(core.ServerAddressProblem.invalidAddress);
+    }
+    final draft = saved == null
+        ? core.ServerAddressDraft()
+        : core.ServerAddressDraft.of(saved);
+    draft
+      ..url = form.url
+      ..label = form.label
+      ..allowSelfSigned = form.allowSelfSignedCertificates;
+
+    // Headers in the form's order, each against those before it.
+    final kept = draft.headers;
+    final headers = <String, String>{};
+    for (final header in form.headers) {
+      final name = header.name.trim();
+      final value = (header.value ?? kept[name] ?? '').trim();
+      final problem = core.validateServerAddressHeader(
+        headers,
+        name: name,
+        value: value,
+      );
+      if (problem != null) return _unusable(problem, headerName: name);
+      headers[name] = value;
+    }
+    draft.headers
+      ..clear()
+      ..addAll(headers);
+
+    if (form.clearMutualTls) draft.clearMutualTls();
+    final certificate = form.mtlsCertificateChainPem;
+    if (certificate != null) {
+      final problem = core.validatePickedPem(certificate, isPrivateKey: false);
+      if (problem != null) return _unusable(problem);
+      draft
+        ..certificatePem = certificate
+        ..certificateLabel = form.mtlsCertificateLabel;
+    }
+    final key = form.mtlsPrivateKeyPem;
+    if (key != null) {
+      final problem = core.validatePickedPem(key, isPrivateKey: true);
+      if (problem != null) return _unusable(problem);
+      draft
+        ..privateKeyPem = key
+        ..privateKeyLabel = form.mtlsPrivateKeyLabel;
+    }
+    final password = form.mtlsPrivateKeyPassword;
+    if (password != null) draft.privateKeyPassword = password;
+
+    final found = await core.checkServerAddressDraft(
+      _container,
+      serverId: server.id,
+      endpointId: endpointId,
+      draft: draft,
+    );
+    switch (found) {
+      case core.ServerAddressUnusable(:final failure):
+        return _unusableFor(failure);
+      case core.ServerAddressAnswered(:final config, :final sessionRevision):
+        return _keep(
+          server.id,
+          endpointId,
+          draft.label,
+          config,
+          sessionRevision,
+          behindProxy: false,
+        );
+      case core.ServerAddressBehindProxy(:final config, :final sessionRevision):
+        return _keep(
+          server.id,
+          endpointId,
+          draft.label,
+          config,
+          sessionRevision,
+          behindProxy: true,
+        );
+    }
+  }
+
+  ServerAddressCheckResult _keep(
+    String serverId,
+    String? endpointId,
+    String label,
+    ServerConfig config,
+    int sessionRevision, {
+    required bool behindProxy,
+  }) {
+    final id = _uuid.v4();
+    _checked[id] = _CheckedAddress(
+      serverId: serverId,
+      endpointId: endpointId,
+      label: label,
+      config: config,
+      sessionRevision: sessionRevision,
+      behindProxy: behindProxy,
+    );
+    return ServerAddressCheckResult(
+      outcome: behindProxy
+          ? ServerAddressCheckOutcome.behindProxy
+          : ServerAddressCheckOutcome.answered,
+      checkId: id,
+      url: config.url,
+    );
+  }
+
+  /// Saves a checked address ([core.saveVerifiedServerAddress]). What the
+  /// core asks the user -- a session sent to a new host, the address in use
+  /// changed mid-reply -- comes back as [ServerAddressChangeOutcome
+  /// .needsConfirmation], and the window calls again with the answer. One
+  /// behind a proxy is saved with what the proxy's sign-in captured, its
+  /// cookie kept for the account that proves the address.
+  Future<ServerAddressSaveResult> save(ServerAddressSaveRequest request) async {
+    _forgetStale();
+    final checked = _checked[request.checkId];
+    if (checked == null) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        args: <String, String>{'checkId': request.checkId},
+        debugMessage: 'no checked address under that id (check it again)',
+      );
+    }
+    if (checked.behindProxy) {
+      final proxy = request.proxy;
+      if (proxy == null) {
+        throw const RpcError(
+          code: ConduitErrorCodes.invalidParams,
+          debugMessage: 'the address is behind a sign-in proxy: sign in first',
+        );
+      }
+      final refused = await _signedInThroughProxy(checked, proxy);
+      if (refused != null) {
+        _checked.remove(request.checkId);
+        return refused;
+      }
+    }
+
+    ServerAddressConfirmation? asked;
+    String? host;
+    final core.ServerAddressSave outcome;
+    try {
+      outcome = await core.saveVerifiedServerAddress(
+        _container,
+        serverId: checked.serverId,
+        endpointId: checked.endpointId,
+        addedEndpointId: checked.addedEndpointId,
+        label: checked.label,
+        verified: checked.config,
+        sessionRevision: checked.sessionRevision,
+        confirmSendingSession: (address) async {
+          if (request.sendSessionConfirmed) return true;
+          asked = ServerAddressConfirmation.sendSession;
+          host = address.authority;
+          return false;
+        },
+        confirmChangingInUse: () async {
+          if (!_replyArrives()) return true;
+          if (request.stopReplies) {
+            await _stopReplies();
+            return true;
+          }
+          asked = ServerAddressConfirmation.replyInProgress;
+          return false;
+        },
+        stillWanted: () => _checked.containsKey(request.checkId),
+      );
+    } on Object catch (error, stackTrace) {
+      DebugLogger.error(
+        'server-address-save-failed',
+        scope: 'daemon/servers',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _checked.remove(request.checkId);
+      return ServerAddressSaveResult(
+        outcome: ServerAddressChangeOutcome.notSaved,
+        problem: ServerAddressProblemCode.serverError,
+        addresses: await _addressesNow(checked.serverId),
+      );
+    }
+    switch (outcome) {
+      case core.ServerAddressSaved():
+        _checked.remove(request.checkId);
+        _changed(checked.serverId);
+        return ServerAddressSaveResult(
+          outcome: ServerAddressChangeOutcome.done,
+          addresses: await _addressesNow(checked.serverId),
+        );
+      case core.ServerAddressNotSaved(:final problem):
+        final question = asked;
+        if (problem == null && question != null) {
+          // Kept for the call that answers it.
+          return ServerAddressSaveResult(
+            outcome: ServerAddressChangeOutcome.needsConfirmation,
+            confirmation: question,
+            host: host,
+          );
+        }
+        _checked.remove(request.checkId);
+        return ServerAddressSaveResult(
+          outcome: ServerAddressChangeOutcome.notSaved,
+          problem: problem == null ? null : _code(problem),
+          addresses: await _addressesNow(checked.serverId),
+        );
+    }
+  }
+
+  /// Takes what a proxy's sign-in window captured into [checked]'s address
+  /// and asks the server through it once more, as the phone's connection
+  /// page does after its proxy sign-in. Null when it answered; else why not.
+  Future<ServerAddressSaveResult?> _signedInThroughProxy(
+    _CheckedAddress checked,
+    ExternalAuthCompletion proxy,
+  ) async {
+    if (!_sameOrigin(checked.config.url, proxy.origin)) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{'origin': proxy.origin},
+        debugMessage: 'captured origin is not the checked address',
+      );
+    }
+    final headers = mergeCapturedProxyCookiesIntoHeaders(
+      headers: checked.config.customHeaders,
+      capturedCookies: proxy.cookies,
+    );
+    final config = checked.config.copyWith(customHeaders: headers);
+    final api = ApiService(
+      serverConfig: config,
+      workerManager: _container.read(workerManagerProvider),
+      authToken: proxy.token,
+    );
+    try {
+      final answered = await api.verifyAndGetConfig();
+      if (answered == null) {
+        return const ServerAddressSaveResult(
+          outcome: ServerAddressChangeOutcome.notSaved,
+          problem: ServerAddressProblemCode.proxyVerificationFailed,
+        );
+      }
+    } on Object catch (error) {
+      final failure = core.classifyServerConnectionError(
+        error,
+        sensitiveValues: [
+          ...headers.values,
+          ...proxy.cookies.values,
+          if (proxy.token?.isNotEmpty ?? false) proxy.token!,
+        ],
+        hasMutualTlsInput: config.hasMutualTlsCredentials,
+      );
+      final unusable = _unusableFor(failure);
+      return ServerAddressSaveResult(
+        outcome: ServerAddressChangeOutcome.notSaved,
+        problem: unusable.problem,
+        errorText: unusable.errorText,
+      );
+    } finally {
+      api.dispose();
+    }
+    // Signed in: a confirmation asked next does not need the window again.
+    checked
+      ..config = config
+      ..behindProxy = false;
+    return null;
+  }
+
+  /// Removes [request]'s address. The address in use asks first while a
+  /// reply arrives through it.
+  Future<ServerAddressEditResult> remove(
+    ServerAddressRemoveRequest request,
+  ) async {
+    final registry = await _storage.getOpenWebUiRegistryStrict();
+    final server = registry.server(request.serverId);
+    if (server == null) throw _notFound(request.serverId);
+    if (server.endpoint(request.endpointId) == null) {
+      throw _notFound(request.endpointId);
+    }
+    if (!core.serverAddressesRemovable(server)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'a server keeps one address',
+      );
+    }
+    if (_addressInUse(server.id, registry) == request.endpointId &&
+        _replyArrives()) {
+      if (!request.stopReplies) {
+        return ServerAddressEditResult(
+          outcome: ServerAddressChangeOutcome.needsConfirmation,
+          confirmation: ServerAddressConfirmation.replyInProgress,
+          addresses: _addressesOf(server, registry),
+        );
+      }
+      await _stopReplies();
+    }
+    await core.editServerAddresses(
+      _container,
+      server.id,
+      (endpoints) => core.withoutServerAddress(endpoints, request.endpointId),
+    );
+    _changed(server.id);
+    return ServerAddressEditResult(
+      outcome: ServerAddressChangeOutcome.done,
+      addresses: await _addressesNow(server.id),
+    );
+  }
+
+  /// Puts [request]'s server's addresses in the order it names.
+  Future<ServerAddressEditResult> reorder(
+    ServerAddressReorderRequest request,
+  ) async {
+    final registry = await _storage.getOpenWebUiRegistryStrict();
+    if (registry.server(request.serverId) == null) {
+      throw _notFound(request.serverId);
+    }
+    await core.editServerAddresses(
+      _container,
+      request.serverId,
+      (endpoints) => core.serverAddressesInOrder(endpoints, request.order),
+    );
+    _changed(request.serverId);
+    return ServerAddressEditResult(
+      outcome: ServerAddressChangeOutcome.done,
+      addresses: await _addressesNow(request.serverId),
+    );
+  }
+
+  Future<ServerAddresses> _addressesNow(String serverId) async {
+    final registry = await _storage.getOpenWebUiRegistryStrict();
+    final server = registry.server(serverId);
+    return server == null
+        ? ServerAddresses(serverId: serverId, name: '')
+        : _addressesOf(server, registry);
+  }
+
+  /// Whether a reply arrives through the active account's address now: one
+  /// of the daemon's own Open WebUI answers, or the core's open chat's.
+  bool _replyArrives() {
+    if (replies?.addressAnswering ?? false) return true;
+    try {
+      return _container.read(addressChangeReplyGuardProvider)();
+    } on Object {
+      return false;
+    }
+  }
+
+  Future<void> _stopReplies() async {
+    await replies?.stopAddressAnswers();
+    try {
+      _container.read(addressChangeStopRepliesProvider)();
+    } on Object catch (error, stackTrace) {
+      DebugLogger.error(
+        'address-change-stop-replies-failed',
+        scope: 'daemon/servers',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  void _forgetStale() {
+    final now = DateTime.now();
+    _checked.removeWhere(
+      (_, checked) => now.difference(checked.at) > checkLifetime,
+    );
+  }
+
+  static ServerAddressCheckResult _unusable(
+    core.ServerAddressProblem problem, {
+    String? headerName,
+  }) => ServerAddressCheckResult(
+    outcome: ServerAddressCheckOutcome.unusable,
+    problem: _code(problem),
+    headerName: headerName,
+  );
+
+  static ServerAddressCheckResult _unusableFor(
+    core.ServerAddressFailure failure,
+  ) => switch (failure) {
+    core.ServerAddressProblemFailure(:final problem) => _unusable(problem),
+    core.ServerAddressErrorText(:final text) => ServerAddressCheckResult(
+      outcome: ServerAddressCheckOutcome.unusable,
+      errorText: text,
+    ),
+  };
+
+  /// The core's problem as the protocol names it: the same names.
+  static ServerAddressProblemCode _code(core.ServerAddressProblem problem) =>
+      ServerAddressProblemCode.values.byName(problem.name);
 
   /// The live state of the active server.
   ///
@@ -340,4 +902,50 @@ final class ServersService {
     }
     return trimmed;
   }
+}
+
+/// The daemon's own Open WebUI answers, which arrive through the active
+/// account's address: whether one is being written, and stopping them once
+/// the user has agreed to change that address anyway.
+abstract interface class AddressReplies {
+  bool get addressAnswering;
+  Future<void> stopAddressAnswers();
+}
+
+/// An address checked by `servers.addresses.check`, waiting for its save.
+final class _CheckedAddress {
+  _CheckedAddress({
+    required this.serverId,
+    required this.endpointId,
+    required this.label,
+    required this.config,
+    required this.sessionRevision,
+    required this.behindProxy,
+  });
+
+  final String serverId;
+  final String? endpointId;
+  final String label;
+
+  /// The address as it answered; with the proxy's cookie once signed in
+  /// through it.
+  ServerConfig config;
+  final int sessionRevision;
+  bool behindProxy;
+
+  /// The id a new address is saved under: one per check, so saving again
+  /// after a save that stored it and then failed edits it rather than
+  /// adding it twice.
+  final String addedEndpointId = const Uuid().v4();
+  final DateTime at = DateTime.now();
+}
+
+/// Scheme, host and port, ignoring path and trailing slash.
+bool _sameOrigin(String a, String b) {
+  final left = Uri.tryParse(a);
+  final right = Uri.tryParse(b);
+  if (left == null || right == null) return false;
+  return left.scheme == right.scheme &&
+      left.host == right.host &&
+      left.port == right.port;
 }

@@ -9,12 +9,17 @@ import 'dart:io';
 /// empty list (or, for the model list, an empty `data`), so the core's
 /// background loads find an empty account rather than an error.
 final class FakeOwuiAuthServer {
-  FakeOwuiAuthServer._(this._server, this._users, this._twoStep);
+  FakeOwuiAuthServer._(
+    this._server,
+    this._users,
+    this._twoStep,
+    this.proxyCookie,
+  );
 
   final HttpServer _server;
   final Map<String, ({String id, String name, String password})> _users;
   final Set<String> _twoStep;
-  final Map<String, String> _tokens = <String, String>{};
+  Map<String, String> _tokens = <String, String>{};
   final Map<String, String> _challenges = <String, String>{};
   var _issued = 0;
 
@@ -43,20 +48,39 @@ final class FakeOwuiAuthServer {
   /// expired does: a redirect to its sign-in page.
   bool turnAway = false;
 
+  /// A sign-in proxy in front of the server: a request without this cookie
+  /// (`name=value`) is sent to the proxy's sign-in page, health checks too.
+  final String? proxyCookie;
+
+  /// Takes [other]'s sessions as its own, from now on: the same server
+  /// reached another way (here, through a sign-in proxy).
+  void shareSessionsOf(FakeOwuiAuthServer other) => _tokens = other._tokens;
+
   /// Ends every session server-side: their tokens are refused from now on.
   void revokeSessions() => _tokens.clear();
 
   /// How many sessions password sign-ins have been given.
   int get signIns => _issued;
 
+  /// A session for [email], as a sign-in in a window would have made.
+  String sessionFor(String email) {
+    final token = 'fake-window-token-${++_issued}';
+    _tokens[token] = email;
+    return token;
+  }
+
+  /// While set, every request waits for it before it is answered.
+  Future<void>? hold;
+
   String get url => 'http://127.0.0.1:${_server.port}';
 
   static Future<FakeOwuiAuthServer> start({
     required Map<String, ({String id, String name, String password})> users,
     Set<String> twoStep = const <String>{},
+    String? proxyCookie,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    final fake = FakeOwuiAuthServer._(server, users, twoStep);
+    final fake = FakeOwuiAuthServer._(server, users, twoStep, proxyCookie);
     server.listen((request) => unawaited(fake._handle(request)));
     return fake;
   }
@@ -86,6 +110,30 @@ final class FakeOwuiAuthServer {
         ..headers.contentType = ContentType.html
         ..write('<html><body>Sign in to continue</body></html>');
       return response.close();
+    }
+    final held = hold;
+    if (held != null) await held;
+    final proxy = proxyCookie;
+    if (proxy != null &&
+        !(request.headers.value(HttpHeaders.cookieHeader) ?? '').contains(
+          proxy,
+        )) {
+      await request.drain<void>();
+      if (path == '/oauth2/start') {
+        response
+          ..headers.contentType = ContentType.html
+          ..write('<html><body>Proxy sign-in</body></html>');
+        await response.close();
+        return;
+      }
+      response
+        ..statusCode = HttpStatus.found
+        ..headers.set(
+          HttpHeaders.locationHeader,
+          'http://127.0.0.1:${_server.port}/oauth2/start',
+        );
+      await response.close();
+      return;
     }
     if (path == '/health') return json(<String, dynamic>{'status': true});
     if (path == '/api/version') {

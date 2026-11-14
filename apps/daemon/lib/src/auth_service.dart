@@ -8,6 +8,8 @@ import 'package:conduit_core/auth/sign_in_failure.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
+    show accountAdditionOriginProvider;
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
@@ -502,11 +504,40 @@ final class AuthService {
       );
     }
 
+    // Before anything is awaited: a sign-out from here on revokes whatever
+    // cookie the window captured.
+    final storage = _container.read(optimizedStorageServiceProvider);
+    final revision = storage.sessionRevocationRevision;
+    // The capture is for the account active now, and for the addition it
+    // finishes, if one is in progress. Another window switching accounts,
+    // cancelling the addition or signing out while the proxy's session is
+    // proved leaves it for an account no longer in use: then nothing of it
+    // is committed or kept, as the phone's connection page passes the
+    // addition to the commit.
+    final session = _container.read(openWebUiAuthSessionEpochProvider);
+    final stillAdding = _container.read(accountAdditionOriginProvider) == null
+        ? null
+        : _container
+              .read(accountAdditionOriginProvider.notifier)
+              .stillInProgress();
+    bool stillCurrent() =>
+        identical(
+          session,
+          _container.read(openWebUiAuthSessionEpochProvider),
+        ) &&
+        storage.sessionRevocationRevision == revision &&
+        (stillAdding?.call() ?? true);
+
     final outcome = await prevalidateProxySession(
       serverConfig: active,
       capture: ProxyAuthCapture(cookies: params.cookies, token: params.token),
       workerManager: _container.read(workerManagerProvider),
     );
+    if (outcome is! ProxySessionRejected &&
+        (await storage.getEffectiveActiveServerId() != active.id ||
+            !stillCurrent())) {
+      return _snapshot();
+    }
 
     switch (outcome) {
       case ProxySessionAuthenticated(
@@ -518,11 +549,17 @@ final class AuthService {
           serverConfig: serverConfig,
           token: token,
           user: user,
+          // The commit itself moves the session and reloads the account, so
+          // only the addition is asked from here on; the core's own fence
+          // stops it for a switch or a sign-out meanwhile.
+          canCommit: stillAdding,
         );
-      case ProxySessionNeedsSignIn():
+      case ProxySessionNeedsSignIn(:final serverConfig):
         // The proxy let us through but Open WebUI still wants credentials.
-        // Not an error: the UI shows its sign-in form next.
-        break;
+        // Not an error: the UI shows its sign-in form next, whose requests
+        // pass the proxy too -- so the cookie the window captured stays on
+        // the account, as the phone's sign-in page carries it on.
+        await _keepProxyCookie(serverConfig, stillCurrent);
       case ProxySessionRejected(:final failure):
         throw RpcError(
           code: switch (failure) {
@@ -539,6 +576,29 @@ final class AuthService {
         );
     }
     return _snapshot();
+  }
+
+  /// Saves [config] -- the active account's connection with the cookie a
+  /// proxy sign-in captured -- in place of the one stored, unless
+  /// [stillCurrent] says the sign-in no longer counts (a sign-out has
+  /// revoked cookies since, or the account changed). The cookie is filed on
+  /// the account, not the shared address (`isCapturedSessionHeader`).
+  Future<void> _keepProxyCookie(
+    ServerConfig config,
+    bool Function() stillCurrent,
+  ) async {
+    final storage = _container.read(optimizedStorageServiceProvider);
+    if (!stillCurrent()) return;
+    final configs = await storage.getServerConfigsStrict();
+    if (!stillCurrent()) return;
+    if (!configs.any((saved) => saved.id == config.id)) return;
+    await storage.saveServerConfigs([
+      for (final saved in configs) saved.id == config.id ? config : saved,
+    ]);
+    _container
+      ..invalidate(serverConfigsProvider)
+      ..invalidate(activeServerProvider);
+    await readSettled(_container, activeServerProvider.future);
   }
 
   /// Scheme, host and port, ignoring path and trailing slash.
