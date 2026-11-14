@@ -37,5 +37,5 @@ change is about motion or timing. Upload them here. Do not commit them. -->
       [licensing terms](https://github.com/cogwheel0/conduit/blob/main/CONTRIBUTING.md#licensing)
       for this contribution.
 
-<!-- If an AI agent wrote any of this code, end with the model and the tool
-that ran it. -->
+<!-- From outside the project: if an AI agent wrote any of this code, end with
+the model and the tool that ran it. The maintainer's own PRs skip this. -->

@@ -78,9 +78,10 @@ content.
 
 ### Say when an agent wrote it
 
-Code written with an AI agent is welcome and held to the same rules. If an
-agent wrote any of the code, end the PR description with the model and the tool
-that ran it. You are still the author: read the diff, run it, and be ready to
+Code written with an AI agent is welcome and held to the same rules. In a PR
+from outside the project, if an agent wrote any of the code, end the PR
+description with the model and the tool that ran it; the maintainer's own PRs
+skip this. You are still the author: read the diff, run it, and be ready to
 answer questions about it. [AGENTS.md](AGENTS.md) is the guide agents follow in
 this repository.
 
