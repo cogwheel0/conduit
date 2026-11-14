@@ -98,10 +98,35 @@ abstract class ComposerOptions with _$ComposerOptions {
     /// model while its connection is there, or else a signed-in Open WebUI
     /// account's. The composer's call button and Start Voice Call follow it.
     @Default(false) bool voiceCall,
+
+    /// The chat talks to a coding agent (Open WebUI 0.13.1 and later): the
+    /// selected model is one, or the chat was started with one or has a
+    /// reply from one (core's `chatUsesTerminalAgent`). Open WebUI answers an
+    /// agent only with a new message at the end of the chat, so Regenerate,
+    /// Retry, Edit and Compare Models are not offered.
+    @Default(false) bool agentChat,
+
+    /// The selected model has a reasoning-effort control of its own (a
+    /// coding agent's, or a `model_controls` entry: `models.controls`), which
+    /// takes the place of the app's Reasoning Effort.
+    @Default(false) bool ownEffortControl,
   }) = _ComposerOptions;
 
   factory ComposerOptions.fromJson(Map<String, dynamic> json) =>
       _$ComposerOptionsFromJson(json);
+}
+
+/// Params for `composer.options`: the chat the composer is for. Nothing set
+/// answers for a new chat.
+@freezed
+abstract class ComposerOptionsQuery with _$ComposerOptionsQuery {
+  const factory ComposerOptionsQuery({
+    /// The open chat; null for a new one.
+    String? chatId,
+  }) = _ComposerOptionsQuery;
+
+  factory ComposerOptionsQuery.fromJson(Map<String, dynamic> json) =>
+      _$ComposerOptionsQueryFromJson(json);
 }
 
 /// A knowledge base, as the `#` menu lists it.

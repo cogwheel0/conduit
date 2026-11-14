@@ -1,4 +1,5 @@
 {
   "id": "fake-model",
-  "name": "Fake"
+  "name": "Fake",
+  "agent": false
 }

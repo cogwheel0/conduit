@@ -1,0 +1,17 @@
+{
+  "key": "service_tier",
+  "label": "Service tier",
+  "description": "How fast the agent answers.",
+  "options": [
+    {
+      "value": "flex",
+      "label": "Flex"
+    },
+    {
+      "value": "priority",
+      "label": "Priority"
+    }
+  ],
+  "defaultValue": "flex",
+  "value": "priority"
+}

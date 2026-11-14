@@ -756,8 +756,9 @@ abstract final class ConduitMethodSpecs {
 
   // models.*, composer.*, prompts.*
 
-  static const modelsList = ConduitMethodSpec<void, ModelList>(
+  static const modelsList = ConduitMethodSpec<ModelListQuery, ModelList>(
     ConduitMethods.modelsList,
+    params: ModelListQuery.fromJson,
     result: ModelList.fromJson,
   );
   static const modelsSelect = ConduitMethodSpec<SelectModel, ModelList>(
@@ -787,6 +788,18 @@ abstract final class ConduitMethodSpecs {
         ConduitMethods.modelsSetFastTier,
         params: SetFastTier.fromJson,
         result: ModelOptionsDto.fromJson,
+      );
+  static const modelsControls =
+      ConduitMethodSpec<ModelControlsQuery, ModelControlList>(
+        ConduitMethods.modelsControls,
+        params: ModelControlsQuery.fromJson,
+        result: ModelControlList.fromJson,
+      );
+  static const modelsSetControl =
+      ConduitMethodSpec<SetModelControl, ModelControlList>(
+        ConduitMethods.modelsSetControl,
+        params: SetModelControl.fromJson,
+        result: ModelControlList.fromJson,
       );
 
   // chatSettings.*, valves.*, access.*
@@ -841,10 +854,12 @@ abstract final class ConduitMethodSpecs {
         params: AccessPrincipalQuery.fromJson,
         result: AccessPrincipals.fromJson,
       );
-  static const composerOptions = ConduitMethodSpec<void, ComposerOptions>(
-    ConduitMethods.composerOptions,
-    result: ComposerOptions.fromJson,
-  );
+  static const composerOptions =
+      ConduitMethodSpec<ComposerOptionsQuery, ComposerOptions>(
+        ConduitMethods.composerOptions,
+        params: ComposerOptionsQuery.fromJson,
+        result: ComposerOptions.fromJson,
+      );
   static const composerKnowledge =
       ConduitMethodSpec<KnowledgeQuery, KnowledgeList>(
         ConduitMethods.composerKnowledge,
@@ -1431,6 +1446,12 @@ abstract final class ConduitMethodSpecs {
         ConduitMethods.automationsSave,
         params: AutomationDraftEdit.fromJson,
         result: AutomationDraftState.fromJson,
+      );
+  static const automationsTerminals =
+      ConduitMethodSpec<AutomationDraftEdit, AutomationTerminals>(
+        ConduitMethods.automationsTerminals,
+        params: AutomationDraftEdit.fromJson,
+        result: AutomationTerminals.fromJson,
       );
 
   // notes.*
@@ -2568,6 +2589,8 @@ abstract final class ConduitMethodSpecs {
         modelsOptions,
         modelsSetReasoningEffort,
         modelsSetFastTier,
+        modelsControls,
+        modelsSetControl,
         chatSettingsGet,
         chatSettingsCheck,
         chatSettingsSave,
@@ -2679,6 +2702,7 @@ abstract final class ConduitMethodSpecs {
         automationsEditor,
         automationsCheckDraft,
         automationsSave,
+        automationsTerminals,
         appleStatus,
         appleRefresh,
         appleChoose,

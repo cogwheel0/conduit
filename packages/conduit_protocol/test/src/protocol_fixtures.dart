@@ -3048,6 +3048,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     inlineMessageActions: <String>['copy', 'regenerate'],
     sendOnEnter: true,
     showComposerNotesButton: false,
+    showModelNameInComposer: true,
     temporaryChatByDefault: true,
     citationShowTitles: true,
     citationBackground: false,
@@ -3073,6 +3074,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   ),
   'appSettingsPatch': const AppSettingsPatch(
     sendOnEnter: true,
+    showModelNameInComposer: false,
     quickPills: <String>['image'],
     ttsSpeed: 1.5,
     clear: <String>['defaultModel', 'inlineMessageActions'],
@@ -4722,6 +4724,138 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     changed: true,
     failure: 'Schedule too frequent.',
   ),
+  'modelListAgents': const ModelList(
+    models: <ModelSummary>[ModelSummary(id: 'fake-model', name: 'Kestrel 8B')],
+    selectedId: 'agent:buildbox:codex:gpt-5.1',
+    agents: <ModelSummary>[
+      ModelSummary(
+        id: 'agent:buildbox:codex:gpt-5.1',
+        name: 'Codex · gpt-5.1',
+        agent: TerminalAgentDto(
+          terminalId: 'buildbox',
+          terminalName: 'Build box',
+          agent: 'codex',
+          agentName: 'Codex',
+          model: 'gpt-5.1',
+        ),
+      ),
+    ],
+    agentNames: <String, String>{
+      'agent:buildbox:pi:default': 'Pi · default',
+    },
+  ),
+  'terminalAgent': const TerminalAgentDto(
+    terminalId: 'buildbox',
+    agent: 'claude-code',
+    model: 'sonnet',
+  ),
+  'modelListQuery': const ModelListQuery(chatId: 'chat-1', temporary: true),
+  'selectModelInChat': const SelectModel(
+    id: 'agent:buildbox:codex:gpt-5.1',
+    chatId: 'chat-1',
+  ),
+  'modelControlOption': const ModelControlOptionDto(
+    value: 'high',
+    label: 'High',
+  ),
+  'modelControl': const ModelControlDto(
+    key: 'service_tier',
+    label: 'Service tier',
+    description: 'How fast the agent answers.',
+    options: <ModelControlOptionDto>[
+      ModelControlOptionDto(value: 'flex', label: 'Flex'),
+      ModelControlOptionDto(value: 'priority', label: 'Priority'),
+    ],
+    defaultValue: 'flex',
+    value: 'priority',
+  ),
+  'modelControlsQuery': const ModelControlsQuery(
+    modelId: 'agent:buildbox:codex:gpt-5.1',
+    chatId: 'chat-1',
+  ),
+  'modelControlList': const ModelControlList(
+    modelId: 'agent:buildbox:codex:gpt-5.1',
+    controls: <ModelControlDto>[
+      ModelControlDto(
+        key: 'reasoning_effort',
+        options: <ModelControlOptionDto>[ModelControlOptionDto(value: 'low')],
+      ),
+    ],
+  ),
+  'setModelControl': const SetModelControl(
+    modelId: 'agent:buildbox:codex:gpt-5.1',
+    key: 'reasoning_effort',
+    value: 'high',
+  ),
+  'composerOptionsQuery': const ComposerOptionsQuery(chatId: 'chat-1'),
+  'composerOptionsAgent': const ComposerOptions(
+    agentChat: true,
+    ownEffortControl: true,
+  ),
+  'automationSummaryAgent': const AutomationSummary(
+    id: 'task-agent',
+    name: 'Nightly tidy',
+    schedule: AutomationScheduleDto(kind: 'daily', hour: 2),
+    agent: TerminalAgentDto(
+      terminalId: 'buildbox',
+      agent: 'codex',
+      agentName: 'Codex',
+      model: 'gpt-5.1',
+    ),
+  ),
+  'automationDetailTerminal': const AutomationDetail(
+    summary: AutomationSummary(
+      id: 'task-agent',
+      name: 'Nightly tidy',
+      schedule: AutomationScheduleDto(kind: 'daily', hour: 2),
+    ),
+    prompt: 'Tidy the sketch folder.',
+    modelId: 'agent:buildbox:codex:gpt-5.1',
+    modelName: 'Codex · gpt-5.1',
+    terminal: true,
+    terminalId: 'buildbox',
+    terminalName: 'Build box',
+    workingDirectory: '/home/demo/sketches',
+    agent: TerminalAgentDto(
+      terminalId: 'buildbox',
+      agent: 'codex',
+      model: 'gpt-5.1',
+    ),
+  ),
+  'automationFieldsTerminal': const AutomationFields(
+    name: 'Nightly tidy',
+    prompt: 'Tidy the sketch folder.',
+    modelId: 'agent:buildbox:codex:gpt-5.1',
+    schedule: AutomationScheduleDto(kind: 'daily', hour: 2),
+    terminalId: 'buildbox',
+    workingDirectory: '/home/demo/sketches',
+  ),
+  'automationEditorTerminals': const AutomationEditor(
+    token: 'te-2',
+    fields: AutomationFields(
+      schedule: AutomationScheduleDto(kind: 'daily', hour: 2),
+      terminalId: 'buildbox',
+    ),
+    terminals: <AutomationOption>[
+      AutomationOption(id: 'buildbox', name: 'Build box'),
+    ],
+    agentsUnknown: true,
+    agentName: 'Codex · gpt-5.1',
+  ),
+  'automationTerminals': const AutomationTerminals(
+    terminals: <AutomationOption>[
+      AutomationOption(id: 'buildbox', name: 'Build box'),
+    ],
+    models: <AutomationOption>[
+      AutomationOption(id: 'fake-model', name: 'Kestrel 8B'),
+      AutomationOption(
+        id: 'agent:buildbox:codex:gpt-5.1',
+        name: 'Codex · gpt-5.1',
+        detail: 'Build box',
+        agent: true,
+      ),
+    ],
+  ),
 };
 
 /// `fromJson` for each fixture, keyed the same way.
@@ -5511,6 +5645,22 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'automationEditor': AutomationEditor.fromJson,
       'automationDraftEdit': AutomationDraftEdit.fromJson,
       'automationDraftState': AutomationDraftState.fromJson,
+      'modelListAgents': ModelList.fromJson,
+      'terminalAgent': TerminalAgentDto.fromJson,
+      'modelListQuery': ModelListQuery.fromJson,
+      'selectModelInChat': SelectModel.fromJson,
+      'modelControlOption': ModelControlOptionDto.fromJson,
+      'modelControl': ModelControlDto.fromJson,
+      'modelControlsQuery': ModelControlsQuery.fromJson,
+      'modelControlList': ModelControlList.fromJson,
+      'setModelControl': SetModelControl.fromJson,
+      'composerOptionsQuery': ComposerOptionsQuery.fromJson,
+      'composerOptionsAgent': ComposerOptions.fromJson,
+      'automationSummaryAgent': AutomationSummary.fromJson,
+      'automationDetailTerminal': AutomationDetail.fromJson,
+      'automationFieldsTerminal': AutomationFields.fromJson,
+      'automationEditorTerminals': AutomationEditor.fromJson,
+      'automationTerminals': AutomationTerminals.fromJson,
     };
 
 /// Every fixture's `toJson`, so the checker can encode without `dynamic`.

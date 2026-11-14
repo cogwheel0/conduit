@@ -618,7 +618,7 @@
     },
     {
       "name": "models.list",
-      "params": null,
+      "params": "ModelListQuery",
       "result": "ModelList"
     },
     {
@@ -645,6 +645,16 @@
       "name": "models.setFastTier",
       "params": "SetFastTier",
       "result": "ModelOptionsDto"
+    },
+    {
+      "name": "models.controls",
+      "params": "ModelControlsQuery",
+      "result": "ModelControlList"
+    },
+    {
+      "name": "models.setControl",
+      "params": "SetModelControl",
+      "result": "ModelControlList"
     },
     {
       "name": "chatSettings.get",
@@ -693,7 +703,7 @@
     },
     {
       "name": "composer.options",
-      "params": null,
+      "params": "ComposerOptionsQuery",
       "result": "ComposerOptions"
     },
     {
@@ -1200,6 +1210,11 @@
       "name": "automations.save",
       "params": "AutomationDraftEdit",
       "result": "AutomationDraftState"
+    },
+    {
+      "name": "automations.terminals",
+      "params": "AutomationDraftEdit",
+      "result": "AutomationTerminals"
     },
     {
       "name": "apple.status",

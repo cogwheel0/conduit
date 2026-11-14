@@ -1,5 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'models.dart';
+
 part 'automations.freezed.dart';
 part 'automations.g.dart';
 
@@ -47,6 +49,10 @@ abstract class AutomationSummary with _$AutomationSummary {
     /// The last run, in milliseconds since the epoch.
     int? lastRunAt,
     @Default(false) bool lastRunFailed,
+
+    /// The coding agent it runs, when its model is one (a task made on the
+    /// web with an agent): the list names it instead of a model.
+    TerminalAgentDto? agent,
   }) = _AutomationSummary;
 
   factory AutomationSummary.fromJson(Map<String, dynamic> json) =>
@@ -145,6 +151,17 @@ abstract class AutomationDetail with _$AutomationDetail {
     /// A terminal is attached; edits keep it.
     @Default(false) bool terminal,
 
+    /// The server terminal it runs with, by id, and its name when the
+    /// server lists it.
+    String? terminalId,
+    String? terminalName,
+
+    /// The folder on [terminalId] it starts in; null for the terminal's own.
+    String? workingDirectory,
+
+    /// The coding agent it runs, when [modelId] is one's.
+    TerminalAgentDto? agent,
+
     /// The server's next runs, in milliseconds since the epoch (empty for a
     /// paused task).
     @Default(<int>[]) List<int> nextRuns,
@@ -226,6 +243,16 @@ abstract class AutomationFields with _$AutomationFields {
 
     /// A chat result's folder, or null for none.
     String? folderId,
+
+    /// The server terminal the task runs with (its tools, and its agents
+    /// when [modelId] is a coding agent's), or null for none. Moving to
+    /// another terminal drops an agent of the old one and its working
+    /// folder (`automations.checkDraft` answers with that).
+    String? terminalId,
+
+    /// The folder on [terminalId] the task starts in, or null for the
+    /// terminal's own.
+    String? workingDirectory,
   }) = _AutomationFields;
 
   factory AutomationFields.fromJson(Map<String, dynamic> json) =>
@@ -238,6 +265,12 @@ abstract class AutomationOption with _$AutomationOption {
   const factory AutomationOption({
     required String id,
     @Default('') String name,
+
+    /// A second line: the terminal a coding agent runs on.
+    String? detail,
+
+    /// The model is a coding agent (it posts only to a new chat).
+    @Default(false) bool agent,
   }) = _AutomationOption;
 
   factory AutomationOption.fromJson(Map<String, dynamic> json) =>
@@ -269,10 +302,47 @@ abstract class AutomationEditor with _$AutomationEditor {
 
     /// A terminal is attached; edits keep it.
     @Default(false) bool terminal,
+
+    /// The server's terminals a task may run with (`automations.terminals`
+    /// answers again for another terminal or folder); null when they could
+    /// not be read: the task's own then stays as it is.
+    List<AutomationOption>? terminals,
+
+    /// The coding agents [AutomationFields.terminalId] offers, already in
+    /// [models]; see [AutomationTerminals].
+    @Default(false) bool agentsUnknown,
+
+    /// The task's coding agent named as the picker names it ("Codex ·
+    /// gpt-5.1"), when its model is one: what the model row shows while the
+    /// terminal does not (or no longer) lists it.
+    String? agentName,
   }) = _AutomationEditor;
 
   factory AutomationEditor.fromJson(Map<String, dynamic> json) =>
       _$AutomationEditorFromJson(json);
+}
+
+/// Reply to `automations.terminals`: the server terminals a task may run
+/// with, and the models the editor offers with the draft's terminal and
+/// working folder: the account's models, then that terminal's coding agents
+/// (Open WebUI 0.13.3 and later), each with [AutomationOption.agent] set.
+@freezed
+abstract class AutomationTerminals with _$AutomationTerminals {
+  const factory AutomationTerminals({
+    /// Null when the server's terminals could not be read.
+    List<AutomationOption>? terminals,
+
+    /// Null while the account's models have not loaded.
+    List<AutomationOption>? models,
+
+    /// The terminal could not be asked for its agents (or the result posts
+    /// to a channel): whether the task's agent is still offered is unknown,
+    /// so it is not refused for that.
+    @Default(false) bool agentsUnknown,
+  }) = _AutomationTerminals;
+
+  factory AutomationTerminals.fromJson(Map<String, dynamic> json) =>
+      _$AutomationTerminalsFromJson(json);
 }
 
 /// Params for `automations.checkDraft` and `automations.save`.
@@ -303,7 +373,8 @@ abstract class AutomationDraftState with _$AutomationDraftState {
     /// What stops it being saved: `nameRequired`, `promptRequired`,
     /// `modelRequired`, `modelUnavailable`, `channelRequired`,
     /// `channelUnavailable`, `channelNoWrite`, `folderUnavailable`,
-    /// `scheduleIncomplete`.
+    /// `scheduleIncomplete`, `terminalRequired` (a coding agent needs its
+    /// terminal), `agentNeedsChat` (an agent posts only to a new chat).
     @Default(<String>[]) List<String> issues,
     @Default(false) bool changed,
 

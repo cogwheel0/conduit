@@ -21,8 +21,10 @@
   "models": [
     {
       "id": "fake-model",
-      "name": ""
+      "name": "",
+      "agent": false
     }
   ],
-  "terminal": true
+  "terminal": true,
+  "agentsUnknown": false
 }

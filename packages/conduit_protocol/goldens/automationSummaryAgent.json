@@ -1,0 +1,22 @@
+{
+  "id": "task-agent",
+  "name": "Nightly tidy",
+  "active": true,
+  "schedule": {
+    "kind": "daily",
+    "year": 0,
+    "month": 0,
+    "day": 0,
+    "hour": 2,
+    "minute": 0,
+    "days": [],
+    "rrule": ""
+  },
+  "lastRunFailed": false,
+  "agent": {
+    "terminalId": "buildbox",
+    "agent": "codex",
+    "agentName": "Codex",
+    "model": "gpt-5.1"
+  }
+}

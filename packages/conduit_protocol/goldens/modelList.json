@@ -18,5 +18,7 @@
   "selectedId": "gpt-4o",
   "featuredIds": [],
   "moreSections": [],
-  "canPin": false
+  "canPin": false,
+  "agents": [],
+  "agentNames": {}
 }

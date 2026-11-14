@@ -20,5 +20,7 @@
     }
   ],
   "canPin": true,
-  "defaultId": "fake-model"
+  "defaultId": "fake-model",
+  "agents": [],
+  "agentNames": {}
 }

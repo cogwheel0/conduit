@@ -1125,6 +1125,10 @@ pub struct AutomationSummary {
     pub last_run_at: Option<i64>,
     #[serde(default)]
     pub last_run_failed: bool,
+    /// The coding agent it runs, when its model is one (a task made on the
+    /// web with an agent): the list names it instead of a model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<TerminalAgentDto>,
 }
 
 fn default_automation_summary_active() -> bool {
@@ -1244,6 +1248,18 @@ pub struct AutomationDetail {
     /// A terminal is attached; edits keep it.
     #[serde(default)]
     pub terminal: bool,
+    /// The server terminal it runs with, by id, and its name when the
+    /// server lists it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_name: Option<String>,
+    /// The folder on `terminalId` it starts in; null for the terminal's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_directory: Option<String>,
+    /// The coding agent it runs, when `modelId` is one's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<TerminalAgentDto>,
     /// The server's next runs, in milliseconds since the epoch (empty for a
     /// paused task).
     #[serde(default)]
@@ -1324,6 +1340,16 @@ pub struct AutomationFields {
     /// A chat result's folder, or null for none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder_id: Option<String>,
+    /// The server terminal the task runs with (its tools, and its agents
+    /// when `modelId` is a coding agent's), or null for none. Moving to
+    /// another terminal drops an agent of the old one and its working
+    /// folder (`automations.checkDraft` answers with that).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_id: Option<String>,
+    /// The folder on `terminalId` the task starts in, or null for the
+    /// terminal's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_directory: Option<String>,
 }
 
 fn default_automation_fields_active() -> bool {
@@ -1341,6 +1367,12 @@ pub struct AutomationOption {
     pub id: String,
     #[serde(default)]
     pub name: String,
+    /// A second line: the terminal a coding agent runs on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// The model is a coding agent (it posts only to a new chat).
+    #[serde(default)]
+    pub agent: bool,
 }
 
 /// Params for `automations.editor`: a new task, or the task `id`.
@@ -1370,10 +1402,44 @@ pub struct AutomationEditor {
     /// A terminal is attached; edits keep it.
     #[serde(default)]
     pub terminal: bool,
+    /// The server's terminals a task may run with (`automations.terminals`
+    /// answers again for another terminal or folder); null when they could
+    /// not be read: the task's own then stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminals: Option<Vec<AutomationOption>>,
+    /// The coding agents `AutomationFields.terminalId` offers, already in
+    /// `models`; see `AutomationTerminals`.
+    #[serde(default)]
+    pub agents_unknown: bool,
+    /// The task's coding agent named as the picker names it ("Codex ·
+    /// gpt-5.1"), when its model is one: what the model row shows while the
+    /// terminal does not (or no longer) lists it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
 }
 
 fn default_automation_editor_is_new() -> bool {
     true
+}
+
+/// Reply to `automations.terminals`: the server terminals a task may run
+/// with, and the models the editor offers with the draft's terminal and
+/// working folder: the account's models, then that terminal's coding agents
+/// (Open WebUI 0.13.3 and later), each with `AutomationOption.agent` set.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationTerminals {
+    /// Null when the server's terminals could not be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminals: Option<Vec<AutomationOption>>,
+    /// Null while the account's models have not loaded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub models: Option<Vec<AutomationOption>>,
+    /// The terminal could not be asked for its agents (or the result posts
+    /// to a channel): whether the task's agent is still offered is unknown,
+    /// so it is not refused for that.
+    #[serde(default)]
+    pub agents_unknown: bool,
 }
 
 /// Params for `automations.checkDraft` and `automations.save`.
@@ -1399,7 +1465,8 @@ pub struct AutomationDraftState {
     /// What stops it being saved: `nameRequired`, `promptRequired`,
     /// `modelRequired`, `modelUnavailable`, `channelRequired`,
     /// `channelUnavailable`, `channelNoWrite`, `folderUnavailable`,
-    /// `scheduleIncomplete`.
+    /// `scheduleIncomplete`, `terminalRequired` (a coding agent needs its
+    /// terminal), `agentNeedsChat` (an agent posts only to a new chat).
     #[serde(default)]
     pub issues: Vec<String>,
     #[serde(default)]
@@ -5008,6 +5075,28 @@ pub struct ComposerOptions {
     /// account's. The composer's call button and Start Voice Call follow it.
     #[serde(default)]
     pub voice_call: bool,
+    /// The chat talks to a coding agent (Open WebUI 0.13.1 and later): the
+    /// selected model is one, or the chat was started with one or has a
+    /// reply from one (core's `chatUsesTerminalAgent`). Open WebUI answers an
+    /// agent only with a new message at the end of the chat, so Regenerate,
+    /// Retry, Edit and Compare Models are not offered.
+    #[serde(default)]
+    pub agent_chat: bool,
+    /// The selected model has a reasoning-effort control of its own (a
+    /// coding agent's, or a `model_controls` entry: `models.controls`), which
+    /// takes the place of the app's Reasoning Effort.
+    #[serde(default)]
+    pub own_effort_control: bool,
+}
+
+/// Params for `composer.options`: the chat the composer is for. Nothing set
+/// answers for a new chat.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerOptionsQuery {
+    /// The open chat; null for a new one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
 }
 
 /// A knowledge base, as the `#` menu lists it.
@@ -9904,6 +9993,11 @@ pub struct ModelSummary {
     /// draws the model's initial.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logo: Option<String>,
+    /// A coding agent on one of the server's terminals (Open WebUI 0.13.1
+    /// and later), listed under `ModelList.agents`; null for every other
+    /// model. Its `name` is the picker's ("Codex · gpt-5.1").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<TerminalAgentDto>,
 }
 
 /// Reply to `models.list`.
@@ -9931,6 +10025,52 @@ pub struct ModelList {
     /// The account's default model (Settings › Personalization).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_id: Option<String>,
+    /// The selected terminal's coding agents, listed after the account's
+    /// models under "Coding Agents" (core's `terminalAgentModelsProvider`):
+    /// only the server's own terminals offer them, only in a saved chat
+    /// (`ModelListQuery.chatId`, or a new one that is not temporary), and
+    /// only on Open WebUI 0.13.1 and later. Empty when the terminal could
+    /// not be asked in time. `featuredIds` may name one (when it is
+    /// selected or pinned), and so may `selectedId`.
+    #[serde(default)]
+    pub agents: Vec<ModelSummary>,
+    /// The coding agents this chat's replies came from, by model id, named
+    /// as the picker names them ("Codex · gpt-5.1"), for a reply's header
+    /// when its terminal no longer offers the agent.
+    #[serde(default)]
+    pub agent_names: BTreeMap<String, String>,
+}
+
+/// A coding agent's place: the terminal it runs on, the agent (`codex`,
+/// `claude-code`, ...) and the agent's own model, as its model id
+/// (`agent:<terminal>:<agent>:<model>`) names them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalAgentDto {
+    pub terminal_id: String,
+    /// The terminal's name, when the server listed it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_name: Option<String>,
+    /// The agent's id (`codex`).
+    pub agent: String,
+    /// The agent's name as its maker gives it (`Codex`).
+    #[serde(default)]
+    pub agent_name: String,
+    /// The agent's own model (`gpt-5.1`).
+    pub model: String,
+}
+
+/// Params for `models.list`: the chat the picker is for. Nothing set lists
+/// for a new chat.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelListQuery {
+    /// The open chat; null for a new one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+    /// The new chat is a temporary one, where no coding agent answers.
+    #[serde(default)]
+    pub temporary: bool,
 }
 
 /// Params for `models.select`.
@@ -9938,6 +10078,11 @@ pub struct ModelList {
 #[serde(rename_all = "camelCase")]
 pub struct SelectModel {
     pub id: String,
+    /// The chat the picker is for: a coding agent (`ModelList.agents`) is
+    /// found among the ones its terminal offers there. Null for a new
+    /// chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
 }
 
 /// A group of models under "More Models"; `label` is empty for the
@@ -10053,6 +10198,84 @@ pub struct SetFastTier {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
     pub on: bool,
+}
+
+/// One option of a model's control.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelControlOptionDto {
+    /// What Open WebUI stores for it.
+    pub value: String,
+    /// The server's label; the window names the values it knows (a
+    /// reasoning effort's `high`) in its own language.
+    #[serde(default)]
+    pub label: String,
+}
+
+/// A setting a model offers beside its name, such as a coding agent's
+/// reasoning effort or service tier (Open WebUI's `model_controls`, core's
+/// `ModelControl`). Every one picks one of its `options`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelControlDto {
+    /// Open WebUI's key: `reasoning_effort`, `service_tier`, or another
+    /// the server names.
+    pub key: String,
+    /// The server's label; the window names the two keys above itself.
+    #[serde(default)]
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub options: Vec<ModelControlOptionDto>,
+    /// The option that applies while the user has picked none, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
+    /// The option that applies now: the user's pick, else `defaultValue`;
+    /// null for none ("Default").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+}
+
+/// Params for `models.controls`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelControlsQuery {
+    /// Null for the account's selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    /// The chat the picker is for, where a coding agent is looked up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+}
+
+/// Reply to `models.controls` and `models.setControl`: one model's
+/// controls, in the order the server lists them. Empty for a model with
+/// none.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelControlList {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(default)]
+    pub controls: Vec<ModelControlDto>,
+}
+
+/// Params for `models.setControl`: the pick for one of a model's controls,
+/// saved in the account's Open WebUI settings (`ui.params.model_controls`),
+/// where every turn and the web client read it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetModelControl {
+    /// Null for the account's selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+    pub key: String,
+    /// One of the control's option values; null clears the pick.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
 }
 
 /// Where a note falls in the notes list's time groups, by when it last
@@ -11779,6 +12002,10 @@ pub struct AppSettingsDto {
     /// The composer's Save as Note button shows.
     #[serde(default = "default_app_settings_dto_show_composer_notes_button")]
     pub show_composer_notes_button: bool,
+    /// The empty message box names the selected model ("Ask Codex · gpt-5.1")
+    /// instead of the app's own words.
+    #[serde(default)]
+    pub show_model_name_in_composer: bool,
     #[serde(default)]
     pub temporary_chat_by_default: bool,
     /// Inline citations show the source's title, not only its number.
@@ -11848,6 +12075,7 @@ impl Default for AppSettingsDto {
             inline_message_actions: None,
             send_on_enter: Default::default(),
             show_composer_notes_button: default_app_settings_dto_show_composer_notes_button(),
+            show_model_name_in_composer: Default::default(),
             temporary_chat_by_default: Default::default(),
             citation_show_titles: Default::default(),
             citation_background: default_app_settings_dto_citation_background(),
@@ -11927,6 +12155,8 @@ pub struct AppSettingsPatch {
     pub send_on_enter: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_composer_notes_button: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_model_name_in_composer: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temporary_chat_by_default: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -16422,13 +16652,13 @@ pub mod methods {
 
     /// Every model the server offers, and which one is selected.
     ///
-    /// `models.list`: no params -> ModelList.
+    /// `models.list`: ModelListQuery -> ModelList.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct ModelsList;
 
     impl RpcMethod for ModelsList {
         const NAME: &'static str = "models.list";
-        type Params = NoParams;
+        type Params = super::ModelListQuery;
         type Result = super::ModelList;
     }
 
@@ -16494,6 +16724,32 @@ pub mod methods {
         const NAME: &'static str = "models.setFastTier";
         type Params = super::SetFastTier;
         type Result = super::ModelOptionsDto;
+    }
+
+    /// One model's controls (Open WebUI's `model_controls`: a coding agent's
+    /// reasoning effort or service tier), with the option that applies now.
+    ///
+    /// `models.controls`: ModelControlsQuery -> ModelControlList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ModelsControls;
+
+    impl RpcMethod for ModelsControls {
+        const NAME: &'static str = "models.controls";
+        type Params = super::ModelControlsQuery;
+        type Result = super::ModelControlList;
+    }
+
+    /// Picks an option of a model's control, or clears the pick, in the
+    /// account's Open WebUI settings.
+    ///
+    /// `models.setControl`: SetModelControl -> ModelControlList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ModelsSetControl;
+
+    impl RpcMethod for ModelsSetControl {
+        const NAME: &'static str = "models.setControl";
+        type Params = super::SetModelControl;
+        type Result = super::ModelControlList;
     }
 
     /// The form for a chat, or for a new chat's draft.
@@ -16605,13 +16861,13 @@ pub mod methods {
     /// What the composer may offer: web search, image generation, the
     /// server's tools. Re-asked when the model or the session changes.
     ///
-    /// `composer.options`: no params -> ComposerOptions.
+    /// `composer.options`: ComposerOptionsQuery -> ComposerOptions.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct ComposerOptions;
 
     impl RpcMethod for ComposerOptions {
         const NAME: &'static str = "composer.options";
-        type Params = NoParams;
+        type Params = super::ComposerOptionsQuery;
         type Result = super::ComposerOptions;
     }
 
@@ -17849,6 +18105,20 @@ pub mod methods {
         const NAME: &'static str = "automations.save";
         type Params = super::AutomationDraftEdit;
         type Result = super::AutomationDraftState;
+    }
+
+    /// The server terminals a task may run with, and the models the editor
+    /// offers with the draft's terminal and working folder (its coding
+    /// agents among them).
+    ///
+    /// `automations.terminals`: AutomationDraftEdit -> AutomationTerminals.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AutomationsTerminals;
+
+    impl RpcMethod for AutomationsTerminals {
+        const NAME: &'static str = "automations.terminals";
+        type Params = super::AutomationDraftEdit;
+        type Result = super::AutomationTerminals;
     }
 
     /// Apple Intelligence on this Mac, as Settings shows it.
@@ -20548,7 +20818,7 @@ pub const METHODS: &[MethodSpec] = &[
     },
     MethodSpec {
         name: "models.list",
-        params: None,
+        params: Some("ModelListQuery"),
         result: Some("ModelList"),
     },
     MethodSpec {
@@ -20575,6 +20845,16 @@ pub const METHODS: &[MethodSpec] = &[
         name: "models.setFastTier",
         params: Some("SetFastTier"),
         result: Some("ModelOptionsDto"),
+    },
+    MethodSpec {
+        name: "models.controls",
+        params: Some("ModelControlsQuery"),
+        result: Some("ModelControlList"),
+    },
+    MethodSpec {
+        name: "models.setControl",
+        params: Some("SetModelControl"),
+        result: Some("ModelControlList"),
     },
     MethodSpec {
         name: "chatSettings.get",
@@ -20623,7 +20903,7 @@ pub const METHODS: &[MethodSpec] = &[
     },
     MethodSpec {
         name: "composer.options",
-        params: None,
+        params: Some("ComposerOptionsQuery"),
         result: Some("ComposerOptions"),
     },
     MethodSpec {
@@ -21130,6 +21410,11 @@ pub const METHODS: &[MethodSpec] = &[
         name: "automations.save",
         params: Some("AutomationDraftEdit"),
         result: Some("AutomationDraftState"),
+    },
+    MethodSpec {
+        name: "automations.terminals",
+        params: Some("AutomationDraftEdit"),
+        result: Some("AutomationTerminals"),
     },
     MethodSpec {
         name: "apple.status",
@@ -22958,6 +23243,7 @@ pub mod conformance {
         "AutomationRunsQuery",
         "AutomationScheduleDto",
         "AutomationSummary",
+        "AutomationTerminals",
         "AutomationToggle",
         "BulkChats",
         "BulkChatsResult",
@@ -23069,6 +23355,7 @@ pub mod conformance {
         "ComparisonSlotDto",
         "ComposerMentionDto",
         "ComposerOptions",
+        "ComposerOptionsQuery",
         "ComposerSearch",
         "ComputerHandleRef",
         "ComputerOpen",
@@ -23305,7 +23592,12 @@ pub mod conformance {
         "MessageBlockDto",
         "MessageStatusDto",
         "MessagesDeleted",
+        "ModelControlDto",
+        "ModelControlList",
+        "ModelControlOptionDto",
+        "ModelControlsQuery",
         "ModelList",
+        "ModelListQuery",
         "ModelOptionsDto",
         "ModelOptionsQuery",
         "ModelPrompt",
@@ -23419,6 +23711,7 @@ pub mod conformance {
         "ServersChanged",
         "SetChatFlag",
         "SetFastTier",
+        "SetModelControl",
         "SetModelPinned",
         "SetReasoningEffort",
         "ShareChat",
@@ -23441,6 +23734,7 @@ pub mod conformance {
         "SyncState",
         "TagDto",
         "TagList",
+        "TerminalAgentDto",
         "TerminalAttach",
         "TerminalAttached",
         "TerminalChanged",
@@ -23621,6 +23915,7 @@ pub mod conformance {
             "AutomationRunsQuery" => roundtrip::<super::AutomationRunsQuery>(json),
             "AutomationScheduleDto" => roundtrip::<super::AutomationScheduleDto>(json),
             "AutomationSummary" => roundtrip::<super::AutomationSummary>(json),
+            "AutomationTerminals" => roundtrip::<super::AutomationTerminals>(json),
             "AutomationToggle" => roundtrip::<super::AutomationToggle>(json),
             "BulkChats" => roundtrip::<super::BulkChats>(json),
             "BulkChatsResult" => roundtrip::<super::BulkChatsResult>(json),
@@ -23732,6 +24027,7 @@ pub mod conformance {
             "ComparisonSlotDto" => roundtrip::<super::ComparisonSlotDto>(json),
             "ComposerMentionDto" => roundtrip::<super::ComposerMentionDto>(json),
             "ComposerOptions" => roundtrip::<super::ComposerOptions>(json),
+            "ComposerOptionsQuery" => roundtrip::<super::ComposerOptionsQuery>(json),
             "ComposerSearch" => roundtrip::<super::ComposerSearch>(json),
             "ComputerHandleRef" => roundtrip::<super::ComputerHandleRef>(json),
             "ComputerOpen" => roundtrip::<super::ComputerOpen>(json),
@@ -23968,7 +24264,12 @@ pub mod conformance {
             "MessageBlockDto" => roundtrip::<super::MessageBlockDto>(json),
             "MessageStatusDto" => roundtrip::<super::MessageStatusDto>(json),
             "MessagesDeleted" => roundtrip::<super::MessagesDeleted>(json),
+            "ModelControlDto" => roundtrip::<super::ModelControlDto>(json),
+            "ModelControlList" => roundtrip::<super::ModelControlList>(json),
+            "ModelControlOptionDto" => roundtrip::<super::ModelControlOptionDto>(json),
+            "ModelControlsQuery" => roundtrip::<super::ModelControlsQuery>(json),
             "ModelList" => roundtrip::<super::ModelList>(json),
+            "ModelListQuery" => roundtrip::<super::ModelListQuery>(json),
             "ModelOptionsDto" => roundtrip::<super::ModelOptionsDto>(json),
             "ModelOptionsQuery" => roundtrip::<super::ModelOptionsQuery>(json),
             "ModelPrompt" => roundtrip::<super::ModelPrompt>(json),
@@ -24084,6 +24385,7 @@ pub mod conformance {
             "ServersChanged" => roundtrip::<super::ServersChanged>(json),
             "SetChatFlag" => roundtrip::<super::SetChatFlag>(json),
             "SetFastTier" => roundtrip::<super::SetFastTier>(json),
+            "SetModelControl" => roundtrip::<super::SetModelControl>(json),
             "SetModelPinned" => roundtrip::<super::SetModelPinned>(json),
             "SetReasoningEffort" => roundtrip::<super::SetReasoningEffort>(json),
             "ShareChat" => roundtrip::<super::ShareChat>(json),
@@ -24106,6 +24408,7 @@ pub mod conformance {
             "SyncState" => roundtrip::<super::SyncState>(json),
             "TagDto" => roundtrip::<super::TagDto>(json),
             "TagList" => roundtrip::<super::TagList>(json),
+            "TerminalAgentDto" => roundtrip::<super::TerminalAgentDto>(json),
             "TerminalAttach" => roundtrip::<super::TerminalAttach>(json),
             "TerminalAttached" => roundtrip::<super::TerminalAttached>(json),
             "TerminalChanged" => roundtrip::<super::TerminalChanged>(json),
