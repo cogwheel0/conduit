@@ -74,14 +74,12 @@ hermesDesktopRewindTarget({
   if (rowId != null) {
     return (sessionId: sessionId, rowId: rowId, lastRowId: lastRowId);
   }
-  var ordinal = 0;
-  for (var index = 0; index < replayedUserIndex; index++) {
-    if (messages[index].role == 'user') ordinal++;
-  }
+  final ordinal = hermesSentUserTurnsBefore(messages, replayedUserIndex);
   final storedTurns = transcript
       .where((row) => hermesTranscriptUserContent(row) != null)
       .length;
-  if (storedTurns > ordinal) {
+  if (storedTurns > ordinal &&
+      !hermesUserTurnNeverSent(messages, replayedUserIndex)) {
     // The session holds this turn or a later one, and neither can be told
     // apart for certain: sending again uncut would leave them in place.
     throw StateError(

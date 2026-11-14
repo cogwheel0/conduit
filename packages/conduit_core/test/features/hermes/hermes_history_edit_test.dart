@@ -321,6 +321,18 @@ final _chat = [
   _message('a2', 'assistant', 'Lemonade.'),
 ];
 
+/// [_chat] where the user first asked "And drinks?" while Hermes held a model
+/// switch, kept the chat's model, and then sent the words again: the kept
+/// prompt and its note never reached the session.
+final _keptChat = [
+  ..._chat.take(2),
+  _message('k1', 'user', 'And drinks?'),
+  _message('k2', 'assistant', '').copyWith(
+    metadata: const {kHermesModelSwitchKeptKey: true},
+  ),
+  ..._chat.skip(2),
+];
+
 class _SeededConversation extends ActiveConversationNotifier {
   _SeededConversation(this.initial);
 
@@ -585,6 +597,23 @@ void main() {
           index: 0,
         ),
       ).equals(0);
+    });
+
+    test('a prompt kept off a model switch takes no place', () {
+      check(
+        hermesTranscriptUserRowIndex(
+          transcript: transcript,
+          messages: _keptChat,
+          index: 4,
+        ),
+      ).equals(4);
+      check(
+        hermesTranscriptUserRowIndex(
+          transcript: transcript,
+          messages: _keptChat,
+          index: 2,
+        ),
+      ).isNull();
     });
 
     test('out of place, only the exact text matches', () {
@@ -1185,6 +1214,39 @@ void main() {
       check(target).isNotNull().has((t) => t.rowId, 'rowId').isNull();
     });
 
+    test('a prompt kept off a model switch does not move the cut', () async {
+      final service = _service(_Gateway(), _Rest(_transcript));
+
+      final regenerated = await hermesDesktopRewindTarget(
+        service: service,
+        conversation: conversation,
+        messages: _keptChat,
+        replayedUserIndex: 4,
+      );
+      check(regenerated).isNotNull().has((t) => t.rowId, 'rowId').equals(15);
+
+      final edited = [
+        ..._keptChat.take(4),
+        _message('u2', 'user', 'Snacks?'),
+        _message('a2', 'assistant', 'Lemonade.'),
+        _message('u3', 'user', 'Thanks'),
+        _message('a3', 'assistant', 'Enjoy.'),
+      ];
+      final rest = _Rest([
+        ..._transcript,
+        {'id': 17, 'role': 'user', 'content': 'Thanks'},
+        {'id': 18, 'role': 'assistant', 'content': 'Enjoy.'},
+      ]);
+      final editTarget = await hermesDesktopRewindTarget(
+        service: _service(_Gateway(), rest),
+        conversation: conversation,
+        messages: edited,
+        replayedUserIndex: 4,
+        originalText: 'And drinks?',
+      );
+      check(editTarget).isNotNull().has((t) => t.rowId, 'rowId').equals(15);
+    });
+
     test('a stored turn that cannot be told apart is not sent uncut', () async {
       final service = _service(_Gateway(), _Rest(_transcript));
       final drifted = [
@@ -1257,6 +1319,17 @@ void main() {
         ..has((cut) => cut.end, 'end').equals(6)
         ..has((cut) => cut.throughRowId, 'throughRowId').equals(16)
         ..has((cut) => cut.visibleCount, 'visibleCount').equals(4);
+    });
+
+    test('from a model switch kept, keeps the turn before it', () {
+      final cut = hermesBranchCut(
+        transcript: transcript,
+        messages: _keptChat,
+        index: 3,
+      );
+      check(cut).isNotNull()
+        ..has((cut) => cut.end, 'end').equals(4)
+        ..has((cut) => cut.throughRowId, 'throughRowId').equals(14);
     });
 
     test('a legacy branch counts the rows Hermes keeps', () {
@@ -1770,6 +1843,20 @@ void main() {
       check(
         container.read(chatMessagesProvider).map((message) => message.id),
       ).deepEquals(['u1', 'a1', 'u2', 'a2']);
+    });
+
+    test('a prompt kept off a model switch does not hide the last turn',
+        () async {
+      final gateway = _Gateway();
+      final service = _service(gateway, _Rest(_transcript));
+      final container = _chatContainer(service, _keptChat);
+
+      check(await undoLastHermesTurn(container)).isTrue();
+
+      check(gateway.calls('session.undo')).length.equals(1);
+      check(
+        container.read(chatMessagesProvider).map((message) => message.id),
+      ).deepEquals(['u1', 'a1', 'k1', 'k2']);
     });
 
     test('rewinds to the row it checked on the canonical wire', () async {

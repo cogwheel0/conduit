@@ -344,12 +344,11 @@ Future<bool> _undoLastHermesTurn(
     messages: messages,
     index: lastUser,
   );
-  final ordinal = messages
-      .take(lastUser)
-      .where((message) => message.role == 'user')
-      .length;
+  final ordinal = hermesSentUserTurnsBefore(messages, lastUser);
   final stored = row != null && userRows.isNotEmpty && row == userRows.last;
-  if (!stored && (row != null || userRows.length > ordinal)) {
+  if (!stored &&
+      !hermesUserTurnNeverSent(messages, lastUser) &&
+      (row != null || userRows.length > ordinal)) {
     throw StateError(
       'The last turn could not be found in the Hermes chat. Reopen the chat '
       'and try again.',

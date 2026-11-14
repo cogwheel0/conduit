@@ -2309,6 +2309,23 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       // Kept on its model, the chat gets its message back to send there,
       // and its picker back to that model.
       onModelSwitchDeclined: (declined) {
+        final kept = hermesModelKeptOverSwitch(
+          ref.read(modelsProvider).value ?? const <Model>[],
+          previousModel: declined.previousModel,
+          previousProvider: declined.previousProvider,
+        );
+        // The note speaks for the model the chat stayed on, and marks its
+        // prompt as never sent, so history actions skip both.
+        updateProjectedMessage(
+          (message) => message.copyWith(
+            model: kept?.id ?? message.model,
+            metadata: {
+              ...?message.metadata,
+              'modelName': ?kept?.name,
+              kHermesModelSwitchKeptKey: true,
+            },
+          ),
+        );
         if (!owner.isActive(ref)) return;
         // Given back only to an empty composer: a draft begun meanwhile is
         // left as it is, and the words stay in the chat to copy.
@@ -2319,11 +2336,6 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
               text: input,
               onlyIntoEmpty: true,
             );
-        final kept = hermesModelKeptOverSwitch(
-          ref.read(modelsProvider).value ?? const <Model>[],
-          previousModel: declined.previousModel,
-          previousProvider: declined.previousProvider,
-        );
         if (kept != null) ref.read(selectedModelProvider.notifier).set(kept);
       },
       updateMessage: updateProjectedMessage,
