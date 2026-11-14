@@ -61,7 +61,9 @@ final class DaemonSecureStore implements SecureKeyValueStore {
   final Map<String, String> _values;
 
   /// Serialises writes. Two concurrent `write` calls would otherwise both
-  /// read-modify-write the same file and one would lose its entry.
+  /// read-modify-write the same file and one would lose its entry. Never
+  /// failed: a failed flush is its caller's error, and the next flush, which
+  /// writes the whole map, still runs.
   Future<void> _pending = Future<void>.value();
 
   @override
@@ -92,7 +94,9 @@ final class DaemonSecureStore implements SecureKeyValueStore {
 
   Future<void> _mutate(void Function() change) {
     change();
-    return _pending = _pending.then((_) => _flush());
+    final flushed = _pending.then((_) => _flush());
+    _pending = flushed.then((_) {}, onError: (_) {});
+    return flushed;
   }
 
   /// Writes via a temporary file and a rename.
@@ -129,7 +133,9 @@ final class DaemonSecureStore implements SecureKeyValueStore {
     String path,
   ) async {
     final macLength = _algorithm.macAlgorithm.macLength;
-    if (bytes.isEmpty) return <String, String>{};
+    // The store never writes an empty file: one is damage, not a fresh
+    // install, which is a missing file.
+    if (bytes.isEmpty) throw SecureStoreCorruptException(path, 'truncated');
     if (bytes.first != _formatVersion) {
       throw SecureStoreCorruptException(
         path,

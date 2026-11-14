@@ -139,22 +139,26 @@ void main() {
       );
     });
 
-    test('a truncated file is refused', () async {
-      final store = await open();
-      await store.write(key: 'token', value: 'abc123');
-      file.writeAsBytesSync(file.readAsBytesSync().sublist(0, 6));
+    // An empty file too: the store never writes one, so it is damage, not
+    // a fresh install.
+    for (final length in <int>[6, 0]) {
+      test('a file cut to $length bytes is refused', () async {
+        final store = await open();
+        await store.write(key: 'token', value: 'abc123');
+        file.writeAsBytesSync(file.readAsBytesSync().sublist(0, length));
 
-      expect(
-        () => open(),
-        throwsA(
-          isA<SecureStoreCorruptException>().having(
-            (e) => e.reason,
-            'reason',
-            'truncated',
+        expect(
+          () => open(),
+          throwsA(
+            isA<SecureStoreCorruptException>().having(
+              (e) => e.reason,
+              'reason',
+              'truncated',
+            ),
           ),
-        ),
-      );
-    });
+        );
+      });
+    }
   });
 
   test('a key that is not 32 bytes is rejected at open', () {
@@ -164,13 +168,19 @@ void main() {
     );
   });
 
-  test('a crash mid-flush cannot truncate the previous store', () async {
+  test('a write that could not be saved does not stop later ones', () async {
     final store = await open();
-    await store.write(key: 'token', value: 'abc123');
+    // A directory where the temporary file goes: that flush fails.
+    final blocker = Directory('${file.path}.tmp')..createSync();
+    await expectLater(
+      store.write(key: 'token', value: 'abc123'),
+      throwsA(isA<FileSystemException>()),
+    );
 
-    // The temp file is the one that would be half-written; the real file is
-    // only ever replaced by a rename.
-    expect(File('${file.path}.tmp').existsSync(), isFalse);
-    expect(await (await open()).read(key: 'token'), 'abc123');
+    blocker.deleteSync();
+    await store.write(key: 'user', value: 'ada');
+    final reopened = await open();
+    expect(await reopened.read(key: 'token'), 'abc123');
+    expect(await reopened.read(key: 'user'), 'ada');
   });
 }
