@@ -228,13 +228,17 @@ void main() {
         ..has((f) => f.imageGeneration, 'imageGeneration').isFalse()
         ..has((f) => f.webSearch, 'webSearch').isFalse();
 
+      // Read once, then refreshed with no answer yet.
+      var reads = 0;
       final loaded = container(
-        permissions: () async => const <String, dynamic>{
-          'features': <String, dynamic>{
-            'image_generation': true,
-            'web_search': true,
-          },
-        },
+        permissions: () => ++reads == 1
+            ? Future.value(const <String, dynamic>{
+                'features': <String, dynamic>{
+                  'image_generation': true,
+                  'web_search': true,
+                },
+              })
+            : Completer<Map<String, dynamic>>().future,
       );
       final reading = loaded.listen(userPermissionsProvider, (_, _) {});
       addTearDown(reading.close);
@@ -242,6 +246,13 @@ void main() {
       check(await settled(loaded))
         ..has((f) => f.imageGeneration, 'imageGeneration').isTrue()
         ..has((f) => f.webSearch, 'webSearch').isTrue();
+
+      // While they refresh, the old answer no longer counts.
+      loaded.invalidate(userPermissionsProvider);
+      check(loaded.read(userPermissionsProvider).isLoading).isTrue();
+      check(loaded.read(accountFeaturesProvider))
+        ..has((f) => f.imageGeneration, 'imageGeneration').isFalse()
+        ..has((f) => f.webSearch, 'webSearch').isFalse();
     });
 
     test('a changed answer makes a different snapshot', () async {

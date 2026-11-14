@@ -241,10 +241,13 @@ final openWebUiImageGenerationAllowedProvider = Provider<bool>(
       _openWebUiAllowsImageGeneration(ref),
 );
 
-/// Whether the account's permissions have been read: not loading, reloading
-/// or failed.
-bool _userPermissionsLoaded(Ref ref) =>
-    ref.watch(userPermissionsProvider) is AsyncData;
+/// Whether the account's permissions have been read and are settled: not
+/// loading, failed, or refreshing (which keeps the previous answer as data
+/// while the new one is pending).
+bool _userPermissionsLoaded(Ref ref) {
+  final permissions = ref.watch(userPermissionsProvider);
+  return permissions is AsyncData && !permissions.isLoading;
+}
 
 bool _openWebUiAllowsImageGeneration(Ref ref) {
   final perms = ref.watch(userPermissionsProvider);
