@@ -801,16 +801,22 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
     // response being idle says nothing about its cancellation: a turn is not
     // admitted over one the server has not accepted, and a refused one is asked
     // again here.
-    final cancelling = _owedCancellation(queueId);
-    if (cancelling != null) {
-      final refused = await _settleOwedWork(queueId, draftIds, cancelling);
-      if (refused != null) return refused;
+    Future<ChatDraftSendNowOutcome?> settleOwedStops() async {
+      final cancelling = _owedCancellation(queueId);
+      if (cancelling != null) {
+        final refused = await _settleOwedWork(queueId, draftIds, cancelling);
+        if (refused != null) return refused;
+      }
+      final owed = _owedStoppedAnswers(queueId);
+      if (owed != null) {
+        final refused = await _settleOwedWork(queueId, draftIds, owed);
+        if (refused != null) return refused;
+      }
+      return null;
     }
-    final owed = _owedStoppedAnswers(queueId);
-    if (owed != null) {
-      final refused = await _settleOwedWork(queueId, draftIds, owed);
-      if (refused != null) return refused;
-    }
+
+    final refusedBefore = await settleOwedStops();
+    if (refusedBefore != null) return refusedBefore;
     // A wait that fails, or a host that throws instead of waiting, admits
     // nothing: the drafts stay, as when a cancellation is refused.
     Future<bool>? settled;
@@ -824,6 +830,11 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
     if (settled != null) {
       final refused = await _settleOwedWork(queueId, draftIds, settled);
       if (refused != null) return refused;
+      // The composer was free while the host waited: a Stop pressed meanwhile
+      // is settled before the batch goes, as one pressed before.
+      if (!ref.mounted) return ChatDraftSendNowOutcome.changed;
+      final refusedAfter = await settleOwedStops();
+      if (refusedAfter != null) return refusedAfter;
     }
     // Waiting on the server (or the host) leaves the composer free, so another
     // answer may have started meanwhile. A turn is not sent over it: the drafts

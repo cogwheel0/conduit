@@ -752,6 +752,41 @@ void main() {
       });
     }
 
+    test('a Stop pressed while the host holds the batch is settled before '
+        'the batch goes', () async {
+      final hold = Completer<void>();
+      var waits = 0;
+      final s = await _Session.start(
+        admissionWait: () => ++waits == 1 ? hold.future : null,
+      );
+      addTearDown(() {
+        if (!hold.isCompleted) hold.complete();
+      });
+      s.queue.enqueue('queued');
+      s.finishResponse();
+      await s.reaches(() => s.active?.phase == ChatDraftQueuePhase.admitting);
+
+      // Meanwhile a message is sent, and its answer stopped; the server has
+      // not taken the Stop yet.
+      await s.container.read(_sendOrdinaryMessage)('sent meanwhile');
+      final stop = s.api.stopGate = Completer<void>();
+      addTearDown(() {
+        if (!stop.isCompleted) stop.complete();
+      });
+      s.container.read(stopGenerationProvider)();
+      hold.complete();
+      await s.settle();
+
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['sent meanwhile']);
+
+      stop.complete();
+      await s.reaches(() => s.active == null);
+      await s.settle();
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['sent meanwhile', 'queued']);
+    });
+
     test('a send refused before it commits keeps every draft and shows nothing',
         () async {
       final s = await _Session.start();
