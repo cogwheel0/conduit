@@ -258,15 +258,11 @@ final class ChatsService {
   /// `syncTriggers`. The sidecar has no equivalent, so a list call is what
   /// prompts one.
   ///
-  /// Prompts, but does not wait for it. This used to await a full pull on
-  /// every call, which takes seconds with a couple of hundred conversations.
-  /// The renderer refetches on every `chats.changed`, and each refetch
-  /// discarded the one still in flight. During an active conversation the
-  /// events arrived faster than a pull finished, so the sidebar could go a
-  /// whole session without updating: the chat you were in was never at the
-  /// top and never highlighted. Now the database answers at once. If the pull
-  /// changes the list, the projection listener publishes another
-  /// `chats.changed`.
+  /// Prompts, but does not wait for it: a full pull takes seconds with a
+  /// couple of hundred conversations, and the renderer lists again on every
+  /// `chats.changed`, faster than a pull finishes during a conversation. The
+  /// database answers at once; if the pull changes the list, the projection
+  /// listener publishes another `chats.changed`.
   Future<ChatList> list() async {
     _refreshInBackground();
     final conversations = await readSettled(

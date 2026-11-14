@@ -30,7 +30,8 @@ final class FilesService {
   /// Open WebUI wants a file's name alongside its id when a turn refers to
   /// it, and the renderer would otherwise have to send the name back for
   /// the daemon to pass on -- a value the daemon already had and threw
-  /// away. Bounded because it is only this process's own uploads.
+  /// away. It keeps a name and a size for each upload this process made,
+  /// and goes when the process does.
   final Map<String, UploadedFile> _uploaded = <String, UploadedFile>{};
 
   /// The file entry for [id], if this daemon uploaded it.
