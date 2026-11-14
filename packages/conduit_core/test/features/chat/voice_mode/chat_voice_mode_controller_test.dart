@@ -2872,16 +2872,23 @@ void main() {
           startNewConversation: false,
           admittedModel: _model,
         );
-        await _until(() => audio.started);
+        await audio.startedEvent.future;
         callKit.emit(const VoiceCallKitEnded('call-1'));
         await pumpEventQueue();
 
         check(bridge.wasClosed).isTrue();
         check(audio.stopped).isTrue();
         check(await starting).equals(ChatVoiceModeStartResult.cancelled);
-        await _until(
-          () => !container.read(chatVoiceModeControllerProvider).isActive,
-        );
+        // The controller settles as no longer active.
+        final ended = Completer<void>();
+        final watch = container.listen(chatVoiceModeControllerProvider, (
+          _,
+          next,
+        ) {
+          if (!next.isActive && !ended.isCompleted) ended.complete();
+        }, fireImmediately: true);
+        addTearDown(watch.close);
+        await ended.future;
         // The system ended the call; it is not ended again.
         check(callKit.endedCallIds).isEmpty();
       },
@@ -3875,8 +3882,14 @@ final class _RealtimeAudio implements RealtimePcmAudioPort {
   var stopped = false;
   bool? captureEnabled;
 
+  /// Completes once the call's audio has started.
+  final startedEvent = Completer<void>();
+
   @override
-  Future<void> start() async => started = true;
+  Future<void> start() async {
+    started = true;
+    if (!startedEvent.isCompleted) startedEvent.complete();
+  }
 
   @override
   Stream<Uint8List> get captureFrames => const Stream.empty();
