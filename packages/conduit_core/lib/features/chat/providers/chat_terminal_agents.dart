@@ -46,6 +46,16 @@ TerminalAgentScope? _terminalAgentScope(Ref ref) {
   final chat = ref.watch(activeConversationProvider.select(_agentChatOf));
   if (chat != null && !chat.eligible) return null;
   final servers = ref.watch(terminalAvailableServersProvider).asData?.value;
+  return _agentScopeOn(terminalId, chat, servers);
+}
+
+/// The scope on [terminalId] for [chat], when [servers] lists it as one of
+/// the server's own terminals.
+TerminalAgentScope? _agentScopeOn(
+  String terminalId,
+  _AgentChat? chat,
+  List<TerminalServerInfo>? servers,
+) {
   final server = servers
       ?.where((server) => server.isSystem && server.selectionId == terminalId)
       .firstOrNull;
@@ -55,6 +65,68 @@ TerminalAgentScope? _terminalAgentScope(Ref ref) {
     terminalName: server.displayName,
     chatId: chat?.id,
   );
+}
+
+/// [terminalAgentScopeProvider]'s rule for [conversation] (null for a new
+/// chat, [temporary] when that new chat is a temporary one), read rather
+/// than watched: for a host that lists models for a chat it does not hold
+/// as the active one (the desktop daemon answers for any window's chat).
+/// The terminal list is awaited for up to [timeout]; one that cannot be
+/// read in that time offers none.
+Future<TerminalAgentScope?> terminalAgentScopeFor(
+  dynamic ref,
+  Conversation? conversation, {
+  bool temporary = false,
+  Duration timeout = const Duration(seconds: 3),
+}) async {
+  if (ref.read(reviewerModeProvider) == true) return null;
+  if (ref.read(openWebUiAccountAvailableProvider) != true) return null;
+  if (ref.read(terminalAgentsSupportedProvider) != true) return null;
+  if (temporary) return null;
+  final terminalId = (ref.read(selectedTerminalIdProvider) as String?)?.trim();
+  if (terminalId == null || terminalId.isEmpty) return null;
+  final chat = _agentChatOf(conversation);
+  if (chat != null && !chat.eligible) return null;
+  List<TerminalServerInfo>? servers;
+  try {
+    // Without a terminal service the list stays loading: a host asking for
+    // a picker gives up rather than wait on it.
+    servers = await (ref.read(
+      terminalAvailableServersProvider.future,
+    ) as Future<List<TerminalServerInfo>>).timeout(timeout);
+  } catch (_) {
+    return null;
+  }
+  return _agentScopeOn(terminalId, chat, servers);
+}
+
+/// The coding agents [scope]'s terminal offers, named for the picker, or
+/// none when it could not be asked within [timeout] (a slow terminal leaves
+/// them out rather than hold the picker, as
+/// [readTerminalAgentModelsForPicker] does).
+Future<List<Model>> terminalAgentModelsIn(
+  dynamic ref,
+  TerminalAgentScope? scope, {
+  Duration timeout = const Duration(seconds: 3),
+}) async {
+  final api = ref.read(apiServiceProvider) as ApiService?;
+  if (scope == null || api == null) return const <Model>[];
+  try {
+    return await api
+        .getTerminalAgentModels(
+          terminalId: scope.terminalId,
+          chatId: scope.chatId,
+          terminalName: scope.terminalName,
+        )
+        .timeout(timeout);
+  } catch (error) {
+    DebugLogger.warning(
+      'agent-models-failed',
+      scope: 'chat/agents',
+      data: {'error': error.runtimeType.toString()},
+    );
+    return const <Model>[];
+  }
 }
 
 /// The coding agents the selected terminal offers the active chat, named
@@ -236,6 +308,23 @@ String? terminalIdForModelRequest(
 final activeChatUsesTerminalAgentProvider = Provider<bool>(
   _activeChatUsesTerminalAgent,
 );
+
+/// Whether a chat talks to a coding agent, as
+/// [activeChatUsesTerminalAgentProvider] decides for the active one: the
+/// [selected] model is one, or [conversation] was started with one or has a
+/// reply from one (whose Regenerate the phone hides too). For a host that
+/// answers for a chat it does not hold active.
+bool conversationUsesTerminalAgent(
+  Model? selected,
+  Conversation? conversation,
+) {
+  if (isTerminalAgentModel(selected)) return true;
+  if (conversation == null) return false;
+  return anyTerminalAgentModelId([
+    conversation.model,
+    for (final message in conversation.messages) message.model,
+  ]);
+}
 
 bool _activeChatUsesTerminalAgent(Ref ref) {
   if (ref.watch(selectedModelProvider.select(isTerminalAgentModel))) {
