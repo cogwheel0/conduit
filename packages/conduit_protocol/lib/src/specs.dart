@@ -2020,10 +2020,10 @@ abstract final class ConduitMethodSpecs {
     result: HermesMcpServers.fromJson,
   );
   static const hermesMcpAddFromCatalog =
-      ConduitMethodSpec<HermesMcpRef, HermesMcpServers>(
+      ConduitMethodSpec<HermesMcpCatalogAdd, HermesMcpCatalogAdded>(
         ConduitMethods.hermesMcpAddFromCatalog,
-        params: HermesMcpRef.fromJson,
-        result: HermesMcpServers.fromJson,
+        params: HermesMcpCatalogAdd.fromJson,
+        result: HermesMcpCatalogAdded.fromJson,
       );
   static const hermesMcpSetApiKey =
       ConduitMethodSpec<HermesMcpApiKey, HermesMcpServers>(
@@ -3122,6 +3122,11 @@ abstract final class ConduitEventSpecs {
     payload: LocationCommand.fromJson,
     scoped: false,
   );
+  static const composerInsertText = ConduitEventSpec<ComposerInsertText>(
+    ConduitEvents.composerInsertText,
+    payload: ComposerInsertText.fromJson,
+    scoped: true,
+  );
   static const callsCommand = ConduitEventSpec<CallCommand>(
     ConduitEvents.callsCommand,
     payload: CallCommand.fromJson,
@@ -3213,6 +3218,7 @@ abstract final class ConduitEventSpecs {
         hermesRoomsListChanged,
         appleCommand,
         locationCommand,
+        composerInsertText,
       ];
 
   static final Map<String, ConduitEventSpec<Object?>> _byName =

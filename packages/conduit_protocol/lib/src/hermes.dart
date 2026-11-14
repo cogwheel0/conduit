@@ -181,6 +181,11 @@ abstract class HermesSessions with _$HermesSessions {
     /// The archived sessions could not be read: the Archived row says so,
     /// with Try Again. The conversations are listed all the same.
     @Default(false) bool archivedFailed,
+
+    /// How many scheduled agents' runs the lists leave out while Show
+    /// Scheduled Runs is off (pinned ones are listed): the list says so,
+    /// with Show.
+    @Default(0) int hiddenScheduledRuns,
   }) = _HermesSessions;
 
   factory HermesSessions.fromJson(Map<String, dynamic> json) =>

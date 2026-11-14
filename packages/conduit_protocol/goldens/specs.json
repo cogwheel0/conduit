@@ -1738,8 +1738,8 @@
     },
     {
       "name": "hermes.mcp.addFromCatalog",
-      "params": "HermesMcpRef",
-      "result": "HermesMcpServers"
+      "params": "HermesMcpCatalogAdd",
+      "result": "HermesMcpCatalogAdded"
     },
     {
       "name": "hermes.mcp.setApiKey",
@@ -2362,6 +2362,11 @@
       "name": "location.command",
       "payload": "LocationCommand",
       "scoped": false
+    },
+    {
+      "name": "composer.insertText",
+      "payload": "ComposerInsertText",
+      "scoped": true
     }
   ]
 }

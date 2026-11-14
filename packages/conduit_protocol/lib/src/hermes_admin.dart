@@ -445,11 +445,48 @@ abstract class HermesMcpServers with _$HermesMcpServers {
       _$HermesMcpServersFromJson(json);
 }
 
+/// A value a catalog server asks for when it is added: kept by Hermes under
+/// [name] (an environment variable), never by the daemon.
+@freezed
+abstract class HermesMcpCatalogCredentialDto
+    with _$HermesMcpCatalogCredentialDto {
+  const factory HermesMcpCatalogCredentialDto({
+    required String name,
+
+    /// What to ask for, as Hermes words it; null to ask by [name].
+    String? prompt,
+
+    /// The server cannot start without it.
+    @Default(true) bool required,
+  }) = _HermesMcpCatalogCredentialDto;
+
+  factory HermesMcpCatalogCredentialDto.fromJson(Map<String, dynamic> json) =>
+      _$HermesMcpCatalogCredentialDtoFromJson(json);
+}
+
 @freezed
 abstract class HermesMcpCatalogEntryDto with _$HermesMcpCatalogEntryDto {
   const factory HermesMcpCatalogEntryDto({
     required String name,
     @Default('') String description,
+
+    /// How Hermes signs in to it (`api_key`, `oauth`, `none`); null when
+    /// the catalog does not say.
+    String? authType,
+
+    /// What adding it asks for, in order; empty when nothing.
+    @Default(<HermesMcpCatalogCredentialDto>[])
+    List<HermesMcpCatalogCredentialDto> credentials,
+
+    /// It can be added from here with all it needs. One that needs values
+    /// this connection cannot send is listed, dimmed.
+    @Default(true) bool canAdd,
+
+    /// Read from Hermes' dashboard, whose install takes [credentials].
+    @Default(false) bool fromDashboard,
+
+    /// Signs in with OAuth once added.
+    @Default(false) bool oauth,
   }) = _HermesMcpCatalogEntryDto;
 
   factory HermesMcpCatalogEntryDto.fromJson(Map<String, dynamic> json) =>
@@ -506,6 +543,46 @@ abstract class HermesMcpRef with _$HermesMcpRef {
 
   factory HermesMcpRef.fromJson(Map<String, dynamic> json) =>
       _$HermesMcpRefFromJson(json);
+}
+
+/// Params for `hermes.mcp.addFromCatalog`: the entry of the last
+/// `hermes.mcp.catalog` read, and the values it asks for (variable name to
+/// what was typed). Sent once to Hermes; never kept or logged.
+@freezed
+abstract class HermesMcpCatalogAdd with _$HermesMcpCatalogAdd {
+  const factory HermesMcpCatalogAdd({
+    required String name,
+    @Default(<String, String>{}) Map<String, String> credentials,
+
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): a change naming none, or another
+    /// connection than the one in use, is refused.
+    String? connection,
+  }) = _HermesMcpCatalogAdd;
+
+  factory HermesMcpCatalogAdd.fromJson(Map<String, dynamic> json) =>
+      _$HermesMcpCatalogAddFromJson(json);
+}
+
+/// Reply to `hermes.mcp.addFromCatalog`.
+@freezed
+abstract class HermesMcpCatalogAdded with _$HermesMcpCatalogAdded {
+  const factory HermesMcpCatalogAdded({
+    /// The servers now, listed even when a step after the install failed.
+    required HermesMcpServers servers,
+
+    /// Hermes is still installing it in the background: it is listed, and
+    /// can be signed in to, once done.
+    @Default(false) bool stillInstalling,
+
+    /// It signs in with OAuth: the window goes on to
+    /// `hermes.mcp.authenticate` (which opens the browser and can take
+    /// minutes). False while [stillInstalling].
+    @Default(false) bool signIn,
+  }) = _HermesMcpCatalogAdded;
+
+  factory HermesMcpCatalogAdded.fromJson(Map<String, dynamic> json) =>
+      _$HermesMcpCatalogAddedFromJson(json);
 }
 
 /// Params for `hermes.mcp.setApiKey`.

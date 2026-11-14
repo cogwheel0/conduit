@@ -1499,6 +1499,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     archived: <HermesSessionDto>[
       HermesSessionDto(id: 's3', chatId: 'local:hermes_s3', archived: true),
     ],
+    hiddenScheduledRuns: 4,
   ),
   'hermesSessionsSetAside': const HermesSessions(
     sessions: <HermesSessionDto>[
@@ -1977,6 +1978,35 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   'hermesMcpCatalogEntryDto': const HermesMcpCatalogEntryDto(
     name: 'calendar',
     description: 'Events from a calendar',
+    authType: 'api_key',
+    credentials: <HermesMcpCatalogCredentialDto>[
+      HermesMcpCatalogCredentialDto(
+        name: 'CALENDAR_TOKEN',
+        prompt: 'Calendar access token',
+      ),
+      HermesMcpCatalogCredentialDto(name: 'CALENDAR_REGION', required: false),
+    ],
+    canAdd: true,
+    fromDashboard: true,
+    oauth: false,
+  ),
+  'hermesMcpCatalogCredentialDto': const HermesMcpCatalogCredentialDto(
+    name: 'CALENDAR_TOKEN',
+    prompt: 'Calendar access token',
+    required: true,
+  ),
+  'hermesMcpCatalogAdd': const HermesMcpCatalogAdd(
+    name: 'calendar',
+    credentials: <String, String>{'CALENDAR_TOKEN': 'demo-token'},
+    connection: '0a1b2c3d:2',
+  ),
+  'hermesMcpCatalogAdded': const HermesMcpCatalogAdded(
+    servers: HermesMcpServers(
+      available: true,
+      servers: <HermesMcpServerDto>[HermesMcpServerDto(name: 'calendar')],
+    ),
+    stillInstalling: false,
+    signIn: true,
   ),
   'hermesMcpCatalog': const HermesMcpCatalog(
     entries: <HermesMcpCatalogEntryDto>[
@@ -2553,6 +2583,11 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     files: <ChatFileDto>[ChatFileDto(id: 'file-2', name: 'budget.csv')],
     frozen: true,
   ),
+  'composerInsertText': const ComposerInsertText(
+    chatId: 'chat-7c1f0b2a',
+    text: 'Summarise the packing list',
+    onlyIntoEmpty: true,
+  ),
   'queueState': const QueueState(
     chatId: 'chat-7c1f0b2a',
     drafts: <QueuedDraftDto>[
@@ -2596,6 +2631,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     content: 'The first answer.',
     timestampMs: 1758412800000,
     model: 'llama3.2:1b',
+    modelName: 'Llama 3.2 1B',
     blocks: <MessageBlockDto>[
       MessageBlockDto(
         kind: MessageBlockKind.text,
@@ -2880,6 +2916,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     content: 'The outbox drains oldest-first.',
     timestampMs: 1758412800000,
     model: 'gpt-4o',
+    modelName: 'GPT-4o',
     streaming: true,
     sources: <ChatSourceDto>[
       ChatSourceDto(
@@ -3069,6 +3106,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     ttsServerVoiceName: 'Alloy',
     ttsSpeed: 1.25,
     directVoiceProvider: DirectVoiceProviderDto(profileId: 'dc-lantern'),
+    hermesShowScheduledSessions: false,
     messageActions: <String>['copy', 'tts', 'regenerate', 'delete'],
     defaultInlineMessageActions: <String>['copy', 'tts', 'regenerate'],
   ),
@@ -3077,6 +3115,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     showModelNameInComposer: false,
     quickPills: <String>['image'],
     ttsSpeed: 1.5,
+    hermesShowScheduledSessions: false,
     clear: <String>['defaultModel', 'inlineMessageActions'],
   ),
   'accountSettingsDto': const AccountSettingsDto(
@@ -4421,6 +4460,17 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     detail: <String, dynamic>{'chatId': 'local:hermes_s-4f2a'},
     timeoutMs: 290000,
   ),
+  'uiRequestHermesModelSwitch': const UiRequest(
+    requestId: 'ui-43',
+    kind: UiRequestKind.hermesModelSwitch,
+    messageCode: 'hermes.modelSwitch',
+    messageArgs: <String, String>{
+      'model': 'Heron Large',
+      'reason': 'Heron Large costs more per message.',
+    },
+    timeoutMs: 300000,
+    defaultChoice: 'cancel',
+  ),
   'callStateListening': const CallState(
     phase: CallPhase.listening,
     call: 2,
@@ -5189,6 +5239,9 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'hermesMcpServerDto': HermesMcpServerDto.fromJson,
       'hermesMcpServers': HermesMcpServers.fromJson,
       'hermesMcpCatalogEntryDto': HermesMcpCatalogEntryDto.fromJson,
+      'hermesMcpCatalogCredentialDto': HermesMcpCatalogCredentialDto.fromJson,
+      'hermesMcpCatalogAdd': HermesMcpCatalogAdd.fromJson,
+      'hermesMcpCatalogAdded': HermesMcpCatalogAdded.fromJson,
       'hermesMcpCatalog': HermesMcpCatalog.fromJson,
       'hermesMcpAdd': HermesMcpAdd.fromJson,
       'hermesMcpRef': HermesMcpRef.fromJson,
@@ -5309,6 +5362,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'draftUnstored': Draft.fromJson,
       'queuedDraftDto': QueuedDraftDto.fromJson,
       'queueState': QueueState.fromJson,
+      'composerInsertText': ComposerInsertText.fromJson,
       'queueAdd': QueueAdd.fromJson,
       'queueDraftRef': QueueDraftRef.fromJson,
       'queueEdit': QueueEdit.fromJson,
@@ -5604,6 +5658,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'hermesModelChoice': HermesModelChoiceDto.fromJson,
       'uiRequestHermesClarify': UiRequest.fromJson,
       'uiRequestHermesSecret': UiRequest.fromJson,
+      'uiRequestHermesModelSwitch': UiRequest.fromJson,
       'callStateListening': CallState.fromJson,
       'callStateError': CallState.fromJson,
       'callStateRefused': CallState.fromJson,

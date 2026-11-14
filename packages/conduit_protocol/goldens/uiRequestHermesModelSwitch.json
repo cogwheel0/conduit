@@ -1,0 +1,12 @@
+{
+  "requestId": "ui-43",
+  "kind": "hermesModelSwitch",
+  "messageCode": "hermes.modelSwitch",
+  "messageArgs": {
+    "model": "Heron Large",
+    "reason": "Heron Large costs more per message."
+  },
+  "detail": {},
+  "timeoutMs": 300000,
+  "defaultChoice": "cancel"
+}

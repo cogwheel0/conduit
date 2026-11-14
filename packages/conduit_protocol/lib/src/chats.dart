@@ -161,6 +161,12 @@ abstract class ChatMessageDto with _$ChatMessageDto {
     required int timestampMs,
     String? model,
 
+    /// The name [model] went by when it answered, as the stored answer keeps
+    /// it (the core's `modelName`): what the header shows when [model] is
+    /// not among the models on offer, as a Hermes answer's agent id after a
+    /// confirmed model switch. Null when the answer kept none.
+    String? modelName,
+
     /// True while the daemon is still appending to [content].
     @Default(false) bool streaming,
 
@@ -350,6 +356,9 @@ abstract class ChatMessageVersionDto with _$ChatMessageVersionDto {
     required String content,
     required int timestampMs,
     String? model,
+
+    /// Its model's name when it answered, as [ChatMessageDto.modelName].
+    String? modelName,
 
     /// This version's own sources; a regenerated answer searches again.
     @Default(<ChatSourceDto>[]) List<ChatSourceDto> sources,

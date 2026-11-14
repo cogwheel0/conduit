@@ -2976,7 +2976,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "running": false
     }
   ],
-  "archivedFailed": false
+  "archivedFailed": false,
+  "hiddenScheduledRuns": 4
 }''',
 
   'hermesSessionsSetAside': r'''
@@ -2994,7 +2995,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     }
   ],
   "archived": [],
-  "archivedFailed": true
+  "archivedFailed": true,
+  "hiddenScheduledRuns": 0
 }''',
 
   'hermesHiddenSession': r'''
@@ -3891,7 +3893,57 @@ const Map<String, String> protocolGoldens = <String, String>{
   'hermesMcpCatalogEntryDto': r'''
 {
   "name": "calendar",
-  "description": "Events from a calendar"
+  "description": "Events from a calendar",
+  "authType": "api_key",
+  "credentials": [
+    {
+      "name": "CALENDAR_TOKEN",
+      "prompt": "Calendar access token",
+      "required": true
+    },
+    {
+      "name": "CALENDAR_REGION",
+      "required": false
+    }
+  ],
+  "canAdd": true,
+  "fromDashboard": true,
+  "oauth": false
+}''',
+
+  'hermesMcpCatalogCredentialDto': r'''
+{
+  "name": "CALENDAR_TOKEN",
+  "prompt": "Calendar access token",
+  "required": true
+}''',
+
+  'hermesMcpCatalogAdd': r'''
+{
+  "name": "calendar",
+  "credentials": {
+    "CALENDAR_TOKEN": "demo-token"
+  },
+  "connection": "0a1b2c3d:2"
+}''',
+
+  'hermesMcpCatalogAdded': r'''
+{
+  "servers": {
+    "available": true,
+    "servers": [
+      {
+        "name": "calendar",
+        "description": "",
+        "enabled": true,
+        "tools": []
+      }
+    ],
+    "canSetApiKey": false,
+    "listFailed": false
+  },
+  "stillInstalling": false,
+  "signIn": true
 }''',
 
   'hermesMcpCatalog': r'''
@@ -3899,7 +3951,11 @@ const Map<String, String> protocolGoldens = <String, String>{
   "entries": [
     {
       "name": "calendar",
-      "description": ""
+      "description": "",
+      "credentials": [],
+      "canAdd": true,
+      "fromDashboard": false,
+      "oauth": false
     }
   ]
 }''',
@@ -5010,6 +5066,13 @@ const Map<String, String> protocolGoldens = <String, String>{
   "frozen": true
 }''',
 
+  'composerInsertText': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "text": "Summarise the packing list",
+  "onlyIntoEmpty": true
+}''',
+
   'queueState': r'''
 {
   "chatId": "chat-7c1f0b2a",
@@ -5095,6 +5158,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "content": "The first answer.",
   "timestampMs": 1758412800000,
   "model": "llama3.2:1b",
+  "modelName": "Llama 3.2 1B",
   "sources": [],
   "blocks": [
     {
@@ -5646,6 +5710,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "content": "The outbox drains oldest-first.",
   "timestampMs": 1758412800000,
   "model": "gpt-4o",
+  "modelName": "GPT-4o",
   "streaming": true,
   "versions": [],
   "sources": [
@@ -6180,6 +6245,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "directVoiceProvider": {
     "profileId": "dc-lantern"
   },
+  "hermesShowScheduledSessions": false,
   "messageActions": [
     "copy",
     "tts",
@@ -6201,6 +6267,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "sendOnEnter": true,
   "showModelNameInComposer": false,
   "ttsSpeed": 1.5,
+  "hermesShowScheduledSessions": false,
   "clear": [
     "defaultModel",
     "inlineMessageActions"
@@ -8690,6 +8757,20 @@ const Map<String, String> protocolGoldens = <String, String>{
   },
   "timeoutMs": 290000,
   "defaultChoice": "deny"
+}''',
+
+  'uiRequestHermesModelSwitch': r'''
+{
+  "requestId": "ui-43",
+  "kind": "hermesModelSwitch",
+  "messageCode": "hermes.modelSwitch",
+  "messageArgs": {
+    "model": "Heron Large",
+    "reason": "Heron Large costs more per message."
+  },
+  "detail": {},
+  "timeoutMs": 300000,
+  "defaultChoice": "cancel"
 }''',
 
   'callStateListening': r'''

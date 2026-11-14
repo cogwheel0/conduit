@@ -4025,6 +4025,12 @@ pub struct ChatMessageDto {
     pub timestamp_ms: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// The name `model` went by when it answered, as the stored answer keeps
+    /// it (the core's `modelName`): what the header shows when `model` is
+    /// not among the models on offer, as a Hermes answer's agent id after a
+    /// confirmed model switch. Null when the answer kept none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_name: Option<String>,
     /// True while the daemon is still appending to `content`.
     #[serde(default)]
     pub streaming: bool,
@@ -4210,6 +4216,9 @@ pub struct ChatMessageVersionDto {
     pub timestamp_ms: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Its model's name when it answered, as `ChatMessageDto.modelName`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_name: Option<String>,
     /// This version's own sources; a regenerated answer searches again.
     #[serde(default)]
     pub sources: Vec<ChatSourceDto>,
@@ -5379,6 +5388,20 @@ fn default_composer_mention_dto_kind() -> MentionKind {
     MentionKind::Entity
 }
 
+/// Payload of `composer.insertText`: words the core gives a chat's
+/// composer, such as a Hermes message kept back when the user declined a
+/// model switch, or text Hermes prefills.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerInsertText {
+    pub chat_id: String,
+    pub text: String,
+    /// Given back rather than added: the composer takes `text` only while
+    /// it holds nothing, so a newer draft is never changed by it.
+    #[serde(default)]
+    pub only_into_empty: bool,
+}
+
 /// What a chat's terminal shows in the Computer viewer: its desktop, or
 /// the browser it drives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -6539,6 +6562,11 @@ pub struct HermesSessions {
     /// with Try Again. The conversations are listed all the same.
     #[serde(default)]
     pub archived_failed: bool,
+    /// How many scheduled agents' runs the lists leave out while Show
+    /// Scheduled Runs is off (pinned ones are listed): the list says so,
+    /// with Show.
+    #[serde(default)]
+    pub hidden_scheduled_runs: i64,
 }
 
 /// Params naming a Hermes session, job, or anything else by id.
@@ -7332,12 +7360,51 @@ pub struct HermesMcpServers {
     pub list_failed: bool,
 }
 
+/// A value a catalog server asks for when it is added: kept by Hermes under
+/// `name` (an environment variable), never by the daemon.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesMcpCatalogCredentialDto {
+    pub name: String,
+    /// What to ask for, as Hermes words it; null to ask by `name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    /// The server cannot start without it.
+    #[serde(default = "default_hermes_mcp_catalog_credential_dto_required")]
+    pub required: bool,
+}
+
+fn default_hermes_mcp_catalog_credential_dto_required() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HermesMcpCatalogEntryDto {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    /// How Hermes signs in to it (`api_key`, `oauth`, `none`); null when
+    /// the catalog does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_type: Option<String>,
+    /// What adding it asks for, in order; empty when nothing.
+    #[serde(default)]
+    pub credentials: Vec<HermesMcpCatalogCredentialDto>,
+    /// It can be added from here with all it needs. One that needs values
+    /// this connection cannot send is listed, dimmed.
+    #[serde(default = "default_hermes_mcp_catalog_entry_dto_can_add")]
+    pub can_add: bool,
+    /// Read from Hermes' dashboard, whose install takes `credentials`.
+    #[serde(default)]
+    pub from_dashboard: bool,
+    /// Signs in with OAuth once added.
+    #[serde(default)]
+    pub oauth: bool,
+}
+
+fn default_hermes_mcp_catalog_entry_dto_can_add() -> bool {
+    true
 }
 
 /// Reply to `hermes.mcp.catalog`: the servers Hermes offers ready-made,
@@ -7381,6 +7448,39 @@ pub struct HermesMcpRef {
     /// from an older window, not checked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection: Option<String>,
+}
+
+/// Params for `hermes.mcp.addFromCatalog`: the entry of the last
+/// `hermes.mcp.catalog` read, and the values it asks for (variable name to
+/// what was typed). Sent once to Hermes; never kept or logged.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesMcpCatalogAdd {
+    pub name: String,
+    #[serde(default)]
+    pub credentials: BTreeMap<String, String>,
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): a change naming none, or another
+    /// connection than the one in use, is refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
+}
+
+/// Reply to `hermes.mcp.addFromCatalog`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesMcpCatalogAdded {
+    /// The servers now, listed even when a step after the install failed.
+    pub servers: HermesMcpServers,
+    /// Hermes is still installing it in the background: it is listed, and
+    /// can be signed in to, once done.
+    #[serde(default)]
+    pub still_installing: bool,
+    /// It signs in with OAuth: the window goes on to
+    /// `hermes.mcp.authenticate` (which opens the browser and can take
+    /// minutes). False while `stillInstalling`.
+    #[serde(default)]
+    pub sign_in: bool,
 }
 
 /// Params for `hermes.mcp.setApiKey`.
@@ -12080,6 +12180,10 @@ pub struct AppSettingsDto {
     pub tts_speed: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direct_voice_provider: Option<DirectVoiceProviderDto>,
+    /// The chats a scheduled agent starts each time it runs are listed with
+    /// the other Hermes chats (a pinned one always is).
+    #[serde(default = "default_app_settings_dto_hermes_show_scheduled_sessions")]
+    pub hermes_show_scheduled_sessions: bool,
     /// Every message action, by id, in the order Settings lists them
     /// (core's catalog: `copy`, `tts`, `regenerate`, ...). Not a setting.
     #[serde(default)]
@@ -12118,6 +12222,8 @@ impl Default for AppSettingsDto {
             tts_server_voice_name: None,
             tts_speed: default_app_settings_dto_tts_speed(),
             direct_voice_provider: None,
+            hermes_show_scheduled_sessions: default_app_settings_dto_hermes_show_scheduled_sessions(
+            ),
             message_actions: Default::default(),
             default_inline_message_actions: Default::default(),
         }
@@ -12158,6 +12264,10 @@ fn default_app_settings_dto_tts_engine() -> String {
 
 fn default_app_settings_dto_tts_speed() -> f64 {
     1.0
+}
+
+fn default_app_settings_dto_hermes_show_scheduled_sessions() -> bool {
+    true
 }
 
 /// Params for `settings.set`: a null field is left alone, and `clear`
@@ -12219,6 +12329,8 @@ pub struct AppSettingsPatch {
     pub tts_speed: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direct_voice_provider: Option<DirectVoiceProviderDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hermes_show_scheduled_sessions: Option<bool>,
     /// `AppSettingsDto` field names to set back to null.
     #[serde(default)]
     pub clear: Vec<String>,
@@ -12811,6 +12923,15 @@ pub enum UiRequestKind {
     /// `detail.backend` `libreChat`.
     #[serde(rename = "libreChatQuestion")]
     LibreChatQuestion,
+    /// Hermes holds a switch to another model (a pricier, data-sharing or
+    /// smaller-context one) until the user confirms it: `messageArgs.model`
+    /// (the model's name) and, when Hermes gave one, `messageArgs.reason`.
+    /// `allow` switches the chat and sends the waiting message; `deny` keeps
+    /// the current model, sends nothing and gives the words back to the
+    /// composer (`composer.insertText`). Unanswered (no window, the
+    /// timeout), the switch is refused as before.
+    #[serde(rename = "hermesModelSwitch")]
+    HermesModelSwitch,
     /// A value this build does not know, from a newer daemon. It decodes
     /// only: it encodes as `"unknown"`, which the daemon refuses.
     #[serde(other, rename = "unknown")]
@@ -19367,16 +19488,18 @@ pub mod methods {
         type Result = super::HermesMcpServers;
     }
 
-    /// Adds a server from Hermes's catalog, by its name there.
+    /// Adds a server from Hermes's catalog, by its name there, with the
+    /// values it asks for; says whether Hermes is still installing it and
+    /// whether it signs in next.
     ///
-    /// `hermes.mcp.addFromCatalog`: HermesMcpRef -> HermesMcpServers.
+    /// `hermes.mcp.addFromCatalog`: HermesMcpCatalogAdd -> HermesMcpCatalogAdded.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct HermesMcpAddFromCatalog;
 
     impl RpcMethod for HermesMcpAddFromCatalog {
         const NAME: &'static str = "hermes.mcp.addFromCatalog";
-        type Params = super::HermesMcpRef;
-        type Result = super::HermesMcpServers;
+        type Params = super::HermesMcpCatalogAdd;
+        type Result = super::HermesMcpCatalogAdded;
     }
 
     /// `hermes.mcp.setApiKey`: HermesMcpApiKey -> HermesMcpServers.
@@ -21960,8 +22083,8 @@ pub const METHODS: &[MethodSpec] = &[
     },
     MethodSpec {
         name: "hermes.mcp.addFromCatalog",
-        params: Some("HermesMcpRef"),
-        result: Some("HermesMcpServers"),
+        params: Some("HermesMcpCatalogAdd"),
+        result: Some("HermesMcpCatalogAdded"),
     },
     MethodSpec {
         name: "hermes.mcp.setApiKey",
@@ -22484,6 +22607,9 @@ pub mod events {
     /// permission, or for a position fix (`{{USER_LOCATION}}`). Payload
     /// `LocationCommand`; answered with `location.report`.
     pub const LOCATION_COMMAND: &str = "location.command";
+    /// The core gives a chat's composer words to insert at the caret.
+    /// Payload `ComposerInsertText`, scoped to the chat.
+    pub const COMPOSER_INSERT_TEXT: &str = "composer.insertText";
 }
 
 /// Every event, with its payload DTO by name and whether it is scoped.
@@ -22743,6 +22869,11 @@ pub const EVENTS: &[EventSpec] = &[
         payload: Some("LocationCommand"),
         scoped: false,
     },
+    EventSpec {
+        name: "composer.insertText",
+        payload: Some("ComposerInsertText"),
+        scoped: true,
+    },
 ];
 
 /// An event the daemon pushed, decoded from its envelope by name.
@@ -22997,6 +23128,11 @@ pub enum Event {
     ///
     /// `location.command`.
     LocationCommand(LocationCommand),
+    /// The core gives a chat's composer words to insert at the caret.
+    /// Payload `ComposerInsertText`, scoped to the chat.
+    ///
+    /// `composer.insertText`, scoped.
+    ComposerInsertText(ComposerInsertText),
     /// An event this build does not know, from a newer daemon, kept as it came.
     Unknown {
         name: String,
@@ -23077,6 +23213,9 @@ impl Event {
             }
             events::APPLE_COMMAND => Self::AppleCommand(serde_json::from_value(payload)?),
             events::LOCATION_COMMAND => Self::LocationCommand(serde_json::from_value(payload)?),
+            events::COMPOSER_INSERT_TEXT => {
+                Self::ComposerInsertText(serde_json::from_value(payload)?)
+            }
             _ => Self::Unknown {
                 name: name.to_owned(),
                 payload,
@@ -23138,6 +23277,7 @@ impl Event {
             Self::HermesRoomsListChanged(_) => events::HERMES_ROOMS_LIST_CHANGED,
             Self::AppleCommand(_) => events::APPLE_COMMAND,
             Self::LocationCommand(_) => events::LOCATION_COMMAND,
+            Self::ComposerInsertText(_) => events::COMPOSER_INSERT_TEXT,
             Self::Unknown { name, .. } => name,
         }
     }
@@ -23187,6 +23327,7 @@ impl Event {
             Self::HermesRoomsListChanged(payload) => serde_json::to_value(payload),
             Self::AppleCommand(payload) => serde_json::to_value(payload),
             Self::LocationCommand(payload) => serde_json::to_value(payload),
+            Self::ComposerInsertText(payload) => serde_json::to_value(payload),
             Self::ChannelsChanged
             | Self::SocketHealth
             | Self::CapabilitiesChanged
@@ -23375,6 +23516,7 @@ pub mod conformance {
         "ChatUsageDto",
         "ChatsChanged",
         "ComparisonSlotDto",
+        "ComposerInsertText",
         "ComposerMentionDto",
         "ComposerOptions",
         "ComposerOptionsQuery",
@@ -23489,6 +23631,9 @@ pub mod conformance {
         "HermesMcpAdd",
         "HermesMcpApiKey",
         "HermesMcpCatalog",
+        "HermesMcpCatalogAdd",
+        "HermesMcpCatalogAdded",
+        "HermesMcpCatalogCredentialDto",
         "HermesMcpCatalogEntryDto",
         "HermesMcpRef",
         "HermesMcpServerDto",
@@ -24047,6 +24192,7 @@ pub mod conformance {
             "ChatUsageDto" => roundtrip::<super::ChatUsageDto>(json),
             "ChatsChanged" => roundtrip::<super::ChatsChanged>(json),
             "ComparisonSlotDto" => roundtrip::<super::ComparisonSlotDto>(json),
+            "ComposerInsertText" => roundtrip::<super::ComposerInsertText>(json),
             "ComposerMentionDto" => roundtrip::<super::ComposerMentionDto>(json),
             "ComposerOptions" => roundtrip::<super::ComposerOptions>(json),
             "ComposerOptionsQuery" => roundtrip::<super::ComposerOptionsQuery>(json),
@@ -24161,6 +24307,11 @@ pub mod conformance {
             "HermesMcpAdd" => roundtrip::<super::HermesMcpAdd>(json),
             "HermesMcpApiKey" => roundtrip::<super::HermesMcpApiKey>(json),
             "HermesMcpCatalog" => roundtrip::<super::HermesMcpCatalog>(json),
+            "HermesMcpCatalogAdd" => roundtrip::<super::HermesMcpCatalogAdd>(json),
+            "HermesMcpCatalogAdded" => roundtrip::<super::HermesMcpCatalogAdded>(json),
+            "HermesMcpCatalogCredentialDto" => {
+                roundtrip::<super::HermesMcpCatalogCredentialDto>(json)
+            }
             "HermesMcpCatalogEntryDto" => roundtrip::<super::HermesMcpCatalogEntryDto>(json),
             "HermesMcpRef" => roundtrip::<super::HermesMcpRef>(json),
             "HermesMcpServerDto" => roundtrip::<super::HermesMcpServerDto>(json),
