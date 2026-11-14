@@ -167,6 +167,27 @@ void main() {
     });
   });
 
+  group('serverSpeechProviderFor', () {
+    test('answers for the model named, not the one selected', () {
+      final registry = DirectModelRegistry();
+      final direct = registry.replaceProfileModels(_openAi, [
+        DirectRemoteModel(id: 'gpt-5'),
+      ]).single;
+      final c = container(
+        model: const Model(id: 'llama3', name: 'Llama 3'),
+        api: openWebUi(),
+        registry: registry,
+        voice: (profile: _openAi, settings: _voiceSettings),
+      );
+
+      check(serverSpeechProviderFor(c.read, direct)).isA<DirectServerSpeech>();
+      check(serverSpeechProviderFor(c.read, const Model(id: 'x', name: 'X')))
+          .isA<OpenWebUiServerSpeech>();
+      // No model named: the account's server, as for a new chat.
+      check(serverSpeechProviderFor(c.read, null)).isA<OpenWebUiServerSpeech>();
+    });
+  });
+
   group('directVoiceProvider', () {
     Future<DirectVoiceProvider?> resolve(
       List<DirectConnectionProfile> profiles,
