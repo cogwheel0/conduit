@@ -67,6 +67,10 @@ void main() {
     const long = '~~~~markdown\n~~~\n> [!NOTE]\n> literal example\n~~~~';
     check(lift(long)).deepEquals([text(long)]);
     const mixed = '````\n~~~~\n> [!NOTE]\n> literal\n````';
+    // A closing fence ends with CRLF as well as LF.
+    final crlf = lift('~~~\r\ncode\r\n~~~\r\n> [!NOTE]\r\n> Body');
+    check(crlf).length.equals(2);
+    check(crlf.last).deepEquals(alert('note', 'Body'));
     check(lift(mixed)).deepEquals([text(mixed)]);
     const math = '\$\$\n> [!TIP]\n\$\$';
     check(lift(math)).deepEquals([text(math)]);

@@ -24,7 +24,8 @@ final RegExp _blockStart = RegExp(
 
 final RegExp _fenceOpener = RegExp(r'^ {0,3}(`{3,}|~{3,})');
 
-final RegExp _fenceCloser = RegExp(r'^ {0,3}(`{3,}|~{3,})[ \t]*$');
+/// A line ending in CRLF keeps its CR after the split on LF.
+final RegExp _fenceCloser = RegExp(r'^ {0,3}(`{3,}|~{3,})[ \t]*\r?$');
 
 /// [blocks] with every GitHub-style alert at the top level of a text block
 /// lifted out into an [AlertMessageBlock] of its own, in place: the text
@@ -160,14 +161,22 @@ List<MessageBlock> _liftFromText(String markdown) {
       if (body.isNotEmpty && body.first.trim().isNotEmpty) {
         body[0] = body.first.trimLeft();
       }
-      while (body.isNotEmpty && body.first.trim().isEmpty) {
-        body.removeAt(0);
+      // The kept lines, found once from each end: no shifting the list.
+      var first = 0;
+      while (first < body.length && body[first].trim().isEmpty) {
+        first++;
       }
-      while (body.isNotEmpty && body.last.trim().isEmpty) {
-        body.removeLast();
+      var end = body.length;
+      while (end > first && body[end - 1].trim().isEmpty) {
+        end--;
       }
       flushText(beforeAlert: true);
-      out.add(AlertMessageBlock(type: type, markdown: body.join('\n')));
+      out.add(
+        AlertMessageBlock(
+          type: type,
+          markdown: body.sublist(first, end).join('\n'),
+        ),
+      );
       afterAlert = true;
       inQuote = false;
       inList = false;
