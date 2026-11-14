@@ -107,6 +107,9 @@ final class _Idp {
   /// Holds every answer until it completes, when set.
   Future<void>? answerAfter;
 
+  /// Whether the discovery document lists a token introspection endpoint.
+  bool introspects = false;
+
   late final MockClient client = MockClient((request) async {
     requests.add(request);
     await answerAfter;
@@ -119,6 +122,7 @@ final class _Idp {
         'token_endpoint': _tokenEndpoint,
         'revocation_endpoint': _revocation,
         'scopes_supported': ['openid', 'email', 'profile', 'offline_access'],
+        if (introspects) 'introspection_endpoint': '$_issuer/introspect',
       });
     }
     if (url == _tokenEndpoint) {
@@ -919,13 +923,27 @@ void main() {
       check(diagnosis.ready).isFalse();
     });
 
-    test('an exchange that only trusts listed clients', () async {
+    test('an exchange that only trusts listed clients, with a provider '
+        'that cannot say which client a token was issued to', () async {
       exchangeAnswer = () => _json(400, {
         'detail': 'Unable to determine which client the token was issued to',
       });
       final diagnosis = await service.diagnose(api: api, config: _config);
       check(diagnosis.exchangeFailure)
           .equals(BrowserSignInFailure.cannotDetermineClient);
+    });
+
+    test('an exchange that only trusts listed clients, with a provider that '
+        'can say, is not called broken by the token Test made up', () async {
+      // Introspected, a token no provider issued is inactive, which Open
+      // WebUI answers as it answers a provider it cannot ask.
+      idp.introspects = true;
+      exchangeAnswer = () => _json(400, {
+        'detail': 'Unable to determine which client the token was issued to',
+      });
+      final diagnosis = await service.diagnose(api: api, config: _config);
+      check(diagnosis.exchangeFailure).isNull();
+      check(diagnosis.ready).isTrue();
     });
 
     test('a provider that cannot be reached', () async {

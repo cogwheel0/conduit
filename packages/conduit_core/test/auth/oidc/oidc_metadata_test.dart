@@ -9,6 +9,7 @@ Map<String, dynamic> _document({
   Object? revocation,
   Object? scopes,
   Object? issParameter,
+  Object? introspection,
 }) => {
   'issuer': issuer,
   'authorization_endpoint':
@@ -20,6 +21,7 @@ Map<String, dynamic> _document({
   'revocation_endpoint': ?revocation,
   'scopes_supported': ?scopes,
   'authorization_response_iss_parameter_supported': ?issParameter,
+  'introspection_endpoint': ?introspection,
 };
 
 Subject<OidcFailureKind> _failure(
@@ -34,6 +36,8 @@ void main() {
           revocation: 'https://kc.example.com/realms/acme/protocol/openid-connect/revoke',
           scopes: ['openid', 'email', 'offline_access', 42],
           issParameter: true,
+          introspection:
+              'https://kc.example.com/realms/acme/protocol/openid-connect/token/introspect',
         ),
       );
       check(metadata.issuer).equals('https://kc.example.com/realms/acme');
@@ -41,6 +45,10 @@ void main() {
       check(metadata.revocationEndpoint).isNotNull();
       check(metadata.supportsOfflineAccess).isTrue();
       check(metadata.authorizationResponseIssParameterSupported).isTrue();
+      check(metadata.hasIntrospectionEndpoint).isTrue();
+      check(
+        OidcProviderMetadata.fromJson(_document()).hasIntrospectionEndpoint,
+      ).isFalse();
     });
 
     test('asks for offline access only when the provider lists it', () {

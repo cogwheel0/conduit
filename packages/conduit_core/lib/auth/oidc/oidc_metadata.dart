@@ -19,6 +19,7 @@ final class OidcProviderMetadata {
     this.revocationEndpoint,
     this.scopesSupported,
     this.authorizationResponseIssParameterSupported = false,
+    this.hasIntrospectionEndpoint = false,
   });
 
   /// Parses a discovery document.
@@ -43,6 +44,7 @@ final class OidcProviderMetadata {
     }
 
     final revocation = json['revocation_endpoint'];
+    final introspection = json['introspection_endpoint'];
     final scopes = json['scopes_supported'];
     return OidcProviderMetadata(
       issuer: issuer,
@@ -56,6 +58,8 @@ final class OidcProviderMetadata {
           : null,
       authorizationResponseIssParameterSupported:
           json['authorization_response_iss_parameter_supported'] == true,
+      hasIntrospectionEndpoint: introspection is String &&
+          introspection.isNotEmpty,
     );
   }
 
@@ -74,6 +78,10 @@ final class OidcProviderMetadata {
   /// Whether the provider puts `iss` in its authorization responses
   /// (RFC 9207), so a response without it is refused.
   final bool authorizationResponseIssParameterSupported;
+
+  /// Whether the provider lists a token introspection endpoint (RFC 7662),
+  /// which Open WebUI needs to tell which client a token was issued to.
+  final bool hasIntrospectionEndpoint;
 
   /// Whether a sign-in may ask for `offline_access`. Only a provider that
   /// lists it is asked: some refuse a scope they do not know.
