@@ -148,10 +148,10 @@ class AuthActions {
     BrowserSignInConfig? config,
   }) => _auth.saveBrowserSignInConfig(accountId: accountId, config: config);
 
-  /// Ends the browser sign-in waiting on the browser, if any: its
-  /// [loginWithBrowser] returns false, as when the browser is closed.
-  Future<void> cancelBrowserSignIn() =>
-      _ref.read(browserSignInServiceProvider).cancel();
+  /// Calls off the browser sign-in in progress, if any, at whatever step it
+  /// is: its [loginWithBrowser] returns false, as when the browser is
+  /// closed.
+  Future<void> cancelBrowserSignIn() => _auth.cancelBrowserSignIn();
 
   Future<bool> ldapLogin(
     String username,

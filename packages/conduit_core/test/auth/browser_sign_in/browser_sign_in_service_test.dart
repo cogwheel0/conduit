@@ -299,12 +299,14 @@ void main() {
     BrowserSignInConfig config = _config,
     String? prompt,
     String? loginHint,
+    bool Function()? stopped,
   }) => service.authorize(
     api: api,
     config: config,
     serverId: 'server-1',
     prompt: prompt,
     loginHint: loginHint,
+    stopped: stopped,
   );
 
   Future<BrowserSignInFailure> failureOf(Future<Object?> future) async {
@@ -317,6 +319,21 @@ void main() {
   }
 
   group('signing in', () {
+    test('called off while the provider is found, never opens the browser',
+        () async {
+      final found = Completer<void>();
+      idp.answerAfter = found.future;
+      var calledOff = false;
+
+      final grant = authorize(stopped: () => calledOff);
+      await pumpEventQueue();
+      calledOff = true;
+      found.complete();
+
+      check(await grant).isNull();
+      check(browser.opened).isEmpty();
+    });
+
     test('finds the provider Open WebUI uses, signs in to it in the browser, '
         'and redeems the code', () async {
       final grant = await authorize(

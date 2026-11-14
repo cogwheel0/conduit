@@ -1295,9 +1295,12 @@ class AuthStateManager extends _$AuthStateManager {
     bool Function()? canCommit,
   }) async {
     final attemptRevision = _beginAuthAttempt();
+    _browserSignInAttempt = attemptRevision;
     _retryableBrowserGrant = null;
-    bool stopped() =>
-        _authAttemptSuperseded(attemptRevision) || !_canCommitAuth(canCommit);
+    bool mayCommit() =>
+        _cancelledBrowserSignInAttempt != attemptRevision &&
+        _canCommitAuth(canCommit);
+    bool stopped() => _authAttemptSuperseded(attemptRevision) || !mayCommit();
     try {
       await _ensureApiServiceAvailable();
       final api = ref.read(apiServiceProvider);
@@ -1322,6 +1325,7 @@ class AuthStateManager extends _$AuthStateManager {
             serverId: target.serverId,
             prompt: target.prompt,
             loginHint: target.loginHint,
+            stopped: stopped,
           );
       if (grant == null || stopped()) return false;
       return await _commitBrowserGrant(
@@ -1329,7 +1333,7 @@ class AuthStateManager extends _$AuthStateManager {
         grant: grant,
         grantedAt: DateTime.now(),
         attemptRevision: attemptRevision,
-        canCommit: canCommit,
+        canCommit: mayCommit,
       );
     } catch (error, stackTrace) {
       return _failBrowserSignIn(
@@ -1339,6 +1343,18 @@ class AuthStateManager extends _$AuthStateManager {
         stopped: stopped(),
       );
     }
+  }
+
+  /// The browser sign-in attempt last begun, and the one Cancel called off.
+  int? _browserSignInAttempt;
+  int? _cancelledBrowserSignInAttempt;
+
+  /// Calls off the browser sign-in in progress, quietly: the browser closes
+  /// if it is open and does not open if it has yet to, and nothing the
+  /// attempt brings back commits. [loginWithBrowser] then returns false.
+  Future<void> cancelBrowserSignIn() {
+    _cancelledBrowserSignInAttempt = _browserSignInAttempt;
+    return ref.read(browserSignInServiceProvider).cancel();
   }
 
   /// Trades the access token of the browser sign-in that Open WebUI just
@@ -1357,15 +1373,18 @@ class AuthStateManager extends _$AuthStateManager {
       return false;
     }
     final attemptRevision = _beginAuthAttempt();
-    bool stopped() =>
-        _authAttemptSuperseded(attemptRevision) || !_canCommitAuth(canCommit);
+    _browserSignInAttempt = attemptRevision;
+    bool mayCommit() =>
+        _cancelledBrowserSignInAttempt != attemptRevision &&
+        _canCommitAuth(canCommit);
+    bool stopped() => _authAttemptSuperseded(attemptRevision) || !mayCommit();
     try {
       return await _commitBrowserGrant(
         accountId: retry.accountId,
         grant: retry.grant,
         grantedAt: retry.at,
         attemptRevision: attemptRevision,
-        canCommit: canCommit,
+        canCommit: mayCommit,
       );
     } catch (error, stackTrace) {
       return _failBrowserSignIn(

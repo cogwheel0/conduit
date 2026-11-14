@@ -210,6 +210,51 @@ void main() {
       check(rig.state.error).isNull();
     });
 
+    test('Cancel before the browser opens keeps it closed', () async {
+      final rig = await _Rig.start();
+      rig.service.findingProvider = Completer<void>();
+
+      final signIn = rig.auth.loginWithBrowser(config: _config);
+      await pumpEventQueue();
+      await rig.auth.cancelBrowserSignIn();
+      rig.service.findingProvider!.complete();
+
+      check(await signIn).isFalse();
+      check(rig.service.browserOpened).equals(0);
+      check(rig.storage.remembered).isNull();
+      check(rig.state.isAuthenticated).isFalse();
+    });
+
+    test('Cancel after the browser came back commits nothing it brings',
+        () async {
+      final rig = await _Rig.start();
+      rig.service.exchanging = Completer<void>();
+
+      final signIn = rig.auth.loginWithBrowser(config: _config);
+      await pumpEventQueue();
+      check(rig.service.exchanges).length.equals(1);
+      await rig.auth.cancelBrowserSignIn();
+      rig.service.exchanging!.complete();
+
+      check(await signIn).isFalse();
+      check(rig.storage.remembered).isNull();
+      check(rig.state.isAuthenticated).isFalse();
+    });
+
+    test('a sign-in begun after Cancel is not called off by it', () async {
+      final rig = await _Rig.start();
+      rig.service.findingProvider = Completer<void>();
+      final cancelled = rig.auth.loginWithBrowser(config: _config);
+      await pumpEventQueue();
+      await rig.auth.cancelBrowserSignIn();
+      rig.service.findingProvider!.complete();
+      check(await cancelled).isFalse();
+      rig.service.findingProvider = null;
+
+      check(await rig.auth.loginWithBrowser(config: _config)).isTrue();
+      check(rig.state.token).equals(_issued);
+    });
+
     test('another account becoming active while the browser is open stops '
         'it before the exchange', () async {
       final rig = await _Rig.start();
@@ -1376,6 +1421,15 @@ final class _Service extends BrowserSignInService {
 
   /// Keeps the browser open until completed.
   Completer<void>? browserOpen;
+
+  /// Holds the steps before the browser opens until completed.
+  Completer<void>? findingProvider;
+
+  /// Holds the token exchange until completed.
+  Completer<void>? exchanging;
+
+  /// How many times the browser opened.
+  int browserOpened = 0;
   BrowserSignInAnswer Function() answer = () =>
       BrowserSignInSessionToken(_issued);
   BrowserSignInException? exchangeError;
@@ -1422,6 +1476,7 @@ final class _Service extends BrowserSignInService {
     required String serverId,
     String? prompt,
     String? loginHint,
+    bool Function()? stopped,
   }) async {
     authorizeCalls.add((
       api: api,
@@ -1429,6 +1484,9 @@ final class _Service extends BrowserSignInService {
       prompt: prompt,
       loginHint: loginHint,
     ));
+    await findingProvider?.future;
+    if (stopped?.call() ?? false) return null;
+    browserOpened++;
     duringBrowser?.call();
     await browserOpen?.future;
     return grant;
@@ -1442,6 +1500,7 @@ final class _Service extends BrowserSignInService {
     bool renewal = false,
   }) async {
     exchanges.add((api: api, accessToken: accessToken));
+    await exchanging?.future;
     final error = exchangeError;
     if (error != null) throw error;
     return answer();
