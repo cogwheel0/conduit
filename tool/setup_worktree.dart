@@ -59,21 +59,9 @@ Future<void> main() async {
     if (!Platform.isWindows) ProcessSignal.sigterm,
   ]) {
     signal.watch().listen((received) async {
-      final exits = [for (final process in _running) process.exitCode];
-      for (final process in _running) {
-        process.kill(received);
-      }
       // The marker says nothing is writing any more, so wait for that to be
-      // true. A program that ignores the signal is killed outright.
-      await Future.wait(exits).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          for (final process in _running) {
-            process.kill(ProcessSignal.sigkill);
-          }
-          return const [];
-        },
-      );
+      // true before leaving it.
+      await stopAll(_running, received);
       finish('Cancelled by $received.');
       exit(1);
     });
@@ -96,6 +84,31 @@ Future<void> main() async {
     stderr.writeln('Setup failed: $error');
     exit(1);
   }
+}
+
+/// Sends [signal] to each of [processes] and returns once all have exited.
+/// One that is still running after [grace] is killed outright, and waited
+/// for as well.
+Future<void> stopAll(
+  Iterable<Process> processes,
+  ProcessSignal signal, {
+  Duration grace = const Duration(seconds: 10),
+}) async {
+  final running = processes.toList();
+  final exits = Future.wait([for (final process in running) process.exitCode]);
+  for (final process in running) {
+    process.kill(signal);
+  }
+  await exits.timeout(
+    grace,
+    onTimeout: () {
+      for (final process in running) {
+        process.kill(ProcessSignal.sigkill);
+      }
+      // SIGKILL cannot be ignored, so this wait ends.
+      return exits;
+    },
+  );
 }
 
 Future<void> _setUp(String root) async {
