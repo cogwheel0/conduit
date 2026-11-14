@@ -1744,6 +1744,28 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     }
   }
 
+  void persistFinalizedChange(String failure) {
+    final persistenceRevision = projection.persistenceRevision;
+    trackLatePersistence(() async {
+      try {
+        final persisted = await _persistCompletedHermesProjection(
+          ref,
+          owner: owner,
+          projectionStore: projectionStore,
+          projection: projection,
+          persistenceContext: persistenceContext,
+          allowCapturedContextAfterRevocation: allowCapturedDatabasePersistence,
+        );
+        if (persisted &&
+            projection.persistenceRevision == persistenceRevision) {
+          projectionStore.markDurablyPersisted(projection);
+        }
+      } catch (_) {
+        DebugLogger.error(failure, scope: 'hermes/transport');
+      }
+    }());
+  }
+
   void reportTerminalCleanupError(ChatMessageError error) {
     ChatMessage updater(ChatMessage message) => message.copyWith(error: error);
     final updatedLiveProjection = projectionStore.update(projection, updater);
@@ -1768,30 +1790,36 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       // cleanup necessarily finishes. Persist the late cleanup diagnostic as
       // a second idempotent snapshot so an OpenWebUI-backed Hermes segment
       // cannot lose it on process restart.
-      final persistenceRevision = projection.persistenceRevision;
-      trackLatePersistence(() async {
-        try {
-          final persisted = await _persistCompletedHermesProjection(
-            ref,
-            owner: owner,
-            projectionStore: projectionStore,
-            projection: projection,
-            persistenceContext: persistenceContext,
-            allowCapturedContextAfterRevocation:
-                allowCapturedDatabasePersistence,
-          );
-          if (persisted &&
-              projection.persistenceRevision == persistenceRevision) {
-            projectionStore.markDurablyPersisted(projection);
-          }
-        } catch (_) {
-          DebugLogger.error(
-            'terminal-cleanup-persistence-failed',
-            scope: 'hermes/transport',
-          );
-        }
-      }());
+      persistFinalizedChange('terminal-cleanup-persistence-failed');
     }
+  }
+
+  // A prompt kept off a model switch counts as sent once Hermes took it,
+  // even after a stop sealed its reply: only the marker leaves it then.
+  void markPromptAccepted() {
+    ChatMessage accepted(ChatMessage message) =>
+        message.metadata?[kHermesModelSwitchKeptKey] == true
+        ? message.copyWith(
+            metadata: {...?message.metadata}
+              ..remove(kHermesModelSwitchKeptKey),
+          )
+        : message;
+    if (projectionStore.update(projection, accepted)) {
+      if (owner.isActive(ref)) {
+        notifier.updateMessageById(assistantMessageId, accepted);
+      }
+      return;
+    }
+    if (!projectionStore.removeFinalizedMetadata(
+      projection,
+      kHermesModelSwitchKeptKey,
+    )) {
+      return;
+    }
+    if (owner.isActive(ref)) {
+      notifier.updateMessageById(assistantMessageId, accepted);
+    }
+    persistFinalizedChange('accepted-prompt-persistence-failed');
   }
 
   // Notifies about a turn that ended without being stopped, as a push for it
@@ -2314,15 +2342,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
             .read(composerTextInsertionProvider.notifier)
             .insert(targetId: chatComposerTextInsertionTargetId, text: text);
       },
-      // A prompt kept off a model switch counts as sent once Hermes took it.
-      onTurnAccepted: () => updateProjectedMessage(
-        (message) => message.metadata?[kHermesModelSwitchKeptKey] == true
-            ? message.copyWith(
-                metadata: {...?message.metadata}
-                  ..remove(kHermesModelSwitchKeptKey),
-              )
-            : message,
-      ),
+      onTurnAccepted: markPromptAccepted,
       // Kept on its model, the chat gets its message back to send there,
       // and its picker back to that model.
       onModelSwitchDeclined: (declined) {

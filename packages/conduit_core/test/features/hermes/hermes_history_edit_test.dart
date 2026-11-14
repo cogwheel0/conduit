@@ -12,7 +12,8 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         hermesRewindCandidateTexts,
         kHermesStoredUserContentKey,
         regenerateEditedHermesUserMessage,
-        regenerateMessage;
+        regenerateMessage,
+        stopGenerationSettledProvider;
 import 'package:conduit_core/features/chat/services/historical_message_regeneration.dart'
     show regenerateHistoricalMessageById;
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
@@ -109,11 +110,15 @@ final class _Gateway {
         );
         return;
       }
-      scheduleMicrotask(
-        () => incoming.add(
-          jsonEncode({'jsonrpc': '2.0', 'id': id, 'result': result}),
-        ),
+      void answer() => incoming.add(
+        jsonEncode({'jsonrpc': '2.0', 'id': id, 'result': result}),
       );
+      final held = holdSubmit;
+      if (method == 'prompt.submit' && held != null) {
+        unawaited(held.future.then((_) => answer()));
+        return;
+      }
+      scheduleMicrotask(answer);
     });
   }
 
@@ -122,6 +127,9 @@ final class _Gateway {
   final sink = _MockWebSocketSink();
   final incoming = StreamController<dynamic>.broadcast();
   final sent = <Map<String, dynamic>>[];
+
+  /// When set, `prompt.submit` is answered only once it completes.
+  Completer<void>? holdSubmit;
 
   /// Answers a request in place of the defaults; null falls back to them.
   Object? Function(String method, Map<String, dynamic> params)? handler;
@@ -1446,6 +1454,48 @@ void main() {
       final edited = edits.calls('prompt.submit').single;
       check(edited['text']).equals('Thanks');
       check(edited['truncate_before_row_id']).equals(15);
+    });
+
+    test('a kept prompt Hermes took after a stop counts as sent', () async {
+      final gateway = _Gateway()..holdSubmit = Completer<void>();
+      final rest = _Rest(_transcript);
+      gateway.handler = (method, params) {
+        if (method != 'prompt.submit') return null;
+        // Stored as Hermes takes it.
+        rest.transcript = [
+          ...rest.transcript,
+          {'id': 17, 'role': 'user', 'content': 'And ice?'},
+        ];
+        return null;
+      };
+      final service = _service(gateway, rest);
+      final container = await _turnContainer(service, [
+        ..._chat,
+        _message('k1', 'user', 'And ice?'),
+        _message('k2', 'assistant', '').copyWith(
+          metadata: const {kHermesModelSwitchKeptKey: true},
+        ),
+      ]);
+
+      final replay = regenerateMessage(container, 'And ice?', null);
+      for (var i = 0; i < 100 && gateway.calls('prompt.submit').isEmpty; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(gateway.calls('prompt.submit')).length.equals(1);
+      // Stopped while Hermes has not answered the submit yet, which it then
+      // takes.
+      await container.read(stopGenerationSettledProvider)();
+      gateway.holdSubmit!.complete();
+      await replay;
+      await _settle();
+
+      check(
+        container.read(chatMessagesProvider).last.metadata?[
+          kHermesModelSwitchKeptKey
+        ],
+      ).isNull();
+      check(await undoLastHermesTurn(container)).isTrue();
+      check(gateway.calls('session.undo')).length.equals(1);
     });
 
     test('editing a kept prompt cuts the turns sent after it', () async {

@@ -251,10 +251,33 @@ final class _HermesRunProjectionStore {
     if (updated.error == null || updated.error == current.error) {
       return false;
     }
+    return _replaceFinalizedMessage(
+      projection,
+      current.copyWith(error: updated.error),
+    );
+  }
+
+  /// Drops metadata [key] from a finalized projection's message, and nothing
+  /// else: a fact about the turn that arrived after a stop sealed it.
+  bool removeFinalizedMetadata(_HermesRunProjection projection, String key) {
+    if (!isCurrent(projection) || !projection.finalized) return false;
+    final current = _materializeContent(projection);
+    final metadata = current.metadata;
+    if (metadata == null || !metadata.containsKey(key)) return false;
+    return _replaceFinalizedMessage(
+      projection,
+      current.copyWith(metadata: {...metadata}..remove(key)),
+    );
+  }
+
+  bool _replaceFinalizedMessage(
+    _HermesRunProjection projection,
+    ChatMessage message,
+  ) {
     final retainedForRecovery = _finalized.contains(projection);
     if (retainedForRecovery) _retainedBytes -= projection.retainedBytes;
     projection
-      ..message = current.copyWith(error: updated.error)
+      ..message = message
       ..persistenceRevision += 1
       ..durablePersistenceComplete = !projection.requiresDurablePersistence
       ..retainedBytes = _estimateHermesProjectionBytes(projection.message);
