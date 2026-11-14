@@ -209,6 +209,21 @@ void main() {
         previous,
       );
       expect(retyped.apiKey, 'sk-typed-again');
+
+      // A client certificate typed for the new place is not the key or the
+      // headers typed again: they stay behind.
+      final certificateOnly = DirectService.apply(
+        stored.copyWith(
+          baseUrl: 'https://elsewhere.example.net/v1',
+          apiKey: null,
+          customHeaders: null,
+          certificatePem: '-----BEGIN CERTIFICATE-----\nnew\n',
+          privateKeyPem: '-----BEGIN PRIVATE KEY-----\nnew\n',
+        ),
+        previous,
+      );
+      expect(certificateOnly.apiKey, isNull);
+      expect(certificateOnly.customHeaders, isEmpty);
     });
 
     test('a test probe sends the new server no stored secret', () async {

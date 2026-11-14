@@ -403,13 +403,11 @@ final class DirectService {
     return found;
   }
 
-  /// Whether [edit] typed any secret again, which is what lets secrets move
-  /// with a URL to a new origin.
+  /// Whether [edit] typed the key or the headers again, which is what lets
+  /// them move with a URL to a new origin. A client certificate typed for
+  /// the new place is not: the core keeps no TLS setting across origins.
   static bool _secretsConfirmed(DirectConnectionEdit edit) =>
-      edit.apiKey != null ||
-      edit.customHeaders != null ||
-      edit.certificatePem != null ||
-      edit.privateKeyPem != null;
+      edit.apiKey != null || edit.customHeaders != null;
 
   /// [edit] over [previous], or a new profile. Secrets follow the servers
   /// rule: null keeps, empty clears.
