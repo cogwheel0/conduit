@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart';
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart';
@@ -132,6 +134,7 @@ void main() {
       SidebarTabAvailability? sidebar,
       bool flags = true,
       WorkspaceCapabilities workspace = WorkspaceCapabilities.none,
+      Future<Map<String, dynamic>> Function()? permissions,
     }) {
       final c = ProviderContainer(
         overrides: [
@@ -144,8 +147,14 @@ void main() {
           notificationTargetsAvailableProvider.overrideWithValue(flags),
           memoriesPermittedProvider.overrideWith((ref) async => flags),
           codeInterpreterAvailableProvider.overrideWithValue(flags),
-          openWebUiImageGenerationAllowedProvider.overrideWithValue(flags),
-          openWebUiWebSearchAllowedProvider.overrideWithValue(flags),
+          if (permissions == null) ...[
+            openWebUiImageGenerationAllowedProvider.overrideWithValue(flags),
+            openWebUiWebSearchAllowedProvider.overrideWithValue(flags),
+          ] else ...[
+            openWebUiAccountAvailableProvider.overrideWithValue(true),
+            currentUserProvider.overrideWith((ref) async => _member),
+            userPermissionsProvider.overrideWith((ref) => permissions()),
+          ],
           workspaceCapabilitiesProvider.overrideWith((ref) async => workspace),
         ],
       );
@@ -197,6 +206,42 @@ void main() {
       check(features.workspaceSections).isEmpty();
       check(features.sidebarTabs)
           .deepEquals(<SidebarTabId>[SidebarTabId.hermes]);
+    });
+
+    test('image generation and web search wait for the permissions', () async {
+      final loading = container(
+        permissions: () => Completer<Map<String, dynamic>>().future,
+      );
+      check(await settled(loading))
+        ..has((f) => f.imageGeneration, 'imageGeneration').isFalse()
+        ..has((f) => f.webSearch, 'webSearch').isFalse();
+      // The phone's own gate still lets the composer offer them meanwhile.
+      check(loading.read(imageGenerationAvailableProvider)).isTrue();
+
+      final failed = container(
+        permissions: () async => throw StateError('offline'),
+      );
+      final failing = failed.listen(userPermissionsProvider, (_, _) {});
+      addTearDown(failing.close);
+      await check(failed.read(userPermissionsProvider.future)).throws();
+      check(await settled(failed))
+        ..has((f) => f.imageGeneration, 'imageGeneration').isFalse()
+        ..has((f) => f.webSearch, 'webSearch').isFalse();
+
+      final loaded = container(
+        permissions: () async => const <String, dynamic>{
+          'features': <String, dynamic>{
+            'image_generation': true,
+            'web_search': true,
+          },
+        },
+      );
+      final reading = loaded.listen(userPermissionsProvider, (_, _) {});
+      addTearDown(reading.close);
+      await loaded.read(userPermissionsProvider.future);
+      check(await settled(loaded))
+        ..has((f) => f.imageGeneration, 'imageGeneration').isTrue()
+        ..has((f) => f.webSearch, 'webSearch').isTrue();
     });
 
     test('a changed answer makes a different snapshot', () async {

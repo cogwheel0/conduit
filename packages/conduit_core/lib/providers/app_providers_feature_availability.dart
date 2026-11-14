@@ -230,13 +230,21 @@ bool _imageGenerationAvailable(Ref ref) {
 /// model is selected: the account's `features.image_generation` permission.
 ///
 /// False without a signed-in Open WebUI account (a Direct or Hermes session
-/// has no server to ask). The selected model's own rules are
+/// has no server to ask), and until the permissions have loaded: unlike the
+/// composer's gate, which offers the feature meanwhile, this one is false
+/// until it is known. The selected model's own rules are
 /// [imageGenerationAvailableProvider]'s.
 final openWebUiImageGenerationAllowedProvider = Provider<bool>(
   (ref) =>
       ref.watch(openWebUiAccountAvailableProvider) &&
+      _userPermissionsLoaded(ref) &&
       _openWebUiAllowsImageGeneration(ref),
 );
+
+/// Whether the account's permissions have been read: not loading, reloading
+/// or failed.
+bool _userPermissionsLoaded(Ref ref) =>
+    ref.watch(userPermissionsProvider) is AsyncData;
 
 bool _openWebUiAllowsImageGeneration(Ref ref) {
   final perms = ref.watch(userPermissionsProvider);
@@ -305,11 +313,14 @@ bool _webSearchAvailable(Ref ref) {
 /// model is selected: the server's web search switch and the account's
 /// permission.
 ///
-/// False without a signed-in Open WebUI account. The selected model's own
-/// rules (and a Direct model's search) are [webSearchAvailableProvider]'s.
+/// False without a signed-in Open WebUI account, and until the permissions
+/// have loaded (as [openWebUiImageGenerationAllowedProvider]). The selected
+/// model's own rules (and a Direct model's search) are
+/// [webSearchAvailableProvider]'s.
 final openWebUiWebSearchAllowedProvider = Provider<bool>(
   (ref) =>
       ref.watch(openWebUiAccountAvailableProvider) &&
+      _userPermissionsLoaded(ref) &&
       _openWebUiAllowsWebSearch(ref),
 );
 
