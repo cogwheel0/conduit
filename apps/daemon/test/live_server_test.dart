@@ -1787,9 +1787,11 @@ void main() {
         timeout: const Timeout(Duration(minutes: 2)),
       );
 
-      // Dictation and speech. The server transcribes a recording; a
-      // real sentence is used when CONDUIT_SPEECH_SAMPLE names one (the
-      // quick brown fox), and otherwise a tone, which checks the route only.
+      // Dictation and speech. The server transcribes a recording: the local
+      // server's speech-to-text is the fake model, which answers every
+      // recording with the same synthetic sentence, so a tone checks the
+      // route. (CONDUIT_SPEECH_SAMPLE's real sentence is for the local
+      // Whisper tests, which do hear it.)
       test('transcribes a recording and makes speech jobs', () async {
         final voice = VoiceService(runtime.container);
         final settings = await voice.settings();
@@ -1798,18 +1800,11 @@ void main() {
           markTestSkipped('the server does not transcribe');
           return;
         }
-        final sample = Platform.environment['CONDUIT_SPEECH_SAMPLE'];
-        final transcript = sample != null && File(sample).existsSync()
-            ? await voice.transcribe(
-                File(sample).readAsBytesSync(),
-                contentType: sample.endsWith('.wav')
-                    ? 'audio/wav'
-                    : 'audio/mpeg',
-              )
-            : await voice.transcribe(_toneWav(), contentType: 'audio/wav');
-        if (sample != null) {
-          expect(transcript.text.toLowerCase(), contains('quick brown fox'));
-        }
+        final transcript = await voice.transcribe(
+          _toneWav(),
+          contentType: 'audio/wav',
+        );
+        expect(transcript.text, 'A synthetic transcript from the fake model.');
 
         final job = await voice.speak(const VoiceSpeak(text: 'Hello there.'));
         expect(job.jobId, startsWith('tts-'));
