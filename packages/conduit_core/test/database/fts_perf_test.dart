@@ -14,6 +14,15 @@
 ///
 /// Instrumentation goes through DebugLogger with numeric-only data maps so no
 /// untrusted chat content is ever logged.
+///
+/// The wall-clock budgets (1, the first page, and 2) are enforced only when
+/// asked for, because a shared CI runner can miss them with nothing wrong in
+/// the code:
+///
+///     CONDUIT_PERF_BUDGETS=1 dart test test/database/fts_perf_test.dart
+///
+/// Without the flag those tests still run and check what they load, its order,
+/// and that the appends land; only the timing is left out.
 library;
 
 import 'dart:async';
@@ -34,6 +43,13 @@ import 'support/large_fixture.dart';
 /// budgets below; this only bounds pathological regressions.
 const Duration _coldStartBudget = Duration(milliseconds: 400);
 const Duration _appendBudget = Duration(milliseconds: 10);
+
+final bool _enforceBudgets =
+    Platform.environment['CONDUIT_PERF_BUDGETS'] == '1';
+
+void _checkBudget(Duration elapsed, Duration budget) {
+  if (_enforceBudgets) check(elapsed).isLessThan(budget);
+}
 
 void main() {
   late Directory tempDir;
@@ -85,7 +101,7 @@ void main() {
     check(entries.length).equals(1001);
     // The list must emit BEFORE any FTS build is on the path — the fixture
     // above never built FTS, so fts_built is absent and the list still emits.
-    check(elapsed).isLessThan(_coldStartBudget);
+    _checkBudget(elapsed, _coldStartBudget);
   });
 
   // -------------------------------------------------------------------------
@@ -112,7 +128,7 @@ void main() {
       data: {'ms': sw.elapsed.inMilliseconds, 'rows': page.length},
     );
     check(page.length).equals(200);
-    check(sw.elapsed).isLessThan(_coldStartBudget);
+    _checkBudget(sw.elapsed, _coldStartBudget);
 
     // Ordering is identical to watchChatList: updatedAt DESC, id ASC. The
     // fixture's strictly-decreasing updatedAt makes chat-0000 the newest.
@@ -175,7 +191,18 @@ void main() {
         scope: 'perf/append',
         data: {'ms': elapsed.inMilliseconds},
       );
-      check(elapsed).isLessThan(_appendBudget);
+      _checkBudget(elapsed, _appendBudget);
+
+      // With the triggers live, every measured append landed.
+      final ids = {
+        for (final m in await db.messagesDao.getForChat(fixture.bigChatId))
+          m.id,
+      };
+      for (var sample = 0; sample < 3; sample++) {
+        check(ids).contains(
+          appendCandidate(fixture.bigChatId, suffix: 'sample-$sample').id,
+        );
+      }
     },
   );
 
