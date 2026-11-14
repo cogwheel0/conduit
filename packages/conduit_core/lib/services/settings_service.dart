@@ -1858,7 +1858,10 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
 
   Future<void> resetToDefaults() async {
     await SettingsService._putOrRemove(PreferenceKeys.citationBackground, null);
-    const defaultSettings = AppSettings();
+    // The host's defaults, as for settings never set.
+    final defaultSettings = AppSettings(
+      sendOnEnter: ref.read(appSettingsHostDefaultsProvider).sendOnEnter,
+    );
     await SettingsService._putOrRemove(PreferenceKeys.computerEnabled, null);
     await SettingsService._putOrRemove(
       PreferenceKeys.showComposerNotesButton,
@@ -1873,6 +1876,8 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
       null,
     );
     await SettingsService.saveSettings(defaultSettings);
+    // Left unset again, so it follows the host's default.
+    await SettingsService._putOrRemove(PreferenceKeys.sendOnEnterKey, null);
     await SettingsService.setSlidingSidebarEnabled(
       defaultSettings.slidingSidebarEnabled,
     );

@@ -51,5 +51,13 @@ void main() {
     );
     expect(relaunched.read(appSettingsProvider).sendOnEnter, isFalse);
     expect(PreferencesStore.containsKey(PreferenceKeys.sendOnEnterKey), isTrue);
+
+    // A reset goes back to the host's default, and leaves it unset.
+    await relaunched.read(appSettingsProvider.notifier).resetToDefaults();
+    expect(relaunched.read(appSettingsProvider).sendOnEnter, isTrue);
+    expect(
+      PreferencesStore.containsKey(PreferenceKeys.sendOnEnterKey),
+      isFalse,
+    );
   });
 }
