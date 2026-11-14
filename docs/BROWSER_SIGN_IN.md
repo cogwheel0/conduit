@@ -154,6 +154,11 @@ When the setup asks for one, enter
 3. Set **Valid redirect URIs** to `conduit://oauth/callback`.
 4. Under **Advanced**, set **Proof Key for Code Exchange Code Challenge Method**
    to `S256`.
+5. If `OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS` is set, open the client's
+   **Client scopes → (client)-dedicated → Add mapper → By configuration →
+   Audience**, and set **Included Client Audience** to Open WebUI's client.
+   Keycloak reports a token as inactive to a client outside its audience, so
+   without this mapper every exchange fails.
 
 `offline_access` is an optional client scope by default, so Conduit gets an
 offline token, which outlives the realm's SSO idle timeout. Offline sessions
@@ -273,7 +278,7 @@ the authenticator code. That covers browser sign-ins, unless
 | The provider isn't set up on the server | Open WebUI doesn't have this provider enabled |
 | The identity provider rejected the client | Check the client ID, that the client is public, the redirect URI, and PKCE `S256` |
 | Access prohibited | The client ID is missing from `OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS`, or the email domain isn't in `OAUTH_ALLOWED_DOMAINS`, or role management found no allowed role in Conduit's token |
-| The server can't tell which client the token is from | `OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS` is set, but Open WebUI couldn't introspect the token: the provider has no introspection endpoint, or doesn't let Open WebUI's client use it. Allow it, or use the in-app sign-in. Unsetting the list accepts tokens from any app (see [Which apps' tokens are accepted](#which-apps-tokens-are-accepted)) |
+| The server can't tell which client the token is from | `OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS` is set, but Open WebUI couldn't introspect the token: the provider has no introspection endpoint, or doesn't let Open WebUI's client use it. Allow it (on Keycloak, add the audience mapper in [Keycloak](#keycloak)), or use the in-app sign-in. Unsetting the list accepts tokens from any app (see [Which apps' tokens are accepted](#which-apps-tokens-are-accepted)) |
 | The token is missing required claims | Release `email` (and `sub`) to Conduit's client |
 | Couldn't find the identity provider | Enter the issuer, or the full discovery URL |
 | The issuer belongs to a different provider | Register Conduit's client on the identity provider Open WebUI uses |

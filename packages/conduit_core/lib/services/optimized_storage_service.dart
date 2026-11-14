@@ -3341,20 +3341,27 @@ class OptimizedStorageService {
     return null;
   }
 
-  /// The browser sign-in settings of [accountId]'s server: null when it has
-  /// none, or the account is not saved. Strict: a failed read throws.
-  Future<BrowserSignInConfig?> browserSignInConfigForAccount(
-    String accountId,
-  ) => _synchronizedServerConfigsRead(() async {
-    final registry = await _retrySecureStorageRead(
-      _getRegistryStrictUnlocked,
-      scope: 'storage/optimized/registry',
-    );
-    final account = registry.account(accountId);
-    return account == null
-        ? null
-        : registry.server(account.serverId)?.browserSignIn;
-  });
+  /// The browser sign-in settings of the server [config]'s account is on.
+  /// An account not saved yet gets those of the server it joins when saved:
+  /// one with an address that carries [config]. Null when that server has
+  /// none, or no server does. Strict: a failed read throws.
+  Future<BrowserSignInConfig?> browserSignInConfigFor(ServerConfig config) =>
+      _synchronizedServerConfigsRead(() async {
+        final registry = await _retrySecureStorageRead(
+          _getRegistryStrictUnlocked,
+          scope: 'storage/optimized/registry',
+        );
+        final account = registry.account(config.id);
+        if (account != null) {
+          return registry.server(account.serverId)?.browserSignIn;
+        }
+        for (final server in registry.servers) {
+          if (server.endpoints.any((endpoint) => endpoint.carries(config))) {
+            return server.browserSignIn;
+          }
+        }
+        return null;
+      });
 
   /// Sets [serverId]'s browser sign-in settings, or removes them when
   /// [config] is null.

@@ -103,7 +103,7 @@ void main() {
         .deepEquals({'X-Tenant': 't'});
     // Browser sign-in is set up afresh, never carried over.
     check(registry.servers.single.browserSignIn).isNull();
-    check(await storage.browserSignInConfigForAccount('active')).isNull();
+    check(await storage.browserSignInConfigFor(active)).isNull();
   });
 
   test('rows with nothing behind them are left out', () async {

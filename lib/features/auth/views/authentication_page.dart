@@ -221,13 +221,13 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   bool get _signInAccountSaved => _serverConfig == null || _serverConfigSaved;
 
   /// The browser sign-in config of the account's server: the one chosen on
-  /// this page, else the saved one.
+  /// this page, else the saved one of the server it is on or joins.
   BrowserSignInConfig? get _browserConfig {
     if (_browserConfigChosen) return _chosenBrowserConfig;
     if (!ref.read(browserAuthPortProvider).isSupported) return null;
-    final accountId = _signInAccountId;
-    if (accountId == null) return null;
-    return ref.read(browserSignInConfigProvider(accountId)).value;
+    final account = _serverConfig ?? ref.read(activeServerProvider).value;
+    if (account == null) return null;
+    return ref.read(browserSignInConfigProvider(account)).value;
   }
 
   /// Whether the page's SSO continues in the system browser.
@@ -669,10 +669,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     // or changes; a config that loads after the page opened makes browser
     // sign-in the method, unless the user picked one already.
     if (ref.watch(browserAuthPortProvider).isSupported) {
-      final accountId = _resolvedServerConfig?.id;
-      if (accountId != null) {
-        ref.watch(browserSignInConfigProvider(accountId));
-        ref.listen(browserSignInConfigProvider(accountId), (previous, next) {
+      final account = _resolvedServerConfig;
+      if (account != null) {
+        ref.watch(browserSignInConfigProvider(account));
+        ref.listen(browserSignInConfigProvider(account), (previous, next) {
           if (!mounted ||
               _authModeChosen ||
               _browserConfigChosen ||

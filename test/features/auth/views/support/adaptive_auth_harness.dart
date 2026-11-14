@@ -248,7 +248,7 @@ class AdaptiveAuthHarness {
             const _SupportedBrowserAuthPort(),
           ),
           browserSignInConfigProvider.overrideWith(
-            (ref, accountId) async => browserSignInConfig,
+            (ref, account) async => browserSignInConfig,
           ),
           openExternalUrlProvider.overrideWithValue(
             _RecordingUrlPort(openedUrls),

@@ -146,10 +146,39 @@ void main() {
 
       await storage.setServerBrowserSignIn(await serverOf('a'), settings);
 
-      check(await storage.browserSignInConfigForAccount('a')).equals(settings);
-      check(await storage.browserSignInConfigForAccount('b')).equals(settings);
-      check(await storage.browserSignInConfigForAccount('c')).isNull();
-      check(await storage.browserSignInConfigForAccount('gone')).isNull();
+      check(
+
+        await storage.browserSignInConfigFor(account('a')),
+
+      ).equals(settings);
+      check(
+        await storage.browserSignInConfigFor(account('b')),
+      ).equals(settings);
+      check(
+        await storage.browserSignInConfigFor(
+          account('c', url: 'https://other.example.com'),
+        ),
+      ).isNull();
+    });
+
+    test('are those of the server an account being added joins', () async {
+      await saveAccounts(['a']);
+
+      // Joins the server on saving: same address, headers and certificate.
+      check(
+        await storage.browserSignInConfigFor(account('new')),
+      ).equals(settings);
+      // Starts another server.
+      check(
+        await storage.browserSignInConfigFor(
+          account('new', url: 'https://other.example.com'),
+        ),
+      ).isNull();
+      check(
+        await storage.browserSignInConfigFor(
+          account('new').copyWith(customHeaders: {'X-Tenant': 'other'}),
+        ),
+      ).isNull();
     });
 
     test('changed, end the sessions issued under the old ones', () async {
@@ -176,7 +205,7 @@ void main() {
       check(await storedSession('a')).isNull();
       check(await storedSession('b')).isNull();
       check(await storedSession('c')).equals(sessionC);
-      check(await storage.browserSignInConfigForAccount('a')).equals(
+      check(await storage.browserSignInConfigFor(account('a'))).equals(
         const BrowserSignInConfig(provider: 'oidc', clientId: 'another'),
       );
     });
@@ -196,7 +225,7 @@ void main() {
 
       // What it ended, it says, so it is revoked.
       check(ended).deepEquals([(accountId: 'a', session: sessionA)]);
-      check(await storage.browserSignInConfigForAccount('b')).equals(another);
+      check(await storage.browserSignInConfigFor(account('b'))).equals(another);
       check(await storedSession('b')).equals(sessionB);
 
       secure.undeletableKey = null;
@@ -217,7 +246,7 @@ void main() {
 
       check(ended).deepEquals([(accountId: 'a', session: session)]);
       check(await storedSession('a')).isNull();
-      check(await storage.browserSignInConfigForAccount('a')).isNull();
+      check(await storage.browserSignInConfigFor(account('a'))).isNull();
     });
 
     test('saved again unchanged, end nothing', () async {
@@ -243,7 +272,7 @@ void main() {
       ).isEmpty();
 
       check(await storedSession('a')).equals(session);
-      check(await storage.browserSignInConfigForAccount('a')).equals(typed);
+      check(await storage.browserSignInConfigFor(account('a'))).equals(typed);
     });
 
     test('do not change who is signed in', () async {
@@ -300,7 +329,9 @@ void main() {
       await storage.saveServerConfigs([
         account('a', url: 'https://moved.test'),
       ]);
-      check(await storage.browserSignInConfigForAccount('a')).equals(settings);
+      check(
+        await storage.browserSignInConfigFor(account('a')),
+      ).equals(settings);
     });
 
     test('stay through a sign-out that keeps server details, which ends '
