@@ -243,13 +243,6 @@ jobs:
         working-directory: packages/conduit_theme
         run: dart test
         background: true
-      # The desktop sidecar. Its live-server tests skip without a local Open
-      # WebUI (tool/local_owui), which CI never starts, and the local speech
-      # tests without a built whisper library.
-      - name: Test conduitd
-        working-directory: apps/daemon
-        run: dart test
-        background: true
       # Every package is analyzed even when an earlier one fails, as long as
       # the code generated.
       - name: Analyze conduit_core
@@ -278,6 +271,17 @@ jobs:
         run: dart analyze --fatal-infos
       - name: Wait for the tests
         wait-all:
+      # The desktop sidecar, after conduit_core's tests rather than beside
+      # them. Both load sqlite3 through the workspace's native-assets build,
+      # and a `dart test` run removes its copy of the library when it ends,
+      # so whichever finished first left the other's later test files unable
+      # to load it. Its live-server tests skip without a local Open WebUI
+      # (tool/local_owui), which CI never starts, and the local speech tests
+      # without a built whisper library.
+      - name: Test conduitd
+        if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
+        working-directory: apps/daemon
+        run: dart test
 
   # The web-safe packages must survive dart2js, and must not be
   # able to reach dio, drift or conduit_core. Both are cheap to check and
