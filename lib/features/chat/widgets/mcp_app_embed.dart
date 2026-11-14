@@ -681,14 +681,21 @@ String mcpAppBridgeScript({
   const bridgeToken = ${jsonEncode(bridgeToken)};
   const queue = [];
   const nativePostMessage = window.postMessage.bind(window);
-  const canvasRects = () => Array.from(document.querySelectorAll('canvas'), canvas => {
-    const r = canvas.getBoundingClientRect();
-    return [r.x, r.y, r.width, r.height];
-  });
+  // Only canvases that explicitly own touch gestures (e.g. maps) claim vertical
+  // drags. Ordinary charts keep the browser's auto policy and scroll the chat.
+  const canvasRects = () => Array.from(document.querySelectorAll('canvas'))
+    .filter(canvas => getComputedStyle(canvas).touchAction === 'none')
+    .map(canvas => {
+      const r = canvas.getBoundingClientRect();
+      return [r.x, r.y, r.width, r.height];
+    });
   const deliverToHost = (message) => {
     let payload;
     try {
       if (message.method === 'ui/notifications/size-changed') {
+        // Offscreen pages can briefly lay out at zero width; keep the cached
+        // height until their existing observer measures a real viewport.
+        if (document.documentElement.clientWidth === 0) return;
         // Reuse the app's layout notifications; no extra resize observer/RPC.
         message = {...message, params: {...message.params,
           _conduitCanvasRects: canvasRects(),
