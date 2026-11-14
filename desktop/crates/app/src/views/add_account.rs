@@ -10,16 +10,20 @@
 //! scrolls beyond that. Sign-in for the new account follows in the setup
 //! window once the server answers.
 //!
-//! A switch at the top picks the kind, as the phone's account sheet has a
-//! tab per kind: Open WebUI (the server form), or LibreChat, whose whole
-//! sign-in happens in the sheet ([`LibreChatSignInView`]).
+//! A switch at the top picks the kind, as the phone's Add Account page
+//! lists each: Open WebUI (the server form), LibreChat, whose whole
+//! sign-in happens in the sheet ([`LibreChatSignInView`]), Hermes Agent and
+//! Model Provider. Those two are connections, not sign-ins: Continue ends
+//! the sheet and opens the Hermes connection editor or the provider editor
+//! on Settings, as the phone's rows open their own forms.
 
 use std::cell::Cell;
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::assets::IconName;
 use conduit_components::theme::UI_FONT;
-use conduit_components::views::kit::{Segment, Segmented, grouped_tones};
+use conduit_components::views::kit::{Button, Segment, Segmented, grouped_tones};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     App, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable, Pixels, Role, SharedString,
@@ -77,6 +81,12 @@ pub fn needs_fit(requested: Option<f32>, measured: f32) -> bool {
 pub enum Kind {
     OpenWebUi,
     LibreChat,
+    Hermes,
+    Direct,
+}
+
+impl Kind {
+    pub const ALL: [Self; 4] = [Self::OpenWebUi, Self::LibreChat, Self::Hermes, Self::Direct];
 }
 
 pub struct AddAccountSheet {
@@ -152,21 +162,112 @@ impl AddAccountSheet {
         }
         self.kind = kind;
         let field = match kind {
-            Kind::OpenWebUi => self.form.read(cx).url.clone(),
+            Kind::OpenWebUi => Some(self.form.read(cx).url.clone()),
             Kind::LibreChat => {
                 self.librechat.update(cx, |l, cx| {
                     if !l.busy {
                         l.reset(window, cx)
                     }
                 });
-                self.librechat.read(cx).first_field()
+                Some(self.librechat.read(cx).first_field())
             }
+            // No field: the sheet keeps the keyboard, Return continues.
+            Kind::Hermes | Kind::Direct => None,
         };
-        window.on_next_frame(move |window, cx| {
-            let handle = gpui_kit::Focusable::focus_handle(field.read(cx), cx);
-            window.focus(&handle, cx);
-        });
+        match field {
+            Some(field) => window.on_next_frame(move |window, cx| {
+                let handle = gpui_kit::Focusable::focus_handle(field.read(cx), cx);
+                window.focus(&handle, cx);
+            }),
+            None => window.focus(&self.focus, cx),
+        }
         cx.notify();
+    }
+
+    /// Continue, for a connection kind: Settings opens its editor.
+    pub fn continue_with(&mut self, cx: &mut Context<Self>) {
+        match self.kind {
+            Kind::Hermes => cx.emit(ServerFormEvent::AddHermes),
+            Kind::Direct => cx.emit(ServerFormEvent::AddDirect),
+            Kind::OpenWebUi | Kind::LibreChat => {}
+        }
+    }
+
+    /// What a connection kind says, with Cancel and Continue.
+    fn connection_pane(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let t = cx.conduit().clone();
+        let l10n = cx.l10n().clone();
+        let (title, body, glyph) = match self.kind {
+            Kind::Hermes => (
+                l10n.backend_chooser_hermes_title(),
+                l10n.backend_chooser_hermes_subtitle(),
+                IconName::Server,
+            ),
+            _ => (
+                l10n.backend_chooser_direct_title(),
+                l10n.backend_chooser_direct_subtitle(),
+                IconName::Link,
+            ),
+        };
+        let this = cx.entity().downgrade();
+        let cancel = {
+            let this = this.clone();
+            Button::new("add-connection-cancel", l10n.cancel()).on_click(Rc::new(
+                move |_, _, cx| {
+                    let _ = this.update(cx, |s, cx| s.cancel(cx));
+                },
+            ))
+        };
+        let next = Button::new("add-connection-continue", l10n.continue_button())
+            .primary()
+            .on_click(Rc::new(move |_, _, cx| {
+                let _ = this.update(cx, |s, cx| s.continue_with(cx));
+            }));
+        div()
+            .id("add-connection")
+            .role(Role::Group)
+            .aria_label(SharedString::from(title.clone()))
+            .flex()
+            .flex_col()
+            .gap(px(18.))
+            .child(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(px(12.))
+                    .child(conduit_components::assets::icon(
+                        glyph,
+                        22.,
+                        t.roles.text_subtle,
+                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(4.))
+                            .child(conduit_components::views::kit::heading(
+                                "add-connection-title",
+                                title,
+                                1,
+                                t.metrics.control + 3.,
+                                gpui_kit::FontWeight::SEMIBOLD,
+                                t.roles.text,
+                            ))
+                            .child(
+                                div()
+                                    .text_size(px(t.metrics.control))
+                                    .text_color(t.roles.text_subtle)
+                                    .child(body),
+                            ),
+                    ),
+            )
+            .child(crate::views::forms::form_buttons(vec![
+                cancel.into_any_element(),
+                next.into_any_element(),
+            ]))
+            .into_any_element()
     }
 }
 
@@ -205,20 +306,15 @@ impl Render for AddAccountSheet {
             vec![
                 Segment::new(l10n.backend_chooser_open_web_ui_title()),
                 Segment::new(l10n.libre_chat_title()),
+                Segment::new(l10n.backend_chooser_hermes_title()),
+                Segment::new(l10n.backend_chooser_direct_title()),
             ],
-            match self.kind {
-                Kind::OpenWebUi => 0,
-                Kind::LibreChat => 1,
-            },
+            Kind::ALL.iter().position(|k| *k == self.kind).unwrap_or(0),
         )
         .on_select(Rc::new(move |i, window, cx| {
             let _ = this.update(cx, |s, cx| {
                 s.set_kind(
-                    if i == 1 {
-                        Kind::LibreChat
-                    } else {
-                        Kind::OpenWebUi
-                    },
+                    Kind::ALL.get(i).copied().unwrap_or(Kind::OpenWebUi),
                     window,
                     cx,
                 )
@@ -227,6 +323,7 @@ impl Render for AddAccountSheet {
         let form = match self.kind {
             Kind::OpenWebUi => self.form.clone().into_any_element(),
             Kind::LibreChat => self.librechat.clone().into_any_element(),
+            Kind::Hermes | Kind::Direct => self.connection_pane(cx),
         };
         let requested = self.requested.clone();
         // The form's natural height (the content box, padding included).
@@ -263,6 +360,12 @@ impl Render for AddAccountSheet {
                 let cmd_period = k.key == "." && m.platform && !(m.alt || m.control);
                 if esc || cmd_period {
                     this.cancel(cx);
+                    cx.stop_propagation();
+                }
+                // Return continues to a connection's editor.
+                let enter = k.key == "enter" && !(m.platform || m.alt || m.control || m.shift);
+                if enter && matches!(this.kind, Kind::Hermes | Kind::Direct) {
+                    this.continue_with(cx);
                     cx.stop_propagation();
                 }
             }))

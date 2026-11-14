@@ -6589,5 +6589,46 @@
   "desktopAppleErrorFailed": "Apple On-Device couldn't answer.",
   "@desktopAppleErrorFailed": {
     "description": "An answer's error when Apple's on-device model (Apple On-Device, Direct Connections) could not answer, for no reason it gave."
+  },
+  "desktopServersSection": "Servers",
+  "@desktopServersSection": {
+    "description": "Heading of the group in Settings › Accounts listing each saved Open WebUI server; a server's row opens its page (its accounts and the addresses it is reached at)."
+  },
+  "desktopServerSettingsEllipsis": "Server Settings…",
+  "@desktopServerSettingsEllipsis": {
+    "description": "Menu item and button that open a saved Open WebUI server's page: its accounts and the addresses it is reached at, in a sheet. The ellipsis says a sheet opens."
+  },
+  "desktopAddAddressEllipsis": "Add Address…",
+  "@desktopAddAddressEllipsis": {
+    "description": "Button on a server's page that opens the editor for a new address the server can be reached at (a LAN address, a Tailscale name). Same words as the phone's Add Address, with an ellipsis because an editor opens."
+  },
+  "desktopEditAddressEllipsis": "Edit Address…",
+  "@desktopEditAddressEllipsis": {
+    "description": "Menu item of one of a server's addresses: opens its editor (name, URL, Advanced settings)."
+  },
+  "desktopRemoveAddressEllipsis": "Remove Address…",
+  "@desktopRemoveAddressEllipsis": {
+    "description": "Menu item and button that remove one of a server's addresses, after asking."
+  },
+  "desktopRemoveAddressTitle": "Remove “{name}”?",
+  "@desktopRemoveAddressTitle": {
+    "description": "Title of the alert asking before one of a server's addresses is removed. {name} is the address's name, or its host when it has none.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAddAccountOnThisServerEllipsis": "Add Account on This Server…",
+  "@desktopAddAccountOnThisServerEllipsis": {
+    "description": "Button on a server's page that starts signing in to another account on that server; the sign-in opens in the main window. Same words as the phone's Add Account on This Server, with an ellipsis."
+  },
+  "desktopAddressSaved": "Address saved.",
+  "@desktopAddressSaved": {
+    "description": "Spoken by VoiceOver once an address of a server was checked and saved."
+  },
+  "desktopAddressRemoved": "Address removed.",
+  "@desktopAddressRemoved": {
+    "description": "Spoken by VoiceOver once an address of a server was removed."
   }
 }

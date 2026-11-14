@@ -198,6 +198,10 @@ pub fn present_sheet_closable(
     }
     if let Some(answer) = cx.try_global::<AutoAnswer>().and_then(|a| a.0) {
         log::info!("sheet {:?} answered {answer} (auto)", spec.title);
+        #[cfg(feature = "harness")]
+        cx.default_global::<AutoAnswered>()
+            .0
+            .push(spec.title.clone());
         crate::views::sheet::question_answered(asked, answer, cx);
         return (Task::ready(answer), closer);
     }
@@ -233,6 +237,14 @@ pub fn present_sheet_closable(
         (Task::ready(false), closer)
     }
 }
+/// Harness: the titles of the sheets [`AutoAnswer`] answered, in order, so a
+/// pass can tell what was asked.
+#[cfg(feature = "harness")]
+#[derive(Clone, Debug, Default)]
+pub struct AutoAnswered(pub Vec<String>);
+
+#[cfg(feature = "harness")]
+impl gpui_kit::Global for AutoAnswered {}
 
 /// Shows `spec` as a sheet on `window`; resolves with `true` when the user
 /// confirmed.
@@ -243,6 +255,10 @@ pub fn present_sheet(window: &Window, spec: SheetSpec, cx: &mut App) -> Task<boo
     }
     if let Some(answer) = cx.try_global::<AutoAnswer>().and_then(|a| a.0) {
         log::info!("sheet {:?} answered {answer} (auto)", spec.title);
+        #[cfg(feature = "harness")]
+        cx.default_global::<AutoAnswered>()
+            .0
+            .push(spec.title.clone());
         crate::views::sheet::question_answered(asked, answer, cx);
         return Task::ready(answer);
     }

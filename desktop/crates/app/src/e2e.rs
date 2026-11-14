@@ -83,6 +83,11 @@
 //!   Settings panes, as VoiceOver and Full Keyboard Access (simulated in
 //!   the app) meet them: announcements, roles and labels, and Tab's reach
 //!   and order ([`a11y_sweep`]).
+//! * `servers`: a saved server's sheet: addresses added (asking before a
+//!   session goes to a new host), refused in the phone's words, edited,
+//!   reordered (kept across a conduitd restart), handed to the sign-in
+//!   proxy's window, removed; the server renamed; Add Account on This
+//!   Server; Add Account's Hermes Agent and Model Provider ([`servers`]).
 //! * `offline-setup`, `offline`: a signed-in account whose server is out of
 //!   reach at launch, with conduitd restarted once while the window opens;
 //!   two launches, run by `crates/app/e2e-offline.sh` ([`offline`]).
@@ -121,6 +126,7 @@ mod read_aloud;
 mod rendering;
 mod rendering_media;
 mod sections;
+mod servers;
 mod settings;
 mod share;
 pub mod shell;
@@ -834,6 +840,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "offline-setup" => offline::setup(&inputs, &dir, cx).await,
         "offline" => offline::run(&inputs, &dir, cx).await,
         "settings" => settings::run(&inputs, &dir, cx).await,
+        "servers" => servers::run(&inputs, &dir, cx).await,
         "actions" => actions::run(&inputs, &dir, cx).await,
         "read-aloud" => read_aloud::run(&inputs, &dir, cx).await,
         "rendering" => rendering::run(&inputs, &dir, cx).await,

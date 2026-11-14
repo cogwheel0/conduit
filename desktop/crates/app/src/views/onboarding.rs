@@ -102,6 +102,8 @@ impl OnboardingView {
                         this.step = Step::Choose;
                         cx.notify();
                     }
+                    // Add Account's own; the first-run form never sends them.
+                    ServerFormEvent::AddHermes | ServerFormEvent::AddDirect => {}
                 },
             ),
         ];
