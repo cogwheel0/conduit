@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
@@ -10,6 +11,8 @@ import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provi
 import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
+    show kDirectTransport;
 import 'package:conduit_core/features/hermes/providers/hermes_background_work_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
@@ -304,6 +307,47 @@ void main() {
 
     check(a.container.read(isChatStreamingProvider)).isFalse();
     check(parent.read(accountChangeReplyGuardProvider)()).isFalse();
+  });
+
+  // An Open WebUI address change cuts off what goes to that server alone: a
+  // Direct reply in a chat Open WebUI stores runs on.
+  test('an address change stops a scope\'s Open WebUI reply, not another '
+      'scope\'s Direct one', () async {
+    final parent = root();
+    Future<ChatSessionScope> replying(String id, {String? transport}) async {
+      final scope = open(parent);
+      scope.container
+          .read(activeConversationProvider.notifier)
+          .set(
+            withChatStorageProvenance(
+              _openWebUiChat(id),
+              ChatStorageKind.openWebUi,
+            ),
+          );
+      // The chat has opened before its reply streams in.
+      await pumpEventQueue();
+      final reply = _streaming('answer-$id');
+      scope.container
+          .read(chatMessagesProvider.notifier)
+          .addMessage(
+            transport == null
+                ? reply
+                : reply.copyWith(metadata: {'transport': transport}),
+          );
+      return scope;
+    }
+
+    // Both chats are Open WebUI's; one's reply runs on a Direct model.
+    final direct = await replying('chat-direct', transport: kDirectTransport);
+    final server = await replying('chat-server');
+    check(parent.read(addressChangeReplyGuardProvider)()).isTrue();
+    parent.read(addressChangeStopRepliesProvider)();
+    await pumpEventQueue();
+
+    check(server.container.read(isChatStreamingProvider)).isFalse();
+    check(direct.container.read(isChatStreamingProvider)).isTrue();
+    // What still runs is not the server's.
+    check(parent.read(addressChangeReplyGuardProvider)()).isFalse();
   });
 
   test('the composer, model and reasoning are each scope\'s own', () {

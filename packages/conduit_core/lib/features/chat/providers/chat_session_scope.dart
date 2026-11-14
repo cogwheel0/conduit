@@ -196,6 +196,10 @@ List<Override> chatSessionScopeOverrides() => <Override>[
   regenerateLastMessageProvider.overrideWith(_regenerateLastMessage),
   stopGenerationProvider.overrideWith(_stopGenerationAction),
   stopGenerationSettledProvider.overrideWith(_stopGenerationSettledAction),
+  stopOpenWebUiMainResponseProvider.overrideWith(
+    _stopOpenWebUiMainResponseAction,
+  ),
+  openWebUiReplyStreamingProvider.overrideWith(_openWebUiReplyStreaming),
   hermesBusyTurnControllerProvider.overrideWith(HermesBusyTurnController.new),
   // A merge (Merge Responses) acts on the chat it was started in, and one
   // chat's merge never blocks another's.

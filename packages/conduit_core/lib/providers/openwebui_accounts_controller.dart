@@ -21,9 +21,11 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         chatSessionRegistryProvider,
         isChatStreamingProvider,
         localChatGenerationActiveProvider,
+        openWebUiReplyStreamingProvider,
         stopAllLibreChatRunsProvider,
         stopGenerationProvider,
-        stopOpenWebUiMainResponse;
+        stopOpenWebUiMainResponse,
+        stopOpenWebUiMainResponseProvider;
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
@@ -62,9 +64,8 @@ final accountChangeReplyGuardProvider = Provider<bool Function()>((ref) {
     try {
       return ref.read(isChatStreamingProvider) ||
           ref.read(localChatGenerationActiveProvider) ||
-          _liveChatScopes(
-            ref,
-          ).any((scope) => scope.container.read(isChatStreamingProvider));
+          _liveChatScopes(ref)
+              .any((scope) => scope.container.read(isChatStreamingProvider));
     } catch (_) {
       return false;
     }
@@ -90,11 +91,11 @@ final addressChangeReplyGuardProvider = Provider<bool Function()>((ref) {
   };
 });
 
+/// Whether [scope] streams a reply from the Open WebUI server, by the running
+/// turn's transport: a Direct, Apple or Hermes reply in a chat Open WebUI
+/// stores is not cut off by its address changing.
 bool _scopeStreamsOpenWebUi(ChatSessionScope scope) =>
-    scope.container.read(isChatStreamingProvider) &&
-    conversationUsesOpenWebUiStorage(
-      scope.container.read(activeConversationProvider),
-    );
+    scope.container.read(openWebUiReplyStreamingProvider);
 
 /// Stops the reply [addressChangeReplyGuardProvider] reported, once the user
 /// has agreed to change the address anyway: the open chat's Open WebUI one,
@@ -102,8 +103,10 @@ bool _scopeStreamsOpenWebUi(ChatSessionScope scope) =>
 final addressChangeStopRepliesProvider = Provider<void Function()>((ref) {
   return () {
     unawaited(stopOpenWebUiMainResponse(ref));
-    for (final scope in _liveChatScopes(ref).where(_scopeStreamsOpenWebUi)) {
-      scope.container.read(stopGenerationProvider)();
+    // The same stop as the root's, in each scope: it leaves another
+    // backend's reply alone.
+    for (final scope in _liveChatScopes(ref)) {
+      unawaited(scope.container.read(stopOpenWebUiMainResponseProvider)());
     }
   };
 });
@@ -621,10 +624,7 @@ final openWebUiDuplicateAccountReconcilerProvider = Provider<void>((ref) {
     }
   }
 
-  ref.listen<AsyncValue<AuthState>>(authStateManagerProvider, (
-    previous,
-    next,
-  ) {
+  ref.listen<AsyncValue<AuthState>>(authStateManagerProvider, (previous, next) {
     final auth = next.asData?.value;
     if (auth == null || !auth.isAuthenticated || auth.user == null) return;
     final before = previous?.asData?.value;
