@@ -6037,6 +6037,7 @@
     "description": "Label for an Ollama native API connection."
   },
   "openRouterProviderName": "OpenRouter",
+  "rapidMlxProviderName": "Rapid-MLX",
   "@openRouterProviderName": {
     "description": "Provider name used by the OpenRouter connection preset."
   },

@@ -30,6 +30,10 @@ List<AdaptiveDropdownOption<String>> _providerOptions(AppLocalizations l10n) =>
         value: kOpenRouterProviderPreset,
         label: l10n.openRouterProviderName,
       ),
+      AdaptiveDropdownOption(
+        value: kRapidMlxProviderPreset,
+        label: l10n.rapidMlxProviderName,
+      ),
       AdaptiveDropdownOption(value: kOllamaAdapterKey, label: l10n.ollama),
     ];
 
@@ -59,6 +63,7 @@ void _selectProvider(
   value,
   ollamaDefaultName: l10n.ollamaCloudDefaultName,
   openRouterDefaultName: l10n.openRouterProviderName,
+  rapidMlxDefaultName: l10n.rapidMlxProviderName,
 );
 
 final class _NativeProviderRow extends StatelessWidget {
@@ -183,6 +188,14 @@ final class DirectConnectionProviderSection extends StatelessWidget {
             selected: form.providerPreset == kOpenRouterProviderPreset,
             showDivider: true,
             onTap: () => select(kOpenRouterProviderPreset),
+          ),
+          UtilitySelectionRow(
+            leading: const _ProviderIcon(icon: Icons.computer_outlined),
+            title: l10n.rapidMlxProviderName,
+            subtitle: null,
+            selected: form.providerPreset == kRapidMlxProviderPreset,
+            showDivider: true,
+            onTap: () => select(kRapidMlxProviderPreset),
           ),
           UtilitySelectionRow(
             leading: const _ProviderIcon(icon: Icons.computer_outlined),

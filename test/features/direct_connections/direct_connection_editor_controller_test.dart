@@ -20,6 +20,7 @@ void main() {
       kOllamaAdapterKey,
       ollamaDefaultName: 'Ollama Cloud',
       openRouterDefaultName: 'OpenRouter',
+      rapidMlxDefaultName: 'Rapid-MLX',
     );
 
     check(editor.form.adapterKey).equals(kOllamaAdapterKey);
@@ -63,6 +64,7 @@ void main() {
         value,
         ollamaDefaultName: 'Ollama Cloud',
         openRouterDefaultName: 'OpenRouter',
+        rapidMlxDefaultName: 'Rapid-MLX',
       );
       preset(kOpenRouterProviderPreset);
       check(form.openAiApiMode).equals(DirectOpenAiApiMode.chatCompletions);
@@ -91,6 +93,94 @@ void main() {
     check(editor.form.openAiApiMode)
         .equals(DirectOpenAiApiMode.chatCompletions);
   });
+
+  test('Rapid-MLX normalizes state and persists as OpenAI-compatible', () {
+    final editor = _EditorHarness();
+    addTearDown(editor.dispose);
+    editor.form.hydrate(null);
+    editor.form.setAuthentication(DirectAuthenticationMode.apiKeyHeader);
+    editor.form.setOpenAiApiMode(DirectOpenAiApiMode.responses);
+
+    editor.form.selectProviderPreset(
+      kRapidMlxProviderPreset,
+      ollamaDefaultName: 'Ollama Cloud',
+      openRouterDefaultName: 'OpenRouter',
+      rapidMlxDefaultName: 'Rapid-MLX',
+    );
+
+    check(editor.form.providerPreset).equals(kRapidMlxProviderPreset);
+    check(editor.form.adapterKey).equals(kOpenAiCompatibleAdapterKey);
+    // A default `rapid-mlx serve` has no API key.
+    check(editor.form.authentication).equals(DirectAuthenticationMode.none);
+    check(editor.form.openAiApiMode)
+        .equals(DirectOpenAiApiMode.chatCompletions);
+    check(editor.form.name.text).equals('Rapid-MLX');
+    check(editor.form.baseUrl.text).equals('http://localhost:8000/v1');
+    check(editor.form.apiKeyRequired).isFalse();
+
+    final result = editor.form.buildDraft(
+      validateFields: true,
+      openWebUiFallbackName: 'Open WebUI connection',
+    );
+
+    check(result.errors.hasAny).isFalse();
+    final profile = result.profile!;
+    check(profile.adapterKey).equals(kOpenAiCompatibleAdapterKey);
+    check(profile.baseUrl).equals('http://localhost:8000/v1');
+    check(profile.openAiApiMode).equals(DirectOpenAiApiMode.chatCompletions);
+    check(profile.apiKey ?? '').isEmpty();
+
+    final reopened = _EditorHarness(isNew: false);
+    addTearDown(reopened.dispose);
+    reopened.form.hydrate(profile);
+    check(reopened.form.providerPreset).equals(kOpenAiCompatibleAdapterKey);
+    check(reopened.form.name.text).equals('Rapid-MLX');
+    check(reopened.form.baseUrl.text).equals('http://localhost:8000/v1');
+  });
+
+  for (final preset in [
+    kOpenAiCompatibleAdapterKey,
+    kOpenRouterProviderPreset,
+    kOllamaAdapterKey,
+  ]) {
+    test('Rapid-MLX replaces the default name when switching from $preset', () {
+      final editor = _EditorHarness();
+      addTearDown(editor.dispose);
+      editor.form.hydrate(null);
+
+      void select(String value) => editor.form.selectProviderPreset(
+        value,
+        ollamaDefaultName: 'Ollama Cloud',
+        openRouterDefaultName: 'OpenRouter',
+        rapidMlxDefaultName: 'Rapid-MLX',
+      );
+
+      select(preset);
+      final previousName = editor.form.name.text;
+      select(kRapidMlxProviderPreset);
+      check(editor.form.name.text).equals('Rapid-MLX');
+      select(preset);
+      check(editor.form.name.text).equals(previousName);
+    });
+  }
+
+  for (final isNew in [true, false]) {
+    test('Rapid-MLX preserves a custom name (isNew: $isNew)', () {
+      final editor = _EditorHarness(isNew: isNew);
+      addTearDown(editor.dispose);
+      editor.form.hydrate(null);
+      editor.form.name.text = 'Local test provider';
+
+      editor.form.selectProviderPreset(
+        kRapidMlxProviderPreset,
+        ollamaDefaultName: 'Ollama Cloud',
+        openRouterDefaultName: 'OpenRouter',
+        rapidMlxDefaultName: 'Rapid-MLX',
+      );
+
+      check(editor.form.name.text).equals('Local test provider');
+    });
+  }
 
   test('draft validation returns typed field issues', () {
     final editor = _EditorHarness();
@@ -162,6 +252,57 @@ void main() {
     );
     editor.form.baseUrl.text = 'https://new.example/v1';
     editor.form.headerName.text = 'X-Pending';
+
+    check(editor.form.originBoundSecretsReviewed).isFalse();
+  });
+
+  test('switching a keyed connection to Rapid-MLX needs no key review', () {
+    final editor = _EditorHarness(isNew: false);
+    addTearDown(editor.dispose);
+    editor.form.hydrate(
+      DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://old.example/v1',
+        apiKey: 'saved-key',
+      ),
+      authentication: DirectAuthenticationMode.bearer,
+    );
+    editor.form.baseUrl.text = 'https://new.example/v1';
+    check(editor.form.originBoundSecretsReviewed).isFalse();
+
+    editor.form.selectProviderPreset(
+      kRapidMlxProviderPreset,
+      ollamaDefaultName: 'Ollama Cloud',
+      openRouterDefaultName: 'OpenRouter',
+      rapidMlxDefaultName: 'Rapid-MLX',
+    );
+
+    check(editor.form.authentication).equals(DirectAuthenticationMode.none);
+    check(editor.form.originBoundSecretsReviewed).isTrue();
+  });
+
+  test('keyless draft still requires review of saved custom headers', () {
+    final editor = _EditorHarness(isNew: false);
+    addTearDown(editor.dispose);
+    editor.form.hydrate(
+      DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://old.example/v1',
+        apiKey: 'saved-key',
+        customHeaders: {'X-Tenant': 'secret'},
+      ),
+      authentication: DirectAuthenticationMode.bearer,
+    );
+    editor.form.selectProviderPreset(
+      kRapidMlxProviderPreset,
+      ollamaDefaultName: 'Ollama Cloud',
+      openRouterDefaultName: 'OpenRouter',
+      rapidMlxDefaultName: 'Rapid-MLX',
+    );
 
     check(editor.form.originBoundSecretsReviewed).isFalse();
   });

@@ -95,7 +95,11 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
   bool get originBoundSecretsReviewed {
     final saved = savedProfile;
     if (saved == null || !originChanged) return true;
-    final apiKeyReviewed = !(saved.apiKey?.isNotEmpty ?? false) || apiKeyDirty;
+    // A keyless draft does not carry the saved key to the new origin.
+    final apiKeyReviewed =
+        authentication == DirectAuthenticationMode.none ||
+        !(saved.apiKey?.isNotEmpty ?? false) ||
+        apiKeyDirty;
     final headersReviewed = saved.customHeaders.isEmpty || headers.isDirty;
     return apiKeyReviewed && headersReviewed;
   }
@@ -125,6 +129,8 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
       modelIdPrefix.text = profile.modelIdPrefix ?? '';
       tags.text = profile.tags.join(', ');
       _adapterKey = profile.adapterKey;
+      // Rapid-MLX is an editor preset only; saved profiles reopen using their
+      // OpenAI-compatible adapter without inferring a provider from the URL.
       _providerPreset = profile.isOpenRouter
           ? kOpenRouterProviderPreset
           : profile.adapterKey;
@@ -159,29 +165,36 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
     String value, {
     required String ollamaDefaultName,
     required String openRouterDefaultName,
+    required String rapidMlxDefaultName,
   }) {
     if (providerPreset == value) return;
     _providerPreset = value;
     _adapterKey = value == kOllamaAdapterKey
         ? kOllamaAdapterKey
         : kOpenAiCompatibleAdapterKey;
-    _authentication = DirectAuthenticationMode.bearer;
+    // `rapid-mlx serve` runs without an API key unless one is configured.
+    _authentication = value == kRapidMlxProviderPreset
+        ? DirectAuthenticationMode.none
+        : DirectAuthenticationMode.bearer;
     _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
     _openAiApiModePicked = false;
     _updateTextFields(() {
       baseUrl.text = switch (value) {
         kOllamaAdapterKey => 'https://ollama.com',
         kOpenRouterProviderPreset => kOpenRouterApiBaseUrl,
+        kRapidMlxProviderPreset => 'http://localhost:8000/v1',
         _ => 'https://api.openai.com/v1',
       };
       _followBaseUrlApiMode();
       if (mode.isNew &&
           (name.text == defaultName ||
               name.text == ollamaDefaultName ||
-              name.text == openRouterDefaultName)) {
+              name.text == openRouterDefaultName ||
+              name.text == rapidMlxDefaultName)) {
         name.text = switch (value) {
           kOllamaAdapterKey => ollamaDefaultName,
           kOpenRouterProviderPreset => openRouterDefaultName,
+          kRapidMlxProviderPreset => rapidMlxDefaultName,
           _ => defaultName,
         };
       }

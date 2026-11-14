@@ -5712,6 +5712,10 @@
   "@openRouterProviderName": {
     "description": "Provider name used by the OpenRouter connection preset."
   },
+  "rapidMlxProviderName": "Rapid-MLX",
+  "@rapidMlxProviderName": {
+    "description": "Provider name used by the Rapid-MLX connection preset."
+  },
   "ollamaCloudDefaultName": "Ollama Cloud",
   "@ollamaCloudDefaultName": {
     "description": "Default connection name and field hint for Ollama Cloud."

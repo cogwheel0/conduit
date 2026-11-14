@@ -3173,6 +3173,7 @@
   "openAICompatible": "OpenAI-совместимый",
   "ollama": "Ollama",
   "openRouterProviderName": "OpenRouter",
+  "rapidMlxProviderName": "Rapid-MLX",
   "directApiBaseUrl": "Базовый URL",
   "directOpenRouterUrlInvalid": "Используйте корневой HTTPS-адрес /api/v1 OpenRouter (глобальный или для ЕС).",
   "directOpenRouterBaseUrlDescription": "Использует ваш API-ключ OpenRouter, авторизованный каталог моделей и инструменты, управляемые Conduit.",

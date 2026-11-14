@@ -2924,6 +2924,7 @@
   "openAICompatible": "OpenAI 호환",
   "ollama": "Ollama",
   "openRouterProviderName": "OpenRouter",
+  "rapidMlxProviderName": "Rapid-MLX",
   "directApiBaseUrl": "기본 URL",
   "directOpenRouterUrlInvalid": "OpenRouter의 HTTPS /api/v1 루트(글로벌 또는 EU)를 사용하세요.",
   "directOpenRouterBaseUrlDescription": "OpenRouter API 키, 인증된 모델 카탈로그 및 Conduit에서 관리하는 도구를 사용합니다.",

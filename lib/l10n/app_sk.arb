@@ -5066,6 +5066,7 @@
   "openAICompatible": "Kompatibilné s OpenAI",
   "ollama": "Ollama",
   "openRouterProviderName": "OpenRouter",
+  "rapidMlxProviderName": "Rapid-MLX",
   "directApiBaseUrl": "Základná URL",
   "directOpenRouterUrlInvalid": "Použite koreňovú adresu HTTPS /api/v1 služby OpenRouter (globálnu alebo EÚ).",
   "directOpenRouterBaseUrlDescription": "Používa váš kľúč API OpenRouter, overený katalóg modelov a nástroje spravované aplikáciou Conduit.",

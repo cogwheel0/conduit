@@ -4760,6 +4760,7 @@
   "openAICompatible": "OpenAI 互換",
   "ollama": "Ollama",
   "openRouterProviderName": "OpenRouter",
+  "rapidMlxProviderName": "Rapid-MLX",
   "directApiBaseUrl": "ベース URL",
   "directOpenRouterUrlInvalid": "OpenRouter の HTTPS /api/v1 ルート（グローバルまたは EU）を使用してください。",
   "directOpenRouterBaseUrlDescription": "OpenRouter の API キーで接続します。",

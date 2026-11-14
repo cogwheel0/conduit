@@ -3146,6 +3146,7 @@
   "openAICompatible": "OpenAI 兼容",
   "ollama": "Ollama",
   "openRouterProviderName": "OpenRouter",
+  "rapidMlxProviderName": "Rapid-MLX",
   "directApiBaseUrl": "基础 URL",
   "directOpenRouterUrlInvalid": "请使用 OpenRouter 的 HTTPS /api/v1 根地址（全球或欧盟）。",
   "directOpenRouterBaseUrlDescription": "使用 OpenRouter API 密钥连接。",
