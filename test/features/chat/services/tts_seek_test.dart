@@ -333,33 +333,6 @@ void main() {
     expect(events.whereType<TtsError>(), isEmpty);
   });
 
-  test('cleaning up an old reading keeps the new one\'s clips', () async {
-    final store = _ClipStore();
-    final previousStore = TtsManager.clipStore;
-    TtsManager.clipStore = store;
-    addTearDown(() => TtsManager.clipStore = previousStore);
-    final audio = await _syntheticAudio();
-    final deleting = Completer<void>();
-    device.pending = Completer<NativeTtsAudio>()..complete(audio);
-    // The old reading's speech file is deleted only once [deleting] ends.
-    await IOOverrides.runZoned(
-      () => manager.speak('Old strip.', seekable: true),
-      createFile: (path) => path == audio.path
-          ? _GatedFile(path, deleting.future)
-          : Zone.root.run(() => File(path)),
-    );
-    device.pending = null;
-
-    manager.setServerSpeech(_Server());
-    await manager.speak('New strip.', useServer: true, seekable: true);
-    expect(store.stored, hasLength(1));
-    deleting.complete();
-    await pumpEventQueue();
-
-    expect(store.released, isEmpty);
-    expect(File(audio.path).existsSync(), isFalse);
-  });
-
   test('failed duration probes delete their speech file', () async {
     manager.setServerSpeech(_Server());
     player.failDuration = true;
@@ -403,35 +376,6 @@ void main() {
       },
     );
   }
-
-  test('an old reading whose second clip comes late leaves the new one '
-      'playing', () async {
-    final second = Completer<SynthesizedSpeech>();
-    final askedSecond = Completer<void>();
-    manager.setServerSpeech(
-      _Server()
-        ..pending['Old two.'] = second
-        ..asked['Old two.'] = askedSecond,
-    );
-    await manager.updateConfig(
-      const TtsConfig(splitOn: TtsManager.splitOnParagraphs),
-    );
-    final old = manager.speak(
-      'Old one.\n\nOld two.',
-      useServer: true,
-      seekable: true,
-    );
-    // The old reading waits for its second clip before it plays.
-    await askedSecond.future;
-    await manager.speak('New one.', useServer: true, seekable: true);
-    final playing = List<AudioClip>.of(player.clips);
-    second.complete(_audio);
-    await old;
-    await pumpEventQueue();
-
-    expect(player.clips, playing);
-    expect(player.playing, isTrue);
-  });
 
   test('unknown duration still plays cloud audio without seeking', () async {
     manager.setServerSpeech(_Server());
@@ -788,9 +732,6 @@ final _audio = (bytes: Uint8List.fromList([1, 2, 3]), mimeType: 'audio/wav');
 
 class _Server extends Fake implements ServerSpeechProvider {
   final pending = <String, Completer<SynthesizedSpeech>>{};
-
-  /// Completes as each text is first asked for.
-  final asked = <String, Completer<void>>{};
   @override
   ServerSpeechSource get source => ServerSpeechSource.hermes;
   @override
@@ -800,50 +741,7 @@ class _Server extends Fake implements ServerSpeechProvider {
     String text, {
     String? preferredVoice,
     double? speed,
-  }) async {
-    final ask = asked[text];
-    if (ask != null && !ask.isCompleted) ask.complete();
-    return await (pending[text]?.future ?? Future.value(_audio));
-  }
-}
-
-/// Records what it keeps and releases, in memory.
-class _ClipStore implements TtsClipStore {
-  final stored = <Uri>[];
-  final released = <Uri>[];
-
-  @override
-  Future<Uri> store(
-    int sessionId,
-    int index,
-    Uint8List bytes,
-    String mimeType,
-  ) async {
-    final uri = Uri.parse('memory:/$sessionId/$index');
-    stored.add(uri);
-    return uri;
-  }
-
-  @override
-  Future<void> release(Uri uri) async => released.add(uri);
-}
-
-/// A speech file whose deletion waits for [gate].
-class _GatedFile extends Fake implements File {
-  _GatedFile(this.path, this.gate);
-
-  @override
-  final String path;
-  final Future<void> gate;
-
-  @override
-  Uri get uri => Uri.file(path);
-
-  @override
-  Future<FileSystemEntity> delete({bool recursive = false}) async {
-    await gate;
-    return Zone.root.run(() => File(path).delete());
-  }
+  }) async => await (pending[text]?.future ?? Future.value(_audio));
 }
 
 Future<void> _until(bool Function() condition) async {

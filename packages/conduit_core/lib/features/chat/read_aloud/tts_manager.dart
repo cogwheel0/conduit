@@ -619,18 +619,25 @@ class TtsManager {
     _deviceWaitingForStreamingChunk = false;
     _serverLastFetchScheduledIndex = -1;
     _serverFetchingIndices.clear();
-    _serverPlaybackVoice = shouldUseServer ? await _resolveServerVoice() : null;
+    final voice = shouldUseServer ? await _resolveServerVoice() : null;
+    if (!_owns(session)) return null;
+    _serverPlaybackVoice = voice;
 
     if (shouldUseServer) {
       await _startServerBackgroundLease(session.id);
-      await _player.stop();
-      await _player.clearClips();
+      if (!_owns(session)) return null;
+      await _onPlaylist(() => _owns(session), () async {
+        await _player.stop();
+        await _player.clearClips();
+      });
+      if (!_owns(session)) return null;
     } else {
       if (!_deviceEngineAvailable) {
         throw StateError('Device TTS is not available');
       }
       if (!_voiceConfigured) {
         await _configurePreferredVoice();
+        if (!_owns(session)) return null;
       }
     }
     return session;
@@ -654,6 +661,7 @@ class TtsManager {
 
     _streamingFinalized = true;
     await _enqueueStreamingText(session, finalText ?? '', finalized: true);
+    if (!_owns(session)) return;
     if (session.chunks.isEmpty) {
       _activeSession = null;
       _resetPlaybackState();
@@ -663,6 +671,7 @@ class TtsManager {
 
     if (session.usesAudioPlayer) {
       await _enqueueBufferedServerChunks(session);
+      if (!_owns(session)) return;
       final producerDone =
           _serverLastEnqueuedIndex >= session.chunks.length - 1 &&
           _serverFetchingIndices.isEmpty;
@@ -847,7 +856,7 @@ class TtsManager {
     if (_activeSession?.id != session.id) return;
     _isTransitioningChunks = true;
     try {
-      await _player.setClips([first]);
+      await _onPlaylist(() => _owns(session), () => _player.setClips([first]));
       if (_activeSession?.id != session.id) return;
       _serverLastEnqueuedIndex = 0;
       await _playQueuedAudio(session);
@@ -888,7 +897,9 @@ class TtsManager {
         if (_activeSession?.id != session.id) return;
         final source = await _synthesizeDeviceAudioChunk(session, index);
         if (source == null) return;
-        await _player.addClip(source);
+        // Queued behind any replacement's start: dropped if this reading is
+        // over by its turn, so it never lands in another reading's list.
+        await _onPlaylist(() => _owns(session), () => _player.addClip(source));
         if (_activeSession?.id != session.id) return;
         _serverLastEnqueuedIndex = index;
         _bufferProgress?.complete();
@@ -969,22 +980,25 @@ class TtsManager {
     if (session == null) return;
 
     // Its state is let go before anything is awaited, so a reading started
-    // meanwhile begins clean and is never reset by this stop.
+    // meanwhile begins clean and is never reset by this stop. Any reading
+    // started after this point, running or already over, is not this stop's:
+    // it neither stops that reading's player nor reports to its listeners.
+    final generation = _sessionCounter;
+    bool superseded() => _sessionCounter != generation;
     _activeSession = null;
     _resetPlaybackState();
 
     try {
       if (session.usesAudioPlayer) {
         await _nativeTts.cancelSynthesis();
-        await _player.stop();
+        await _onPlaylist(() => !superseded(), _player.stop);
       } else {
         await _nativeTts.stop();
       }
-      // A reading started meanwhile is not the one cancelled.
-      if (_activeSession != null) return;
+      if (superseded()) return;
       _emitEvent(const TtsCancelled());
     } catch (e) {
-      if (_activeSession != null) return;
+      if (superseded()) return;
       _emitEvent(TtsError(e.toString()));
     }
   }
@@ -994,6 +1008,34 @@ class TtsManager {
   /// (the player, the engine, the buffers, the events): a reading replaced
   /// meanwhile leaves the new one alone.
   bool _owns(TtsPlaybackSession session) => _activeSession?.id == session.id;
+
+  /// Changes to the player's playlist (stop, set, add, clear), one at a
+  /// time in the order asked, across readings: a new reading's start waits
+  /// for an old reading's teardown or append to end, and an op whose
+  /// reading was replaced while it waited ([stillWanted] false) is dropped.
+  /// Returns whether it ran. Ops are the player's own calls only, never
+  /// another [_onPlaylist].
+  Future<bool> _onPlaylist(
+    bool Function() stillWanted,
+    Future<void> Function() op,
+  ) {
+    final ran = Completer<bool>();
+    _playlistTail = _playlistTail.then((_) async {
+      if (!stillWanted()) {
+        ran.complete(false);
+        return;
+      }
+      try {
+        await op();
+        ran.complete(true);
+      } catch (error, stackTrace) {
+        ran.completeError(error, stackTrace);
+      }
+    });
+    return ran.future;
+  }
+
+  Future<void> _playlistTail = Future<void>.value();
 
   /// Resets the manager state for a new session.
   ///
@@ -1359,6 +1401,7 @@ class TtsManager {
     // Configure voice if needed
     if (!_voiceConfigured) {
       await _configurePreferredVoice();
+      if (!_owns(session)) return;
     }
 
     // Speak first chunk
@@ -1478,17 +1521,18 @@ class TtsManager {
     }
 
     if (!_owns(session)) return;
-    await _player.stop();
-    if (!_owns(session)) return;
     _isTransitioningChunks = true;
     // Flag will be cleared by state listener when playing=true is received.
     // This prevents race condition where flag is cleared before state fires.
     try {
-      await _player.setClips(
-        initialSources,
-        initialIndex: 0,
-        initialPosition: Duration.zero,
-      );
+      await _onPlaylist(() => _owns(session), () async {
+        await _player.stop();
+        await _player.setClips(
+          initialSources,
+          initialIndex: 0,
+          initialPosition: Duration.zero,
+        );
+      });
       if (!_owns(session)) return;
       await _playQueuedAudio(session);
     } catch (e) {
@@ -1691,10 +1735,11 @@ class TtsManager {
       _setBufferedServerChunk(index, recovered);
       await _enqueueBufferedServerChunks(session);
     } catch (error) {
-      _emitEvent(TtsError(error.toString()));
-      if (_activeSession?.id == session.id) {
+      // An ended reading reports nothing to the listeners of the next one.
+      if (_owns(session)) {
         _activeSession = null;
         _resetPlaybackState();
+        _emitEvent(TtsError(error.toString()));
       }
     } finally {
       _serverRecoveringMissingChunk = false;
@@ -1722,24 +1767,35 @@ class TtsManager {
               nextIndex,
               chunk,
             );
+            if (!_owns(session)) return;
             if (_isStreamingSession &&
                 nextIndex == 0 &&
                 _serverLastEnqueuedIndex < 0) {
               _isTransitioningChunks = true;
               try {
-                await _player.setClips(
-                  [source],
-                  initialIndex: 0,
-                  initialPosition: Duration.zero,
+                await _onPlaylist(
+                  () => _owns(session),
+                  () => _player.setClips(
+                    [source],
+                    initialIndex: 0,
+                    initialPosition: Duration.zero,
+                  ),
                 );
+                if (!_owns(session)) return;
                 await _player.play();
               } catch (_) {
-                _isTransitioningChunks = false;
+                if (_owns(session)) _isTransitioningChunks = false;
                 rethrow;
               }
             } else {
-              await _player.addClip(source);
+              // Dropped if this reading is over by its turn, so it never
+              // lands in another reading's list.
+              await _onPlaylist(
+                () => _owns(session),
+                () => _player.addClip(source),
+              );
             }
+            if (!_owns(session)) return;
             _serverLastEnqueuedIndex = nextIndex;
             _bufferProgress?.complete();
             _bufferProgress = null;
@@ -1754,7 +1810,9 @@ class TtsManager {
           }
         })
         .catchError((Object error) {
-          if (session.seekable) _failAudioSession(session, error);
+          // Any audio reading, streaming or not, fails as a whole: one whose
+          // first clip never lands would otherwise never end.
+          _failAudioSession(session, error);
         });
     await _serverPlaylistSerial;
   }
