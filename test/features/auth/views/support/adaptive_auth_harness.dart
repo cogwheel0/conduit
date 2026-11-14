@@ -64,6 +64,12 @@ class AdaptiveAuthHarness {
     when(() => _storage.saveLocalUser(null)).thenAnswer((_) async {});
     when(() => _storage.saveLocalUserAvatar(null)).thenAnswer((_) async {});
     when(() => _storage.getReviewerMode()).thenAnswer((_) async => false);
+    when(
+      () => _storage.droppedBrowserSessions,
+    ).thenAnswer((_) => const Stream.empty());
+    when(
+      () => _storage.sweepOrphanBrowserSignInSessions(),
+    ).thenAnswer((_) async => const []);
     if (savedServersError case final error?) {
       when(
         () => _storage.getOpenWebUiRegistryStrict(),

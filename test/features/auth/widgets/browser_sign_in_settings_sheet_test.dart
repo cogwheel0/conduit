@@ -192,7 +192,7 @@ void main() {
     final calls = await openSheet(tester, initial: saved, removable: true);
 
     await tapKey(tester, 'browser-sign-in-remove');
-    expect(find.text('Remove browser sign-in?'), findsOneWidget);
+    expect(find.text('Remove Browser Sign-In?'), findsOneWidget);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     check(calls.removed).equals(0);
