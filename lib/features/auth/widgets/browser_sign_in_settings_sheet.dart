@@ -1,9 +1,13 @@
 import 'package:conduit_core/auth/browser_sign_in/browser_sign_in_service.dart';
 import 'package:conduit_core/auth/oidc/oidc.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/browser_sign_in_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
@@ -50,6 +54,60 @@ List<BrowserSignInChecklistItem> browserSignInChecklist(String provider) {
     if (provider == 'google') BrowserSignInChecklistItem.google,
     BrowserSignInChecklistItem.claims,
   ];
+}
+
+/// Opens the browser sign-in settings of the saved server [serverId], from
+/// its page in Settings. Test and Save reach the server through one of its
+/// accounts, the active one when it is there. A server that can't sign in
+/// through the browser says so instead.
+Future<void> showServerBrowserSignInSettings(
+  BuildContext context,
+  WidgetRef ref, {
+  required String serverId,
+}) async {
+  final entries = await ref.read(openWebUiAccountsProvider.future);
+  final onServer = [
+    for (final entry in entries)
+      if (entry.server.id == serverId) entry,
+  ];
+  if (onServer.isEmpty) return;
+  final entry = onServer.firstWhere(
+    (entry) => entry.isActive,
+    orElse: () => onServer.first,
+  );
+  final configs = await ref.read(serverConfigsProvider.future);
+  final account = configs.where((config) => config.id == entry.id).firstOrNull;
+  if (account == null || !context.mounted) return;
+  final actions = ref.read(authActionsProvider);
+  final backendConfig = await actions.backendConfigOf(account);
+  if (!context.mounted) return;
+  final availability = browserSignInAvailabilityFor(
+    port: ref.read(browserAuthPortProvider),
+    backendConfig: backendConfig,
+  );
+  if (backendConfig == null ||
+      !availability.browserSupported ||
+      !availability.serverSupported ||
+      availability.providers.isEmpty) {
+    AdaptiveSnackBar.show(
+      context,
+      message: AppLocalizations.of(context)!.browserSignInUnavailable,
+    );
+    return;
+  }
+  final current = entry.server.browserSignIn;
+  await BrowserSignInSettingsSheet.show(
+    context,
+    providers: availability.providers,
+    providerLabel: backendConfig.oauthProviders.getProviderDisplayName,
+    initial: current,
+    onTest: (config) => actions.diagnoseBrowserSignIn(config, server: account),
+    onSave: (config) =>
+        actions.saveBrowserSignInConfig(accountId: account.id, config: config),
+    onRemove: current == null
+        ? null
+        : () => actions.saveBrowserSignInConfig(accountId: account.id),
+  );
 }
 
 /// The settings for signing a server's accounts in through the system
@@ -119,7 +177,7 @@ class BrowserSignInSettingsSheet extends StatefulWidget {
 class _BrowserSignInSettingsSheetState
     extends State<BrowserSignInSettingsSheet> {
   late final TextEditingController _clientId = TextEditingController(
-    text: widget.initial?.clientId ?? '',
+    text: widget.initial?.clientId ?? browserSignInDefaultClientId,
   );
   late final TextEditingController _issuer = TextEditingController(
     text: widget.initial?.issuer ?? '',

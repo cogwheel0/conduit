@@ -993,6 +993,7 @@
   "browserSignInSettingsTitle": "瀏覽器登入",
   "browserSignInSettingsDescription": "透過此裝置的瀏覽器登入，可使用通行密鑰和安全密鑰。您的身份提供商需要為 Conduit 註冊一個用戶端。",
   "browserSignInSharedNote": "這些設定適用於此伺服器上的所有帳戶。",
+  "browserSignInUnavailable": "此伺服器目前無法使用瀏覽器登入。需要 Open WebUI 0.8 或更新版本，並啟用 OpenID Connect、Microsoft 或 Google 登入。",
   "browserSignInProvider": "提供商",
   "browserSignInClientId": "用戶端 ID",
   "browserSignInClientIdHint": "為 Conduit 註冊的用戶端 ID",

@@ -110,7 +110,16 @@ class AuthenticationPage extends ConsumerStatefulWidget {
   final ServerConfig? serverConfig;
   final BackendConfig? backendConfig;
 
-  const AuthenticationPage({super.key, this.serverConfig, this.backendConfig});
+  /// Browser sign-in settings chosen while adding the server, saved on it
+  /// by its first sign-in.
+  final BrowserSignInConfig? browserSignIn;
+
+  const AuthenticationPage({
+    super.key,
+    this.serverConfig,
+    this.backendConfig,
+    this.browserSignIn,
+  });
 
   @override
   ConsumerState<AuthenticationPage> createState() => _AuthenticationPageState();
@@ -159,8 +168,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   /// removed here ([_browserConfigChosen]). A server being added keeps it
   /// here until its first sign-in saves the server
   /// ([_browserConfigPersisted]).
-  BrowserSignInConfig? _chosenBrowserConfig;
-  bool _browserConfigChosen = false;
+  late BrowserSignInConfig? _chosenBrowserConfig = widget.browserSignIn;
+  late bool _browserConfigChosen = widget.browserSignIn != null;
   bool _browserConfigPersisted = false;
 
   /// Why the last browser sign-in failed, for the section's actions.
@@ -964,17 +973,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
             l10n.browserSignInUseInApp,
             _navigateToSso,
           ),
-        if (configured)
+        if (_offersSettingsAfterBrowserFailure)
           action(
             'browser-sign-in-settings',
             l10n.browserSignInSettings,
-            _openBrowserSignInSettings,
-            chevron: true,
-          )
-        else if (_canSetUpBrowserSignIn)
-          action(
-            'browser-sign-in-set-up',
-            l10n.browserSignInSetUp,
             _openBrowserSignInSettings,
             chevron: true,
           ),
@@ -1003,6 +1005,15 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         _hasWebViewSso &&
         failure != null &&
         browserSignInSuggestsInApp(failure);
+  }
+
+  /// Browser sign-in is set up in the server's settings, so this page offers
+  /// its settings only once a sign-in failed in a way they fix.
+  bool get _offersSettingsAfterBrowserFailure {
+    final failure = _browserFailure;
+    return _browserConfigured &&
+        failure != null &&
+        browserSignInSuggestsSettings(failure);
   }
 
   /// The SSO method can only set up browser sign-in: it is not set up, and
@@ -1165,12 +1176,11 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     return BrowserSignInSection(
       description: _ssoSubtitle(AppLocalizations.of(context)!),
       configured: configured,
-      canSetUp: _canSetUpBrowserSignIn,
       busy: _isSigningIn,
       insecureAddress: configured && address?.scheme.toLowerCase() == 'http',
       failure: _browserFailure,
       onUseInApp: _offersInAppAfterBrowserFailure ? _navigateToSso : null,
-      onOpenSettings: configured || _canSetUpBrowserSignIn
+      onOpenSettings: _offersSettingsAfterBrowserFailure
           ? _openBrowserSignInSettings
           : null,
       onRetry: _retryBrowserSignIn,

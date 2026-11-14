@@ -993,6 +993,7 @@
   "browserSignInSettingsTitle": "Accesso tramite browser",
   "browserSignInSettingsDescription": "Accedi tramite il browser di questo dispositivo, dove funzionano passkey e chiavi di sicurezza. Il tuo provider di identità deve avere un client registrato per Conduit.",
   "browserSignInSharedNote": "Queste impostazioni valgono per tutti gli account su questo server.",
+  "browserSignInUnavailable": "Questo server non può usare l'accesso tramite browser in questo momento. Richiede Open WebUI 0.8 o versioni successive con accesso tramite OpenID Connect, Microsoft o Google.",
   "browserSignInProvider": "Provider",
   "browserSignInClientId": "ID client",
   "browserSignInClientIdHint": "L'ID del client registrato per Conduit",

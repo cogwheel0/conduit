@@ -95,9 +95,19 @@ void main() {
     expect(find.byKey(const ValueKey('browser-sign-in-settings')), findsNothing);
   });
 
-  testWidgets('needs a client ID', (tester) async {
+  testWidgets('starts with the suggested client ID, and needs one', (
+    tester,
+  ) async {
     final calls = await openSheet(tester);
 
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('browser-sign-in-client-id')),
+        matching: find.text('conduit'),
+      ),
+      findsOneWidget,
+    );
+    await enterClientId(tester, '');
     await tapKey(tester, 'browser-sign-in-save');
 
     check(calls.saved).isEmpty();

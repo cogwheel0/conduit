@@ -16,6 +16,9 @@ export '../services/server_address_service.dart';
 import '../../../platform/webview_cookie_helper.dart';
 
 import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/browser_sign_in_config.dart';
+import 'package:conduit_core/auth/browser_sign_in/browser_sign_in_service.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/auth/proxy_session.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
@@ -143,6 +146,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   bool _isConnecting = false;
   bool _showAdvancedSettings = false;
   bool _allowSelfSignedCertificates = false;
+
+  /// Whether the server's accounts sign in through the system browser, set
+  /// before the first sign-in so that one can already use a passkey.
+  bool _browserSignIn = false;
+  final TextEditingController _browserSignInClientIdController =
+      TextEditingController(text: browserSignInDefaultClientId);
 
   ConnectionAttemptState get _attemptState {
     final l10n = AppLocalizations.of(context)!;
@@ -484,8 +493,28 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     _headerKeyController.dispose();
     _headerValueController.dispose();
     _mtlsPrivateKeyPasswordController.dispose();
+    _browserSignInClientIdController.dispose();
     _headerValueFocusNode.dispose();
     super.dispose();
+  }
+
+  /// Browser sign-in is offered for a server being connected to: a saved
+  /// server has it in its settings, and an address is not a server.
+  bool get _offersBrowserSignIn =>
+      !_editingRoutes &&
+      widget.serverId == null &&
+      ref.read(browserAuthPortProvider).isSupported;
+
+  /// The browser sign-in settings Advanced asked for, for the server
+  /// [backendConfig] describes: null when the switch is off, or the server
+  /// can't sign in through the browser.
+  BrowserSignInConfig? _browserSignInFor(BackendConfig backendConfig) {
+    if (!_offersBrowserSignIn || !_browserSignIn) return null;
+    return browserSignInConfigForNewServer(
+      port: ref.read(browserAuthPortProvider),
+      backendConfig: backendConfig,
+      clientId: _browserSignInClientIdController.text,
+    );
   }
 
   Future<void> _connectToServer() async {
@@ -645,6 +674,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         final authFlowConfig = AuthFlowConfig(
           serverConfig: tempConfig,
           backendConfig: backendConfig,
+          browserSignIn: _browserSignInFor(backendConfig),
         );
         if (_embedded) {
           widget.onChecked!(
@@ -922,6 +952,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         final authFlowConfig = AuthFlowConfig(
           serverConfig: configWithCookies,
           backendConfig: backendConfig,
+          browserSignIn: _browserSignInFor(backendConfig),
         );
         context.pushNamed(RouteNames.authentication, extra: authFlowConfig);
       }
@@ -1524,6 +1555,29 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
             ),
           ],
         ),
+        if (_offersBrowserSignIn) ...[
+          gap,
+          AuthGroupedSection(
+            footer: l10n.browserSignInSettingsDescription,
+            children: [
+              AuthGroupedSwitchRow(
+                key: const ValueKey<String>('browser-sign-in-switch'),
+                title: l10n.browserSignInSettingsTitle,
+                value: _browserSignIn,
+                onChanged: (value) => setState(() => _browserSignIn = value),
+              ),
+              if (_browserSignIn)
+                AuthGroupedTextField(
+                  key: const ValueKey<String>('browser-sign-in-client-id-field'),
+                  controller: _browserSignInClientIdController,
+                  label: l10n.browserSignInClientId,
+                  placeholder: browserSignInDefaultClientId,
+                  semanticLabel: l10n.browserSignInClientIdHint,
+                  textInputAction: TextInputAction.done,
+                ),
+            ],
+          ),
+        ],
         if (!kIsWeb) ...[
           gap,
           AuthGroupedSection(
@@ -1727,6 +1781,73 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
             ],
           ),
         ),
+
+        if (_offersBrowserSignIn) ...[
+          Divider(
+            height: BorderWidth.thin,
+            thickness: BorderWidth.thin,
+            color: theme.cardBorder,
+          ),
+          Padding(
+            padding: const EdgeInsets.all(Spacing.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ExcludeSemantics(
+                            child: Text(
+                              l10n.browserSignInSettingsTitle,
+                              style: theme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: theme.textPrimary,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: Spacing.xxs),
+                          Text(
+                            l10n.browserSignInSettingsDescription,
+                            style: AppTypography.bodySmallStyle.copyWith(
+                              color: theme.textSecondary,
+                              height: 1.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: Spacing.md),
+                    AdaptiveSwitch(
+                      key: const ValueKey<String>('browser-sign-in-switch'),
+                      value: _browserSignIn,
+                      semanticLabel: l10n.browserSignInSettingsTitle,
+                      onChanged: (value) =>
+                          setState(() => _browserSignIn = value),
+                      activeColor: theme.buttonPrimary,
+                    ),
+                  ],
+                ),
+                if (_browserSignIn) ...[
+                  const SizedBox(height: Spacing.md),
+                  AccessibleFormField(
+                    key: const ValueKey<String>(
+                      'browser-sign-in-client-id-field',
+                    ),
+                    label: l10n.browserSignInClientId,
+                    hint: l10n.browserSignInClientIdHint,
+                    controller: _browserSignInClientIdController,
+                    keyboardType: TextInputType.text,
+                    textInputAction: TextInputAction.done,
+                    autocorrect: false,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
 
         if (!kIsWeb) ...[
           Divider(

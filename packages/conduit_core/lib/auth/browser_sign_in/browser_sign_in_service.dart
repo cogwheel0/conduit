@@ -27,6 +27,35 @@ import 'package:conduit_core/utils/server_version_compat.dart';
 /// GitHub and Feishu stay with the in-app sign-in.
 const Set<String> browserSignInProviders = {'oidc', 'microsoft', 'google'};
 
+/// The client ID the settings start with: the one the admin guide suggests
+/// registering for Conduit.
+const String browserSignInDefaultClientId = 'conduit';
+
+/// The settings a server being added gets when browser sign-in is turned on
+/// before its first sign-in: [clientId] (or the default) under the first of
+/// [backendConfig]'s providers that can sign in through the browser. Null
+/// when browser sign-in can't be set up there ([browserSignInAvailabilityFor]).
+BrowserSignInConfig? browserSignInConfigForNewServer({
+  required BrowserAuthPort port,
+  required BackendConfig backendConfig,
+  String clientId = '',
+}) {
+  final availability = browserSignInAvailabilityFor(
+    port: port,
+    backendConfig: backendConfig,
+  );
+  if (!availability.browserSupported ||
+      !availability.serverSupported ||
+      availability.providers.isEmpty) {
+    return null;
+  }
+  final id = clientId.trim();
+  return BrowserSignInConfig(
+    provider: availability.providers.first,
+    clientId: id.isEmpty ? browserSignInDefaultClientId : id,
+  );
+}
+
 /// The first Open WebUI release with token exchange.
 const String browserSignInMinimumServerVersion = '0.8.0';
 

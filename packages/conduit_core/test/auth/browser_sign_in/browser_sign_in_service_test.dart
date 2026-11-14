@@ -1187,6 +1187,50 @@ void main() {
     check(browserSignInServerSupported(null)).isTrue();
   });
 
+  test('a server being added takes its first eligible provider, and the '
+      'suggested client ID when none is typed', () {
+    final browser = _Browser((_, _) => throw UnimplementedError());
+    const server = BackendConfig(
+      version: '0.13.2',
+      oauthProviders: OAuthProviders(github: 'GitHub', oidc: 'Company SSO'),
+    );
+
+    check(
+      browserSignInConfigForNewServer(port: browser, backendConfig: server),
+    ).equals(const BrowserSignInConfig(provider: 'oidc', clientId: 'conduit'));
+    check(
+      browserSignInConfigForNewServer(
+        port: browser,
+        backendConfig: server,
+        clientId: ' conduit-app ',
+      ),
+    ).equals(
+      const BrowserSignInConfig(provider: 'oidc', clientId: 'conduit-app'),
+    );
+    // Nothing it can set up: no eligible provider, too old, or no browser.
+    check(
+      browserSignInConfigForNewServer(
+        port: browser,
+        backendConfig: const BackendConfig(
+          oauthProviders: OAuthProviders(github: 'GitHub'),
+        ),
+      ),
+    ).isNull();
+    check(
+      browserSignInConfigForNewServer(
+        port: browser,
+        backendConfig: const BackendConfig(
+          version: '0.7.2',
+          oauthProviders: OAuthProviders(oidc: 'Company SSO'),
+        ),
+      ),
+    ).isNull();
+    browser.supported = false;
+    check(
+      browserSignInConfigForNewServer(port: browser, backendConfig: server),
+    ).isNull();
+  });
+
   test('every failure is exactly one of silent, transient or terminal', () {
     for (final failure in BrowserSignInFailure.values) {
       final kinds = [

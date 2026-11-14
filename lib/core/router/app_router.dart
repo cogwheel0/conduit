@@ -297,6 +297,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
             child: AuthenticationPage(
               serverConfig: extra.serverConfig,
               backendConfig: extra.backendConfig,
+              browserSignIn: extra.browserSignIn,
             ),
           );
         }

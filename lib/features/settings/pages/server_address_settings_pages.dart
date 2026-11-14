@@ -5,6 +5,7 @@ import 'package:conduit_core/auth/openwebui_server_address.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show addressChangeReplyGuardProvider, addressChangeStopRepliesProvider;
 import 'package:conduit_core/providers/openwebui_route_resolver.dart';
@@ -49,6 +50,9 @@ const serverAddressNewKey = 'new';
 /// Sent by the server page's Add Account row, with the server's id.
 const serverAddressesAddAccountActionId = 'server-add-account';
 
+/// Sent by the server page's Browser Sign-In row, with the server's id.
+const serverBrowserSignInActionId = 'server-browser-sign-in';
+
 String serverAddressesPageId(String serverId) =>
     '$serverAddressesPagePrefix${Uri.encodeComponent(serverId)}';
 
@@ -85,7 +89,8 @@ String serverAddressesRowId(String field, String serverId, [String? extra]) =>
 
 /// A server's page: its accounts, switched to on a tap and signed out of
 /// from their menus; then its addresses, in the order they are tried, each
-/// opening its editor; then a row to add one.
+/// opening its editor; then a row to add one; then, where the device has a
+/// system browser for it, the server's browser sign-in settings.
 @visibleForTesting
 NativeSheetDetailConfig buildServerAddressesPage(
   AppLocalizations l10n, {
@@ -95,6 +100,7 @@ NativeSheetDetailConfig buildServerAddressesPage(
   required String? addressInUse,
   String? notice,
   Set<String> pushAttention = const {},
+  bool browserSignInSupported = false,
 }) {
   final pageId = serverAddressesPageId(serverId);
   NativeSheetItemConfig problem(String title) => NativeSheetItemConfig(
@@ -196,6 +202,23 @@ NativeSheetDetailConfig buildServerAddressesPage(
           ),
         ],
       ),
+      if (browserSignInSupported)
+        NativeSheetSectionConfig(
+          footer: l10n.browserSignInSettingsDescription,
+          items: [
+            NativeSheetItemConfig(
+              id: '$serverBrowserSignInActionId:$serverId',
+              title: l10n.browserSignInSettingsTitle,
+              subtitle: server.browserSignIn == null
+                  ? l10n.disabled
+                  : l10n.enabled,
+              sfSymbol: 'person.badge.key',
+              dismissOnSelect: true,
+              actionId: serverBrowserSignInActionId,
+              actionValue: serverId,
+            ),
+          ],
+        ),
     ],
   );
 }
@@ -689,6 +712,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
         addressInUse: route.serverId == serverId ? route.endpointId : null,
         notice: _notices.remove(serverId),
         pushAttention: pushAttention,
+        browserSignInSupported: _ref.read(browserAuthPortProvider).isSupported,
       ),
       detailSheets: [
         // The push page of an account whose push needs the user, which its

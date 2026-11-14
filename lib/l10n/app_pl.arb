@@ -2560,6 +2560,10 @@
   "@browserSignInSharedNote": {
     "description": "Note in the browser sign-in settings that they are shared by all accounts on the server."
   },
+  "browserSignInUnavailable": "Ten serwer nie może teraz używać logowania przez przeglądarkę. Wymaga ono Open WebUI 0.8 lub nowszego z logowaniem przez OpenID Connect, Microsoft lub Google.",
+  "@browserSignInUnavailable": {
+    "description": "Shown when browser sign-in settings are opened from a server's settings, but the server can't be reached or can't sign in through the browser."
+  },
   "browserSignInProvider": "Dostawca",
   "@browserSignInProvider": {
     "description": "Label of the choice of the server's sign-in provider to use in the browser."

@@ -771,6 +771,7 @@
   "browserSignInSettingsTitle": "브라우저 로그인",
   "browserSignInSettingsDescription": "이 기기의 브라우저를 통해 로그인합니다. 브라우저에서는 패스키와 보안 키를 사용할 수 있습니다. ID 공급자에 Conduit용 클라이언트가 등록되어 있어야 합니다.",
   "browserSignInSharedNote": "이 설정은 이 서버의 모든 계정에 적용됩니다.",
+  "browserSignInUnavailable": "지금은 이 서버에서 브라우저 로그인을 사용할 수 없습니다. OpenID Connect, Microsoft 또는 Google 로그인이 설정된 Open WebUI 0.8 이상이 필요합니다.",
   "browserSignInProvider": "공급자",
   "browserSignInClientId": "클라이언트 ID",
   "browserSignInClientIdHint": "Conduit용으로 등록한 클라이언트의 ID",

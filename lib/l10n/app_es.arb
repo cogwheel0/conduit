@@ -993,6 +993,7 @@
   "browserSignInSettingsTitle": "Inicio de sesión en el navegador",
   "browserSignInSettingsDescription": "Inicia sesión con el navegador de este dispositivo, donde funcionan las llaves de acceso y las llaves de seguridad. Tu proveedor de identidad necesita un cliente registrado para Conduit.",
   "browserSignInSharedNote": "Estos ajustes se aplican a todas las cuentas de este servidor.",
+  "browserSignInUnavailable": "Este servidor no puede usar el inicio de sesión en el navegador ahora mismo. Necesita Open WebUI 0.8 o posterior con inicio de sesión de OpenID Connect, Microsoft o Google.",
   "browserSignInProvider": "Proveedor",
   "browserSignInClientId": "ID de cliente",
   "browserSignInClientIdHint": "El ID del cliente registrado para Conduit",

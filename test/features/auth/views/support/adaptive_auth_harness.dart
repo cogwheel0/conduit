@@ -53,6 +53,7 @@ class AdaptiveAuthHarness {
     this.replyBeingWritten = false,
     this.browserSupported = false,
     this.browserSignInConfig,
+    this.chosenBrowserSignIn,
   }) {
     when(() => _storage.getSavedCredentials()).thenAnswer(
       (_) async => savedUsername == null ? null : {'username': savedUsername!},
@@ -139,6 +140,10 @@ class AdaptiveAuthHarness {
   /// The browser sign-in settings saved for the server's accounts, if any.
   final BrowserSignInConfig? browserSignInConfig;
 
+  /// Browser sign-in settings chosen on Add Server, handed to the sign-in
+  /// page with the server.
+  final BrowserSignInConfig? chosenBrowserSignIn;
+
   /// The device storage, for a test to see what was saved.
   OptimizedStorageService get storage => _storage;
   final _MockOptimizedStorageService _storage = _MockOptimizedStorageService();
@@ -168,6 +173,7 @@ class AdaptiveAuthHarness {
                 : AuthenticationPage(
                     serverConfig: server,
                     backendConfig: backendConfig,
+                    browserSignIn: chosenBrowserSignIn,
                   ),
           ),
         ),

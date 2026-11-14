@@ -999,6 +999,7 @@
   "browserSignInSettingsTitle": "Вход через браузер",
   "browserSignInSettingsDescription": "Входите через браузер этого устройства, где работают ключи доступа и ключи безопасности. У вашего провайдера идентификации должен быть зарегистрирован клиент для Conduit.",
   "browserSignInSharedNote": "Эти настройки действуют для всех аккаунтов на этом сервере.",
+  "browserSignInUnavailable": "Этот сервер сейчас не может использовать вход через браузер. Нужен Open WebUI 0.8 или новее со входом через OpenID Connect, Microsoft или Google.",
   "browserSignInProvider": "Провайдер",
   "browserSignInClientId": "ID клиента",
   "browserSignInClientIdHint": "ID клиента, зарегистрированного для Conduit",

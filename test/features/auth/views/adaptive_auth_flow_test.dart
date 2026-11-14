@@ -1039,6 +1039,7 @@ void main() {
       BackendConfig? backendConfig = oidcServer,
       BrowserSignInConfig? saved,
       bool browserSupported = true,
+      BrowserSignInConfig? chosen,
       AuthActions? actions,
       String? addingAccountFrom,
       TargetPlatform platform = TargetPlatform.android,
@@ -1052,6 +1053,7 @@ void main() {
         backendConfig: backendConfig,
         browserSupported: browserSupported,
         browserSignInConfig: saved,
+        chosenBrowserSignIn: chosen,
         authActions: actions,
         addingAccountFrom: addingAccountFrom,
         platform: platform,
@@ -1083,37 +1085,16 @@ void main() {
       await settle(tester);
     }
 
-    testWidgets('offers to set it up on a server that can', (tester) async {
+    testWidgets('is not set up from the sign-in page', (tester) async {
       final harness = await openSignIn(tester);
 
       expect(find.byKey(const ValueKey('sso_form')), findsOneWidget);
-      expect(find.byKey(const ValueKey('browser-sign-in-set-up')), findsOne);
       expect(find.text('Sign In with SSO'), findsOneWidget);
-
-      await harness.unmount(tester);
-    });
-
-    testWidgets('is not offered for a provider it cannot sign in with', (
-      tester,
-    ) async {
-      final harness = await openSignIn(
-        tester,
-        backendConfig: const BackendConfig(
-          oauthProviders: OAuthProviders(github: 'GitHub'),
-        ),
+      expect(find.byKey(const ValueKey('browser-sign-in-set-up')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('browser-sign-in-settings')),
+        findsNothing,
       );
-
-      expect(find.byKey(const ValueKey('sso_form')), findsOneWidget);
-      expect(find.byKey(const ValueKey('browser-sign-in-set-up')), findsNothing);
-
-      await harness.unmount(tester);
-    });
-
-    testWidgets('is not offered without a system browser', (tester) async {
-      final harness = await openSignIn(tester, browserSupported: false);
-
-      expect(find.byKey(const ValueKey('sso_form')), findsOneWidget);
-      expect(find.byKey(const ValueKey('browser-sign-in-set-up')), findsNothing);
 
       await harness.unmount(tester);
     });
@@ -1140,7 +1121,10 @@ void main() {
         find.byKey(const ValueKey('browser-sign-in-use-in-app')),
         findsNothing,
       );
-      expect(find.byKey(const ValueKey('browser-sign-in-settings')), findsOne);
+      expect(
+        find.byKey(const ValueKey('browser-sign-in-settings')),
+        findsNothing,
+      );
 
       await signInWithSso(tester);
 
@@ -1161,6 +1145,26 @@ void main() {
       check(actions.events).deepEquals(['login:oidc:conduit-app']);
       expect(find.byType(ConnectionAttemptBanner), findsNothing);
       expect(find.text('Sign In with SSO'), findsOneWidget);
+      await harness.unmount(tester);
+    });
+
+    testWidgets('offers its settings only after a failure they fix', (
+      tester,
+    ) async {
+      final actions = _BrowserAuthActions(
+        outcomes: [
+          const BrowserSignInException(BrowserSignInFailure.accessDenied),
+          const BrowserSignInException(BrowserSignInFailure.discoveryNotFound),
+        ],
+      );
+      final harness = await openSignIn(tester, saved: config, actions: actions);
+      final settings = find.byKey(const ValueKey('browser-sign-in-settings'));
+
+      await signInWithSso(tester);
+      expect(settings, findsNothing);
+
+      await signInWithSso(tester);
+      expect(settings, findsOne);
       await harness.unmount(tester);
     });
 
@@ -1291,10 +1295,15 @@ void main() {
     group('on iOS', () {
       const ios = TargetPlatform.iOS;
 
-      testWidgets('offers set-up in the grouped form', (tester) async {
+      testWidgets('has only the SSO button in the grouped form', (
+        tester,
+      ) async {
         final harness = await openSignIn(tester, platform: ios);
 
-        expect(find.byKey(const ValueKey('browser-sign-in-set-up')), findsOne);
+        expect(
+          find.byKey(const ValueKey('browser-sign-in-set-up')),
+          findsNothing,
+        );
         expect(find.text('Continue with SSO'), findsOneWidget);
         await harness.unmount(tester);
       });
@@ -1310,7 +1319,7 @@ void main() {
         );
         expect(
           find.byKey(const ValueKey('browser-sign-in-settings')),
-          findsOne,
+          findsNothing,
         );
         expect(
           find.byKey(const ValueKey('browser-sign-in-use-in-app')),
@@ -1361,31 +1370,18 @@ void main() {
       check(actions.events).deepEquals(['login:oidc:conduit-app', 'cancel']);
     });
 
-    testWidgets('set up for a server being added is saved once the server '
-        'is, before the browser opens', (tester) async {
+    testWidgets('set up on Add Server is saved once the server is, before '
+        'the browser opens', (tester) async {
       final actions = _BrowserAuthActions();
-      final harness = await openSignIn(tester, actions: actions);
-
-      await tester.tap(find.byKey(const ValueKey('browser-sign-in-set-up')));
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.descendant(
-          of: find.byKey(const ValueKey('browser-sign-in-client-id')),
-          matching: find.byType(TextField),
-        ),
-        'conduit-app',
+      final harness = await openSignIn(
+        tester,
+        chosen: config,
+        actions: actions,
       );
-      await tester.pump();
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('browser-sign-in-save')),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('browser-sign-in-save')));
-      await tester.pumpAndSettle();
 
       // Not saved anywhere yet: the server itself is not.
       check(actions.events).isEmpty();
-      expect(find.byKey(const ValueKey('browser-sign-in-settings')), findsOne);
+      expect(find.text('Works with passkeys and security keys'), findsOne);
 
       await signInWithSso(tester);
 

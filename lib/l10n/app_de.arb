@@ -995,6 +995,7 @@
   "browserSignInSettingsTitle": "Browser-Anmeldung",
   "browserSignInSettingsDescription": "Melde dich über den Browser dieses Geräts an, in dem Passkeys und Sicherheitsschlüssel funktionieren. Dein Identitätsanbieter braucht einen für Conduit registrierten Client.",
   "browserSignInSharedNote": "Diese Einstellungen gelten für alle Konten auf diesem Server.",
+  "browserSignInUnavailable": "Dieser Server kann die Browser-Anmeldung gerade nicht nutzen. Sie erfordert Open WebUI 0.8 oder neuer mit Anmeldung über OpenID Connect, Microsoft oder Google.",
   "browserSignInProvider": "Anbieter",
   "browserSignInClientId": "Client-ID",
   "browserSignInClientIdHint": "Die ID des für Conduit registrierten Clients",

@@ -6,18 +6,17 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/vocabulary.dart';
-import '../utils/browser_sign_in_messages.dart';
 
 /// The SSO method of the sign-in page: what signing in through the system
 /// browser (where passkeys and security keys work) or the in-app page does,
-/// and the ways to set it up or recover from a failure. The sign-in button
-/// itself is the page's, and signs in through the browser once it is set up.
+/// and the ways to recover from a failure. The sign-in button itself is the
+/// page's, and signs in through the browser once the server's settings set
+/// it up.
 class BrowserSignInSection extends StatelessWidget {
   const BrowserSignInSection({
     super.key,
     required this.description,
     required this.configured,
-    required this.canSetUp,
     required this.busy,
     this.insecureAddress = false,
     this.failure,
@@ -33,9 +32,6 @@ class BrowserSignInSection extends StatelessWidget {
   /// then continues in the browser.
   final bool configured;
 
-  /// Whether browser sign-in can be set up for this server, when it is not.
-  final bool canSetUp;
-
   /// Whether a sign-in is under way.
   final bool busy;
 
@@ -49,7 +45,8 @@ class BrowserSignInSection extends StatelessWidget {
   /// the in-app page gets around; null otherwise.
   final VoidCallback? onUseInApp;
 
-  /// Opens the browser sign-in settings.
+  /// Opens the browser sign-in settings, after a [failure] they fix; null
+  /// otherwise.
   final VoidCallback? onOpenSettings;
 
   /// Tries the failed sign-in's exchange again.
@@ -65,28 +62,10 @@ class BrowserSignInSection extends StatelessWidget {
     );
 
     if (!configured) {
-      return Column(
-        key: const ValueKey<String>('browser-sign-in-section'),
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            description,
-            key: const ValueKey<String>('sso_form'),
-            style: secondary,
-          ),
-          if (canSetUp && onOpenSettings != null) ...[
-            const SizedBox(height: Spacing.sm),
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: ConduitTextButton(
-                key: const ValueKey<String>('browser-sign-in-set-up'),
-                text: l10n.browserSignInSetUp,
-                isPrimary: true,
-                onPressed: busy ? null : onOpenSettings,
-              ),
-            ),
-          ],
-        ],
+      return Text(
+        description,
+        key: const ValueKey<String>('sso_form'),
+        style: secondary,
       );
     }
 
@@ -174,8 +153,7 @@ class BrowserSignInSection extends StatelessWidget {
               ConduitTextButton(
                 key: const ValueKey<String>('browser-sign-in-settings'),
                 text: l10n.browserSignInSettings,
-                isPrimary:
-                    failure != null && browserSignInSuggestsSettings(failure),
+                isPrimary: true,
                 onPressed: busy ? null : onOpenSettings,
               ),
           ],

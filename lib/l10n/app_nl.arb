@@ -993,6 +993,7 @@
   "browserSignInSettingsTitle": "Inloggen via browser",
   "browserSignInSettingsDescription": "Log in via de browser van dit apparaat, waar toegangssleutels en beveiligingssleutels werken. Je identiteitsprovider heeft een client nodig die voor Conduit is geregistreerd.",
   "browserSignInSharedNote": "Deze instellingen gelden voor elk account op deze server.",
+  "browserSignInUnavailable": "Deze server kan inloggen via browser nu niet gebruiken. Daarvoor is Open WebUI 0.8 of nieuwer nodig met inloggen via OpenID Connect, Microsoft of Google.",
   "browserSignInProvider": "Provider",
   "browserSignInClientId": "Client-ID",
   "browserSignInClientIdHint": "De ID van de client die voor Conduit is geregistreerd",

@@ -23,7 +23,8 @@ ID, once per server.
 Conduit asks Open WebUI where its provider signs in (`/oauth/{provider}/login`)
 and discovers the identity provider from that. It then runs its own OpenID
 Connect sign-in in the system browser: authorization code with PKCE (S256),
-using a public client you register for Conduit. Conduit trades the provider's
+using a public client you register for Conduit (Conduit suggests the client ID
+`conduit`). Conduit trades the provider's
 access token for an Open WebUI session at
 `POST /api/v1/auths/oauth/{provider}/token/exchange`. Open WebUI checks the
 token against the provider's user info, the same way its own sign-in does.
@@ -230,18 +231,24 @@ renewal stops working, sign in through the browser again.
 
 ## Turn it on in Conduit
 
-1. On the sign-in screen, open the **SSO** tab and choose **Set up browser
-   sign-in (passkeys)**. It appears for `oidc`, `microsoft` and `google`
-   servers that are new enough.
-2. Pick the provider if the server has more than one. Enter the client ID, and
-   the issuer only if Conduit asks for it (it is also under **Advanced**). The
-   sheet shows the redirect URI to register; tap it to copy it.
-3. **Test** checks discovery and whether the server accepts token exchange.
-   Then choose **Save**.
-4. The SSO button now signs in through the browser. **Browser sign-in
-   settings…** changes or removes the settings later. The in-app sign-in is
-   offered again only after a failure it gets around, such as no suitable
-   browser or an authenticating proxy.
+Browser sign-in is set up in the server's settings, not on the sign-in screen.
+
+- **Adding a server:** open **Advanced settings**, turn on **Browser
+  sign-in**, and keep the client ID `conduit` or enter the one you registered.
+  Conduit uses the first of the server's providers that supports it (`oidc`,
+  `microsoft` or `google`), so even the first sign-in can use a passkey.
+- **A server already added:** open **Settings → Accounts →** the server **→
+  Browser sign-in**. Pick the provider if the server has more than one. Enter
+  the client ID, and the issuer only if Conduit asks for it (it is also under
+  **Advanced**). The sheet shows the redirect URI to register; tap it to copy
+  it. **Test** checks discovery and whether the server accepts token exchange.
+  Then choose **Save**, or **Remove** to turn it off.
+
+The SSO button then signs in through the browser. After a failure the settings
+fix, such as a wrong client ID or an issuer Conduit couldn't find, the sign-in
+screen offers **Browser sign-in settings…**. The in-app sign-in is offered
+again only after a failure it gets around, such as no suitable browser or an
+authenticating proxy.
 
 The settings belong to the **server**, so every account on it uses them, on
 any of its addresses. Changing the provider, client ID or issuer, or removing

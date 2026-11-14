@@ -993,6 +993,7 @@
   "browserSignInSettingsTitle": "浏览器登录",
   "browserSignInSettingsDescription": "通过此设备的浏览器登录，可使用通行密钥和安全密钥。您的身份提供商需要为 Conduit 注册一个客户端。",
   "browserSignInSharedNote": "这些设置适用于此服务器上的所有账户。",
+  "browserSignInUnavailable": "此服务器目前无法使用浏览器登录。需要 Open WebUI 0.8 或更高版本，并启用 OpenID Connect、Microsoft 或 Google 登录。",
   "browserSignInProvider": "提供商",
   "browserSignInClientId": "客户端 ID",
   "browserSignInClientIdHint": "为 Conduit 注册的客户端 ID",

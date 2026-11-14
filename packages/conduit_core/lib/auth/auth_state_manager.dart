@@ -9,6 +9,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
 
 import 'package:conduit_core/services/api_service.dart';
@@ -1393,6 +1394,21 @@ class AuthStateManager extends _$AuthStateManager {
         attemptRevision: attemptRevision,
         stopped: stopped(),
       );
+    }
+  }
+
+  /// The config of the server [account] is on, as it is now, for setting
+  /// up browser sign-in from the server's settings. Null when it can't be
+  /// read.
+  Future<BackendConfig?> backendConfigOf(ServerConfig account) async {
+    final api = ref.read(savedCredentialAuthApiFactoryProvider)(
+      serverConfig: account,
+      workerManager: ref.read(workerManagerProvider),
+    );
+    try {
+      return await api.verifyAndGetConfig();
+    } finally {
+      api.dispose();
     }
   }
 

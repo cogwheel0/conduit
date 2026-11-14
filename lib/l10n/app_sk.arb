@@ -2300,6 +2300,10 @@
   "@browserSignInSharedNote": {
     "description": "Note in the browser sign-in settings that they are shared by all accounts on the server."
   },
+  "browserSignInUnavailable": "Tento server teraz nemôže použiť prihlásenie cez prehliadač. Vyžaduje Open WebUI 0.8 alebo novší s prihlásením cez OpenID Connect, Microsoft alebo Google.",
+  "@browserSignInUnavailable": {
+    "description": "Shown when browser sign-in settings are opened from a server's settings, but the server can't be reached or can't sign in through the browser."
+  },
   "browserSignInProvider": "Poskytovateľ",
   "@browserSignInProvider": {
     "description": "Label of the choice of the server's sign-in provider to use in the browser."

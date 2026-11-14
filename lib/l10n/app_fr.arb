@@ -993,6 +993,7 @@
   "browserSignInSettingsTitle": "Connexion via le navigateur",
   "browserSignInSettingsDescription": "Connectez-vous via le navigateur de cet appareil, où les clés d'accès et les clés de sécurité fonctionnent. Votre fournisseur d'identité doit disposer d'un client enregistré pour Conduit.",
   "browserSignInSharedNote": "Ces réglages s'appliquent à tous les comptes de ce serveur.",
+  "browserSignInUnavailable": "Ce serveur ne peut pas utiliser la connexion via le navigateur pour le moment. Elle nécessite Open WebUI 0.8 ou une version ultérieure avec une connexion OpenID Connect, Microsoft ou Google.",
   "browserSignInProvider": "Fournisseur",
   "browserSignInClientId": "ID client",
   "browserSignInClientIdHint": "L'ID du client enregistré pour Conduit",

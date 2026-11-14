@@ -7,6 +7,7 @@ import 'package:conduit_core/auth/openwebui_two_step.dart';
 
 import 'package:conduit_core/models/browser_sign_in_config.dart';
 import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -140,6 +141,11 @@ class AuthActions {
     BrowserSignInConfig config, {
     ServerConfig? server,
   }) => _auth.diagnoseBrowserSignIn(config, server: server);
+
+  /// The config of the server [account] is on, as it is now; null when it
+  /// can't be read.
+  Future<BackendConfig?> backendConfigOf(ServerConfig account) =>
+      _auth.backendConfigOf(account);
 
   /// Saves, or with a null [config] removes, the browser sign-in settings of
   /// [accountId]'s server.
