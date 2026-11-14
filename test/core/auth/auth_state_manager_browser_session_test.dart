@@ -216,11 +216,10 @@ void main() {
     test('Cancel before the browser opens keeps it closed', () async {
       final rig = await _Rig.start();
       rig.service.findingProvider = Completer<void>();
+      rig.service.findingProviderReached = Completer<void>();
 
       final signIn = rig.auth.loginWithBrowser(config: _config);
-      await pumpEventQueue();
-      // Held while the provider is found.
-      check(rig.service.authorizeCalls).length.equals(1);
+      await rig.service.findingProviderReached!.future;
       await rig.auth.cancelBrowserSignIn();
       rig.service.findingProvider!.complete();
 
@@ -249,13 +248,15 @@ void main() {
     test('a sign-in begun after Cancel is not called off by it', () async {
       final rig = await _Rig.start();
       rig.service.findingProvider = Completer<void>();
+      rig.service.findingProviderReached = Completer<void>();
       final cancelled = rig.auth.loginWithBrowser(config: _config);
-      await pumpEventQueue();
-      check(rig.service.authorizeCalls).length.equals(1);
+      await rig.service.findingProviderReached!.future;
       await rig.auth.cancelBrowserSignIn();
       rig.service.findingProvider!.complete();
       check(await cancelled).isFalse();
-      rig.service.findingProvider = null;
+      rig.service
+        ..findingProvider = null
+        ..findingProviderReached = null;
 
       check(await rig.auth.loginWithBrowser(config: _config)).isTrue();
       check(rig.state.token).equals(_issued);
@@ -1445,6 +1446,9 @@ final class _Service extends BrowserSignInService {
   /// Holds the steps before the browser opens until completed.
   Completer<void>? findingProvider;
 
+  /// Completes once a sign-in reaches the [findingProvider] hold.
+  Completer<void>? findingProviderReached;
+
   /// Holds the token exchange until completed.
   Completer<void>? exchanging;
 
@@ -1504,6 +1508,7 @@ final class _Service extends BrowserSignInService {
       prompt: prompt,
       loginHint: loginHint,
     ));
+    findingProviderReached?.complete();
     await findingProvider?.future;
     if (stopped?.call() ?? false) return null;
     browserOpened++;
