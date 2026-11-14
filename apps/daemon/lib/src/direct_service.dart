@@ -407,7 +407,7 @@ final class DirectService {
   /// them move with a URL to a new origin. A client certificate typed for
   /// the new place is not: the core keeps no TLS setting across origins.
   static bool _secretsConfirmed(DirectConnectionEdit edit) =>
-      edit.apiKey != null || edit.customHeaders != null;
+      edit.apiKey != null || (edit.customHeaders?.isNotEmpty ?? false);
 
   /// [edit] over [previous], or a new profile. Secrets follow the servers
   /// rule: null keeps, empty clears.

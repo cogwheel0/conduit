@@ -37,8 +37,7 @@ final class McpService {
             expectedPrevious: previous,
             // Only credentials typed again in this edit may follow a new
             // address; the core strips the stored ones otherwise.
-            endpointCredentialsConfirmed:
-                edit.bearerToken != null || edit.customHeaders != null,
+            endpointCredentialsConfirmed: _credentialsTypedAgain(edit),
           );
     } on DirectMcpServerConflictException {
       throw const RpcError(
@@ -81,8 +80,7 @@ final class McpService {
           : DirectMcpServer.secureUpdate(
               previous: previous,
               next: applied,
-              endpointCredentialsConfirmed:
-                  edit.bearerToken != null || edit.customHeaders != null,
+              endpointCredentialsConfirmed: _credentialsTypedAgain(edit),
             );
     } on RpcError catch (error) {
       return McpTestResult(reachable: false, message: error.debugMessage);
@@ -300,6 +298,12 @@ final class McpService {
   }
 
   /// [edit] over [previous], or a new server, validated.
+  /// Whether [edit] typed a token or headers again, which is what lets
+  /// them go with an endpoint to a new address. An empty set of headers
+  /// types nothing.
+  static bool _credentialsTypedAgain(McpServerEdit edit) =>
+      edit.bearerToken != null || (edit.customHeaders?.isNotEmpty ?? false);
+
   static DirectMcpServer _apply(McpServerEdit edit, DirectMcpServer? previous) {
     final auth = switch (edit.auth) {
       McpAuth.none => DirectMcpAuthMode.none,

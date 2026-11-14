@@ -90,11 +90,17 @@ void main() {
       await request.response.close();
     });
 
-    final result = await mcp.test(
-      edit(id: saved.id)
-          .copyWith(endpoint: 'http://127.0.0.1:${elsewhere.port}/mcp'),
-    );
-    expect(result.reachable, isFalse);
+    // An empty set of headers types nothing again either.
+    for (final moved in <McpServerEdit>[
+      edit(id: saved.id),
+      edit(id: saved.id).copyWith(customHeaders: const <String, String>{}),
+    ]) {
+      final result = await mcp.test(
+        moved.copyWith(endpoint: 'http://127.0.0.1:${elsewhere.port}/mcp'),
+      );
+      expect(result.reachable, isFalse);
+    }
+    expect(headers, hasLength(greaterThanOrEqualTo(2)));
     expect(headers, everyElement(isNot(contains('mcp-secret-token'))));
   });
 

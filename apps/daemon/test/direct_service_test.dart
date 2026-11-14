@@ -224,6 +224,17 @@ void main() {
       );
       expect(certificateOnly.apiKey, isNull);
       expect(certificateOnly.customHeaders, isEmpty);
+
+      // Nor is an empty set of headers: it types nothing.
+      final noHeaders = DirectService.apply(
+        stored.copyWith(
+          baseUrl: 'https://elsewhere.example.net/v1',
+          apiKey: null,
+          customHeaders: const <String, String>{},
+        ),
+        previous,
+      );
+      expect(noHeaders.apiKey, isNull);
     });
 
     test('a test probe sends the new server no stored secret', () async {
