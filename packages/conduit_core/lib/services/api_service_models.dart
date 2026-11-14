@@ -408,7 +408,9 @@ mixin _ModelsApi on _ApiServiceBase {
     String? imageUrl,
   }) async {
     final kept = await getWorkspaceModelProfileImage(id);
-    if (kept != null) return kept;
+    if (kept != null) {
+      return kept.length > maxWorkspaceModelAvatarBytes ? null : kept;
+    }
     final url = imageUrl?.trim() ?? '';
     if (workspaceModelAvatarSource(url, serverBaseUrl: serverConfig.url) !=
             WorkspaceModelAvatarSource.server ||
@@ -416,21 +418,23 @@ mixin _ModelsApi on _ApiServiceBase {
       return null;
     }
     try {
-      final response = await _dio.get<List<int>>(
+      final response = await _dio.get<ResponseBody>(
         url,
         options: Options(
-          responseType: ResponseType.bytes,
+          responseType: ResponseType.stream,
           followRedirects: false,
           validateStatus: (status) => status != null && status < 300,
         ),
       );
-      final data = response.data;
-      if (data == null ||
-          data.isEmpty ||
-          data.length > maxWorkspaceModelAvatarBytes) {
-        return null;
+      final body = response.data;
+      if (body == null) return null;
+      // Read up to the limit: leaving the loop past it cancels the rest.
+      final data = <int>[];
+      await for (final chunk in body.stream) {
+        data.addAll(chunk);
+        if (data.length > maxWorkspaceModelAvatarBytes) return null;
       }
-      return data;
+      return data.isEmpty ? null : data;
     } on DioException {
       return null;
     }

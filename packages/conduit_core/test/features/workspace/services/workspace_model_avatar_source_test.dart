@@ -151,6 +151,38 @@ void main() {
       check(adapter.asked.map((a) => a.$1)).not((it) => it.contains(picture));
     });
 
+    test('a picture larger than the limit is refused, and not read whole',
+        () async {
+      // The 10 MiB a host is handed at most.
+      const max = 10 * 1024 * 1024;
+      serve({
+        '$_server/api/v1/models/model/profile/image': () =>
+            _bytes(List<int>.filled(max + 1, 0)),
+      });
+      check(await api.getWorkspaceModelAvatar('gull')).isNull();
+
+      const picture = '$_server/static/gull.png';
+      // One mebibyte a turn of the event loop, as a network would send it,
+      // up to twice the limit.
+      var sent = 0;
+      Stream<Uint8List> chunks() async* {
+        for (var i = 0; i < 20; i++) {
+          await Future<void>(() {});
+          sent++;
+          yield Uint8List(1 << 20);
+        }
+      }
+
+      serve({
+        '$_server/api/v1/models/model/profile/image': () => _redirect(picture),
+        picture: () => ResponseBody(chunks(), HttpStatus.ok),
+      });
+      check(
+        await api.getWorkspaceModelAvatar('gull', imageUrl: picture),
+      ).isNull();
+      check(sent).isLessThan(20);
+    });
+
     test('the default image is no picture of the model\'s own', () async {
       serve({
         '$_server/api/v1/models/model/profile/image': () =>
