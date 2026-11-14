@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
@@ -45,18 +46,18 @@ void main() {
       'runtimeId': 'runtime-2',
       'expiresAt': _now.add(const Duration(minutes: 9)).toIso8601String(),
     })!;
-    expect(hermesDecisionsAskTheSame(asked, replayed), isTrue);
+    check(hermesDecisionsAskTheSame(asked, replayed)).isTrue();
     final other = read(<String, dynamic>{
       'kind': 'secret',
       'prompt': 'Enter your Demo Maps API key',
       'requestId': 'request-2',
     })!;
-    expect(hermesDecisionsAskTheSame(asked, other), isFalse);
+    check(hermesDecisionsAskTheSame(asked, other)).isFalse();
     final sudo = read(<String, dynamic>{
       'kind': 'sudo',
       'prompt': 'Enter your Demo Weather API key',
     })!;
-    expect(hermesDecisionsAskTheSame(asked, sudo), isFalse);
+    check(hermesDecisionsAskTheSame(asked, sudo)).isFalse();
   });
 
   test('reads a clarify form with its questions', () {
