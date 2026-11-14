@@ -2,6 +2,7 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'package:conduit_core/features/calendar/calendar_agenda_layout.dart';
 import 'package:conduit_core/features/calendar/models/calendar_models.dart';
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart';
 
@@ -149,20 +150,14 @@ class _CalendarsSheetState extends ConsumerState<CalendarsSheet> {
   }
 
   /// The calendars the agenda shows: all of them when the filter is empty.
-  Set<String> _visible(CalendarAgendaData data) {
-    final all = {for (final c in data.calendars) c.id};
-    final chosen = (_filter ?? data.filter).intersection(all);
-    return chosen.isEmpty ? all : chosen;
-  }
+  Set<String> _visible(CalendarAgendaData data) =>
+      calendarVisibleIds(data, filter: _filter);
 
   /// Shows or hides [id]'s events. At least one calendar stays shown, and
   /// showing every one clears the filter, so calendars added later show too.
   Future<void> _toggleVisible(CalendarAgendaData data, String id) async {
-    final all = {for (final c in data.calendars) c.id};
-    final next = {..._visible(data)};
-    if (!next.remove(id)) next.add(id);
-    if (next.isEmpty) return;
-    final filter = next.containsAll(all) ? <String>{} : next;
+    final filter = toggledCalendarFilter(data, id, filter: _filter);
+    if (filter == null) return;
     setState(() => _filter = filter);
     await _notifier.refresh(owner: widget.owner, filter: filter);
   }
@@ -180,7 +175,8 @@ class _CalendarsSheetState extends ConsumerState<CalendarsSheet> {
             : !calendar.isVirtual || data!.calendars.length > 1)
           calendar,
     ];
-    final filterable = !widget.picking && (data?.calendars.length ?? 0) > 1;
+    final filterable =
+        !widget.picking && data != null && calendarsFilterable(data);
     final visible = data == null ? const <String>{} : _visible(data);
     final creating = _creating || calendars.isEmpty;
 

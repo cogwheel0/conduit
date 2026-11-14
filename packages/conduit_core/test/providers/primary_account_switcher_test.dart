@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
@@ -49,6 +50,31 @@ final class _Auth extends AuthStateManager {
   }
 }
 
+/// Storage whose strict read of the saved servers can be held.
+final class _Storage extends OptimizedStorageService {
+  _Storage({
+    required super.secureStorage,
+    required super.boxes,
+    required super.workerManager,
+  });
+
+  /// Holds the next strict read until completed, when set; [reading]
+  /// completes as it arrives.
+  Completer<void>? strictGate;
+  final reading = Completer<void>();
+
+  @override
+  Future<List<ServerConfig>> getServerConfigsStrict() async {
+    final gate = strictGate;
+    strictGate = null;
+    if (gate != null) {
+      reading.complete();
+      await gate.future;
+    }
+    return super.getServerConfigsStrict();
+  }
+}
+
 final class _Accounts extends OpenWebUiAccountsController {
   _Accounts(super.ref, this.storage);
 
@@ -70,7 +96,7 @@ final class _Accounts extends OpenWebUiAccountsController {
 
 void main() {
   late Directory tempDir;
-  late OptimizedStorageService storage;
+  late _Storage storage;
   late WorkerManager workers;
   late InMemorySecureKeyValueStore secure;
   late ProviderContainer container;
@@ -100,7 +126,7 @@ void main() {
     await PreferencesStore.ensureInitialized();
     workers = WorkerManager(maxConcurrentTasks: 1);
     secure = InMemorySecureKeyValueStore();
-    storage = OptimizedStorageService(
+    storage = _Storage(
       secureStorage: InMemorySecureKeyValueStore(),
       boxes: boxes,
       workerManager: workers,
@@ -352,6 +378,72 @@ void main() {
       PreferredBackend.owui,
     );
     check(PrimarySwitchIntent.read()).isNull();
+  });
+
+  test('a sign-out hands the tab over only if no switch took it meanwhile',
+      () async {
+    await switcher().useLibreChat(libreChatAccount.id);
+    await container
+        .read(libreChatAccountsProvider)
+        .saveSignedIn(
+          server: server,
+          session: const LibreChatSession(
+            accessToken: 'b',
+            user: LibreChatUser(id: 'lc-other', name: 'Other'),
+          ),
+          activate: false,
+        );
+    // Open WebUI is asked for, and waits on its saved servers.
+    final gate = storage.strictGate = Completer<void>();
+    final toOpenWebUi = switcher().useOpenWebUi('owui');
+    await storage.reading.future;
+
+    final handingOver = signOutOfLibreChatAndHandOver(
+      container,
+      libreChatAccount.id,
+    );
+    await pumpEventQueue();
+    gate.complete();
+    await toOpenWebUi;
+
+    check(await handingOver).isFalse();
+    check(container.read(primaryAccountProvider)).equals(
+      const PrimaryAccountRef(PrimaryAccountKind.openWebUi, 'owui'),
+    );
+  });
+
+  test('a sign-out hands the tab to the next account when the one it picked '
+      'is gone by its turn', () async {
+    await switcher().useLibreChat(libreChatAccount.id);
+    final other = await container
+        .read(libreChatAccountsProvider)
+        .saveSignedIn(
+          server: server,
+          session: const LibreChatSession(
+            accessToken: 'b',
+            user: LibreChatUser(id: 'lc-other', name: 'Other'),
+          ),
+          activate: false,
+        );
+    // A switch to an account that is not there holds the queue meanwhile.
+    final gate = storage.strictGate = Completer<void>();
+    final missing = switcher().useOpenWebUi('missing');
+    await storage.reading.future;
+
+    final handingOver = signOutOfLibreChatAndHandOver(
+      container,
+      libreChatAccount.id,
+    );
+    await pumpEventQueue();
+    // The other LibreChat account goes before the handover's turn.
+    await container.read(libreChatRegistryProvider.notifier).remove(other.id);
+    gate.complete();
+    check(await missing).equals(PrimarySwitchResult.unknownAccount);
+
+    check(await handingOver).isTrue();
+    check(container.read(primaryAccountProvider)).equals(
+      const PrimaryAccountRef(PrimaryAccountKind.openWebUi, 'owui'),
+    );
   });
 
   group('routing at startup', () {

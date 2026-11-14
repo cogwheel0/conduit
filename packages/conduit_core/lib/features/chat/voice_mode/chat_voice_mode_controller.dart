@@ -11,6 +11,7 @@ import 'dart:async';
 import 'dart:collection';
 
 import 'package:meta/meta.dart';
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/voice/voice_session.dart';
@@ -40,6 +41,7 @@ import 'package:conduit_core/features/chat/realtime_call/realtime_bridge_transpo
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart';
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_state.dart';
 import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dart';
+import 'package:conduit_core/features/chat/voice_mode/chat_voice_send.dart';
 import 'package:conduit_core/features/chat/voice_mode/voice_mode_ports.dart';
 
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
@@ -85,10 +87,32 @@ ChatVoiceModeError _errorKindOf(Object error) =>
   return (ends: true, chatId: callChatId);
 }
 
+/// Which controller's call holds the call audio every chat shares (see
+/// [ChatVoiceModeController._sharedAudio]); null when none does.
+final class _SharedCallAudio {
+  Object? owner;
+}
+
+/// Never overridden in a chat session scope: one for every chat.
+final _sharedCallAudioProvider = Provider<_SharedCallAudio>(
+  (_) => _SharedCallAudio(),
+);
+
 final chatVoiceModeControllerProvider =
     NotifierProvider<ChatVoiceModeController, ChatVoiceModeSnapshot>(
       ChatVoiceModeController.new,
     );
+
+/// What a chat session scope makes afresh for a call in its chat: the
+/// controller, and the admission and realtime voice it reads, which follow
+/// the scope's selected model and conversation rather than the root's. A
+/// host with several chats live (the desktop daemon) runs a call in the
+/// scope of the chat it is in; mobile never opens a scope.
+List<Override> chatSessionScopedVoiceOverrides() => <Override>[
+  chatVoiceModeControllerProvider.overrideWith(ChatVoiceModeController.new),
+  ...chatSessionScopedVoiceCallEligibilityOverrides(),
+  ...chatSessionScopedRealtimeCallOverrides(),
+];
 
 @visibleForTesting
 final chatVoiceModeServiceLifecycleTimeoutProvider = Provider<Duration>((ref) {
@@ -168,6 +192,21 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   int _stopRequestGeneration = 0;
   int _emptyTranscriptRestarts = 0;
   bool _disposed = false;
+
+  /// Who holds the call audio every chat shares: the microphone input, the
+  /// audio session, the background lease and the speech engine's call
+  /// route. The root's, never a scope's.
+  _SharedCallAudio? _sharedAudio;
+
+  /// Whether a call of this controller took the shared call audio and has
+  /// not given it back. Another chat's call, or read aloud, may hold it
+  /// otherwise: a controller that never had it leaves it alone.
+  bool get _holdsSharedAudio => identical(_sharedAudio?.owner, this);
+
+  void _releaseSharedAudio() {
+    if (_holdsSharedAudio) _sharedAudio!.owner = null;
+  }
+
   Completer<void>? _pendingStartReadinessCancellation;
 
   StreamSubscription<VoiceTranscriptEvent>? _transcriptSub;
@@ -221,10 +260,24 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   bool _usesOpenWebUiTransport = false;
   List<String> _assistantSpeechChunks = const <String>[];
   int _activeAssistantSpeechChunkIndex = -1;
+  RealtimeCallBlock? _realtimeBlock;
+  bool _realtimeAudioMissing = false;
+
+  /// Whether the call under way talks to a realtime voice.
+  bool get isRealtimeCall => _realtime != null;
+
+  /// Why the call under way is turn by turn, when the core said: what the
+  /// user, the chat or the backend left it ([RealtimeCallBlock]).
+  RealtimeCallBlock? get realtimeBlock => _realtimeBlock;
+
+  /// Whether the call is turn by turn because this host has no realtime
+  /// audio or WebRTC, although the backend offers a realtime voice.
+  bool get realtimeAudioMissing => _realtimeAudioMissing;
 
   @override
   ChatVoiceModeSnapshot build() {
     _disposed = false;
+    _sharedAudio = ref.read(_sharedCallAudioProvider);
     _backgroundCoordinator = ref.read(
       chatVoiceModeBackgroundCoordinatorProvider,
     );
@@ -271,6 +324,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       final audioSessionCoordinator = _audioSessionCoordinator;
       final callKit = _callKit;
       final callId = _activeCallId;
+      final holdsSharedAudio = _holdsSharedAudio;
+      final sharedAudio = _sharedAudio;
       final socketBackgroundLease = _socketBackgroundLease;
       final realtime = _realtime;
       final realtimeSub = _realtimeSub;
@@ -300,21 +355,25 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
                 audioResponseCaptureFailureSub,
               );
               await _stopVoiceInputAfterDispose(input);
-              await _endResponseWaitCaptureAfterDispose(
-                audioSessionCoordinator,
-              );
+              if (holdsSharedAudio) {
+                await _endResponseWaitCaptureAfterDispose(
+                  audioSessionCoordinator,
+                );
+              }
               await _cancelSubscriptionAfterDispose(ttsSub);
-              await _stopTtsAfterDispose(tts);
-              // The engine is shared with read-aloud, which belongs on the
-              // media stream. Nothing survives provider disposal to hand it
-              // back, so it happens here.
-              tts?.setVoiceCallActive(false);
-              await _stopBackgroundVoiceLeaseAfterDispose(
-                backgroundCoordinator,
-              );
-              await _deactivateAudioSessionAfterDispose(
-                audioSessionCoordinator,
-              );
+              if (holdsSharedAudio) {
+                await _stopTtsAfterDispose(tts);
+                // The engine is shared with read-aloud, which belongs on the
+                // media stream. Nothing survives provider disposal to hand
+                // it back, so it happens here.
+                tts?.setVoiceCallActive(false);
+                await _stopBackgroundVoiceLeaseAfterDispose(
+                  backgroundCoordinator,
+                );
+                await _deactivateAudioSessionAfterDispose(
+                  audioSessionCoordinator,
+                );
+              }
               await _cancelSubscriptionAfterDispose(callKitSub);
               await _cancelSubscriptionAfterDispose(speakerphoneRouteSub);
               if (callId != null) {
@@ -328,6 +387,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
                 error: error,
                 stackTrace: stackTrace,
               );
+            })
+            // Given back once its own teardown is over, so another chat's
+            // call never starts under it.
+            .whenComplete(() {
+              if (holdsSharedAudio && identical(sharedAudio?.owner, this)) {
+                sharedAudio!.owner = null;
+              }
             }),
       );
     });
@@ -400,6 +466,14 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
           final startToken = ++_token;
           token = startToken;
+          // Admitted: the call takes the shared call audio, unless a call in
+          // another chat holds it (they share one microphone input).
+          final shared = _sharedAudio!;
+          if (shared.owner != null && !identical(shared.owner, this)) {
+            result = ChatVoiceModeStartResult.alreadyActive;
+            return;
+          }
+          shared.owner = this;
           _resetRuntime();
 
           void cancelIfRequested() {
@@ -599,6 +673,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     Model model, {
     required bool newChat,
   }) async {
+    _realtimeBlock = null;
+    _realtimeAudioMissing = false;
     final RealtimeCallRoute route;
     try {
       route = await ref.read(realtimeCallRouteResolverProvider)(
@@ -640,6 +716,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         );
       }
     }
+    _realtimeBlock = route.block;
+    _realtimeAudioMissing = route.block == null;
     DebugLogger.log(
       'realtime-unavailable',
       scope: 'chat/voice_mode',
@@ -1638,10 +1716,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       await _backgroundCoordinator?.keepAlive();
       if (!_isCurrent(token)) return;
       final selectedToolIds = ref.read(selectedToolIdsProvider);
-      await durableSend(
+      await ref.read(chatVoiceSendProvider)(
         ref,
         transcript,
-        null,
         toolIds: selectedToolIds,
         isVoiceMode: true,
       );
@@ -2024,6 +2101,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     required bool endCallKit,
     required int ownershipToken,
   }) async {
+    final heldSharedAudio = _holdsSharedAudio;
     final input = _voiceInput;
     final tts = _textToSpeech;
     final callKit = _callKit;
@@ -2093,11 +2171,14 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             !_isCurrent(ownershipToken) && _voiceInput != null;
         bool replacementOwnsTts() =>
             !_isCurrent(ownershipToken) && _textToSpeech != null;
+        // A controller whose call never took the shared call audio (one
+        // refused before admission, say) leaves it to whoever holds it.
         bool replacementOwnsSharedAudio() =>
-            !_isCurrent(ownershipToken) &&
-            (_voiceInput != null ||
-                _textToSpeech != null ||
-                _backgroundLeaseId != null);
+            !heldSharedAudio ||
+            (!_isCurrent(ownershipToken) &&
+                (_voiceInput != null ||
+                    _textToSpeech != null ||
+                    _backgroundLeaseId != null));
 
         // Before the audio session goes, so the call's audio stops first.
         await _runTeardownStep('realtime-end', () async {
@@ -2188,6 +2269,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         stackTrace: stackTrace,
       );
     }
+    // Free for another chat's call once this teardown is over (a failed call
+    // included), unless a start of this controller took it meanwhile.
+    if (_isCurrent(ownershipToken)) _releaseSharedAudio();
   }
 
   Future<void> _runTeardownStep(

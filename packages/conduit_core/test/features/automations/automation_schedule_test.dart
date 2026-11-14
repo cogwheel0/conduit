@@ -147,4 +147,57 @@ void main() {
       });
     }
   });
+
+  group('automationScheduleOfKind', () {
+    final now = DateTime(2026, 3, 11, 10, 0); // a Wednesday
+
+    test('daily keeps the time of day', () {
+      check(
+        automationScheduleOfKind(
+          AutomationScheduleKind.daily,
+          current: const WeeklyAutomationSchedule(
+            hour: 7,
+            minute: 30,
+            days: {'MO'},
+          ),
+          now: now,
+        ),
+      ).equals(const DailyAutomationSchedule(hour: 7, minute: 30));
+    });
+
+    test("weekly starts on today's weekday", () {
+      check(
+        automationScheduleOfKind(
+          AutomationScheduleKind.weekly,
+          current: const RawAutomationSchedule('FREQ=MONTHLY'),
+          now: now,
+        ),
+      ).equals(
+        const WeeklyAutomationSchedule(hour: 9, minute: 0, days: {'WE'}),
+      );
+    });
+
+    test('once starts five minutes from now', () {
+      check(
+        automationScheduleOfKind(
+          AutomationScheduleKind.once,
+          current: const DailyAutomationSchedule(hour: 9, minute: 0),
+          now: now,
+        ),
+      ).equals(
+        const OnceAutomationSchedule(
+          year: 2026,
+          month: 3,
+          day: 11,
+          hour: 10,
+          minute: 5,
+        ),
+      );
+    });
+
+    test('a time on a raw rule makes it daily', () {
+      check(automationScheduleAtTime(const RawAutomationSchedule('X'), 6, 15))
+          .equals(const DailyAutomationSchedule(hour: 6, minute: 15));
+    });
+  });
 }

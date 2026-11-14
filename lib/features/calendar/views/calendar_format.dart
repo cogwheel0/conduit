@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show automationErrorDetail;
+import 'package:conduit_core/features/calendar/calendar_agenda_layout.dart';
 import 'package:conduit_core/features/calendar/calendar_draft.dart';
 import 'package:conduit_core/features/calendar/calendar_time.dart';
 import 'package:conduit_core/features/calendar/models/calendar_models.dart';
@@ -98,20 +99,25 @@ String formatCalendarRowTime(
   required CalendarZone zone,
   required CalendarWallTime day,
 }) {
-  if (allDay) return l10n.calendarAllDay;
-  final start = wallTimeAt(startNs, zone);
-  final startClock = formatCalendarClock(context, start);
-  if (endNs == null || endNs <= startNs) return startClock;
-  final end = wallTimeAt(endNs, zone);
-  final span = daySpan(startNs: startNs, endNs: endNs, zone: zone);
-  if (span.first.sameDate(span.last)) {
-    return '$startClock – ${formatCalendarClock(context, end)}';
-  }
-  if (day.sameDate(span.first)) return l10n.calendarStartsAt(startClock);
-  if (day.sameDate(span.last) && day.sameDate(end)) {
-    return l10n.calendarEndsAt(formatCalendarClock(context, end));
-  }
-  return l10n.calendarAllDay;
+  return switch (calendarRowTime(
+    startNs: startNs,
+    endNs: endNs,
+    allDay: allDay,
+    zone: zone,
+    day: day,
+  )) {
+    CalendarRowAllDay() => l10n.calendarAllDay,
+    CalendarRowAt(:final start) => formatCalendarClock(context, start),
+    CalendarRowRange(:final start, :final end) =>
+      '${formatCalendarClock(context, start)} – '
+          '${formatCalendarClock(context, end)}',
+    CalendarRowStartsAt(:final start) => l10n.calendarStartsAt(
+      formatCalendarClock(context, start),
+    ),
+    CalendarRowEndsAt(:final end) => l10n.calendarEndsAt(
+      formatCalendarClock(context, end),
+    ),
+  };
 }
 
 /// `#rrggbb` as a colour, or null when the server stored none or something

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/realtime_call/realtime_bridge_transport.dart';
@@ -9,6 +10,7 @@ import 'package:conduit_core/features/chat/realtime_call/realtime_call_availabil
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_ports.dart';
 import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dart';
 import 'package:conduit_core/features/chat/voice_mode/chat_voice_mode_controller.dart';
+import 'package:conduit_core/features/chat/voice_mode/chat_voice_send.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
@@ -2747,62 +2749,66 @@ void main() {
       return container;
     }
 
-    test('a call with a realtime voice talks through it, not turn by turn',
-        () async {
-      final container = realtimeContainer();
-      final controller = container.read(
-        chatVoiceModeControllerProvider.notifier,
-      );
+    test(
+      'a call with a realtime voice talks through it, not turn by turn',
+      () async {
+        final container = realtimeContainer();
+        final controller = container.read(
+          chatVoiceModeControllerProvider.notifier,
+        );
 
-      final result = await controller.start(
-        startNewConversation: false,
-        admittedModel: _model,
-      );
+        final result = await controller.start(
+          startNewConversation: false,
+          admittedModel: _model,
+        );
 
-      check(result).equals(ChatVoiceModeStartResult.started);
-      check(input.beginCalls).equals(0);
-      check(audio.started).isTrue();
-      check(container.read(chatVoiceModeControllerProvider).phase)
-          .equals(ChatVoiceModePhase.listening);
+        check(result).equals(ChatVoiceModeStartResult.started);
+        check(input.beginCalls).equals(0);
+        check(audio.started).isTrue();
+        check(container.read(chatVoiceModeControllerProvider).phase)
+            .equals(ChatVoiceModePhase.listening);
 
-      bridge.inbox.add({
-        'type': 'conversation.item.input_audio_transcription.completed',
-        'item_id': 'item-1',
-        'transcript': 'Hello',
-      });
-      await pumpEventQueue();
-      check(container.read(chatVoiceModeControllerProvider).transcript)
-          .equals('Hello');
+        bridge.inbox.add({
+          'type': 'conversation.item.input_audio_transcription.completed',
+          'item_id': 'item-1',
+          'transcript': 'Hello',
+        });
+        await pumpEventQueue();
+        check(container.read(chatVoiceModeControllerProvider).transcript)
+            .equals('Hello');
 
-      await controller.toggleMute();
-      check(container.read(chatVoiceModeControllerProvider).isMuted).isTrue();
-      check(audio.captureEnabled).equals(false);
+        await controller.toggleMute();
+        check(container.read(chatVoiceModeControllerProvider).isMuted).isTrue();
+        check(audio.captureEnabled).equals(false);
 
-      await controller.stop();
-      check(bridge.wasClosed).isTrue();
-      check(audio.stopped).isTrue();
-      check(container.read(chatVoiceModeControllerProvider).isActive)
-          .isFalse();
-    });
+        await controller.stop();
+        check(bridge.wasClosed).isTrue();
+        check(audio.stopped).isTrue();
+        check(container.read(chatVoiceModeControllerProvider).isActive)
+            .isFalse();
+      },
+    );
 
-    test('a realtime call follows its own chat and ends when another opens',
-        () {
-      // The first turn of a call started without a chat creates one.
-      check(realtimeCallChatAfter(null, 'local:new', createdByCall: true))
-          .equals((ends: false, chatId: 'local:new'));
-      // A new chat gets its server id in place.
-      check(realtimeCallChatAfter('local:new', 'chat-1', remapped: true))
-          .equals((ends: false, chatId: 'chat-1'));
-      check(realtimeCallChatAfter('chat-1', 'chat-1'))
-          .equals((ends: false, chatId: 'chat-1'));
-      check(realtimeCallChatAfter('chat-1', 'chat-2').ends).isTrue();
-      check(realtimeCallChatAfter('chat-1', null).ends).isTrue();
-      check(realtimeCallChatAfter('direct-local:a', 'direct-local:b').ends)
-          .isTrue();
-      // A chat the user opens is not the call's, even before it has one.
-      check(realtimeCallChatAfter(null, 'chat-2').ends).isTrue();
-      check(realtimeCallChatAfter('local:new', 'chat-2').ends).isTrue();
-    });
+    test(
+      'a realtime call follows its own chat and ends when another opens',
+      () {
+        // The first turn of a call started without a chat creates one.
+        check(realtimeCallChatAfter(null, 'local:new', createdByCall: true))
+            .equals((ends: false, chatId: 'local:new'));
+        // A new chat gets its server id in place.
+        check(realtimeCallChatAfter('local:new', 'chat-1', remapped: true))
+            .equals((ends: false, chatId: 'chat-1'));
+        check(realtimeCallChatAfter('chat-1', 'chat-1'))
+            .equals((ends: false, chatId: 'chat-1'));
+        check(realtimeCallChatAfter('chat-1', 'chat-2').ends).isTrue();
+        check(realtimeCallChatAfter('chat-1', null).ends).isTrue();
+        check(realtimeCallChatAfter('direct-local:a', 'direct-local:b').ends)
+            .isTrue();
+        // A chat the user opens is not the call's, even before it has one.
+        check(realtimeCallChatAfter(null, 'chat-2').ends).isTrue();
+        check(realtimeCallChatAfter('local:new', 'chat-2').ends).isTrue();
+      },
+    );
 
     test('opening another chat ends a realtime call', () async {
       // Direct chats, which this container keeps open.
@@ -2819,8 +2825,7 @@ void main() {
       await container
           .read(chatVoiceModeControllerProvider.notifier)
           .start(startNewConversation: false, admittedModel: _model);
-      check(container.read(chatVoiceModeControllerProvider).isActive)
-          .isTrue();
+      check(container.read(chatVoiceModeControllerProvider).isActive).isTrue();
 
       active.set(chat('direct-local:b'));
       await _until(
@@ -2849,44 +2854,55 @@ void main() {
       check(audio.stopped).isTrue();
       check(await starting).equals(ChatVoiceModeStartResult.cancelled);
       await stopping;
-      check(container.read(chatVoiceModeControllerProvider).isActive)
-          .isFalse();
+      check(container.read(chatVoiceModeControllerProvider).isActive).isFalse();
     });
 
-    test('ending it from the system call UI while it connects ends it at once',
-        () async {
-      bridge.opening = Completer<void>();
-      final callKit = _AvailableCallKitService();
-      addTearDown(callKit.dispose);
-      final container = realtimeContainer(callKit: callKit);
-      final controller = container.read(
-        chatVoiceModeControllerProvider.notifier,
-      );
+    test(
+      'ending it from the system call UI while it connects ends it at once',
+      () async {
+        bridge.opening = Completer<void>();
+        final callKit = _AvailableCallKitService();
+        addTearDown(callKit.dispose);
+        final container = realtimeContainer(callKit: callKit);
+        final controller = container.read(
+          chatVoiceModeControllerProvider.notifier,
+        );
 
-      final starting = controller.start(
-        startNewConversation: false,
-        admittedModel: _model,
-      );
-      await _until(() => audio.started);
-      callKit.emit(const VoiceCallKitEnded('call-1'));
-      await pumpEventQueue();
+        final starting = controller.start(
+          startNewConversation: false,
+          admittedModel: _model,
+        );
+        await audio.startedEvent.future;
+        callKit.emit(const VoiceCallKitEnded('call-1'));
+        await pumpEventQueue();
 
-      check(bridge.wasClosed).isTrue();
-      check(audio.stopped).isTrue();
-      check(await starting).equals(ChatVoiceModeStartResult.cancelled);
-      await _until(
-        () => !container.read(chatVoiceModeControllerProvider).isActive,
-      );
-      // The system ended the call; it is not ended again.
-      check(callKit.endedCallIds).isEmpty();
-    });
+        check(bridge.wasClosed).isTrue();
+        check(audio.stopped).isTrue();
+        check(await starting).equals(ChatVoiceModeStartResult.cancelled);
+        // The controller settles as no longer active.
+        final ended = Completer<void>();
+        final watch = container.listen(chatVoiceModeControllerProvider, (
+          _,
+          next,
+        ) {
+          if (!next.isActive && !ended.isCompleted) ended.complete();
+        }, fireImmediately: true);
+        addTearDown(watch.close);
+        await ended.future;
+        // The system ended the call; it is not ended again.
+        check(callKit.endedCallIds).isEmpty();
+      },
+    );
 
     test('unmuting a paused call brings its answers back', () async {
       final container = realtimeContainer();
       final controller = container.read(
         chatVoiceModeControllerProvider.notifier,
       );
-      await controller.start(startNewConversation: false, admittedModel: _model);
+      await controller.start(
+        startNewConversation: false,
+        admittedModel: _model,
+      );
       await controller.pause();
       await controller.toggleMute();
 
@@ -2903,27 +2919,29 @@ void main() {
       await controller.stop();
     });
 
-    test('a chat opened right after the call is asked for cancels it',
-        () async {
-      Conversation chat(String id) => Conversation(
-        id: id,
-        title: 'Chat',
-        createdAt: DateTime.utc(2026),
-        updatedAt: DateTime.utc(2026),
-        metadata: const {'backend': kDirectTransport},
-      );
-      final container = realtimeContainer();
-      final active = container.read(activeConversationProvider.notifier)
-        ..set(chat('direct-local:a'));
+    test(
+      'a chat opened right after the call is asked for cancels it',
+      () async {
+        Conversation chat(String id) => Conversation(
+          id: id,
+          title: 'Chat',
+          createdAt: DateTime.utc(2026),
+          updatedAt: DateTime.utc(2026),
+          metadata: const {'backend': kDirectTransport},
+        );
+        final container = realtimeContainer();
+        final active = container.read(activeConversationProvider.notifier)
+          ..set(chat('direct-local:a'));
 
-      final starting = container
-          .read(chatVoiceModeControllerProvider.notifier)
-          .start(startNewConversation: false, admittedModel: _model);
-      active.set(chat('direct-local:b'));
+        final starting = container
+            .read(chatVoiceModeControllerProvider.notifier)
+            .start(startNewConversation: false, admittedModel: _model);
+        active.set(chat('direct-local:b'));
 
-      check(await starting).equals(ChatVoiceModeStartResult.cancelled);
-      check(bridge.opened).isFalse();
-    });
+        check(await starting).equals(ChatVoiceModeStartResult.cancelled);
+        check(bridge.opened).isFalse();
+      },
+    );
 
     test('a chat opened while the call sets up cancels it', () async {
       // Direct chats, which this container keeps open.
@@ -2952,8 +2970,7 @@ void main() {
 
       check(await starting).equals(ChatVoiceModeStartResult.cancelled);
       check(bridge.opened).isFalse();
-      check(container.read(chatVoiceModeControllerProvider).isActive)
-          .isFalse();
+      check(container.read(chatVoiceModeControllerProvider).isActive).isFalse();
     });
 
     test('a realtime voice that cannot start says why', () async {
@@ -2984,6 +3001,162 @@ void main() {
       check(input.beginCalls).isGreaterThan(0);
       check(audio.started).isFalse();
       await controller.stop();
+    });
+  });
+
+  group('in a chat session scope', () {
+    test(
+      "a call admits the scope's model and sends through the host's send",
+      () async {
+        final input = _FakeVoiceInputService()..localSttAvailable = true;
+        final tts = _FakeTextToSpeechService();
+        final parent = ProviderContainer(
+          overrides: [
+            appSettingsProvider.overrideWithValue(const AppSettings()),
+            reviewerModeProvider.overrideWithValue(true),
+            appDatabaseProvider.overrideWith((ref) => null),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            voiceModeInputProvider.overrideWithValue(input),
+            voiceModeSpeechProvider.overrideWithValue(tts),
+            voiceCallKitProvider.overrideWithValue(
+              _UnavailableCallKitService(),
+            ),
+            chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+              _FakeChatVoiceBackgroundCoordinator(),
+            ),
+            voiceAudioSessionProvider.overrideWithValue(
+              _FakeChatVoiceAudioSessionCoordinator(),
+            ),
+          ],
+        );
+        addTearDown(parent.dispose);
+        final sent = Completer<(String, bool)>();
+        late final ChatSessionScope scope;
+        scope = ChatSessionScope.open(
+          parent,
+          overrides: [
+            chatVoiceSendProvider.overrideWithValue((
+              ref,
+              text, {
+              toolIds,
+              contextAttachments,
+              isVoiceMode = false,
+              voice,
+              onAssistantPlaceholderCreated,
+            }) async {
+              sent.complete((text, isVoiceMode));
+            }),
+          ],
+        );
+        addTearDown(scope.dispose);
+        scope.container.read(selectedModelProvider.notifier).set(_model);
+
+        // The root has no model; the scope's call is admitted with its own.
+        check(parent.read(voiceCallEligibilityProvider).canStart).isFalse();
+        check(scope.container.read(voiceCallEligibilityProvider).model?.id)
+            .equals(_model.id);
+        check(
+          identical(
+            scope.container.read(chatVoiceModeControllerProvider.notifier),
+            parent.read(chatVoiceModeControllerProvider.notifier),
+          ),
+        ).isFalse();
+
+        final result = await scope.container
+            .read(chatVoiceModeControllerProvider.notifier)
+            .start(startNewConversation: false);
+        check(result).equals(ChatVoiceModeStartResult.started);
+        check(parent.read(chatVoiceModeControllerProvider).phase)
+            .equals(ChatVoiceModePhase.idle);
+
+        await input.completeCurrent('hello from the scope');
+        final (text, isVoiceMode) = await sent.future;
+        check(text).equals('hello from the scope');
+        check(isVoiceMode).isTrue();
+        await scope.container
+            .read(chatVoiceModeControllerProvider.notifier)
+            .stop();
+      },
+    );
+
+    test('a call in one chat keeps the shared microphone; another chat\'s '
+        'call waits its turn, and a refused one claims nothing', () async {
+      final input = _FakeVoiceInputService()..localSttAvailable = true;
+      final tts = _FakeTextToSpeechService();
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      final parent = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          appDatabaseProvider.overrideWith((ref) => null),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          voiceModeInputProvider.overrideWithValue(input),
+          voiceModeSpeechProvider.overrideWithValue(tts),
+          voiceCallKitProvider.overrideWithValue(_UnavailableCallKitService()),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          voiceAudioSessionProvider.overrideWithValue(audioSession),
+        ],
+      );
+      addTearDown(parent.dispose);
+      ChatSessionScope scopeWith({Model? model}) {
+        final scope = ChatSessionScope.open(parent);
+        addTearDown(scope.dispose);
+        if (model != null) {
+          scope.container.read(selectedModelProvider.notifier).set(model);
+        }
+        return scope;
+      }
+
+      final a = scopeWith(model: _model);
+      final b = scopeWith(model: _model);
+      final none = scopeWith();
+      check(
+        await a.container
+            .read(chatVoiceModeControllerProvider.notifier)
+            .start(startNewConversation: false),
+      ).equals(ChatVoiceModeStartResult.started);
+      check(input.listening).isTrue();
+      final stopsBefore = input.stopCalls;
+
+      check(
+        await b.container
+            .read(chatVoiceModeControllerProvider.notifier)
+            .start(startNewConversation: false),
+      ).equals(ChatVoiceModeStartResult.alreadyActive);
+      check(input.listening).isTrue();
+      check(input.stopCalls).equals(stopsBefore);
+
+      // No model: not admitted, so stopping or closing it gives back nothing
+      // it lacks: A's call keeps the session, the input and the engine.
+      final flagsBefore = List<bool>.of(tts.voiceCallFlags);
+      final ttsStopsBefore = tts.stopCalls;
+      await none.container
+          .read(chatVoiceModeControllerProvider.notifier)
+          .start(startNewConversation: false);
+      await none.container
+          .read(chatVoiceModeControllerProvider.notifier)
+          .stop();
+      none.dispose();
+      b.dispose();
+      await pumpEventQueue();
+      check(audioSession.deactivateCalls).equals(0);
+      check(input.listening).isTrue();
+      check(tts.voiceCallFlags).deepEquals(flagsBefore);
+      check(tts.stopCalls).equals(ttsStopsBefore);
+
+      // Once the first call is over, another chat may call.
+      await a.container.read(chatVoiceModeControllerProvider.notifier).stop();
+      final c = scopeWith(model: _model);
+      check(
+        await c.container
+            .read(chatVoiceModeControllerProvider.notifier)
+            .start(startNewConversation: false),
+      ).equals(ChatVoiceModeStartResult.started);
+      await c.container.read(chatVoiceModeControllerProvider.notifier).stop();
     });
   });
 }
@@ -3709,8 +3882,14 @@ final class _RealtimeAudio implements RealtimePcmAudioPort {
   var stopped = false;
   bool? captureEnabled;
 
+  /// Completes once the call's audio has started.
+  final startedEvent = Completer<void>();
+
   @override
-  Future<void> start() async => started = true;
+  Future<void> start() async {
+    started = true;
+    if (!startedEvent.isCompleted) startedEvent.complete();
+  }
 
   @override
   Stream<Uint8List> get captureFrames => const Stream.empty();

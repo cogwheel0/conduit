@@ -5,6 +5,8 @@ import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart'
     show WorkspaceAccessOwner;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/notes/utils/note_access.dart';
+export 'package:conduit_core/features/notes/utils/note_access.dart'
+    show noteSharedOwner;
 import 'package:conduit_core/features/sharing/models/resource_access.dart';
 import 'package:conduit_core/models/note.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -23,17 +25,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// Whether the note's access sheet is offered: for a server note the account
 /// may edit, when the server lets it share notes. Reading and read-only
 /// enforcement do not depend on this.
-bool canShareNote(WidgetRef ref, Note note) {
-  // A `local:` note is not on the server yet, so it has no access to edit.
-  if (note.id.startsWith('local:')) return false;
-  final access = noteWriteAccess(
-    note,
-    accountId: ref.read(currentUserProvider2)?.id,
-  );
-  if (access != NoteWriteAccess.allowed) return false;
-  return ref.read(workspaceCapabilitiesProvider).value?.notes.section.share ==
-      true;
-}
+bool canShareNote(WidgetRef ref, Note note) => noteShareable(
+  note,
+  accountId: ref.read(currentUserProvider2)?.id,
+  notesSharingAllowed:
+      ref.read(workspaceCapabilitiesProvider).value?.notes.section.share ==
+      true,
+);
 
 /// Whether the signed-in account may change [note]. A note it may only read,
 /// or whose access the server has not confirmed yet, is opened rather than
@@ -42,17 +40,6 @@ bool canShareNote(WidgetRef ref, Note note) {
 bool canEditNote(WidgetRef ref, Note note) =>
     noteWriteAccess(note, accountId: ref.read(currentUserProvider2)?.id) ==
     NoteWriteAccess.allowed;
-
-/// The note's owner when it is someone other than the signed-in account, or
-/// null for the account's own notes and notes whose owner is not known.
-NoteUser? noteSharedOwner(Note note, {required String? accountId}) {
-  if (note.id.startsWith('local:')) return null;
-  final ownerId = note.userId ?? note.user?.id;
-  if (ownerId == null || ownerId.isEmpty || ownerId == accountId) return null;
-  final name = note.user?.name?.trim();
-  if (name == null || name.isEmpty) return null;
-  return note.user;
-}
 
 /// Opens the access sheet for [note]. The session is captured here, when the
 /// user asks, and the sheet fixes the note id with it.

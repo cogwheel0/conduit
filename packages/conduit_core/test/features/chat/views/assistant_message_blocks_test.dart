@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart';
 import 'package:conduit_core/features/chat/views/chat_status_display.dart';
+import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
+import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:test/test.dart';
@@ -56,13 +58,13 @@ void main() {
             '"content_type":"application/pdf"}',
       },
     ],
-    statusHistory: const <ChatStatusUpdate>[
-      ChatStatusUpdate(
+    statusHistory: <ChatStatusUpdate>[
+      const ChatStatusUpdate(
         action: 'web_search_queries_generated',
         queries: <String>['port wren tides', ' port wren tides '],
         done: true,
       ),
-      ChatStatusUpdate(
+      const ChatStatusUpdate(
         action: 'sources_retrieved',
         count: 2,
         urls: <String>['https://example.com/tides'],
@@ -71,7 +73,21 @@ void main() {
         ],
         done: true,
       ),
-      ChatStatusUpdate(description: 'Hidden', hidden: true, done: true),
+      const ChatStatusUpdate(description: 'Hidden', hidden: true, done: true),
+      // A file a tool changed, as Hermes reports it.
+      ChatStatusUpdate(
+        description: 'Edited',
+        hidden: true,
+        done: true,
+        items: [
+          hermesInlineDiffItem(
+            'a/demo/chart.py → b/demo/chart.py\n'
+            '@@ -1 +1 @@\n'
+            '-plot()\n'
+            '+plot(tides)\n',
+          ),
+        ],
+      ),
     ],
     codeExecutions: const <ChatCodeExecution>[
       ChatCodeExecution(
@@ -106,10 +122,79 @@ void main() {
         AssistantMarkdownBlock(:final block) => block.kind.name,
         AssistantErrorBlock() => 'error',
         AssistantCodeExecutionBlock() => 'codeExecution',
+        AssistantChangedFilesBlock() => 'changedFiles',
         AssistantSourcesBlock() => 'sources',
         AssistantFollowUpsBlock() => 'followUps',
       },
   ].join(' ');
+
+  group('a Hermes answer', () {
+    ChatMessage hermes() => ChatMessage(
+      id: 'h1',
+      role: 'assistant',
+      content: 'I edited the notes.',
+      timestamp: DateTime.utc(2026, 11, 11),
+      statusHistory: [
+        ChatStatusUpdate(
+          action: 'tool',
+          done: true,
+          items: [
+            hermesInlineDiffItem(
+              'a/demo/notes.md → b/demo/notes.md\n'
+              '@@ -1,2 +1,2 @@\n'
+              ' Line one\n'
+              '-Line two\n'
+              '+Line two, edited\n',
+            ),
+          ],
+        ),
+      ],
+      error: const ChatMessageError(content: 'Rate limit exceeded'),
+      metadata: {
+        kHermesErrorSurfaceMeta: {
+          ...const HermesErrorSurface(
+            layer: HermesErrorLayer.provider,
+            code: 'rate_limit',
+            retryable: true,
+          ).toJson(),
+          'error': 'Rate limit exceeded',
+        },
+      },
+    );
+
+    test('lists the files its tools changed', () {
+      final blocks = assistantMessageBlocks(hermes(), streaming: false);
+      final changed = blocks.whereType<AssistantChangedFilesBlock>().single;
+      expect(changed.files.single.path, 'demo/notes.md');
+      expect(
+        (changed.files.single.added, changed.files.single.removed),
+        (1, 1),
+      );
+    });
+
+    test('carries the failure as Hermes classified it', () {
+      final error = assistantMessageBlocks(
+        hermes(),
+        streaming: false,
+      ).whereType<AssistantErrorBlock>().single;
+      expect(error.hermes?.code, 'rate_limit');
+      expect(error.hermes?.kind, HermesErrorKind.rateLimit);
+    });
+
+    test('an earlier version keeps neither', () {
+      final message = hermes();
+      final blocks = assistantVersionBlocks(
+        ChatMessageVersion(
+          id: 'v1',
+          content: message.content,
+          timestamp: message.timestamp,
+          error: message.error,
+        ),
+      );
+      expect(blocks.whereType<AssistantChangedFilesBlock>(), isEmpty);
+      expect(blocks.whereType<AssistantErrorBlock>().single.hermes, isNull);
+    });
+  });
 
   group('a finished answer', () {
     final blocks = assistantMessageBlocks(mixed());
@@ -118,7 +203,7 @@ void main() {
       expect(
         kinds(blocks),
         'files status reasoning toolCalls text error codeExecution '
-        'codeExecution sources followUps',
+        'codeExecution changedFiles sources followUps',
       );
     });
 
@@ -209,7 +294,7 @@ void main() {
       expect(running.done, isFalse);
 
       // Marker n cites sources[n - 1], as the mobile chips do.
-      final sources = blocks[8] as AssistantSourcesBlock;
+      final sources = blocks[9] as AssistantSourcesBlock;
       expect(sources.sources.map((s) => s.title), <String>[
         'Tide tables',
         'Harbour notes',
@@ -217,7 +302,7 @@ void main() {
     });
 
     test('offers at most three trimmed follow-ups', () {
-      expect((blocks[9] as AssistantFollowUpsBlock).followUps, <String>[
+      expect((blocks[10] as AssistantFollowUpsBlock).followUps, <String>[
         'Why two tides?',
         'Show a chart',
         'More',
@@ -240,7 +325,8 @@ void main() {
       final blocks = assistantMessageBlocks(partial.copyWith(error: null));
       expect(
         kinds(blocks),
-        'files status reasoning text codeExecution codeExecution sources',
+        'files status reasoning text codeExecution codeExecution changedFiles '
+        'sources',
       );
       final text = (blocks[3] as AssistantMarkdownBlock).block;
       expect(

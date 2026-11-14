@@ -297,4 +297,27 @@ void main() {
       ).isEmpty();
     });
   });
+
+  group('withStart', () {
+    final base = CalendarEventDraft.create(
+      calendarId: 'cal',
+      start: const CalendarWallTime(2026, 10, 5, 9),
+    );
+
+    test('a later start that passes the end keeps the length', () {
+      final moved = base.withStart(const CalendarWallTime(2026, 10, 5, 14));
+      check(moved.end).equals(const CalendarWallTime(2026, 10, 5, 15));
+    });
+
+    test('an earlier start leaves the end alone', () {
+      final moved = base.withStart(const CalendarWallTime(2026, 10, 5, 8));
+      check(moved.end).equals(const CalendarWallTime(2026, 10, 5, 10));
+    });
+
+    test("an all-day end moves to the new start's day", () {
+      final allDay = base.copyWith(allDay: true);
+      final moved = allDay.withStart(const CalendarWallTime(2026, 10, 9));
+      check(moved.end).equals(const CalendarWallTime(2026, 10, 9));
+    });
+  });
 }

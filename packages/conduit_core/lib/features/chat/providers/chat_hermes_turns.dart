@@ -590,7 +590,11 @@ Future<void> forgetMixedHermesConversationProvenance(
 /// this app bound the chat there (its stored binding, not the reply's
 /// server-held metadata alone) on the connection in use; null otherwise.
 /// A reopened mixed chat has no runtime binding, and still has its plan.
-final hermesTrustedMixedSessionProvider = Provider.autoDispose<String?>((ref) {
+final hermesTrustedMixedSessionProvider = Provider.autoDispose<String?>(
+  _hermesTrustedMixedSession,
+);
+
+String? _hermesTrustedMixedSession(Ref ref) {
   final conversation = ref.watch(activeConversationProvider);
   if (conversation == null || isNativeHermesConversation(conversation)) {
     return null;
@@ -644,7 +648,7 @@ final hermesTrustedMixedSessionProvider = Provider.autoDispose<String?>((ref) {
   } catch (_) {
     return null;
   }
-});
+}
 
 /// The inactive saved connection that owns the active mixed chat's last
 /// trusted Hermes session, or null.

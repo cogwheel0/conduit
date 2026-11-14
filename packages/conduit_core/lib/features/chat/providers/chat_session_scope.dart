@@ -148,7 +148,10 @@ final chatSessionRegistryProvider = Provider<ChatSessionRegistry>(
 ///   the root bumps on every chat switch and a running Hermes turn checks;
 /// * the providers that capture their `ref` to act on "the open chat" later:
 ///   stop, regenerate, merge, and the Hermes busy-turn controller;
-/// * the Open WebUI prompt waiting in the chat (a confirmation, a question).
+/// * the Open WebUI prompt waiting in the chat (a confirmation, a question);
+/// * a voice call in the chat ([chatVoiceModeControllerProvider]), with the
+///   admission and realtime voice it reads;
+/// * the LibreChat run registry, through whose `ref` a reply is shown.
 List<Override> chatSessionScopeOverrides() => <Override>[
   ...chatSessionScopedAppOverrides(),
   chatMessagesProvider.overrideWith(ChatMessagesNotifier.new),
@@ -193,6 +196,10 @@ List<Override> chatSessionScopeOverrides() => <Override>[
   regenerateLastMessageProvider.overrideWith(_regenerateLastMessage),
   stopGenerationProvider.overrideWith(_stopGenerationAction),
   stopGenerationSettledProvider.overrideWith(_stopGenerationSettledAction),
+  stopOpenWebUiMainResponseProvider.overrideWith(
+    _stopOpenWebUiMainResponseAction,
+  ),
+  openWebUiReplyStreamingProvider.overrideWith(_openWebUiReplyStreaming),
   hermesBusyTurnControllerProvider.overrideWith(HermesBusyTurnController.new),
   // A merge (Merge Responses) acts on the chat it was started in, and one
   // chat's merge never blocks another's.
@@ -212,6 +219,17 @@ List<Override> chatSessionScopeOverrides() => <Override>[
   ...chatSessionScopedReasoningOverrides(),
   ...chatSessionScopedTerminalOverrides(),
   ...chatSessionScopedHermesOverrides(),
+  // The open Hermes chat's session, plan, background work and working
+  // directory: left to the root, they would follow the root's open chat.
+  ...chatSessionScopedHermesWorkOverrides(),
+  // The Hermes session an Open WebUI chat's latest Hermes reply ran in
+  // follows the scope's chat: its plan and background work read it.
+  hermesTrustedMixedSessionProvider.overrideWith(_hermesTrustedMixedSession),
+  // A voice call in the chat, with the admission and realtime voice it
+  // reads.
+  ...chatSessionScopedVoiceOverrides(),
+  // A LibreChat reply streams through its run registry's `ref`.
+  ...chatSessionScopedLibreChatOverrides(),
   _chatSessionRemapFollowerProvider.overrideWith(_followChatSessionRemaps),
 ];
 

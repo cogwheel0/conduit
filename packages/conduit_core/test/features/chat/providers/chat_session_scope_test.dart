@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
@@ -9,13 +11,19 @@ import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provi
 import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
+    show kDirectTransport;
+import 'package:conduit_core/features/hermes/providers/hermes_background_work_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_working_directory_providers.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
@@ -23,7 +31,7 @@ import 'package:conduit_core/testing.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
 import 'package:drift/native.dart';
-import 'package:riverpod/misc.dart' show Override;
+import 'package:riverpod/misc.dart' show Override, ProviderListenable;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -282,6 +290,66 @@ void main() {
     }
   });
 
+  // Leaving the account cuts off every chat's reply, not only the root's.
+  test('a reply in a scope holds an account change back, and leaving '
+      'anyway stops it', () async {
+    final parent = root();
+    final a = open(parent);
+    a.container.read(activeConversationProvider.notifier).set(_chat('chat-a'));
+    a.container
+        .read(chatMessagesProvider.notifier)
+        .addMessage(_streaming('answer-a'));
+    check(parent.read(isChatStreamingProvider)).isFalse();
+
+    check(parent.read(accountChangeReplyGuardProvider)()).isTrue();
+    parent.read(accountChangeStopRepliesProvider)();
+    await pumpEventQueue();
+
+    check(a.container.read(isChatStreamingProvider)).isFalse();
+    check(parent.read(accountChangeReplyGuardProvider)()).isFalse();
+  });
+
+  // An Open WebUI address change cuts off what goes to that server alone: a
+  // Direct reply in a chat Open WebUI stores runs on.
+  test('an address change stops a scope\'s Open WebUI reply, not another '
+      'scope\'s Direct one', () async {
+    final parent = root();
+    Future<ChatSessionScope> replying(String id, {String? transport}) async {
+      final scope = open(parent);
+      scope.container
+          .read(activeConversationProvider.notifier)
+          .set(
+            withChatStorageProvenance(
+              _openWebUiChat(id),
+              ChatStorageKind.openWebUi,
+            ),
+          );
+      // The chat has opened before its reply streams in.
+      await pumpEventQueue();
+      final reply = _streaming('answer-$id');
+      scope.container
+          .read(chatMessagesProvider.notifier)
+          .addMessage(
+            transport == null
+                ? reply
+                : reply.copyWith(metadata: {'transport': transport}),
+          );
+      return scope;
+    }
+
+    // Both chats are Open WebUI's; one's reply runs on a Direct model.
+    final direct = await replying('chat-direct', transport: kDirectTransport);
+    final server = await replying('chat-server');
+    check(parent.read(addressChangeReplyGuardProvider)()).isTrue();
+    parent.read(addressChangeStopRepliesProvider)();
+    await pumpEventQueue();
+
+    check(server.container.read(isChatStreamingProvider)).isFalse();
+    check(direct.container.read(isChatStreamingProvider)).isTrue();
+    // What still runs is not the server's.
+    check(parent.read(addressChangeReplyGuardProvider)()).isFalse();
+  });
+
   test('the composer, model and reasoning are each scope\'s own', () {
     final parent = root();
     final a = open(parent);
@@ -435,6 +503,57 @@ void main() {
     expect(parent.read(hermesActiveSessionProvider), isNull);
   });
 
+  test('a Hermes chat\'s plan, work and directory follow its scope', () {
+    final parent = root();
+    final a = open(parent);
+    final b = open(parent);
+    Conversation hermesChat(String id) {
+      final chat = _chat(id);
+      return chat.copyWith(
+        metadata: {...chat.metadata, 'hermesSessionId': 'session-$id'},
+      );
+    }
+
+    parent.read(activeConversationProvider.notifier).set(hermesChat('root'));
+    a.container.read(activeConversationProvider.notifier).set(hermesChat('a'));
+    b.container.read(activeConversationProvider.notifier).set(hermesChat('b'));
+
+    for (final (container, id) in [
+      (parent, 'root'),
+      (a.container, 'a'),
+      (b.container, 'b'),
+    ]) {
+      final open = container.listen(hermesOpenChatSessionProvider, (_, _) {});
+      addTearDown(open.close);
+      expect(open.read(), 'session-$id');
+      final openId = container.listen(hermesOpenSessionIdProvider, (_, _) {});
+      addTearDown(openId.close);
+      expect(openId.read(), 'session-$id');
+    }
+    // Each is made in the scope that reads it, from that scope's session,
+    // not in the root.
+    final scoped = <ProviderListenable<Object?>>[
+      hermesActiveTodoProvider,
+      hermesBackgroundWorkProvider,
+      hermesActiveWorkingDirectoryProvider,
+      hermesReplyWorkingDirectoryProvider('session-a'),
+    ];
+    for (final provider in scoped) {
+      final sub = a.container.listen(provider, (_, _) {});
+      addTearDown(sub.close);
+    }
+    final rooted = {
+      for (final reference in parent.allProviders()) reference.provider,
+    };
+    expect(rooted, isNot(contains(hermesActiveTodoProvider)));
+    expect(rooted, isNot(contains(hermesBackgroundWorkProvider)));
+    expect(rooted, isNot(contains(hermesActiveWorkingDirectoryProvider)));
+    expect(
+      rooted,
+      isNot(contains(hermesReplyWorkingDirectoryProvider('session-a'))),
+    );
+  });
+
   test('an Open WebUI prompt waits in its own chat', () {
     final parent = root();
     final a = open(parent);
@@ -474,6 +593,23 @@ void main() {
     // A scope closed with its prompt still waiting declines it.
     b.dispose();
     expect(answers, {'a': true, 'b': false});
+  });
+
+  test('a LibreChat run shows in the scope that sent it', () {
+    // A run shows its reply through its registry's ref: each scope keeps
+    // its own registry, so a reply streams into that scope's transcript.
+    final parent = root();
+    final a = open(parent);
+    final b = open(parent);
+    final registryA = a.container.read(libreChatRunRegistryProvider);
+    final registryB = b.container.read(libreChatRunRegistryProvider);
+    expect(identical(registryA, registryB), isFalse);
+    expect(
+      identical(registryA, parent.read(libreChatRunRegistryProvider)),
+      isFalse,
+    );
+    // An id no run here replaced is itself.
+    expect(registryA.currentMessageId('reply-1'), 'reply-1');
   });
 
   test('a terminal file request belongs to its chat', () {

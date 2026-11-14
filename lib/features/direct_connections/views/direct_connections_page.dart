@@ -30,18 +30,6 @@ import 'package:conduit_core/features/direct_connections/services/direct_chat_br
 import '../providers/apple_pcc_providers.dart';
 import '../services/apple_pcc_adapter.dart';
 
-const List<int> _directContextLengthOptions = <int>[
-  4096,
-  8192,
-  16384,
-  32768,
-  65536,
-  131072,
-  262144,
-  524288,
-  1048576,
-];
-
 const String openWebUiDirectConnectionSourceQueryValue = 'openwebui';
 
 /// Above this many models, context limits move to their own page so a large
@@ -779,9 +767,9 @@ class _DirectContextCompactionSection extends StatelessWidget {
       builder: (sheetContext) => AdaptiveSelectionSheet(
         title: model.name,
         description: l10n.directContextCompactionPickerDescription,
-        itemCount: _directContextLengthOptions.length,
+        itemCount: kDirectContextLengthOptions.length,
         itemBuilder: (context, index) {
-          final value = _directContextLengthOptions[index];
+          final value = kDirectContextLengthOptions[index];
           return AdaptiveSelectionTile(
             title: l10n.directContextLimit(_formatTokenCount(context, value)),
             selected: value == current,

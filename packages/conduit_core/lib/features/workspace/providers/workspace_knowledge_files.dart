@@ -406,17 +406,63 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
       // so a link that fails cannot leave them among the user's files. The
       // rest go in, and the user hears why the others did not.
       final failed = await _waitForProcessing(session, uploaded);
-      await _discardUploads(session.api, failed.keys.toList());
-      final processed = [
-        for (final id in uploaded)
-          if (!failed.containsKey(id)) id,
-      ];
-      if (processed.isNotEmpty) {
-        await _attachUploaded(session.api, processed, destination);
-        session.ensureCurrent(ref);
-      }
+      await _attachProcessed(session, uploaded, failed, destination);
       if (failed.isNotEmpty) throw _unprocessed(failed, names: names);
     });
+  }
+
+  /// Links [fileIds], uploaded a moment ago for this base by a host that
+  /// sends the bytes on its own route (the desktop's daemon), into the
+  /// current directory, as [uploadMany] does after its uploads: the base's
+  /// limits are asked about first (by count, and [largestFileSize] when
+  /// known), the server's processing is awaited, and uploads that cannot go
+  /// in are deleted again rather than left among the user's files.
+  Future<void> attachUploaded(
+    List<String> fileIds, {
+    int? largestFileSize,
+  }) async {
+    if (fileIds.isEmpty) return;
+    final destination = _destination;
+    await _run(() async {
+      final session = WorkspaceSessionIdentity.read(ref);
+      try {
+        await session.api.validateWorkspaceKnowledgeUpload(
+          knowledgeId,
+          count: fileIds.length,
+          largestFileSize: largestFileSize,
+        );
+        session.ensureCurrent(ref);
+      } catch (_) {
+        await _discardUploads(session.api, fileIds);
+        rethrow;
+      }
+      final failed = await _waitForProcessing(session, fileIds);
+      await _attachProcessed(session, fileIds, failed, destination);
+      if (failed.isNotEmpty) throw _unprocessed(failed);
+    });
+  }
+
+  /// Deletes the uploads in [failed], then links the rest of [fileIds] into
+  /// [destination]: while [session] is still the signed-in one. Changed
+  /// meanwhile, the rest are deleted too, and nothing is linked.
+  Future<void> _attachProcessed(
+    WorkspaceSessionIdentity session,
+    List<String> fileIds,
+    Map<String, String> failed,
+    String? destination,
+  ) async {
+    await _discardUploads(session.api, failed.keys.toList());
+    final processed = [
+      for (final id in fileIds)
+        if (!failed.containsKey(id)) id,
+    ];
+    if (processed.isEmpty) return;
+    if (!session.isCurrent(ref)) {
+      await _discardUploads(session.api, processed);
+      throw const WorkspaceSessionChanged();
+    }
+    await _attachUploaded(session.api, processed, destination);
+    session.ensureCurrent(ref);
   }
 
   /// Waits until the server has processed [fileIds], which it does in the

@@ -74,6 +74,9 @@ final class LibreChatRun {
   String? _replaces;
 
   bool _stopRequested = false;
+
+  /// Lets go of the run's hold on the app's running generations; once.
+  void Function()? _releaseGeneration;
   void Function()? _settleLocally;
   StreamSubscription<LibreChatTurnUpdate>? _subscription;
 
@@ -88,23 +91,73 @@ final class LibreChatRun {
 /// The LibreChat turns running in this app session, by reply and by
 /// conversation. Separate from Hermes' registry, whose connection changes
 /// cancel everything it holds.
-final libreChatRunRegistryProvider = Provider<LibreChatRunRegistry>((ref) {
-  final registry = LibreChatRunRegistry._(ref);
+final libreChatRunRegistryProvider = Provider<LibreChatRunRegistry>(
+  _libreChatRunRegistry,
+);
+
+LibreChatRunRegistry _libreChatRunRegistry(Ref ref) {
+  final registry = LibreChatRunRegistry._(
+    ref,
+    ref.read(_libreChatLiveRunsProvider),
+  );
   ref.onDispose(registry._dispose);
   return registry;
-});
+}
+
+/// Every LibreChat run going in this app session, whichever registry (the
+/// root's or a chat scope's) holds it: two scopes can follow the same
+/// generation, so a chat stops counting as generating only when no run of
+/// its account is left for it. Never overridden, so every scope shares the
+/// root's.
+final class _LibreChatLiveRuns {
+  final Set<LibreChatRun> _runs = <LibreChatRun>{};
+
+  /// Whether a run other than [run] still writes [run]'s chat for its
+  /// account.
+  bool othersWrite(LibreChatRun run) => _runs.any(
+    (other) =>
+        !identical(other, run) &&
+        !other.isDone &&
+        other.conversationId == run.conversationId &&
+        other.accountId == run.accountId,
+  );
+}
+
+final _libreChatLiveRunsProvider = Provider<_LibreChatLiveRuns>(
+  (_) => _LibreChatLiveRuns(),
+);
+
+/// This file's share of a chat session scope ([ChatSessionScope]): a run
+/// shows its reply through its registry's `ref`, so a scope keeps its own
+/// registry and a reply streams into that scope's transcript, not the
+/// root's. Which generations run (`libreChatActiveGenerationsProvider`)
+/// stays the account's, shared.
+List<Override> chatSessionScopedLibreChatOverrides() => <Override>[
+  libreChatRunRegistryProvider.overrideWith(_libreChatRunRegistry),
+];
 
 /// Stops every LibreChat reply this session follows, in any chat, once the
 /// user has agreed to leave the account anyway: the open chat's Stop does
 /// not reach the others, and the server would go on writing them for the
 /// account left. Each is aborted through the account it runs on, read
 /// before the switch goes ahead.
+///
+/// Each chat session scope's registry is visited too: a reply streaming in a
+/// scope runs on the same account.
 final stopAllLibreChatRunsProvider = Provider<void Function()>((ref) {
-  return () => ref.read(libreChatRunRegistryProvider)._stopAll();
+  return () {
+    ref.read(libreChatRunRegistryProvider)._stopAll();
+    for (final scope in ref.read(chatSessionRegistryProvider).scopes) {
+      if (scope.isDisposed) continue;
+      scope.container.read(libreChatRunRegistryProvider)._stopAll();
+    }
+  };
 });
 
 final class LibreChatRunRegistry {
-  LibreChatRunRegistry._(this._ref);
+  LibreChatRunRegistry._(this._ref, this._live);
+
+  final _LibreChatLiveRuns _live;
 
   final Ref _ref;
   final List<LibreChatRun> _runs = <LibreChatRun>[];
@@ -144,27 +197,66 @@ final class LibreChatRunRegistry {
   LibreChatRun? forMessage(String messageId) =>
       _runs.where((run) => run.assistantMessageId == messageId).lastOrNull;
 
+  /// Message ids minted here that the server has since replaced, to its
+  /// ids, newest last. Kept past the run, for a host that follows a turn by
+  /// the ids it began with (the desktop's daemon streams a reply to its
+  /// windows by the id it announced).
+  final Map<String, String> _replacedIds = <String, String>{};
+
+  /// [messageId] as the server knows it now: the id the server gave a
+  /// message minted here, else [messageId] itself.
+  String currentMessageId(String messageId) {
+    var current = messageId;
+    // Each id is replaced at most once; the bound only guards a loop.
+    for (var step = 0; step < 4; step++) {
+      final next = _replacedIds[current];
+      if (next == null || next == current) break;
+      current = next;
+    }
+    return current;
+  }
+
+  void _noteReplaced(String minted, String server) {
+    if (minted == server) return;
+    _replacedIds.remove(minted);
+    _replacedIds[minted] = server;
+    while (_replacedIds.length > 256) {
+      _replacedIds.remove(_replacedIds.keys.first);
+    }
+  }
+
   bool isGenerating(String conversationId) =>
       forConversation(conversationId) != null;
 
-  void _add(LibreChatRun run) => _runs.add(run);
+  void _add(LibreChatRun run) {
+    _runs.add(run);
+    _live._runs.add(run);
+  }
+
+  /// The account's running generations, as [_bind] last read them: the
+  /// root's, which outlive a scope's registry, so its disposal can still
+  /// take its runs out of them.
+  LibreChatActiveGenerations? _generations;
 
   void _bind(LibreChatRun run, String conversationId) {
     run.conversationId = conversationId;
     // The generations a pull holds back are the account in use's: a run of
     // one left, named late, is not among them.
     if (run.accountId != _ref.read(activeLibreChatAccountProvider)?.id) return;
-    _ref.read(libreChatActiveGenerationsProvider.notifier).add(conversationId);
+    final generations = _ref.read(libreChatActiveGenerationsProvider.notifier);
+    _generations = generations;
+    generations.add(conversationId);
   }
 
   void _finish(LibreChatRun run) {
     _runs.remove(run);
+    _live._runs.remove(run);
     if (!run._done.isCompleted) run._done.complete();
     final conversationId = run.conversationId;
-    if (conversationId != null && forConversation(conversationId) == null) {
+    if (conversationId != null && !_live.othersWrite(run)) {
       _ref
           .read(libreChatActiveGenerationsProvider.notifier)
-          .remove(conversationId);
+          .removeFor(run.accountId, conversationId);
     }
   }
 
@@ -212,13 +304,42 @@ final class LibreChatRunRegistry {
     }
   }
 
+  /// Ends the runs still going here without settling them, as the
+  /// registry's container closes (a chat session scope's, while the root
+  /// lives on). Each run's share of the account's state is let go, once:
+  /// its hold on the running generations, and its chat among the account's
+  /// running ones. Nothing of the closing container is read for it, and it
+  /// happens just after, since a provider may not change another while it
+  /// is disposed.
   void _dispose() {
+    final ended = <LibreChatRun>[];
     for (final run in List<LibreChatRun>.of(_runs)) {
       run._subscription?.cancel().ignore();
       if (!run._requests.isCancelled) run._requests.cancel('closed');
-      if (!run._done.isCompleted) run._done.complete();
+      if (run._done.isCompleted) continue;
+      run._done.complete();
+      ended.add(run);
     }
+    // Out of the live runs at once, so two ended here do not keep each
+    // other's chat marked.
+    _live._runs.removeAll(_runs);
     _runs.clear();
+    final generations = _generations;
+    if (ended.isEmpty) return;
+    scheduleMicrotask(() {
+      for (final run in ended) {
+        run._releaseGeneration?.call();
+        final conversationId = run.conversationId;
+        if (conversationId == null || generations == null) continue;
+        // Another scope may still follow the same generation.
+        if (_live.othersWrite(run)) continue;
+        try {
+          generations.removeFor(run.accountId, conversationId);
+        } catch (_) {
+          // The root closed as well.
+        }
+      }
+    });
   }
 }
 
@@ -633,6 +754,7 @@ Future<void> _runLibreChatTurn(
   final startConversationId = owner.conversationId;
   if (startConversationId != null) registry._bind(run, startConversationId);
   final release = holdLocalChatGeneration(runRef);
+  run._releaseGeneration = release;
   final projector = StructuredOutputStreamingProjector();
   var content = assistant.content;
   var materialized = !following;
@@ -775,7 +897,10 @@ Future<void> _runLibreChatTurn(
         ..updateMessageById(serverId, _withoutPending);
     }
     // A stream resumed again names the same message: nothing was replaced.
-    if (localId != serverId) run._renamed[localId] = serverId;
+    if (localId != serverId) {
+      run._renamed[localId] = serverId;
+      registry._noteReplaced(localId, serverId);
+    }
     run.userMessageId = serverId;
     run.user = _withoutPending(run.user!.copyWith(id: serverId));
     run.assistant = run.assistant!.copyWith(
@@ -794,6 +919,7 @@ Future<void> _runLibreChatTurn(
     }
     final localId = run.assistantMessageId;
     run._renamed[localId] = serverId;
+    registry._noteReplaced(localId, serverId);
     run.assistantMessageId = serverId;
     run.assistant = _withoutPending(run.assistant!.copyWith(id: serverId));
     final runUser = run.user;

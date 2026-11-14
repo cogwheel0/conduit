@@ -123,6 +123,9 @@ Future<bool> Function() _stopGenerationSettledAction(Ref ref) =>
 /// and not only the last.
 Future<bool> stopOpenWebUiMainResponse(Ref ref) {
   final running = _trailingStreamingAssistant(ref.read(chatMessagesProvider));
+  if (running != null && !_goesToOpenWebUi(running)) {
+    return Future<bool>.value(false);
+  }
   if (running == null) {
     final active = ref.read(activeConversationProvider);
     return active == null
@@ -137,13 +140,38 @@ Future<bool> stopOpenWebUiMainResponse(Ref ref) {
                   ) ??
               Future<bool>.value(true);
   }
-  final transport = running.metadata?['transport'];
-  if (transport == kDirectTransport ||
-      transport == kHermesTransport ||
-      transport == kLibreChatTransport) {
-    return Future<bool>.value(false);
-  }
   return _stopGeneration(ref);
+}
+
+/// Whether [reply] streams from the Open WebUI server: not a Direct (or
+/// Apple), Hermes or LibreChat run, whatever stores the chat.
+bool _goesToOpenWebUi(ChatMessage reply) {
+  final transport = reply.metadata?['transport'];
+  return transport != kDirectTransport &&
+      transport != kHermesTransport &&
+      transport != kLibreChatTransport;
+}
+
+/// [stopOpenWebUiMainResponse] for the chat this provider's container has
+/// open: a chat session scope's own, in a scope ([chatSessionScopeOverrides]).
+final stopOpenWebUiMainResponseProvider = Provider<Future<bool> Function()>(
+  _stopOpenWebUiMainResponseAction,
+);
+
+Future<bool> Function() _stopOpenWebUiMainResponseAction(Ref ref) =>
+    () => stopOpenWebUiMainResponse(ref);
+
+/// Whether the chat this provider's container has open is streaming a reply
+/// from the Open WebUI server, by the running turn's transport rather than
+/// the chat's storage, as [stopOpenWebUiMainResponse] decides: a Direct,
+/// Apple, Hermes or LibreChat reply does not count, whatever stores the chat.
+final openWebUiReplyStreamingProvider = Provider<bool>(
+  _openWebUiReplyStreaming,
+);
+
+bool _openWebUiReplyStreaming(Ref ref) {
+  final running = _trailingStreamingAssistant(ref.watch(chatMessagesProvider));
+  return running != null && _goesToOpenWebUi(running);
 }
 
 /// Every server-side effect of a stop is collected rather than abandoned, so a
@@ -224,10 +252,7 @@ Future<bool> _stopGeneration(Ref ref) {
             stop = registry.cancel(cancellationKey);
           }
         }
-        _observeDetachedCancellation(
-          stop,
-          scope: 'direct-connections/cancel',
-        );
+        _observeDetachedCancellation(stop, scope: 'direct-connections/cancel');
         // A registered dispatcher owns final rendering from its accumulator,
         // including reasoning `done=true`. A preflight reservation has no
         // dispatcher, so its empty optimistic placeholder is completed here.
