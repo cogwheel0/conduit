@@ -1,3 +1,5 @@
+import 'package:checks/checks.dart';
+
 import 'dart:async';
 
 import 'package:conduit_core/features/chat/read_aloud/device_speech_engine.dart';
@@ -27,6 +29,8 @@ void main() {
 
   tearDown(() async {
     await manager.reset();
+    // The host's engine again, for the tests that share this isolate.
+    await manager.debugSetNativeTtsService(null);
     await sub.cancel();
   });
 
@@ -34,23 +38,21 @@ void main() {
 
   test('a live reading moves to a sentence without ending', () async {
     await manager.speak(text);
-    expect(engine.spoken, ['A red kite.']);
-    expect(manager.canSeekChunks, isTrue);
+    check(engine.spoken).deepEquals(['A red kite.']);
+    check(manager.canSeekChunks).isTrue();
 
-    expect(await manager.seekToChunk(2), 2);
-    expect(engine.spoken.last, 'Three tall pines.');
-    expect(manager.currentChunkIndex, 2);
-    expect(events.whereType<TtsChunkStarted>().map((e) => e.chunkIndex), [
-      0,
-      2,
-    ]);
-    expect(events.whereType<TtsCancelled>(), isEmpty);
-    expect(manager.isPlaying, isTrue);
+    check(await manager.seekToChunk(2)).equals(2);
+    check(engine.spoken.last).equals('Three tall pines.');
+    check(manager.currentChunkIndex).equals(2);
+    check(events.whereType<TtsChunkStarted>().map((e) => e.chunkIndex))
+        .deepEquals([0, 2]);
+    check(events.whereType<TtsCancelled>()).isEmpty();
+    check(manager.isPlaying).isTrue();
 
     // The last sentence ends the reading.
     engine.emit('complete');
     await pumpEventQueue();
-    expect(events.last, isA<TtsCompleted>());
+    check(events.last).isA<TtsCompleted>();
   });
 
   test(
@@ -61,16 +63,16 @@ void main() {
       engine.emit('pause');
       await pumpEventQueue();
 
-      expect(await manager.seekToChunk(1), 1);
+      check(await manager.seekToChunk(1)).equals(1);
       // Nothing new is said while paused.
-      expect(engine.spoken, ['A red kite.']);
-      expect(manager.currentChunkIndex, 1);
+      check(engine.spoken).deepEquals(['A red kite.']);
+      check(manager.currentChunkIndex).equals(1);
 
       await manager.resume();
       await pumpEventQueue();
-      expect(engine.spoken.last, 'Two green frogs.');
-      expect(engine.resumes, 0);
-      expect(events.last, isA<TtsResumed>());
+      check(engine.spoken.last).equals('Two green frogs.');
+      check(engine.resumes).equals(0);
+      check(events.last).isA<TtsResumed>();
     },
   );
 
@@ -84,8 +86,8 @@ void main() {
     pauseGate.complete();
     await pausing;
 
-    expect(await manager.seekToChunk(1), 1);
-    expect(engine.spoken.last, 'Two white gulls.');
+    check(await manager.seekToChunk(1)).equals(1);
+    check(engine.spoken.last).equals('Two white gulls.');
   });
 
   test('a stop that ends after a new reading began leaves it be', () async {
@@ -99,9 +101,9 @@ void main() {
     await stopping;
     await pumpEventQueue();
 
-    expect(events.whereType<TtsCancelled>(), isEmpty);
-    expect(await manager.seekToChunk(1), 1);
-    expect(engine.spoken.last, 'Two white gulls.');
+    check(events.whereType<TtsCancelled>()).isEmpty();
+    check(await manager.seekToChunk(1)).equals(1);
+    check(engine.spoken.last).equals('Two white gulls.');
   });
 
   test('a sentence of an old reading that fails to start is not the new '
@@ -116,8 +118,8 @@ void main() {
     await moving;
     await pumpEventQueue();
 
-    expect(events.whereType<TtsError>(), isEmpty);
-    expect(manager.isPlaying, isTrue);
+    check(events.whereType<TtsError>()).isEmpty();
+    check(manager.isPlaying).isTrue();
   });
 
   test(
@@ -125,29 +127,29 @@ void main() {
     () async {
       await manager.speak(text);
       // "Two" in the second sentence is being said.
-      expect(await manager.seekToChunk(1), 1);
+      check(await manager.seekToChunk(1)).equals(1);
       engine.emitProgress(4, 9); // "green"
       await pumpEventQueue();
 
       await manager.updateConfig(manager.config.copyWith(speed: 1.5));
-      expect(engine.spoken.last, 'green frogs.');
-      expect(engine.rates.last, closeTo(0.75, 1e-9));
+      check(engine.spoken.last).equals('green frogs.');
+      check(engine.rates.last).isCloseTo(0.75, 1e-9);
 
       // Words of the rest still count from the sentence's start.
       engine.emitProgress(6, 11); // "frogs" in "green frogs."
       await pumpEventQueue();
       final word = events.whereType<TtsWordProgress>().last;
-      expect((word.start, word.end), (10, 15));
-      expect('Two green frogs.'.substring(word.start, word.end), 'frogs');
+      check((word.start, word.end)).equals((10, 15));
+      check('Two green frogs.'.substring(word.start, word.end)).equals('frogs');
     },
   );
 
   test('an engine that cannot replace what it says cannot move', () async {
     engine.replaces = false;
     await manager.speak(text);
-    expect(manager.canSeekChunks, isFalse);
-    expect(await manager.seekToChunk(1), isNull);
-    expect(engine.spoken, ['A red kite.']);
+    check(manager.canSeekChunks).isFalse();
+    check(await manager.seekToChunk(1)).isNull();
+    check(engine.spoken).deepEquals(['A red kite.']);
   });
 
   group('controller', () {
@@ -180,27 +182,30 @@ void main() {
       );
       engine.emit('start');
       await pumpEventQueue();
-      expect(state().activeChatId, 'chat-7');
-      expect(state().activeMessageId, 'answer-1');
-      expect(state().sentences, hasLength(3));
-      expect(state().canSeekSentences, isTrue);
+      check(state().activeChatId).equals('chat-7');
+      check(state().activeMessageId).equals('answer-1');
+      check(state().sentences).length.equals(3);
+      check(state().canSeekSentences).isTrue();
       // Live: the device engine said the first sentence, no clip rendered.
-      expect(engine.spoken, ['A red kite.']);
-      expect(engine.rendered, isEmpty);
+      check(engine.spoken).deepEquals(['A red kite.']);
+      check(engine.rendered).isEmpty();
 
       await controller.skipSentences(1);
-      expect(state().activeSentenceIndex, 1);
-      expect(engine.spoken.last, 'Two green frogs.');
+      check(state().activeSentenceIndex).equals(1);
+      check(engine.spoken.last).equals('Two green frogs.');
       await controller.skipSentences(5);
-      expect(state().activeSentenceIndex, 1, reason: 'past the end: no move');
+      check(
+        because: 'past the end: no move',
+        state().activeSentenceIndex,
+      ).equals(1);
       await controller.skipSentences(-4);
-      expect(state().activeSentenceIndex, 0);
+      check(state().activeSentenceIndex).equals(0);
       await controller.seekToSentence(2);
-      expect(state().activeSentenceIndex, 2);
+      check(state().activeSentenceIndex).equals(2);
 
       await controller.stop();
-      expect(state().activeChatId, isNull);
-      expect(state().activeMessageId, isNull);
+      check(state().activeChatId).isNull();
+      check(state().activeMessageId).isNull();
     });
   });
 
@@ -208,8 +213,8 @@ void main() {
     const raw =
         '<details type="reasoning"><summary>Thought</summary>Hidden.</details>\n'
         'The **lake** is [cold](https://example.com) today.';
-    expect(readAloudTextOf(raw), 'The lake is cold today.');
-    expect(readAloudTextOf('   '), '');
+    check(readAloudTextOf(raw)).equals('The lake is cold today.');
+    check(readAloudTextOf('   ')).equals('');
   });
 }
 
