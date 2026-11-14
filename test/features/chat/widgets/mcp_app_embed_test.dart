@@ -550,6 +550,23 @@ void main() {
     expect(api.requests.map((request) => request.method), ['ui/resource']);
     expect(app.documentUrl, isNot(firstOrigin));
 
+    final secondOrigin = app.documentUrl;
+    await tester.pumpWidget(
+      _harness(
+        api,
+        app: const OpenWebUiMcpApp(
+          serverId: 'maps',
+          toolName: 'show_map',
+          binding: 'b',
+          arguments: {'city': 'Oslo'},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(api.requests.map((request) => request.method), ['ui/resource']);
+    expect(app.documentUrl, isNot(secondOrigin));
+
     final otherAccount = _ServingApi();
     await tester.pumpWidget(_harness(otherAccount));
     await tester.pump();

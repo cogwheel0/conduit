@@ -54,7 +54,7 @@ class McpAppEmbed extends ConsumerStatefulWidget {
 final _resourceCacheProvider = Provider((ref) {
   ref.watch(apiServiceProvider);
   ref.watch(openWebUiAuthSessionEpochProvider);
-  return LinkedHashMap<OpenWebUiMcpApp, OpenWebUiMcpAppResource>();
+  return LinkedHashMap<(String, String, String), OpenWebUiMcpAppResource>();
 });
 
 class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
@@ -186,8 +186,10 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
     _load = load;
     try {
       final cache = ref.read(_resourceCacheProvider);
+      final key = (widget.app.serverId, widget.app.toolName, widget.app.binding);
+      // The resource belongs to the bound tool, independently of its result.
       // Remove/reinsert on a hit so the oldest unused resource is evicted.
-      var resource = cache.remove(widget.app);
+      var resource = cache.remove(key);
       if (resource == null) {
         final json = await api.runMcpAppRequest(
           widget.app,
@@ -197,7 +199,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
         if (!mounted || load.cancelled) return;
         resource = OpenWebUiMcpAppResource.fromJson(json);
       }
-      cache[widget.app] = resource;
+      cache[key] = resource;
       if (cache.length > 8) cache.remove(cache.keys.first);
       _resource = resource;
       _host = McpAppHost(
