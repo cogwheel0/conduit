@@ -5,6 +5,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
+    show hermesConfigProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
@@ -276,6 +279,57 @@ void main() {
             .having((e) => e.args['backend'], 'backend', 'hermes'),
       ),
     );
+  });
+
+  // The gateway's sign-in belongs to the saved address: Test on another
+  // one must not send it there.
+  test('testing another server does not send the saved sign-in', () async {
+    addTearDown(() async {
+      await runtime.container
+          .read(hermesConfigProvider.notifier)
+          .signOutDesktop();
+      await hermes.saveSettings(
+        HermesSettingsEdit(
+          baseUrl: hermesServer.baseUrl,
+          apiKey: hermesServer.key,
+        ),
+      );
+    });
+    const gateway = HermesSettingsEdit(
+      baseUrl: '',
+      mode: 'desktop',
+      desktopAuthKind: 'nativePkce',
+    );
+    await hermes.saveSettings(gateway.copyWith(baseUrl: hermesServer.baseUrl));
+    await runtime.container
+        .read(hermesConfigProvider.notifier)
+        .nativeCredentialsWriter()(
+      HermesDesktopCredentials(
+        nativeTokens: HermesDesktopTokenSet(
+          accessToken: 'native-access-secret',
+          refreshToken: 'native-refresh-secret',
+          expiresAt: DateTime.now().add(const Duration(hours: 1)),
+        ),
+      ),
+    );
+
+    final sent = <String>[];
+    final elsewhere = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => elsewhere.close(force: true));
+    elsewhere.listen((request) async {
+      request.headers.forEach(
+        (name, values) => sent.add('$name: ${values.join(',')}'),
+      );
+      await request.drain<void>();
+      request.response.statusCode = HttpStatus.notFound;
+      await request.response.close();
+    });
+
+    await hermes.test(
+      gateway.copyWith(baseUrl: 'http://127.0.0.1:${elsewhere.port}'),
+    );
+    expect(sent, isNotEmpty, reason: 'the other server was asked');
+    expect(sent.join('\n'), isNot(contains('native-')));
   });
 
   test('chosen in onboarding, Hermes is the backend the app is used through, '

@@ -152,7 +152,8 @@ final class HermesService {
     await _config.waitForSecretsHydration();
     final saved = _container.read(hermesConfigProvider);
     // A secret left blank in the form means the saved one, when the form
-    // is about the same server.
+    // is about the same server. Another server gets none of the saved ones:
+    // not the key, the session key, nor the gateway's sign-in.
     final sameServer =
         HermesConfig.connectionEndpoint(saved.baseUrl) ==
         HermesConfig.connectionEndpoint(edit.baseUrl);
@@ -164,6 +165,8 @@ final class HermesService {
       desktopAuthKind: _authKind(edit.desktopAuthKind),
       allowSelfSignedCertificates: edit.allowSelfSignedCertificates,
       apiKey: edit.apiKey ?? (sameServer ? saved.apiKey : null),
+      sessionKey: edit.sessionKey ?? (sameServer ? saved.sessionKey : null),
+      desktopCredentials: sameServer ? saved.desktopCredentials : null,
     );
     if (HermesConfig.connectionOrigin(draft.baseUrl) == null) {
       return const HermesTestResult(reason: 'invalid');
