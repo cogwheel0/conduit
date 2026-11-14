@@ -1,5 +1,4 @@
 import 'package:conduit/features/hermes/widgets/hermes_approval_card.dart';
-import 'package:conduit/features/hermes/widgets/hermes_approval_cost_chip.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';

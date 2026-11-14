@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show automationsAvailableProvider;
 import 'package:conduit_core/features/calendar/calendar_access.dart';
+import 'package:conduit_core/features/calendar/calendar_agenda_layout.dart';
 import 'package:conduit_core/features/calendar/calendar_time.dart';
 import 'package:conduit_core/features/calendar/models/calendar_models.dart';
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart';
@@ -343,49 +344,32 @@ class _CalendarAgendaState extends ConsumerState<_CalendarAgenda> {
     CalendarZone zone,
     CalendarWallTime today,
   ) {
-    final byDay = <CalendarWallTime, List<CalendarAgendaItem>>{};
-    for (final item in data.items) {
-      final span = switch (item) {
-        CalendarEventModel() => daySpan(
-          startNs: item.startAtNs,
-          endNs: item.endAtNs,
-          zone: zone,
-        ),
-        ScheduledTaskCalendarEntry() => daySpan(
-          startNs: item.startAtNs,
-          zone: zone,
-        ),
-      };
-      for (final day in daysInRange(span, data.range)) {
-        byDay.putIfAbsent(day, () => []).add(item);
-      }
-    }
-    final days = byDay.keys.toList()..sort();
+    final days = groupAgendaByDay(data.items, data.range, zone);
     final calendarsById = {for (final c in data.calendars) c.id: c};
     final scheduledCalendar = data.calendars
         .where((c) => c.isVirtual)
         .firstOrNull;
     return [
-      for (final (index, day) in days.indexed) ...[
+      for (final (index, agendaDay) in days.indexed) ...[
         if (index > 0) const SizedBox(height: Spacing.md),
         _DayHeader(
-          key: Key('calendar-day-${day.dateOnly}'),
+          key: Key('calendar-day-${agendaDay.day.dateOnly}'),
           label: formatCalendarDayHeading(
             context,
             l10n,
-            day: day,
+            day: agendaDay.day,
             today: today,
           ),
-          isToday: day.sameDate(today),
+          isToday: agendaDay.day.sameDate(today),
         ),
         const SizedBox(height: Spacing.sm),
         InsetGroupedList(
           children: [
-            for (final item in byDay[day]!)
+            for (final item in agendaDay.items)
               _ItemRow(
                 key: Key('calendar-item-${item.key}'),
                 item: item,
-                day: day,
+                day: agendaDay.day,
                 zone: zone,
                 access: data.access,
                 calendar: switch (item) {

@@ -419,6 +419,45 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
     });
   }
 
+  /// Links [fileIds], uploaded a moment ago for this base by a host that
+  /// sends the bytes on its own route (the desktop's daemon), into the
+  /// current directory, as [uploadMany] does after its uploads: the base's
+  /// limits are asked about first (by count, and [largestFileSize] when
+  /// known), the server's processing is awaited, and uploads that cannot go
+  /// in are deleted again rather than left among the user's files.
+  Future<void> attachUploaded(
+    List<String> fileIds, {
+    int? largestFileSize,
+  }) async {
+    if (fileIds.isEmpty) return;
+    final destination = _destination;
+    await _run(() async {
+      final session = WorkspaceSessionIdentity.read(ref);
+      try {
+        await session.api.validateWorkspaceKnowledgeUpload(
+          knowledgeId,
+          count: fileIds.length,
+          largestFileSize: largestFileSize,
+        );
+        session.ensureCurrent(ref);
+      } catch (_) {
+        await _discardUploads(session.api, fileIds);
+        rethrow;
+      }
+      final failed = await _waitForProcessing(session, fileIds);
+      await _discardUploads(session.api, failed.keys.toList());
+      final processed = [
+        for (final id in fileIds)
+          if (!failed.containsKey(id)) id,
+      ];
+      if (processed.isNotEmpty) {
+        await _attachUploaded(session.api, processed, destination);
+        session.ensureCurrent(ref);
+      }
+      if (failed.isNotEmpty) throw _unprocessed(failed);
+    });
+  }
+
   /// Waits until the server has processed [fileIds], which it does in the
   /// background after each upload, so they can be linked; see
   /// [ApiService.waitForFileProcessing]. Returns the uploads it could not

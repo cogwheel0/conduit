@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/realtime_call/realtime_bridge_transport.dart';
@@ -9,6 +10,7 @@ import 'package:conduit_core/features/chat/realtime_call/realtime_call_availabil
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_ports.dart';
 import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dart';
 import 'package:conduit_core/features/chat/voice_mode/chat_voice_mode_controller.dart';
+import 'package:conduit_core/features/chat/voice_mode/chat_voice_send.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
@@ -2985,6 +2987,83 @@ void main() {
       check(audio.started).isFalse();
       await controller.stop();
     });
+  });
+
+  group('in a chat session scope', () {
+    test(
+      "a call admits the scope's model and sends through the host's send",
+      () async {
+        final input = _FakeVoiceInputService()..localSttAvailable = true;
+        final tts = _FakeTextToSpeechService();
+        final parent = ProviderContainer(
+          overrides: [
+            appSettingsProvider.overrideWithValue(const AppSettings()),
+            reviewerModeProvider.overrideWithValue(true),
+            appDatabaseProvider.overrideWith((ref) => null),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            voiceModeInputProvider.overrideWithValue(input),
+            voiceModeSpeechProvider.overrideWithValue(tts),
+            voiceCallKitProvider.overrideWithValue(
+              _UnavailableCallKitService(),
+            ),
+            chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+              _FakeChatVoiceBackgroundCoordinator(),
+            ),
+            voiceAudioSessionProvider.overrideWithValue(
+              _FakeChatVoiceAudioSessionCoordinator(),
+            ),
+          ],
+        );
+        addTearDown(parent.dispose);
+        final sent = <(String, bool)>[];
+        late final ChatSessionScope scope;
+        scope = ChatSessionScope.open(
+          parent,
+          overrides: [
+            chatVoiceSendProvider.overrideWithValue((
+              ref,
+              text, {
+              toolIds,
+              contextAttachments,
+              isVoiceMode = false,
+              voice,
+              onAssistantPlaceholderCreated,
+            }) async {
+              sent.add((text, isVoiceMode));
+            }),
+          ],
+        );
+        addTearDown(scope.dispose);
+        scope.container.read(selectedModelProvider.notifier).set(_model);
+
+        // The root has no model; the scope's call is admitted with its own.
+        check(parent.read(voiceCallEligibilityProvider).canStart).isFalse();
+        check(scope.container.read(voiceCallEligibilityProvider).model?.id)
+            .equals(_model.id);
+        check(
+          identical(
+            scope.container.read(chatVoiceModeControllerProvider.notifier),
+            parent.read(chatVoiceModeControllerProvider.notifier),
+          ),
+        ).isFalse();
+
+        final result = await scope.container
+            .read(chatVoiceModeControllerProvider.notifier)
+            .start(startNewConversation: false);
+        check(result).equals(ChatVoiceModeStartResult.started);
+        check(parent.read(chatVoiceModeControllerProvider).phase)
+            .equals(ChatVoiceModePhase.idle);
+
+        await input.completeCurrent('hello from the scope');
+        await _until(() => sent.isNotEmpty);
+        check(sent.single.$1).equals('hello from the scope');
+        check(sent.single.$2).isTrue();
+        await scope.container
+            .read(chatVoiceModeControllerProvider.notifier)
+            .stop();
+      },
+    );
   });
 }
 

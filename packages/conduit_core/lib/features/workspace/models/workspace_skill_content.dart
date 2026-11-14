@@ -8,6 +8,14 @@ import 'workspace_prompt_command.dart';
 /// fields, and a skill id is slugified from the name until the user edits it.
 /// Keep the parsing/slugging concerns funnelled through this class so the editor
 /// and importer never drift from the server's expectations.
+/// What [WorkspaceSkillContent.fromMarkdown] reads from a Markdown file.
+typedef WorkspaceSkillMarkdown = ({
+  String name,
+  String id,
+  String description,
+  String content,
+});
+
 abstract final class WorkspaceSkillContent {
   // Mirrors Open WebUI's `parseFrontmatter`: an opening `---` line, arbitrary
   // body, and a closing `---` line.
@@ -51,6 +59,24 @@ abstract final class WorkspaceSkillContent {
     return spaced.replaceAllMapped(
       _wordStart,
       (match) => match.group(0)!.toUpperCase(),
+    );
+  }
+
+  /// A skill read from a Markdown file, as Import Markdown fills the form:
+  /// the front-matter's name (title-cased), its id or else one slugged from
+  /// the name, its description, and the whole file as the instructions. A
+  /// field the front-matter does not give is empty, and the form keeps what
+  /// it had there.
+  static WorkspaceSkillMarkdown fromMarkdown(String content) {
+    final fm = parseFrontmatter(content);
+    final name = fm['name']?.trim() ?? '';
+    final id = fm['id']?.trim() ?? '';
+    final idSource = id.isNotEmpty ? id : name;
+    return (
+      name: name.isEmpty ? '' : formatSkillName(name),
+      id: idSource.isEmpty ? '' : slugify(idSource),
+      description: fm['description']?.trim() ?? '',
+      content: content,
     );
   }
 

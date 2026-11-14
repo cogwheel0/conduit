@@ -13,6 +13,7 @@ import 'package:conduit_core/features/workspace/providers/workspace_capabilities
 import 'package:conduit_core/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_session.dart';
 import 'package:conduit_core/navigation/routes.dart' show WorkspaceSection;
+import 'package:conduit_core/features/workspace/models/workspace_clone.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -1323,8 +1324,11 @@ class WorkspaceToolSettingsPages extends SettingsPageModule {
     final base = editor.id.trim();
     // Clones never take the source tool's sharing grants.
     final form = WorkspaceToolForm(
-      id: base.isEmpty ? 'tool_clone' : '${base}_clone',
-      name: '${editor.name.trim()} ${l10n.workspaceToolCloneSuffix}',
+      id: WorkspaceClone.toolId(base),
+      name: WorkspaceClone.name(
+        editor.name.trim(),
+        l10n.workspaceToolCloneSuffix,
+      ),
       content: editor.content,
       meta: {...editor.meta, 'description': editor.description.trim()},
     );

@@ -9,6 +9,7 @@ import 'package:conduit_core/features/workspace/providers/workspace_capabilities
 import 'package:conduit_core/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_session.dart';
 import 'package:conduit_core/navigation/routes.dart' show WorkspaceSection;
+import 'package:conduit_core/features/workspace/models/workspace_clone.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -1250,19 +1251,16 @@ class WorkspacePromptSettingsPages extends SettingsPageModule {
     WorkspacePromptEditor editor,
   ) async {
     if (!editor.writeAccess) return;
-    final baseCommand = WorkspacePromptCommand.strip(editor.command);
-    // A suffix in a non-Latin script slugifies to nothing (for example
-    // "（副本）"), which would leave a bare trailing hyphen; use "copy" then.
-    final suffixToken = WorkspacePromptCommand.slugify(
-      l10n.workspacePromptCloneSuffix,
-    );
-    final cloneCommand = WorkspacePromptCommand.slugify(
-      '$baseCommand-${suffixToken.isEmpty ? 'copy' : suffixToken}',
-    );
     // Clones never inherit the source prompt's sharing grants.
     final form = WorkspacePromptForm(
-      command: cloneCommand.isEmpty ? '$baseCommand-copy' : cloneCommand,
-      name: '${editor.name.trim()} ${l10n.workspacePromptCloneSuffix}',
+      command: WorkspaceClone.promptCommand(
+        editor.command,
+        l10n.workspacePromptCloneSuffix,
+      ),
+      name: WorkspaceClone.name(
+        editor.name.trim(),
+        l10n.workspacePromptCloneSuffix,
+      ),
       content: editor.content,
       tags: editor.tags,
     );

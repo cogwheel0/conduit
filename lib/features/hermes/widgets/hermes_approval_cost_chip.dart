@@ -6,23 +6,8 @@ import 'package:conduit_core/features/hermes/models/hermes_approval_cost.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 
-/// The approval and question texts a card shows, with a paid tool's price
-/// taken out of the text and returned apart: from the shown text when it
-/// states it (a Desktop Gateway approval's command), else from what the
-/// run kept ([stored], a REST approval whose card shows the description).
-({String? summary, HermesApprovalCost? cost}) hermesApprovalPresentation(
-  String? summary,
-  Object? stored,
-) {
-  final parsed = parseHermesApprovalCost([summary]);
-  if (parsed != null) {
-    return (
-      summary: parsed.remainder.isEmpty ? null : parsed.remainder,
-      cost: parsed,
-    );
-  }
-  return (summary: summary, cost: HermesApprovalCost.fromJson(stored));
-}
+export 'package:conduit_core/features/hermes/models/hermes_approval_cost.dart'
+    show hermesApprovalPresentation;
 
 /// The price of a paid MCP tool call and what the chat spent so far, as
 /// compact chips, plus a warning when the call passes the spend limit.

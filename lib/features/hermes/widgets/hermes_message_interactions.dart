@@ -12,15 +12,17 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
+        HermesDecisionAnswerOutcome,
+        answerHermesDecision,
         captureHermesApprovalProjectionStateUpdater,
         chatMessagesProvider,
-        hermesRunKeyForConversation;
+        hermesRunKeyForConversation,
+        pendingHermesDecisionOf;
 
 import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
-import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 
@@ -319,57 +321,16 @@ class _HermesComposerPromptOverlayState
       },
       multiSelect: decision['multiSelect'] == true,
       onSubmit: (value) async {
-        if (!expiresAt.isAfter(clock.now().toUtc())) return false;
-        final service = ref.read(hermesApiServiceProvider);
-        if (service is! HermesDesktopApiService) return false;
-        final configController = ref.read(hermesConfigProvider.notifier);
-        final admission = configController.captureSessionActionAdmission();
-        if (admission == null ||
-            !_ownsDesktopDecision(
-              service: service,
-              ownerConversationId: ownerConversationId,
-              storedSessionId: storedSessionId,
-            )) {
-          return false;
-        }
-        try {
-          await service.respondToDecision(
-            runtimeId: runtimeId,
-            storedSessionId: storedSessionId,
-            requestId: requestId,
-            kind: kind,
-            value: value,
-            mcpServer: decision['mcpServer']?.toString(),
-            mcpAction: decision['mcpAction']?.toString(),
-          );
-          if (!configController.sessionActionAdmissionIsCurrent(admission) ||
-              !_ownsDesktopDecision(
-                service: service,
-                ownerConversationId: ownerConversationId,
-                storedSessionId: storedSessionId,
-              )) {
-            return false;
-          }
-          ref.read(chatMessagesProvider.notifier).updateMessageById(
-            message.id,
-            (message) {
-              final metadata = Map<String, dynamic>.from(
-                message.metadata ?? const {},
-              );
-              final current = metadata[kHermesDecisionMeta];
-              if (current is Map && current['requestId'] == requestId) {
-                metadata[kHermesDecisionMeta] = {
-                  ...current.cast<String, dynamic>(),
-                  'state': 'resolved',
-                };
-              }
-              return message.copyWith(metadata: metadata);
-            },
-          );
-          return true;
-        } catch (_) {
-          return false;
-        }
+        final pending = pendingHermesDecisionOf(message);
+        if (pending == null || pending.requestId != requestId) return false;
+        final outcome = await answerHermesDecision(
+          ref,
+          pending,
+          ownerConversationId: ownerConversationId,
+          value: value,
+          isCurrent: () => mounted,
+        );
+        return outcome == HermesDecisionAnswerOutcome.answered;
       },
     );
   }
@@ -387,103 +348,31 @@ class _HermesComposerPromptOverlayState
     required DateTime expiresAt,
   }) {
     final questions = hermesClarifyQuestionsFromPayload(decision);
-    final generation = decision['executionGeneration'];
     return HermesClarifyFormCard(
       key: ValueKey('$runtimeId\u0000$requestId\u0000clarify'),
       questions: questions,
       onSubmit: (answers) async {
-        if (!expiresAt.isAfter(clock.now().toUtc())) return false;
-        final service = ref.read(hermesApiServiceProvider);
-        final configController = ref.read(hermesConfigProvider.notifier);
-        final admission = configController.captureSessionActionAdmission();
-        bool owns() => switch (service) {
-          final HermesDesktopApiService desktop =>
-            storedSessionId != null &&
-                _ownsDesktopDecision(
-                  service: desktop,
-                  ownerConversationId: ownerConversationId,
-                  storedSessionId: storedSessionId,
-                ),
-          final HermesApiService rest => _ownsRestDecision(
-            service: rest,
-            ownerConversationId: ownerConversationId,
-          ),
-          _ => false,
-        };
-        if (admission == null || !owns()) return false;
-        try {
-          switch (service) {
-            case final HermesDesktopApiService desktop:
-              await desktop.respondToClarifyForm(
-                runtimeId: runtimeId,
-                storedSessionId: storedSessionId,
-                requestId: requestId,
-                answers: answers,
-              );
-            case final HermesApiService rest when generation is int:
-              // A run's question takes one answer; empty skips it.
-              await rest.answerClarify(
-                runtimeId,
-                promptId: requestId,
-                executionGeneration: generation,
-                answer: answers.values.firstOrNull ?? '',
-              );
-            default:
-              return false;
-          }
-        } on HermesDecisionAlreadySettled {
+        final pending = pendingHermesDecisionOf(message);
+        if (pending == null || pending.requestId != requestId) return false;
+        final outcome = await answerHermesDecision(
+          ref,
+          pending,
+          ownerConversationId: ownerConversationId,
+          answers: answers,
+          isCurrent: () => mounted,
+        );
+        if (outcome == HermesDecisionAnswerOutcome.settled && mounted) {
           // Answered elsewhere or expired: the card closes, and says the
           // answer was not sent.
-          if (mounted && owns()) {
-            _closeDecision(message.id, requestId);
-            UiUtils.showMessage(
-              context,
-              AppLocalizations.of(context)!.hermesClarifyAlreadySettled,
-            );
-          }
-          return false;
-        } catch (_) {
-          DebugLogger.warning(
-            'clarify-answer-failed',
-            scope: 'chat/hermes_clarify',
+          UiUtils.showMessage(
+            context,
+            AppLocalizations.of(context)!.hermesClarifyAlreadySettled,
           );
-          return false;
         }
-        if (!configController.sessionActionAdmissionIsCurrent(admission) ||
-            !owns()) {
-          return false;
-        }
-        _closeDecision(message.id, requestId);
-        return true;
+        return outcome == HermesDecisionAnswerOutcome.answered;
       },
     );
   }
-
-  /// Marks the decision card [requestId] on message [messageId] resolved,
-  /// which closes it.
-  void _closeDecision(String messageId, String requestId) {
-    ref.read(chatMessagesProvider.notifier).updateMessageById(messageId, (
-      message,
-    ) {
-      final metadata = Map<String, dynamic>.from(message.metadata ?? const {});
-      final current = metadata[kHermesDecisionMeta];
-      if (current is Map && current['requestId'] == requestId) {
-        metadata[kHermesDecisionMeta] = {
-          ...current.cast<String, dynamic>(),
-          'state': 'resolved',
-        };
-      }
-      return message.copyWith(metadata: metadata);
-    });
-  }
-
-  bool _ownsRestDecision({
-    required HermesApiService service,
-    required String ownerConversationId,
-  }) =>
-      mounted &&
-      identical(ref.read(hermesApiServiceProvider), service) &&
-      ref.read(activeConversationProvider)?.id == ownerConversationId;
 
   @override
   void dispose() {

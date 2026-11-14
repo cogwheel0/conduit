@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart';
 import 'package:conduit_core/features/chat/views/chat_status_display.dart';
+import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
+import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:test/test.dart';
@@ -106,10 +108,80 @@ void main() {
         AssistantMarkdownBlock(:final block) => block.kind.name,
         AssistantErrorBlock() => 'error',
         AssistantCodeExecutionBlock() => 'codeExecution',
+        AssistantChangedFilesBlock() => 'changedFiles',
         AssistantSourcesBlock() => 'sources',
         AssistantFollowUpsBlock() => 'followUps',
       },
   ].join(' ');
+
+  group('a Hermes answer', () {
+    ChatMessage hermes() => ChatMessage(
+      id: 'h1',
+      role: 'assistant',
+      content: 'I edited the notes.',
+      timestamp: DateTime.utc(2026, 11, 11),
+      statusHistory: [
+        ChatStatusUpdate(
+          action: 'tool',
+          done: true,
+          items: [
+            hermesInlineDiffItem(
+              'a/demo/notes.md → b/demo/notes.md\n'
+              '@@ -1,2 +1,2 @@\n'
+              ' Line one\n'
+              '-Line two\n'
+              '+Line two, edited\n',
+            ),
+          ],
+        ),
+      ],
+      error: const ChatMessageError(content: 'Rate limit exceeded'),
+      metadata: {
+        kHermesErrorSurfaceMeta: {
+          ...const HermesErrorSurface(
+            layer: HermesErrorLayer.provider,
+            code: 'rate_limit',
+            retryable: true,
+          ).toJson(),
+          'error': 'Rate limit exceeded',
+        },
+      },
+    );
+
+    test('lists the files its tools changed after its code runs', () {
+      final blocks = assistantMessageBlocks(hermes(), streaming: false);
+      final changed = blocks.whereType<AssistantChangedFilesBlock>().single;
+      expect(changed.files.single.path, 'demo/notes.md');
+      expect(
+        (changed.files.single.added, changed.files.single.removed),
+        (1, 1),
+      );
+      expect(kinds(blocks).split(' ').last, 'changedFiles');
+    });
+
+    test('carries the failure as Hermes classified it', () {
+      final error = assistantMessageBlocks(
+        hermes(),
+        streaming: false,
+      ).whereType<AssistantErrorBlock>().single;
+      expect(error.hermes?.code, 'rate_limit');
+      expect(error.hermes?.kind, HermesErrorKind.rateLimit);
+    });
+
+    test('an earlier version keeps neither', () {
+      final message = hermes();
+      final blocks = assistantVersionBlocks(
+        ChatMessageVersion(
+          id: 'v1',
+          content: message.content,
+          timestamp: message.timestamp,
+          error: message.error,
+        ),
+      );
+      expect(blocks.whereType<AssistantChangedFilesBlock>(), isEmpty);
+      expect(blocks.whereType<AssistantErrorBlock>().single.hermes, isNull);
+    });
+  });
 
   group('a finished answer', () {
     final blocks = assistantMessageBlocks(mixed());
