@@ -1403,6 +1403,49 @@ void main() {
           kHermesModelSwitchKeptKey
         ],
       ).isNull();
+
+      // An edit that fails before its cut, as Hermes cannot resume the
+      // session, leaves the edited prompt unsent too: sent again, it is not
+      // matched to a later turn with the same words.
+      final edits = _Gateway();
+      var resumable = false;
+      edits.handler = (method, params) {
+        if (method == 'session.resume' && !resumable) {
+          throw const _Refusal(5000, 'Synthetic failure.');
+        }
+        if (method == 'prompt.submit') scheduleMicrotask(edits.finishTurn);
+        return null;
+      };
+      final editContainer = await _turnContainer(
+        _service(
+          edits,
+          _Rest([
+            ..._transcript,
+            {'id': 17, 'role': 'user', 'content': 'Thanks'},
+            {'id': 18, 'role': 'assistant', 'content': 'Enjoy.'},
+          ]),
+        ),
+        [
+          for (final message in _keptChat)
+            message.id == 'k1' ? message.copyWith(content: 'And ice?') : message,
+          _message('u3', 'user', 'Thanks'),
+          _message('a3', 'assistant', 'Enjoy.'),
+        ],
+      );
+      await regenerateEditedHermesUserMessage(
+        editContainer,
+        messageId: 'k1',
+        content: 'Thanks',
+      );
+      check(edits.calls('prompt.submit')).isEmpty();
+      check(editContainer.read(chatMessagesProvider).last.error).isNotNull();
+
+      resumable = true;
+      await regenerateMessage(editContainer, 'Thanks', null);
+
+      final edited = edits.calls('prompt.submit').single;
+      check(edited['text']).equals('Thanks');
+      check(edited['truncate_before_row_id']).equals(15);
     });
 
     test('editing a kept prompt cuts the turns sent after it', () async {
