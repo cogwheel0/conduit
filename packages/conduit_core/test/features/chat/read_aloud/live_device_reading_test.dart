@@ -148,12 +148,12 @@ void main() {
     // The engine pauses and answers, but sends no `pause` of its own.
     await manager.pause();
     await pumpEventQueue();
-    expect(events.whereType<TtsPaused>(), hasLength(1));
+    check(events.whereType<TtsPaused>()).length.equals(1);
 
     await manager.resume();
     await pumpEventQueue();
-    expect(engine.resumes, 1);
-    expect(events.last, isA<TtsResumed>());
+    check(engine.resumes).equals(1);
+    check(events.last).isA<TtsResumed>();
   });
 
   test(
@@ -168,16 +168,62 @@ void main() {
       await manager.pause();
       await pumpEventQueue();
 
-      expect(engine.spoken, ['A red kite.'], reason: 'nothing more is said');
-      expect(manager.currentChunkIndex, 1);
-      expect(events.last, isA<TtsPaused>());
+      check(
+        because: 'nothing more is said',
+        engine.spoken,
+      ).deepEquals(['A red kite.']);
+      check(manager.currentChunkIndex).equals(1);
+      check(events.last).isA<TtsPaused>();
 
       await manager.resume();
       await pumpEventQueue();
-      expect(engine.spoken.last, 'Two green frogs.');
-      expect(events.last, isA<TtsResumed>());
+      check(engine.spoken.last).equals('Two green frogs.');
+      check(events.last).isA<TtsResumed>();
     },
   );
+
+  for (final refusal in ['refuses', 'fails']) {
+    test('a pause the voice $refusal leaves the reading going on', () async {
+      await manager.speak(text);
+      events.clear();
+      if (refusal == 'refuses') {
+        engine.pauseAnswer = false;
+      } else {
+        engine.pauseError = StateError('voice busy');
+      }
+      // The first sentence ends while the engine is asked.
+      engine.duringPause = () async {
+        engine.emit('complete');
+        await pumpEventQueue();
+      };
+      await manager.pause();
+      await pumpEventQueue();
+
+      check(events.whereType<TtsPaused>()).isEmpty();
+      check(events.whereType<TtsError>()).length
+          .equals(refusal == 'fails' ? 1 : 0);
+      // Not held: the next sentence is said.
+      check(engine.spoken.last).equals('Two green frogs.');
+    });
+  }
+
+  test('a resume the voice refuses leaves the reading paused', () async {
+    await manager.speak(text);
+    await manager.pause();
+    await pumpEventQueue();
+    events.clear();
+
+    engine.resumeAnswer = false;
+    await manager.resume();
+    await pumpEventQueue();
+    check(events.whereType<TtsResumed>()).isEmpty();
+
+    engine.resumeAnswer = true;
+    await manager.resume();
+    await pumpEventQueue();
+    check(engine.resumes).equals(2);
+    check(events.last).isA<TtsResumed>();
+  });
 
   test('a late pause report does not pause a reading resumed since', () async {
     await manager.speak(text);
@@ -187,7 +233,7 @@ void main() {
 
     engine.emit('pause');
     await pumpEventQueue();
-    expect(events.last, isA<TtsResumed>());
+    check(events.last).isA<TtsResumed>();
   });
 
   test(
@@ -366,16 +412,29 @@ class _Engine implements DeviceSpeechEngine {
   /// Holds [pause] until completed.
   Completer<void>? pauseGate;
 
+  /// What the next [pause] answers, or the error it fails with.
+  bool pauseAnswer = true;
+  Object? pauseError;
+
+  /// What [resume] answers.
+  bool resumeAnswer = true;
+
+  @override
   @override
   Future<bool> pause() async {
     await pauseGate?.future;
     await duringPause?.call();
-    return true;
+    final error = pauseError;
+    pauseError = null;
+    if (error != null) throw error;
+    final answer = pauseAnswer;
+    pauseAnswer = true;
+    return answer;
   }
 
   @override
   Future<bool> resume() async {
     resumes++;
-    return true;
+    return resumeAnswer;
   }
 }

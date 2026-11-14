@@ -947,19 +947,43 @@ class TtsManager {
         // Paused from the moment it is asked: a sentence that ends while the
         // engine is being asked holds the next one ([_onDeviceChunkComplete]).
         _devicePaused = true;
-        await _nativeTts.pause();
+        final bool paused;
+        try {
+          paused = await _nativeTts.pause();
+        } catch (_) {
+          if (_owns(session)) await _undoDevicePause(session);
+          rethrow;
+        }
+        if (!_owns(session)) return;
+        // Refused: the reading goes on, and nothing says it paused.
+        if (!paused) {
+          await _undoDevicePause(session);
+          return;
+        }
         // The engine answering is the pause. Its own report can come late
         // or never (the Mac's voice pausing a sentence it has only begun
         // says nothing), and the reading would show as speaking for good.
-        if (_activeSession?.id == session.id && _devicePaused) {
-          _emitEvent(const TtsPaused());
-        }
+        if (_devicePaused) _emitEvent(const TtsPaused());
       } else {
         await _nativeTts.pause();
       }
     } catch (e) {
       if (_activeSession?.id != session.id) return;
       _emitEvent(TtsError(e.toString()));
+    }
+  }
+
+  /// Takes back a pause the engine did not make: the reading is not paused,
+  /// and a sentence held back meanwhile ([_onDeviceChunkComplete]) is said.
+  Future<void> _undoDevicePause(TtsPlaybackSession session) async {
+    _devicePaused = false;
+    final at = _deviceResumeAt;
+    if (at == null) return;
+    _currentChunkIndex = at.index;
+    try {
+      await _speakDeviceChunk(session.chunks[at.index], from: at.from);
+    } catch (error) {
+      _failDevicePlayback(session, error);
     }
   }
 
@@ -990,11 +1014,21 @@ class TtsManager {
         _emitEvent(const TtsResumed());
       } else if (_nativeTts.replacesOnSpeak) {
         _devicePaused = false;
-        await _nativeTts.resume();
-        // As with [pause]: the engine answering is the resume.
-        if (_activeSession?.id == session.id && !_devicePaused) {
-          _emitEvent(const TtsResumed());
+        final bool resumed;
+        try {
+          resumed = await _nativeTts.resume();
+        } catch (_) {
+          if (_owns(session)) _devicePaused = true;
+          rethrow;
         }
+        if (!_owns(session)) return;
+        // Refused: still paused, and nothing says it resumed.
+        if (!resumed) {
+          _devicePaused = true;
+          return;
+        }
+        // As with [pause]: the engine answering is the resume.
+        if (!_devicePaused) _emitEvent(const TtsResumed());
       } else {
         await _nativeTts.resume();
       }
