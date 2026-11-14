@@ -428,6 +428,9 @@ mixin _ModelsApi on _ApiServiceBase {
           responseType: ResponseType.stream,
           followRedirects: false,
           validateStatus: (status) => status != null && status < 300,
+          // A redirect here is the server's answer (no picture of its own),
+          // not a proxy turning the request away.
+          extra: const {_redirectIsAnswerKey: true},
         ),
       );
       final body = response.data;
