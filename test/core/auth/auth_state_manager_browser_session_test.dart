@@ -219,6 +219,8 @@ void main() {
 
       final signIn = rig.auth.loginWithBrowser(config: _config);
       await pumpEventQueue();
+      // Held while the provider is found.
+      check(rig.service.authorizeCalls).length.equals(1);
       await rig.auth.cancelBrowserSignIn();
       rig.service.findingProvider!.complete();
 
@@ -249,6 +251,7 @@ void main() {
       rig.service.findingProvider = Completer<void>();
       final cancelled = rig.auth.loginWithBrowser(config: _config);
       await pumpEventQueue();
+      check(rig.service.authorizeCalls).length.equals(1);
       await rig.auth.cancelBrowserSignIn();
       rig.service.findingProvider!.complete();
       check(await cancelled).isFalse();
