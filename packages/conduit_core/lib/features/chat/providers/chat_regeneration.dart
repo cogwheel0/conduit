@@ -16,6 +16,10 @@ const String kHermesStoredUserContentKey = 'hermesStoredContent';
 /// edit has already changed it on screen. [previousText] is the text shown
 /// before that edit: a turn edited before is stored with that one once the
 /// earlier edit went through, and with [originalText] when it did not.
+///
+/// [promptNeverSent] marks a replayed prompt that never reached the session
+/// even where the chat no longer shows the note that says so (an edit drops
+/// it with everything after the prompt).
 @visibleForTesting
 Future<({String sessionId, int? rowId, int? lastRowId, bool promptStored})?>
 hermesDesktopRewindTarget({
@@ -25,6 +29,7 @@ hermesDesktopRewindTarget({
   required int replayedUserIndex,
   String? originalText,
   String? previousText,
+  bool promptNeverSent = false,
 }) async {
   if (service is! HermesDesktopTurnService ||
       replayedUserIndex < 0 ||
@@ -45,7 +50,11 @@ hermesDesktopRewindTarget({
   // have been cleared yet) counts only at the turn's place: out of place it
   // may be a later turn another app sent with it.
   final shown = messages[replayedUserIndex].content.trim();
-  int? find(String? text) => hermesTranscriptUserRowIndex(
+  final neverSent =
+      promptNeverSent || hermesUserTurnNeverSent(messages, replayedUserIndex);
+  int? find(String? text) => neverSent
+      ? null
+      : hermesTranscriptUserRowIndex(
     transcript: transcript,
     messages: messages,
     index: replayedUserIndex,
@@ -97,7 +106,7 @@ hermesDesktopRewindTarget({
       previous--;
     }
     final cut =
-        hermesUserTurnNeverSent(messages, replayedUserIndex) &&
+        neverSent &&
             (ordinal == 0 ||
                 hermesTranscriptUserRowIndex(
                       transcript: transcript,
@@ -140,6 +149,7 @@ Future<void> _regenerateHermesMessage(
   required HermesBackendService? serviceGeneration,
   String? originalUserContent,
   String? previousUserContent,
+  bool promptNeverSent = false,
 }) async {
   final reasoningEffort = ref.read(configuredReasoningEffortProvider);
   final activeAtStart = ref.read(activeConversationProvider) as Conversation?;
@@ -251,6 +261,7 @@ Future<void> _regenerateHermesMessage(
     replayedUserIndex: replayedUserIndex,
     originalText: texts.originalText,
     previousText: texts.previousText,
+    promptNeverSent: promptNeverSent,
   );
   if (!chatMutationTokenStillActive(ref, mutationOwner)) return;
   if (!configController.sessionActionAdmissionIsCurrent(configAdmission) ||
@@ -713,6 +724,9 @@ Future<void> regenerateEditedHermesUserMessage(
   if (index < 0) throw StateError('The Hermes user message was not found.');
 
   final original = messages[index];
+  // A prompt kept off a model switch has no stored text: the edit drops the
+  // note that says so, and the cut falls after the turns before it.
+  final neverSent = hermesUserTurnNeverSent(messages, index);
   // The text the session stores for this turn, kept until it is replaced:
   // a retry after a replacement that failed before its cut finds the turn
   // by it.
@@ -727,7 +741,7 @@ Future<void> regenerateEditedHermesUserMessage(
     metadata: <String, dynamic>{
       ...?original.metadata,
       'childrenIds': const <String>[],
-      kHermesStoredUserContentKey: storedContent,
+      if (!neverSent) kHermesStoredUserContentKey: storedContent,
     },
   );
   final notifier =
@@ -744,8 +758,9 @@ Future<void> regenerateEditedHermesUserMessage(
       null,
       // A Desktop session finds the turn to cut by the text it stored: the
       // one before any edit, or the one shown now once an edit went through.
-      hermesOriginalUserContent: storedContent,
-      hermesPreviousUserContent: original.content,
+      hermesOriginalUserContent: neverSent ? null : storedContent,
+      hermesPreviousUserContent: neverSent ? null : original.content,
+      hermesPromptNeverSent: neverSent,
     );
     await forgetReplacedHermesStoredContent(ref, messageId: messageId);
   } catch (_) {
@@ -899,6 +914,7 @@ Future<void> regenerateMessage(
   bool Function()? ownsPreparationState,
   String? hermesOriginalUserContent,
   String? hermesPreviousUserContent,
+  bool hermesPromptNeverSent = false,
 }) async {
   final conversationAtRegenerationStart =
       ref.read(activeConversationProvider) as Conversation?;
@@ -1017,6 +1033,7 @@ Future<void> regenerateMessage(
       serviceGeneration: hermesServiceGeneration,
       originalUserContent: hermesOriginalUserContent,
       previousUserContent: hermesPreviousUserContent,
+      promptNeverSent: hermesPromptNeverSent,
     );
     return;
   }

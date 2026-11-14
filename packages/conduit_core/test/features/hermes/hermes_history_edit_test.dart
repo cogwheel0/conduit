@@ -11,6 +11,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         hermesDesktopRewindTarget,
         hermesRewindCandidateTexts,
         kHermesStoredUserContentKey,
+        regenerateEditedHermesUserMessage,
         regenerateMessage;
 import 'package:conduit_core/features/chat/services/historical_message_regeneration.dart'
     show regenerateHistoricalMessageById;
@@ -673,16 +674,8 @@ void main() {
           index: 0,
         ),
       ).equals(0);
-    });
-
-    test('a prompt kept off a model switch takes no place', () {
-      check(
-        hermesTranscriptUserRowIndex(
-          transcript: transcript,
-          messages: _keptChat,
-          index: 4,
-        ),
-      ).equals(4);
+      // Kept off a model switch, it takes no place: the same words sent
+      // again are found at theirs.
       check(
         hermesTranscriptUserRowIndex(
           transcript: transcript,
@@ -690,6 +683,13 @@ void main() {
           index: 2,
         ),
       ).isNull();
+      check(
+        hermesTranscriptUserRowIndex(
+          transcript: transcript,
+          messages: _keptChat,
+          index: 4,
+        ),
+      ).equals(4);
     });
 
     test('out of place, only the exact text matches', () {
@@ -1340,6 +1340,40 @@ void main() {
       check(submit['truncate_before_row_id']).equals(15);
     });
 
+    test('editing a kept prompt cuts the turns sent after it', () async {
+      final gateway = _Gateway();
+      gateway.handler = (method, params) {
+        if (method == 'prompt.submit') scheduleMicrotask(gateway.finishTurn);
+        return null;
+      };
+      final service = _service(
+        gateway,
+        _Rest([
+          ..._transcript,
+          {'id': 17, 'role': 'user', 'content': 'Thanks'},
+          {'id': 18, 'role': 'assistant', 'content': 'Enjoy.'},
+        ]),
+      );
+      // Kept with other words than the turn sent after it.
+      final container = await _turnContainer(service, [
+        for (final message in _keptChat)
+          message.id == 'k1' ? message.copyWith(content: 'And ice?') : message,
+        _message('u3', 'user', 'Thanks'),
+        _message('a3', 'assistant', 'Enjoy.'),
+      ]);
+
+      // The edited words match a later stored turn, not the kept prompt.
+      await regenerateEditedHermesUserMessage(
+        container,
+        messageId: 'k1',
+        content: 'Thanks',
+      );
+
+      final submit = gateway.calls('prompt.submit').single;
+      check(submit['text']).equals('Thanks');
+      check(submit['truncate_before_row_id']).equals(15);
+    });
+
     test('a stored turn that cannot be told apart is not sent uncut', () async {
       final service = _service(_Gateway(), _Rest(_transcript));
       final drifted = [
@@ -1412,15 +1446,10 @@ void main() {
         ..has((cut) => cut.end, 'end').equals(6)
         ..has((cut) => cut.throughRowId, 'throughRowId').equals(16)
         ..has((cut) => cut.visibleCount, 'visibleCount').equals(4);
-    });
-
-    test('from a model switch kept, keeps the turn before it', () {
-      final cut = hermesBranchCut(
-        transcript: transcript,
-        messages: _keptChat,
-        index: 3,
-      );
-      check(cut).isNotNull()
+      // From a model switch kept: the turn before it, its prompt never sent.
+      check(
+        hermesBranchCut(transcript: transcript, messages: _keptChat, index: 3),
+      ).isNotNull()
         ..has((cut) => cut.end, 'end').equals(4)
         ..has((cut) => cut.throughRowId, 'throughRowId').equals(14);
     });
