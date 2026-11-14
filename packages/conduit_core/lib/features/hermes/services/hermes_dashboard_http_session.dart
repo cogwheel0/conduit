@@ -320,6 +320,7 @@ final class HermesDashboardHttpSession implements HermesDashboardBridge {
     Future<void> Function()? onCookiesChanged,
     HermesDashboardHttpClientFactory? httpClient,
     this.requestTimeout = const Duration(seconds: 30),
+    this.abortGrace = const Duration(seconds: 5),
   }) : _root = root,
        _accessHeaders = Map.unmodifiable(accessHeaders),
        _jar = jar,
@@ -332,6 +333,11 @@ final class HermesDashboardHttpSession implements HermesDashboardBridge {
   final Future<void> Function()? _onCookiesChanged;
   final HermesDashboardHttpClientFactory _httpClient;
   final Duration requestTimeout;
+
+  /// How long the queue waits, after a request's deadline, for the cut-off
+  /// request to end before the next one goes out. Its caller has the
+  /// timeout at the deadline whatever this is.
+  final Duration abortGrace;
 
   Future<void> _tail = Future<void>.value();
 
@@ -354,21 +360,41 @@ final class HermesDashboardHttpSession implements HermesDashboardBridge {
       return Future.error(StateError('Hermes dashboard session is closed.'));
     }
     if (urgent) {
-      final send = _send(method, url, body: body, beforeSend: beforeSend);
-      final settled = send.then<void>((_) {}, onError: (Object _) {});
+      Future<void>? ending;
+      final send = _send(
+        method,
+        url,
+        body: body,
+        beforeSend: beforeSend,
+        onCutOff: (ended) => ending = ended,
+      );
+      // [close] waits for it, and for a cut-off one to end (bounded).
+      final settled = send
+          .then<void>((_) {}, onError: (Object _) {})
+          .then((_) => ending);
       _urgent.add(settled);
       unawaited(settled.whenComplete(() => _urgent.remove(settled)));
       return send;
     }
     final completer = Completer<({int status, String body})>();
     _tail = _tail.then((_) async {
+      Future<void>? ending;
       try {
         completer.complete(
-          await _send(method, url, body: body, beforeSend: beforeSend),
+          await _send(
+            method,
+            url,
+            body: body,
+            beforeSend: beforeSend,
+            onCutOff: (ended) => ending = ended,
+          ),
         );
       } catch (error, stackTrace) {
         completer.completeError(error, stackTrace);
       }
+      // The caller has its answer; the next request waits for a cut-off
+      // one to end, for [abortGrace] at most.
+      await ending;
     });
     return completer.future;
   }
@@ -377,11 +403,17 @@ final class HermesDashboardHttpSession implements HermesDashboardBridge {
   /// client of its own that is closed when it ends, however it ends: so a
   /// request past [requestTimeout] is cut off, and over, before the next
   /// one goes out, and one refused or failing midway holds no connection.
+  ///
+  /// Past its deadline the caller gets the timeout at once, and [onCutOff]
+  /// gets when the cut-off request is over: when it ends, or after
+  /// [abortGrace] if it does not (a connection that never opens, a cookie
+  /// save that never ends).
   Future<({int status, String body})> _send(
     String method,
     Uri url, {
     String? body,
     bool Function()? beforeSend,
+    void Function(Future<void> ended)? onCutOff,
   }) async {
     // The cookies and the access headers go to the dashboard alone.
     if (!hermesDashboardIsExactOrigin(url, _root)) {
@@ -393,9 +425,14 @@ final class HermesDashboardHttpSession implements HermesDashboardBridge {
       return await running.timeout(requestTimeout);
     } on TimeoutException {
       // Its answer, should one still come, is not read, and its cookies are
-      // not kept: it ends here, and only then does the queue move on.
+      // not kept: closing its client ends it, and the queue moves on once it
+      // has ended, or after the grace if it never does.
       exchange.abort();
-      await running.then<void>((_) {}, onError: (Object _) {});
+      onCutOff?.call(
+        running
+            .then<void>((_) {}, onError: (Object _) {})
+            .timeout(abortGrace, onTimeout: () {}),
+      );
       rethrow;
     } finally {
       exchange.client.close(force: true);

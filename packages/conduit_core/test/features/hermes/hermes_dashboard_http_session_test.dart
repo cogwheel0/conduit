@@ -311,6 +311,47 @@ void main() {
       });
     });
 
+    for (final stall in ['its connection never opens', 'saving its cookies '
+        'never ends']) {
+      test('a request whose $stall still times out at its deadline, and the '
+          'next one goes out a short while after', () {
+        fakeAsync((async) {
+          if (stall == 'its connection never opens') {
+            net.openGates['/api/stuck'] = Completer<void>();
+          } else {
+            net.answers['/api/stuck'] = Completer<_Answer>()
+              ..complete(const _Answer(cookie: 'hermes_session_at=x; Path=/'));
+          }
+          final dashboard = session(
+            onCookiesChanged: () => Completer<void>().future,
+          );
+          Object? timedOut;
+          dashboard
+              .request('POST', at('/api/stuck'))
+              .then((_) {}, onError: (Object e) {
+                timedOut = e;
+              });
+          var nextDone = false;
+          dashboard
+              .request('GET', at('/api/next'))
+              .then((_) => nextDone = true);
+          async.flushMicrotasks();
+
+          async.elapse(const Duration(seconds: 30));
+          check(timedOut).isA<TimeoutException>();
+          check(net.log).not((it) => it.contains('open /api/next'));
+
+          async.elapse(const Duration(seconds: 5));
+          check(net.log).contains('open /api/next');
+          check(nextDone).isTrue();
+          var closed = false;
+          dashboard.close().then((_) => closed = true);
+          async.flushMicrotasks();
+          check(closed).isTrue();
+        });
+      });
+    }
+
     test('a request is withdrawn up to the moment it is sent', () {
       fakeAsync((async) {
         final opening = net.openGates['/api/run'] = Completer<void>();
