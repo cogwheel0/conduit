@@ -23,8 +23,9 @@ use conduit_components::views::focus::{ControlExt as _, Ring, pressed_fill};
 use conduit_components::views::kit::{Button, IconButton, Switch, setting_row};
 use conduit_components::views::settings::settings_section;
 use conduit_protocol::{
-    HermesConnectionDto, HermesMcpRef, HermesMcpServerDto, HermesMcpToggle, HermesStatus, NoParams,
-    NoticeLevel, methods,
+    AppSettingsPatch, HermesConnectionDto, HermesMcpCatalogAdd, HermesMcpCatalogAdded,
+    HermesMcpRef, HermesMcpServerDto, HermesMcpToggle, HermesStatus, NoParams, NoticeLevel,
+    methods,
 };
 use gpui_kit::component::native_menu::NativeMenu;
 use gpui_kit::prelude::*;
@@ -116,6 +117,7 @@ pub fn sections(stores: &Stores, window: &mut Window, cx: &mut App) -> Vec<AnyEl
     if jobs {
         out.push(schedules_section(stores, &l, cx));
     }
+    out.push(conversations_section(stores, &l, cx));
     out.extend(catalog_sections(stores, catalog.as_ref(), gateway, &l, cx));
     if let Some(details) = status
         .as_ref()
@@ -512,6 +514,41 @@ fn schedules_section(stores: &Stores, l: &L10n, cx: &mut App) -> AnyElement {
     .into_any_element()
 }
 
+/// Conversations: Show Scheduled Runs, as on a phone (each run of a
+/// scheduled agent starts its own chat; off, they leave the Hermes list,
+/// pinned ones kept).
+fn conversations_section(stores: &Stores, l: &L10n, cx: &mut App) -> AnyElement {
+    let on = stores
+        .app_settings
+        .read(cx)
+        .settings()
+        .hermes_show_scheduled_sessions;
+    let store = stores.app_settings.clone();
+    let switch = Switch::new(
+        "hermes-show-scheduled-runs",
+        l.hermes_show_scheduled_runs(),
+        on,
+    )
+    .on_click(Rc::new(move |_, _, cx| {
+        store.update(cx, |s, cx| {
+            s.set(
+                AppSettingsPatch {
+                    hermes_show_scheduled_sessions: Some(!on),
+                    ..Default::default()
+                },
+                cx,
+            )
+        });
+    }));
+    settings_section(
+        l.hermes_conversations_title(),
+        Some(l.hermes_show_scheduled_runs_description().into()),
+        vec![setting_row(l.hermes_show_scheduled_runs(), None, switch, cx).into_any_element()],
+        cx,
+    )
+    .into_any_element()
+}
+
 /// The agent's skills and toolsets. On a Desktop Gateway, as on a phone,
 /// its toolsets are switches (for new sessions) and Reload Skills has it
 /// read its skills again; an API server's are only listed.
@@ -722,8 +759,11 @@ fn mcp_section(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    let busy = stores.hermes_admin.read(cx).mcp_busy.clone();
-    let (rows, servers) = match mcp {
+    let (busy, installing) = {
+        let admin = stores.hermes_admin.read(cx);
+        (admin.mcp_busy.clone(), admin.mcp_installing.clone())
+    };
+    let (mut rows, servers) = match mcp {
         None | Some(Loaded::Loading) => (vec![note_row(l.loading_short(), cx)], None),
         Some(Loaded::Failed(_)) => (vec![note_row(l.desktop_hermes_mcp_load_failed(), cx)], None),
         Some(Loaded::Ready(list)) if !list.available => {
@@ -749,6 +789,15 @@ fn mcp_section(
             Some(list),
         ),
     };
+    // A catalog server Hermes is still building: said until it is listed.
+    for (i, (name, oauth)) in installing.iter().enumerate() {
+        let text = if *oauth {
+            l.hermes_mcp_still_installing_sign_in(name)
+        } else {
+            l.hermes_mcp_still_installing(name)
+        };
+        rows.insert(i, installing_row(name, text, cx));
+    }
     let section = settings_section(
         l.hermes_mcp_servers(),
         Some(l.desktop_hermes_mcp_footer().into()),
@@ -787,6 +836,31 @@ fn mcp_section(
             catalog.into_any_element(),
             add.into_any_element(),
         ]))
+        .into_any_element()
+}
+
+/// "Hermes is still installing …": a status row, announced as it appears.
+fn installing_row(name: &str, text: String, cx: &App) -> AnyElement {
+    let t = cx.conduit();
+    div()
+        .id(ElementId::Name(
+            format!("hermes-mcp-installing-{name}").into(),
+        ))
+        .role(Role::Status)
+        .aria_label(SharedString::from(text.clone()))
+        .px(px(12.))
+        .py(px(10.))
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .child(icon(IconName::ClockFading, 14., t.roles.text_subtle))
+        .child(
+            div()
+                .flex_1()
+                .text_size(px(t.metrics.control))
+                .text_color(t.roles.text_subtle)
+                .child(text),
+        )
         .into_any_element()
 }
 
@@ -868,6 +942,7 @@ fn show_catalog(stores: &Stores, window: &mut Window, cx: &mut App) {
     let rpc = stores.connection.read(cx).rpc();
     let call = rpc.call::<methods::HermesMcpCatalog>(&NoParams);
     let toasts = stores.toasts.downgrade();
+    let admin = stores.hermes_admin.downgrade();
     let handle = window.window_handle();
     cx.spawn(async move |cx: &mut AsyncApp| {
         let result = call.await;
@@ -892,16 +967,24 @@ fn show_catalog(stores: &Stores, window: &mut Window, cx: &mut App) {
             });
             return;
         }
+        let _ = admin.update(cx, |a, _| a.mcp_catalog = entries.clone());
         let _ = handle.update(cx, |_, window, cx| {
             let mut native = NativeMenu::new();
             for entry in entries {
-                let label = if entry.description.trim().is_empty() {
+                let mut label = if entry.description.trim().is_empty() {
                     entry.name.clone()
                 } else {
                     format!("{} — {}", entry.name, first_sentence(&entry.description))
                 };
-                native = native.menu(
+                // It asks for values first: a sheet follows.
+                if !entry.credentials.is_empty() && entry.can_add {
+                    label.push('…');
+                }
+                // One that needs what this connection cannot send is
+                // listed, dimmed, as on a phone.
+                native = native.menu_with_disabled(
                     label,
+                    !entry.can_add,
                     Box::new(SettingsChoice {
                         menu: CATALOG_MENU.into(),
                         value: entry.name,
@@ -936,21 +1019,45 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
         connection: connection.clone(),
     };
     if menu == CATALOG_MENU {
+        let entry = stores
+            .hermes_admin
+            .read(cx)
+            .mcp_catalog
+            .iter()
+            .find(|e| e.name == value)
+            .cloned();
+        // An entry that asks for values opens a sheet asking for them.
+        if let Some(entry) = entry.as_ref().filter(|e| !e.credentials.is_empty()) {
+            crate::views::hermes_mcp::open_catalog(stores, entry.clone(), window, cx);
+            return;
+        }
         let name = value.to_string();
-        let call = rpc.call::<methods::HermesMcpAddFromCatalog>(&server(&name));
-        let toasts = stores.toasts.clone();
+        let oauth = entry.is_some_and(|e| e.oauth);
+        let call = rpc.call::<methods::HermesMcpAddFromCatalog>(&HermesMcpCatalogAdd {
+            name: name.clone(),
+            credentials: Default::default(),
+            connection: connection.clone(),
+        });
+        // Its answer is taken in the order it was asked.
         let ticket = stores.hermes_admin.update(cx, |a, _| a.ask_mcp());
-        hermes_admin::act(
-            stores,
-            call,
-            l.desktop_hermes_mcp_action_failed(),
-            move |a, servers, cx| {
-                a.answer_mcp(ticket, servers, cx);
-                let text = cx.l10n().desktop_hermes_mcp_added(&name);
-                toasts.update(cx, |t, cx| t.show(NoticeLevel::Success, text, cx));
-            },
-            cx,
-        );
+        let stores_done = stores.clone();
+        let admin = stores.hermes_admin.downgrade();
+        cx.spawn(async move |cx: &mut AsyncApp| {
+            let result = call.await;
+            cx.update(|cx| match result {
+                Ok(added) => catalog_added(&stores_done, &name, oauth, added, ticket, cx),
+                Err(e) => {
+                    log::info!("hermes.mcp.addFromCatalog: {e}");
+                    let text = cx.l10n().desktop_hermes_mcp_action_failed();
+                    stores_done
+                        .toasts
+                        .update(cx, |t, cx| t.show(NoticeLevel::Error, text, cx));
+                    // Listed again even when a step after the install failed.
+                    let _ = admin.update(cx, |a, cx| a.refresh_mcp(cx));
+                }
+            });
+        })
+        .detach();
         return;
     }
     let Some((action, name)) = value.split_once(':') else {
@@ -991,54 +1098,7 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
             })
             .detach();
         }
-        "signIn" => {
-            busy(stores, true, cx);
-            stores.toasts.update(cx, |t, cx| {
-                t.show(
-                    NoticeLevel::Info,
-                    l.desktop_hermes_mcp_signing_in(&name),
-                    cx,
-                )
-            });
-            let call = rpc.call::<methods::HermesMcpAuthenticate>(&server(&name));
-            let admin = stores.hermes_admin.downgrade();
-            cx.spawn(async move |cx: &mut AsyncApp| {
-                let result = call.await;
-                let l = cx.update(|cx| cx.l10n().clone());
-                // Still waiting on the browser past the call's limit: the
-                // list follows when the daemon says it is done.
-                if let Err(e) = &result
-                    && e.code.as_str() == "rpc.timeout"
-                {
-                    let _ = admin.update(cx, |a, cx| {
-                        if a.is_current(generation) {
-                            a.set_mcp_busy(&name, false, cx);
-                        }
-                    });
-                    return;
-                }
-                let ok = result.is_ok();
-                let text = if ok {
-                    l.desktop_hermes_mcp_signed_in(&name)
-                } else {
-                    l.desktop_hermes_mcp_sign_in_failed(&name)
-                };
-                let level = if ok {
-                    NoticeLevel::Success
-                } else {
-                    NoticeLevel::Error
-                };
-                toasts.update(cx, |t, cx| t.show(level, text, cx));
-                let _ = admin.update(cx, |a, cx| {
-                    if !a.is_current(generation) {
-                        return;
-                    }
-                    a.set_mcp_busy(&name, false, cx);
-                    a.refresh_mcp(cx);
-                });
-            })
-            .detach();
-        }
+        "signIn" => sign_in(stores, &name, false, cx),
         "key" => crate::views::hermes_mcp::open_key(stores, &name, window, cx),
         "enable" | "disable" => {
             let call = rpc.call::<methods::HermesMcpSetEnabled>(&HermesMcpToggle {
@@ -1101,5 +1161,120 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
             .detach();
         }
         _ => {}
+    }
+}
+
+/// Signs in to MCP server `name` with OAuth in the browser (its row's Sign
+/// In, or straight after a catalog add, `after_add`, whose failure says the
+/// server was added all the same).
+fn sign_in(stores: &Stores, name: &str, after_add: bool, cx: &mut App) {
+    let l = cx.l10n().clone();
+    let name = name.to_string();
+    let rpc = stores.connection.read(cx).rpc();
+    let toasts = stores.toasts.clone();
+    // The connection in use: refused once another is; its busy mark and
+    // list are left alone after a switch.
+    let (connection, generation) = {
+        let admin = stores.hermes_admin.read(cx);
+        (admin.connection(), admin.generation())
+    };
+    stores
+        .hermes_admin
+        .update(cx, |a, cx| a.set_mcp_busy(&name, true, cx));
+    stores.toasts.update(cx, |t, cx| {
+        t.show(
+            NoticeLevel::Info,
+            l.desktop_hermes_mcp_signing_in(&name),
+            cx,
+        )
+    });
+    let call = rpc.call::<methods::HermesMcpAuthenticate>(&HermesMcpRef {
+        name: name.clone(),
+        connection,
+    });
+    let admin = stores.hermes_admin.downgrade();
+    cx.spawn(async move |cx: &mut AsyncApp| {
+        let result = call.await;
+        let l = cx.update(|cx| cx.l10n().clone());
+        // Still waiting on the browser past the call's limit: the
+        // list follows when the daemon says it is done.
+        if let Err(e) = &result
+            && e.code.as_str() == "rpc.timeout"
+        {
+            let _ = admin.update(cx, |a, cx| {
+                if a.is_current(generation) {
+                    a.set_mcp_busy(&name, false, cx);
+                }
+            });
+            return;
+        }
+        let ok = result.is_ok();
+        let text = match (ok, after_add) {
+            (true, _) => l.desktop_hermes_mcp_signed_in(&name),
+            (false, true) => l.hermes_mcp_added_sign_in_unfinished(&name),
+            (false, false) => l.desktop_hermes_mcp_sign_in_failed(&name),
+        };
+        let level = if ok {
+            NoticeLevel::Success
+        } else {
+            NoticeLevel::Error
+        };
+        toasts.update(cx, |t, cx| t.show(level, text, cx));
+        let _ = admin.update(cx, |a, cx| {
+            if !a.is_current(generation) {
+                return;
+            }
+            a.set_mcp_busy(&name, false, cx);
+            a.refresh_mcp(cx);
+        });
+    })
+    .detach();
+}
+
+/// What follows a catalog add: the servers now; "still installing" said
+/// until it is listed; or Added, then OAuth sign-in when it signs in so.
+/// `ticket` is the add's, asked when it was sent: made under another
+/// connection than the one in use now, nothing more of it happens here.
+pub fn catalog_added(
+    stores: &Stores,
+    name: &str,
+    oauth: bool,
+    added: HermesMcpCatalogAdded,
+    ticket: hermes_admin::Ticket,
+    cx: &mut App,
+) {
+    let HermesMcpCatalogAdded {
+        servers,
+        still_installing,
+        sign_in: signs_in,
+    } = added;
+    let current = stores.hermes_admin.update(cx, |a, cx| {
+        let current = a.is_current(ticket.generation());
+        a.answer_mcp(ticket, servers, cx);
+        if current && still_installing {
+            a.set_installing(name, oauth, cx);
+        }
+        current
+    });
+    if !current {
+        return;
+    }
+    if still_installing {
+        let text = if oauth {
+            cx.l10n().hermes_mcp_still_installing_sign_in(name)
+        } else {
+            cx.l10n().hermes_mcp_still_installing(name)
+        };
+        stores
+            .toasts
+            .update(cx, |t, cx| t.show(NoticeLevel::Info, text, cx));
+        return;
+    }
+    let text = cx.l10n().desktop_hermes_mcp_added(name);
+    stores
+        .toasts
+        .update(cx, |t, cx| t.show(NoticeLevel::Success, text, cx));
+    if signs_in {
+        sign_in(stores, name, true, cx);
     }
 }

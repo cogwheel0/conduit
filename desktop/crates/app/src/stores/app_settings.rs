@@ -58,6 +58,7 @@ pub fn desktop_defaults() -> AppSettingsDto {
         default_model: None,
         open_router_image_generation_model: None,
         socket_transport_mode: "ws".into(),
+        hermes_show_scheduled_sessions: true,
         voice_call_mode: "auto".into(),
         stt_preference: "deviceOnly".into(),
         voice_locale_id: None,

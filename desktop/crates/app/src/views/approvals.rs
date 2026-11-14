@@ -921,6 +921,22 @@ impl ApprovalsView {
                     primary(l10n.mcp_app_open_link_confirm()),
                 ],
             ),
+            // The phone's question, in its words: Hermes' reason when it
+            // gave one. Keep sends nothing and gives the words back.
+            Card::HermesModelSwitch { model, reason } => (
+                ApprovalCard::new(
+                    id.clone(),
+                    l10n.hermes_model_switch_confirm_title(&model),
+                    reason.unwrap_or_else(|| l10n.hermes_model_switch_confirm_message()),
+                    l10n.desktop_hermes_agent(),
+                    ApprovalKind::Message,
+                )
+                .tile(IconName::Cpu),
+                vec![
+                    secondary(l10n.hermes_model_switch_keep_current()),
+                    primary(l10n.hermes_model_switch_confirm_action()),
+                ],
+            ),
         }
     }
 }

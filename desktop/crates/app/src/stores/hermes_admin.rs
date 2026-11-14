@@ -26,8 +26,8 @@ use std::time::Duration;
 use conduit_daemon::RpcError;
 use conduit_protocol::{
     Event, HermesCatalog, HermesConnectionRef, HermesConnections, HermesJobNotice, HermesJobRef,
-    HermesJobs, HermesMcpServers, HermesRef, HermesSessionDto, HermesStatus, HermesToggle,
-    HermesToolsetToggle, NoParams, NoticeLevel, events, methods,
+    HermesJobs, HermesMcpCatalogEntryDto, HermesMcpServers, HermesRef, HermesSessionDto,
+    HermesStatus, HermesToggle, HermesToolsetToggle, NoParams, NoticeLevel, events, methods,
 };
 use gpui_kit::{App, AsyncApp, Context, EventEmitter, Task, WeakEntity};
 
@@ -96,6 +96,12 @@ pub struct HermesAdminStore {
     pub busy: HashSet<String>,
     /// MCP servers with an action in flight.
     pub mcp_busy: HashSet<String>,
+    /// The MCP catalog as Add from Catalog last showed it: a pick opens
+    /// the entry's values sheet from it.
+    pub mcp_catalog: Vec<HermesMcpCatalogEntryDto>,
+    /// Catalog servers Hermes is still installing, and whether each signs
+    /// in with OAuth once listed: Settings says so until they are listed.
+    pub mcp_installing: Vec<(String, bool)>,
     /// Toolsets being turned on or off: their switches wait.
     pub toolsets_busy: HashSet<String>,
     /// Reload Skills is in flight.
@@ -173,6 +179,13 @@ pub struct Ticket {
     seq: u64,
 }
 
+impl Ticket {
+    /// The store's generation it was asked under ([`HermesAdminStore::is_current`]).
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+}
+
 /// A connections-list read or action, as it was asked (its place in the
 /// order they were asked in): answered only if it is newer than the last
 /// list taken and than the last reset. A list that switches connections
@@ -247,6 +260,8 @@ impl HermesAdminStore {
         self.generation += 1;
         // Lists asked before the reset are not taken; those asked after are.
         self.list_order.forget();
+        self.mcp_catalog.clear();
+        self.mcp_installing.clear();
         self.toolsets_busy.clear();
         self.skills_reloading = false;
         self.changed(cx);
@@ -459,6 +474,8 @@ impl HermesAdminStore {
             self.status = None;
             self.catalog = None;
             self.mcp = None;
+            self.mcp_catalog.clear();
+            self.mcp_installing.clear();
             self.jobs = None;
             self.runs.clear();
             self.runs_open.clear();
@@ -642,7 +659,10 @@ impl HermesAdminStore {
                     return;
                 }
                 s.mcp = Some(match result {
-                    Ok(servers) => Loaded::Ready(servers),
+                    Ok(servers) => {
+                        s.forget_installed(&servers);
+                        Loaded::Ready(servers)
+                    }
                     Err(e) => Loaded::Failed(e.to_string()),
                 });
                 s.changed(cx);
@@ -674,6 +694,7 @@ impl HermesAdminStore {
             self.refresh_mcp(cx);
             return true;
         }
+        self.forget_installed(&servers);
         self.mcp = Some(Loaded::Ready(servers));
         self.changed(cx);
         true
@@ -683,6 +704,20 @@ impl HermesAdminStore {
     pub fn adopt_mcp(&mut self, servers: HermesMcpServers, cx: &mut Context<Self>) {
         let ticket = self.ask_mcp();
         self.answer_mcp(ticket, servers, cx);
+    }
+
+    /// Catalog server `name` is still being installed (`oauth`: it signs in
+    /// once listed).
+    pub fn set_installing(&mut self, name: &str, oauth: bool, cx: &mut Context<Self>) {
+        self.mcp_installing.retain(|(n, _)| n != name);
+        self.mcp_installing.push((name.to_string(), oauth));
+        self.changed(cx);
+    }
+
+    /// Installs that finished: listed now.
+    fn forget_installed(&mut self, servers: &HermesMcpServers) {
+        self.mcp_installing
+            .retain(|(name, _)| !servers.servers.iter().any(|s| &s.name == name));
     }
 
     pub fn set_mcp_busy(&mut self, name: &str, busy: bool, cx: &mut Context<Self>) {

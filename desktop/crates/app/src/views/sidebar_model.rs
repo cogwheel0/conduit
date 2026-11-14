@@ -451,6 +451,11 @@ pub enum SidebarItem {
         area: Area,
         hint: AreaHint,
     },
+    /// How many scheduled agents' runs Hermes's lists leave out while Show
+    /// Scheduled Runs is off, with Show (the phone's row).
+    HermesScheduledHidden {
+        count: usize,
+    },
     /// Hermes's Archived row, as the phone's, with how many there are.
     HermesArchived {
         count: usize,
@@ -699,7 +704,10 @@ pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Ve
                 });
                 return out;
             };
-            if !(hermes.sessions.is_empty() && !hermes.archived.is_empty()) {
+            let hidden_runs = hermes.hidden_scheduled_runs.max(0) as usize;
+            // Only runs left out: the row says so, rather than "no
+            // conversations".
+            if !(hermes.sessions.is_empty() && (!hermes.archived.is_empty() || hidden_runs > 0)) {
                 out.extend(listed(
                     area,
                     Some(&hermes.sessions),
@@ -707,6 +715,9 @@ pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Ve
                     AreaHint::Empty,
                     session,
                 ));
+            }
+            if hidden_runs > 0 {
+                out.push(SidebarItem::HermesScheduledHidden { count: hidden_runs });
             }
             if !hermes.archived.is_empty() {
                 out.push(SidebarItem::HermesArchived {
@@ -1653,6 +1664,7 @@ mod tests {
             sessions: vec![session("s1", false)],
             archived: vec![session("old", true)],
             archived_failed: false,
+            hidden_scheduled_runs: 0,
         };
         let lists = AreaLists {
             hermes: Some(&hermes),
@@ -1716,6 +1728,43 @@ mod tests {
                 hint: AreaHint::Failed
             }]
         );
+        // Scheduled runs left out: said after the conversations, with Show;
+        // with nothing else listed, instead of "no conversations".
+        let hiding = HermesSessions {
+            hidden_scheduled_runs: 3,
+            ..hermes.clone()
+        };
+        let rows = area_rows(
+            Area::Hermes,
+            &AreaLists {
+                hermes: Some(&hiding),
+                ..Default::default()
+            },
+            false,
+            false,
+        );
+        assert_eq!(rows[1], SidebarItem::HermesScheduledHidden { count: 3 });
+        let only_runs = HermesSessions {
+            sessions: vec![],
+            archived: vec![],
+            hidden_scheduled_runs: 2,
+            ..hermes.clone()
+        };
+        let rows = area_rows(
+            Area::Hermes,
+            &AreaLists {
+                hermes: Some(&only_runs),
+                ..Default::default()
+            },
+            false,
+            false,
+        );
+        assert_eq!(rows[0], SidebarItem::HermesScheduledHidden { count: 2 });
+        assert!(
+            !rows
+                .iter()
+                .any(|r| matches!(r, SidebarItem::AreaHint { .. }))
+        );
     }
 
     #[test]
@@ -1736,6 +1785,7 @@ mod tests {
             sessions: vec![session("s1")],
             archived: vec![],
             archived_failed: false,
+            hidden_scheduled_runs: 0,
         };
         let bots: Vec<HermesBotDto> =
             serde_json::from_value(serde_json::json!([{"name": "fern", "title": "Fern"}])).unwrap();

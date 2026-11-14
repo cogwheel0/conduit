@@ -1159,6 +1159,44 @@ impl SidebarView {
                 expanded,
                 can_create,
             } => self.hermes_group(*group, *count, *expanded, *can_create, t, cx),
+            // The phone's row: how many runs Show Scheduled Runs leaves
+            // out, and Show, which turns it back on.
+            SidebarItem::HermesScheduledHidden { count } => {
+                let text = l.hermes_scheduled_runs_hidden(*count as i64);
+                let settings = self.stores.app_settings.downgrade();
+                div()
+                    .id("hermes-scheduled-hidden")
+                    .role(Role::Status)
+                    .aria_label(SharedString::from(text.clone()))
+                    .h(px(t.metrics.row_height))
+                    .pl(px(ROW_CONTENT_INSET + ROW_STATUS_GUTTER))
+                    .pr(px(ROW_CONTENT_INSET))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .text_size(px(t.metrics.small))
+                    .text_color(r.sidebar_text_subtle)
+                    .child(div().flex_1().min_w_0().truncate().child(text))
+                    .child(
+                        conduit_components::views::kit::Button::new(
+                            "hermes-show-scheduled",
+                            l.hermes_show_scheduled_runs_action(),
+                        )
+                        .ghost()
+                        .on_click(Rc::new(move |_, _, cx| {
+                            let _ = settings.update(cx, |s, cx| {
+                                s.set(
+                                    conduit_protocol::AppSettingsPatch {
+                                        hermes_show_scheduled_sessions: Some(true),
+                                        ..Default::default()
+                                    },
+                                    cx,
+                                )
+                            });
+                        })),
+                    )
+                    .into_any_element()
+            }
             SidebarItem::AreaHint { area, hint } => {
                 let text = area_hint_text(*area, *hint, &l);
                 let retry = matches!(hint, AreaHint::Failed | AreaHint::ArchivedFailed);

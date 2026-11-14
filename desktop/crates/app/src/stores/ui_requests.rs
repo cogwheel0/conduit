@@ -79,6 +79,13 @@ pub enum Card {
     },
     /// An MCP App asks to open a web page.
     OpenLink { url: String },
+    /// Hermes holds a switch to another model until the user confirms it:
+    /// Switch and Send (`allow`) or Keep Current Model (`deny`), with
+    /// Hermes' own reason when it gave one.
+    HermesModelSwitch {
+        model: String,
+        reason: Option<String>,
+    },
     /// A kind this window does not host: answer on mobile or the web.
     Unsupported,
 }
@@ -282,6 +289,13 @@ pub fn card(request: &UiRequest) -> Card {
             Some(url) => Card::OpenLink { url },
             None => Card::Unsupported,
         },
+        UiRequestKind::HermesModelSwitch => match arg(request, "model") {
+            Some(model) => Card::HermesModelSwitch {
+                model,
+                reason: arg(request, "reason"),
+            },
+            None => Card::Unsupported,
+        },
         UiRequestKind::HermesDecision | UiRequestKind::Unknown => Card::Unsupported,
     }
 }
@@ -377,7 +391,8 @@ pub fn allow(request: &UiRequest, text: Option<String>) -> Option<Answer> {
         | Card::Tool { .. }
         | Card::Mcp { .. }
         | Card::McpAppTool { .. }
-        | Card::OpenLink { .. } => Some(Answer::new("allow")),
+        | Card::OpenLink { .. }
+        | Card::HermesModelSwitch { .. } => Some(Answer::new("allow")),
         Card::Input { .. } => Some(Answer {
             choice: "allow".into(),
             text: Some(text.unwrap_or_default()),
@@ -734,6 +749,27 @@ mod tests {
         assert_eq!(card(&other), Card::Unsupported);
         let unknown = request("6", UiRequestKind::Unknown, &[]);
         assert_eq!(card(&unknown), Card::Unsupported);
+    }
+
+    #[test]
+    fn a_held_model_switch_is_switch_or_keep() {
+        let held = request(
+            "m",
+            UiRequestKind::HermesModelSwitch,
+            &[("model", "Heron Large"), ("reason", "It costs more.")],
+        );
+        assert_eq!(
+            card(&held),
+            Card::HermesModelSwitch {
+                model: "Heron Large".into(),
+                reason: Some("It costs more.".into()),
+            }
+        );
+        // ⌥⌘↩ switches; ⌥⌘⌫ keeps the current model.
+        assert_eq!(allow(&held, None), Some(Answer::new("allow")));
+        assert_eq!(deny(&held), Answer::new("deny"));
+        let unnamed = request("n", UiRequestKind::HermesModelSwitch, &[]);
+        assert_eq!(card(&unnamed), Card::Unsupported);
     }
 
     #[test]

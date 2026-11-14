@@ -5,12 +5,16 @@
 //!
 //! From a fresh profile, Hermes on the gateway (chosen in onboarding:
 //! Hermes alone), then: the seeded sessions listed; one opened in the chat
-//! pane and a turn sent in it, its row spinning meanwhile; Pin and Unpin,
+//! pane and a turn sent in it, its row spinning meanwhile; a switch to a
+//! second model Hermes holds (its context-cache guard) asked about in the
+//! chat, kept (the words back in the composer) and then confirmed, the answer
+//! headed with the model's name, not Hermes' agent id; Pin and Unpin,
 //! Rename in the row, Fork, Archive and Unarchive, Hide (Hidden Chats
 //! lists it, Unhide brings it back), Branch from Here on a reply, Undo
 //! Last Turn, Delete…; then the connection moved to the fake API server,
-//! where a Hermes CLI session opens read-only with the phone's notice and
-//! goes on in a copy. Screenshots in light and dark, AccessKit checks.
+//! where Show Scheduled Runs off hides a scheduled agent's run (the
+//! sidebar counts it, with Show), and a Hermes CLI session opens read-only
+//! with the phone's notice and goes on in a copy. Screenshots in light and dark, AccessKit checks.
 //!
 //! Inputs, besides the local Open WebUI's env file (`FAKE_HERMES_URL`,
 //! `FAKE_HERMES_KEY`): `HERMES_GATEWAY_URL` and `HERMES_GATEWAY_TOKEN`
@@ -507,6 +511,24 @@ pub async fn run_scenario(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> 
         pass &= ok("the fork to delete", false);
     }
 
+    // ── A model switch Hermes holds, in the coastal trip session (its
+    // kept question stays in the chat, so the herb garden's checks above
+    // run first) ──
+    open(&trip.id, cx);
+    let trip_before = opened(&trip.id, cx).await.unwrap_or_default();
+    send("And if it rains on the second day?", cx).await;
+    let warmed = wait_until(cx, Duration::from_secs(60), |cx| {
+        messages(cx).len() >= trip_before + 2
+            && chat_store(cx).is_some_and(|s| !s.read(cx).is_streaming())
+            && messages(cx)
+                .last()
+                .is_some_and(|(_, role, text)| role == "assistant" && !text.trim().is_empty())
+    })
+    .await;
+    pass &= ok("a turn gives the session context to keep", warmed);
+    settle(cx, 1500).await;
+    pass &= model_switch(main, dir, cx).await;
+
     // ── Another Hermes app's session, read-only, continued in a copy ──
     match (inputs.get("FAKE_HERMES_URL"), inputs.get("FAKE_HERMES_KEY")) {
         (Some(base_url), Some(key)) => {
@@ -524,6 +546,7 @@ pub async fn run_scenario(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> 
             let shed =
                 wait_until(cx, Duration::from_secs(30), |cx| titled(SHED, cx).is_some()).await;
             pass &= ok("the Hermes CLI's session is listed", shed);
+            pass &= scheduled_runs(main, dir, cx).await;
             if let Some(shed) = cx.update(|cx| titled(SHED, cx)) {
                 open(&shed.id, cx);
                 let read_only = wait_until(cx, Duration::from_secs(30), |cx| {
@@ -599,4 +622,259 @@ impl Said for App {
     fn l10n_said_undone(&self) -> String {
         crate::l10n::ActiveL10n::l10n(self).hermes_undo_last_turn_done()
     }
+}
+
+/// The fake API server's run of a scheduled agent (`gui-reset.sh` seeds it).
+const RUN: &str = "Nightly seed-tray check";
+/// What is asked on the model Hermes holds a switch to.
+const SWITCHED_QUESTION: &str = "Which herbs want full sun?";
+
+fn ui_top(cx: &mut App) -> Option<conduit_protocol::UiRequest> {
+    cx.global::<AppState>()
+        .stores
+        .ui_requests
+        .read(cx)
+        .top()
+        .cloned()
+}
+
+fn composer_text(cx: &mut App) -> String {
+    super::chat::pane(cx)
+        .map(|p| p.read(cx).composer.read(cx).text(cx))
+        .unwrap_or_default()
+}
+
+fn selected_model(cx: &mut App) -> Option<String> {
+    super::chat::pane(cx).and_then(|p| {
+        p.read(cx)
+            .composer_store
+            .read(cx)
+            .selected_model()
+            .map(|m| m.id.clone())
+    })
+}
+
+fn model_ending(suffix: &str, cx: &mut App) -> Option<String> {
+    let pane = super::chat::pane(cx)?;
+    let store = pane.read(cx).composer_store.clone();
+    let s = store.read(cx);
+    s.models
+        .as_ref()?
+        .models
+        .iter()
+        .find(|m| m.id.ends_with(suffix) || m.name == suffix)
+        .map(|m| m.id.clone())
+}
+
+fn pick(id: &str, cx: &mut AsyncApp) {
+    let id = id.to_string();
+    in_pane(cx, move |p, _, cx| {
+        let store = p.composer_store.clone();
+        store.update(cx, |s, cx| s.select_model(&id, cx));
+    });
+}
+
+fn answer(choice_allow: bool, cx: &mut AsyncApp) -> bool {
+    in_main(cx, |mw, _, cx| {
+        mw.approvals.update(cx, |v, cx| {
+            if choice_allow {
+                v.allow(cx)
+            } else {
+                v.deny(cx)
+            }
+        })
+    })
+    .unwrap_or(false)
+}
+
+/// Hermes holds a switch to another model (the recipe's context-cache
+/// guard, `switch_context_confirm_tokens: 100`): the chat asks with
+/// Hermes' reason; Keep Current Model sends nothing and gives the words
+/// back to the empty composer; Switch and Send sends them on the new model.
+async fn model_switch(main: gpui_kit::AnyWindowHandle, dir: &Path, cx: &mut AsyncApp) -> bool {
+    let models = wait_until(cx, Duration::from_secs(30), |cx| {
+        model_ending("demo-model-large", cx).is_some()
+    })
+    .await;
+    let mut pass = ok("the gateway offers a second model", models);
+    let (Some(large), Some(current)) = (
+        cx.update(|cx| model_ending("demo-model-large", cx)),
+        cx.update(selected_model),
+    ) else {
+        return ok("the models to switch between", false);
+    };
+    let before = cx.update(|cx| messages(cx).len());
+    pick(&large, cx);
+    settle(cx, 600).await;
+    send(SWITCHED_QUESTION, cx).await;
+    let asked = wait_until(cx, Duration::from_secs(40), |cx| {
+        ui_top(cx).is_some_and(|r| r.kind == conduit_protocol::UiRequestKind::HermesModelSwitch)
+    })
+    .await;
+    pass &= ok("the chat asks before Hermes switches its model", asked);
+    let request = cx.update(ui_top);
+    pass &= ok(
+        "naming the model, with Hermes' own reason",
+        request.as_ref().is_some_and(|r| {
+            r.message_args
+                .get("model")
+                .is_some_and(|m| m.contains("demo-model-large"))
+                && r.message_args
+                    .get("reason")
+                    .is_some_and(|m| m.contains("LARGE CONTEXT"))
+        }),
+    );
+    settle(cx, 600).await;
+    shoot_main(dir, "hermes-model-switch", cx).await;
+    let controls = ax(main, "hermes-model-switch", dir, cx).await;
+    pass &= ok(
+        "its buttons are Keep Current Model and Switch and Send",
+        has(&controls, "Button", "Keep Current Model") && has(&controls, "Button", "Switch"),
+    );
+    pass &= ok("Keep Current Model answers", answer(false, cx));
+    let given_back = wait_until(cx, Duration::from_secs(20), |cx| {
+        composer_text(cx) == SWITCHED_QUESTION
+    })
+    .await;
+    // Nothing went to Hermes: the question stays in the chat with the
+    // core's note that the model was kept, and no answer.
+    let noted = cx.update(|cx| {
+        let all = messages(cx);
+        let asked = all
+            .iter()
+            .rev()
+            .find(|(_, role, _)| role == "user")
+            .is_some_and(|(_, _, text)| text == SWITCHED_QUESTION);
+        // The scripted model's answer never came.
+        let answered = all.last().is_some_and(|(_, role, text)| {
+            role == "assistant" && text.contains("Tell me a bit more")
+        }) && all.len() > before + 1;
+        asked && !answered
+    });
+    pass &= ok(
+        "kept: the words come back to the empty composer, nothing sent",
+        given_back && noted,
+    );
+    let back = wait_until(cx, Duration::from_secs(20), move |cx| {
+        selected_model(cx).as_deref() == Some(current.as_str())
+    })
+    .await;
+    pass &= ok("and the picker returns to the model in use", back);
+    settle(cx, 400).await;
+    shoot_main(dir, "hermes-model-switch-kept", cx).await;
+
+    // Asked again, and switched this time.
+    pick(&large, cx);
+    settle(cx, 600).await;
+    in_pane(cx, |p, window, cx| {
+        p.composer.update(cx, |c, cx| c.submit(window, cx))
+    });
+    let asked = wait_until(cx, Duration::from_secs(40), |cx| {
+        ui_top(cx).is_some_and(|r| r.kind == conduit_protocol::UiRequestKind::HermesModelSwitch)
+    })
+    .await;
+    pass &= ok("asked again on the next send", asked);
+    pass &= ok("Switch and Send answers", answer(true, cx));
+    let sent = wait_until(cx, Duration::from_secs(60), |cx| {
+        let all = messages(cx);
+        all.len() >= before + 2
+            && all
+                .iter()
+                .any(|(_, role, text)| role == "user" && text == SWITCHED_QUESTION)
+            && chat_store(cx).is_some_and(|s| !s.read(cx).is_streaming())
+            && all
+                .last()
+                .is_some_and(|(_, role, text)| role == "assistant" && !text.trim().is_empty())
+    })
+    .await;
+    pass &= ok(
+        "switched: the words go out on the new model and are answered",
+        sent,
+    );
+    // The answer's header names the model, as the phone's does: Hermes
+    // answers a confirmed switch under an agent id no model on offer has
+    // (`hermes:agent:…`), and the header falls back to the name the stored
+    // answer kept.
+    let named = wait_until(cx, Duration::from_secs(20), |cx| {
+        answer_header(cx)
+            .is_some_and(|(_, name)| !name.is_empty() && !name.starts_with("hermes:agent:"))
+    })
+    .await;
+    let header = cx.update(answer_header);
+    println!("SMOKE note switched answer's model and header {header:?}");
+    pass &= ok(
+        "its header names the model it answered on, not Hermes' agent id",
+        named,
+    );
+    pass
+}
+
+/// The newest answer's model id and the name its header shows for it.
+fn answer_header(cx: &mut App) -> Option<(String, String)> {
+    let pane = super::chat::pane(cx)?;
+    let store = chat_store(cx)?;
+    let s = store.read(cx);
+    let last = s.messages().iter().rposition(|m| m.role == "assistant")?;
+    let item = s.item(crate::stores::chat::Row::Stored(last))?;
+    let model = item.model?;
+    let list = pane.read(cx).composer_store.read(cx).models.clone();
+    let name = crate::stores::composer::answer_model_name(
+        list.as_ref(),
+        &model,
+        item.model_name.as_deref(),
+    );
+    Some((model, name))
+}
+
+/// Show Scheduled Runs (Settings › Hermes) on the fake API server, whose
+/// list cannot leave runs out itself: off, the run leaves the list and the
+/// sidebar says how many are hidden, with Show; Show lists it again.
+async fn scheduled_runs(main: gpui_kit::AnyWindowHandle, dir: &Path, cx: &mut AsyncApp) -> bool {
+    let listed_run = wait_until(cx, Duration::from_secs(30), |cx| titled(RUN, cx).is_some()).await;
+    let mut pass = ok("a scheduled agent's run is listed by default", listed_run);
+    let set = |on: bool, cx: &mut AsyncApp| {
+        cx.update(|cx| {
+            let store = cx.global::<AppState>().stores.app_settings.clone();
+            store.update(cx, |s, cx| {
+                s.set(
+                    conduit_protocol::AppSettingsPatch {
+                        hermes_show_scheduled_sessions: Some(on),
+                        ..Default::default()
+                    },
+                    cx,
+                )
+            });
+        })
+    };
+    set(false, cx);
+    let hidden = wait_until(cx, Duration::from_secs(30), |cx| {
+        titled(RUN, cx).is_none()
+            && cx
+                .global::<AppState>()
+                .stores
+                .areas
+                .read(cx)
+                .hermes
+                .as_ref()
+                .is_some_and(|h| h.hidden_scheduled_runs == 1)
+    })
+    .await;
+    pass &= ok(
+        "Show Scheduled Runs off: the run leaves the list, counted",
+        hidden,
+    );
+    let others = super::hermes_admin::set_others_collapsed(true, cx);
+    settle(cx, 600).await;
+    shoot_main(dir, "hermes-scheduled-hidden", cx).await;
+    let controls = ax(main, "hermes-scheduled-hidden", dir, cx).await;
+    pass &= ok(
+        "the sidebar's row offers Show",
+        has(&controls, "Button", "Show"),
+    );
+    super::hermes_admin::set_others_collapsed_list(&others, false, cx);
+    // Show, as the row's button does.
+    set(true, cx);
+    let back = wait_until(cx, Duration::from_secs(30), |cx| titled(RUN, cx).is_some()).await;
+    pass &= ok("Show lists it again", back);
+    pass
 }

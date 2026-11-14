@@ -115,19 +115,17 @@ impl RowHost {
             .unwrap_or_default()
     }
 
-    /// `model` (an id) as the picker names it (a coding agent as "Codex ·
-    /// gpt-5.1", even once its terminal no longer offers it), else as it is.
-    pub fn model_name(&self, model: &str, cx: &App) -> String {
-        self.composer
-            .as_ref()
-            .and_then(WeakEntity::upgrade)
-            .and_then(|c| {
-                let list = c.read(cx).models.as_ref()?;
-                crate::stores::composer::find_model(list, model)
-                    .map(|m| m.name.clone())
-                    .or_else(|| list.agent_names.get(model).cloned())
-            })
-            .unwrap_or_else(|| model.to_string())
+    /// `model` (an id) as an answer's header names it
+    /// ([`crate::stores::composer::answer_model_name`]): as the picker does,
+    /// else by the name the answer kept (`fallback`), else as it is.
+    pub fn model_name(&self, model: &str, fallback: Option<&str>, cx: &App) -> String {
+        let composer = self.composer.as_ref().and_then(WeakEntity::upgrade);
+        let composer = composer.as_ref().map(|c| c.read(cx));
+        crate::stores::composer::answer_model_name(
+            composer.and_then(|c| c.models.as_ref()),
+            model,
+            fallback,
+        )
     }
 
     /// The chat talks to a coding agent (the composer's
@@ -1761,7 +1759,7 @@ impl Render for AssistantRow {
         let model = item
             .model
             .as_deref()
-            .map(|m| self.host.model_name(m, cx))
+            .map(|m| self.host.model_name(m, item.model_name.as_deref(), cx))
             .unwrap_or_default();
 
         let handover = self.handover(now);
@@ -2604,6 +2602,7 @@ mod activity_tests {
             files: vec![],
             sources: vec![],
             model: None,
+            model_name: None,
             timestamp_ms: None,
             streaming: false,
             rating: None,

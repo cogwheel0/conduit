@@ -81,6 +81,8 @@ pub const CHAT_EVENTS: &[&str] = &[
     events::CHAT_PROMPTS_CHANGED,
     events::MCP_APPS_EVENT,
     events::HERMES_WORK_CHANGED,
+    // Words the core gives the chat's composer (a kept Hermes message).
+    events::COMPOSER_INSERT_TEXT,
     // A model's terminal tool showing a file (the chat pane opens it).
     events::TERMINAL_DISPLAY_FILE,
 ];
@@ -309,6 +311,9 @@ pub struct RowItem {
     pub files: Vec<ChatFileDto>,
     pub sources: Vec<ChatSourceDto>,
     pub model: Option<String>,
+    /// The name the answer's model went by when it answered, as the stored
+    /// copy keeps it: the header's fallback for a model not on offer.
+    pub model_name: Option<String>,
     pub timestamp_ms: Option<i64>,
     pub streaming: bool,
     /// The thumb shown (this window's override first).
@@ -403,6 +408,11 @@ pub enum ChatStoreEvent {
     Missing,
     /// An MCP App's host has something for its view.
     McpApp(McpAppEvent),
+    /// Words the core gives the chat's composer (`composer.insertText`): a
+    /// Hermes message kept back when a model switch was declined, or what
+    /// Hermes prefills. `only_into_empty` text goes in only while the
+    /// composer holds nothing.
+    InsertText { text: String, only_into_empty: bool },
 }
 
 /// Where a step of an answer's version arrows landed: version `index`
@@ -1166,6 +1176,12 @@ impl ChatStore {
                 self.fetch(cx);
             }
             Event::QueueChanged(queue) => self.set_queue(queue.clone(), cx),
+            Event::ComposerInsertText(e) if e.chat_id == self.chat_id => {
+                cx.emit(ChatStoreEvent::InsertText {
+                    text: e.text.clone(),
+                    only_into_empty: e.only_into_empty,
+                })
+            }
             Event::ChatPromptsChanged(state) if state.chat_id == self.chat_id => {
                 self.prompt_round += 1;
                 self.set_prompt(state.clone(), cx);
@@ -1479,7 +1495,8 @@ impl ChatStore {
                 } else {
                     None
                 };
-                let (text, blocks, sources, model, usage, stored_merged) = match shown {
+                let (text, blocks, sources, (model, model_name), usage, stored_merged) = match shown
+                {
                     Some(v) => (
                         v.content.clone(),
                         if assistant {
@@ -1488,7 +1505,15 @@ impl ChatStore {
                             vec![]
                         },
                         v.sources.clone(),
-                        v.model.clone().or(m.model.clone()),
+                        // A version with a model of its own goes by its own
+                        // name; one without, by the message's.
+                        match &v.model {
+                            Some(own) => (Some(own.clone()), v.model_name.clone()),
+                            None => (
+                                m.model.clone(),
+                                v.model_name.clone().or(m.model_name.clone()),
+                            ),
+                        },
                         v.usage.clone(),
                         v.merged.clone(),
                     ),
@@ -1500,7 +1525,7 @@ impl ChatStore {
                             vec![]
                         },
                         m.sources.clone(),
-                        m.model.clone(),
+                        (m.model.clone(), m.model_name.clone()),
                         m.usage.clone(),
                         m.merged.clone(),
                     ),
@@ -1527,6 +1552,7 @@ impl ChatStore {
                     files: m.files.clone(),
                     sources: if assistant { sources } else { vec![] },
                     model,
+                    model_name: model_name.filter(|_| assistant),
                     timestamp_ms: Some(m.timestamp_ms),
                     streaming: m.streaming,
                     rating: current
@@ -2536,6 +2562,7 @@ mod tests {
             content: content.into(),
             timestamp_ms: 1,
             model: (role == "assistant").then(|| "m".into()),
+            model_name: None,
             streaming: false,
             error_code: None,
             versions: vec![],
@@ -3347,6 +3374,66 @@ mod tests {
     }
 
     #[gpui_kit::test]
+    fn an_answer_row_carries_the_name_its_model_went_by(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        // A Hermes answer after a confirmed model switch: an agent id no
+        // model on offer has, and the name the answer kept.
+        let mut answer = message("a2", "assistant", "Basil and thyme.");
+        answer.model = Some("hermes:agent:desktop:7f3a9c".into());
+        answer.model_name = Some("Demo Model Large".into());
+        let version = |id: &str, model: Option<&str>, name: Option<&str>| ChatMessageVersionDto {
+            slot: None,
+            merged: None,
+            streaming: false,
+            error_code: None,
+            id: id.into(),
+            content: "Rosemary.".into(),
+            timestamp_ms: 1,
+            model: model.map(Into::into),
+            model_name: name.map(Into::into),
+            sources: vec![],
+            usage: None,
+            blocks: vec![text_block("Rosemary.")],
+        };
+        answer.versions = vec![
+            version("a0", Some("demo-model"), Some("Demo Model")),
+            version("a1", None, None),
+        ];
+        daemon.returns::<methods::ChatsGet>(chat("c1", vec![message("u1", "user", "q"), answer]));
+        let (store, _) = open(&daemon, "c1", cx);
+        store.update(cx, |s, cx| {
+            let named = |s: &ChatStore| {
+                let item = s.item(Row::Stored(1)).unwrap();
+                (item.model, item.model_name)
+            };
+            assert_eq!(
+                named(s),
+                (
+                    Some("hermes:agent:desktop:7f3a9c".into()),
+                    Some("Demo Model Large".into())
+                )
+            );
+            // A version with a model of its own goes by its own name...
+            s.show_version("a2", 0, cx);
+            assert_eq!(
+                named(s),
+                (Some("demo-model".into()), Some("Demo Model".into()))
+            );
+            // ...and one without, by the message's.
+            s.show_version("a2", 1, cx);
+            assert_eq!(
+                named(s),
+                (
+                    Some("hermes:agent:desktop:7f3a9c".into()),
+                    Some("Demo Model Large".into())
+                )
+            );
+            // A question has no model name to show.
+            assert_eq!(s.item(Row::Stored(0)).unwrap().model_name, None);
+        });
+    }
+
+    #[gpui_kit::test]
     fn sending_ends_the_last_answer_so_its_suggestions_go_at_once(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
         daemon.returns::<methods::ChatsGet>(chat(
@@ -3413,6 +3500,7 @@ mod tests {
             content: "old".into(),
             timestamp_ms: 1,
             model: Some("m".into()),
+            model_name: None,
             sources: vec![],
             usage: None,
             blocks: vec![text_block("old")],
@@ -3524,6 +3612,7 @@ mod tests {
             content: "old".into(),
             timestamp_ms: 1,
             model: Some("m".into()),
+            model_name: None,
             sources: vec![],
             usage: None,
             blocks: vec![text_block("old")],
@@ -3646,6 +3735,7 @@ mod tests {
             content: String::new(),
             timestamp_ms: 1,
             model: Some("m".into()),
+            model_name: None,
             sources: vec![],
             usage: None,
             blocks: vec![],
@@ -3690,6 +3780,7 @@ mod tests {
             content: "old".into(),
             timestamp_ms: 1,
             model: None,
+            model_name: None,
             sources: vec![],
             usage: None,
             blocks: vec![],

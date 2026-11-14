@@ -1114,6 +1114,29 @@ impl ChatPane {
                     ChatStoreEvent::Missing => cx.notify(),
                     // For the app's view in the transcript.
                     ChatStoreEvent::McpApp(_) => {}
+                    ChatStoreEvent::InsertText {
+                        text,
+                        only_into_empty,
+                    } => {
+                        // The composition the words were given to: written
+                        // into it only while it is still the one shown.
+                        let ticket = this.composer_store.read(cx).ticket();
+                        let (pane, text, only) =
+                            (cx.entity().downgrade(), text.clone(), *only_into_empty);
+                        let Some(handle) = cx
+                            .try_global::<crate::AppState>()
+                            .and_then(|s| s.main_window)
+                        else {
+                            return;
+                        };
+                        cx.defer(move |cx| {
+                            let _ = handle.update(cx, |_, window, cx| {
+                                pane.update(cx, |p, cx| {
+                                    p.take_given_text(ticket, &text, only, window, cx)
+                                })
+                            });
+                        });
+                    }
                 }
             }),
         ];
@@ -1887,6 +1910,25 @@ impl ChatPane {
             self.stores.speech.update(cx, |s, cx| s.pause(cx));
         }
         cx.notify();
+    }
+
+    /// Words the core gave this chat's composer (`composer.insertText`),
+    /// for the composition `ticket` names: nothing once it has moved on
+    /// (started over, another chat or account).
+    pub fn take_given_text(
+        &mut self,
+        ticket: crate::stores::composer::CompositionTicket,
+        text: &str,
+        only_into_empty: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.composer_store.read(cx).holds(ticket) {
+            return;
+        }
+        self.composer.update(cx, |c, cx| {
+            c.take_given_text(text, only_into_empty, window, cx)
+        });
     }
 
     /// A coding agent answers the open chat (`ComposerOptions.agentChat`):
@@ -4060,6 +4102,30 @@ mod tests {
                 saves[0]["accountId"], "a",
                 "the note was asked for under no account"
             );
+        }
+
+        #[gpui_kit::test]
+        fn words_from_the_core_land_only_in_the_composition_given_them(cx: &mut TestAppContext) {
+            let (_daemon, _stores, pane, vcx) = bench(cx);
+            let text = |pane: &Entity<ChatPane>, vcx: &mut VisualTestContext| {
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx))
+            };
+            // The composition started over (a send, another chat) before
+            // the words landed: they are left out.
+            pane.update_in(vcx, |p, window, cx| {
+                let ticket = p.composer_store.read(cx).ticket();
+                p.composer_store.update(cx, |c, cx| c.start_over(cx));
+                p.take_given_text(ticket, "Kept back words", false, window, cx);
+            });
+            vcx.run_until_parked();
+            assert_eq!(text(&pane, vcx), "", "written into a later composition");
+            // Still the composition they were given to: written.
+            pane.update_in(vcx, |p, window, cx| {
+                let ticket = p.composer_store.read(cx).ticket();
+                p.take_given_text(ticket, "Kept back words", false, window, cx);
+            });
+            vcx.run_until_parked();
+            assert_eq!(text(&pane, vcx), "Kept back words");
         }
 
         #[gpui_kit::test]

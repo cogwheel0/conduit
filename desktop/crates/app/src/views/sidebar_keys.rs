@@ -54,6 +54,7 @@ impl KeyRow {
             | SidebarItem::HermesGroup { .. }
             | SidebarItem::Hint(_)
             | SidebarItem::AreaHint { .. }
+            | SidebarItem::HermesScheduledHidden { .. }
             | SidebarItem::NewFolder { .. } => None,
         }
     }

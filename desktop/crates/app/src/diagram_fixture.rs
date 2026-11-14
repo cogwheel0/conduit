@@ -72,6 +72,7 @@ fn chat_value() -> Value {
                 content: content.clone(),
                 timestamp_ms: 1_700_000_000_000 + i as i64,
                 model: assistant.then(|| "Fixture model".into()),
+                model_name: None,
                 streaming: false,
                 error_code: None,
                 versions: vec![],

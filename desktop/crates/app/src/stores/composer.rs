@@ -2705,6 +2705,26 @@ pub fn find_model<'a>(list: &'a ModelList, id: &str) -> Option<&'a ModelSummary>
     list.models.iter().chain(&list.agents).find(|m| m.id == id)
 }
 
+/// An answer's model, `id`, as its header names it: as the picker names it
+/// (a coding agent as "Codex · gpt-5.1", even once its terminal no longer
+/// offers it); else by the name the answer kept when it was written
+/// (`fallback`, a Hermes answer's agent id after a confirmed model switch,
+/// as the phone's header falls back to it); else as it is.
+pub fn answer_model_name(list: Option<&ModelList>, id: &str, fallback: Option<&str>) -> String {
+    list.and_then(|list| {
+        find_model(list, id)
+            .map(|m| m.name.clone())
+            .or_else(|| list.agent_names.get(id).cloned())
+    })
+    .or_else(|| {
+        fallback
+            .map(str::trim)
+            .filter(|f| !f.is_empty())
+            .map(str::to_string)
+    })
+    .unwrap_or_else(|| id.to_string())
+}
+
 /// How a model is named on screen: with its direct connection, when it
 /// comes from one.
 pub fn model_label(model: &ModelSummary) -> String {
@@ -3007,6 +3027,34 @@ mod tests {
             }),
             ..summary(id, false)
         }
+    }
+
+    #[test]
+    fn an_answer_falls_back_to_the_name_it_kept_for_a_model_not_on_offer() {
+        let mut list = laid_out();
+        list.models[1].name = "Basil 7B".into();
+        // On offer: as the picker names it, whatever the answer kept.
+        assert_eq!(
+            answer_model_name(Some(&list), "b", Some("Older Name")),
+            "Basil 7B"
+        );
+        // Not on offer (a Hermes agent id after a confirmed switch): the
+        // name the answer kept.
+        let agent_id = "hermes:agent:desktop:7f3a9c";
+        assert_eq!(
+            answer_model_name(Some(&list), agent_id, Some(" Demo Model Large ")),
+            "Demo Model Large"
+        );
+        assert_eq!(
+            answer_model_name(None, agent_id, Some("Demo Model Large")),
+            "Demo Model Large"
+        );
+        // Nothing kept: the id as it is.
+        assert_eq!(
+            answer_model_name(Some(&list), agent_id, Some("  ")),
+            agent_id
+        );
+        assert_eq!(answer_model_name(Some(&list), agent_id, None), agent_id);
     }
 
     #[test]

@@ -9,17 +9,22 @@
 //! again with its kept token; a second connection saved beside it, and
 //! switched to from the sidebar's switcher and back from Settings, the
 //! sessions following each time; an MCP server added (a command), tested,
-//! given an API key and removed, and Hermes's catalog read. In the main
+//! given an API key and removed, and Hermes's catalog read (gateway A
+//! through `catalog_proxy.py`'s synthetic catalog): an entry asking for a
+//! required and an optional value added through its sheet, with Hermes
+//! still installing it said, and one asking for nothing added. In the main
 //! window: Scheduled Agents, a job created (delivery and missed runs),
 //! run now and stopped, run again to its end, its run history opened and
-//! a run's result opened as a Hermes chat, paused and deleted. Then `/`
+//! a run's result opened as a Hermes chat, paused and deleted; a phone's
+//! job with Notify Me (`conduit`) edited here keeps it. Then `/`
 //! in a Hermes chat lists the agent's skills and inserts one; Hermes off
 //! and on; the second connection deleted. Screenshots in light and dark,
 //! AccessKit checks.
 //!
 //! Inputs, besides the local Open WebUI's env file: `HERMES_A_URL`,
 //! `HERMES_A_TOKEN`, `HERMES_B_URL`, `HERMES_B_TOKEN` (the gateways'
-//! session tokens), from `--e2e-env`.
+//! session tokens) and `HERMES_CATALOG_LOG` (the catalog proxy's log),
+//! from `--e2e-env`.
 
 use std::path::Path;
 use std::time::Duration;
@@ -33,7 +38,7 @@ use crate::stores::hermes_admin::{HermesAdminStore, Loaded};
 use crate::stores::navigation::{AreaItem, Selection};
 use crate::views::hermes_connection::HermesConnectionSheet;
 use crate::views::hermes_job::HermesJobSheet;
-use crate::views::hermes_mcp::{AddMcpSheet, McpKeySheet};
+use crate::views::hermes_mcp::{AddMcpSheet, CatalogSheet, McpKeySheet};
 use crate::views::sheet;
 
 /// Gateway A's seeded chats (`h4/hermes/scripts/chats_a.json`) and B's.
@@ -246,6 +251,146 @@ fn choose_mcp(menu: &str, value: &str, cx: &mut AsyncApp) {
         let stores = cx.global::<AppState>().stores.clone();
         crate::views::settings::hermes::choose(&stores, &menu, &value, window, cx);
     });
+}
+
+/// The proxy's log of installs asked of the (synthetic) catalog: each
+/// entry's name and the names of the values sent (never the values).
+fn installs(log: &str) -> Vec<(String, Vec<String>)> {
+    std::fs::read_to_string(log)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|v| v["event"] == "install")
+        .map(|v| {
+            let names = v["envNames"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|n| n.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            (v["name"].as_str().unwrap_or_default().to_string(), names)
+        })
+        .collect()
+}
+
+/// Add from Catalog with values (`scripts/catalog_proxy.py` in front of
+/// gateway A serves a synthetic catalog and installs nothing): an entry
+/// asking for a required and an optional value opens its sheet, Add waits
+/// for the required one, the empty optional one is left out, and Hermes
+/// still installing it is said in Settings until it is listed; an entry
+/// asking for nothing is added at once.
+async fn catalog_values(
+    entries: &[conduit_protocol::HermesMcpCatalogEntryDto],
+    inputs: &E2eInputs,
+    dir: &Path,
+    cx: &mut AsyncApp,
+) -> bool {
+    let Some(log) = inputs.get("HERMES_CATALOG_LOG") else {
+        return ok(
+            "the catalog proxy's log (HERMES_CATALOG_LOG) is there",
+            false,
+        );
+    };
+    let tide = entries.iter().find(|e| e.name == "tide_charts");
+    let mut pass = ok(
+        "the catalog says what an entry asks for, the optional value marked",
+        tide.is_some_and(|e| {
+            e.can_add
+                && e.from_dashboard
+                && e.credentials.len() == 2
+                && e.credentials[0].required
+                && !e.credentials[1].required
+        }) && entries.iter().any(|e| e.name == "star_atlas" && e.oauth),
+    );
+    let shown = entries.to_vec();
+    cx.update(|cx| admin(cx).update(cx, |a, _| a.mcp_catalog = shown));
+    choose_mcp(
+        crate::views::settings::hermes::CATALOG_MENU,
+        "tide_charts",
+        cx,
+    );
+    pass &= ok(
+        "an entry asking for values opens its sheet",
+        wait_sheet::<CatalogSheet>(cx).await,
+    );
+    let fields = in_sheet::<CatalogSheet, _>(cx, |s, _, _| s.fields.len());
+    pass &= ok("one hidden field per value", fields == Some(2));
+    in_sheet::<CatalogSheet, _>(cx, |s, w, cx| {
+        let region = s.fields[1].clone();
+        set_text(&region, "North Quay", w, cx);
+        cx.notify();
+    });
+    settle(cx, 200).await;
+    pass &= ok(
+        "Add waits for the required value",
+        in_sheet::<CatalogSheet, _>(cx, |s, _, cx| !s.can_add(cx)) == Some(true),
+    );
+    // Only the required one: the empty optional one is left out.
+    in_sheet::<CatalogSheet, _>(cx, |s, w, cx| {
+        let region = s.fields[1].clone();
+        set_text(&region, "", w, cx);
+        let key = s.fields[0].clone();
+        set_text(&key, "tide-demo-key-42", w, cx);
+        cx.notify();
+    });
+    settle(cx, 300).await;
+    shoot_sheet(dir, "hermes-admin-mcp-catalog", cx).await;
+    if let Some(handle) = cx.update(|cx| sheet::current_window(cx)) {
+        let controls = ax(handle, "hermes-admin-mcp-catalog", dir, cx).await;
+        pass &= ok(
+            "the sheet's hidden fields are labelled with what they ask",
+            ["PasswordInput", "TextInput"]
+                .iter()
+                .any(|role| has(&controls, role, "Tide service key"))
+                && ["PasswordInput", "TextInput"]
+                    .iter()
+                    .any(|role| has(&controls, role, "Harbour region")),
+        );
+    }
+    in_sheet::<CatalogSheet, _>(cx, |s, w, cx| s.add(w, cx));
+    pass &= ok("Add closes the sheet", sheet_gone(cx).await);
+    let sent = wait_until(cx, Duration::from_secs(20), {
+        let log = log.clone();
+        move |_| installs(&log).iter().any(|(n, _)| n == "tide_charts")
+    })
+    .await;
+    pass &= ok(
+        "Hermes is asked to install it with the required value alone",
+        sent && installs(&log)
+            .iter()
+            .any(|(n, env)| n == "tide_charts" && env == &["TIDE_API_KEY".to_string()]),
+    );
+    pass &= ok(
+        "still installing in the background is said",
+        toast("Hermes is still installing tide_charts", cx).await,
+    );
+    let noted = wait_until(cx, Duration::from_secs(10), |cx| {
+        admin(cx)
+            .read(cx)
+            .mcp_installing
+            .iter()
+            .any(|(n, _)| n == "tide_charts")
+    })
+    .await;
+    pass &= ok("Settings keeps saying so until it is listed", noted);
+    settle(cx, 400).await;
+    shoot_settings(dir, "hermes-admin-mcp-installing", cx).await;
+    // Nothing asked: added at once.
+    choose_mcp(
+        crate::views::settings::hermes::CATALOG_MENU,
+        "moon_phases",
+        cx,
+    );
+    pass &= ok(
+        "an entry asking for nothing is added at once",
+        toast("Added moon_phases", cx).await
+            && installs(&log)
+                .iter()
+                .any(|(n, env)| n == "moon_phases" && env.is_empty()),
+    );
+    pass
 }
 
 fn mcp_servers(cx: &mut App) -> Vec<(String, Vec<String>)> {
@@ -581,10 +726,12 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
                 .call::<methods::HermesMcpCatalog>(&NoParams)
         })
         .await;
+    let entries = catalog.map(|c| c.entries).unwrap_or_default();
     pass &= ok(
         "Hermes's catalog offers ready-made servers",
-        catalog.is_ok_and(|c| !c.entries.is_empty()),
+        !entries.is_empty(),
     );
+    pass &= catalog_values(&entries, inputs, dir, cx).await;
     settle(cx, 400).await;
     let with_mcp = shoot_settings(dir, "hermes-admin-settings-mcp", cx).await;
     pass &= ok(
@@ -863,6 +1010,8 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     .await;
     pass &= ok("Delete… (asked) deletes it", deleted);
 
+    pass &= notify_me_kept(inputs, &a_url, &a_token, dir, cx).await;
+
     // ── `/` in a Hermes chat lists the agent's skills ────────────────
     let herb = cx.update(|cx| sessions(cx).into_iter().find(|s| s.title == A_CHAT));
     if let Some(herb) = herb {
@@ -968,5 +1117,142 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     })
     .await;
     pass &= ok("one connection left, still in use", one);
+    pass
+}
+
+/// Gateway A's jobs over its REST (`/usr/bin/curl`, as a phone or the web
+/// would have made them): `method` on `path`, with `body`.
+fn gateway(
+    url: &str,
+    token: &str,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> Option<serde_json::Value> {
+    let mut command = std::process::Command::new("/usr/bin/curl");
+    command
+        .args(["-s", "-m", "15", "-X", method])
+        .arg("-H")
+        .arg(format!("Authorization: Bearer {token}"))
+        .args(["-H", "content-type: application/json"]);
+    if let Some(body) = body {
+        command.args(["-d", body]);
+    }
+    let out = command
+        .arg(format!("{}{path}", url.trim_end_matches('/')))
+        .output()
+        .ok()?;
+    serde_json::from_slice(&out.stdout).ok()
+}
+
+/// A phone's Notify Me (`conduit` among a job's targets) survives an edit
+/// made here: the editor neither lists nor drops it.
+async fn notify_me_kept(
+    inputs: &E2eInputs,
+    url: &str,
+    token: &str,
+    dir: &Path,
+    cx: &mut AsyncApp,
+) -> bool {
+    let _ = inputs;
+    const NOTIFY: &str = "Seed watering reminder";
+    let made = gateway(
+        url,
+        token,
+        "POST",
+        "/api/cron/jobs",
+        Some(
+            r#"{"name":"Seed watering reminder","prompt":"Remind me to water the seed trays.","schedule":"0 7 * * *","deliver":"local,conduit"}"#,
+        ),
+    );
+    let Some(id) = made
+        .as_ref()
+        .and_then(|v| v["id"].as_str())
+        .map(String::from)
+    else {
+        return ok("a job with Notify Me made on the gateway", false);
+    };
+    cx.update(|cx| admin(cx).update(cx, |a, cx| a.refresh_jobs(cx)));
+    let listed = wait_until(cx, Duration::from_secs(30), |cx| {
+        jobs(cx).iter().any(|j| j.name.as_deref() == Some(NOTIFY))
+    })
+    .await;
+    let mut pass = ok("the phone's job is listed", listed);
+    let job = cx.update(|cx| {
+        jobs(cx)
+            .into_iter()
+            .find(|j| j.name.as_deref() == Some(NOTIFY))
+    });
+    pass &= ok(
+        "its Notify Me is not one of the targets shown",
+        job.as_ref().is_some_and(|j| {
+            j.deliver.iter().any(|d| d.kind == "local")
+                && !j.deliver.iter().any(|d| d.target == "conduit")
+        }),
+    );
+    in_main(cx, move |mw, window, cx| {
+        crate::views::hermes_job::open(&mw.stores.clone(), job, window, cx)
+    });
+    pass &= ok("its editor opens", wait_sheet::<HermesJobSheet>(cx).await);
+    let options = wait_until(cx, Duration::from_secs(20), |cx| {
+        sheet::current::<HermesJobSheet>(cx).is_some_and(|s| s.read(cx).options.is_some())
+    })
+    .await;
+    pass &= ok(
+        "the delivery list offers no Conduit target",
+        options
+            && cx.update(|cx| {
+                sheet::current::<HermesJobSheet>(cx).is_some_and(|s| {
+                    s.read(cx)
+                        .options
+                        .as_ref()
+                        .is_some_and(|o| !o.options.iter().any(|t| t.target == "conduit"))
+                })
+            }),
+    );
+    in_sheet::<HermesJobSheet, _>(cx, |s, w, cx| {
+        s.prompt.update(cx, |p, cx| {
+            p.set_value(
+                "Remind me to water the seed trays and the basil.".to_string(),
+                w,
+                cx,
+            )
+        });
+        cx.notify();
+    });
+    settle(cx, 300).await;
+    shoot_sheet(dir, "hermes-admin-job-notify-me", cx).await;
+    in_sheet::<HermesJobSheet, _>(cx, |s, w, cx| s.save(w, cx));
+    pass &= ok("Save closes the editor", sheet_gone(cx).await);
+    let stored = wait_until(cx, Duration::from_secs(20), |cx| {
+        jobs(cx)
+            .iter()
+            .any(|j| j.name.as_deref() == Some(NOTIFY) && j.prompt.contains("basil"))
+    })
+    .await;
+    let on_gateway = gateway(url, token, "GET", "/api/cron/jobs", None).and_then(|v| {
+        v.as_array()?
+            .iter()
+            .find(|j| j["id"] == id.as_str())
+            .map(|j| {
+                (
+                    j["deliver"].as_str().unwrap_or_default().to_string(),
+                    j["prompt"].clone(),
+                )
+            })
+    });
+    pass &= ok(
+        "the edit is saved, and Hermes still delivers to Conduit",
+        stored
+            && on_gateway.as_ref().is_some_and(|(deliver, prompt)| {
+                deliver.split(',').any(|t| t.trim() == "conduit")
+                    && prompt.as_str().is_some_and(|p| p.contains("basil"))
+            }),
+    );
+    if !pass {
+        println!("SMOKE note notify-me job on the gateway: {on_gateway:?}");
+    }
+    gateway(url, token, "DELETE", &format!("/api/cron/jobs/{id}"), None);
+    cx.update(|cx| admin(cx).update(cx, |a, cx| a.refresh_jobs(cx)));
     pass
 }

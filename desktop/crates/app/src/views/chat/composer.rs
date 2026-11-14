@@ -2663,6 +2663,22 @@ impl ChatComposer {
         self.text_changed(cx);
     }
 
+    /// Words the core gives this chat (`composer.insertText`), at the
+    /// caret; `only_into_empty` words only while the field holds nothing,
+    /// so a draft begun meanwhile is left as it is.
+    pub fn take_given_text(
+        &mut self,
+        text: &str,
+        only_into_empty: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if text.is_empty() || (only_into_empty && !self.text(cx).trim().is_empty()) {
+            return;
+        }
+        self.insert_at_caret(text, window, cx);
+    }
+
     /// MCP Content › Insert: the prompt's or resource's text, at the caret.
     pub(crate) fn insert_text(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         let at = self.input.read(cx).cursor();

@@ -1,13 +1,18 @@
 //! The MCP server sheets of Settings › Hermes: Add MCP Server (a server of
 //! the user's own, at a web address or run as a command, with an optional
-//! API key) and an existing server's API key. The phone's page asks the
-//! same in dialogs; a key is sent once and never kept on this Mac.
+//! API key), an existing server's API key, and a catalog server's values
+//! (each one it asks for, typed hidden, the optional ones marked). The
+//! phone's pages ask the same; a key or value is sent once and never kept
+//! on this Mac.
 
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::views::kit::{Button, Segment, Segmented, grouped_section};
-use conduit_protocol::{HermesMcpAdd, HermesMcpApiKey, NoticeLevel, methods};
+use conduit_protocol::{
+    HermesMcpAdd, HermesMcpApiKey, HermesMcpCatalogAdd, HermesMcpCatalogEntryDto, NoticeLevel,
+    methods,
+};
 use gpui_kit::component::input::{InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -38,6 +43,19 @@ pub fn open_key(stores: &Stores, name: &str, window: &mut Window, cx: &mut App) 
     let name = name.to_string();
     sheet::open(window, WIDTH, cx, move |w, cx| {
         McpKeySheet::new(stores, name, w, cx)
+    });
+}
+
+/// Opens catalog entry `entry`'s values sheet on `window` (Settings).
+pub fn open_catalog(
+    stores: &Stores,
+    entry: HermesMcpCatalogEntryDto,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let stores = stores.clone();
+    sheet::open(window, WIDTH, cx, move |w, cx| {
+        CatalogSheet::new(stores, entry, w, cx)
     });
 }
 
@@ -568,6 +586,272 @@ impl Render for McpKeySheet {
     }
 }
 
+/// A catalog server's values: one hidden field for each it asks for, the
+/// required ones needed before Add.
+pub struct CatalogSheet {
+    stores: Stores,
+    pub entry: HermesMcpCatalogEntryDto,
+    pub fields: Vec<Entity<InputState>>,
+    pub busy: bool,
+    pub error: Option<String>,
+    /// The connection in use when the sheet opened: the values go to its
+    /// server, or nowhere.
+    opened: Opened,
+    _subscriptions: Vec<Subscription>,
+}
+
+impl CatalogSheet {
+    pub fn new(
+        stores: Stores,
+        entry: HermesMcpCatalogEntryDto,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let l = cx.l10n().clone();
+        let fields: Vec<Entity<InputState>> = entry
+            .credentials
+            .iter()
+            .map(|c| {
+                let hint = if c.required {
+                    l.desktop_required_placeholder()
+                } else {
+                    l.desktop_optional()
+                };
+                forms::input(hint, true, window, cx)
+            })
+            .collect();
+        let subscriptions = fields
+            .iter()
+            .map(|input| {
+                cx.subscribe_in(
+                    input,
+                    window,
+                    |this: &mut Self, _, e: &InputEvent, window, cx| match e {
+                        InputEvent::PressEnter { .. } if this.can_add(cx) => this.add(window, cx),
+                        InputEvent::Change => {
+                            this.error = None;
+                            cx.notify();
+                        }
+                        _ => {}
+                    },
+                )
+            })
+            .collect();
+        if let Some(first) = fields.first() {
+            first.update(cx, |i, cx| i.focus(window, cx));
+        }
+        let opened = stores.hermes_admin.read(cx).opened();
+        Self {
+            stores,
+            entry,
+            fields,
+            busy: false,
+            error: None,
+            opened,
+            _subscriptions: subscriptions,
+        }
+    }
+
+    /// Every required value is given.
+    pub fn can_add(&self, cx: &App) -> bool {
+        !self.busy
+            && self
+                .entry
+                .credentials
+                .iter()
+                .zip(&self.fields)
+                .all(|(c, f)| !c.required || !forms::raw(f, cx).trim().is_empty())
+    }
+
+    fn typed(&self, cx: &App) -> bool {
+        self.fields.iter().any(|f| !forms::raw(f, cx).is_empty())
+    }
+
+    fn clear(&self, window: &mut Window, cx: &mut Context<Self>) {
+        for field in &self.fields {
+            field.update(cx, |i, cx| i.set_value("", window, cx));
+        }
+    }
+
+    pub fn add(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        if !self.can_add(cx) {
+            self.error = Some(cx.l10n().hermes_mcp_fill_required());
+            cx.notify();
+            return;
+        }
+        if !self.stores.hermes_admin.read(cx).still_in_use(&self.opened) {
+            self.error = Some(cx.l10n().hermes_mcp_action_failed());
+            cx.notify();
+            return;
+        }
+        let name = self.entry.name.clone();
+        let oauth = self.entry.oauth;
+        // Each value as typed: the daemon trims them and leaves out the
+        // empty optional ones, as the phone does.
+        let credentials = self
+            .entry
+            .credentials
+            .iter()
+            .zip(&self.fields)
+            .map(|(c, f)| (c.name.clone(), forms::raw(f, cx)))
+            .collect();
+        let call = self
+            .stores
+            .connection
+            .read(cx)
+            .rpc()
+            .call::<methods::HermesMcpAddFromCatalog>(&HermesMcpCatalogAdd {
+                name: name.clone(),
+                credentials,
+                connection: self.opened.connection.clone(),
+            });
+        // Its answer is taken in the order it was asked.
+        let ticket = self.stores.hermes_admin.update(cx, |a, _| a.ask_mcp());
+        self.busy = true;
+        self.error = None;
+        cx.notify();
+        let _ = window;
+        cx.spawn_in(window, async move |this: WeakEntity<Self>, cx| {
+            let result = call.await;
+            let _ = this.update_in(cx, |s, window, cx| {
+                s.busy = false;
+                match result {
+                    Ok(added) => {
+                        s.clear(window, cx);
+                        sheet::dismiss(cx);
+                        crate::views::settings::hermes::catalog_added(
+                            &s.stores, &name, oauth, added, ticket, cx,
+                        );
+                    }
+                    Err(e) => {
+                        log::info!("hermes.mcp.addFromCatalog: {e}");
+                        let l = cx.l10n().clone();
+                        s.error = Some(
+                            if e.args.get("reason").map(String::as_str) == Some("missingCredential")
+                            {
+                                l.hermes_mcp_fill_required()
+                            } else {
+                                l.hermes_mcp_action_failed()
+                            },
+                        );
+                        // Asked again from the start, as on a phone; and
+                        // listed again even when a step after the install
+                        // failed.
+                        s.clear(window, cx);
+                        s.stores.hermes_admin.update(cx, |a, cx| a.refresh_mcp(cx));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+}
+
+impl SheetBody for CatalogSheet {
+    /// The Add out (set when it is asked, cleared when it lands).
+    fn busy(&self, _: &App) -> bool {
+        self.busy
+    }
+
+    /// Values typed, or an Add still out: Quit asks first.
+    fn unsaved(&self, cx: &App) -> bool {
+        self.busy || self.typed(cx)
+    }
+
+    fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        if self.typed(cx) {
+            discard(window, cx);
+        } else {
+            sheet::dismiss(cx);
+        }
+    }
+
+    fn label(&self, cx: &App) -> SharedString {
+        let _ = cx;
+        self.entry.name.clone().into()
+    }
+
+    fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let l = cx.l10n().clone();
+        let view = cx.entity().downgrade();
+        let cancel = view.clone();
+        Some(
+            forms::form_buttons(vec![
+                Button::new("hermes-mcp-catalog-cancel", l.cancel())
+                    .on_click(Rc::new(move |_, window, cx| {
+                        let _ = cancel.update(cx, |v, cx| v.cancel(window, cx));
+                    }))
+                    .into_any_element(),
+                Button::new("hermes-mcp-catalog-add", l.hermes_mcp_add())
+                    .primary()
+                    .disabled(!self.can_add(cx))
+                    .on_click(Rc::new(move |_, window, cx| {
+                        let _ = view.update(cx, |v, cx| v.add(window, cx));
+                    }))
+                    .into_any_element(),
+            ])
+            .into_any_element(),
+        )
+    }
+}
+
+impl Render for CatalogSheet {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let l = cx.l10n().clone();
+        let t = cx.conduit().clone();
+        let rows: Vec<AnyElement> = self
+            .entry
+            .credentials
+            .iter()
+            .zip(&self.fields)
+            .map(|(c, f)| {
+                let label = c.prompt.clone().unwrap_or_else(|| c.name.clone());
+                let help = if c.required {
+                    l.hermes_mcp_value_required(&c.name)
+                } else {
+                    l.hermes_mcp_value_optional(&c.name)
+                };
+                forms::field(label, f, Some(help.into()), None, window, cx).into_any_element()
+            })
+            .collect();
+        div()
+            .id("hermes-mcp-catalog-sheet")
+            .role(Role::Form)
+            .aria_label(SharedString::from(self.entry.name.clone()))
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap(px(16.))
+            .child(title(self.entry.name.clone(), cx))
+            .when(!self.entry.description.trim().is_empty(), |d| {
+                d.child(
+                    div()
+                        .id("hermes-mcp-catalog-description")
+                        .text_size(px(t.metrics.control))
+                        .line_height(relative(1.35))
+                        .text_color(t.roles.text_subtle)
+                        .child(SharedString::from(self.entry.description.clone())),
+                )
+            })
+            .child(grouped_section(
+                None,
+                rows,
+                Some(l.hermes_mcp_keeps_values(&self.entry.name).into()),
+                cx,
+            ))
+            .when_some(self.error.clone(), |d, e| {
+                d.child(forms::form_error("hermes-mcp-catalog-error", e, cx))
+            })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use gpui_kit::VisualTestContext;
@@ -632,6 +916,76 @@ mod tests {
             daemon.calls::<methods::HermesMcpSetApiKey>().is_empty(),
             "the key went to the connection in use now"
         );
+    }
+
+    /// Values typed into a catalog server's sheet opened for one
+    /// connection are never sent once another is in use.
+    #[gpui_kit::test]
+    fn catalog_values_go_only_to_the_connection_they_were_typed_for(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let (daemon, stores, vcx) = bench(cx);
+        use_connection(&stores, vcx, "a");
+        let entry: HermesMcpCatalogEntryDto = serde_json::from_value(json!({
+            "name": "seed-catalogue",
+            "credentials": [{"name": "SEED_TOKEN", "required": true}],
+        }))
+        .unwrap();
+        let s = stores.clone();
+        vcx.update(|window, cx| open_catalog(&s, entry, window, cx));
+        vcx.run_until_parked();
+        on_sheet::<CatalogSheet>(vcx, |s, w, cx| {
+            s.fields[0].update(cx, |i, cx| i.set_value("demo-token", w, cx))
+        });
+        vcx.update(|_, cx| assert!(sheet::has_unsaved(cx), "Quit would drop the typed value"));
+        use_connection(&stores, vcx, "b");
+        on_sheet::<CatalogSheet>(vcx, |s, w, cx| s.add(w, cx));
+        vcx.run_until_parked();
+        assert!(
+            daemon
+                .calls::<methods::HermesMcpAddFromCatalog>()
+                .is_empty(),
+            "the values went to the connection in use now"
+        );
+    }
+
+    /// Quit while a catalog server's Add is out queues nothing: a beep, no
+    /// question (the bench would answer it No) and no quit; the sheet
+    /// stays until the Add lands.
+    #[gpui_kit::test]
+    fn quit_during_a_catalog_add_beeps_and_stays(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        use_connection(&stores, vcx, "a");
+        let entry: HermesMcpCatalogEntryDto = serde_json::from_value(json!({
+            "name": "seed-catalogue",
+            "credentials": [{"name": "SEED_TOKEN", "required": true}],
+        }))
+        .unwrap();
+        let s = stores.clone();
+        vcx.update(|window, cx| open_catalog(&s, entry, window, cx));
+        vcx.run_until_parked();
+        on_sheet::<CatalogSheet>(vcx, |s, w, cx| {
+            s.fields[0].update(cx, |i, cx| i.set_value("demo-token", w, cx))
+        });
+        let held = daemon.hold::<methods::HermesMcpAddFromCatalog>();
+        on_sheet::<CatalogSheet>(vcx, |s, w, cx| s.add(w, cx));
+        vcx.run_until_parked();
+        let quits = Rc::new(std::cell::Cell::new(0));
+        let q = quits.clone();
+        vcx.update(|_, cx| sheet::quit_with(cx, Rc::new(move |_| q.set(q.get() + 1))));
+        vcx.run_until_parked();
+        assert_eq!(
+            vcx.update(|_, cx| cx.global::<crate::shell::sheet::Beeps>().0),
+            1,
+            "Quit during the Add did not beep"
+        );
+        assert_eq!(quits.get(), 0);
+        assert!(
+            vcx.update(|_, cx| sheet::current::<CatalogSheet>(cx))
+                .is_some()
+        );
+        drop(held);
+        vcx.run_until_parked();
     }
 
     /// Remove… confirmed after another connection came into use removes
