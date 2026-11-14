@@ -101,6 +101,10 @@ Future<void> main(List<String> args) async {
   } on _Failure catch (failure) {
     stderr.writeln('smoke: FAILED: ${failure.message}');
     exitCode = 1;
+  } on Object catch (error, stack) {
+    // A timeout, a bad frame or a dropped socket fails the smoke run too.
+    stderr.writeln('smoke: FAILED: $error\n$stack');
+    exitCode = 1;
   } finally {
     userData.deleteSync(recursive: true);
     signedInData.deleteSync(recursive: true);
@@ -273,6 +277,11 @@ Future<void> _version(String binary) async {
     '--version reports protocol ${version['protocolVersion']}, '
     'expected $kConduitProtocolVersion',
   );
+  final daemonVersion = version['daemonVersion'];
+  _check(
+    daemonVersion is String && daemonVersion.isNotEmpty,
+    '--version reports no daemon version',
+  );
   stdout.writeln('smoke: --version ${jsonEncode(version)}');
 }
 
@@ -389,7 +398,9 @@ Future<void> _lifecycle(
     final text = log.readAsStringSync();
     _check(text.contains('exited cleanly'), 'log does not end cleanly');
     _check(!text.contains(token), 'the session token reached the log');
-  } on _Failure {
+  } on Object {
+    // Whatever went wrong -- a check, a timeout, a dropped socket -- the
+    // daemon goes, and what it said is shown.
     stderr.writeln(stderrLines.join('\n'));
     process.kill(ProcessSignal.sigkill);
     rethrow;
