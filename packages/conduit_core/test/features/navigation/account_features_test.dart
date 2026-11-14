@@ -228,17 +228,18 @@ void main() {
         ..has((f) => f.imageGeneration, 'imageGeneration').isFalse()
         ..has((f) => f.webSearch, 'webSearch').isFalse();
 
-      // Read once, then refreshed with no answer yet.
+      // Read once, then refreshed (as app start-up does), its answer held.
+      const allowed = <String, dynamic>{
+        'features': <String, dynamic>{
+          'image_generation': true,
+          'web_search': true,
+        },
+      };
+      final refreshed = Completer<Map<String, dynamic>>();
       var reads = 0;
       final loaded = container(
-        permissions: () => ++reads == 1
-            ? Future.value(const <String, dynamic>{
-                'features': <String, dynamic>{
-                  'image_generation': true,
-                  'web_search': true,
-                },
-              })
-            : Completer<Map<String, dynamic>>().future,
+        permissions: () =>
+            ++reads == 1 ? Future.value(allowed) : refreshed.future,
       );
       final reading = loaded.listen(userPermissionsProvider, (_, _) {});
       addTearDown(reading.close);
@@ -253,6 +254,13 @@ void main() {
       check(loaded.read(accountFeaturesProvider))
         ..has((f) => f.imageGeneration, 'imageGeneration').isFalse()
         ..has((f) => f.webSearch, 'webSearch').isFalse();
+
+      // Settled again, they count again.
+      refreshed.complete(allowed);
+      await loaded.read(userPermissionsProvider.future);
+      check(loaded.read(accountFeaturesProvider))
+        ..has((f) => f.imageGeneration, 'imageGeneration').isTrue()
+        ..has((f) => f.webSearch, 'webSearch').isTrue();
     });
 
     test('a changed answer makes a different snapshot', () async {
