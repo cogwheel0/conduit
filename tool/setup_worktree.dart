@@ -28,7 +28,7 @@ const List<String> _buildSubmodules = [
 /// Lines of a failing step's output kept for `.t3/setup-failed`.
 const int _failureTailLines = 30;
 
-final Set<Process> _running = <Process>{};
+final Launcher _launcher = Launcher();
 
 Future<void> main() async {
   final root = File.fromUri(Platform.script).parent.parent.path;
@@ -61,7 +61,7 @@ Future<void> main() async {
     signal.watch().listen((received) async {
       // The marker says nothing is writing any more, so wait for that to be
       // true before leaving it.
-      await stopAll(_running, received);
+      await _launcher.stop(received);
       finish('Cancelled by $received.');
       exit(1);
     });
@@ -83,6 +83,69 @@ Future<void> main() async {
     finish('$error');
     stderr.writeln('Setup failed: $error');
     exit(1);
+  }
+}
+
+typedef StartProcess = Future<Process> Function(
+  String executable,
+  List<String> arguments,
+  String directory,
+);
+
+Future<Process> _startProcess(
+  String executable,
+  List<String> arguments,
+  String directory,
+) => Process.start(
+  executable,
+  arguments,
+  workingDirectory: directory,
+  // flutter and dart are .bat shims on Windows.
+  runInShell: Platform.isWindows,
+);
+
+/// Starts setup's programs and can stop them all, including one that was
+/// still starting when the stop was asked for.
+class Launcher {
+  Launcher([this._start = _startProcess]);
+
+  final StartProcess _start;
+  final Set<Future<Process>> _starting = <Future<Process>>{};
+  final Set<Process> _running = <Process>{};
+  bool _stopping = false;
+
+  /// Starts a program. Throws [StateError] once [stop] has been called.
+  Future<Process> start(
+    String executable,
+    List<String> arguments,
+    String directory,
+  ) async {
+    if (_stopping) throw StateError('Setup was cancelled.');
+    final starting = _start(executable, arguments, directory);
+    _starting.add(starting);
+    try {
+      final process = await starting;
+      _running.add(process);
+      unawaited(process.exitCode.whenComplete(() => _running.remove(process)));
+      return process;
+    } finally {
+      _starting.remove(starting);
+    }
+  }
+
+  /// Stops every program with [stopAll], and allows no more to start.
+  Future<void> stop(
+    ProcessSignal signal, {
+    Duration grace = const Duration(seconds: 10),
+  }) async {
+    _stopping = true;
+    // A start already under way cannot be taken back, so wait for it to land
+    // and stop that program with the rest.
+    final landed = await Future.wait([
+      for (final starting in _starting.toList())
+        starting.then<Process?>((process) => process, onError: (_) => null),
+    ]);
+    await stopAll({..._running, ...landed.nonNulls}, signal, grace: grace);
   }
 }
 
@@ -176,14 +239,11 @@ bool _isEmpty(Directory directory) =>
 /// Throws [_StepFailed] with the end of that output when it exits non-zero.
 Future<void> _run(String directory, String step, List<String> command) async {
   stdout.writeln('[$step] ${command.join(' ')}');
-  final process = await Process.start(
+  final process = await _launcher.start(
     command.first,
     command.sublist(1),
-    workingDirectory: directory,
-    // flutter and dart are .bat shims on Windows.
-    runInShell: Platform.isWindows,
+    directory,
   );
-  _running.add(process);
   final tail = <String>[];
   Future<void> forward(Stream<List<int>> source, IOSink target) => source
       .transform(const Utf8Decoder(allowMalformed: true))
@@ -198,7 +258,6 @@ Future<void> _run(String directory, String step, List<String> command) async {
     forward(process.stderr, stderr),
   ]);
   final code = await process.exitCode;
-  _running.remove(process);
   if (code != 0) throw _StepFailed(step, code, tail);
 }
 

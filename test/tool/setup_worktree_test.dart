@@ -46,4 +46,34 @@ void main() {
       check(returned).isTrue();
     });
   });
+
+  test('stop also stops a program that was still starting', () {
+    fakeAsync((async) {
+      final starting = Completer<Process>();
+      final launcher = Launcher((_, _, _) => starting.future);
+      launcher.start('generator', const [], '.').ignore();
+      var stopped = false;
+      launcher.stop(ProcessSignal.sigterm).then((_) => stopped = true);
+      async.flushMicrotasks();
+      check(stopped).isFalse();
+
+      final late = _FakeProcess();
+      starting.complete(late);
+      async.flushMicrotasks();
+      check(late.signals).deepEquals([ProcessSignal.sigterm]);
+      check(stopped).isFalse();
+
+      late.exit.complete(-15);
+      async.flushMicrotasks();
+      check(stopped).isTrue();
+
+      Object? refused;
+      launcher.start('generator', const [], '.').catchError((Object error) {
+        refused = error;
+        return late;
+      });
+      async.flushMicrotasks();
+      check(refused).isA<StateError>();
+    });
+  });
 }
