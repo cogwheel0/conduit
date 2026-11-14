@@ -6,6 +6,7 @@ import 'package:conduit_core/features/notifications/models/app_notification.dart
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
 import 'package:conduit_core/features/notifications/services/cp1_notification_mapper.dart';
 import 'package:conduit_core/features/notifications/services/notification_event_classifier.dart';
+import 'package:conduit_core/features/notifications/services/notification_policy.dart';
 import 'package:conduit/features/notifications/services/local_notification_service.dart';
 import 'package:conduit/features/notifications/services/notification_router.dart';
 import 'package:conduit/features/notifications/services/notification_sound_service.dart';
@@ -960,5 +961,75 @@ void main() {
       final router = build(foreground: false, pushOn: {'owui:acct-1'});
       check(await router.route(_chat())).equals(NotificationSurface.system);
     });
+  });
+
+  // The phone routes with its own side effects (dedup, push cover, claims,
+  // per-account switches), but the gating it shares with other hosts must
+  // answer as decideNotification does.
+  test('routes as the shared gating chain decides', () async {
+    final variants = <String, AppSettings>{
+      'all on': allOn,
+      'master off': allOn.copyWith(notificationsEnabled: false),
+      'chats off': allOn.copyWith(notificationChatEnabled: false),
+      'channels off': allOn.copyWith(notificationChannelEnabled: false),
+      'no banner': allOn.copyWith(notificationInAppBanner: false),
+      'no system': allOn.copyWith(notificationSystem: false),
+      'no sound': allOn.copyWith(notificationSound: false),
+      'sound not always': allOn.copyWith(notificationSoundAlways: false),
+    };
+    var n = 0;
+    for (final MapEntry(key: name, value: settings) in variants.entries) {
+      for (final kind in [
+        NotificationKind.chatCompletion,
+        NotificationKind.channelMessage,
+      ]) {
+        for (final foreground in [true, false]) {
+          for (final viewing in [true, false]) {
+            for (final alert in [true, false]) {
+              final key = 'pin-${n++}';
+              final notification = kind == NotificationKind.channelMessage
+                  ? _channel(key: key)
+                  : _chat(key: key);
+              final view = !viewing
+                  ? home
+                  : kind == NotificationKind.channelMessage
+                  ? const ActiveView(
+                      openWebUiAccountId: 'acct-1',
+                      channelId: 'chan-1',
+                    )
+                  : const ActiveView(
+                      openWebUiAccountId: 'acct-1',
+                      chatId: 'chat-1',
+                    );
+              unreads.clear();
+              clearInteractions(sound);
+              final routed = await build(
+                settings: settings,
+                view: view,
+                foreground: foreground,
+              ).route(notification, alert: alert);
+              final decided = decideNotification(
+                settings: settings,
+                kind: kind,
+                foreground: foreground,
+                viewing: viewing,
+                alert: alert,
+              );
+              final row =
+                  '$name, ${kind.name}, foreground $foreground, '
+                  'viewing $viewing, alert $alert';
+              check(because: row, routed).equals(decided.surface);
+              check(because: row, unreads.isNotEmpty)
+                  .equals(decided.countsUnread);
+              if (decided.cue) {
+                verify(() => sound.play()).called(1);
+              } else {
+                verifyNever(() => sound.play());
+              }
+            }
+          }
+        }
+      }
+    }
   });
 }

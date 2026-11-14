@@ -74,10 +74,16 @@ bool notificationKindEnabled(NotificationKind kind, AppSettings settings) =>
       NotificationKind.pushTest => false,
     };
 
-/// The single gating chain for a classified notification, shared by every
-/// host. Pure: the host supplies what only it knows, whether the app is in
-/// front ([foreground]) and whether the user is looking at the notification's
-/// chat or channel ([viewing]), and performs what comes back.
+/// The gating chain for a classified notification. Pure: the host supplies
+/// what only it knows, whether the app is in front ([foreground]) and whether
+/// the user is looking at the notification's chat or channel ([viewing]), and
+/// performs what comes back.
+///
+/// The phone's router keeps these steps inline, between side effects of its
+/// own (de-duplication, push coverage, claims) and with the master toggle of
+/// the notification's account; a test of the router pins it to the answers
+/// here. The phone offers no mentions-only switch, so that setting stays off
+/// there.
 ///
 /// In order:
 /// 1. the master toggle, then the toggle for [kind];
