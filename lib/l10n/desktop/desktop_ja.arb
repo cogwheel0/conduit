@@ -705,6 +705,7 @@
   "desktopRatingNotSaved": "評価を保存できませんでした。",
   "desktopModelChip": "モデル: {name}",
   "desktopModelNotSelected": "そのモデルを選択できませんでした。",
+  "desktopModelControlNotSaved": "その設定を保存できませんでした。",
   "desktopUploadingPercent": "アップロード中… {percent}%",
   "desktopWriting": "{name}、作成中",
   "desktopSourceLabel": "出典 {index}: {title}",

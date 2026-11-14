@@ -15,6 +15,7 @@ use gpui_kit::{AnyWindowHandle, AsyncApp, Entity};
 use serde_json::Value;
 
 use super::*;
+use crate::l10n::ActiveL10n as _;
 use crate::views::settings::SettingsView;
 
 fn settings_view(cx: &mut App) -> Option<(AnyWindowHandle, Entity<SettingsView>)> {
@@ -363,6 +364,7 @@ async fn chats(dir: &Path, cx: &mut AsyncApp) -> bool {
         "the store shows what the daemon has",
         shown == after.send_on_enter,
     );
+    pass &= model_name_in_message_box(&controls, before.show_model_name_in_composer, cx).await;
 
     // Message actions: Automatic off, Regenerate up, then Reset.
     in_settings(cx, |v, _, cx| {
@@ -420,6 +422,77 @@ async fn chats(dir: &Path, cx: &mut AsyncApp) -> bool {
         });
     });
     settle(cx, 600).await;
+    pass
+}
+
+/// The main window's empty message box, as it reads now.
+fn placeholder(cx: &mut App) -> Option<(String, Option<String>)> {
+    let pane = super::chat::pane(cx)?;
+    let pane = pane.read(cx);
+    let shown = pane.composer.read(cx).shown_placeholder().to_string();
+    let model = pane
+        .composer_store
+        .read(cx)
+        .selected_model()
+        .map(|m| m.name.clone());
+    Some((shown, model))
+}
+
+/// Show Model Name in Message Box (mobile's #1053): off by default; on, the
+/// empty message box asks the selected model by name; off again, the app's
+/// own words come back.
+async fn model_name_in_message_box(controls: &[String], default: bool, cx: &mut AsyncApp) -> bool {
+    let mut pass = ok(
+        "Chat has Show Model Name in Message Box, off by default",
+        has(controls, "Switch", "Show Model Name in Message Box") && !default,
+    );
+    let plain = cx.update(|cx| cx.l10n().message_hint_text());
+    let before = cx.update(placeholder);
+    pass &= ok(
+        &format!("off, the message box says the app's words ({before:?})"),
+        before.as_ref().is_some_and(|(shown, _)| *shown == plain),
+    );
+    let set = |on: bool, cx: &mut AsyncApp| {
+        in_settings(cx, move |_, _, cx| {
+            let app = cx.global::<AppState>().stores.app_settings.clone();
+            app.update(cx, |s, cx| {
+                s.set(
+                    conduit_protocol::AppSettingsPatch {
+                        show_model_name_in_composer: Some(on),
+                        ..Default::default()
+                    },
+                    cx,
+                )
+            });
+        });
+    };
+    set(true, cx);
+    let named = wait_until(cx, Duration::from_secs(10), |cx| {
+        placeholder(cx).is_some_and(|(shown, model)| {
+            let want = model
+                .as_deref()
+                .and_then(crate::stores::composer::placeholder_model_name)
+                .map(|n| cx.l10n().message_hint_text_for_model(&n));
+            want.is_some_and(|w| shown == w && w.starts_with("Ask "))
+        })
+    })
+    .await;
+    let persisted = daemon_settings(cx)
+        .await
+        .is_some_and(|s| s.show_model_name_in_composer);
+    pass &= ok(
+        &format!(
+            "on, it persists and the message box asks the model ({:?})",
+            cx.update(placeholder)
+        ),
+        named && persisted,
+    );
+    set(false, cx);
+    let back = wait_until(cx, Duration::from_secs(10), move |cx| {
+        placeholder(cx).is_some_and(|(shown, _)| shown == plain)
+    })
+    .await;
+    pass &= ok("off again, the app's words come back", back);
     pass
 }
 

@@ -705,6 +705,7 @@
   "desktopRatingNotSaved": "Ваша оценка не сохранена.",
   "desktopModelChip": "Модель: {name}",
   "desktopModelNotSelected": "Не удалось выбрать эту модель.",
+  "desktopModelControlNotSaved": "Не удалось сохранить этот параметр.",
   "desktopUploadingPercent": "Загрузка… {percent} %",
   "desktopWriting": "{name}, пишет",
   "desktopSourceLabel": "Источник {index}: {title}",

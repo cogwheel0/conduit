@@ -1719,6 +1719,8 @@
   "@desktopModelChip": {"description": "Accessibility label of the model picker in the composer.", "placeholders": {"name": {"type": "String"}}},
   "desktopModelNotSelected": "That model couldn't be selected.",
   "@desktopModelNotSelected": {"description": "Toast when choosing a model in the picker failed."},
+  "desktopModelControlNotSaved": "That setting couldn't be saved.",
+  "@desktopModelControlNotSaved": {"description": "Toast when picking an option of a model's own control (a coding agent's reasoning effort or service tier) in the model picker failed; the pick is put back."},
   "desktopUploadingPercent": "Uploading… {percent}%",
   "@desktopUploadingPercent": {"description": "Under an attachment in the composer while it uploads; {percent} is 0 to 100.", "placeholders": {"percent": {"type": "int"}}},
   "desktopWriting": "{name}, writing",

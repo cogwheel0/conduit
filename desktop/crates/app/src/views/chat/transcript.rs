@@ -309,7 +309,23 @@ impl Transcript {
                 t.scrolled(at_top, cx)
             });
         });
-        let subscriptions = vec![cx.observe(&store, |this, _, cx| this.sync(cx))];
+        let mut subscriptions = vec![cx.observe(&store, |this, _, cx| this.sync(cx))];
+        // A chat a coding agent answers offers no Regenerate or Edit: the
+        // rows follow the composer's word on it.
+        if let Some(composer) = host
+            .composer
+            .as_ref()
+            .and_then(gpui_kit::WeakEntity::upgrade)
+        {
+            let mut agent_chat = composer.read(cx).options.agent_chat;
+            subscriptions.push(cx.observe(&composer, move |_, composer, cx| {
+                let now = composer.read(cx).options.agent_chat;
+                if now != agent_chat {
+                    agent_chat = now;
+                    cx.notify();
+                }
+            }));
+        }
         let mut this = Self {
             store,
             host,
@@ -375,6 +391,7 @@ impl Transcript {
             actions: self.action_prefs.clone(),
             reading: self.reading.clone(),
             hermes: store.hermes().is_some(),
+            agent_chat: self.host.agent_chat(cx),
         }
     }
 

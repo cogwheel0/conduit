@@ -470,6 +470,7 @@ impl ChatPane {
                         l10n.desktop_attachment_failed(name)
                     }
                     ComposerEvent::ModelNotSelected(_) => l10n.desktop_model_not_selected(),
+                    ComposerEvent::ControlNotSaved(_) => l10n.desktop_model_control_not_saved(),
                     // The composer shows its drafts itself.
                     ComposerEvent::DraftSwitched | ComposerEvent::DraftLoaded { .. } => return,
                 };
@@ -1884,8 +1885,17 @@ impl ChatPane {
         cx.notify();
     }
 
+    /// A coding agent answers the open chat (`ComposerOptions.agentChat`):
+    /// no answer is run again and no message edited.
+    pub fn agent_chat(&self, cx: &App) -> bool {
+        self.composer_store.read(cx).options.agent_chat
+    }
+
     /// Chat › Regenerate: the newest answer again.
     pub fn regenerate_last(&mut self, cx: &mut Context<Self>) {
+        if self.agent_chat(cx) {
+            return;
+        }
         if let Some(chat) = &self.chat {
             chat.store.update(cx, |s, cx| {
                 if let Some(id) = s.last_answer_id() {

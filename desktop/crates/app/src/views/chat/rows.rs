@@ -115,21 +115,28 @@ impl RowHost {
             .unwrap_or_default()
     }
 
-    /// `model` (an id) as the picker names it, else as it is.
+    /// `model` (an id) as the picker names it (a coding agent as "Codex ·
+    /// gpt-5.1", even once its terminal no longer offers it), else as it is.
     pub fn model_name(&self, model: &str, cx: &App) -> String {
         self.composer
             .as_ref()
             .and_then(WeakEntity::upgrade)
             .and_then(|c| {
-                c.read(cx)
-                    .models
-                    .as_ref()?
-                    .models
-                    .iter()
-                    .find(|m| m.id == model)
+                let list = c.read(cx).models.as_ref()?;
+                crate::stores::composer::find_model(list, model)
                     .map(|m| m.name.clone())
+                    .or_else(|| list.agent_names.get(model).cloned())
             })
             .unwrap_or_else(|| model.to_string())
+    }
+
+    /// The chat talks to a coding agent (the composer's
+    /// `ComposerOptions.agentChat`).
+    pub fn agent_chat(&self, cx: &App) -> bool {
+        self.composer
+            .as_ref()
+            .and_then(WeakEntity::upgrade)
+            .is_some_and(|c| c.read(cx).options.agent_chat)
     }
 }
 
@@ -152,6 +159,22 @@ pub struct RowFlags {
     /// A Hermes session's chat: its answers are not rated, nor run again
     /// with another model (the agent is the model).
     pub hermes: bool,
+    /// A coding agent answers the chat (`ComposerOptions.agentChat`): Open
+    /// WebUI takes only a new message at its end, so no answer is run
+    /// again (Regenerate, Retry) and no message is edited.
+    pub agent_chat: bool,
+}
+
+impl RowFlags {
+    /// An answer may be run again (Regenerate, Retry, Regenerate With).
+    pub fn can_regenerate(&self) -> bool {
+        self.can_branch && !self.agent_chat
+    }
+
+    /// A sent message may be edited and sent again.
+    pub fn can_edit(&self) -> bool {
+        self.can_branch && !self.agent_chat
+    }
 }
 
 /// The answer's More menu: rate it (`turns.rate`). Carries the chat's
@@ -268,11 +291,11 @@ impl AnswerActions {
             if pane && !item.streaming && !answer_markdown(item).trim().is_empty() {
                 available.push(A::ReadAloud);
             }
-            if flags.can_branch {
+            if flags.can_regenerate() {
                 available.push(A::Regenerate);
             }
         }
-        if item.retry_without_effort && flags.can_branch {
+        if item.retry_without_effort && flags.can_regenerate() {
             available.push(A::RetryWithoutEffort);
         }
         let mergeable = item.columns.len() > 1 && item.mergeable.len() > 1;
@@ -304,7 +327,7 @@ impl AnswerActions {
         Self {
             available,
             rate: error.is_none() && flags.can_branch && current && !flags.hermes,
-            regenerate_with: error.is_none() && flags.can_branch && !flags.hermes,
+            regenerate_with: error.is_none() && flags.can_regenerate() && !flags.hermes,
             copy_markdown: error.is_none() || !answer_markdown(item).is_empty(),
             copy_error: error,
         }
@@ -2073,7 +2096,7 @@ impl UserRow {
 
     /// Edit in place: the bubble becomes a field with Cancel and Send.
     pub fn start_editing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.flags.can_branch || !self.item.stored {
+        if !self.flags.can_edit() || !self.item.stored {
             return;
         }
         let text = self.item.text.clone();
@@ -2270,7 +2293,7 @@ impl Render for UserRow {
                     copy_text(&copy_value, &pane, cx)
                 })),
             )
-            .when(self.flags.can_branch && item.stored, |d| {
+            .when(self.flags.can_edit() && item.stored, |d| {
                 d.child(
                     small_action(
                         format!("edit-{key}"),

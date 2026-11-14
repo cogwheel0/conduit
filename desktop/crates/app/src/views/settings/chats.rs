@@ -81,7 +81,7 @@ impl ChatsPane {
     pub fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let rpc = self.stores.connection.read(cx).rpc();
         let pills = rpc.call::<methods::SettingsQuickPills>(&NoParams);
-        let models = rpc.call::<methods::ModelsList>(&NoParams);
+        let models = rpc.call::<methods::ModelsList>(&conduit_protocol::ModelListQuery::default());
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
@@ -321,6 +321,18 @@ impl ChatsPane {
                 s.show_composer_notes_button,
                 |v| AppSettingsPatch {
                     show_composer_notes_button: Some(v),
+                    ..Default::default()
+                },
+                cx,
+            ),
+            // Mobile's #1053: the empty message box names the selected model.
+            self.switch_row(
+                "model-name-in-composer",
+                l10n.show_model_name_in_composer(),
+                Some(l10n.show_model_name_in_composer_description()),
+                s.show_model_name_in_composer,
+                |v| AppSettingsPatch {
+                    show_model_name_in_composer: Some(v),
                     ..Default::default()
                 },
                 cx,

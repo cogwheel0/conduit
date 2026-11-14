@@ -705,6 +705,7 @@
   "desktopRatingNotSaved": "Votre évaluation n’a pas été enregistrée.",
   "desktopModelChip": "Modèle : {name}",
   "desktopModelNotSelected": "Impossible de sélectionner ce modèle.",
+  "desktopModelControlNotSaved": "Ce réglage n’a pas pu être enregistré.",
   "desktopUploadingPercent": "Envoi… {percent} %",
   "desktopWriting": "{name}, en cours d’écriture",
   "desktopSourceLabel": "Source {index} : {title}",

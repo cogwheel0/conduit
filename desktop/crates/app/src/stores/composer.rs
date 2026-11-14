@@ -148,6 +148,9 @@ pub struct ComposerPrefs {
     pub show_notes_button: bool,
     /// `temporaryChatByDefault`: a new chat starts temporary.
     pub temporary_by_default: bool,
+    /// `showModelNameInComposer`: the empty message box names the selected
+    /// model ("Ask Kestrel 8B"). Off by default, as on mobile.
+    pub show_model_name: bool,
 }
 
 impl Default for ComposerPrefs {
@@ -157,6 +160,7 @@ impl Default for ComposerPrefs {
             quick_pills: vec![],
             show_notes_button: true,
             temporary_by_default: false,
+            show_model_name: false,
         }
     }
 }
@@ -169,6 +173,7 @@ impl ComposerPrefs {
             quick_pills: settings.quick_pills.clone(),
             show_notes_button: settings.show_composer_notes_button,
             temporary_by_default: settings.temporary_chat_by_default,
+            show_model_name: settings.show_model_name_in_composer,
         }
     }
 }
@@ -394,6 +399,8 @@ impl Attachment {
 pub enum ComposerEvent {
     /// A file could not be added or uploaded.
     AttachmentFailed { name: String },
+    /// `models.setControl` was refused: the pick was put back.
+    ControlNotSaved(String),
     /// `models.select` was refused.
     ModelNotSelected(String),
     /// Another chat's draft is now the composer's: what it showed goes.
@@ -486,6 +493,11 @@ pub struct ComposerStore {
     /// Ollama model's thinking level) and Hermes' Fast tier.
     pub model_options: Option<conduit_protocol::ModelOptionsDto>,
     _model_options: Option<Task<()>>,
+    /// The selected model's own controls (a coding agent's reasoning
+    /// effort or service tier: `models.controls`), drawn as rows under the
+    /// picker's list.
+    pub model_controls: Option<conduit_protocol::ModelControlList>,
+    _model_controls: Option<Task<()>>,
     /// The draft the composer holds, and what was last kept of it.
     draft: Option<DraftKey>,
     /// A new chat's folder, kept apart from [`Self::draft`]: a temporary
@@ -564,6 +576,8 @@ impl ComposerStore {
             _draft_model: None,
             model_options: None,
             _model_options: None,
+            model_controls: None,
+            _model_controls: None,
             draft: None,
             new_chat_folder: None,
             draft_saved: String::new(),
@@ -627,14 +641,25 @@ impl ComposerStore {
         if let Some(model) = self
             .draft_model
             .as_deref()
-            .and_then(|id| list.models.iter().find(|m| m.id == id))
+            .and_then(|id| find_model(list, id))
         {
             return Some(model);
         }
         list.selected_id
             .as_deref()
-            .and_then(|id| list.models.iter().find(|m| m.id == id))
+            .and_then(|id| find_model(list, id))
             .or_else(|| list.models.first())
+    }
+
+    /// The selection the daemon holds is not one this chat offers (a coding
+    /// agent where none can answer): the composer shows another model, and
+    /// the next turn must name it rather than go to the selection.
+    fn selection_hidden(&self) -> bool {
+        self.models.as_ref().is_some_and(|list| {
+            list.selected_id
+                .as_deref()
+                .is_some_and(|id| find_model(list, id).is_none())
+        })
     }
 
     /// The model the next message goes to: the `@` one, else the selected.
@@ -644,7 +669,7 @@ impl ComposerStore {
 
     /// `models.list`, then `composer.options` (which depends on it).
     pub fn refresh_models(&mut self, cx: &mut Context<Self>) {
-        let call = self.rpc.call::<methods::ModelsList>(&NoParams);
+        let call = self.rpc.call::<methods::ModelsList>(&self.list_query());
         let scope = self.scope;
         self._models = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -665,6 +690,83 @@ impl ComposerStore {
     /// is saved on it.
     fn chat_id(&self) -> Option<String> {
         self.draft.as_ref().and_then(|k| k.chat_id.clone())
+    }
+
+    /// What `models.list` lists for: the open chat, or a new one (a chat
+    /// that keeps no draft is a temporary one, where no coding agent
+    /// answers).
+    fn list_query(&self) -> conduit_protocol::ModelListQuery {
+        conduit_protocol::ModelListQuery {
+            chat_id: self.chat_id(),
+            temporary: self.draft.is_none(),
+        }
+    }
+
+    /// `models.controls` for the selected model: none for a model without.
+    pub fn refresh_model_controls(&mut self, cx: &mut Context<Self>) {
+        let Some(model_id) = self.selected_model().map(|m| m.id.clone()) else {
+            self.model_controls = None;
+            return;
+        };
+        let call =
+            self.rpc
+                .call::<methods::ModelsControls>(&conduit_protocol::ModelControlsQuery {
+                    model_id: Some(model_id.clone()),
+                    chat_id: self.chat_id(),
+                });
+        self._model_controls = Some(cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let result = call.await;
+                let _ = this.update(cx, |s, cx| match result {
+                    Ok(list) if list.model_id.as_deref() == Some(model_id.as_str()) => {
+                        s.model_controls = Some(list);
+                        cx.notify();
+                    }
+                    Ok(_) => {}
+                    Err(e) => log::info!("models.controls: {e}"),
+                });
+            },
+        ));
+    }
+
+    /// Picks `value` for the selected model's control `key`, as its own
+    /// settings on the server keep it; shown at once, and put back if the
+    /// server refuses it.
+    pub fn set_model_control(&mut self, key: &str, value: &str, cx: &mut Context<Self>) {
+        let Some(model_id) = self.selected_model().map(|m| m.id.clone()) else {
+            return;
+        };
+        let before = self.model_controls.clone();
+        if let Some(list) = &mut self.model_controls
+            && let Some(control) = list.controls.iter_mut().find(|c| c.key == key)
+        {
+            control.value = Some(value.to_string());
+        }
+        cx.notify();
+        let call = self
+            .rpc
+            .call::<methods::ModelsSetControl>(&conduit_protocol::SetModelControl {
+                model_id: Some(model_id),
+                chat_id: self.chat_id(),
+                key: key.to_string(),
+                value: Some(value.to_string()),
+            });
+        self._model_controls = Some(cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let result = call.await;
+                let _ = this.update(cx, |s, cx| {
+                    match result {
+                        Ok(list) => s.model_controls = Some(list),
+                        Err(e) => {
+                            log::warn!("models.setControl: {e}");
+                            s.model_controls = before;
+                            cx.emit(ComposerEvent::ControlNotSaved(e.to_string()));
+                        }
+                    }
+                    cx.notify();
+                });
+            },
+        ));
     }
 
     /// `models.options` for the selected model.
@@ -816,7 +918,7 @@ impl ComposerStore {
     fn set_models(&mut self, list: ModelList, cx: &mut Context<Self>) {
         // An `@` model that is no longer offered is dropped.
         if let Some(m) = &self.mention
-            && !list.models.iter().any(|o| o.id == m.id)
+            && find_model(&list, &m.id).is_none()
         {
             self.mention = None;
         }
@@ -833,6 +935,13 @@ impl ComposerStore {
         if selected != shown {
             self.refresh_model_options(cx);
         }
+        let controls = self
+            .model_controls
+            .as_ref()
+            .and_then(|c| c.model_id.clone());
+        if selected != controls {
+            self.refresh_model_controls(cx);
+        }
     }
 
     /// `models.select`: the daemon keeps it with the account.
@@ -846,9 +955,10 @@ impl ComposerStore {
             list.selected_id = Some(id.to_string());
         }
         cx.notify();
-        let call = self
-            .rpc
-            .call::<methods::ModelsSelect>(&SelectModel { id: id.to_string() });
+        let call = self.rpc.call::<methods::ModelsSelect>(&SelectModel {
+            id: id.to_string(),
+            chat_id: self.chat_id(),
+        });
         self._models = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let result = call.await;
@@ -873,7 +983,11 @@ impl ComposerStore {
         if self.channel.is_some() {
             return;
         }
-        let call = self.rpc.call::<methods::ComposerOptions>(&NoParams);
+        let call =
+            self.rpc
+                .call::<methods::ComposerOptions>(&conduit_protocol::ComposerOptionsQuery {
+                    chat_id: self.chat_id(),
+                });
         let scope = self.scope;
         let model_id = self.selected_model().map(|m| m.id.clone());
         let librechat = self
@@ -1586,7 +1700,12 @@ impl ComposerStore {
                 .mention
                 .as_ref()
                 .map(|m| m.id.clone())
-                .or_else(|| self.offered_draft_model()),
+                .or_else(|| self.offered_draft_model())
+                .or_else(|| {
+                    self.selection_hidden()
+                        .then(|| self.selected_model().map(|m| m.id.clone()))
+                        .flatten()
+                }),
             folder_id: new_chat.then(|| self.new_chat_folder.clone()).flatten(),
             chat_params: (new_chat && has_params(&self.draft_params))
                 .then(|| self.draft_params.clone()),
@@ -1877,6 +1996,11 @@ impl ComposerStore {
             self.resolve_draft_model(folder, cx);
         }
         cx.emit(ComposerEvent::DraftSwitched);
+        // The chat's coding agents, and whether it is one's (Regenerate and
+        // Edit follow it), are the new chat's.
+        if self.models.is_some() && self.channel.is_none() {
+            self.refresh_models(cx);
+        }
         let Some(key) = key else {
             return;
         };
@@ -2086,6 +2210,8 @@ impl ComposerStore {
         self._options = None;
         self._model_options = None;
         self.model_options = None;
+        self._model_controls = None;
+        self.model_controls = None;
         self.models = None;
         self.options = ComposerOptions::default();
         self.librechat = LibreChatComposer::default();
@@ -2296,6 +2422,33 @@ pub fn mentions_in(
         .collect()
 }
 
+/// The most of a model's name the empty message box shows, in characters
+/// as a reader counts them (mobile's `kChatComposerPlaceholderMaxNameLength`).
+pub const PLACEHOLDER_NAME_MAX: usize = 24;
+
+/// `name` as the empty message box names the model (mobile's
+/// `chatComposerPlaceholder`): its runs of white space as one space, and a
+/// name past [`PLACEHOLDER_NAME_MAX`] characters cut to one less and an
+/// ellipsis. None for a name with nothing to show.
+pub fn placeholder_model_name(name: &str) -> Option<String> {
+    use unicode_segmentation::UnicodeSegmentation as _;
+    let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+    if name.is_empty() {
+        return None;
+    }
+    let graphemes: Vec<&str> = name.graphemes(true).collect();
+    if graphemes.len() <= PLACEHOLDER_NAME_MAX {
+        return Some(name);
+    }
+    let kept = graphemes[..PLACEHOLDER_NAME_MAX - 1].concat();
+    Some(format!("{}\u{2026}", kept.trim_end()))
+}
+
+/// The model `id` among the account's models, then the coding agents.
+pub fn find_model<'a>(list: &'a ModelList, id: &str) -> Option<&'a ModelSummary> {
+    list.models.iter().chain(&list.agents).find(|m| m.id == id)
+}
+
 /// How a model is named on screen: with its direct connection, when it
 /// comes from one.
 pub fn model_label(model: &ModelSummary) -> String {
@@ -2313,6 +2466,9 @@ pub fn is_apple_on_device(model: &ModelSummary) -> bool {
 }
 
 /// One row of the model picker's list.
+// A picker holds a few dozen rows for as long as it is open: boxing every
+// model to shrink the heading would buy nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum PickerRow {
     /// A group's title under More Models (an agent section).
@@ -2320,29 +2476,56 @@ pub enum PickerRow {
     Model(ModelSummary),
 }
 
-/// Whether the picker has models past its featured ones.
+/// Whether the picker has models past its featured ones (the coding agents
+/// among them).
 pub fn has_more_models(list: &ModelList) -> bool {
-    !list.featured_ids.is_empty() && list.more_sections.iter().any(|s| !s.ids.is_empty())
+    !list.featured_ids.is_empty()
+        && (list.more_sections.iter().any(|s| !s.ids.is_empty())
+            || list
+                .agents
+                .iter()
+                .any(|a| !list.featured_ids.contains(&a.id)))
 }
 
 /// The picker's rows, as mobile's sheet lays them out (the daemon says
 /// which are featured): with a `query`, every match, pinned first; without,
 /// the featured models (the pinned ones, or the first few, the default and
 /// the selected), and with `more` the rest, each titled group under its
-/// heading. A daemon that sent no layout gets every model.
-pub fn picker_rows(list: &ModelList, query: &str, more: bool) -> Vec<PickerRow> {
-    let by_id = |id: &str| list.models.iter().find(|m| m.id == id).cloned();
+/// heading. A daemon that sent no layout gets every model. The selected
+/// terminal's coding agents come last, under `agents_heading`, as mobile's
+/// sheet lists them (one pinned or selected leads with the featured ones).
+pub fn picker_rows(
+    list: &ModelList,
+    query: &str,
+    more: bool,
+    agents_heading: &str,
+) -> Vec<PickerRow> {
+    let by_id = |id: &str| find_model(list, id).cloned();
+    let agents_section = |rows: &mut Vec<PickerRow>, agents: Vec<ModelSummary>| {
+        if !agents.is_empty() {
+            rows.push(PickerRow::Heading(agents_heading.to_string()));
+            rows.extend(agents.into_iter().map(PickerRow::Model));
+        }
+    };
     if !query.trim().is_empty() || list.featured_ids.is_empty() {
-        let mut models: Vec<ModelSummary> = if query.trim().is_empty() {
-            list.models.clone()
-        } else {
-            match_models(query.trim(), &list.models, usize::MAX)
-                .into_iter()
-                .cloned()
-                .collect()
+        let matched = |models: &[ModelSummary]| -> Vec<ModelSummary> {
+            let mut found: Vec<ModelSummary> = if query.trim().is_empty() {
+                models.to_vec()
+            } else {
+                match_models(query.trim(), models, usize::MAX)
+                    .into_iter()
+                    .cloned()
+                    .collect()
+            };
+            found.sort_by_key(|m| !m.pinned);
+            found
         };
-        models.sort_by_key(|m| !m.pinned);
-        return models.into_iter().map(PickerRow::Model).collect();
+        let mut rows: Vec<PickerRow> = matched(&list.models)
+            .into_iter()
+            .map(PickerRow::Model)
+            .collect();
+        agents_section(&mut rows, matched(&list.agents));
+        return rows;
     }
     let mut rows: Vec<PickerRow> = list
         .featured_ids
@@ -2361,6 +2544,13 @@ pub fn picker_rows(list: &ModelList, query: &str, more: bool) -> Vec<PickerRow> 
             }
             rows.extend(models.into_iter().map(PickerRow::Model));
         }
+        let agents = list
+            .agents
+            .iter()
+            .filter(|a| !list.featured_ids.contains(&a.id))
+            .cloned()
+            .collect();
+        agents_section(&mut rows, agents);
     }
     rows
 }
@@ -2517,6 +2707,7 @@ mod tests {
             capabilities: vec![],
             connection: None,
             logo: None,
+            agent: None,
         }
     }
 
@@ -2542,7 +2733,86 @@ mod tests {
             ],
             can_pin: true,
             default_id: None,
+            agents: vec![],
+            agent_names: Default::default(),
         }
+    }
+
+    fn coding_agent(id: &str) -> ModelSummary {
+        ModelSummary {
+            agent: Some(conduit_protocol::TerminalAgentDto {
+                terminal_id: "bench".into(),
+                terminal_name: Some("Bench".into()),
+                agent: "codex".into(),
+                agent_name: "Codex".into(),
+                model: id.into(),
+            }),
+            ..summary(id, false)
+        }
+    }
+
+    #[test]
+    fn the_message_box_names_a_model_in_at_most_24_characters() {
+        assert_eq!(placeholder_model_name("  "), None);
+        assert_eq!(
+            placeholder_model_name(" Kestrel\n  8B ").as_deref(),
+            Some("Kestrel 8B")
+        );
+        let exact = "a".repeat(24);
+        assert_eq!(
+            placeholder_model_name(&exact).as_deref(),
+            Some(exact.as_str())
+        );
+        // Cut to 23 and an ellipsis, with no space before it.
+        assert_eq!(
+            placeholder_model_name("Harbour Pilot Assistant Long Edition").as_deref(),
+            Some("Harbour Pilot Assistant\u{2026}")
+        );
+        // A flag is one character, as a reader counts it.
+        let flags = "\u{1F1F3}\u{1F1F4}".repeat(30);
+        let shown = placeholder_model_name(&flags).unwrap();
+        assert_eq!(shown.chars().filter(|c| *c == '\u{2026}').count(), 1);
+        assert_eq!(shown.chars().count(), 23 * 2 + 1);
+    }
+
+    #[test]
+    fn coding_agents_follow_more_models_under_their_heading() {
+        let mut list = laid_out();
+        list.agents = vec![coding_agent("gpt-5.1"), coding_agent("gpt-5.1-mini")];
+        // A selected agent leads with the featured ones, and only once.
+        list.featured_ids.push("gpt-5.1".into());
+        list.selected_id = Some("gpt-5.1".into());
+        assert_eq!(
+            ids(&picker_rows(&list, "", false, "Coding Agents")),
+            ["a", "gpt-5.1"]
+        );
+        assert_eq!(
+            ids(&picker_rows(&list, "", true, "Coding Agents")),
+            [
+                "a",
+                "gpt-5.1",
+                "b",
+                "c",
+                "# Agents",
+                "agent",
+                "# Coding Agents",
+                "gpt-5.1-mini"
+            ]
+        );
+        // A search finds them under their heading too.
+        assert_eq!(
+            ids(&picker_rows(&list, "mini", false, "Coding Agents")),
+            ["# Coding Agents", "gpt-5.1-mini"]
+        );
+        assert_eq!(
+            find_model(&list, "gpt-5.1").map(|m| m.id.as_str()),
+            Some("gpt-5.1")
+        );
+        // Only agents past the featured ones: More Models still has some.
+        list.more_sections.clear();
+        assert!(has_more_models(&list));
+        list.agents.truncate(1);
+        assert!(!has_more_models(&list));
     }
 
     fn ids(rows: &[PickerRow]) -> Vec<String> {
@@ -2558,9 +2828,9 @@ mod tests {
     fn the_picker_shows_the_featured_models_then_more_under_their_headings() {
         let list = laid_out();
         assert!(has_more_models(&list));
-        assert_eq!(ids(&picker_rows(&list, "", false)), ["a"]);
+        assert_eq!(ids(&picker_rows(&list, "", false, "Coding Agents")), ["a"]);
         assert_eq!(
-            ids(&picker_rows(&list, "", true)),
+            ids(&picker_rows(&list, "", true, "Coding Agents")),
             ["a", "b", "c", "# Agents", "agent"]
         );
     }
@@ -2569,12 +2839,12 @@ mod tests {
     fn a_search_finds_every_model_pinned_first() {
         let mut list = laid_out();
         list.models[2].pinned = true;
-        assert_eq!(ids(&picker_rows(&list, "c", false)), ["c"]);
-        assert_eq!(ids(&picker_rows(&list, " ", false)), ["a"]);
+        assert_eq!(ids(&picker_rows(&list, "c", false, "Coding Agents")), ["c"]);
+        assert_eq!(ids(&picker_rows(&list, " ", false, "Coding Agents")), ["a"]);
         list.featured_ids.clear();
         assert!(!has_more_models(&list));
         assert_eq!(
-            ids(&picker_rows(&list, "", false)),
+            ids(&picker_rows(&list, "", false, "Coding Agents")),
             ["a", "c", "b", "agent"]
         );
     }
@@ -2632,6 +2902,7 @@ mod tests {
             capabilities: vec![],
             connection: None,
             logo: None,
+            agent: None,
         }
     }
 

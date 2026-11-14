@@ -905,11 +905,13 @@ impl Render for MainWindow {
                         cx,
                     )
                 }))
-                .on_action(cx.listener(
-                    |this, _: &RegenerateLastAnswer, _, cx| {
-                        this.chat_pane.update(cx, |p, cx| p.regenerate_last(cx));
-                    },
-                ))
+            })
+            // Regenerate: not in a chat a coding agent answers, which takes
+            // only new messages at its end.
+            .when(chat_menu && !self.chat_pane.read(cx).agent_chat(cx), |d| {
+                d.on_action(cx.listener(|this, _: &RegenerateLastAnswer, _, cx| {
+                    this.chat_pane.update(cx, |p, cx| p.regenerate_last(cx));
+                }))
             })
             // Save Chat: a temporary chat with messages is open.
             .when(self.chat_pane.read(cx).can_save_temporary(cx), |d| {

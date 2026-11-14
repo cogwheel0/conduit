@@ -1079,7 +1079,7 @@ impl AssistantRow {
                     )
                     // The way out: ask for the answer again, in place (the
                     // failed one stays as an earlier version).
-                    .when(self.flags.can_branch && !self.item.streaming, |d| {
+                    .when(self.flags.can_regenerate() && !self.item.streaming, |d| {
                         let store = self.host.store.clone();
                         let regen = key.clone();
                         d.child(

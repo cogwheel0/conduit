@@ -1,13 +1,17 @@
 //! The task editor, a sheet on the main window: New Scheduled Task or Edit
 //! Scheduled Task, with the phone's fields. Name and Active; the
-//! instructions; the model; the schedule (Once, Daily or Weekly with native
-//! date and time pickers, or a recurrence rule under Advanced Schedule); and
-//! where results go (a new chat, optionally in a folder, or a channel).
+//! instructions; the server terminal it runs with, its working folder and
+//! the model (a coding agent of that terminal among them, Open WebUI 0.13.3
+//! and later); the schedule (Once, Daily or Weekly with native date and time
+//! pickers, or a recurrence rule under Advanced Schedule); and where results
+//! go (a new chat, optionally in a folder, or a channel).
 //!
 //! The daemon holds the draft (`automations.editor`), keeps whatever the
-//! task stores that the editor does not show (a terminal, unknown keys) and
-//! settles each change (`automations.checkDraft`): a typed rule the controls
-//! can write reads back as their kind, and the controls carry their rule.
+//! task stores that the editor does not show (unknown keys) and settles each
+//! change (`automations.checkDraft`): a typed rule the controls can write
+//! reads back as their kind, and the controls carry their rule. Another
+//! terminal drops the old one's folder and agent; `automations.terminals`
+//! lists the models again with the terminal's agents.
 
 use std::rc::Rc;
 
@@ -20,7 +24,7 @@ use conduit_components::views::kit::{
 };
 use conduit_protocol::{
     AutomationDraftEdit, AutomationDraftState, AutomationEditor, AutomationEditorOpen,
-    AutomationFields, methods,
+    AutomationFields, AutomationTerminals, methods,
 };
 use gpui_kit::component::input::{InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::*;
@@ -64,6 +68,8 @@ pub fn issue_text(issue: &str, l: &L10n) -> String {
         "channelUnavailable" => l.scheduled_task_channel_unavailable_issue(),
         "channelNoWrite" => l.scheduled_task_channel_no_write(),
         "folderUnavailable" => l.scheduled_task_folder_unavailable_issue(),
+        "terminalRequired" => l.scheduled_task_terminal_required(),
+        "agentNeedsChat" => l.scheduled_task_agent_needs_chat(),
         _ => l.scheduled_task_schedule_incomplete(),
     }
 }
@@ -83,6 +89,16 @@ pub struct TaskEditor {
     name: Entity<InputState>,
     prompt: Entity<TextareaState>,
     rrule: Entity<TextareaState>,
+    /// The working folder on the task's terminal.
+    cwd: Entity<InputState>,
+    /// The folder the field shows next, once a terminal change dropped it.
+    cwd_pending: Option<String>,
+    /// Another terminal was chosen: the daemon's answer drops the old one's
+    /// folder and agent, and the fields take it.
+    terminal_moved: bool,
+    /// `automations.terminals` is asking the terminal for its agents.
+    pub agents_loading: bool,
+    terminals_call: Option<Task<()>>,
     /// The rule field is being typed in: its text is the user's.
     typing_rule: bool,
     /// The rule the field shows next, once the controls changed it.
@@ -110,7 +126,27 @@ impl TaskEditor {
                 .auto_grow(2, 4)
                 .placeholder(RRULE_EXAMPLE)
         });
+        let cwd = forms::input(l.scheduled_task_working_folder_hint(), false, window, cx);
         let mut subscriptions = vec![
+            cx.subscribe_in(
+                &cwd,
+                window,
+                |this, state, e: &InputEvent, window, cx| match e {
+                    InputEvent::Change => {
+                        let value = state.read(cx).value().trim().to_string();
+                        let value = (!value.is_empty()).then_some(value);
+                        if this.fields.as_ref().map(|f| &f.working_directory) == Some(&value) {
+                            return;
+                        }
+                        this.edit(|f| f.working_directory = value, cx);
+                        // The terminal is asked for its agents in that folder
+                        // once the typing pauses.
+                        this.refresh_terminals(Some(std::time::Duration::from_millis(600)), cx);
+                    }
+                    InputEvent::PressEnter { .. } => this.save(window, cx),
+                    _ => {}
+                },
+            ),
             cx.subscribe_in(
                 &name,
                 window,
@@ -152,6 +188,11 @@ impl TaskEditor {
             name,
             prompt,
             rrule,
+            cwd,
+            cwd_pending: None,
+            terminal_moved: false,
+            agents_loading: false,
+            terminals_call: None,
             typing_rule: false,
             rrule_pending: None,
             check: None,
@@ -198,6 +239,8 @@ impl TaskEditor {
         self.rrule.update(cx, |s, cx| {
             s.set_value(f.schedule.rrule.clone(), window, cx)
         });
+        let folder = f.working_directory.clone().unwrap_or_default();
+        self.cwd.update(cx, |s, cx| s.set_value(folder, window, cx));
         // A rule the controls cannot write opens where it can be read.
         self.advanced = f.schedule.kind == "custom";
         self.fields = Some(f);
@@ -228,6 +271,16 @@ impl TaskEditor {
             },
             cx,
         );
+    }
+
+    /// Types the working folder, as the user would (E2E). Setting the
+    /// field's value raises no change, so the draft follows here.
+    pub fn type_folder(&mut self, folder: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let value = folder.to_string();
+        self.cwd
+            .update(cx, |s, cx| s.set_value(value.clone(), window, cx));
+        self.edit(|f| f.working_directory = Some(value), cx);
+        self.refresh_terminals(None, cx);
     }
 
     /// Changes the fields, then has the daemon settle them.
@@ -306,6 +359,16 @@ impl TaskEditor {
         let Some(fields) = self.fields.as_mut() else {
             return;
         };
+        // Another terminal: its own folder, and no agent of the old one.
+        if std::mem::take(&mut self.terminal_moved)
+            && fields.terminal_id == state.fields.terminal_id
+        {
+            fields.model_id = state.fields.model_id.clone();
+            if fields.working_directory != state.fields.working_directory {
+                fields.working_directory = state.fields.working_directory.clone();
+                self.cwd_pending = Some(fields.working_directory.clone().unwrap_or_default());
+            }
+        }
         let typed = std::mem::replace(&mut fields.schedule, state.fields.schedule);
         if self.typing_rule {
             // What the user typed stays as typed.
@@ -321,9 +384,67 @@ impl TaskEditor {
         let value = a.value.clone();
         match a.menu.as_str() {
             "task-model" => self.edit(|f| f.model_id = value, cx),
+            "task-terminal" => {
+                let id = (!value.is_empty()).then_some(value);
+                if self.fields.as_ref().map(|f| &f.terminal_id) == Some(&id) {
+                    return;
+                }
+                self.terminal_moved = true;
+                self.edit(|f| f.terminal_id = id, cx);
+                self.refresh_terminals(None, cx);
+            }
             "task-channel" => self.edit(|f| f.channel_id = Some(value), cx),
             "task-folder" => self.edit(|f| f.folder_id = (!value.is_empty()).then_some(value), cx),
             _ => {}
+        }
+    }
+
+    /// `automations.terminals`: the terminals, and the models with the
+    /// chosen terminal's coding agents in its working folder, after `delay`
+    /// (typing in the folder field).
+    pub fn refresh_terminals(
+        &mut self,
+        delay: Option<std::time::Duration>,
+        cx: &mut Context<Self>,
+    ) {
+        let (Some(editor), Some(fields)) = (self.editor.as_ref(), self.fields.clone()) else {
+            return;
+        };
+        let rpc = self.rpc(cx);
+        let token = editor.token.clone();
+        self.agents_loading = true;
+        cx.notify();
+        self.terminals_call = Some(cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                if let Some(delay) = delay {
+                    cx.background_executor().timer(delay).await;
+                }
+                let result = rpc
+                    .call::<methods::AutomationsTerminals>(&AutomationDraftEdit {
+                        token,
+                        fields,
+                        choose_kind: None,
+                    })
+                    .await;
+                let _ = this.update(cx, |s, cx| {
+                    s.agents_loading = false;
+                    match result {
+                        Ok(found) => s.take_terminals(found),
+                        Err(e) => log::warn!("automations.terminals: {e}"),
+                    }
+                    cx.notify();
+                    // Whether the agent is still offered moved too.
+                    s.check_now(None, cx);
+                });
+            },
+        ));
+    }
+
+    fn take_terminals(&mut self, found: AutomationTerminals) {
+        if let Some(editor) = self.editor.as_mut() {
+            editor.terminals = found.terminals;
+            editor.models = found.models;
+            editor.agents_unknown = found.agents_unknown;
         }
     }
 
@@ -806,6 +927,138 @@ impl TaskEditor {
             .into_any_element()
     }
 
+    /// The terminal (when the server has one for tasks, or the task has
+    /// one), its working folder, and the model, as mobile's editor lays them
+    /// out.
+    fn model_rows(
+        &self,
+        fields: &AutomationFields,
+        editor: &AutomationEditor,
+        l: &L10n,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let mut rows = vec![];
+        let terminals = editor.terminals.clone().unwrap_or_default();
+        let terminal = fields.terminal_id.clone().unwrap_or_default();
+        if !terminals.is_empty() || !terminal.is_empty() {
+            let mut choices = vec![Choice::new("", l.scheduled_task_folder_none())];
+            choices.extend(
+                terminals
+                    .iter()
+                    .map(|t| Choice::new(t.id.clone(), t.name.clone())),
+            );
+            if !terminal.is_empty()
+                && editor.terminals.is_some()
+                && !terminals.iter().any(|t| t.id == terminal)
+            {
+                choices.push(
+                    Choice::new(
+                        terminal.clone(),
+                        l.scheduled_task_model_unavailable(&terminal),
+                    )
+                    .separated(),
+                );
+            }
+            rows.push(
+                forms::form_row(
+                    l.terminal(),
+                    controls::popup(
+                        "task-terminal",
+                        &l.terminal(),
+                        choices,
+                        &terminal,
+                        editor.terminals.is_none(),
+                        window,
+                        cx,
+                    ),
+                    cx,
+                )
+                .into_any_element(),
+            );
+            if !terminal.is_empty() {
+                rows.push(
+                    forms::field(
+                        l.scheduled_task_working_folder_label(),
+                        &self.cwd,
+                        None,
+                        None,
+                        window,
+                        cx,
+                    )
+                    .into_any_element(),
+                );
+            }
+        }
+        let models = editor.models.clone().unwrap_or_default();
+        let mut choices: Vec<Choice> = vec![];
+        for (i, m) in models.iter().enumerate() {
+            let choice = Choice::new(
+                m.id.clone(),
+                if m.name.trim().is_empty() {
+                    m.id.clone()
+                } else {
+                    m.name.clone()
+                },
+            );
+            // The terminal's agents follow the account's models.
+            let first_agent = m.agent && models.get(i.wrapping_sub(1)).is_some_and(|p| !p.agent);
+            choices.push(if first_agent {
+                choice.separated()
+            } else {
+                choice
+            });
+        }
+        let model_id = fields.model_id.trim().to_string();
+        // An agent's id is an address: name it as the picker does.
+        let agent_name = editor
+            .agent_name
+            .clone()
+            .filter(|_| editor.fields.model_id.trim() == model_id);
+        let shown = if model_id.is_empty() {
+            l.scheduled_task_model_choose()
+        } else {
+            let listed = models.iter().any(|m| m.id == model_id);
+            if !listed && (self.agents_loading && agent_name.is_some()) {
+                choices.push(Choice::new(
+                    model_id.clone(),
+                    l.scheduled_task_agents_loading(),
+                ));
+            } else if !listed && editor.agents_unknown && agent_name.is_some() {
+                // Whether the terminal still offers it is not known.
+                choices.push(Choice::new(model_id.clone(), agent_name.clone().unwrap()));
+            } else if !listed && editor.models.is_some() {
+                choices.push(
+                    Choice::new(
+                        model_id.clone(),
+                        l.scheduled_task_model_unavailable(
+                            agent_name.as_deref().unwrap_or(&model_id),
+                        ),
+                    )
+                    .separated(),
+                );
+            }
+            model_id
+        };
+        rows.push(
+            forms::form_row(
+                l.scheduled_task_model_label(),
+                controls::popup(
+                    "task-model",
+                    &l.scheduled_task_model_label(),
+                    choices,
+                    &shown,
+                    false,
+                    window,
+                    cx,
+                ),
+                cx,
+            )
+            .into_any_element(),
+        );
+        rows
+    }
+
     fn destination_rows(
         &self,
         fields: &AutomationFields,
@@ -903,6 +1156,17 @@ impl TaskEditor {
         }
         rows
     }
+}
+
+/// Whether `model_id` names one of the terminal's coding agents the editor
+/// offers (or the task's own, while the terminal is not asked).
+fn is_agent(editor: &AutomationEditor, model_id: &str) -> bool {
+    let id = model_id.trim();
+    editor
+        .models
+        .as_ref()
+        .is_some_and(|m| m.iter().any(|m| m.id == id && m.agent))
+        || (editor.agent_name.is_some() && editor.fields.model_id.trim() == id)
 }
 
 impl SheetBody for TaskEditor {
@@ -1010,6 +1274,9 @@ impl Render for TaskEditor {
         if let Some(rule) = self.rrule_pending.take() {
             self.rrule.update(cx, |s, cx| s.set_value(rule, window, cx));
         }
+        if let Some(folder) = self.cwd_pending.take() {
+            self.cwd.update(cx, |s, cx| s.set_value(folder, window, cx));
+        }
         let focus = self.focus.clone();
         let mut body: Vec<AnyElement> = vec![
             div()
@@ -1083,55 +1350,19 @@ impl Render for TaskEditor {
                 prompt = prompt.child(line);
             }
             body.push(prompt.into_any_element());
-            // Model.
-            let models = editor.models.clone().unwrap_or_default();
-            let mut choices: Vec<Choice> = models
-                .iter()
-                .map(|m| {
-                    Choice::new(
-                        m.id.clone(),
-                        if m.name.trim().is_empty() {
-                            m.id.clone()
-                        } else {
-                            m.name.clone()
-                        },
-                    )
-                })
-                .collect();
-            let shown = if fields.model_id.trim().is_empty() {
-                l.scheduled_task_model_choose()
-            } else {
-                if editor.models.is_some() && !models.iter().any(|m| m.id == fields.model_id) {
-                    choices.push(
-                        Choice::new(
-                            fields.model_id.clone(),
-                            l.scheduled_task_model_unavailable(&fields.model_id),
-                        )
-                        .separated(),
-                    );
-                }
-                fields.model_id.clone()
-            };
-            let mut model = div().flex().flex_col().gap(px(6.)).child(forms::form_group(
-                vec![
-                    forms::form_row(
-                        l.scheduled_task_model_label(),
-                        controls::popup(
-                            "task-model",
-                            &l.scheduled_task_model_label(),
-                            choices,
-                            &shown,
-                            false,
-                            window,
-                            cx,
-                        ),
-                        cx,
-                    )
-                    .into_any_element(),
-                ],
+            // Terminal, its working folder, and the model (the terminal's
+            // coding agents after the account's models).
+            let rows = self.model_rows(&fields, &editor, &l, window, cx);
+            let mut model = div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .child(forms::form_group(rows, cx));
+            if let Some(line) = self.issue_line(
+                &["modelRequired", "modelUnavailable", "terminalRequired"],
+                &l,
                 cx,
-            ));
-            if let Some(line) = self.issue_line(&["modelRequired", "modelUnavailable"], &l, cx) {
+            ) {
                 model = model.child(line);
             }
             body.push(model.into_any_element());
@@ -1176,18 +1407,18 @@ impl Render for TaskEditor {
                     "channelUnavailable",
                     "channelNoWrite",
                     "folderUnavailable",
+                    "agentNeedsChat",
                 ],
                 &l,
                 cx,
             ) {
                 group = group.child(line);
+            } else if is_agent(&editor, &fields.model_id) && fields.target != "channel" {
+                // A coding agent posts only to a new chat: said where the
+                // results go.
+                group = group.child(forms::group_footer(l.scheduled_task_agent_needs_chat(), cx));
             }
             body.push(group.into_any_element());
-            if editor.terminal {
-                body.push(
-                    forms::group_footer(l.scheduled_task_terminal_kept(), cx).into_any_element(),
-                );
-            }
         } else if self.failure.is_none() {
             body.push(
                 div()

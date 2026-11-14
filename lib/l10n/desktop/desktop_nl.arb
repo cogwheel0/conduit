@@ -705,6 +705,7 @@
   "desktopRatingNotSaved": "Je beoordeling is niet opgeslagen.",
   "desktopModelChip": "Model: {name}",
   "desktopModelNotSelected": "Dat model kon niet worden gekozen.",
+  "desktopModelControlNotSaved": "Die instelling kon niet worden bewaard.",
   "desktopUploadingPercent": "Uploaden… {percent}%",
   "desktopWriting": "{name}, schrijft",
   "desktopSourceLabel": "Bron {index}: {title}",

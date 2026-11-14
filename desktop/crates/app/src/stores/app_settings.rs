@@ -50,6 +50,7 @@ pub fn desktop_defaults() -> AppSettingsDto {
         inline_message_actions: None,
         send_on_enter: true,
         show_composer_notes_button: true,
+        show_model_name_in_composer: false,
         temporary_chat_by_default: false,
         citation_show_titles: false,
         citation_background: true,

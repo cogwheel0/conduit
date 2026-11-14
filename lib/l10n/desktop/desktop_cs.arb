@@ -705,6 +705,7 @@
   "desktopRatingNotSaved": "Vaše hodnocení se neuložilo.",
   "desktopModelChip": "Model: {name}",
   "desktopModelNotSelected": "Tento model se nepodařilo vybrat.",
+  "desktopModelControlNotSaved": "Toto nastavení se nepodařilo uložit.",
   "desktopUploadingPercent": "Nahrávání… {percent} %",
   "desktopWriting": "{name}, píše",
   "desktopSourceLabel": "Zdroj {index}: {title}",

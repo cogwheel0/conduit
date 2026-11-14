@@ -197,6 +197,7 @@ impl QuickAskView {
                         l10n.desktop_attachment_failed(name)
                     }
                     ComposerEvent::ModelNotSelected(_) => l10n.desktop_model_not_selected(),
+                    ComposerEvent::ControlNotSaved(_) => l10n.desktop_model_control_not_saved(),
                     // Quick Ask keeps no drafts.
                     ComposerEvent::DraftSwitched | ComposerEvent::DraftLoaded { .. } => return,
                 });

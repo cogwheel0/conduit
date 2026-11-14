@@ -705,6 +705,7 @@
   "desktopRatingNotSaved": "평가가 저장되지 않았습니다.",
   "desktopModelChip": "모델: {name}",
   "desktopModelNotSelected": "해당 모델을 선택하지 못했습니다.",
+  "desktopModelControlNotSaved": "해당 설정을 저장하지 못했습니다.",
   "desktopUploadingPercent": "업로드 중… {percent}%",
   "desktopWriting": "{name}, 작성 중",
   "desktopSourceLabel": "출처 {index}: {title}",

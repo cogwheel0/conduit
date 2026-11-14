@@ -221,6 +221,8 @@ pub enum PickerAction {
     CustomEffort,
     /// Pin or unpin a model.
     Pin(String, bool),
+    /// An option of the selected model's control: `(key, value)`.
+    Control(String, String),
 }
 
 pub struct ChatComposer {
@@ -292,6 +294,11 @@ pub struct ChatComposer {
     transcribing: Option<crate::stores::composer::CompositionTicket>,
     /// The field's placeholder, put back after "Listening…".
     placeholder: String,
+    /// A host chose the placeholder (Quick Ask's "Ask Conduit…"): the
+    /// selected model never names it.
+    custom_placeholder: bool,
+    /// The placeholder the field shows now (not "Listening…").
+    shown_placeholder: String,
     /// The window this composer is in: Esc cancels dictation there only.
     window_handle: gpui_kit::AnyWindowHandle,
     /// A channel's composer: `@` is the only menu, and a model chosen there
@@ -355,7 +362,7 @@ impl ChatComposer {
                 .submit_on_enter(send_on_enter)
         });
         let weak = cx.entity().downgrade();
-        let subscriptions = vec![
+        let mut subscriptions = vec![
             cx.subscribe_in(
                 &input,
                 window,
@@ -472,6 +479,10 @@ impl ChatComposer {
                 }
             }),
         ];
+        // The placeholder names the selected model when Settings say so.
+        subscriptions.push(cx.observe_in(&composer, window, |this, _, window, cx| {
+            this.sync_placeholder(window, cx)
+        }));
         Self {
             composer,
             input,
@@ -504,6 +515,8 @@ impl ChatComposer {
             dictation_base: None,
             transcribing: None,
             placeholder: placeholder.to_string(),
+            custom_placeholder: false,
+            shown_placeholder: placeholder.to_string(),
             window_handle: window.window_handle(),
             channel_mode: false,
             _dictation: vec![],
@@ -524,9 +537,45 @@ impl ChatComposer {
     /// The text field's placeholder (Quick Ask says "Ask Conduit…").
     pub fn set_placeholder(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.placeholder = text.to_string();
+        self.custom_placeholder = true;
+        self.shown_placeholder = text.to_string();
         let text = text.to_string();
         self.input
             .update(cx, |s, cx| s.set_placeholder(text, window, cx));
+    }
+
+    /// What the empty field says: with Settings › Chats › Show Model Name
+    /// in Message Box on, "Ask" and the selected model's name (mobile's
+    /// `chatComposerPlaceholder`); else the app's own words.
+    fn placeholder_now(&self, cx: &App) -> String {
+        let store = self.composer.read(cx);
+        if self.custom_placeholder || self.channel_mode || !store.prefs.show_model_name {
+            return self.placeholder.clone();
+        }
+        store
+            .selected_model()
+            .and_then(|m| crate::stores::composer::placeholder_model_name(&m.name))
+            .map(|name| cx.l10n().message_hint_text_for_model(&name))
+            .unwrap_or_else(|| self.placeholder.clone())
+    }
+
+    /// Puts [`Self::placeholder_now`] in the field when it changed (not
+    /// while dictation says "Listening…").
+    fn sync_placeholder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dictation_base.is_some() {
+            return;
+        }
+        let now = self.placeholder_now(cx);
+        if now != self.shown_placeholder {
+            self.shown_placeholder = now.clone();
+            self.input
+                .update(cx, |s, cx| s.set_placeholder(now, window, cx));
+        }
+    }
+
+    /// The placeholder the field shows (the E2E pass reads it).
+    pub fn shown_placeholder(&self) -> &str {
+        &self.shown_placeholder
     }
 
     // ── Dictation ──────────────────────────────────────────────────────
@@ -637,7 +686,7 @@ impl ChatComposer {
                 }
             }
             DictationEvent::Heard => {
-                let placeholder = self.placeholder.clone();
+                let placeholder = self.placeholder_now(cx);
                 self.input
                     .update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
             }
@@ -647,7 +696,8 @@ impl ChatComposer {
                 {
                     self.set_text(&base, window, cx);
                 }
-                let placeholder = self.placeholder.clone();
+                let placeholder = self.placeholder_now(cx);
+                self.shown_placeholder = placeholder.clone();
                 self.input
                     .update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
                 self.focus_input(window, cx);
@@ -1748,7 +1798,12 @@ impl ChatComposer {
         let Some(list) = &self.composer.read(cx).models else {
             return vec![];
         };
-        crate::stores::composer::picker_rows(list, &query, picker.more)
+        crate::stores::composer::picker_rows(
+            list,
+            &query,
+            picker.more,
+            &cx.l10n().model_picker_coding_agents(),
+        )
     }
 
     /// The models the arrows step through, in the order drawn.
@@ -1808,6 +1863,34 @@ impl ChatComposer {
         menu.show(window.mouse_position(), window, cx);
     }
 
+    /// A control's menu (a native menu): its options, the one in force
+    /// checked, as mobile's selection sheet lists them.
+    fn show_control_menu(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        use gpui_kit::component::native_menu::NativeMenu;
+        let Some(control) = self
+            .composer
+            .read(cx)
+            .model_controls
+            .as_ref()
+            .and_then(|l| l.controls.iter().find(|c| c.key == key).cloned())
+        else {
+            return;
+        };
+        let l10n = cx.l10n().clone();
+        let mut menu = NativeMenu::new();
+        for option in &control.options {
+            menu = menu.menu_with_check(
+                model_control_option_label(&control, Some(&option.value), &l10n),
+                control.value.as_deref() == Some(option.value.as_str()),
+                Box::new(PickerAction::Control(
+                    control.key.clone(),
+                    option.value.clone(),
+                )),
+            );
+        }
+        menu.show(window.mouse_position(), window, cx);
+    }
+
     fn on_picker_action(
         &mut self,
         action: &PickerAction,
@@ -1828,6 +1911,11 @@ impl ChatComposer {
                 let (id, pinned) = (id.clone(), *pinned);
                 self.composer
                     .update(cx, |c, cx| c.set_pinned(&id, pinned, cx));
+            }
+            PickerAction::Control(key, value) => {
+                let (key, value) = (key.clone(), value.clone());
+                self.composer
+                    .update(cx, |c, cx| c.set_model_control(&key, &value, cx));
             }
         }
         cx.notify();
@@ -3322,6 +3410,15 @@ impl ChatComposer {
             .as_ref()
             .is_some_and(crate::stores::composer::has_more_models);
         let options = store.model_options.clone();
+        // A model with an effort control of its own (a coding agent's)
+        // takes it from that control, below; the app's would contradict it.
+        let own_effort = store.options.own_effort_control;
+        let controls = store
+            .model_controls
+            .as_ref()
+            .filter(|c| c.model_id == selected)
+            .map(|c| c.controls.clone())
+            .unwrap_or_default();
         let total = rows
             .iter()
             .filter(|r| matches!(r, PickerRow::Model(_)))
@@ -3379,7 +3476,7 @@ impl ChatComposer {
             ));
         }
         if let Some(options) = options.as_ref() {
-            if options.reasoning.visible {
+            if options.reasoning.visible && !own_effort {
                 let label = if options.reasoning.ollama {
                     l10n.desktop_thinking()
                 } else {
@@ -3448,6 +3545,23 @@ impl ChatComposer {
                         .into_any_element(),
                 );
             }
+        }
+        // The model's own controls, one row each, as mobile's sheet lists
+        // them under its models.
+        for control in controls {
+            let key = control.key.clone();
+            footer.push(self.picker_footer_row(
+                SharedString::from(format!("model-menu-control-{}", control.key)),
+                model_control_title(&control, &l10n),
+                Some(model_control_option_label(
+                    &control,
+                    control.value.as_deref(),
+                    &l10n,
+                )),
+                IconName::ChevronsUpDown,
+                t,
+                cx.listener(move |this, _, window, cx| this.show_control_menu(&key, window, cx)),
+            ));
         }
         Some(
             div()
@@ -3555,8 +3669,14 @@ impl ChatComposer {
         let id = model.id.clone();
         // Apple's model says where it runs, as on the phone.
         let apple = crate::stores::composer::is_apple_on_device(model);
+        // A coding agent says where it runs: its terminal, as on the phone.
         let provider = if apple {
             l10n.desktop_apple_on_this_mac()
+        } else if let Some(agent) = &model.agent {
+            agent
+                .terminal_name
+                .clone()
+                .unwrap_or_else(|| format!("{}/{}", agent.agent, agent.model))
         } else {
             model.connection.clone().unwrap_or_default()
         };
@@ -3608,6 +3728,8 @@ impl ChatComposer {
                     None => icon(
                         if pinned {
                             IconName::Pin
+                        } else if model.agent.is_some() {
+                            IconName::SquareTerminal
                         } else if apple {
                             IconName::Cpu
                         } else {
@@ -3698,7 +3820,7 @@ impl ChatComposer {
     /// A row under the picker's list: a label, its value, a trailing glyph.
     fn picker_footer_row(
         &self,
-        id: &'static str,
+        id: impl Into<ElementId>,
         label: String,
         value: Option<String>,
         glyph: IconName,
@@ -3742,6 +3864,45 @@ impl ChatComposer {
             .child(icon(glyph, 13., r.text_subtle))
             .on_click(on_click)
             .into_any_element()
+    }
+}
+
+/// A model control's name, in the app's language for the two Open WebUI's
+/// coding agents use (mobile's `modelControlTitle`); any other keeps the
+/// server's.
+pub fn model_control_title(
+    control: &conduit_protocol::ModelControlDto,
+    l10n: &crate::l10n::L10n,
+) -> String {
+    match control.key.as_str() {
+        "reasoning_effort" => l10n.desktop_reasoning_effort(),
+        "service_tier" => l10n.model_control_service_tier(),
+        _ if control.label.trim().is_empty() => control.key.clone(),
+        _ => control.label.clone(),
+    }
+}
+
+/// The option `value` of `control` (mobile's `modelControlOptionLabel`): a
+/// reasoning effort the app names in its own language, else the server's
+/// label; "Default" when nothing is picked and the control has no default.
+pub fn model_control_option_label(
+    control: &conduit_protocol::ModelControlDto,
+    value: Option<&str>,
+    l10n: &crate::l10n::L10n,
+) -> String {
+    let Some(option) = value.and_then(|v| control.options.iter().find(|o| o.value == v)) else {
+        return l10n.default_label();
+    };
+    if control.key == "reasoning_effort" {
+        let known = crate::views::chat_settings::effort_label(&option.value, l10n);
+        if known != option.value {
+            return known;
+        }
+    }
+    if option.label.trim().is_empty() {
+        option.value.clone()
+    } else {
+        option.label.clone()
     }
 }
 

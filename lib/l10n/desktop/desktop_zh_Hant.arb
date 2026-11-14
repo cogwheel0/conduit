@@ -705,6 +705,7 @@
   "desktopRatingNotSaved": "你的評分未儲存。",
   "desktopModelChip": "模型：{name}",
   "desktopModelNotSelected": "無法選擇該模型。",
+  "desktopModelControlNotSaved": "無法儲存該設定。",
   "desktopUploadingPercent": "正在上傳… {percent}%",
   "desktopWriting": "{name}，正在撰寫",
   "desktopSourceLabel": "來源 {index}：{title}",
