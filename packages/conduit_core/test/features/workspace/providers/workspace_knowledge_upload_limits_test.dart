@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_knowledge_files.dart';
+import 'package:conduit_core/features/workspace/providers/workspace_session.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/network/upload_timeout.dart';
@@ -63,6 +64,11 @@ class _KnowledgeServer implements HttpClientAdapter {
 
   /// Holds the next read of the pending files until completed, when set.
   Completer<void>? pendingGate;
+
+  /// Holds the next deletion until completed, when set; [deleting] completes
+  /// as it arrives.
+  Completer<void>? deleteGate;
+  final deleting = Completer<void>();
   var _uploads = 0;
   final _polls = <String, int>{};
 
@@ -157,7 +163,13 @@ class _KnowledgeServer implements HttpClientAdapter {
         'status': poll <= statuses.length ? statuses[poll - 1] : 'completed',
       });
     }
-    if (options.method == 'DELETE') return _json({'ok': true});
+    if (options.method == 'DELETE') {
+      final gate = deleteGate;
+      deleteGate = null;
+      if (!deleting.isCompleted) deleting.complete();
+      await gate?.future;
+      return _json({'ok': true});
+    }
     if (path.endsWith('/files/pending')) {
       final gate = pendingGate;
       pendingGate = null;
@@ -180,7 +192,11 @@ class _KnowledgeServer implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+/// The signed-in session's token; a test changes it to switch accounts.
+String _token = 'token';
+
 Future<ProviderContainer> _container(_KnowledgeServer server) async {
+  _token = 'token';
   final api = ApiService(serverConfig: _server, workerManager: WorkerManager())
     ..dio.httpClientAdapter = server;
   api.dio.interceptors.clear();
@@ -191,7 +207,7 @@ Future<ProviderContainer> _container(_KnowledgeServer server) async {
       currentUserProvider2.overrideWithValue(
         const User(id: 'owner', username: 'o', email: 'o@e.com', role: 'user'),
       ),
-      authTokenProvider3.overrideWithValue('token'),
+      authTokenProvider3.overrideWith((ref) => _token),
     ],
   );
   await container.read(activeServerProvider.future);
@@ -396,6 +412,44 @@ void main() {
       check(
         server.requests.where((r) => r.endsWith('/files/batch/add')),
       ).isEmpty();
+    });
+
+    test('an account change while a failed upload is deleted links nothing, '
+        'and deletes the rest', () async {
+      for (final attach in <
+        Future<void> Function(WorkspaceKnowledgeFiles files)
+      >[
+        (files) => files.uploadMany([_file('a.txt', 3), _file('b.txt', 7)]),
+        (files) => files.attachUploaded(['upload-1', 'upload-2']),
+      ]) {
+        final server = _KnowledgeServer(
+          processing: {
+            'upload-2': ['failed'],
+          },
+        );
+        final container = await _container(server);
+        addTearDown(container.dispose);
+        final gate = server.deleteGate = Completer<void>();
+
+        final adding = attach(
+          container.read(workspaceKnowledgeFilesProvider('kb-1').notifier),
+        );
+        await server.deleting.future;
+        _token = 'another-account';
+        container.invalidate(authTokenProvider3);
+        gate.complete();
+
+        await check(adding).throws<WorkspaceSessionChanged>();
+        check(
+          server.requests.where(
+            (r) => r.endsWith('/file/add') || r.endsWith('/files/batch/add'),
+          ),
+        ).isEmpty();
+        check(server.deletions.toList()).deepEquals([
+          'DELETE /api/v1/files/upload-2',
+          'DELETE /api/v1/files/upload-1',
+        ]);
+      }
     });
 
     test('an unprocessed upload is deleted even when the link then fails', () async {
