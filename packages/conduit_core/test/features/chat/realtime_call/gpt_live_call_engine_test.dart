@@ -404,6 +404,8 @@ void main() {
       check(engine.state.outputLevel).equals(0.05);
 
       engine.setMuted(true);
+      // Quiet at once, not at the next sample.
+      check(engine.state.inputLevel).equals(0);
       media.hears(input: 0.3, output: 0.1);
       await _settle();
       check(engine.state.inputLevel).equals(0);

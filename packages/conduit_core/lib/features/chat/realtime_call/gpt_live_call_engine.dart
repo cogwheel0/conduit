@@ -444,7 +444,14 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
       muted ? 'session.input_audio.mute' : 'session.input_audio.unmute',
       const {},
     );
-    _update(_state.copyWith(muted: muted, userSpeaking: muted ? false : null));
+    _update(
+      _state.copyWith(
+        muted: muted,
+        userSpeaking: muted ? false : null,
+        // A muted microphone sends nothing from now on.
+        inputLevel: muted ? 0 : null,
+      ),
+    );
   }
 
   @override
