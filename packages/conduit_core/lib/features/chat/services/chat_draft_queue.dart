@@ -801,18 +801,25 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
     // response being idle says nothing about its cancellation: a turn is not
     // admitted over one the server has not accepted, and a refused one is asked
     // again here.
-    Future<ChatDraftSendNowOutcome?> settleOwedStops() async {
+    //
+    // Nothing owed, nothing awaited: the batch is frozen in the same turn as
+    // the queue was found on screen.
+    Future<ChatDraftSendNowOutcome?>? settleOwedStops() {
       final cancelling = _owedCancellation(queueId);
-      if (cancelling != null) {
-        final refused = await _settleOwedWork(queueId, draftIds, cancelling);
-        if (refused != null) return refused;
-      }
-      final owed = _owedStoppedAnswers(queueId);
-      if (owed != null) {
-        final refused = await _settleOwedWork(queueId, draftIds, owed);
-        if (refused != null) return refused;
-      }
-      return null;
+      final owed = cancelling == null ? _owedStoppedAnswers(queueId) : null;
+      if (cancelling == null && owed == null) return null;
+      return () async {
+        if (cancelling != null) {
+          final refused = await _settleOwedWork(queueId, draftIds, cancelling);
+          if (refused != null) return refused;
+        }
+        final stopped = owed ?? _owedStoppedAnswers(queueId);
+        if (stopped != null) {
+          final refused = await _settleOwedWork(queueId, draftIds, stopped);
+          if (refused != null) return refused;
+        }
+        return null;
+      }();
     }
 
     final refusedBefore = await settleOwedStops();
@@ -841,7 +848,9 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
     // stay whole, and the queue drains when that answer is done, as it does
     // after any other.
     if (!ref.mounted) return ChatDraftSendNowOutcome.changed;
-    if (ref.read(chatMainAnswerActiveProvider)) {
+    // Nor is it sent into a chat opened meanwhile: the batch is its own
+    // chat's, and waits for it.
+    if (_active?.id != queueId || ref.read(chatMainAnswerActiveProvider)) {
       _replace(
         queueId,
         (queue) => queue.phase == ChatDraftQueuePhase.admitting
