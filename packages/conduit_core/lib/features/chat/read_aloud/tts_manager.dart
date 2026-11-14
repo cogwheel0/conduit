@@ -1821,15 +1821,17 @@ class TtsManager {
   }
 
   Future<void> _cleanupServerTempFiles() async {
+    // Both taken before the first await: a reading that starts meanwhile
+    // keeps its own files and clips.
     final files = List<File>.from(_serverTempFiles);
     _serverTempFiles.clear();
+    final clips = List<(TtsClipStore, Uri)>.from(_storedClips);
+    _storedClips.clear();
     for (final file in files) {
       try {
         await file.delete();
       } catch (_) {}
     }
-    final clips = List<(TtsClipStore, Uri)>.from(_storedClips);
-    _storedClips.clear();
     for (final (store, uri) in clips) {
       try {
         await store.release(uri);
