@@ -49,6 +49,14 @@ void main() {
       check(
         OidcProviderMetadata.fromJson(_document()).hasIntrospectionEndpoint,
       ).isFalse();
+      for (final unusable in ['introspect', 'http://kc.example.com/i', 42]) {
+        check(
+          because: '$unusable',
+          OidcProviderMetadata.fromJson(
+            _document(introspection: unusable),
+          ).hasIntrospectionEndpoint,
+        ).isFalse();
+      }
     });
 
     test('asks for offline access only when the provider lists it', () {

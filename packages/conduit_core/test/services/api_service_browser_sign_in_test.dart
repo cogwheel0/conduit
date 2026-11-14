@@ -205,6 +205,18 @@ void main() {
             },
           ),
           (
+            'a redirect to a provider for a proxy\'s callback that only '
+                'contains Open WebUI\'s path',
+            {
+              '/oauth/oidc/login': () => _redirect(
+                _providerRedirect(
+                  'https://id.example/authorize',
+                  callback: 'https://chat.example/proxy/oauth/oidc/x/y',
+                ),
+              ),
+            },
+          ),
+          (
             'a redirect to a provider for another provider\'s callback',
             {
               '/oauth/oidc/login': () => _redirect(

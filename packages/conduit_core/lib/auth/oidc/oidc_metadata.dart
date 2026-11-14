@@ -58,8 +58,7 @@ final class OidcProviderMetadata {
           : null,
       authorizationResponseIssParameterSupported:
           json['authorization_response_iss_parameter_supported'] == true,
-      hasIntrospectionEndpoint: introspection is String &&
-          introspection.isNotEmpty,
+      hasIntrospectionEndpoint: _isHttpsEndpoint(introspection),
     );
   }
 
@@ -169,6 +168,12 @@ Uri? _issuerUri(String issuer) {
   );
   if (uri == null || !uri.isAbsolute || uri.host.isEmpty) return null;
   return uri;
+}
+
+/// Whether [value] is an absolute https URL, as an endpoint must be.
+bool _isHttpsEndpoint(Object? value) {
+  final uri = value is String ? Uri.tryParse(value) : null;
+  return uri != null && uri.scheme == 'https' && uri.host.isNotEmpty;
 }
 
 Uri _httpsEndpoint(Object? value) {

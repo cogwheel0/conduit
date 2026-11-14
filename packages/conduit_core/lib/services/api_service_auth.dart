@@ -189,7 +189,10 @@ mixin _AuthApi on _ApiServiceBase {
       if (clientId == null ||
           clientId.isEmpty ||
           (redirectUri.scheme != 'https' && redirectUri.scheme != 'http') ||
-          !redirectUri.path.contains('/oauth/$provider/')) {
+          // Open WebUI's callback, after any base path WEBUI_URL carries.
+          !RegExp(
+            '/oauth/${RegExp.escape(provider)}/[^/]+\$',
+          ).hasMatch(redirectUri.path)) {
         return null;
       }
       final audience = query['audience'];

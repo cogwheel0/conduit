@@ -404,7 +404,10 @@ class BrowserSignInService {
       );
       final failure = browserSignInFailureForResult(result);
       if (failure == BrowserSignInFailure.cancelled) {
-        DebugLogger.auth('browser-sign-in-cancelled');
+        DebugLogger.auth(
+          'browser-sign-in-cancelled',
+          scope: 'auth/browser-sign-in',
+        );
         return null;
       }
       if (failure != null) {
@@ -713,7 +716,10 @@ class BrowserSignInService {
     try {
       stored = await storage.browserSignInSessionsForRevocation();
     } catch (_) {
-      DebugLogger.auth('browser-session-revoke-skipped');
+      DebugLogger.auth(
+        'browser-session-revoke-skipped',
+        scope: 'auth/browser-sign-in',
+      );
       return;
     }
     final revocable = [
@@ -722,7 +728,10 @@ class BrowserSignInService {
           entry,
     ];
     if (revocable.length < sessions.length) {
-      DebugLogger.auth('browser-session-revoke-shared-grant-kept');
+      DebugLogger.auth(
+        'browser-session-revoke-shared-grant-kept',
+        scope: 'auth/browser-sign-in',
+      );
     }
     await Future.wait([
       for (final entry in revocable)
@@ -757,9 +766,13 @@ class BrowserSignInService {
           .timeout(revocationTimeout, onTimeout: () => false);
       DebugLogger.auth(
         revoked ? 'browser-session-revoked' : 'browser-session-revoke-failed',
+        scope: 'auth/browser-sign-in',
       );
     } catch (_) {
-      DebugLogger.auth('browser-session-revoke-failed');
+      DebugLogger.auth(
+        'browser-session-revoke-failed',
+        scope: 'auth/browser-sign-in',
+      );
     } finally {
       http?.close();
     }
