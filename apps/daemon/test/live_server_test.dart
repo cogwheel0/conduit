@@ -3075,6 +3075,73 @@ void main() {
         timeout: const Timeout(Duration(minutes: 2)),
       );
 
+      // The Build box's coding agents (its fake `/agents`): listed with the
+      // terminal chosen, their controls, and the default model back once
+      // the terminal is turned off.
+      test(
+        "the terminal's coding agents as models",
+        () async {
+          final terminals = TerminalsService(runtime.container);
+          addTearDown(terminals.dispose);
+          final listed = await terminals.servers('');
+          if (!listed.servers.any((s) => s.id == 'buildbox')) {
+            markTestSkipped('the server runs without the fake terminal');
+            return;
+          }
+          final service = ModelsService(runtime.container, events: EventBus());
+          const codex = 'agent:buildbox:codex:gpt-5.1';
+          final before = (await service.list()).selectedId;
+          final previous = listed.selectedId;
+          addTearDown(() async {
+            await terminals.select(previous);
+            if (before != null) await service.select(before);
+          });
+          await terminals.select('buildbox');
+          final offered = await service.list();
+          expect(offered.agents.map((a) => a.id), contains(codex));
+          final agent = offered.agents.firstWhere((a) => a.id == codex);
+          expect(agent.name, 'Codex · gpt-5.1');
+          expect(agent.agent?.terminalName, 'Build box');
+          // A temporary chat is offered none.
+          expect(
+            (await service.list(const ModelListQuery(temporary: true))).agents,
+            isEmpty,
+          );
+
+          final picked = await service.select(codex);
+          expect(picked.selectedId, codex);
+          final options = await service.options(const ModelOptionsQuery());
+          expect(options.modelId, codex);
+          expect(options.reasoning.visible, isFalse);
+          final controls = await service.controls(const ModelControlsQuery());
+          expect(controls.controls.map((c) => c.key), [
+            'reasoning_effort',
+            'service_tier',
+          ]);
+
+          // As a window does: the model, then the agent again.
+          final plain = offered.models.first.id;
+          await service.select(plain);
+          expect((await service.options(const ModelOptionsQuery())).modelId,
+              plain);
+          expect((await service.select(codex)).selectedId, codex);
+
+          final cleared = await terminals.select(null);
+          expect(cleared.selectedId, isNull);
+          await _waitFor(
+            () async =>
+                !((await currentModel(runtime.container))?.id ?? codex)
+                    .startsWith('agent:'),
+            seconds: 15,
+          );
+          final after = await service.list();
+          expect(after.selectedId, isNot(startsWith('agent:')));
+          expect(after.agents, isEmpty);
+          expect((await terminals.servers('')).selectedId, isNull);
+        },
+        timeout: const Timeout(Duration(minutes: 2)),
+      );
+
       // Dictation and speech. The server transcribes a recording: the local
       // server's speech-to-text is the fake model, which answers every
       // recording with the same synthetic sentence, so a tone checks the

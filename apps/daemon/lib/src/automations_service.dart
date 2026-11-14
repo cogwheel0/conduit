@@ -7,13 +7,18 @@ import 'package:conduit_core/features/automations/automation_schedule.dart';
 import 'package:conduit_core/features/automations/models/automation.dart';
 import 'package:conduit_core/features/automations/providers/automation_editor_options_provider.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart';
+import 'package:conduit_core/features/automations/providers/automation_terminal_providers.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
+import 'package:conduit_core/features/terminal/models/terminal_models.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'event_bus.dart';
+import 'models_service.dart' show terminalAgentDto;
 import 'settled.dart';
 
 /// `automations.*`: the account's Open WebUI scheduled tasks, through core's
@@ -119,10 +124,24 @@ final class AutomationsService {
     await _requireData();
     final owner = _owner();
     final task = await _guard(() => _notifier.fetch(ref.id, owner: owner));
-    // The model's, channel's and folder's names, when they load soon.
+    // The model's, channel's, folder's and terminal's names, when they load
+    // soon.
     await _settle(const Duration(seconds: 2));
+    final terminals = await _terminalsSoon();
     _stillCurrent(owner);
-    return _detailOf(task);
+    return _detailOf(task, terminals: terminals);
+  }
+
+  /// The server's terminals for tasks, when they arrive within two seconds.
+  Future<List<TerminalServerInfo>?> _terminalsSoon() async {
+    try {
+      return await readSettled(
+        _container,
+        automationTerminalsProvider.future,
+      ).timeout(const Duration(seconds: 2));
+    } on Object {
+      return null;
+    }
   }
 
   Future<AutomationRuns> runs(AutomationRunsQuery query) async {
@@ -298,32 +317,37 @@ final class AutomationsService {
       automationEditorOptionsProvider,
       (_, _) {},
     );
+    final terminals = _container.listen<AsyncValue<List<TerminalServerInfo>?>>(
+      automationTerminalsProvider,
+      (_, _) {},
+    );
     // Give the lists a moment to load, so the editor opens with them.
     await _settle(const Duration(seconds: 5));
+    await _terminalsSoon();
     if (!_notifier.isCurrentOwner(owner)) {
       options.close();
+      terminals.close();
       _stillCurrent(owner);
     }
     final token = List.generate(
       12,
       (_) => _random.nextInt(36).toRadixString(36),
     ).join();
-    final editor = _TaskEditor(owner, draft, options);
+    final editor = _TaskEditor(_container, owner, draft, options, terminals);
     _editors[token] = editor;
     while (_editors.length > _maxEditors) {
       _editors.remove(_editors.keys.first)?.close();
     }
-    final now = options.read();
+    await editor.agentsSoon(draft);
+    final now = editor.optionsFor(draft);
     return AutomationEditor(
       token: token,
       isNew: draft.isNew,
       fields: _fieldsOf(draft),
-      models: now.models == null
-          ? null
-          : [
-              for (final model in now.models!)
-                AutomationOption(id: model.id, name: model.name),
-            ],
+      models: _modelOptions(now.models),
+      terminals: _terminalOptions(now.terminals),
+      agentsUnknown: now.agentsUnknown,
+      agentName: terminalAgentDisplayName(draft.modelId.trim()),
       channels: now.channels == null
           ? null
           : [
@@ -339,6 +363,46 @@ final class AutomationsService {
       terminal: draft.original?.terminal != null,
     );
   }
+
+  /// `automations.terminals`: the terminals, and the models with the
+  /// draft's terminal's coding agents, once that terminal has answered (or
+  /// failed to in time).
+  Future<AutomationTerminals> terminals(AutomationDraftEdit edit) async {
+    final editor = _editor(edit.token);
+    final draft = editor.apply(edit.fields);
+    await editor.agentsSoon(draft);
+    final now = editor.optionsFor(draft);
+    return AutomationTerminals(
+      terminals: _terminalOptions(now.terminals),
+      models: _modelOptions(now.models),
+      agentsUnknown: now.agentsUnknown,
+    );
+  }
+
+  static List<AutomationOption>? _modelOptions(List<Model>? models) =>
+      models == null
+      ? null
+      : [
+          for (final model in models)
+            AutomationOption(
+              id: model.id,
+              name: model.name,
+              detail: terminalAgentPickerSubtitle(model),
+              agent: isTerminalAgentModel(model),
+            ),
+        ];
+
+  static List<AutomationOption>? _terminalOptions(
+    List<TerminalServerInfo>? terminals,
+  ) => terminals == null
+      ? null
+      : [
+          for (final terminal in terminals)
+            AutomationOption(
+              id: terminal.selectionId,
+              name: terminal.displayName,
+            ),
+        ];
 
   Future<void> _settle(Duration limit) async {
     Future<void> wait(Future<void> Function() read) async {
@@ -386,7 +450,7 @@ final class AutomationsService {
     try {
       if (draft.target.isChannel &&
           channel != null &&
-          editor.options.read().needsWriteReadBack(channel)) {
+          editor.base.read().needsWriteReadBack(channel)) {
         final writable = await _notifier.channelWritable(
           channel,
           owner: editor.owner,
@@ -406,10 +470,14 @@ final class AutomationsService {
       // The editor goes on as an edit of the task saved: what the window
       // typed while this save was out is saved to it next, never made again.
       if (_editors.containsKey(edit.token)) {
+        editor._agents?.close();
+        editor._agents = null;
         _editors[edit.token] = _TaskEditor(
+          _container,
           editor.owner,
           AutomationDraft.edit(saved),
-          editor.options,
+          editor.base,
+          editor.terminals,
         );
       }
       state = state.copyWith(saved: true, id: saved.id);
@@ -563,21 +631,39 @@ final class AutomationsService {
     nextRunAt: _ms(task.nextRunNs),
     lastRunAt: _ms(task.lastRun?.createdAtNs ?? task.lastRunAtNs),
     lastRunFailed: task.lastRun?.succeeded == false,
+    agent: terminalAgentDto(task.modelId.trim()),
   );
 
-  AutomationDetail _detailOf(Automation task) {
+  AutomationDetail _detailOf(
+    Automation task, {
+    List<TerminalServerInfo>? terminals,
+  }) {
     final models = _container.read(modelsProvider).asData?.value;
     final channels = _container.read(channelsListProvider).asData?.value;
     final folders = _container.read(foldersProvider).asData?.value;
     final channelId = task.target.channelId;
+    // What the editor reads back: the terminal and its folder, as stored.
+    final opened = AutomationDraft.edit(task);
+    final terminalName = terminals
+        ?.where((t) => t.selectionId == opened.terminalId)
+        .map((t) => t.displayName)
+        .firstOrNull;
     return AutomationDetail(
       summary: _summaryOf(task),
       prompt: task.prompt,
       modelId: task.modelId,
-      modelName: models
-          ?.where((m) => m.id == task.modelId)
-          .map((m) => m.name)
-          .firstOrNull,
+      // A coding agent is named as the picker names it, not as a model the
+      // account does not have (a task made on the web with an agent).
+      modelName:
+          models
+              ?.where((m) => m.id == task.modelId)
+              .map((m) => m.name)
+              .firstOrNull ??
+          terminalAgentDisplayName(task.modelId.trim()),
+      terminalId: opened.terminalId,
+      terminalName: terminalName,
+      workingDirectory: opened.terminalCwd,
+      agent: terminalAgentDto(task.modelId.trim(), terminalName: terminalName),
       target: task.target.isChannel ? 'channel' : 'chat',
       channelId: channelId,
       channelName: channels
@@ -668,23 +754,119 @@ final class AutomationsService {
     target: draft.target.isChannel ? 'channel' : 'chat',
     channelId: draft.target.channelId,
     folderId: draft.folderId,
+    terminalId: draft.terminalId,
+    workingDirectory: draft.terminalCwd,
   );
 }
 
 /// One open task editor: the account it was opened for, the draft it
-/// started from, and the options it offers (kept alive while it is open).
+/// started from, and the options it offers (kept alive while it is open):
+/// the account's models, channels and folders, the server's terminals, and
+/// the coding agents of the draft's terminal.
 final class _TaskEditor {
-  _TaskEditor(this.owner, this.opened, this.options);
+  _TaskEditor(
+    this._container,
+    this.owner,
+    this.opened,
+    this.base,
+    this.terminals,
+  ) : _terminal = opened.terminalId;
 
+  final ProviderContainer _container;
   final AutomationsOwner owner;
   final AutomationDraft opened;
-  final ProviderSubscription<AutomationEditorOptions> options;
+  final ProviderSubscription<AutomationEditorOptions> base;
+  final ProviderSubscription<AsyncValue<List<TerminalServerInfo>?>> terminals;
 
-  void close() => options.close();
+  /// The terminal the draft was last on: moving off it drops its folder and
+  /// any agent of it ([AutomationDraft.withTerminal]).
+  String? _terminal;
+
+  /// Keeps the draft's terminal's coding agents read while it is open.
+  ProviderSubscription<AsyncValue<List<Model>?>>? _agents;
+  AutomationAgentQuery? _agentsQuery;
+
+  void close() {
+    base.close();
+    terminals.close();
+    _agents?.close();
+    _agents = null;
+  }
+
+  /// What [draft] can pick now ([AutomationEditorOptions.withTerminalAgents]),
+  /// asking its terminal for its agents when that changed.
+  AutomationEditorOptions optionsFor(AutomationDraft draft) {
+    final servers = terminals.read();
+    final query = automationAgentQueryFor(
+      draft,
+      servers.asData?.value,
+      cwd: draft.terminalCwd?.trim(),
+    );
+    if (query != _agentsQuery) {
+      _agents?.close();
+      _agentsQuery = query;
+      _agents = query == null
+          ? null
+          : _container.listen<AsyncValue<List<Model>?>>(
+              automationAgentModelsProvider(query),
+              (_, _) {},
+            );
+    }
+    return base.read().withTerminalAgents(
+      draft: draft,
+      terminals: servers,
+      agents: _agents?.read(),
+    );
+  }
+
+  /// Waits (a few seconds at most) for [draft]'s terminal to list its
+  /// agents, so an answer carries them.
+  Future<void> agentsSoon(AutomationDraft draft) async {
+    optionsFor(draft);
+    final query = _agentsQuery;
+    if (query == null) return;
+    try {
+      await readSettled(
+        _container,
+        automationAgentModelsProvider(query).future,
+      ).timeout(const Duration(seconds: 5));
+    } on Object {
+      // Left unknown: the server decides.
+    }
+  }
 
   AutomationDraft apply(AutomationFields fields) {
     final channel = fields.target == 'channel';
     final channelId = fields.channelId;
+    final draft = _withTerminal(_applied(fields, channel, channelId), fields);
+    _terminal = draft.terminalId;
+    return draft;
+  }
+
+  /// [draft] on the fields' terminal and folder. A terminal other than the
+  /// one it was on starts from that terminal's own folder, and keeps no
+  /// agent of the old one.
+  AutomationDraft _withTerminal(AutomationDraft draft, AutomationFields f) {
+    final id = _text(f.terminalId);
+    final cwd = _text(f.workingDirectory);
+    final previous = _terminal;
+    var next = draft.copyWith(clearTerminal: true);
+    if (previous != null) {
+      next = next.copyWith(terminalId: previous, terminalCwd: cwd);
+    }
+    return id == previous ? next : next.withTerminal(id);
+  }
+
+  static String? _text(String? value) {
+    final text = value?.trim();
+    return text == null || text.isEmpty ? null : text;
+  }
+
+  AutomationDraft _applied(
+    AutomationFields fields,
+    bool channel,
+    String? channelId,
+  ) {
     return opened.copyWith(
       name: fields.name,
       prompt: fields.prompt,
@@ -705,7 +887,7 @@ final class _TaskEditor {
       AutomationDraftState(
         fields: shown,
         issues: [
-          for (final issue in options.read().issuesFor(draft)) issue.name,
+          for (final issue in optionsFor(draft).issuesFor(draft)) issue.name,
         ],
         changed: draft.isNew
             ? shown != AutomationsService._fieldsOf(opened)

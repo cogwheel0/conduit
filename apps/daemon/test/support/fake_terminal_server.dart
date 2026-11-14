@@ -25,7 +25,11 @@ import 'fake_desktop_frame.dart';
 /// * a dev server answers on port 5173 behind `/proxy/5173/`, and its page
 ///   opens a live-reload socket (`/proxy/5173/__hmr`) whose first message
 ///   sends the page to `/reloaded`, as a dev server's reload does;
-/// * the Computer desktop streams frames (`/desktop/stream`).
+/// * the Computer desktop streams frames (`/desktop/stream`);
+/// * `/agents` lists two coding agents and an unavailable third (Open
+///   Terminal's protocol 1), which Open WebUI 0.13.1 and later offers as
+///   models with their controls; none of them ever runs (a session is
+///   refused).
 ///
 /// Nothing here is real: every name, file and frame is invented.
 final class FakeTerminalServer {
@@ -38,6 +42,47 @@ final class FakeTerminalServer {
 
   /// Paths to contents; a path ending in `/` is a folder.
   final Map<String, List<int>> files;
+
+  /// The coding agents `/agents` lists: a made-up agent line-up, with
+  /// efforts and service tiers for Open WebUI to turn into controls.
+  static const Map<String, dynamic> _agents = <String, dynamic>{
+    'protocol_version': 1,
+    'agents': <Map<String, dynamic>>[
+      <String, dynamic>{
+        'id': 'codex',
+        'available': true,
+        'models': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'gpt-5.1',
+            'supportedReasoningEfforts': <Map<String, dynamic>>[
+              <String, dynamic>{'reasoningEffort': 'low'},
+              <String, dynamic>{'reasoningEffort': 'medium'},
+              <String, dynamic>{'reasoningEffort': 'high'},
+            ],
+            'defaultReasoningEffort': 'medium',
+            'serviceTiers': <Map<String, dynamic>>[
+              <String, dynamic>{'id': 'flex', 'name': 'Flex'},
+              <String, dynamic>{'id': 'priority', 'name': 'Priority'},
+            ],
+          },
+        ],
+      },
+      <String, dynamic>{
+        'id': 'claude-code',
+        'available': true,
+        'models': <Map<String, dynamic>>[
+          <String, dynamic>{'id': 'sonnet'},
+        ],
+      },
+      <String, dynamic>{
+        'id': 'pi',
+        'available': false,
+        'models': <Map<String, dynamic>>[
+          <String, dynamic>{'id': 'default'},
+        ],
+      },
+    ],
+  };
 
   static Map<String, List<int>> _work() => <String, List<int>>{
     '/work/': const <int>[],
@@ -244,6 +289,13 @@ final class FakeTerminalServer {
         return json(<String, dynamic>{
           'path': shown,
           'exists': files.containsKey(shown),
+        });
+      case ('GET', '/agents') when interactive:
+        return json(_agents);
+      case ('POST', _) when interactive && path.startsWith('/agents/'):
+        response.statusCode = HttpStatus.badRequest;
+        return json(<String, dynamic>{
+          'detail': 'This stand-in terminal runs no agents.',
         });
       case ('GET', '/desktop') when interactive:
         return json(<String, dynamic>{'transport': 'frames', 'audio': false});

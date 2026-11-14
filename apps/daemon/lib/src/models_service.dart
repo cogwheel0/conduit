@@ -2,7 +2,14 @@ import 'dart:async';
 
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show captureOpenWebUiReasoningPickTargetFor, selectReasoningEffortForModel;
+    show
+        captureOpenWebUiReasoningPickTargetFor,
+        modelControlChoicesProvider,
+        modelControlStates,
+        selectReasoningEffortForModel,
+        terminalAgentModelsIn,
+        terminalAgentScopeFor,
+        terminalAgentSelectionGuardProvider;
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart'
     show kOllamaAdapterKey;
@@ -14,6 +21,10 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesFastTierSelectionProvider;
 import 'package:conduit_core/features/librechat/models/librechat_model.dart'
     show libreChatModelSection;
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart'
+    show selectedTerminalIdProvider;
+import 'package:conduit_core/models/model_controls.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart' as core;
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
@@ -26,6 +37,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'account_scope.dart';
 import 'event_bus.dart';
 import 'settled.dart';
 
@@ -38,6 +50,25 @@ const _defaultModelWait = Duration(seconds: 5);
 
 /// How long `models.list` waits for the account's pins to load.
 const _listSettingsWait = Duration(milliseconds: 1500);
+
+/// The section the picker's layout files coding agents under; the window
+/// draws them from [ModelList.agents] under its own heading.
+const _agentsSection = (label: '\u0000agents', order: 1 << 20);
+
+/// A coding agent's place on the wire, from its model id; null when [id] is
+/// not an agent's.
+TerminalAgentDto? terminalAgentDto(String? id, {String? terminalName}) {
+  final agent = parseTerminalAgentModelId(id);
+  if (agent == null) return null;
+  final name = terminalName?.trim();
+  return TerminalAgentDto(
+    terminalId: agent.terminalId,
+    terminalName: name == null || name.isEmpty ? null : name,
+    agent: agent.provider,
+    agentName: terminalAgentName(agent.provider),
+    model: agent.model,
+  );
+}
 
 /// The model a turn that names none runs with: the account's selection, or
 /// else its default.
@@ -86,6 +117,13 @@ final class ModelsService {
   /// mobile keeps it), and the composers show it.
   void _announceChanges(EventBus events) {
     _container.listen<void>(defaultModelSettingSelectionProvider, (_, _) {});
+    // As mobile keeps them: a coding agent goes when its terminal is turned
+    // off, and a control's pick the model no longer offers is cleared.
+    _container.listen<void>(terminalAgentSelectionGuardProvider, (_, _) {});
+    _container.listen<AsyncValue<ModelControlChoices>>(
+      modelControlChoicesProvider,
+      (_, _) {},
+    );
     _container.listen<core.Model?>(selectedModelProvider, (previous, next) {
       if (previous?.id == next?.id) return;
       events.emit(ConduitEventSpecs.modelsChanged, null);
@@ -131,15 +169,22 @@ final class ModelsService {
     }
   }
 
+  /// The chat a list last reopened its coding agent for: a chat started
+  /// with one reopens with it once, as on mobile, and the user may pick
+  /// another model there afterwards.
+  String? _reopenedFor;
+
   /// One account's list: started again once if the account (or its
   /// signed-in user) changes while it is put together, and refused if it
   /// changes again, so no list mixes one account's models with the next's
   /// selection and pins.
-  Future<ModelList> list() async {
+  Future<ModelList> list([
+    ModelListQuery query = const ModelListQuery(),
+  ]) async {
     for (var attempt = 0; ; attempt++) {
       final session = _container.read(openWebUiAuthSessionEpochProvider);
       final accountId = currentPreferenceAccountId();
-      final list = await _list();
+      final list = await _list(query);
       if (identical(
             session,
             _container.read(openWebUiAuthSessionEpochProvider),
@@ -156,9 +201,16 @@ final class ModelsService {
     }
   }
 
-  Future<ModelList> _list() async {
+  Future<ModelList> _list(ModelListQuery query) async {
     final models = await _models();
     await _accountSettings(wait: _listSettingsWait);
+    final chatId = query.chatId;
+    final conversation = chatId == null ? null : await _conversation(chatId);
+    final agents = await _agents(conversation, temporary: query.temporary);
+    if (chatId != null && chatId != _reopenedFor) {
+      _reopenedFor = chatId;
+      await _reopenAgent(conversation, agents);
+    }
     // The model the next turn runs with, not the first in the list: the
     // composer shows this, and showing a model the next turn would not
     // actually use is worse than showing none.
@@ -166,9 +218,11 @@ final class ModelsService {
     final plain = ModelList(
       models: models.map(_summarize).toList(growable: false),
       selectedId: selectedId,
+      agents: agents.map(_summarize).toList(growable: false),
+      agentNames: _agentNames(conversation),
     );
     try {
-      return _arranged(models, plain);
+      return _arranged([...models, ...agents], plain);
     } on Object catch (error) {
       // The pins and the default come from the account's settings; a list
       // without them still lets the user pick.
@@ -191,7 +245,12 @@ final class ModelsService {
       pinnedModelIds: pinned,
       defaultModelId: defaultId,
       selectedModelId: plain.selectedId,
-      sectionOf: libreChatModelSection,
+      // A terminal's coding agents come last, under their own heading, and
+      // lead the list only when pinned or selected, as mobile lays them out.
+      sectionOf: (model) =>
+          libreChatModelSection(model) ??
+          (isTerminalAgentModel(model) ? _agentsSection : null),
+      fillsFallback: (model) => !isTerminalAgentModel(model),
     );
     final pinnedSet = pinned.toSet();
     return plain.copyWith(
@@ -199,15 +258,20 @@ final class ModelsService {
         for (final model in plain.models)
           model.copyWith(pinned: pinnedSet.contains(model.id)),
       ],
+      agents: <ModelSummary>[
+        for (final model in plain.agents)
+          model.copyWith(pinned: pinnedSet.contains(model.id)),
+      ],
       featuredIds: <String>[for (final model in layout.featured) model.id],
       moreSections: <ModelSection>[
         if (layout.more.isNotEmpty)
           ModelSection(ids: <String>[for (final m in layout.more) m.id]),
         for (final section in layout.sections)
-          ModelSection(
-            label: section.label,
-            ids: <String>[for (final m in section.models) m.id],
-          ),
+          if (section.label != _agentsSection.label)
+            ModelSection(
+              label: section.label,
+              ids: <String>[for (final m in section.models) m.id],
+            ),
       ],
       canPin: _container.read(canTogglePinnedModelsProvider),
       defaultId: defaultId,
@@ -276,7 +340,9 @@ final class ModelsService {
   /// `models.options`: reasoning effort (an Ollama model's thinking level)
   /// and Hermes' Fast tier for one model.
   Future<ModelOptionsDto> options(ModelOptionsQuery query) async {
-    final model = await _model(query.modelId);
+    // A coding agent is found among its terminal's, and offers none: its
+    // effort is a control of its own (`models.controls`).
+    final model = await _controlled(query.modelId, query.chatId);
     final options = await _options(model);
     // A chat's own saved effort is what its next turn sends: shown for it
     // over the model's pick.
@@ -449,7 +515,22 @@ final class ModelsService {
     }
   }
 
-  Future<ModelList> select(String id) async {
+  Future<ModelList> select(String id, {String? chatId}) async {
+    if (isTerminalAgentModelId(id)) {
+      final conversation = chatId == null ? null : await _conversation(chatId);
+      final agent = (await _agents(conversation))
+          .where((candidate) => candidate.id == id)
+          .firstOrNull;
+      if (agent == null) {
+        throw RpcError(
+          code: ConduitErrorCodes.notFound,
+          args: <String, String>{'id': id},
+          debugMessage: 'the selected terminal does not offer $id here',
+        );
+      }
+      _selectAgent(agent);
+      return list(ModelListQuery(chatId: chatId));
+    }
     final models = await _models();
     final model = models.where((candidate) => candidate.id == id).firstOrNull;
     if (model == null) {
@@ -460,7 +541,170 @@ final class ModelsService {
       );
     }
     _container.read(selectedModelProvider.notifier).set(model);
-    return list();
+    return list(ModelListQuery(chatId: chatId));
+  }
+
+  /// [agent] for the next turns, on its own terminal (picking an agent
+  /// selects its terminal, as on mobile).
+  void _selectAgent(core.Model agent) {
+    _container
+        .read(selectedTerminalIdProvider.notifier)
+        .set(terminalAgentTerminalId(agent));
+    _container
+        .read(selectedModelProvider.notifier)
+        .set(agent, allowHidden: true);
+  }
+
+  /// The coding agents the selected terminal offers [conversation] (null
+  /// for a new chat): none where no agent can answer, or when the terminal
+  /// was not reached in time.
+  Future<List<core.Model>> _agents(
+    Conversation? conversation, {
+    bool temporary = false,
+  }) async {
+    try {
+      final scope = await terminalAgentScopeFor(
+        _container,
+        conversation,
+        temporary: temporary,
+      );
+      return await terminalAgentModelsIn(_container, scope);
+    } on Object catch (error) {
+      DebugLogger.warning(
+        'agents-unlisted',
+        scope: 'daemon/models',
+        data: <String, Object?>{'error': error.runtimeType.toString()},
+      );
+      return const <core.Model>[];
+    }
+  }
+
+  /// A chat started with a coding agent reopens with it, as on mobile, once
+  /// its terminal offers it again; until then the selection stays.
+  Future<void> _reopenAgent(
+    Conversation? conversation,
+    List<core.Model> agents,
+  ) async {
+    final id = conversation?.model;
+    if (!isTerminalAgentModelId(id)) return;
+    if (_container.read(selectedModelProvider)?.id == id) return;
+    final agent = agents.where((candidate) => candidate.id == id).firstOrNull;
+    if (agent != null) _selectAgent(agent);
+  }
+
+  /// The coding agents [conversation]'s replies came from, named as the
+  /// picker names them.
+  static Map<String, String> _agentNames(Conversation? conversation) {
+    if (conversation == null) return const <String, String>{};
+    return <String, String>{
+      for (final id in <String>[
+        ?conversation.model,
+        for (final message in conversation.messages) ?message.model,
+      ])
+        id: ?terminalAgentDisplayName(id),
+    };
+  }
+
+  // ── Model controls ──────────────────────────────────────────────────────
+
+  /// `models.controls`: the model's controls, each with the option that
+  /// applies now (the user's pick, else the control's default).
+  Future<ModelControlList> controls(ModelControlsQuery query) async {
+    final model = await _controlled(query.modelId, query.chatId);
+    return _controlsOf(model);
+  }
+
+  /// `models.setControl`: the pick, saved in the account's Open WebUI
+  /// settings through the core (taken back if the server refuses it).
+  Future<ModelControlList> setControl(SetModelControl request) async {
+    // The pick is saved on the server of the account it was made under
+    // ([AccountScope]), or nowhere.
+    final account = AccountScope.capture(_container);
+    final model = await _controlled(request.modelId, request.chatId);
+    final control = modelControlsOf(model)
+        .where((c) => c.key == request.key)
+        .firstOrNull;
+    if (model == null || control == null) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        args: <String, String>{'control': request.key},
+        debugMessage: 'the model has no control ${request.key}',
+      );
+    }
+    final value = request.value;
+    if (value != null && control.optionFor(value) == null) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: const <String, String>{'reason': 'option'},
+        debugMessage: '${request.key} offers no option $value',
+      );
+    }
+    try {
+      await _choices();
+      account.require('the model control is saved');
+      await _container
+          .read(modelControlChoicesProvider.notifier)
+          .choose(model, control.key, value);
+    } on RpcError {
+      rethrow;
+    } on Object catch (error) {
+      throw RpcError(
+        code: ConduitErrorCodes.serverError,
+        debugMessage: 'the control was not saved: $error',
+      );
+    }
+    return _controlsOf(model);
+  }
+
+  Future<ModelControlList> _controlsOf(core.Model? model) async {
+    if (model == null || modelControlsOf(model).isEmpty) {
+      return ModelControlList(modelId: model?.id);
+    }
+    final choices = await _choices();
+    return ModelControlList(
+      modelId: model.id,
+      controls: <ModelControlDto>[
+        for (final state in modelControlStates(model, choices))
+          ModelControlDto(
+            key: state.control.key,
+            label: state.control.label,
+            description: state.control.description,
+            options: <ModelControlOptionDto>[
+              for (final option in state.control.options)
+                ModelControlOptionDto(value: option.value, label: option.label),
+            ],
+            defaultValue: state.control.defaultValue,
+            value: state.value,
+          ),
+      ],
+    );
+  }
+
+  /// The user's picks, once read; none while the server cannot be reached.
+  Future<ModelControlChoices> _choices() async {
+    try {
+      return await readSettled(
+        _container,
+        modelControlChoicesProvider.future,
+      ).timeout(_defaultModelWait);
+    } on Object {
+      return _container.read(modelControlChoicesProvider).value ??
+          const <String, Map<String, String>>{};
+    }
+  }
+
+  /// The model [id] names (the selection for null), a coding agent among
+  /// them: the selected one, else one the terminal offers [chatId].
+  Future<core.Model?> _controlled(String? id, String? chatId) async {
+    final selected = await currentModel(_container);
+    if (id == null || selected?.id == id) return selected;
+    if (isTerminalAgentModelId(id)) {
+      final conversation = chatId == null ? null : await _conversation(chatId);
+      return (await _agents(conversation))
+          .where((candidate) => candidate.id == id)
+          .firstOrNull;
+    }
+    return _model(id);
   }
 
   /// The capability names the server reported, as a flat list.
@@ -481,6 +725,10 @@ final class ModelsService {
         ? (model.metadata?['directProfileName'] as String?)
         : null,
     logo: _logo(model),
+    agent: terminalAgentDto(
+      model.id,
+      terminalName: model.metadata?[kTerminalAgentTerminalNameKey] as String?,
+    ),
   );
 
   /// The models.dev logo the core picks for a direct model, by id; none

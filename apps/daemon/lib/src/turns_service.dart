@@ -42,7 +42,10 @@ import 'package:conduit_core/features/hermes/services/hermes_session_provenance.
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
     show TerminalFileRequest, terminalDisplayFileProvider;
 import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart'
-    show terminalAgentTerminalId;
+    show
+        isTerminalAgentModelId,
+        terminalAgentDisplayName,
+        terminalAgentTerminalId;
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/features/chat/providers/temporary_chat_save.dart';
 import 'package:conduit_core/models/chat_comparison.dart';
@@ -3748,6 +3751,14 @@ final class TurnsService implements ChatTurns, AddressReplies {
       if (DirectModelId.decode(id) != null) {
         final discovered = await _discoveredDirectModel(id);
         if (discovered != null) return discovered;
+      }
+      // A coding agent is listed by its terminal, never with the models:
+      // the one selected carries its controls; any other goes by its id,
+      // which names its terminal.
+      if (isTerminalAgentModelId(id)) {
+        final selected = _container.read(selectedModelProvider);
+        if (selected?.id == id) return selected!;
+        return Model(id: id, name: terminalAgentDisplayName(id) ?? id);
       }
       // A bare id shaped like a direct or Hermes model is not that model.
       if (DirectModelId.decode(id) != null || id.startsWith('hermes:')) {

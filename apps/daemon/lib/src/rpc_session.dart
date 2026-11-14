@@ -921,6 +921,10 @@ class RpcSession {
       (r) => _need(_automations).checkDraft(r),
     );
     _on(ConduitMethodSpecs.automationsSave, (r) => _need(_automations).save(r));
+    _on(
+      ConduitMethodSpecs.automationsTerminals,
+      (r) => _need(_automations).terminals(r),
+    );
 
     _on(
       ConduitMethodSpecs.turnsRetryQueued,
@@ -981,7 +985,7 @@ class RpcSession {
   }
 
   void _registerModels() {
-    _on(ConduitMethodSpecs.composerOptions, (_) {
+    _on(ConduitMethodSpecs.composerOptions, (query) {
       final composer = _composer;
       if (composer == null) {
         throw const RpcError(
@@ -989,7 +993,7 @@ class RpcSession {
           debugMessage: 'the core is not up yet',
         );
       }
-      return composer.options();
+      return composer.options(query);
     });
     // drafts.*, mentions.*, skills.*, context.*, files.*: what the composer
     // holds and draws on.
@@ -1721,8 +1725,16 @@ class RpcSession {
     // prompts.*, models.*.
     _on(ConduitMethodSpecs.promptsList, (_) => _requirePrompts().list());
     _on(ConduitMethodSpecs.promptsRender, (r) => _requirePrompts().render(r));
-    _on(ConduitMethodSpecs.modelsList, (_) => _requireModels().list());
-    _on(ConduitMethodSpecs.modelsSelect, (r) => _requireModels().select(r.id));
+    _on(ConduitMethodSpecs.modelsList, (q) => _requireModels().list(q));
+    _on(
+      ConduitMethodSpecs.modelsSelect,
+      (r) => _requireModels().select(r.id, chatId: r.chatId),
+    );
+    _on(ConduitMethodSpecs.modelsControls, (q) => _requireModels().controls(q));
+    _on(
+      ConduitMethodSpecs.modelsSetControl,
+      (r) => _requireModels().setControl(r),
+    );
     _on(
       ConduitMethodSpecs.modelsSetPinned,
       (r) => _requireModels().setPinned(r),

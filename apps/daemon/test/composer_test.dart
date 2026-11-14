@@ -212,6 +212,26 @@ void main() {
       temporary.deleteSync(recursive: true);
     });
 
+    test("a coding agent's composer offers no Compare and no effort of its "
+        'own', () async {
+      runtime.container
+          .read(selectedModelProvider.notifier)
+          .set(
+            const core.Model(id: 'agent:bench:codex:gpt-5.1', name: 'Codex'),
+            allowHidden: true,
+          );
+      addTearDown(() => ModelsService(runtime.container).select(modelId));
+      final agent = await ComposerService(runtime.container).options();
+      expect(agent.agentChat, isTrue);
+      expect(agent.ownEffortControl, isTrue);
+      expect(agent.compareModels, isFalse);
+
+      await ModelsService(runtime.container).select(modelId);
+      final plain = await ComposerService(runtime.container).options();
+      expect(plain.agentChat, isFalse);
+      expect(plain.ownEffortControl, isFalse);
+    });
+
     test('a draft is kept per chat, and a new chat\'s per folder', () async {
       // A chat kept on this computer, to keep a draft under.
       final turns = TurnsService(runtime.container, EventBus());

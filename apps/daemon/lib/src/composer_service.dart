@@ -13,7 +13,12 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart'
     show isHermesModel;
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesSecretsLoadingProvider;
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart'
+    show isTerminalAgentModel;
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/model_controls.dart'
+    show modelHasReasoningEffortControl;
 import 'package:conduit_core/features/integrations/personal_connection_display.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
@@ -49,7 +54,9 @@ final class ComposerService {
 
   /// Bound to the account it was asked under ([AccountScope]): the tools,
   /// personal tool servers and models are that account's, or refused.
-  Future<ComposerOptions> options() async {
+  Future<ComposerOptions> options([
+    ComposerOptionsQuery query = const ComposerOptionsQuery(),
+  ]) async {
     final account = AccountScope.capture(_container);
     await Future.wait<Object?>(<Future<Object?>>[
       _settle(backendConfigProvider.future),
@@ -126,8 +133,17 @@ final class ComposerService {
           )
         : const <QuickPillCandidate>[];
     final voiceCall = await _voiceCallAdmitted(model);
+    // A chat a coding agent answers takes only new messages at its end.
+    final chatId = query.chatId;
+    final agentChat = conversationUsesTerminalAgent(
+      model,
+      chatId == null ? null : await _conversation(chatId),
+    );
     account.require('the composer options are answered');
     return ComposerOptions(
+      agentChat: agentChat,
+      ownEffortControl:
+          isTerminalAgentModel(model) || modelHasReasoningEffortControl(model),
       voiceCall: voiceCall,
       webSearch: webSearch,
       imageGeneration: imageGeneration,
@@ -164,7 +180,8 @@ final class ComposerService {
       mentions: openWebUi && !directModel,
       steer: isHermesDesktopComposer(read, model),
       imageConversions: alwaysConvertImageFormats.toList()..sort(),
-      compareModels: _container.read(comparisonCommandAvailableProvider),
+      compareModels:
+          !agentChat && _container.read(comparisonCommandAvailableProvider),
       quickPills: <QuickPillOption>[
         for (final pill in quickPills)
           QuickPillOption(
@@ -175,6 +192,17 @@ final class ComposerService {
           ),
       ],
     );
+  }
+
+  Future<Conversation?> _conversation(String chatId) async {
+    try {
+      return await readSettled(
+        _container,
+        loadConversationProvider(chatId).future,
+      );
+    } on Object {
+      return null;
+    }
   }
 
   /// Whether a voice call may start with [model]: the core's admission, as
