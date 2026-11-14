@@ -1332,7 +1332,11 @@ class TtsManager {
       }
     }
 
+    if (_activeSession?.id != session.id) return; // stopped meanwhile
     await _player.stop();
+    // Each await hands the shared player to whoever runs next: a session
+    // stopped or replaced meanwhile must not set the queue or start playback.
+    if (_activeSession?.id != session.id) return;
     _isTransitioningChunks = true;
     // Flag will be cleared by state listener when playing=true is received.
     // This prevents race condition where flag is cleared before state fires.
@@ -1342,6 +1346,7 @@ class TtsManager {
         initialIndex: 0,
         initialPosition: Duration.zero,
       );
+      if (_activeSession?.id != session.id) return;
       await _playQueuedAudio(session);
     } catch (e) {
       // Reset flag on error to avoid suppressing future pause events
@@ -1574,6 +1579,12 @@ class TtsManager {
               nextIndex,
               chunk,
             );
+            // The session may have been stopped (e.g. a barge-in) while the
+            // chunk file was written; never push a stale chunk into the player
+            // or advance the shared indices of the session that replaced it.
+            if (_activeSession?.id != session.id) {
+              return;
+            }
             if (_isStreamingSession &&
                 nextIndex == 0 &&
                 _serverLastEnqueuedIndex < 0) {
