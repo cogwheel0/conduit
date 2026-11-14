@@ -16,8 +16,10 @@ import 'package:test/test.dart';
 /// listeners of the one that replaced it.
 void main() {
   final player = _Player();
+  final previousFactory = AudioPlaybackPort.hostFactory;
   // Before the manager is first made, so it plays through this player.
   AudioPlaybackPort.hostFactory = () => player;
+  tearDownAll(() => AudioPlaybackPort.hostFactory = previousFactory);
   final manager = TtsManager.instance;
   final store = _ClipStore();
   final previousStore = TtsManager.clipStore;
@@ -141,10 +143,10 @@ void main() {
     manager.setServerSpeech(
       _Server()
         ..turns['Old two.'] = [
-          // Too late for the first play; then its fetch is refused (a 4xx
-          // is not tried again); then the fetch that tries once more when
-          // the first clip has ended.
-          () => Completer<SynthesizedSpeech>().future,
+          // Refused for the first play and again for its fetch (a 4xx is
+          // not tried again, so neither waits); then the fetch that tries
+          // once more when the first clip has ended.
+          () => Future.error(_refused()),
           () => Future.error(_refused()),
           () => recovery.future,
         ],
