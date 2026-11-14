@@ -215,6 +215,9 @@ List<Override> chatSessionScopeOverrides() => <Override>[
   ...chatSessionScopedReasoningOverrides(),
   ...chatSessionScopedTerminalOverrides(),
   ...chatSessionScopedHermesOverrides(),
+  // The open Hermes chat's session, plan, background work and working
+  // directory: left to the root, they would follow the root's open chat.
+  ...chatSessionScopedHermesWorkOverrides(),
   // The Hermes session an Open WebUI chat's latest Hermes reply ran in
   // follows the scope's chat: its plan and background work read it.
   hermesTrustedMixedSessionProvider.overrideWith(_hermesTrustedMixedSession),

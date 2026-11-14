@@ -9,7 +9,10 @@ import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provi
 import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_background_work_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_working_directory_providers.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
@@ -23,7 +26,7 @@ import 'package:conduit_core/testing.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
 import 'package:drift/native.dart';
-import 'package:riverpod/misc.dart' show Override;
+import 'package:riverpod/misc.dart' show Override, ProviderListenable;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -433,6 +436,57 @@ void main() {
     expect(a.container.read(hermesActiveSessionProvider), 'session-a');
     expect(b.container.read(hermesActiveSessionProvider), isNull);
     expect(parent.read(hermesActiveSessionProvider), isNull);
+  });
+
+  test('a Hermes chat\'s plan, work and directory follow its scope', () {
+    final parent = root();
+    final a = open(parent);
+    final b = open(parent);
+    Conversation hermesChat(String id) {
+      final chat = _chat(id);
+      return chat.copyWith(
+        metadata: {...chat.metadata, 'hermesSessionId': 'session-$id'},
+      );
+    }
+
+    parent.read(activeConversationProvider.notifier).set(hermesChat('root'));
+    a.container.read(activeConversationProvider.notifier).set(hermesChat('a'));
+    b.container.read(activeConversationProvider.notifier).set(hermesChat('b'));
+
+    for (final (container, id) in [
+      (parent, 'root'),
+      (a.container, 'a'),
+      (b.container, 'b'),
+    ]) {
+      final open = container.listen(hermesOpenChatSessionProvider, (_, _) {});
+      addTearDown(open.close);
+      expect(open.read(), 'session-$id');
+      final openId = container.listen(hermesOpenSessionIdProvider, (_, _) {});
+      addTearDown(openId.close);
+      expect(openId.read(), 'session-$id');
+    }
+    // Each is made in the scope that reads it, from that scope's session,
+    // not in the root.
+    final scoped = <ProviderListenable<Object?>>[
+      hermesActiveTodoProvider,
+      hermesBackgroundWorkProvider,
+      hermesActiveWorkingDirectoryProvider,
+      hermesReplyWorkingDirectoryProvider('session-a'),
+    ];
+    for (final provider in scoped) {
+      final sub = a.container.listen(provider, (_, _) {});
+      addTearDown(sub.close);
+    }
+    final rooted = {
+      for (final reference in parent.allProviders()) reference.provider,
+    };
+    expect(rooted, isNot(contains(hermesActiveTodoProvider)));
+    expect(rooted, isNot(contains(hermesBackgroundWorkProvider)));
+    expect(rooted, isNot(contains(hermesActiveWorkingDirectoryProvider)));
+    expect(
+      rooted,
+      isNot(contains(hermesReplyWorkingDirectoryProvider('session-a'))),
+    );
   });
 
   test('an Open WebUI prompt waits in its own chat', () {

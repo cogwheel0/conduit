@@ -155,6 +155,8 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/controllers/hermes_busy_turn_controller.dart';
 
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_background_work_providers.dart'
+    show chatSessionScopedHermesWorkOverrides;
 import 'package:conduit_core/features/push/providers/push_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';

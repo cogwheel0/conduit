@@ -260,8 +260,7 @@ final hermesOpenSessionIdProvider = Provider.autoDispose<String?>(
 /// The open chat's background work, its plan and its working directory made
 /// afresh in a chat session scope (`ChatSessionScope`), from the same create
 /// functions: left to the root, they would list the root's open chat's work,
-/// not the scope's. A host keeping several chats live (the desktop daemon)
-/// opens its scopes with these.
+/// not the scope's. `chatSessionScopeOverrides` includes them.
 List<Override> chatSessionScopedHermesWorkOverrides() => <Override>[
   ...chatSessionScopedHermesPlanOverrides(),
   ...chatSessionScopedHermesWorkingDirectoryOverrides(),
