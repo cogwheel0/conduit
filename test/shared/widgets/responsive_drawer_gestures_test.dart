@@ -424,6 +424,37 @@ void main() {
   );
 
   testWidgets(
+    'embedded horizontal controls override Markdown drawer priority',
+    (tester) async {
+      final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
+      var horizontalUpdates = 0;
+      await tester.pumpWidget(
+        drawerTestBuildHarness(
+          size: drawerTestMobileSize,
+          layoutKey: layoutKey,
+          edgeFraction: 1,
+          child: HorizontalGestureExclusion(
+            child: PrioritizedHorizontalGesture(
+              child: HorizontalGestureExclusion(
+                excludePrioritizedGestures: true,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onHorizontalDragUpdate: (_) => horizontalUpdates++,
+                  child: const SizedBox.expand(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.dragFrom(const Offset(190, 200), const Offset(120, 0));
+      await tester.pumpAndSettle();
+      expect(horizontalUpdates, greaterThan(0));
+      expect(layoutKey.currentState!.isOpen, isFalse);
+    },
+  );
+
+  testWidgets(
     'eager descendant gesture owner wins over full-width drawer drag',
     (tester) async {
       final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();

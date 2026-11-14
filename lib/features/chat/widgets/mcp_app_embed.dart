@@ -19,6 +19,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/utils/external_link_launcher.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/shared/widgets/horizontal_gesture_ownership.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
@@ -396,7 +397,12 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
             height: _height,
             child: Stack(
               children: [
-                Positioned.fill(child: _webView(resource)),
+                Positioned.fill(
+                  child: HorizontalGestureExclusion(
+                    excludePrioritizedGestures: true,
+                    child: _webView(resource),
+                  ),
+                ),
                 if (!_started)
                   const Positioned.fill(
                     child: IgnorePointer(
