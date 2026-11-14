@@ -329,7 +329,8 @@ class BrowserSignInService {
   ///
   /// [prompt] and [loginHint] go to the identity provider as given.
   ///
-  /// Returns null when the user closed the browser. Throws
+  /// Returns null when the user closed the browser, or [stopped] says the
+  /// sign-in was called off before the browser opened. Throws
   /// [BrowserSignInException] for anything else that stops it.
   Future<BrowserSignInGrant?> authorize({
     required ApiService api,
@@ -337,6 +338,7 @@ class BrowserSignInService {
     required String serverId,
     String? prompt,
     String? loginHint,
+    bool Function()? stopped,
   }) async {
     if (!_port.isSupported) {
       throw const BrowserSignInException(
@@ -365,6 +367,7 @@ class BrowserSignInService {
         loginHint: loginHint,
         random: _random,
       );
+      if (stopped?.call() ?? false) return null;
       final result = await _port.authorize(
         request.url,
         redirectUri: redirectUri,
