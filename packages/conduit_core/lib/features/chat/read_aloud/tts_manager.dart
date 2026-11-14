@@ -947,14 +947,18 @@ class TtsManager {
         // Paused from the moment it is asked: a sentence that ends while the
         // engine is being asked holds the next one ([_onDeviceChunkComplete]).
         _devicePaused = true;
+        final command = ++_deviceCommand;
+        // Only the latest pause or resume of the reading applies what the
+        // engine answers: an older one answering late changes nothing.
+        bool latest() => _owns(session) && command == _deviceCommand;
         final bool paused;
         try {
           paused = await _nativeTts.pause();
         } catch (_) {
-          if (_owns(session)) await _undoDevicePause(session);
+          if (latest()) await _undoDevicePause(session);
           rethrow;
         }
-        if (!_owns(session)) return;
+        if (!latest()) return;
         // Refused: the reading goes on, and nothing says it paused.
         if (!paused) {
           await _undoDevicePause(session);
@@ -972,6 +976,10 @@ class TtsManager {
       _emitEvent(TtsError(e.toString()));
     }
   }
+
+  /// Counts the device pause and resume commands, so an older one answering
+  /// late does not undo a newer one ([pause], [resume]).
+  int _deviceCommand = 0;
 
   /// Takes back a pause the engine did not make: the reading is not paused,
   /// and a sentence held back meanwhile ([_onDeviceChunkComplete]) is said.
@@ -1005,6 +1013,7 @@ class TtsManager {
         if (_activeSession?.id != session.id) return;
         _emitEvent(const TtsResumed());
       } else if (_deviceResumeAt case final at?) {
+        ++_deviceCommand;
         // It moved while paused, or was paused between two sentences: say it
         // from there instead.
         _devicePaused = false;
@@ -1014,14 +1023,16 @@ class TtsManager {
         _emitEvent(const TtsResumed());
       } else if (_nativeTts.replacesOnSpeak) {
         _devicePaused = false;
+        final command = ++_deviceCommand;
+        bool latest() => _owns(session) && command == _deviceCommand;
         final bool resumed;
         try {
           resumed = await _nativeTts.resume();
         } catch (_) {
-          if (_owns(session)) _devicePaused = true;
+          if (latest()) _devicePaused = true;
           rethrow;
         }
-        if (!_owns(session)) return;
+        if (!latest()) return;
         // Refused: still paused, and nothing says it resumed.
         if (!resumed) {
           _devicePaused = true;

@@ -207,6 +207,45 @@ void main() {
     });
   }
 
+  test('an older pause refused after a newer one took leaves it paused',
+      () async {
+    await manager.speak(text);
+    final first = Completer<bool>();
+    engine.pauseTurns
+      ..add(() => first.future)
+      ..add(() async => true);
+    final older = manager.pause();
+    await manager.pause();
+    first.complete(false);
+    await older;
+    await pumpEventQueue();
+
+    // Still paused: moving says nothing until it resumes.
+    final said = engine.spoken.length;
+    check(await manager.seekToChunk(1)).equals(1);
+    check(engine.spoken).length.equals(said);
+  });
+
+  test('an older resume refused after a newer one took leaves it going',
+      () async {
+    await manager.speak(text);
+    await manager.pause();
+    await pumpEventQueue();
+    final first = Completer<bool>();
+    engine.resumeTurns
+      ..add(() => first.future)
+      ..add(() async => true);
+    final older = manager.resume();
+    await manager.resume();
+    first.complete(false);
+    await older;
+
+    // Not held: the next sentence is said when this one ends.
+    engine.emit('complete');
+    await pumpEventQueue();
+    check(engine.spoken.last).equals('Two green frogs.');
+  });
+
   test('a resume the voice refuses leaves the reading paused', () async {
     await manager.speak(text);
     await manager.pause();
@@ -419,9 +458,14 @@ class _Engine implements DeviceSpeechEngine {
   /// What [resume] answers.
   bool resumeAnswer = true;
 
+  /// Answers for the next calls, one per call, before the fields above.
+  final pauseTurns = <Future<bool> Function()>[];
+  final resumeTurns = <Future<bool> Function()>[];
+
   @override
   @override
   Future<bool> pause() async {
+    if (pauseTurns.isNotEmpty) return pauseTurns.removeAt(0)();
     await pauseGate?.future;
     await duringPause?.call();
     final error = pauseError;
@@ -435,6 +479,7 @@ class _Engine implements DeviceSpeechEngine {
   @override
   Future<bool> resume() async {
     resumes++;
+    if (resumeTurns.isNotEmpty) return resumeTurns.removeAt(0)();
     return resumeAnswer;
   }
 }
