@@ -7,15 +7,21 @@ const String kHermesStoredUserContentKey = 'hermesStoredContent';
 /// A Desktop Gateway session's place to cut before [replayedUserIndex], or
 /// null when the turn goes to a new session instead: the REST transport
 /// replays an explicit history, and a chat with no session has nothing to
-/// cut. [rowId] is null when the replayed turn never reached the session,
-/// which then only gets the prompt again.
+/// cut. [rowId] is null when the replayed turn never reached the session
+/// and nothing stored after it needs to go, which then only gets the prompt
+/// again. [promptStored] says whether the session holds the replayed turn
+/// itself.
 ///
 /// [originalText] is the replayed prompt as the session stores it, when an
 /// edit has already changed it on screen. [previousText] is the text shown
 /// before that edit: a turn edited before is stored with that one once the
 /// earlier edit went through, and with [originalText] when it did not.
+///
+/// [promptNeverSent] marks a replayed prompt that never reached the session
+/// even where the chat no longer shows the note that says so (an edit drops
+/// it with everything after the prompt).
 @visibleForTesting
-Future<({String sessionId, int? rowId, int? lastRowId})?>
+Future<({String sessionId, int? rowId, int? lastRowId, bool promptStored})?>
 hermesDesktopRewindTarget({
   required HermesBackendService? service,
   required Conversation? conversation,
@@ -23,6 +29,7 @@ hermesDesktopRewindTarget({
   required int replayedUserIndex,
   String? originalText,
   String? previousText,
+  bool promptNeverSent = false,
 }) async {
   if (service is! HermesDesktopTurnService ||
       replayedUserIndex < 0 ||
@@ -43,7 +50,11 @@ hermesDesktopRewindTarget({
   // have been cleared yet) counts only at the turn's place: out of place it
   // may be a later turn another app sent with it.
   final shown = messages[replayedUserIndex].content.trim();
-  int? find(String? text) => hermesTranscriptUserRowIndex(
+  final neverSent =
+      promptNeverSent || hermesUserTurnNeverSent(messages, replayedUserIndex);
+  int? find(String? text) => neverSent
+      ? null
+      : hermesTranscriptUserRowIndex(
     transcript: transcript,
     messages: messages,
     index: replayedUserIndex,
@@ -72,24 +83,64 @@ hermesDesktopRewindTarget({
   }
   final rowId = row == null ? null : hermesTranscriptRowId(transcript[row]);
   if (rowId != null) {
-    return (sessionId: sessionId, rowId: rowId, lastRowId: lastRowId);
-  }
-  var ordinal = 0;
-  for (var index = 0; index < replayedUserIndex; index++) {
-    if (messages[index].role == 'user') ordinal++;
-  }
-  final storedTurns = transcript
-      .where((row) => hermesTranscriptUserContent(row) != null)
-      .length;
-  if (storedTurns > ordinal) {
-    // The session holds this turn or a later one, and neither can be told
-    // apart for certain: sending again uncut would leave them in place.
-    throw StateError(
-      'This message could not be found in the Hermes chat. Reopen the chat '
-      'and try again.',
+    return (
+      sessionId: sessionId,
+      rowId: rowId,
+      lastRowId: lastRowId,
+      promptStored: true,
     );
   }
-  return (sessionId: sessionId, rowId: null, lastRowId: lastRowId);
+  final ordinal = hermesSentUserTurnsBefore(messages, replayedUserIndex);
+  final userRows = <int>[
+    for (var index = 0; index < transcript.length; index++)
+      if (hermesTranscriptUserContent(transcript[index]) != null) index,
+  ];
+  if (userRows.length > ordinal) {
+    // A prompt kept off a model switch has no row of its own: what the
+    // session stores after the turns kept before it goes, as it left the
+    // chat, once those turns are certainly the session's own.
+    var previous = replayedUserIndex - 1;
+    while (previous >= 0 &&
+        (messages[previous].role != 'user' ||
+            hermesUserTurnNeverSent(messages, previous))) {
+      previous--;
+    }
+    final cut =
+        neverSent &&
+            (ordinal == 0 ||
+                hermesTranscriptUserRowIndex(
+                      transcript: transcript,
+                      messages: messages,
+                      index: previous,
+                      // Every earlier turn in its place: a text found out
+                      // of place says nothing of the turns before it.
+                      inPlaceOnly: true,
+                    ) ==
+                    userRows[ordinal - 1])
+        ? hermesTranscriptRowId(transcript[userRows[ordinal]])
+        : null;
+    // Otherwise the session holds this turn or a later one, and neither can
+    // be told apart for certain: sending again uncut would leave them in
+    // place.
+    if (cut == null) {
+      throw StateError(
+        'This message could not be found in the Hermes chat. Reopen the chat '
+        'and try again.',
+      );
+    }
+    return (
+      sessionId: sessionId,
+      rowId: cut,
+      lastRowId: lastRowId,
+      promptStored: false,
+    );
+  }
+  return (
+    sessionId: sessionId,
+    rowId: null,
+    lastRowId: lastRowId,
+    promptStored: false,
+  );
 }
 
 Future<void> _regenerateHermesMessage(
@@ -101,6 +152,7 @@ Future<void> _regenerateHermesMessage(
   required HermesBackendService? serviceGeneration,
   String? originalUserContent,
   String? previousUserContent,
+  bool promptNeverSent = false,
 }) async {
   final reasoningEffort = ref.read(configuredReasoningEffortProvider);
   final activeAtStart = ref.read(activeConversationProvider) as Conversation?;
@@ -142,6 +194,12 @@ Future<void> _regenerateHermesMessage(
   final replayedFiles = replayedUser?.files ?? const <Map<String, dynamic>>[];
   final replayedAttachments = replayedUser?.attachmentIds ?? const <String>[];
   final assistantMessageId = previousAssistant?.id ?? const Uuid().v4();
+  // A prompt kept off a model switch stays unsent until Hermes takes it: a
+  // replay that ends before then leaves it as it was.
+  final keptUnsent =
+      promptNeverSent ||
+      (replayedUserIndex >= 0 &&
+          hermesUserTurnNeverSent(existingMessages, replayedUserIndex));
   final notifier = ref.read(chatMessagesProvider.notifier);
   ChatMessage assistantMessage({
     required bool isStreaming,
@@ -157,7 +215,11 @@ Future<void> _regenerateHermesMessage(
     versions: previousAssistant == null
         ? const <ChatMessageVersion>[]
         : _buildReplayVersions(previousAssistant),
-    metadata: {'modelName': selectedModel.name, 'transport': kHermesTransport},
+    metadata: {
+      'modelName': selectedModel.name,
+      'transport': kHermesTransport,
+      if (keptUnsent) kHermesModelSwitchKeptKey: true,
+    },
   );
   void installAssistant(ChatMessage message) {
     if (previousAssistant == null) {
@@ -212,6 +274,7 @@ Future<void> _regenerateHermesMessage(
     replayedUserIndex: replayedUserIndex,
     originalText: texts.originalText,
     previousText: texts.previousText,
+    promptNeverSent: promptNeverSent,
   );
   if (!chatMutationTokenStillActive(ref, mutationOwner)) return;
   if (!configController.sessionActionAdmissionIsCurrent(configAdmission) ||
@@ -233,6 +296,7 @@ Future<void> _regenerateHermesMessage(
     forceNewSession: rewind == null,
     truncateBeforeRowId: rewind?.rowId,
     truncateSeenThroughRowId: rewind?.lastRowId,
+    replaysStoredPrompt: rewind?.promptStored ?? false,
     // Regeneration branches from [continuityMessages]. Chaining the response
     // being replaced would restore the wrong tail and the wrong server session.
     previousResponseIdOverride: null,
@@ -673,6 +737,9 @@ Future<void> regenerateEditedHermesUserMessage(
   if (index < 0) throw StateError('The Hermes user message was not found.');
 
   final original = messages[index];
+  // A prompt kept off a model switch has no stored text: the edit drops the
+  // note that says so, and the cut falls after the turns before it.
+  final neverSent = hermesUserTurnNeverSent(messages, index);
   // The text the session stores for this turn, kept until it is replaced:
   // a retry after a replacement that failed before its cut finds the turn
   // by it.
@@ -687,7 +754,7 @@ Future<void> regenerateEditedHermesUserMessage(
     metadata: <String, dynamic>{
       ...?original.metadata,
       'childrenIds': const <String>[],
-      kHermesStoredUserContentKey: storedContent,
+      if (!neverSent) kHermesStoredUserContentKey: storedContent,
     },
   );
   final notifier =
@@ -704,8 +771,9 @@ Future<void> regenerateEditedHermesUserMessage(
       null,
       // A Desktop session finds the turn to cut by the text it stored: the
       // one before any edit, or the one shown now once an edit went through.
-      hermesOriginalUserContent: storedContent,
-      hermesPreviousUserContent: original.content,
+      hermesOriginalUserContent: neverSent ? null : storedContent,
+      hermesPreviousUserContent: neverSent ? null : original.content,
+      hermesPromptNeverSent: neverSent,
     );
     await forgetReplacedHermesStoredContent(ref, messageId: messageId);
   } catch (_) {
@@ -859,6 +927,7 @@ Future<void> regenerateMessage(
   bool Function()? ownsPreparationState,
   String? hermesOriginalUserContent,
   String? hermesPreviousUserContent,
+  bool hermesPromptNeverSent = false,
 }) async {
   final conversationAtRegenerationStart =
       ref.read(activeConversationProvider) as Conversation?;
@@ -977,6 +1046,7 @@ Future<void> regenerateMessage(
       serviceGeneration: hermesServiceGeneration,
       originalUserContent: hermesOriginalUserContent,
       previousUserContent: hermesPreviousUserContent,
+      promptNeverSent: hermesPromptNeverSent,
     );
     return;
   }

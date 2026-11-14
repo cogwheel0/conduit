@@ -10,7 +10,15 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         forgetReplacedHermesStoredContent,
         hermesDesktopRewindTarget,
         hermesRewindCandidateTexts,
-        kHermesStoredUserContentKey;
+        kHermesStoredUserContentKey,
+        regenerateEditedHermesUserMessage,
+        regenerateMessage,
+        stopGenerationSettledProvider;
+import 'package:conduit_core/features/chat/services/historical_message_regeneration.dart'
+    show regenerateHistoricalMessageById;
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/features/chat/services/chat_message_actions.dart'
     show undoLastHermesTurn;
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -102,11 +110,15 @@ final class _Gateway {
         );
         return;
       }
-      scheduleMicrotask(
-        () => incoming.add(
-          jsonEncode({'jsonrpc': '2.0', 'id': id, 'result': result}),
-        ),
+      void answer() => incoming.add(
+        jsonEncode({'jsonrpc': '2.0', 'id': id, 'result': result}),
       );
+      final held = holdSubmit;
+      if (method == 'prompt.submit' && held != null) {
+        unawaited(held.future.then((_) => answer()));
+        return;
+      }
+      scheduleMicrotask(answer);
     });
   }
 
@@ -115,6 +127,9 @@ final class _Gateway {
   final sink = _MockWebSocketSink();
   final incoming = StreamController<dynamic>.broadcast();
   final sent = <Map<String, dynamic>>[];
+
+  /// When set, `prompt.submit` is answered only once it completes.
+  Completer<void>? holdSubmit;
 
   /// Answers a request in place of the defaults; null falls back to them.
   Object? Function(String method, Map<String, dynamic> params)? handler;
@@ -256,8 +271,13 @@ final class _Rest implements HttpClientAdapter {
   }
 }
 
-HermesDesktopApiService _service(_Gateway gateway, _Rest rest) {
+HermesDesktopApiService _service(
+  _Gateway gateway,
+  _Rest rest, {
+  HermesModelSwitchPrompt? confirmModelSwitch,
+}) {
   final service = HermesDesktopApiService(
+    confirmModelSwitch: confirmModelSwitch,
     config: HermesConfig(
       enabled: true,
       baseUrl: 'https://hermes.example',
@@ -319,6 +339,18 @@ final _chat = [
   _message('a1', 'assistant', 'Bring sandwiches.'),
   _message('u2', 'user', 'And drinks?'),
   _message('a2', 'assistant', 'Lemonade.'),
+];
+
+/// [_chat] where the user first asked "And drinks?" while Hermes held a model
+/// switch, kept the chat's model, and then sent the words again: the kept
+/// prompt and its note never reached the session.
+final _keptChat = [
+  ..._chat.take(2),
+  _message('k1', 'user', 'And drinks?'),
+  _message('k2', 'assistant', '').copyWith(
+    metadata: const {kHermesModelSwitchKeptKey: true},
+  ),
+  ..._chat.skip(2),
 ];
 
 class _SeededConversation extends ActiveConversationNotifier {
@@ -442,6 +474,71 @@ ProviderContainer _chatContainer(
     ],
   );
   addTearDown(container.dispose);
+  return container;
+}
+
+final _pricierModel = hermesDesktopModel(
+  modelId: 'pricier-model',
+  name: 'Pricier',
+  provider: 'synthetic-provider',
+);
+
+final class _OpenDatabaseAccess extends OpenWebUiDatabaseAccessNotifier {
+  @override
+  OpenWebUiDatabaseAccessPhase build() => OpenWebUiDatabaseAccessPhase.open;
+}
+
+final class _DesktopConfig extends HermesConfigController {
+  @override
+  HermesConfig build() => HermesConfig(
+    enabled: true,
+    baseUrl: 'https://hermes.example',
+    mode: HermesBackendMode.desktopGateway,
+    desktopAuthKind: HermesDesktopAuthKind.legacyToken,
+    desktopCredentials: HermesDesktopCredentials(legacyToken: 'session-token'),
+  );
+}
+
+final class _Models extends Models {
+  @override
+  Future<List<Model>> build() async => [_pricierModel];
+}
+
+final class _SelectedPricier extends SelectedModel {
+  @override
+  Model build() => _pricierModel;
+}
+
+/// [_chatContainer] that can also send turns: a regenerate, or a
+/// regenerate of an earlier reply.
+Future<ProviderContainer> _turnContainer(
+  HermesDesktopApiService service,
+  List<ChatMessage> messages,
+) async {
+  final container = ProviderContainer(
+    overrides: [
+      openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+      appDatabaseProvider.overrideWith((ref) {
+        final database = AppDatabase(NativeDatabase.memory());
+        ref.onDispose(() => unawaited(database.close()));
+        return database;
+      }),
+      apiServiceProvider.overrideWithValue(null),
+      socketServiceProvider.overrideWithValue(null),
+      reviewerModeProvider.overrideWithValue(false),
+      hermesConfigProvider.overrideWith(_DesktopConfig.new),
+      hermesApiServiceProvider.overrideWithValue(service),
+      modelsProvider.overrideWith(_Models.new),
+      selectedModelProvider.overrideWith(_SelectedPricier.new),
+      activeConversationProvider.overrideWith(
+        () => _SeededConversation(_picnic),
+      ),
+      chatMessagesProvider.overrideWith(() => _SeededMessages(messages)),
+    ],
+  );
+  addTearDown(container.dispose);
+  container.read(hermesConfigProvider);
+  await container.read(modelsProvider.future);
   return container;
 }
 
@@ -585,6 +682,22 @@ void main() {
           index: 0,
         ),
       ).equals(0);
+      // Kept off a model switch, it takes no place: the same words sent
+      // again are found at theirs.
+      check(
+        hermesTranscriptUserRowIndex(
+          transcript: transcript,
+          messages: _keptChat,
+          index: 2,
+        ),
+      ).isNull();
+      check(
+        hermesTranscriptUserRowIndex(
+          transcript: transcript,
+          messages: _keptChat,
+          index: 4,
+        ),
+      ).equals(4);
     });
 
     test('out of place, only the exact text matches', () {
@@ -1185,6 +1298,239 @@ void main() {
       check(target).isNotNull().has((t) => t.rowId, 'rowId').isNull();
     });
 
+    test('a prompt kept off a model switch does not move the cut', () async {
+      final service = _service(_Gateway(), _Rest(_transcript));
+
+      final regenerated = await hermesDesktopRewindTarget(
+        service: service,
+        conversation: conversation,
+        messages: _keptChat,
+        replayedUserIndex: 4,
+      );
+      check(regenerated).isNotNull().has((t) => t.rowId, 'rowId').equals(15);
+
+      final edited = [
+        ..._keptChat.take(4),
+        _message('u2', 'user', 'Snacks?'),
+        _message('a2', 'assistant', 'Lemonade.'),
+        _message('u3', 'user', 'Thanks'),
+        _message('a3', 'assistant', 'Enjoy.'),
+      ];
+      final rest = _Rest([
+        ..._transcript,
+        {'id': 17, 'role': 'user', 'content': 'Thanks'},
+        {'id': 18, 'role': 'assistant', 'content': 'Enjoy.'},
+      ]);
+      final editTarget = await hermesDesktopRewindTarget(
+        service: _service(_Gateway(), rest),
+        conversation: conversation,
+        messages: edited,
+        replayedUserIndex: 4,
+        originalText: 'And drinks?',
+      );
+      check(editTarget).isNotNull().has((t) => t.rowId, 'rowId').equals(15);
+    });
+
+    test('regenerating a kept note cuts the turns sent after it', () async {
+      final gateway = _Gateway();
+      gateway.handler = (method, params) {
+        if (method == 'prompt.submit') scheduleMicrotask(gateway.finishTurn);
+        return null;
+      };
+      final service = _service(gateway, _Rest(_transcript));
+      final container = await _turnContainer(service, _keptChat);
+
+      await regenerateHistoricalMessageById(container, 'k2');
+
+      final submit = gateway.calls('prompt.submit').single;
+      check(submit['text']).equals('And drinks?');
+      // The second turn left the chat, so it leaves the session too.
+      check(submit['truncate_before_row_id']).equals(15);
+
+      // Another app changed an earlier turn: the turns kept before the note
+      // are not the session's, so nothing is cut or sent.
+      final changed = _Gateway();
+      changed.handler = (method, params) {
+        if (method == 'prompt.submit') scheduleMicrotask(changed.finishTurn);
+        return null;
+      };
+      final changedContainer = await _turnContainer(
+        _service(
+          changed,
+          _Rest([
+            for (final row in _transcript)
+              row['id'] == 11 ? {...row, 'content': 'Plan another picnic'} : row,
+            {'id': 17, 'role': 'user', 'content': 'Thanks'},
+            {'id': 18, 'role': 'assistant', 'content': 'Enjoy.'},
+          ]),
+        ),
+        [
+          ..._chat,
+          _message('k1', 'user', 'And ice?'),
+          _message('k2', 'assistant', '').copyWith(
+            metadata: const {kHermesModelSwitchKeptKey: true},
+          ),
+        ],
+      );
+      await check(
+        regenerateHistoricalMessageById(changedContainer, 'k2'),
+      ).throws<StateError>();
+      check(changed.calls('prompt.submit')).isEmpty();
+    });
+
+    test('a kept prompt whose replay Hermes never took stays unsent',
+        () async {
+      final gateway = _Gateway();
+      var submits = 0;
+      gateway.handler = (method, params) {
+        if (method != 'prompt.submit') return null;
+        if (submits++ == 0) throw const _Refusal(5000, 'Synthetic failure.');
+        scheduleMicrotask(gateway.finishTurn);
+        return null;
+      };
+      final service = _service(gateway, _Rest(_transcript));
+      // Kept with other words than the turn sent after it.
+      final container = await _turnContainer(service, [
+        for (final message in _keptChat)
+          message.id == 'k1' ? message.copyWith(content: 'And ice?') : message,
+      ]);
+
+      await regenerateHistoricalMessageById(container, 'k2');
+      check(container.read(chatMessagesProvider).last.error).isNotNull();
+
+      // Sent again, it still cuts the turn that left the chat.
+      await regenerateMessage(container, 'And ice?', null);
+
+      final retried = gateway.calls('prompt.submit').last;
+      check(gateway.calls('prompt.submit')).length.equals(2);
+      check(retried['text']).equals('And ice?');
+      check(retried['truncate_before_row_id']).equals(15);
+      // Taken by Hermes now, the prompt counts as sent.
+      check(
+        container.read(chatMessagesProvider).last.metadata?[
+          kHermesModelSwitchKeptKey
+        ],
+      ).isNull();
+
+      // An edit that fails before its cut, as Hermes cannot resume the
+      // session, leaves the edited prompt unsent too: sent again, it is not
+      // matched to a later turn with the same words.
+      final edits = _Gateway();
+      var resumable = false;
+      edits.handler = (method, params) {
+        if (method == 'session.resume' && !resumable) {
+          throw const _Refusal(5000, 'Synthetic failure.');
+        }
+        if (method == 'prompt.submit') scheduleMicrotask(edits.finishTurn);
+        return null;
+      };
+      final editContainer = await _turnContainer(
+        _service(
+          edits,
+          _Rest([
+            ..._transcript,
+            {'id': 17, 'role': 'user', 'content': 'Thanks'},
+            {'id': 18, 'role': 'assistant', 'content': 'Enjoy.'},
+          ]),
+        ),
+        [
+          for (final message in _keptChat)
+            message.id == 'k1' ? message.copyWith(content: 'And ice?') : message,
+          _message('u3', 'user', 'Thanks'),
+          _message('a3', 'assistant', 'Enjoy.'),
+        ],
+      );
+      await regenerateEditedHermesUserMessage(
+        editContainer,
+        messageId: 'k1',
+        content: 'Thanks',
+      );
+      check(edits.calls('prompt.submit')).isEmpty();
+      check(editContainer.read(chatMessagesProvider).last.error).isNotNull();
+
+      resumable = true;
+      await regenerateMessage(editContainer, 'Thanks', null);
+
+      final edited = edits.calls('prompt.submit').single;
+      check(edited['text']).equals('Thanks');
+      check(edited['truncate_before_row_id']).equals(15);
+    });
+
+    test('a kept prompt Hermes took after a stop counts as sent', () async {
+      final gateway = _Gateway()..holdSubmit = Completer<void>();
+      final rest = _Rest(_transcript);
+      final submitted = Completer<void>();
+      gateway.handler = (method, params) {
+        if (method != 'prompt.submit') return null;
+        submitted.complete();
+        // Stored as Hermes takes it.
+        rest.transcript = [
+          ...rest.transcript,
+          {'id': 17, 'role': 'user', 'content': 'And ice?'},
+        ];
+        return null;
+      };
+      final service = _service(gateway, rest);
+      final container = await _turnContainer(service, [
+        ..._chat,
+        _message('k1', 'user', 'And ice?'),
+        _message('k2', 'assistant', '').copyWith(
+          metadata: const {kHermesModelSwitchKeptKey: true},
+        ),
+      ]);
+
+      final replay = regenerateMessage(container, 'And ice?', null);
+      await submitted.future;
+      check(gateway.calls('prompt.submit')).length.equals(1);
+      // Stopped while Hermes has not answered the submit yet, which it then
+      // takes.
+      await container.read(stopGenerationSettledProvider)();
+      gateway.holdSubmit!.complete();
+      await replay;
+
+      check(
+        container.read(chatMessagesProvider).last.metadata?[
+          kHermesModelSwitchKeptKey
+        ],
+      ).isNull();
+      check(await undoLastHermesTurn(container)).isTrue();
+      check(gateway.calls('session.undo')).length.equals(1);
+    });
+
+    test('editing a kept prompt cuts the turns sent after it', () async {
+      final gateway = _Gateway();
+      gateway.handler = (method, params) {
+        if (method == 'prompt.submit') scheduleMicrotask(gateway.finishTurn);
+        return null;
+      };
+      final service = _service(
+        gateway,
+        _Rest([
+          ..._transcript,
+          {'id': 17, 'role': 'user', 'content': 'Thanks'},
+          {'id': 18, 'role': 'assistant', 'content': 'Enjoy.'},
+        ]),
+      );
+      // Kept with other words than the turn sent after it.
+      final container = await _turnContainer(service, [
+        for (final message in _keptChat)
+          message.id == 'k1' ? message.copyWith(content: 'And ice?') : message,
+        _message('u3', 'user', 'Thanks'),
+        _message('a3', 'assistant', 'Enjoy.'),
+      ]);
+
+      // The edited words match a later stored turn, not the kept prompt.
+      await regenerateEditedHermesUserMessage(
+        container,
+        messageId: 'k1',
+        content: 'Thanks',
+      );
+
+      final submit = gateway.calls('prompt.submit').single;
+      check(submit['text']).equals('Thanks');
+      check(submit['truncate_before_row_id']).equals(15);
+    });
+
     test('a stored turn that cannot be told apart is not sent uncut', () async {
       final service = _service(_Gateway(), _Rest(_transcript));
       final drifted = [
@@ -1257,6 +1603,12 @@ void main() {
         ..has((cut) => cut.end, 'end').equals(6)
         ..has((cut) => cut.throughRowId, 'throughRowId').equals(16)
         ..has((cut) => cut.visibleCount, 'visibleCount').equals(4);
+      // From a model switch kept: the turn before it, its prompt never sent.
+      check(
+        hermesBranchCut(transcript: transcript, messages: _keptChat, index: 3),
+      ).isNotNull()
+        ..has((cut) => cut.end, 'end').equals(4)
+        ..has((cut) => cut.throughRowId, 'throughRowId').equals(14);
     });
 
     test('a legacy branch counts the rows Hermes keeps', () {
@@ -1770,6 +2122,53 @@ void main() {
       check(
         container.read(chatMessagesProvider).map((message) => message.id),
       ).deepEquals(['u1', 'a1', 'u2', 'a2']);
+    });
+
+    test('a prompt kept off a model switch does not hide the last turn',
+        () async {
+      final gateway = _Gateway();
+      final service = _service(gateway, _Rest(_transcript));
+      final container = _chatContainer(service, _keptChat);
+
+      check(await undoLastHermesTurn(container)).isTrue();
+
+      check(gateway.calls('session.undo')).length.equals(1);
+      check(
+        container.read(chatMessagesProvider).map((message) => message.id),
+      ).deepEquals(['u1', 'a1', 'k1', 'k2']);
+    });
+
+    test('a regenerate kept off a model switch leaves its stored turn in '
+        'place', () async {
+      final gateway = _Gateway()
+        ..handler = (method, params) =>
+            method == 'config.set' && params['key'] == 'model'
+            ? {'confirm_required': true}
+            : null;
+      final service = _service(
+        gateway,
+        _Rest(_transcript),
+        confirmModelSwitch: (_) async => false,
+      );
+      final container = await _turnContainer(service, _chat);
+
+      await regenerateMessage(container, 'And drinks?', null);
+
+      check(gateway.calls('prompt.submit')).isEmpty();
+      // The turn is still the session's: found, and undone there too.
+      final kept = container.read(chatMessagesProvider);
+      check(
+        hermesTranscriptUserRowIndex(
+          transcript: [for (final row in _transcript) {...row}],
+          messages: kept,
+          index: 2,
+        ),
+      ).equals(4);
+      check(await undoLastHermesTurn(container)).isTrue();
+      check(gateway.calls('session.undo')).length.equals(1);
+      check(
+        container.read(chatMessagesProvider).map((message) => message.id),
+      ).deepEquals(['u1', 'a1']);
     });
 
     test('rewinds to the row it checked on the canonical wire', () async {

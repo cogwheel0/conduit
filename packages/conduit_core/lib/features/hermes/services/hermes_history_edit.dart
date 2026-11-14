@@ -11,6 +11,33 @@ library;
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/models/chat_message.dart';
 
+/// Metadata key of the note a chat keeps where the user kept its model over
+/// a switch Hermes held: the prompt before it was never sent.
+const String kHermesModelSwitchKeptKey = 'hermesModelSwitchKept';
+
+/// Whether the user message [messages]`[index]` never reached the session:
+/// its turn ended in the note of a model switch the user kept.
+bool hermesUserTurnNeverSent(List<ChatMessage> messages, int index) {
+  for (var next = index + 1; next < messages.length; next++) {
+    final message = messages[next];
+    if (message.role == 'user') return false;
+    if (message.metadata?[kHermesModelSwitchKeptKey] == true) return true;
+  }
+  return false;
+}
+
+/// How many user messages before [messages]`[index]` the session may hold.
+int hermesSentUserTurnsBefore(List<ChatMessage> messages, int index) {
+  var count = 0;
+  for (var message = 0; message < index; message++) {
+    if (messages[message].role == 'user' &&
+        !hermesUserTurnNeverSent(messages, message)) {
+      count++;
+    }
+  }
+  return count;
+}
+
 /// A transcript row's durable id (`messages.id`), or null without one.
 int? hermesTranscriptRowId(Map<String, dynamic> row) {
   final value = row['row_id'] ?? row['id'];
@@ -34,7 +61,9 @@ int? hermesTranscriptUserRowIndex({
 }) {
   if (index < 0 || index >= messages.length) return null;
   final target = messages[index];
-  if (target.role != 'user') return null;
+  if (target.role != 'user' || hermesUserTurnNeverSent(messages, index)) {
+    return null;
+  }
   final wanted = (text ?? target.content).trim();
   final userRows = <int>[
     for (var row = 0; row < transcript.length; row++)
@@ -43,7 +72,9 @@ int? hermesTranscriptUserRowIndex({
   if (userRows.isEmpty) return null;
   final userMessages = <int>[
     for (var message = 0; message < messages.length; message++)
-      if (messages[message].role == 'user') message,
+      if (messages[message].role == 'user' &&
+          !hermesUserTurnNeverSent(messages, message))
+        message,
   ];
   final ordinal = userMessages.indexOf(index);
   String typed(int message) =>
@@ -147,7 +178,9 @@ final RegExp _kHermesAttachmentLine = RegExp(
 }) {
   if (index < 0 || index >= messages.length) return null;
   var userIndex = index;
-  while (userIndex >= 0 && messages[userIndex].role != 'user') {
+  while (userIndex >= 0 &&
+      (messages[userIndex].role != 'user' ||
+          hermesUserTurnNeverSent(messages, userIndex))) {
     userIndex--;
   }
   if (userIndex < 0) return null;

@@ -183,6 +183,10 @@ Future<bool> dispatchHermesTurn({
   void Function(String code)? onSessionRefused,
   void Function(HermesModelSwitchDeclined declined)? onModelSwitchDeclined,
   void Function()? onQueued,
+
+  /// Hermes took the turn: its prompt is the session's from now on, even if
+  /// the turn is stopped.
+  void Function()? onTurnAccepted,
   required void Function(String content) appendContent,
   void Function(String content)? replaceContent,
   required void Function(ChatStatusUpdate update) appendStatus,
@@ -251,6 +255,17 @@ Future<bool> dispatchHermesTurn({
     finishStreaming();
     completeStreamingUi();
     return false;
+  }
+  // A turn that ends before its prompt reaches Hermes leaves it unsent.
+  if (responseStream.promptAccepted?.call() ?? true) {
+    try {
+      onTurnAccepted?.call();
+    } catch (_) {
+      DebugLogger.error(
+        'turn-accepted-callback-failed',
+        scope: 'hermes/transport',
+      );
+    }
   }
 
   if (responseCancelToken.isCancelled) {

@@ -100,6 +100,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     final seenEventOrder = Queue<String>();
     var activeRuntimeId = binding.runtimeId;
     var promptAcknowledged = false;
+    HermesResponseStream response() => HermesResponseStream(
+      events: controller.stream,
+      sessionId: storedId,
+      promptAccepted: () => promptAcknowledged,
+    );
     // Set once the gateway shows this turn running. Until then an idle
     // `session.info` is left over from before the prompt (session setup, a
     // late MCP refresh) and must not end the turn before it starts.
@@ -587,10 +592,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         if (slash.submit == null) {
           await _detachStaged(binding.runtimeId, stagedPaths);
           finish();
-          return HermesResponseStream(
-            events: controller.stream,
-            sessionId: storedId,
-          );
+          return response();
         }
         text = slash.submit!;
         slashResolved = true;
@@ -602,10 +604,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         );
         await _detachStaged(binding.runtimeId, stagedPaths);
         finish(error: error.toString());
-        return HermesResponseStream(
-          events: controller.stream,
-          sessionId: storedId,
-        );
+        return response();
       }
     }
     if (canonical && truncateBeforeRowId != null) {
@@ -614,10 +613,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       if (terminal || cancelToken?.isCancelled == true) {
         await _detachStaged(binding.runtimeId, stagedPaths);
         finish();
-        return HermesResponseStream(
-          events: controller.stream,
-          sessionId: storedId,
-        );
+        return response();
       }
       // Cut first, apart from the submit's recovery below: a lost answer to
       // this edit must not be read as a lost prompt and sent again uncut.
@@ -634,10 +630,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         if (terminal || cancelToken?.isCancelled == true) {
           await _detachStaged(binding.runtimeId, stagedPaths);
           finish();
-          return HermesResponseStream(
-            events: controller.stream,
-            sessionId: storedId,
-          );
+          return response();
         }
         await _canonicalMutate(
           binding,
@@ -653,10 +646,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         );
         await _detachStaged(binding.runtimeId, stagedPaths);
         finish(error: error is StateError ? error.message : error.toString());
-        return HermesResponseStream(
-          events: controller.stream,
-          sessionId: storedId,
-        );
+        return response();
       }
     }
     Set<String> promptBaseline = const {};
@@ -675,10 +665,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         if (slash.submit == null) {
           await _detachStaged(binding.runtimeId, stagedPaths);
           finish();
-          return HermesResponseStream(
-            events: controller.stream,
-            sessionId: storedId,
-          );
+          return response();
         }
         text = slash.submit!;
       }
@@ -705,10 +692,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       if (submitted is Map && submitted['voice_stopped'] == true) {
         await _detachStaged(binding.runtimeId, stagedPaths);
         finish();
-        return HermesResponseStream(
-          events: controller.stream,
-          sessionId: storedId,
-        );
+        return response();
       }
       forwarded = submitted is Map && submitted['forwarded'] == true;
       adoptAdmission(submitted);
@@ -716,10 +700,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         promptAcknowledged = true;
         await interruptTurn();
         finish();
-        return HermesResponseStream(
-          events: controller.stream,
-          sessionId: storedId,
-        );
+        return response();
       }
       promptAcknowledged = true;
       if (hasAuthoritativeState()) {
@@ -753,10 +734,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           if (submitted is Map && submitted['voice_stopped'] == true) {
             await _detachStaged(binding.runtimeId, stagedPaths);
             finish();
-            return HermesResponseStream(
-              events: controller.stream,
-              sessionId: storedId,
-            );
+            return response();
           }
           adoptAdmission(submitted);
           promptAcknowledged = true;
@@ -782,10 +760,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
             }
             replayEventsBeforeAcknowledgement();
           }
-          return HermesResponseStream(
-            events: controller.stream,
-            sessionId: storedId,
-          );
+          return response();
         } catch (reconcileError) {
           DebugLogger.error(
             'prompt-submit-reconcile-failed',
@@ -819,10 +794,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
             if (cancelToken?.isCancelled == true) {
               await interruptTurn();
               finish();
-              return HermesResponseStream(
-                events: controller.stream,
-                sessionId: storedId,
-              );
+              return response();
             }
             if (reconciled.running != true) {
               finish(authoritativeIdle: true);
@@ -834,10 +806,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                 runtimeId: binding.runtimeId,
               );
             }
-            return HermesResponseStream(
-              events: controller.stream,
-              sessionId: storedId,
-            );
+            return response();
           }
         } catch (reconcileError) {
           DebugLogger.error(
@@ -851,7 +820,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       if (freshSession) _freshSessionIds.add(storedId);
       finish(error: error.toString());
     }
-    return HermesResponseStream(events: controller.stream, sessionId: storedId);
+    return response();
   }
 
   String? _eventIdentity(HermesDesktopEvent event) {

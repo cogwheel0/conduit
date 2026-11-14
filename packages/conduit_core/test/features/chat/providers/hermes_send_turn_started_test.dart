@@ -12,6 +12,7 @@ import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_history_edit.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/models/model.dart';
@@ -349,5 +350,11 @@ void main() {
     // Never into a draft begun since.
     check(givenBack?.onlyIntoEmpty).equals(true);
     check(container.read(selectedModelProvider)).identicalTo(_otherModel);
+    // The note names the model the chat stayed on, and marks its prompt as
+    // never sent.
+    final note = container.read(chatMessagesProvider).last;
+    check(note.model).equals(_otherModel.id);
+    check(note.metadata?['modelName']).equals('Other');
+    check(note.metadata?[kHermesModelSwitchKeptKey]).equals(true);
   });
 }
