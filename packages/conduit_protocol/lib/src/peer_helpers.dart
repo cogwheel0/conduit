@@ -14,13 +14,19 @@ typedef ResultEncoder<R> = Map<String, dynamic> Function(R result);
 
 /// Normalizes `json_rpc_2`'s [json_rpc.Parameters] into a plain map.
 ///
-/// The spec allows params to be absent or a list; every Conduit method takes a
-/// named map, so anything else becomes an empty map and the DTO decoder
-/// produces the real "missing required field" error. That keeps the failure
-/// message about the field the caller forgot rather than about the shape.
+/// Every Conduit method takes a named map. Absent params become an empty map,
+/// so the DTO decoder produces the real "missing required field" error, about
+/// the field the caller forgot rather than the shape. Positional params throw
+/// a [FormatException]: a DTO whose fields all have defaults would otherwise
+/// accept the empty map, and its handler would run with arguments the caller
+/// never sent.
 Map<String, dynamic> paramsToMap(json_rpc.Parameters params) {
   final value = params.value;
-  return value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{};
+  if (value == null) return <String, dynamic>{};
+  if (value is Map) return Map<String, dynamic>.from(value);
+  throw FormatException(
+    '${params.method} takes named params, not ${value.runtimeType}',
+  );
 }
 
 /// Registers a method with typed params and a typed result.
@@ -54,19 +60,29 @@ void registerTypedMethod<P, R>(
   });
 }
 
-/// Registers a method that takes no parameters.
+/// Registers a method that takes no parameters. Whatever params it is sent
+/// are ignored.
 void registerTypedMethodNoParams<R>(
   json_rpc.Peer peer,
   String name, {
   required ResultEncoder<R> encodeResult,
   required FutureOr<R> Function() handler,
-}) => registerTypedMethod<void, R>(
-  peer,
-  name,
-  decodeParams: (_) {},
-  encodeResult: encodeResult,
-  handler: (_) => handler(),
-);
+}) {
+  peer.registerMethod(name, (json_rpc.Parameters params) async {
+    try {
+      return encodeResult(await handler());
+    } on RpcError catch (error) {
+      throw error.toException();
+    } on json_rpc.RpcException {
+      rethrow;
+    } catch (error, stack) {
+      throw RpcError(
+        code: ConduitErrorCodes.internal,
+        debugMessage: '$error\n$stack',
+      ).toException();
+    }
+  });
+}
 
 /// Registers the handler for [spec]'s method: params decoded with the
 /// spec's own decoder, the result DTO encoded with its `toJson`.

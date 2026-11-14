@@ -63,7 +63,12 @@ abstract class RpcError with _$RpcError implements Exception {
     if (error is json_rpc.RpcException) {
       final data = error.data;
       if (error.code == kConduitRpcErrorCode && data is Map) {
-        return RpcError.fromJson(Map<String, dynamic>.from(data));
+        try {
+          return RpcError.fromJson(Map<String, dynamic>.from(data));
+        } catch (_) {
+          // Conduit's code with a payload that is not an RpcError: fall
+          // through to the generic mapping below.
+        }
       }
       return RpcError(
         code: switch (error.code) {
