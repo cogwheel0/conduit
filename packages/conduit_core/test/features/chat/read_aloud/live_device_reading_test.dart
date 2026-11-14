@@ -90,6 +90,25 @@ void main() {
     check(engine.spoken.last).equals('Two white gulls.');
   });
 
+  test('of two readings asked for while the last one stops, only the later '
+      'plays', () async {
+    await manager.speak(text);
+    final stopGate = Completer<void>();
+    engine.stopGate = stopGate;
+    // A waits on the old reading's stop; B is asked for meanwhile.
+    final a = manager.speak('Alpha only.');
+    await pumpEventQueue();
+    final b = await manager.speak('Bravo first.\n\nBravo second.');
+    stopGate.complete();
+
+    check(await a).isNull();
+    await pumpEventQueue();
+    check(engine.spoken).not((it) => it.contains('Alpha only.'));
+    check(engine.spoken.last).equals('Bravo first.');
+    check(b).isNotNull();
+    check(manager.isPlaying).isTrue();
+  });
+
   test('a stop that ends after a new reading began leaves it be', () async {
     await manager.speak(text);
     final stopGate = Completer<void>();

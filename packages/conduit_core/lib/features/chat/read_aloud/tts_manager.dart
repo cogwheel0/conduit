@@ -516,12 +516,15 @@ class TtsManager {
     if (text.trim().isEmpty) {
       return null;
     }
+    final request = ++_readingRequests;
 
     // Cancel any existing session
     await stop();
 
     // Ensure TTS is initialized
     await _ensureTtsInitialized();
+    // Asked for again meanwhile: the later request plays, not this one.
+    if (request != _readingRequests) return null;
 
     // Determine whether to use server or device TTS
     final shouldUseServer = useServer ?? _shouldUseServer();
@@ -598,8 +601,11 @@ class TtsManager {
 
   /// Starts a mutable TTS session that accepts accumulated assistant text.
   Future<TtsPlaybackSession?> startStreaming({bool? useServer}) async {
+    final request = ++_readingRequests;
     await stop();
     await _ensureTtsInitialized();
+    // Asked for again meanwhile: the later request plays, not this one.
+    if (request != _readingRequests) return null;
 
     final shouldUseServer = useServer ?? _shouldUseServer();
     _sessionCounter++;
@@ -1016,6 +1022,11 @@ class TtsManager {
   /// (the player, the engine, the buffers, the events): a reading replaced
   /// meanwhile leaves the new one alone.
   bool _owns(TtsPlaybackSession session) => _activeSession?.id == session.id;
+
+  /// Counts the readings asked for ([speak], [startStreaming]). A request
+  /// overtaken while it waited for the previous reading to stop starts
+  /// nothing: only the latest one may create its session.
+  int _readingRequests = 0;
 
   /// Changes to the player's playlist (stop, set, add, clear), one at a
   /// time in the order asked, across readings: a new reading's start waits
