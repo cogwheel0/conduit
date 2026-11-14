@@ -146,26 +146,18 @@ void main() {
         ],
       );
       addTearDown(container.dispose);
-      Future<bool> settles(Conversation chat, {bool temporary = false}) async {
-        var settled = false;
-        unawaited(
-          chatActionAvailability(
-            container,
-            chat,
-            temporary: temporary,
-          ).then((_) => settled = true),
-        );
-        await pumpEventQueue();
-        return settled;
-      }
+      // Each lookup it does not need never answers: awaiting it at all would
+      // keep the test from finishing.
+      Future<void> settles(Conversation chat, {bool temporary = false}) =>
+          chatActionAvailability(container, chat, temporary: temporary);
 
       final libreChat = _chat('c5', ChatStorageKind.libreChat);
       // Shared already, temporary, or another user's: no link to ask about.
-      check(await settles(libreChat.copyWith(shareId: 'share-1'))).isTrue();
-      check(await settles(libreChat, temporary: true)).isTrue();
-      check(await settles(libreChat.copyWith(userId: 'someone-else'))).isTrue();
+      await settles(libreChat.copyWith(shareId: 'share-1'));
+      await settles(libreChat, temporary: true);
+      await settles(libreChat.copyWith(userId: 'someone-else'));
       // Not an Open WebUI chat: no Export to ask about.
-      check(await settles(_chat('c6', ChatStorageKind.directLocal))).isTrue();
+      await settles(_chat('c6', ChatStorageKind.directLocal));
     },
   );
 }

@@ -94,6 +94,7 @@ final class _ScriptedChat {
       })
       ..on('POST', '/api/agents/chat/abort', (request, match) {
         aborts.add(Map<String, dynamic>.from(request.data as Map));
+        _abortSeen.add(null);
         emit({
           'final': true,
           'aborted': true,
@@ -115,6 +116,7 @@ final class _ScriptedChat {
       ..on('GET', '/api/agents/chat/stream/(.+)', (request, match) {
         final controller = StreamController<Uint8List>();
         streams.add(controller);
+        _streamOpened.add(null);
         return FakeLibreChatResponse(
           200,
           contentType: 'text/event-stream',
@@ -150,6 +152,15 @@ final class _ScriptedChat {
   final FakeLibreChatServer fake;
   final List<Map<String, dynamic>> starts = <Map<String, dynamic>>[];
   final List<Map<String, dynamic>> aborts = <Map<String, dynamic>>[];
+
+  final _streamOpened = StreamController<void>.broadcast(sync: true);
+  final _abortSeen = StreamController<void>.broadcast(sync: true);
+
+  /// The next reply stream the server opens.
+  Future<void> get nextStream => _streamOpened.stream.first;
+
+  /// The next abort the server is asked for.
+  Future<void> get nextAbort => _abortSeen.stream.first;
   final List<StreamController<Uint8List>> streams =
       <StreamController<Uint8List>>[];
   final List<FakeLibreChatResponse Function(Map<String, dynamic>)>
@@ -588,6 +599,23 @@ void main() {
     await send;
   });
 
+  /// Completes once [conversationId] is among the account's running chats.
+  Future<void> generating(String conversationId) {
+    bool running() => container
+        .read(libreChatActiveGenerationsProvider)
+        .contains(conversationId);
+    if (running()) return Future<void>.value();
+    final seen = Completer<void>();
+    late final ProviderSubscription<Set<String>> watch;
+    watch = container.listen(libreChatActiveGenerationsProvider, (_, next) {
+      if (next.contains(conversationId) && !seen.isCompleted) {
+        seen.complete();
+        watch.close();
+      }
+    });
+    return seen.future;
+  }
+
   /// A chat session scope of the root with LibreChat's model picked, and
   /// a reply it started in new chat [conversationId], streaming, with the
   /// send.
@@ -600,25 +628,22 @@ void main() {
         .read(selectedModelProvider.notifier)
         .set(container.read(selectedModelProvider));
     chat.newConversationId = conversationId;
-    final streams = chat.streams.length;
+    final opened = chat.nextStream;
     final send = sendMessageWithContainer(scope.container, 'Write a lot', null);
-    await _until(() => chat.streams.length > streams);
+    await opened;
     chat
       ..created('u-$conversationId', 'Write a lot')
       ..text('a-$conversationId', 'Once');
-    await _until(
-      () => container
-          .read(libreChatActiveGenerationsProvider)
-          .contains(conversationId),
-    );
+    await generating(conversationId);
     return (scope, send);
   }
 
   test('leaving the account stops replies in other chat scopes', () async {
     final (_, send) = await runInScope('conv-a');
 
+    final aborted = chat.nextAbort;
     container.read(accountChangeStopRepliesProvider)();
-    await _until(() => chat.aborts.isNotEmpty);
+    await aborted;
     check(chat.aborts.single['conversationId']).equals('conv-a');
     await send;
   });
@@ -646,9 +671,9 @@ void main() {
   Future<ChatSessionScope> followInScope(Conversation conversation) async {
     final scope = ChatSessionScope.open(container);
     addTearDown(scope.dispose);
-    final streams = chat.streams.length;
+    final opened = chat.nextStream;
     scope.container.read(activeConversationProvider.notifier).set(conversation);
-    await _until(() => chat.streams.length > streams);
+    await opened;
     return scope;
   }
 
@@ -671,11 +696,7 @@ void main() {
     );
     final a = await followInScope(live);
     final b = await followInScope(live);
-    await _until(
-      () => container
-          .read(libreChatActiveGenerationsProvider)
-          .contains('conv-live'),
-    );
+    await generating('conv-live');
 
     a.dispose();
     await pumpEventQueue();
