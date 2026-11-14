@@ -1191,7 +1191,8 @@ final class WorkspaceService {
       ..name = dto.name.trim()
       ..baseModelId = dto.baseModelId
       ..description = dto.description
-      ..profileImageUrl = dto.imageUrl ?? draft.profileImageUrl
+      // The editor sends the picture it shows, so none is a removal.
+      ..profileImageUrl = dto.imageUrl
       ..tags = [...dto.tags]
       ..system = dto.system
       ..stop = [...dto.stop]
