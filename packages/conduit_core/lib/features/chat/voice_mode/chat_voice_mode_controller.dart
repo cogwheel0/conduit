@@ -2101,6 +2101,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     required bool endCallKit,
     required int ownershipToken,
   }) async {
+    final heldSharedAudio = _holdsSharedAudio;
     final input = _voiceInput;
     final tts = _textToSpeech;
     final callKit = _callKit;
@@ -2170,11 +2171,14 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             !_isCurrent(ownershipToken) && _voiceInput != null;
         bool replacementOwnsTts() =>
             !_isCurrent(ownershipToken) && _textToSpeech != null;
+        // A controller whose call never took the shared call audio (one
+        // refused before admission, say) leaves it to whoever holds it.
         bool replacementOwnsSharedAudio() =>
-            !_isCurrent(ownershipToken) &&
-            (_voiceInput != null ||
-                _textToSpeech != null ||
-                _backgroundLeaseId != null);
+            !heldSharedAudio ||
+            (!_isCurrent(ownershipToken) &&
+                (_voiceInput != null ||
+                    _textToSpeech != null ||
+                    _backgroundLeaseId != null));
 
         // Before the audio session goes, so the call's audio stops first.
         await _runTeardownStep('realtime-end', () async {
