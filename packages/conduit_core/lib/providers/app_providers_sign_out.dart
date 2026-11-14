@@ -218,14 +218,8 @@ final class SignOutCoordinator {
           // Signed out for good: every account's notifications go now, so a
           // purge below that fails can't leave their previews on screen.
           notifyHostSignedOut(_ref, null);
-          // The auth transaction has committed and did not yield to a newer
-          // session. Only now is it safe to destructively remove the
-          // app-global direct-local database; beforeClear is a reversible
-          // admission barrier and may still lose auth ownership.
-          await _ref.read(directLocalDatabasePurgeProvider)();
-          directLocalPurgeCompleted = true;
-          await _purgeAccountDatabases();
-          await forgetLibreChatAccounts();
+          // The wipe took the sessions' tokens with it: tell the servers and
+          // identity providers now, before a purge below can fail.
           unawaited(
             _ref
                 .read(authStateManagerProvider.notifier)
@@ -236,6 +230,14 @@ final class SignOutCoordinator {
                 .read(authStateManagerProvider.notifier)
                 .revokeBrowserSignInSessions(browserSessions),
           );
+          // The auth transaction has committed and did not yield to a newer
+          // session. Only now is it safe to destructively remove the
+          // app-global direct-local database; beforeClear is a reversible
+          // admission barrier and may still lose auth ownership.
+          await _ref.read(directLocalDatabasePurgeProvider)();
+          directLocalPurgeCompleted = true;
+          await _purgeAccountDatabases();
+          await forgetLibreChatAccounts();
           await disarmIncompleteAppDataClearMarker();
           directProfiles.finishAppDataClear();
           directMcpServers.finishAppDataClear();
