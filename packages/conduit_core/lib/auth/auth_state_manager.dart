@@ -4231,16 +4231,22 @@ class AuthStateManager extends _$AuthStateManager {
     _renewingRejectedToken = token;
     _renewingTokenRefused = rejected;
     try {
+      // Read before the saved sign-in is: a sign-in begun while it is read
+      // owns what comes next.
+      final startRevision = _authAttemptRevision;
+      final startSafetyEpoch = _sessionSafetyEpoch;
       final storage = ref.read(optimizedStorageServiceProvider);
       final saved = await _savedBrowserSignIn(storage);
-      if (!ref.mounted || _current.token != token) return false;
+      if (!ref.mounted ||
+          _current.token != token ||
+          _authAttemptRevision != startRevision) {
+        return false;
+      }
       if (saved == null) {
         if (rejected) _publishAuthIssue();
         return false;
       }
 
-      final startRevision = _authAttemptRevision;
-      final startSafetyEpoch = _sessionSafetyEpoch;
       int? claimRevision;
       bool canCommit() {
         if (!ref.mounted) return false;
