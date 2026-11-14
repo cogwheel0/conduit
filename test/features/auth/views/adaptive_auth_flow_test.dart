@@ -1041,6 +1041,7 @@ void main() {
       bool browserSupported = true,
       AuthActions? actions,
       String? addingAccountFrom,
+      TargetPlatform platform = TargetPlatform.android,
     }) async {
       debugIsWebViewSupportedOverride = true;
       addTearDown(() => debugIsWebViewSupportedOverride = null);
@@ -1053,6 +1054,7 @@ void main() {
         browserSignInConfig: saved,
         authActions: actions,
         addingAccountFrom: addingAccountFrom,
+        platform: platform,
       );
       addTearDown(harness.dispose);
       await tester.pumpWidget(
@@ -1258,6 +1260,72 @@ void main() {
       expect(find.byType(ConnectionAttemptBanner), findsNothing);
       expect(find.text('Continue in Browser'), findsOneWidget);
       await harness.unmount(tester);
+    });
+
+    group('on iOS', () {
+      const ios = TargetPlatform.iOS;
+
+      testWidgets('offers set-up in the grouped form', (tester) async {
+        final harness = await openSignIn(tester, platform: ios);
+
+        expect(find.byKey(const ValueKey('browser-sign-in-set-up')), findsOne);
+        expect(find.text('Continue with SSO'), findsOneWidget);
+        await harness.unmount(tester);
+      });
+
+      testWidgets('continues in the browser once set up, and is cancelled '
+          'from the page', (tester) async {
+        final actions = _BrowserAuthActions(held: Completer<void>());
+        final harness = await openSignIn(
+          tester,
+          saved: config,
+          actions: actions,
+          platform: ios,
+        );
+        expect(
+          find.byKey(const ValueKey('browser-sign-in-settings')),
+          findsOne,
+        );
+        expect(
+          find.byKey(const ValueKey('browser-sign-in-use-in-app')),
+          findsOne,
+        );
+
+        await tester.tap(find.text('Continue in Browser'));
+        await settle(tester);
+        expect(find.text('Waiting for the browser…'), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('authentication-submit')));
+        await settle(tester);
+
+        check(actions.events).deepEquals(['login:oidc:conduit-app', 'cancel']);
+        check(actions.signedIn).equals(0);
+        expect(find.text('Continue in Browser'), findsOneWidget);
+        await harness.unmount(tester);
+      });
+
+      testWidgets('a user Open WebUI does not have yet can sign in on the '
+          'web, or retry', (tester) async {
+        final actions = _BrowserAuthActions(
+          outcomes: [
+            const BrowserSignInException(BrowserSignInFailure.userNotFound),
+          ],
+        );
+        final harness = await openSignIn(
+          tester,
+          saved: config,
+          actions: actions,
+          platform: ios,
+        );
+
+        await continueInBrowser(tester);
+
+        expect(
+          find.byKey(const ValueKey('browser-sign-in-open-web')),
+          findsOne,
+        );
+        expect(find.byKey(const ValueKey('browser-sign-in-retry')), findsOne);
+        await harness.unmount(tester);
+      });
     });
 
     testWidgets('leaving the page while the browser is open cancels the '
