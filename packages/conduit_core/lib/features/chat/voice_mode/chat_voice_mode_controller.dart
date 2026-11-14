@@ -1560,6 +1560,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   Future<void> _restartAfterEmptyTranscript(int token) async {
     _emptyTranscriptRestarts++;
     if (_emptyTranscriptRestarts > _maxEmptyTranscriptRestarts) {
+      // A server recorder can still be held after the last empty listen;
+      // release the microphone before the call pauses.
+      await _detachListeningSubscriptions();
+      if (!_isCurrent(token)) return;
+      await _voiceInput?.stopListening();
+      if (!_isCurrent(token)) return;
       state = state.copyWith(
         phase: ChatVoiceModePhase.paused,
         errorMessage: 'No speech detected.',
