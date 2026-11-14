@@ -398,16 +398,20 @@ void main() {
     () async {
       await start();
 
+      final heard = engine.states.firstWhere((state) => state.outputLevel > 0);
       media.hears(input: 0.2, output: 0.05);
-      await _settle();
+      await heard;
       check(engine.state.inputLevel).equals(0.2);
       check(engine.state.outputLevel).equals(0.05);
 
       engine.setMuted(true);
       // Quiet at once, not at the next sample.
       check(engine.state.inputLevel).equals(0);
+      final heardMuted = engine.states.firstWhere(
+        (state) => state.outputLevel == 0.1,
+      );
       media.hears(input: 0.3, output: 0.1);
-      await _settle();
+      await heardMuted;
       check(engine.state.inputLevel).equals(0);
       check(engine.state.outputLevel).equals(0.1);
       await engine.end();

@@ -775,14 +775,15 @@ void main() {
       });
       s.container.read(stopGenerationProvider)();
       hold.complete();
-      await s.settle();
+      await pumpEventQueue();
 
+      // The batch waits on the Stop: still frozen, nothing more sent.
+      check(s.active!.phase).equals(ChatDraftQueuePhase.admitting);
       check((await s.sentUserRows()).map((row) => row.content))
           .deepEquals(['sent meanwhile']);
 
       stop.complete();
       await s.reaches(() => s.active == null);
-      await s.settle();
       check((await s.sentUserRows()).map((row) => row.content))
           .deepEquals(['sent meanwhile', 'queued']);
     });
