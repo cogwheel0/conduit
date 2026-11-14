@@ -1462,10 +1462,23 @@ class SocketService {
   }
 
   /// Whether a connect error says the server could not be reached at all:
-  /// a socket error from the platform (connection refused, no route, a failed
-  /// host lookup), not a WebSocket that was refused or broke.
-  static bool _serverUnreachable(Object? err) =>
-      '$err'.startsWith('SocketException');
+  /// a platform socket error from before any connection existed (refused, no
+  /// route, network down, a failed host lookup). A connection that was made
+  /// and then reset or timed out, or a WebSocket that was refused, may be a
+  /// proxy that blocks WebSockets, so those still fall back to polling.
+  static bool _serverUnreachable(Object? err) {
+    final text = '$err';
+    if (!text.startsWith('SocketException')) return false;
+    final lower = text.toLowerCase();
+    return _unreachableReasons.any(lower.contains);
+  }
+
+  static const _unreachableReasons = <String>[
+    'connection refused',
+    'failed host lookup',
+    'no route to host',
+    'network is unreachable',
+  ];
 
   void _handleReconnectFailed(dynamic _) {
     _isConnecting = false;

@@ -52,53 +52,66 @@ void main() {
     expect(replies[1]['result'], isNull);
   });
 
-  test('terminal and MCP requests are answered without a chat listener', () async {
-    // Open WebUI 0.12 waits up to 5 s for a terminal's AGENTS.md and up to
-    // 240 s for an MCP elicitation before going on with the turn.
-    final factory = _RecordingSocketFactory();
-    final service = SocketService(
-      serverConfig: _serverConfig,
-      socketFactory: factory.create,
-    );
-    addTearDown(service.dispose);
-    await service.connect();
-    factory.sockets.single.id = 'local-session';
-    final replies = <String, dynamic>{};
-    for (final (type, data) in [
-      (
-        'request:terminal',
-        {'terminal_id': 't1', 'path': '/files/cwd', 'session_id': 'local-session'},
-      ),
-      ('request:terminal:state', {'terminal_id': 't1', 'session_id': 'local-session'}),
-      ('request:elicitation', {'mode': 'form', 'message': 'Pick one', 'server_name': 'mcp'}),
-    ]) {
+  test(
+    'terminal and MCP requests are answered without a chat listener',
+    () async {
+      // Open WebUI 0.12 waits up to 5 s for a terminal's AGENTS.md and up to
+      // 240 s for an MCP elicitation before going on with the turn.
+      final factory = _RecordingSocketFactory();
+      final service = SocketService(
+        serverConfig: _serverConfig,
+        socketFactory: factory.create,
+      );
+      addTearDown(service.dispose);
+      await service.connect();
+      factory.sockets.single.id = 'local-session';
+      final replies = <String, dynamic>{};
+      for (final (type, data) in [
+        (
+          'request:terminal',
+          {
+            'terminal_id': 't1',
+            'path': '/files/cwd',
+            'session_id': 'local-session',
+          },
+        ),
+        (
+          'request:terminal:state',
+          {'terminal_id': 't1', 'session_id': 'local-session'},
+        ),
+        (
+          'request:elicitation',
+          {'mode': 'form', 'message': 'Pick one', 'server_name': 'mcp'},
+        ),
+      ]) {
+        service.debugHandleChatEvent({
+          'chat_id': 'background-chat',
+          'message_id': 'assistant',
+          'data': {'type': type, 'data': data},
+        }, (dynamic result) => replies[type] = result);
+      }
+
+      expect(replies['request:terminal'], isEmpty);
+      expect(replies['request:terminal:state'], {'connected': false});
+      expect(replies['request:elicitation'], {'action': 'cancel'});
+
+      // The server's note that such a request is over needs no handling.
+      var delivered = 0;
+      service.addChatEventHandler(
+        conversationId: 'background-chat',
+        handler: (_, _) => delivered += 1,
+      );
       service.debugHandleChatEvent({
         'chat_id': 'background-chat',
         'message_id': 'assistant',
-        'data': {'type': type, 'data': data},
-      }, (dynamic result) => replies[type] = result);
-    }
-
-    expect(replies['request:terminal'], isEmpty);
-    expect(replies['request:terminal:state'], {'connected': false});
-    expect(replies['request:elicitation'], {'action': 'cancel'});
-
-    // The server's note that such a request is over needs no handling.
-    var delivered = 0;
-    service.addChatEventHandler(
-      conversationId: 'background-chat',
-      handler: (_, _) => delivered += 1,
-    );
-    service.debugHandleChatEvent({
-      'chat_id': 'background-chat',
-      'message_id': 'assistant',
-      'data': {
-        'type': 'request:interaction:done',
-        'data': {'interaction_id': 'interaction-1'},
-      },
-    });
-    expect(delivered, 0);
-  });
+        'data': {
+          'type': 'request:interaction:done',
+          'data': {'interaction_id': 'interaction-1'},
+        },
+      });
+      expect(delivered, 0);
+    },
+  );
 
   test('a voice avatar gesture is answered as unavailable', () async {
     // Open WebUI 0.12.1 waits up to 3 s for each gesture in a voice call.
@@ -249,9 +262,11 @@ void main() {
 
     test('is refused as failed when the handler throws', () async {
       final (service, _) = await connected();
-      service.chatHandoffHandler =
-          ({required chatId, required messageId, required data}) =>
-              Future.error(StateError('boom'));
+      service.chatHandoffHandler = ({
+        required chatId,
+        required messageId,
+        required data,
+      }) => Future.error(StateError('boom'));
       final replies = <dynamic>[];
 
       service.debugHandleChatEvent(handoff(), replies.add);
@@ -734,10 +749,41 @@ void main() {
     await _flushMicrotasks(4);
     expect(socketFactory.sockets, hasLength(1));
 
+    // Nor is a failed host lookup.
+    socketFactory.sockets.single.emitReserved(
+      'connect_error',
+      const SocketException('Failed host lookup: chat.example'),
+    );
+    await _flushMicrotasks(4);
+    expect(socketFactory.sockets, hasLength(1));
+
     // A WebSocket that is refused still falls back (issue #172).
     socketFactory.sockets.single.emitReserved(
       'connect_error',
       StateError('websocket failed'),
+    );
+    await _flushMicrotasks(4);
+    expect(socketFactory.sockets, hasLength(2));
+  });
+
+  test('a connection reset on the WebSocket still moves to polling', () async {
+    // A proxy that drops WebSockets resets the connection after it is made;
+    // the server may still answer polling (issue #172).
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
+    final socketFactory = _RecordingSocketFactory();
+    final service = SocketService(
+      lifecycle: lifecycle,
+      serverConfig: _serverConfig,
+      websocketOnly: true,
+      socketFactory: socketFactory.create,
+    );
+    addTearDown(service.dispose);
+
+    await service.connect();
+    socketFactory.sockets.single.emitReserved(
+      'connect_error',
+      const SocketException('Connection reset by peer'),
     );
     await _flushMicrotasks(4);
     expect(socketFactory.sockets, hasLength(2));
