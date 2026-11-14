@@ -417,9 +417,13 @@ mixin _ModelsApi on _ApiServiceBase {
         !url.toLowerCase().startsWith('http')) {
       return null;
     }
+    // Called off as soon as the picture passes the limit: leaving the read
+    // alone does not stop the download underneath.
+    final download = CancelToken();
     try {
       final response = await _dio.get<ResponseBody>(
         url,
+        cancelToken: download,
         options: Options(
           responseType: ResponseType.stream,
           followRedirects: false,
@@ -428,14 +432,19 @@ mixin _ModelsApi on _ApiServiceBase {
       );
       final body = response.data;
       if (body == null) return null;
-      // Read up to the limit: leaving the loop past it cancels the rest.
       final data = <int>[];
       await for (final chunk in body.stream) {
         data.addAll(chunk);
-        if (data.length > maxWorkspaceModelAvatarBytes) return null;
+        if (data.length > maxWorkspaceModelAvatarBytes) {
+          download.cancel('avatar too large');
+          return null;
+        }
       }
       return data.isEmpty ? null : data;
-    } on DioException {
+    } catch (_) {
+      // A refusal, or a download that broke off midway (the body's own
+      // socket or HTTP error, which Dio passes on as it is): no picture.
+      if (!download.isCancelled) download.cancel('avatar failed');
       return null;
     }
   }

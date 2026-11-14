@@ -1,4 +1,5 @@
-import 'dart:io' show HttpHeaders, HttpStatus;
+import 'dart:async';
+import 'dart:io' show HttpHeaders, HttpStatus, SocketException;
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
@@ -20,6 +21,9 @@ final class _Answers implements HttpClientAdapter {
   final Map<String, ResponseBody Function()> answers;
   final List<(String, bool)> asked = <(String, bool)>[];
 
+  /// The requests their caller cancelled, by URL.
+  final List<String> cancelled = <String>[];
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -28,6 +32,7 @@ final class _Answers implements HttpClientAdapter {
   ) async {
     final url = options.uri.replace(query: '').toString().replaceAll('?', '');
     asked.add((url, options.headers[HttpHeaders.authorizationHeader] != null));
+    unawaited(cancelFuture?.then((_) => cancelled.add(url)));
     return answers[url]?.call() ??
         ResponseBody.fromString('{"detail":"Not Found"}', HttpStatus.notFound);
   }
@@ -181,6 +186,25 @@ void main() {
         await api.getWorkspaceModelAvatar('gull', imageUrl: picture),
       ).isNull();
       check(sent).isLessThan(20);
+      // The download itself is called off, not only no longer read.
+      await pumpEventQueue();
+      check(adapter.cancelled).deepEquals([picture]);
+    });
+
+    test('a picture whose download breaks off is no picture', () async {
+      const picture = '$_server/static/gull.png';
+      Stream<Uint8List> brokenOff() async* {
+        yield Uint8List(16);
+        throw const SocketException('Connection reset by peer');
+      }
+
+      serve({
+        '$_server/api/v1/models/model/profile/image': () => _redirect(picture),
+        picture: () => ResponseBody(brokenOff(), HttpStatus.ok),
+      });
+      check(
+        await api.getWorkspaceModelAvatar('gull', imageUrl: picture),
+      ).isNull();
     });
 
     test('the default image is no picture of the model\'s own', () async {
