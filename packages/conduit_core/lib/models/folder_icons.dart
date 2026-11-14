@@ -1,7 +1,9 @@
 /// The folder icons the app offers: Open WebUI-compatible shortcode aliases,
 /// saved as a folder's `meta.icon`, with the emoji and SF Symbol each draws
-/// as. Pure data, shared by every host.
+/// as, and what any other saved icon draws as. Shared by every host.
 library;
+
+import 'package:conduit_core/utils/emoji_shortcodes.dart';
 
 /// A curated server-compatible folder icon choice.
 class FolderIconOption {
@@ -123,4 +125,44 @@ FolderIconOption? folderIconOptionForAlias(String? alias) {
     }
   }
   return null;
+}
+
+bool _looksLikeRenderedGlyph(String value) {
+  final normalized = value.trim();
+  if (normalized.isEmpty) {
+    return false;
+  }
+  return !RegExp(r'^[a-z0-9_:+-]+$', caseSensitive: false).hasMatch(normalized);
+}
+
+/// The emoji drawn for a saved icon alias: a curated option's, any other
+/// shortcode Open WebUI knows (a folder's icon chosen on the web, such as
+/// `fire`), or a glyph saved as is. Null for no icon or an unknown name,
+/// which show the platform folder icon.
+String? folderIconEmoji(String? alias) {
+  final normalized = normalizeFolderIconAlias(alias);
+  if (normalized == null) {
+    return null;
+  }
+  return folderIconOptionForAlias(normalized)?.emoji ??
+      emojiForShortcode(normalized) ??
+      (_looksLikeRenderedGlyph(normalized) ? normalized : null);
+}
+
+/// A saved icon alias that none of [folderIconOptions] is, but that still
+/// draws an emoji (one chosen on the web), so an icon picker can offer it
+/// as the folder's current choice. Null otherwise.
+String? customFolderIconAlias(String? alias) {
+  final normalized = normalizeFolderIconAlias(alias);
+  if (normalized == null || folderIconOptionForAlias(normalized) != null) {
+    return null;
+  }
+  return folderIconEmoji(normalized) == null ? null : normalized;
+}
+
+/// The label an icon picker gives [alias], a [customFolderIconAlias]: its
+/// emoji, followed by the shortcode Open WebUI names it with, if any.
+String customFolderIconLabel(String alias) {
+  final emoji = folderIconEmoji(alias) ?? alias;
+  return emoji == alias ? emoji : '$emoji $alias';
 }
