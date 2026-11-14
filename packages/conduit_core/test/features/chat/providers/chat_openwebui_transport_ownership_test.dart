@@ -5770,6 +5770,41 @@ void main() {
       check(container.read(comparisonMergeProvider)).isNull();
     });
 
+    for (final headers in [false, true]) {
+      test('a chat scope closed while the merge '
+          '${headers ? 'waits for its answer' : 'streams'} stops it and '
+          'writes nothing', () async {
+        final (:api, :container) = await open();
+        // A scope's own merge, the rest read from the root.
+        final scope = ProviderContainer(
+          parent: container,
+          overrides: [
+            comparisonMergeProvider.overrideWith(ComparisonMergeController.new),
+          ],
+        );
+        final hold = headers ? Completer<void>() : null;
+        api.holdMergeHeaders = hold;
+        final outcome = Completer<Object?>();
+        unawaited(startMerge(scope, outcome: outcome));
+        await api.mergeEntered.future;
+        if (!headers) {
+          await Future<void>.delayed(Duration.zero);
+          api.mergeUpdates!.add(const OpenWebUIContentDelta('Half a merge'));
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        scope.dispose();
+        hold?.complete();
+
+        check(await outcome.future).isA<ComparisonMergeException>().has(
+          (e) => e.reason,
+          'reason',
+        ).equals(ComparisonMergeFailure.ownerChanged);
+        check(api.mergeCancels).equals(1);
+        check((await storedPayload(secondId)).containsKey('merged')).isFalse();
+      });
+    }
+
     test('a server without the endpoint is explained and never asked '
         'through a chat completion', () async {
       final (:api, :container) = await open();
