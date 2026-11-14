@@ -59,7 +59,6 @@ void main() {
     check(plan.leftToCi).deepEquals([
       'the full Dart test suites',
       'Web-safe packages (conduit_markdown compiled to JS and run)',
-      'Android native tests and the foss build',
     ]);
   });
 
@@ -73,12 +72,15 @@ void main() {
     ]);
 
     // One lockfile resolves the whole workspace.
-    check(_names(_plan(['pubspec.lock']))).deepEquals([
+    final lock = _plan(['pubspec.lock']);
+    check(_names(lock)).deepEquals([
       'Analyze conduit_core',
       'Analyze conduit_markdown',
       'Analyze conduit_theme',
       'Analyze app',
     ]);
+    // It can also change the Android plugin set.
+    check(lock.leftToCi).contains('Android native tests and the foss build');
   });
 
   test('an app change runs the seam and the tests beside what changed', () {

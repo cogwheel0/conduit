@@ -326,7 +326,16 @@ Plan planChecks(
       'the full Dart test suites',
     if (any((path) => path.startsWith('packages/conduit_markdown/')))
       'Web-safe packages (conduit_markdown compiled to JS and run)',
-    if (affected.contains(appMember) || any((p) => p.startsWith('android/')))
+    // Mirrors the android-changes job in .github/workflows/ci.yml.
+    if (any(
+      (path) =>
+          path.startsWith('android/') ||
+          path.startsWith('pigeons/') ||
+          path.startsWith('third_party/') ||
+          path == 'pubspec.yaml' ||
+          path == 'pubspec.lock' ||
+          path == '.github/workflows/ci.yml',
+    ))
       'Android native tests and the foss build',
     if (any((path) => path.startsWith('relay/') || path.startsWith('push/')))
       'Push relay tests (cargo test)',

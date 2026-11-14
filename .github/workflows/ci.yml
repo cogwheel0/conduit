@@ -93,11 +93,40 @@ jobs:
           - run: dart run tool/run_test_shards.dart
             timeout-minutes: 30
 
+  # A pull request runs the Android job only when it changes what the job
+  # checks: native code, the plugin set, or this workflow. Pushes to main
+  # always run it. The job stays required, so it must skip (which passes)
+  # rather than be filtered out with `paths:` (which leaves it pending).
+  android-changes:
+    name: Android changes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+    steps:
+      # The checked-out ref is the merge commit, so its first parent is the
+      # base branch and the diff between them is the pull request's.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - id: diff
+        run: |
+          if git diff --name-only HEAD^1 HEAD -- \
+              android pigeons third_party pubspec.yaml pubspec.lock \
+              .github/workflows/ci.yml | grep -q .; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # The Android build gets a runner of its own: sharing one with the
   # analyzer and the Dart tests slowed all three, and it would also share
   # their build/ and .dart_tool/ files.
   android:
     name: Android native tests
+    needs: android-changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.android-changes.outputs.changed != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -134,9 +163,11 @@ jobs:
                   echo "::endgroup::"
                 fi
               done
+      # --config-only writes the git-ignored Gradle wrapper without building
+      # an APK the unit tests never use.
       - name: Android native tests
         run: |
-          flutter build apk --debug --target-platform android-arm64
+          flutter build apk --config-only
           cd android
           ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm64
       # The foss build (F-Droid, IzzyOnDroid) must compile without, and
