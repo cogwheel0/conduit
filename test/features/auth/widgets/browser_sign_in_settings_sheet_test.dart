@@ -5,7 +5,16 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/auth/browser_sign_in/browser_sign_in_failure.dart';
 import 'package:conduit_core/auth/browser_sign_in/browser_sign_in_service.dart';
+import 'package:conduit_core/auth/openwebui_account_summaries.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/browser_sign_in_config.dart';
+import 'package:conduit_core/models/openwebui_registry.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/ports/browser_auth_port.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -245,10 +254,165 @@ void main() {
       }
     }
   });
+
+  group('opened from a saved server\'s settings', () {
+    const savedConfig = BrowserSignInConfig(
+      provider: 'oidc',
+      clientId: 'conduit',
+    );
+
+    Future<_ServerActions> openFromServerPage(
+      WidgetTester tester, {
+      BrowserSignInConfig? saved,
+      BackendConfig? backend,
+    }) async {
+      tester.view.physicalSize = const Size(400, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final actions = _ServerActions(backend);
+      final entry = OpenWebUiAccountEntry(
+        account: OpenWebUiAccount(
+          id: 'account-1',
+          serverId: 'server-1',
+          isActive: true,
+        ),
+        server: OpenWebUiServer(
+          id: 'server-1',
+          name: 'Chat',
+          endpoints: [
+            OpenWebUiEndpoint(
+              id: 'endpoint-1',
+              url: 'https://chat.example.com',
+            ),
+          ],
+          browserSignIn: saved,
+        ),
+        summary: const OpenWebUiAccountSummary(),
+        isActive: true,
+        hasSession: true,
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            openWebUiAccountsProvider.overrideWith((ref) async => [entry]),
+            serverConfigsProvider.overrideWith(
+              (ref) async => const [
+                ServerConfig(
+                  id: 'account-1',
+                  name: 'Chat',
+                  url: 'https://chat.example.com',
+                ),
+              ],
+            ),
+            authActionsProvider.overrideWithValue(actions),
+            browserAuthPortProvider.overrideWithValue(
+              const _SupportedBrowser(),
+            ),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: Consumer(
+                builder: (context, ref, _) => Center(
+                  child: GestureDetector(
+                    onTap: () => showServerBrowserSignInSettings(
+                      context,
+                      ref,
+                      serverId: 'server-1',
+                    ),
+                    child: const Text('open'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      return actions;
+    }
+
+    testWidgets('keep saved settings removable when the server can\'t be '
+        'read', (tester) async {
+      final actions = await openFromServerPage(tester, saved: savedConfig);
+
+      expect(find.byKey(const ValueKey('browser-sign-in-settings')), findsOne);
+      await tapKey(tester, 'browser-sign-in-remove');
+      await tester.tap(find.text('Remove').last);
+      await tester.pumpAndSettle();
+      check(actions.saved).deepEquals([null]);
+    });
+
+    testWidgets('keep saved settings open when the server no longer offers '
+        'their provider', (tester) async {
+      await openFromServerPage(
+        tester,
+        saved: savedConfig,
+        backend: const BackendConfig(
+          oauthProviders: OAuthProviders(github: 'GitHub'),
+        ),
+      );
+
+      expect(find.byKey(const ValueKey('browser-sign-in-settings')), findsOne);
+    });
+
+    testWidgets('say the server can\'t use it when nothing is saved', (
+      tester,
+    ) async {
+      await openFromServerPage(tester);
+
+      expect(
+        find.byKey(const ValueKey('browser-sign-in-settings')),
+        findsNothing,
+      );
+      expect(
+        find.textContaining("This server can't use browser sign-in"),
+        findsOneWidget,
+      );
+    });
+  });
 }
 
 final class _SheetCalls {
   final saved = <BrowserSignInConfig>[];
   final tested = <BrowserSignInConfig>[];
   int removed = 0;
+}
+
+/// Answers the server page's settings with [backend], and records saves.
+final class _ServerActions extends Fake implements AuthActions {
+  _ServerActions(this.backend);
+
+  final BackendConfig? backend;
+  final saved = <BrowserSignInConfig?>[];
+
+  @override
+  Future<BackendConfig?> backendConfigOf(ServerConfig account) async =>
+      backend;
+
+  @override
+  Future<void> saveBrowserSignInConfig({
+    required String accountId,
+    BrowserSignInConfig? config,
+  }) async => saved.add(config);
+}
+
+final class _SupportedBrowser implements BrowserAuthPort {
+  const _SupportedBrowser();
+
+  @override
+  bool get isSupported => true;
+
+  @override
+  Future<BrowserAuthResult> authorize(
+    Uri url, {
+    required Uri redirectUri,
+    bool preferEphemeral = false,
+  }) async => const BrowserAuthResult.cancelled();
+
+  @override
+  Future<void> cancel() async {}
 }

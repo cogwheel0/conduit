@@ -1,6 +1,7 @@
 import 'package:conduit_core/auth/browser_sign_in/browser_sign_in_service.dart';
 import 'package:conduit_core/auth/oidc/oidc.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/browser_sign_in_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart';
@@ -58,8 +59,10 @@ List<BrowserSignInChecklistItem> browserSignInChecklist(String provider) {
 
 /// Opens the browser sign-in settings of the saved server [serverId], from
 /// its page in Settings. Test and Save reach the server through one of its
-/// accounts, the active one when it is there. A server that can't sign in
-/// through the browser says so instead.
+/// accounts, the active one when it is there. Settings already saved open
+/// even when the server can't be reached or no longer offers their
+/// provider, so they can still be changed or removed; otherwise a server
+/// that can't sign in through the browser says so instead.
 Future<void> showServerBrowserSignInSettings(
   BuildContext context,
   WidgetRef ref, {
@@ -85,21 +88,24 @@ Future<void> showServerBrowserSignInSettings(
     port: ref.read(browserAuthPortProvider),
     backendConfig: backendConfig,
   );
-  if (backendConfig == null ||
-      !availability.browserSupported ||
-      !availability.serverSupported ||
-      availability.providers.isEmpty) {
+  final canSetUp =
+      backendConfig != null &&
+      availability.browserSupported &&
+      availability.serverSupported &&
+      availability.providers.isNotEmpty;
+  final current = entry.server.browserSignIn;
+  if (!canSetUp && current == null) {
     AdaptiveSnackBar.show(
       context,
       message: AppLocalizations.of(context)!.browserSignInUnavailable,
     );
     return;
   }
-  final current = entry.server.browserSignIn;
   await BrowserSignInSettingsSheet.show(
     context,
-    providers: availability.providers,
-    providerLabel: backendConfig.oauthProviders.getProviderDisplayName,
+    providers: canSetUp ? availability.providers : const <String>[],
+    providerLabel: (backendConfig?.oauthProviders ?? const OAuthProviders())
+        .getProviderDisplayName,
     initial: current,
     onTest: (config) => actions.diagnoseBrowserSignIn(config, server: account),
     onSave: (config) =>
