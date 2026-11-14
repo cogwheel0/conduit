@@ -79,6 +79,17 @@ void main() {
     expect(lift(listed), [text(listed)]);
   });
 
+  test(
+    'the body keeps its lines as written, less the blank ones around it',
+    () {
+      // An indented code block first, a hard break on the last line.
+      expect(
+        lift('> [!TIP]\n>\n>     code\n>\n> Line one  \n> Line two  \n>'),
+        [alert('tip', '    code\n\nLine one  \nLine two  ')],
+      );
+    },
+  );
+
   test('a marker with more on its line is a plain quote', () {
     const inline = '> [!NOTE] Not an alert';
     expect(lift(inline), [text(inline)]);

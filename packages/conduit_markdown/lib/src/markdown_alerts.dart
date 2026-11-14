@@ -153,8 +153,16 @@ List<MessageBlock> _liftFromText(String markdown) {
         }
         break;
       }
+      // Only the blank lines around the body go: what its lines hold, such
+      // as an indented code block's spaces or a hard break's, is Markdown.
+      while (body.isNotEmpty && body.first.trim().isEmpty) {
+        body.removeAt(0);
+      }
+      while (body.isNotEmpty && body.last.trim().isEmpty) {
+        body.removeLast();
+      }
       flushText(beforeAlert: true);
-      out.add(AlertMessageBlock(type: type, markdown: body.join('\n').trim()));
+      out.add(AlertMessageBlock(type: type, markdown: body.join('\n')));
       afterAlert = true;
       inQuote = false;
       inList = false;
