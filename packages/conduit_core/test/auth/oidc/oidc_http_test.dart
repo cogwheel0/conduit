@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/oidc/oidc.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
@@ -133,12 +134,21 @@ void main() {
         check(error.kind).equals(kind);
         check(error.isTransient).isTrue();
       }
-      final hanging = OidcHttp(
-        client: MockClient((_) => Completer<http.Response>().future),
-        timeout: const Duration(milliseconds: 10),
-      );
-      check((await _errorOf(hanging.getJson(_url))).kind)
-          .equals(OidcFailureKind.timeout);
+    });
+
+    test('gives up on a provider that never answers', () {
+      fakeAsync((async) {
+        final hanging = OidcHttp(
+          client: MockClient((_) => Completer<http.Response>().future),
+          timeout: const Duration(seconds: 15),
+        );
+        OidcException? error;
+        _errorOf(hanging.getJson(_url)).then((e) => error = e);
+        async.elapse(const Duration(seconds: 15));
+        check(error).isNotNull().has((e) => e.kind, 'kind').equals(
+          OidcFailureKind.timeout,
+        );
+      });
     });
 
     test('carries nothing of Open WebUI', () async {

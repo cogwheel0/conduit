@@ -23,9 +23,12 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../support/fake_time.dart';
 
 const _server = ServerConfig(
   id: 'account-a',
@@ -44,7 +47,7 @@ const _config = BrowserSignInConfig(provider: 'oidc', clientId: 'conduit');
 
 /// An Open WebUI session token that expires [expiresIn] from now.
 String _jwt(Duration expiresIn, {String tag = 'session'}) {
-  final exp = DateTime.now().add(expiresIn).millisecondsSinceEpoch ~/ 1000;
+  final exp = clock.now().add(expiresIn).millisecondsSinceEpoch ~/ 1000;
   final payload = base64Url
       .encode(utf8.encode(jsonEncode({'id': 'user-a', 'exp': exp})))
       .replaceAll('=', '');
@@ -308,8 +311,8 @@ void main() {
           .equals('https://public.example');
     });
 
-    test('a client still being rebuilt when the browser returns is waited '
-        'for, not taken for another account', () async {
+    fakeTimeTest('a client still being rebuilt when the browser returns is '
+        'waited for, not taken for another account', () async {
       final rig = await _Rig.start();
       rig.service.duringBrowser = () {
         rig.apiGone = true;
@@ -832,8 +835,8 @@ void main() {
       },
     );
 
-    test('on resume, a session that is no browser sign-in is left to the '
-        'server, even past its expiry by the device clock', () async {
+    fakeTimeTest('on resume, a session that is no browser sign-in is left to '
+        'the server, even past its expiry by the device clock', () async {
       final token = _jwt(const Duration(seconds: 2), tag: 'password');
       final rig = await _Rig.start(
         storedToken: token,
@@ -1328,14 +1331,28 @@ final class _Rig {
   Future<AuthState> settled() =>
       settledOn((s) => !s.isLoading && s.status != AuthStatus.loading);
 
+  /// The first auth state [done] accepts, once nothing loads: as it
+  /// stands, or as it is published next. A state that never comes leaves the
+  /// test to its own timeout.
   Future<AuthState> settledOn(bool Function(AuthState) done) async {
     await container.read(authStateManagerProvider.future);
-    for (var i = 0; i < 400; i++) {
-      final current = state;
-      if (done(current) && !current.isLoading) return current;
-      await Future<void>.delayed(const Duration(milliseconds: 5));
+    bool ready(AuthState s) => done(s) && !s.isLoading;
+    if (ready(state)) return state;
+    final reached = Completer<AuthState>();
+    final subscription = container.listen<AsyncValue<AuthState>>(
+      authStateManagerProvider,
+      (_, next) {
+        final value = next.value;
+        if (value != null && ready(value) && !reached.isCompleted) {
+          reached.complete(value);
+        }
+      },
+    );
+    try {
+      return await reached.future;
+    } finally {
+      subscription.close();
     }
-    return state;
   }
 }
 
