@@ -88,6 +88,38 @@ void main() {
     expect(engine.spoken.last, 'Two white gulls.');
   });
 
+  test('a stop that ends after a new reading began leaves it be', () async {
+    await manager.speak(text);
+    final stopGate = Completer<void>();
+    engine.stopGate = stopGate;
+    final stopping = manager.stop();
+    await manager.speak('One blue boat.\n\nTwo white gulls.');
+    events.clear();
+    stopGate.complete();
+    await stopping;
+    await pumpEventQueue();
+
+    expect(events.whereType<TtsCancelled>(), isEmpty);
+    expect(await manager.seekToChunk(1), 1);
+    expect(engine.spoken.last, 'Two white gulls.');
+  });
+
+  test('a sentence of an old reading that fails to start is not the new '
+      'reading\'s error', () async {
+    await manager.speak(text);
+    final speakGate = Completer<bool>();
+    engine.speakGate = speakGate;
+    final moving = manager.seekToChunk(1);
+    await manager.speak('One blue boat.');
+    events.clear();
+    speakGate.complete(false);
+    await moving;
+    await pumpEventQueue();
+
+    expect(events.whereType<TtsError>(), isEmpty);
+    expect(manager.isPlaying, isTrue);
+  });
+
   test(
     'a new speed says the rest of the sentence from the word reached',
     () async {
@@ -218,6 +250,9 @@ class _Engine implements DeviceSpeechEngine {
     required double volume,
     bool voiceCall = false,
   }) async {
+    final gate = speakGate;
+    speakGate = null;
+    if (gate != null) return gate.future;
     spoken.add(text);
     rates.add(rate);
     return true;
@@ -238,8 +273,19 @@ class _Engine implements DeviceSpeechEngine {
   @override
   Future<bool> cancelSynthesis() async => true;
 
+  /// Holds the next [stop] until completed.
+  Completer<void>? stopGate;
+
+  /// Answers the next [speak] when completed.
+  Completer<bool>? speakGate;
+
   @override
-  Future<bool> stop() async => true;
+  Future<bool> stop() async {
+    final gate = stopGate;
+    stopGate = null;
+    await gate?.future;
+    return true;
+  }
 
   /// Holds [pause] until completed.
   Completer<void>? pauseGate;

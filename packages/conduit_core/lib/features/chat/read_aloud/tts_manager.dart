@@ -968,7 +968,10 @@ class TtsManager {
     final session = _activeSession;
     if (session == null) return;
 
+    // Its state is let go before anything is awaited, so a reading started
+    // meanwhile begins clean and is never reset by this stop.
     _activeSession = null;
+    _resetPlaybackState();
 
     try {
       if (session.usesAudioPlayer) {
@@ -977,13 +980,20 @@ class TtsManager {
       } else {
         await _nativeTts.stop();
       }
-      _resetPlaybackState();
+      // A reading started meanwhile is not the one cancelled.
+      if (_activeSession != null) return;
       _emitEvent(const TtsCancelled());
     } catch (e) {
-      _resetPlaybackState();
+      if (_activeSession != null) return;
       _emitEvent(TtsError(e.toString()));
     }
   }
+
+  /// Whether [session] is still the reading playing. Every continuation of
+  /// a reading asks this after each await, before it changes what is shared
+  /// (the player, the engine, the buffers, the events): a reading replaced
+  /// meanwhile leaves the new one alone.
+  bool _owns(TtsPlaybackSession session) => _activeSession?.id == session.id;
 
   /// Resets the manager state for a new session.
   ///
@@ -1402,10 +1412,9 @@ class TtsManager {
   }
 
   void _failDevicePlayback(TtsPlaybackSession session, Object error) {
-    if (_activeSession?.id == session.id) {
-      _activeSession = null;
-      _resetPlaybackState();
-    }
+    if (!_owns(session)) return;
+    _activeSession = null;
+    _resetPlaybackState();
     _emitEvent(TtsError(error.toString()));
   }
 
@@ -1424,6 +1433,7 @@ class TtsManager {
     _serverWaitingForNext = false;
 
     final voice = await _resolveServerVoice();
+    if (!_owns(session)) return;
     _serverPlaybackVoice = voice;
     await _startServerBackgroundLease(session.id);
 
@@ -1452,7 +1462,7 @@ class TtsManager {
           session.chunks[1],
           voice,
         ).timeout(_serverInitialLookaheadTimeout);
-        if (_activeSession?.id == session.id) {
+        if (_owns(session)) {
           _setBufferedServerChunk(1, secondChunk);
           initialSources.add(
             await _audioSourceForServerChunk(session.id, 1, secondChunk),
@@ -1467,7 +1477,9 @@ class TtsManager {
       }
     }
 
+    if (!_owns(session)) return;
     await _player.stop();
+    if (!_owns(session)) return;
     _isTransitioningChunks = true;
     // Flag will be cleared by state listener when playing=true is received.
     // This prevents race condition where flag is cleared before state fires.
@@ -1477,6 +1489,7 @@ class TtsManager {
         initialIndex: 0,
         initialPosition: Duration.zero,
       );
+      if (!_owns(session)) return;
       await _playQueuedAudio(session);
     } catch (e) {
       // Reset flag on error to avoid suppressing future pause events

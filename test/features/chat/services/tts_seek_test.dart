@@ -404,6 +404,35 @@ void main() {
     );
   }
 
+  test('an old reading whose second clip comes late leaves the new one '
+      'playing', () async {
+    final second = Completer<SynthesizedSpeech>();
+    final askedSecond = Completer<void>();
+    manager.setServerSpeech(
+      _Server()
+        ..pending['Old two.'] = second
+        ..asked['Old two.'] = askedSecond,
+    );
+    await manager.updateConfig(
+      const TtsConfig(splitOn: TtsManager.splitOnParagraphs),
+    );
+    final old = manager.speak(
+      'Old one.\n\nOld two.',
+      useServer: true,
+      seekable: true,
+    );
+    // The old reading waits for its second clip before it plays.
+    await askedSecond.future;
+    await manager.speak('New one.', useServer: true, seekable: true);
+    final playing = List<AudioClip>.of(player.clips);
+    second.complete(_audio);
+    await old;
+    await pumpEventQueue();
+
+    expect(player.clips, playing);
+    expect(player.playing, isTrue);
+  });
+
   test('unknown duration still plays cloud audio without seeking', () async {
     manager.setServerSpeech(_Server());
     player.duration = null;
@@ -759,6 +788,9 @@ final _audio = (bytes: Uint8List.fromList([1, 2, 3]), mimeType: 'audio/wav');
 
 class _Server extends Fake implements ServerSpeechProvider {
   final pending = <String, Completer<SynthesizedSpeech>>{};
+
+  /// Completes as each text is first asked for.
+  final asked = <String, Completer<void>>{};
   @override
   ServerSpeechSource get source => ServerSpeechSource.hermes;
   @override
@@ -768,7 +800,11 @@ class _Server extends Fake implements ServerSpeechProvider {
     String text, {
     String? preferredVoice,
     double? speed,
-  }) async => await (pending[text]?.future ?? Future.value(_audio));
+  }) async {
+    final ask = asked[text];
+    if (ask != null && !ask.isCompleted) ask.complete();
+    return await (pending[text]?.future ?? Future.value(_audio));
+  }
 }
 
 /// Records what it keeps and releases, in memory.
