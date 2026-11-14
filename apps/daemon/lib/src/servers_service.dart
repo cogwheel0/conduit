@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/services/api_service.dart' show HealthCheckResult;
@@ -69,9 +70,31 @@ final class ServersService {
     );
 
     final next = <ServerConfig>[...configs]..[index] = updated;
+    final hadSession = await _storage.getAuthTokenStrict() != null;
     await _storage.saveServerConfigs(next);
+    await _endSessionIfMoved(id, hadSession: hadSession);
     _republishServerConfigs();
-    return summarize(updated);
+    return summarize(
+      updated,
+      hasStoredSession: (await _storage.accountIdsWithSession()).contains(id),
+    );
+  }
+
+  /// Ends the live session when the save moved the active account's server
+  /// to another address or client identity.
+  ///
+  /// Storage judges that, and drops the saved token when it does: the
+  /// session belongs to the old address. The auth manager still holds it,
+  /// though, and the client rebuilt for the new address would send it
+  /// there. So it is ended here, before [_republishServerConfigs] rebuilds
+  /// the client; the account then needs a sign-in on the new address.
+  Future<void> _endSessionIfMoved(String id, {required bool hadSession}) async {
+    if (!hadSession) return;
+    if (await _storage.getEffectiveActiveServerId() != id) return;
+    if (await _storage.getAuthTokenStrict() != null) return;
+    await _container
+        .read(authStateManagerProvider.notifier)
+        .onTokenInvalidated();
   }
 
   /// The live state of the active server.
@@ -234,6 +257,7 @@ final class ServersService {
     mtlsPrivateKeyLabel: config.mtlsPrivateKeyLabel,
     customHeaderNames: config.customHeaders.keys.toList(growable: false)
       ..sort(),
+    hasStoredSession: hasStoredSession,
   );
 
   static RpcError _notFound(String id) => RpcError(
