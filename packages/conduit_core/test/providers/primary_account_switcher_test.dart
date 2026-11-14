@@ -412,6 +412,40 @@ void main() {
     );
   });
 
+  test('a sign-out hands the tab to the next account when the one it picked '
+      'is gone by its turn', () async {
+    await switcher().useLibreChat(libreChatAccount.id);
+    final other = await container
+        .read(libreChatAccountsProvider)
+        .saveSignedIn(
+          server: server,
+          session: const LibreChatSession(
+            accessToken: 'b',
+            user: LibreChatUser(id: 'lc-other', name: 'Other'),
+          ),
+          activate: false,
+        );
+    // A switch to an account that is not there holds the queue meanwhile.
+    final gate = storage.strictGate = Completer<void>();
+    final missing = switcher().useOpenWebUi('missing');
+    await storage.reading.future;
+
+    final handingOver = signOutOfLibreChatAndHandOver(
+      container,
+      libreChatAccount.id,
+    );
+    await pumpEventQueue();
+    // The other LibreChat account goes before the handover's turn.
+    await container.read(libreChatRegistryProvider.notifier).remove(other.id);
+    gate.complete();
+    check(await missing).equals(PrimarySwitchResult.unknownAccount);
+
+    check(await handingOver).isTrue();
+    check(container.read(primaryAccountProvider)).equals(
+      const PrimaryAccountRef(PrimaryAccountKind.openWebUi, 'owui'),
+    );
+  });
+
   group('routing at startup', () {
     test('waits for a switch cut short to be finished', () async {
       await PrimarySwitchIntent(

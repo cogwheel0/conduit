@@ -8,7 +8,7 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/app_providers.dart'
-    show OpenWebUiAccountEntry, openWebUiAccountsProvider;
+    show openWebUiAccountsProvider;
 import 'package:conduit_core/providers/primary_account_providers.dart';
 import 'package:conduit_core/providers/storage_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -95,26 +95,36 @@ final class PrimaryAccountSwitcher {
   }
 
   /// Hands the Chats tab over after a sign-out left it with no account: to
-  /// LibreChat account [libreChatId], else Open WebUI account [openWebUiId],
+  /// the LibreChat account [candidates] names, else its Open WebUI account,
   /// else to choosing the backend again. It waits for the switches asked
   /// for before it, and goes ahead only if [unclaimed] still holds then: a
-  /// switch that ran meanwhile keeps the tab. Returns whether it handed the
-  /// tab over.
+  /// switch that ran meanwhile keeps the tab. The candidates are read at
+  /// its turn, and one gone by the time it is switched to gives way to the
+  /// next. Returns whether it handed the tab over.
   Future<bool> handOverUnclaimedTab({
     required bool Function() unclaimed,
-    String? libreChatId,
-    String? openWebUiId,
+    required Future<({String? libreChatId, String? openWebUiId})> Function()
+    candidates,
   }) => _afterLastSwitch(() async {
-    if (!unclaimed()) return false;
-    if (libreChatId != null) {
-      await _useLibreChat(libreChatId, force: true);
-    } else if (openWebUiId != null) {
-      await _useOpenWebUi(openWebUiId, force: true);
-    } else {
-      await _ref
-          .read(preferredBackendProvider.notifier)
-          .set(PreferredBackend.unset);
+    // Each try that finds its account gone leaves one fewer to pick.
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (!unclaimed()) return false;
+      final next = await candidates();
+      if (!unclaimed()) return false;
+      final PrimarySwitchResult result;
+      if (next.libreChatId case final id?) {
+        result = await _useLibreChat(id, force: true);
+      } else if (next.openWebUiId case final id?) {
+        result = await _useOpenWebUi(id, force: true);
+      } else {
+        break;
+      }
+      if (result != PrimarySwitchResult.unknownAccount) return true;
     }
+    if (!unclaimed()) return false;
+    await _ref
+        .read(preferredBackendProvider.notifier)
+        .set(PreferredBackend.unset);
     return true;
   });
 
@@ -354,20 +364,28 @@ Future<bool> signOutOfLibreChatAndHandOver(
           PrimaryAccountKind.libreChat &&
       container.read(activeLibreChatAccountProvider) == null;
   if (!tabStillUnclaimed()) return false;
-  final remaining = [
-    ...(await container.read(libreChatRegistryProvider.future)).accounts,
-  ]..sort((a, b) => (b.lastUsedAt ?? DateTime(0)).compareTo(
-      a.lastUsedAt ?? DateTime(0),
-    ));
-  final openWebUi = remaining.isEmpty
-      ? await container.read(openWebUiAccountsProvider.future)
-      : const <OpenWebUiAccountEntry>[];
-  // Asked once more as its turn comes, after any switch already under way.
+  // The accounts left are read at the handover's turn, after any switch
+  // already under way: the most recently used LibreChat account, else an
+  // Open WebUI one.
+  Future<({String? libreChatId, String? openWebUiId})> candidates() async {
+    final remaining =
+        [...(await container.read(libreChatRegistryProvider.future)).accounts]
+          ..sort(
+            (a, b) => (b.lastUsedAt ?? DateTime(0)).compareTo(
+              a.lastUsedAt ?? DateTime(0),
+            ),
+          );
+    if (remaining.isNotEmpty) {
+      return (libreChatId: remaining.first.id, openWebUiId: null);
+    }
+    final openWebUi = await container.read(openWebUiAccountsProvider.future);
+    return (libreChatId: null, openWebUiId: openWebUi.firstOrNull?.id);
+  }
+
   return container
       .read(primaryAccountSwitcherProvider)
       .handOverUnclaimedTab(
         unclaimed: tabStillUnclaimed,
-        libreChatId: remaining.firstOrNull?.id,
-        openWebUiId: openWebUi.firstOrNull?.id,
+        candidates: candidates,
       );
 }
