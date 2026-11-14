@@ -625,6 +625,68 @@ void main() {
       check(rig.state.token).equals(_issued);
     });
 
+    test('a sign-in begun while resume checks the saved sign-in is not '
+        'ended by the renewal that follows', () async {
+      final token = _jwt(const Duration(minutes: 8), tag: 'expiring');
+      final rig = await _Rig.start(
+        storedToken: token,
+        saved: _savedBrowserSignIn(token),
+        renew: () async => (token: _renewed, session: _session),
+      );
+      final readHeld = Completer<void>();
+      var reads = 0;
+      when(() => rig.storage.getSavedCredentialsStrict()).thenAnswer((_) async {
+        if (reads++ == 0) await readHeld.future;
+        return rig.saved;
+      });
+      rig.service.browserOpen = Completer<void>();
+
+      final resumed = rig.auth.renewBrowserSessionIfExpiring();
+      await pumpEventQueue();
+      final signIn = rig.auth.loginWithBrowser(config: _config);
+      await pumpEventQueue();
+      readHeld.complete();
+      await resumed;
+      rig.service.browserOpen!.complete();
+
+      check(await signIn).isTrue();
+      check(rig.service.renewals).equals(0);
+      check(rig.state.token).equals(_issued);
+    });
+
+    test('a refusal during a renewal ahead of expiry is not answered over a '
+        'sign-in begun meanwhile', () async {
+      final token = _jwt(const Duration(minutes: 8), tag: 'expiring');
+      final release = Completer<void>();
+      var renewals = 0;
+      final rig = await _Rig.start(
+        storedToken: token,
+        saved: _savedBrowserSignIn(token),
+        renew: () async {
+          if (renewals++ == 0) {
+            await release.future;
+            throw const BrowserSignInException(BrowserSignInFailure.timeout);
+          }
+          return (token: _renewed, session: _session);
+        },
+      );
+      rig.service.browserOpen = Completer<void>();
+
+      final early = rig.auth.renewBrowserSessionIfExpiring();
+      await pumpEventQueue();
+      rig.auth.onAuthIssue(AuthFailureKind.sessionRejected);
+      final signIn = rig.auth.loginWithBrowser(config: _config);
+      await pumpEventQueue();
+      release.complete();
+      await early;
+      await pumpEventQueue();
+      rig.service.browserOpen!.complete();
+
+      check(await signIn).isTrue();
+      check(rig.service.renewals).equals(1);
+      check(rig.state.token).equals(_issued);
+    });
+
     test('a burst of refusals renews once', () async {
       final token = _jwt(const Duration(hours: 1), tag: 'live');
       final release = Completer<void>();

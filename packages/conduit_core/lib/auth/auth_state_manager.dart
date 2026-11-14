@@ -1467,10 +1467,13 @@ class AuthStateManager extends _$AuthStateManager {
       return;
     }
     // Only a browser sign-in with its session renews here. Any other sign-in
-    // is left for the server to judge: the device clock is no refusal.
+    // is left for the server to judge: the device clock is no refusal. A
+    // sign-in begun while that is read owns what comes next.
+    final revision = _authAttemptRevision;
     if (!await _canRenewBrowserSignIn() ||
         !ref.mounted ||
-        _current.token != token) {
+        _current.token != token ||
+        _authAttemptRevision != revision) {
       return;
     }
     try {
@@ -4230,11 +4233,12 @@ class AuthStateManager extends _$AuthStateManager {
     }
     _renewingRejectedToken = token;
     _renewingTokenRefused = rejected;
+    // Read before the saved sign-in is: a sign-in begun while it is read
+    // owns what comes next.
+    final startRevision = _authAttemptRevision;
+    final startSafetyEpoch = _sessionSafetyEpoch;
+    int? claimRevision;
     try {
-      // Read before the saved sign-in is: a sign-in begun while it is read
-      // owns what comes next.
-      final startRevision = _authAttemptRevision;
-      final startSafetyEpoch = _sessionSafetyEpoch;
       final storage = ref.read(optimizedStorageServiceProvider);
       final saved = await _savedBrowserSignIn(storage);
       if (!ref.mounted ||
@@ -4247,7 +4251,6 @@ class AuthStateManager extends _$AuthStateManager {
         return false;
       }
 
-      int? claimRevision;
       bool canCommit() {
         if (!ref.mounted) return false;
         final claimed = claimRevision;
@@ -4316,8 +4319,15 @@ class AuthStateManager extends _$AuthStateManager {
         _renewingTokenRefused = false;
       }
       // The server refused the token while it was renewed ahead of expiry,
-      // and it is still the one in use: answer the refusal as one.
-      if (refusedMeanwhile && ref.mounted && _current.token == token) {
+      // and it is still the one in use: answer the refusal as one, unless a
+      // sign-in begun meanwhile owns what comes next.
+      final attemptOwned =
+          _authAttemptRevision == startRevision ||
+          _authAttemptRevision == claimRevision;
+      if (refusedMeanwhile &&
+          attemptOwned &&
+          ref.mounted &&
+          _current.token == token) {
         unawaited(_renewBrowserSessionInBackground(token, rejected: true));
       }
     }
