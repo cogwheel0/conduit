@@ -919,23 +919,101 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           ],
         );
       case AuthMode.sso:
-        return AuthGroupedSection(
-          key: const ValueKey<String>('sso_form'),
-          footer: _ssoSubtitle(l10n),
-          error: error,
-          children: const [],
-        );
+        return _buildCupertinoSsoSection(l10n, error: error);
       case AuthMode.credentials || AuthMode.ldap:
         return const SizedBox.shrink();
     }
   }
 
+  /// The SSO method as grouped rows: the ways in and out of browser sign-in
+  /// that [BrowserSignInSection] offers on other platforms.
+  Widget _buildCupertinoSsoSection(AppLocalizations l10n, {String? error}) {
+    final theme = context.conduitTheme;
+    final configured = _browserConfigured;
+    final idle = !_isSigningIn;
+    final address = Uri.tryParse(_resolvedServerConfig?.url ?? '');
+    AuthGroupedRow action(
+      String key,
+      String title,
+      VoidCallback onTap, {
+      bool chevron = false,
+    }) => AuthGroupedRow(
+      key: ValueKey<String>(key),
+      title: title,
+      titleColor: idle ? theme.buttonPrimary : theme.textTertiary,
+      showChevron: chevron,
+      onTap: idle ? onTap : null,
+    );
+    return AuthGroupedSection(
+      key: const ValueKey<String>('sso_form'),
+      footer: _browserOpen
+          ? l10n.browserSignInWaiting
+          : [
+              if (configured) l10n.browserSignInContinueSubtitle,
+              _ssoSubtitle(l10n),
+              if (configured && address?.scheme.toLowerCase() == 'http')
+                l10n.browserSignInHttpWarning,
+            ].join('\n'),
+      error: error,
+      children: [
+        if (configured &&
+            _browserFailure == BrowserSignInFailure.userNotFound) ...[
+          action(
+            'browser-sign-in-open-web',
+            l10n.browserSignInOpenWebSignIn,
+            _openWebSignIn,
+          ),
+          action('browser-sign-in-retry', l10n.retry, _retryBrowserSignIn),
+        ],
+        if (configured && _hasWebViewSso)
+          action(
+            'browser-sign-in-use-in-app',
+            l10n.browserSignInUseInApp,
+            _navigateToSso,
+          ),
+        if (configured)
+          action(
+            'browser-sign-in-settings',
+            l10n.browserSignInSettings,
+            _openBrowserSignInSettings,
+            chevron: true,
+          )
+        else if (_canSetUpBrowserSignIn)
+          action(
+            'browser-sign-in-set-up',
+            l10n.browserSignInSetUp,
+            _openBrowserSignInSettings,
+            chevron: true,
+          ),
+      ],
+    );
+  }
+
   void _submitFromKeyboard() {
     if (!_canSubmit) return;
     if (_authMode == AuthMode.sso) {
-      _navigateToSso();
+      _signInWithSso();
     } else {
       _signIn();
+    }
+  }
+
+  /// The SSO method signs in through the browser when it is set up for this
+  /// server.
+  bool get _ssoInBrowser => _authMode == AuthMode.sso && _browserConfigured;
+
+  /// The SSO method can only set up browser sign-in: it is not set up, and
+  /// the in-app page cannot run here.
+  bool get _ssoSetUpOnly =>
+      _authMode == AuthMode.sso && !_browserConfigured && !_hasWebViewSso;
+
+  void _signInWithSso() {
+    if (_ssoInBrowser) {
+      unawaited(_signInWithBrowser());
+    } else if (_ssoSetUpOnly) {
+      unawaited(_openBrowserSignInSettings());
+    } else {
+      unawaited(_navigateToSso());
     }
   }
 
@@ -952,13 +1030,26 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   /// Account's sign-in does, rather than repeat it.
   Widget _buildCupertinoSignInButton() {
     final l10n = AppLocalizations.of(context)!;
+    if (_browserOpen) {
+      return AuthPrimaryButton(
+        key: const ValueKey<String>('authentication-submit'),
+        label: l10n.cancel,
+        onPressed: _cancelBrowserSignIn,
+      );
+    }
     final sso = _authMode == AuthMode.sso;
     return AuthPrimaryButton(
       key: const ValueKey<String>('authentication-submit'),
-      label: sso ? l10n.signInContinueWithSso : l10n.continueButton,
+      label: _ssoInBrowser
+          ? l10n.browserSignInContinue
+          : _ssoSetUpOnly
+          ? l10n.browserSignInSetUp
+          : sso
+          ? l10n.signInContinueWithSso
+          : l10n.continueButton,
       busyLabel: l10n.signingIn,
       busy: _isSigningIn,
-      onPressed: !_canSubmit ? null : (sso ? _navigateToSso : _signIn),
+      onPressed: !_canSubmit ? null : (sso ? _signInWithSso : _signIn),
     );
   }
 
@@ -1520,10 +1611,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   Widget _buildSignInButton() {
     final l10n = AppLocalizations.of(context)!;
 
-    final browser = _authMode == AuthMode.sso && _browserConfigured;
-    // Browser sign-in can be set up but the in-app page cannot run here: the
-    // button sets it up.
-    final setUpOnly = _authMode == AuthMode.sso && !browser && !_hasWebViewSso;
+    final browser = _ssoInBrowser;
+    final setUpOnly = _ssoSetUpOnly;
 
     if (_browserOpen) {
       return ConduitButton(
@@ -1560,12 +1649,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       text: buttonText,
       onPressed: _isSigningIn || !_canSubmit
           ? null
-          : browser
-          ? _signInWithBrowser
-          : setUpOnly
-          ? _openBrowserSignInSettings
           : _authMode == AuthMode.sso
-          ? _navigateToSso
+          ? _signInWithSso
           : _signIn,
       isLoading: _isSigningIn,
       isFullWidth: true,
