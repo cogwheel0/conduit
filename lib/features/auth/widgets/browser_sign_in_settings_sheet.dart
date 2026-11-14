@@ -22,6 +22,36 @@ typedef BrowserSignInTester = Future<BrowserSignInDiagnosis> Function(
   BrowserSignInConfig config,
 );
 
+/// What an administrator sets up for browser sign-in.
+enum BrowserSignInChecklistItem {
+  exchange,
+  trustedClients,
+  noClientCheck,
+  client,
+  users,
+  microsoft,
+  google,
+  claims,
+}
+
+/// The setup checklist for [provider]. Open WebUI can limit token exchange
+/// to listed clients only by asking the provider's introspection endpoint,
+/// which Google and Microsoft don't have.
+List<BrowserSignInChecklistItem> browserSignInChecklist(String provider) {
+  final noIntrospection = provider == 'google' || provider == 'microsoft';
+  return [
+    BrowserSignInChecklistItem.exchange,
+    noIntrospection
+        ? BrowserSignInChecklistItem.noClientCheck
+        : BrowserSignInChecklistItem.trustedClients,
+    BrowserSignInChecklistItem.client,
+    BrowserSignInChecklistItem.users,
+    if (provider == 'microsoft') BrowserSignInChecklistItem.microsoft,
+    if (provider == 'google') BrowserSignInChecklistItem.google,
+    BrowserSignInChecklistItem.claims,
+  ];
+}
+
 /// The settings for signing a server's accounts in through the system
 /// browser: which of the server's providers, and the client registered for
 /// Conduit at its identity provider. Shared by every account on the server.
@@ -577,19 +607,21 @@ class _BrowserSignInSettingsSheetState
     TextStyle? secondary,
   ) {
     final items = [
-      l10n.browserSignInChecklistExchange,
-      // Open WebUI can limit token exchange to listed clients only by asking
-      // the provider's introspection endpoint, which Google and Microsoft
-      // don't have.
-      if (_provider == 'google' || _provider == 'microsoft')
-        l10n.browserSignInChecklistNoClientCheck
-      else
-        l10n.browserSignInChecklistTrustedClients,
-      l10n.browserSignInChecklistClient,
-      l10n.browserSignInChecklistUsers,
-      if (_provider == 'microsoft') l10n.browserSignInChecklistMicrosoft,
-      if (_provider == 'google') l10n.browserSignInChecklistGoogle,
-      l10n.browserSignInChecklistClaims,
+      for (final item in browserSignInChecklist(_provider))
+        switch (item) {
+          BrowserSignInChecklistItem.exchange =>
+            l10n.browserSignInChecklistExchange,
+          BrowserSignInChecklistItem.trustedClients =>
+            l10n.browserSignInChecklistTrustedClients,
+          BrowserSignInChecklistItem.noClientCheck =>
+            l10n.browserSignInChecklistNoClientCheck,
+          BrowserSignInChecklistItem.client => l10n.browserSignInChecklistClient,
+          BrowserSignInChecklistItem.users => l10n.browserSignInChecklistUsers,
+          BrowserSignInChecklistItem.microsoft =>
+            l10n.browserSignInChecklistMicrosoft,
+          BrowserSignInChecklistItem.google => l10n.browserSignInChecklistGoogle,
+          BrowserSignInChecklistItem.claims => l10n.browserSignInChecklistClaims,
+        },
     ];
     return Column(
       key: const ValueKey<String>('browser-sign-in-checklist'),
