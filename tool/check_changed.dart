@@ -490,8 +490,10 @@ Future<String> _run(Step step) async {
           const {'flutter', 'dart'}.contains(step.command.first),
     );
     return await process.exitCode == 0 ? 'pass' : 'FAIL';
-  } on ProcessException {
-    if (step.optional) return 'skip';
+  } on ProcessException catch (error) {
+    // 2 is "no such file" on POSIX and on Windows. Any other start error,
+    // such as a program that may not be run, is a failure.
+    if (step.optional && error.errorCode == 2) return 'skip';
     stderr.writeln('Cannot start ${step.command.first}. Is it installed?');
     return 'FAIL';
   }

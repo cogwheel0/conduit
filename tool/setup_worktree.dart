@@ -58,10 +58,22 @@ Future<void> main() async {
     // Watching SIGTERM throws on Windows.
     if (!Platform.isWindows) ProcessSignal.sigterm,
   ]) {
-    signal.watch().listen((received) {
+    signal.watch().listen((received) async {
+      final exits = [for (final process in _running) process.exitCode];
       for (final process in _running) {
         process.kill(received);
       }
+      // The marker says nothing is writing any more, so wait for that to be
+      // true. A program that ignores the signal is killed outright.
+      await Future.wait(exits).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          for (final process in _running) {
+            process.kill(ProcessSignal.sigkill);
+          }
+          return const [];
+        },
+      );
       finish('Cancelled by $received.');
       exit(1);
     });
@@ -111,9 +123,12 @@ Future<void> _setUp(String root) async {
   // output, so the app and the packages generate side by side. Future.wait
   // reports a failure only once every generator has exited, so none is still
   // writing when the failure marker appears.
+  // Listed before any generator starts, so a failure to read a pubspec
+  // cannot leave one running.
+  final packages = codegenPackages(root);
   await Future.wait([
     _run(root, 'codegen app', _buildRunner),
-    for (final package in codegenPackages(root))
+    for (final package in packages)
       _run('$root/$package', 'codegen $package', _buildRunner),
   ]);
 }
