@@ -67,6 +67,11 @@ final class VettedConnector {
             // Cancelled meanwhile: nobody takes it.
             if (result.isCompleted) {
               socket.destroy();
+            } else if (halted()) {
+              // Stopped during the TLS handshake, after the connect's own
+              // check: given up, as one stopped before it.
+              socket.destroy();
+              result.completeError(const SocketException('Connection stopped'));
             } else {
               result.complete(socket);
             }
