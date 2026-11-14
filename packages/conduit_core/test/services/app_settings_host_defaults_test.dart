@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit_core/persistence/account_scoped_preferences.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
@@ -36,6 +37,7 @@ void main() {
     bool Function(AppSettings) read,
     Future<void> Function(AppSettingsNotifier, bool) set,
     String key,
+    String? account,
   })>[
     (
       name: 'Send with Enter',
@@ -43,6 +45,7 @@ void main() {
       read: (settings) => settings.sendOnEnter,
       set: (notifier, value) => notifier.setSendOnEnter(value),
       key: PreferenceKeys.sendOnEnterKey,
+      account: null,
     ),
     (
       name: 'notifications',
@@ -50,12 +53,32 @@ void main() {
       read: (settings) => settings.notificationsEnabled,
       set: (notifier, value) => notifier.setNotificationsEnabled(value),
       key: PreferenceKeys.notificationsEnabled,
+      account: null,
+    ),
+    // Stored for the account in use as well as for the device.
+    (
+      name: 'notifications, with an account signed in',
+      on: const AppSettingsHostDefaults(notificationsEnabled: true),
+      read: (settings) => settings.notificationsEnabled,
+      set: (notifier, value) => notifier.setNotificationsEnabled(value),
+      key: PreferenceKeys.notificationsEnabled,
+      account: 'acct-1',
     ),
   ];
 
   for (final row in rows) {
     test('${row.name}: the host default stands until the user sets it, '
         'and again after a reset', () async {
+      final account = row.account;
+      if (account != null) {
+        await PreferencesStore.put(PreferenceKeys.activeServerId, account);
+      }
+      bool stored() =>
+          PreferencesStore.containsKey(row.key) ||
+          (account != null &&
+              PreferencesStore.containsKey(
+                accountScopedPreferenceKey(row.key, account),
+              ));
       check(row.read(launch().read(appSettingsProvider))).isFalse();
       final container = launch(hostDefaults: row.on);
       check(row.read(container.read(appSettingsProvider))).isTrue();
@@ -64,15 +87,15 @@ void main() {
       await row.set(container.read(appSettingsProvider.notifier), false);
       final relaunched = launch(hostDefaults: row.on);
       check(row.read(relaunched.read(appSettingsProvider))).isFalse();
-      check(PreferencesStore.containsKey(row.key)).isTrue();
+      check(stored()).isTrue();
 
       // A reset goes back to the host's default, and leaves it unset.
       await relaunched.read(appSettingsProvider.notifier).resetToDefaults();
       check(row.read(relaunched.read(appSettingsProvider))).isTrue();
-      check(PreferencesStore.containsKey(row.key)).isFalse();
+      check(stored()).isFalse();
       // Saving another setting afterwards keeps it unset.
       await relaunched.read(appSettingsProvider.notifier).setTtsSpeed(1.5);
-      check(PreferencesStore.containsKey(row.key)).isFalse();
+      check(stored()).isFalse();
       check(
         row.read(launch(hostDefaults: row.on).read(appSettingsProvider)),
       ).isTrue();

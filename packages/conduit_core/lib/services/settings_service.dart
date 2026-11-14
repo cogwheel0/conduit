@@ -1927,6 +1927,12 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     await SettingsService.saveSettings(defaultSettings);
     // Left unset again, so they follow the host's default.
     await SettingsService._putOrRemove(PreferenceKeys.sendOnEnterKey, null);
+    // The switch is stored for the account in use as well as for the
+    // device ([SettingsService.setNotificationsEnabled]): both go.
+    await SettingsService._putPreference(
+      PreferenceKeys.notificationsEnabled,
+      null,
+    );
     await SettingsService._putOrRemove(
       PreferenceKeys.notificationsEnabled,
       null,
