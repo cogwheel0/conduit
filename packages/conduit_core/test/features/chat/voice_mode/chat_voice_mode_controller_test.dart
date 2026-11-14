@@ -3016,7 +3016,7 @@ void main() {
           ],
         );
         addTearDown(parent.dispose);
-        final sent = <(String, bool)>[];
+        final sent = Completer<(String, bool)>();
         late final ChatSessionScope scope;
         scope = ChatSessionScope.open(
           parent,
@@ -3030,7 +3030,7 @@ void main() {
               voice,
               onAssistantPlaceholderCreated,
             }) async {
-              sent.add((text, isVoiceMode));
+              sent.complete((text, isVoiceMode));
             }),
           ],
         );
@@ -3056,9 +3056,9 @@ void main() {
             .equals(ChatVoiceModePhase.idle);
 
         await input.completeCurrent('hello from the scope');
-        await _until(() => sent.isNotEmpty);
-        check(sent.single.$1).equals('hello from the scope');
-        check(sent.single.$2).isTrue();
+        final (text, isVoiceMode) = await sent.future;
+        check(text).equals('hello from the scope');
+        check(isVoiceMode).isTrue();
         await scope.container
             .read(chatVoiceModeControllerProvider.notifier)
             .stop();

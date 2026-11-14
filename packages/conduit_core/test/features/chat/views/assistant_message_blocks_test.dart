@@ -58,13 +58,13 @@ void main() {
             '"content_type":"application/pdf"}',
       },
     ],
-    statusHistory: const <ChatStatusUpdate>[
-      ChatStatusUpdate(
+    statusHistory: <ChatStatusUpdate>[
+      const ChatStatusUpdate(
         action: 'web_search_queries_generated',
         queries: <String>['port wren tides', ' port wren tides '],
         done: true,
       ),
-      ChatStatusUpdate(
+      const ChatStatusUpdate(
         action: 'sources_retrieved',
         count: 2,
         urls: <String>['https://example.com/tides'],
@@ -73,7 +73,21 @@ void main() {
         ],
         done: true,
       ),
-      ChatStatusUpdate(description: 'Hidden', hidden: true, done: true),
+      const ChatStatusUpdate(description: 'Hidden', hidden: true, done: true),
+      // A file a tool changed, as Hermes reports it.
+      ChatStatusUpdate(
+        description: 'Edited',
+        hidden: true,
+        done: true,
+        items: [
+          hermesInlineDiffItem(
+            'a/demo/chart.py → b/demo/chart.py\n'
+            '@@ -1 +1 @@\n'
+            '-plot()\n'
+            '+plot(tides)\n',
+          ),
+        ],
+      ),
     ],
     codeExecutions: const <ChatCodeExecution>[
       ChatCodeExecution(
@@ -148,7 +162,7 @@ void main() {
       },
     );
 
-    test('lists the files its tools changed after its code runs', () {
+    test('lists the files its tools changed', () {
       final blocks = assistantMessageBlocks(hermes(), streaming: false);
       final changed = blocks.whereType<AssistantChangedFilesBlock>().single;
       expect(changed.files.single.path, 'demo/notes.md');
@@ -156,7 +170,6 @@ void main() {
         (changed.files.single.added, changed.files.single.removed),
         (1, 1),
       );
-      expect(kinds(blocks).split(' ').last, 'changedFiles');
     });
 
     test('carries the failure as Hermes classified it', () {
@@ -190,7 +203,7 @@ void main() {
       expect(
         kinds(blocks),
         'files status reasoning toolCalls text error codeExecution '
-        'codeExecution sources followUps',
+        'codeExecution changedFiles sources followUps',
       );
     });
 
@@ -281,7 +294,7 @@ void main() {
       expect(running.done, isFalse);
 
       // Marker n cites sources[n - 1], as the mobile chips do.
-      final sources = blocks[8] as AssistantSourcesBlock;
+      final sources = blocks[9] as AssistantSourcesBlock;
       expect(sources.sources.map((s) => s.title), <String>[
         'Tide tables',
         'Harbour notes',
@@ -289,7 +302,7 @@ void main() {
     });
 
     test('offers at most three trimmed follow-ups', () {
-      expect((blocks[9] as AssistantFollowUpsBlock).followUps, <String>[
+      expect((blocks[10] as AssistantFollowUpsBlock).followUps, <String>[
         'Why two tides?',
         'Show a chart',
         'More',
@@ -312,7 +325,8 @@ void main() {
       final blocks = assistantMessageBlocks(partial.copyWith(error: null));
       expect(
         kinds(blocks),
-        'files status reasoning text codeExecution codeExecution sources',
+        'files status reasoning text codeExecution codeExecution changedFiles '
+        'sources',
       );
       final text = (blocks[3] as AssistantMarkdownBlock).block;
       expect(
