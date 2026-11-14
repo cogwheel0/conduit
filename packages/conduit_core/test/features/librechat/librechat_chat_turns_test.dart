@@ -588,6 +588,41 @@ void main() {
     await send;
   });
 
+  /// A chat session scope of the root with LibreChat's model picked, and
+  /// a reply it started in new chat [conversationId], streaming, with the
+  /// send.
+  Future<(ChatSessionScope, Future<void>)> runInScope(
+    String conversationId,
+  ) async {
+    final scope = ChatSessionScope.open(container);
+    addTearDown(scope.dispose);
+    scope.container
+        .read(selectedModelProvider.notifier)
+        .set(container.read(selectedModelProvider));
+    chat.newConversationId = conversationId;
+    final streams = chat.streams.length;
+    final send = sendMessageWithContainer(scope.container, 'Write a lot', null);
+    await _until(() => chat.streams.length > streams);
+    chat
+      ..created('u-$conversationId', 'Write a lot')
+      ..text('a-$conversationId', 'Once');
+    await _until(
+      () => container
+          .read(libreChatActiveGenerationsProvider)
+          .contains(conversationId),
+    );
+    return (scope, send);
+  }
+
+  test('leaving the account stops replies in other chat scopes', () async {
+    final (_, send) = await runInScope('conv-a');
+
+    container.read(accountChangeStopRepliesProvider)();
+    await _until(() => chat.aborts.isNotEmpty);
+    check(chat.aborts.single['conversationId']).equals('conv-a');
+    await send;
+  });
+
   test('another account\'s chat of the same id is followed while the old '
       'account\'s reply runs on', () async {
     final send = sendMessageWithContainer(container, 'Write a lot', null);

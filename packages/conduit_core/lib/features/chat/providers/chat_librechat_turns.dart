@@ -112,8 +112,17 @@ List<Override> chatSessionScopedLibreChatOverrides() => <Override>[
 /// not reach the others, and the server would go on writing them for the
 /// account left. Each is aborted through the account it runs on, read
 /// before the switch goes ahead.
+///
+/// Each chat session scope's registry is visited too: a reply streaming in a
+/// scope runs on the same account.
 final stopAllLibreChatRunsProvider = Provider<void Function()>((ref) {
-  return () => ref.read(libreChatRunRegistryProvider)._stopAll();
+  return () {
+    ref.read(libreChatRunRegistryProvider)._stopAll();
+    for (final scope in ref.read(chatSessionRegistryProvider).scopes) {
+      if (scope.isDisposed) continue;
+      scope.container.read(libreChatRunRegistryProvider)._stopAll();
+    }
+  };
 });
 
 final class LibreChatRunRegistry {
