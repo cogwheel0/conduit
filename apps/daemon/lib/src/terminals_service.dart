@@ -29,7 +29,7 @@ final class _Handle {
   final String scopeId;
 
   /// Port previews already serving, by port.
-  final Map<int, _Preview> previews = <int, _Preview>{};
+  final Map<int, PortPreview> previews = <int, PortPreview>{};
 }
 
 /// Implements `terminal.*`, `WS /terminal/{handle}` and
@@ -41,10 +41,21 @@ final class _Handle {
 /// shell's socket -- whose first frame is the credential -- and port
 /// previews.
 final class TerminalsService {
-  TerminalsService(this._container, {DaemonLog? log}) : _log = log;
+  TerminalsService(this._container, {DaemonLog? log}) : _log = log {
+    // A handle, and every preview it opened, belongs to the account it was
+    // attached under: a system terminal's base and its token are that
+    // account's. When the account changes they go, so an old handle cannot
+    // pair one account's server with another's token, and no preview goes
+    // on sending a credential after its sign-out.
+    _accountWatch = _container.listen<Object?>(
+      openWebUiAuthSessionEpochProvider,
+      (previous, next) => unawaited(_closeHandles()),
+    );
+  }
 
   final ProviderContainer _container;
   final DaemonLog? _log;
+  late final ProviderSubscription<Object?> _accountWatch;
   final Map<String, _Handle> _handles = <String, _Handle>{};
   final Random _random = Random.secure();
 
@@ -400,7 +411,7 @@ final class TerminalsService {
     final token = h.server.isSystem
         ? _container.read(apiServiceProvider)?.authToken
         : h.server.apiKey;
-    final preview = await _Preview.start(
+    final preview = await PortPreview.start(
       upstream: base,
       token: token,
       key: _newKey(),
@@ -411,12 +422,18 @@ final class TerminalsService {
   }
 
   Future<void> dispose() async {
-    for (final h in _handles.values) {
+    _accountWatch.close();
+    await _closeHandles();
+  }
+
+  Future<void> _closeHandles() async {
+    final handles = _handles.values.toList();
+    _handles.clear();
+    for (final h in handles) {
       for (final preview in h.previews.values) {
         await preview.close();
       }
     }
-    _handles.clear();
   }
 
   String _newKey() {
@@ -450,8 +467,19 @@ final class TerminalsService {
 
 /// A loopback listener that forwards to one port behind a terminal
 /// server's proxy, with the credential added.
-final class _Preview {
-  _Preview._(this._server, this._key, this._upstream, this._token, this._log);
+///
+/// The page it serves is untrusted: it may only reach its own port. So a
+/// path that could climb out of the port's proxy is refused, a redirect is
+/// handed to the browser rather than followed with the credential, and a
+/// state-changing request from another page on this computer is refused.
+final class PortPreview {
+  PortPreview._(
+    this._server,
+    this._key,
+    this._upstream,
+    this._token,
+    this._log,
+  );
 
   /// Named for this listener: cookies are kept per host, not per port,
   /// so two previews must not share a name.
@@ -469,14 +497,14 @@ final class _Preview {
   String get entryUrl =>
       'http://127.0.0.1:${_server.port}/.conduit-preview/$_key';
 
-  static Future<_Preview> start({
+  static Future<PortPreview> start({
     required Uri upstream,
     required String? token,
     required String key,
     DaemonLog? log,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    final preview = _Preview._(server, key, upstream, token, log);
+    final preview = PortPreview._(server, key, upstream, token, log);
     server.listen((request) => unawaited(preview._handle(request)));
     return preview;
   }
@@ -507,15 +535,34 @@ final class _Preview {
         await response.close();
         return;
       }
+      if (!previewPathAllowed(request.uri)) {
+        response.statusCode = HttpStatus.badRequest;
+        await response.close();
+        return;
+      }
+      if (!_safeMethods.contains(request.method)) {
+        final origin = request.headers.value('origin');
+        if (origin != null && origin != _origin) {
+          response.statusCode = HttpStatus.forbidden;
+          await response.close();
+          return;
+        }
+      }
+      final prefix = _upstream.path.replaceFirst(RegExp(r'/+$'), '');
       final target = _upstream.replace(
-        path:
-            '${_upstream.path.replaceFirst(RegExp(r'/+$'), '')}'
-            '${request.uri.path}',
+        path: '$prefix${previewUpstreamPath(request.uri.path, prefix)}',
         query: request.uri.hasQuery ? request.uri.query : null,
       );
       final forward = await _client.openUrl(request.method, target);
+      // A redirect goes to the browser: followed here, the credential would
+      // go along to wherever it points.
+      forward.followRedirects = false;
       request.headers.forEach((name, values) {
-        if (_hopByHop.contains(name) || name == 'cookie' || name == 'host') {
+        if (_hopByHop.contains(name) ||
+            name == 'cookie' ||
+            name == 'host' ||
+            name == 'origin' ||
+            name == 'referer') {
           return;
         }
         for (final value in values) {
@@ -548,6 +595,10 @@ final class _Preview {
     }
   }
 
+  String get _origin => 'http://127.0.0.1:${_server.port}';
+
+  static const Set<String> _safeMethods = <String>{'GET', 'HEAD', 'OPTIONS'};
+
   static const Set<String> _hopByHop = <String>{
     'connection',
     'keep-alive',
@@ -564,4 +615,34 @@ final class _Preview {
     _client.close(force: true);
     await _server.close(force: true);
   }
+}
+
+/// Whether a preview may ask for [uri]'s path: none of its segments, once
+/// decoded, is `.` or `..` or holds a slash. The terminal's proxy decodes
+/// and normalises the path it is given, so `/..%2F..%2Ffiles/read` would
+/// otherwise leave the port for the terminal's own API, with the
+/// credential.
+bool previewPathAllowed(Uri uri) {
+  for (final segment in uri.pathSegments) {
+    if (segment == '.' ||
+        segment == '..' ||
+        segment.contains('/') ||
+        segment.contains('\\')) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/// The path to ask the terminal's proxy for, given the [path] the preview
+/// was asked for. Open WebUI rewrites a port page's root-relative links to
+/// its own proxy path (`/api/v1/terminals/{id}/proxy/{port}/...`, [prefix]),
+/// and the page's scripts send requests there too: those reach the preview
+/// already prefixed, and lose the prefix here so it is not sent twice.
+String previewUpstreamPath(String path, String prefix) {
+  if (prefix.isNotEmpty && (path == prefix || path.startsWith('$prefix/'))) {
+    final rest = path.substring(prefix.length);
+    return rest.isEmpty ? '/' : rest;
+  }
+  return path;
 }
