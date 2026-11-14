@@ -3065,6 +3065,76 @@ void main() {
       },
     );
 
+    test('a call in one chat keeps the shared microphone; another chat\'s '
+        'call waits its turn, and a refused one claims nothing', () async {
+      final input = _FakeVoiceInputService()..localSttAvailable = true;
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      final parent = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          appDatabaseProvider.overrideWith((ref) => null),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          voiceModeInputProvider.overrideWithValue(input),
+          voiceModeSpeechProvider.overrideWithValue(_FakeTextToSpeechService()),
+          voiceCallKitProvider.overrideWithValue(_UnavailableCallKitService()),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          voiceAudioSessionProvider.overrideWithValue(audioSession),
+        ],
+      );
+      addTearDown(parent.dispose);
+      ChatSessionScope scopeWith({Model? model}) {
+        final scope = ChatSessionScope.open(parent);
+        addTearDown(scope.dispose);
+        if (model != null) {
+          scope.container.read(selectedModelProvider.notifier).set(model);
+        }
+        return scope;
+      }
+
+      final a = scopeWith(model: _model);
+      final b = scopeWith(model: _model);
+      final none = scopeWith();
+      check(
+        await a.container
+            .read(chatVoiceModeControllerProvider.notifier)
+            .start(startNewConversation: false),
+      ).equals(ChatVoiceModeStartResult.started);
+      check(input.listening).isTrue();
+      final stopsBefore = input.stopCalls;
+
+      check(
+        await b.container
+            .read(chatVoiceModeControllerProvider.notifier)
+            .start(startNewConversation: false),
+      ).equals(ChatVoiceModeStartResult.alreadyActive);
+      check(input.listening).isTrue();
+      check(input.stopCalls).equals(stopsBefore);
+
+      // No model: not admitted, so closing it gives back nothing it lacks.
+      await none.container
+          .read(chatVoiceModeControllerProvider.notifier)
+          .start(startNewConversation: false);
+      none.dispose();
+      b.dispose();
+      await pumpEventQueue();
+      check(audioSession.deactivateCalls).equals(0);
+      check(input.listening).isTrue();
+
+      // Once the first call is over, another chat may call.
+      await a.container.read(chatVoiceModeControllerProvider.notifier).stop();
+      final c = scopeWith(model: _model);
+      check(
+        await c.container
+            .read(chatVoiceModeControllerProvider.notifier)
+            .start(startNewConversation: false),
+      ).equals(ChatVoiceModeStartResult.started);
+      await c.container.read(chatVoiceModeControllerProvider.notifier).stop();
+    });
+
     test('closing a scope with no call leaves the shared audio alone', () async {
       final tts = _FakeTextToSpeechService();
       final audioSession = _FakeChatVoiceAudioSessionCoordinator();

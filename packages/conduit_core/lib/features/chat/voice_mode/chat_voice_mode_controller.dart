@@ -87,6 +87,17 @@ ChatVoiceModeError _errorKindOf(Object error) =>
   return (ends: true, chatId: callChatId);
 }
 
+/// Which controller's call holds the call audio every chat shares (see
+/// [ChatVoiceModeController._sharedAudio]); null when none does.
+final class _SharedCallAudio {
+  Object? owner;
+}
+
+/// Never overridden in a chat session scope: one for every chat.
+final _sharedCallAudioProvider = Provider<_SharedCallAudio>(
+  (_) => _SharedCallAudio(),
+);
+
 final chatVoiceModeControllerProvider =
     NotifierProvider<ChatVoiceModeController, ChatVoiceModeSnapshot>(
       ChatVoiceModeController.new,
@@ -182,11 +193,20 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   int _emptyTranscriptRestarts = 0;
   bool _disposed = false;
 
-  /// Whether a call of this controller took the shared audio (the session,
-  /// the background lease, the speech engine's call route) and has not
-  /// given it back. Another chat's call, or read aloud, may hold it
+  /// Who holds the call audio every chat shares: the microphone input, the
+  /// audio session, the background lease and the speech engine's call
+  /// route. The root's, never a scope's.
+  _SharedCallAudio? _sharedAudio;
+
+  /// Whether a call of this controller took the shared call audio and has
+  /// not given it back. Another chat's call, or read aloud, may hold it
   /// otherwise: a controller that never had it leaves it alone.
-  bool _holdsSharedAudio = false;
+  bool get _holdsSharedAudio => identical(_sharedAudio?.owner, this);
+
+  void _releaseSharedAudio() {
+    if (_holdsSharedAudio) _sharedAudio!.owner = null;
+  }
+
   Completer<void>? _pendingStartReadinessCancellation;
 
   StreamSubscription<VoiceTranscriptEvent>? _transcriptSub;
@@ -257,6 +277,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   @override
   ChatVoiceModeSnapshot build() {
     _disposed = false;
+    _sharedAudio = ref.read(_sharedCallAudioProvider);
     _backgroundCoordinator = ref.read(
       chatVoiceModeBackgroundCoordinatorProvider,
     );
@@ -304,7 +325,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       final callKit = _callKit;
       final callId = _activeCallId;
       final holdsSharedAudio = _holdsSharedAudio;
-      _holdsSharedAudio = false;
+      final sharedAudio = _sharedAudio;
       final socketBackgroundLease = _socketBackgroundLease;
       final realtime = _realtime;
       final realtimeSub = _realtimeSub;
@@ -366,6 +387,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
                 error: error,
                 stackTrace: stackTrace,
               );
+            })
+            // Given back once its own teardown is over, so another chat's
+            // call never starts under it.
+            .whenComplete(() {
+              if (holdsSharedAudio && identical(sharedAudio?.owner, this)) {
+                sharedAudio!.owner = null;
+              }
             }),
       );
     });
@@ -409,7 +437,6 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             result = ChatVoiceModeStartResult.alreadyActive;
             return;
           }
-          _holdsSharedAudio = true;
 
           final VoiceCallEligibility eligibility;
           if (admittedModel != null) {
@@ -439,6 +466,14 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
           final startToken = ++_token;
           token = startToken;
+          // Admitted: the call takes the shared call audio, unless a call in
+          // another chat holds it (they share one microphone input).
+          final shared = _sharedAudio!;
+          if (shared.owner != null && !identical(shared.owner, this)) {
+            result = ChatVoiceModeStartResult.alreadyActive;
+            return;
+          }
+          shared.owner = this;
           _resetRuntime();
 
           void cancelIfRequested() {
@@ -2047,7 +2082,6 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       ownershipToken: stopToken,
     );
     if (!_isCurrent(stopToken)) return;
-    _holdsSharedAudio = false;
     _stoppingFromCallKit = false;
     state = state.copyWith(
       phase: ChatVoiceModePhase.ended,
@@ -2231,6 +2265,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         stackTrace: stackTrace,
       );
     }
+    // Free for another chat's call once this teardown is over (a failed call
+    // included), unless a start of this controller took it meanwhile.
+    if (_isCurrent(ownershipToken)) _releaseSharedAudio();
   }
 
   Future<void> _runTeardownStep(
