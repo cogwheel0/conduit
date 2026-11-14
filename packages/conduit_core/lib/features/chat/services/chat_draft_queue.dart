@@ -358,12 +358,12 @@ final chatDraftQueueSendProvider = Provider<ChatDraftQueueSend>(
 /// stopped answers the chat owed are settled; null when it waits for nothing.
 typedef ChatDraftQueueAdmissionWait = Future<void>? Function();
 
-/// What a batch waits for before it is admitted: nothing everywhere mobile
-/// runs, so the batch goes the moment its answer ends. A host that lets a chat
-/// settle after every answer before the next turn starts (the desktop daemon:
-/// the stored copy, then a quiet transcript) waits here rather than inside its
-/// send. The composer is free meanwhile, as while a Stop waits on the server:
-/// a message sent then goes first, and the batch follows that answer.
+/// What a batch waits for before it is admitted: it runs after the batch's
+/// answer has ended and before the batch is admitted. Nothing everywhere
+/// mobile runs, so the batch goes the moment its answer ends. The composer is
+/// free meanwhile, as while a Stop waits on the server: a message sent then
+/// goes first, and the batch follows that answer. A wait that fails admits
+/// nothing, and the drafts stay.
 final chatDraftQueueAdmissionWaitProvider =
     Provider<ChatDraftQueueAdmissionWait>((_) => _noAdmissionWait);
 
@@ -811,13 +811,18 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
       final refused = await _settleOwedWork(queueId, draftIds, owed);
       if (refused != null) return refused;
     }
-    final settling = ref.read(chatDraftQueueAdmissionWaitProvider)();
-    if (settling != null) {
-      final refused = await _settleOwedWork(
-        queueId,
-        draftIds,
-        settling.then((_) => true, onError: (Object _) => true),
-      );
+    // A wait that fails, or a host that throws instead of waiting, admits
+    // nothing: the drafts stay, as when a cancellation is refused.
+    Future<bool>? settled;
+    try {
+      settled = ref
+          .read(chatDraftQueueAdmissionWaitProvider)()
+          ?.then((_) => true, onError: (Object _) => false);
+    } catch (_) {
+      settled = Future<bool>.value(false);
+    }
+    if (settled != null) {
+      final refused = await _settleOwedWork(queueId, draftIds, settled);
       if (refused != null) return refused;
     }
     // Waiting on the server (or the host) leaves the composer free, so another

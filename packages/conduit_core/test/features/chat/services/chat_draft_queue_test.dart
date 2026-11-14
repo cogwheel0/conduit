@@ -414,6 +414,24 @@ class _Session {
     container.read(_wires.epoch.notifier).use(Object());
   }
 
+  /// Completes once the queue reaches [condition]: at once if it holds now,
+  /// else at the first change of the queue that makes it hold.
+  Future<void> reaches(bool Function() condition) {
+    if (condition()) return Future<void>.value();
+    final reached = Completer<void>();
+    late final ProviderSubscription<List<ChatDraftQueue>> watch;
+    // Asked once the change has reached what is derived from the queue.
+    watch = container.listen(chatDraftQueueProvider, (_, _) {
+      scheduleMicrotask(() {
+        if (!reached.isCompleted && condition()) {
+          reached.complete();
+          watch.close();
+        }
+      });
+    });
+    return reached.future;
+  }
+
   Future<void> until(bool Function() condition) async {
     for (var i = 0; i < 400 && !condition(); i++) {
       await Future<void>.delayed(const Duration(milliseconds: 5));
@@ -689,7 +707,7 @@ void main() {
       final queued = s.queue.enqueue('queued')!;
 
       s.finishResponse();
-      await s.until(() => s.active?.phase == ChatDraftQueuePhase.admitting);
+      await s.reaches(() => s.active?.phase == ChatDraftQueuePhase.admitting);
       check(s.active!.frozenDraftIds).deepEquals([queued.id]);
       check(await s.sentUserRows()).isEmpty();
       // Nothing is running while the host holds the batch, so the composer
@@ -699,8 +717,7 @@ void main() {
       check(s.container.read(chatMainAnswerActiveProvider)).isTrue();
 
       hold.complete();
-      await s.until(() => s.active?.phase == ChatDraftQueuePhase.idle);
-      await s.settle();
+      await s.reaches(() => s.active?.phase == ChatDraftQueuePhase.idle);
       // Nothing was sent over the newer answer; the draft waits, editable,
       // without a Retry.
       check((await s.sentUserRows()).map((row) => row.content))
@@ -710,13 +727,30 @@ void main() {
       check(s.active!.admissionFailed).isFalse();
 
       s.finishResponse();
-      await s.until(() => s.active == null);
-      await s.settle();
+      await s.reaches(() => s.active == null);
       check((await s.sentUserRows()).map((row) => row.content))
           .deepEquals(['sent meanwhile', 'queued']);
       check(await s.completions()).length.equals(2);
       check(waits).equals(2);
     });
+
+    for (final (name, wait) in <(String, ChatDraftQueueAdmissionWait)>[
+      ('fails', () => Future<void>.error(StateError('host'))),
+      ('throws instead of waiting', () => throw StateError('host')),
+    ]) {
+      test('a host wait that $name admits nothing and keeps the drafts',
+          () async {
+        final s = await _Session.start(admissionWait: wait);
+        final queued = s.queue.enqueue('queued')!;
+
+        s.finishResponse();
+        await s.reaches(() => s.active?.admissionFailed == true);
+
+        check(await s.sentUserRows()).isEmpty();
+        check(s.active!.drafts.map((d) => d.id)).deepEquals([queued.id]);
+        check(s.active!.phase).equals(ChatDraftQueuePhase.idle);
+      });
+    }
 
     test('a send refused before it commits keeps every draft and shows nothing',
         () async {
