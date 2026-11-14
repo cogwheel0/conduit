@@ -156,6 +156,11 @@ abstract class AddAccount with _$AddAccount {
     /// joins that server.
     required ServerDraft server,
 
+    /// Add Account on This Server: the new account joins this saved server,
+    /// through its first address with that address's settings, and
+    /// [server] only names it.
+    String? serverId,
+
     /// Adding makes the new account active, which leaves the account in use
     /// and stops any answer still being written there. Without this the
     /// change is refused while one is, with `blockedByActiveReply`.

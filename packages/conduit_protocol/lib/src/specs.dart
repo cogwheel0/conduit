@@ -196,6 +196,36 @@ abstract final class ConduitMethodSpecs {
     params: ServerDraft.fromJson,
     result: ServerSummary.fromJson,
   );
+  static const serversAddressesList =
+      ConduitMethodSpec<ServerRef, ServerAddresses>(
+        ConduitMethods.serversAddressesList,
+        params: ServerRef.fromJson,
+        result: ServerAddresses.fromJson,
+      );
+  static const serversAddressesCheck =
+      ConduitMethodSpec<ServerAddressCheckRequest, ServerAddressCheckResult>(
+        ConduitMethods.serversAddressesCheck,
+        params: ServerAddressCheckRequest.fromJson,
+        result: ServerAddressCheckResult.fromJson,
+      );
+  static const serversAddressesSave =
+      ConduitMethodSpec<ServerAddressSaveRequest, ServerAddressSaveResult>(
+        ConduitMethods.serversAddressesSave,
+        params: ServerAddressSaveRequest.fromJson,
+        result: ServerAddressSaveResult.fromJson,
+      );
+  static const serversAddressesRemove =
+      ConduitMethodSpec<ServerAddressRemoveRequest, ServerAddressEditResult>(
+        ConduitMethods.serversAddressesRemove,
+        params: ServerAddressRemoveRequest.fromJson,
+        result: ServerAddressEditResult.fromJson,
+      );
+  static const serversAddressesReorder =
+      ConduitMethodSpec<ServerAddressReorderRequest, ServerAddressEditResult>(
+        ConduitMethods.serversAddressesReorder,
+        params: ServerAddressReorderRequest.fromJson,
+        result: ServerAddressEditResult.fromJson,
+      );
   static const serversStatus = ConduitMethodSpec<void, ServerStatus>(
     ConduitMethods.serversStatus,
     result: ServerStatus.fromJson,
@@ -2428,6 +2458,11 @@ abstract final class ConduitMethodSpecs {
         accountsRemove,
         accountsSignOut,
         serversUpdate,
+        serversAddressesList,
+        serversAddressesCheck,
+        serversAddressesSave,
+        serversAddressesRemove,
+        serversAddressesReorder,
         serversStatus,
         authStatus,
         authLoginWithPassword,
@@ -2880,6 +2915,11 @@ abstract final class ConduitEventSpecs {
     payload: AccountsChanged.fromJson,
     scoped: false,
   );
+  static const serversChanged = ConduitEventSpec<ServersChanged>(
+    ConduitEvents.serversChanged,
+    payload: ServersChanged.fromJson,
+    scoped: false,
+  );
   static const notesChanged = ConduitEventSpec<NotesChanged>(
     ConduitEvents.notesChanged,
     payload: NotesChanged.fromJson,
@@ -3106,6 +3146,7 @@ abstract final class ConduitEventSpecs {
         turnFinished,
         chatsChanged,
         accountsChanged,
+        serversChanged,
         notesChanged,
         channelsMessage,
         channelsTyping,

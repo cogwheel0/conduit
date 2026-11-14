@@ -30,6 +30,10 @@ abstract final class ConduitEvents {
   /// added, switched to, signed in to or removed, from any window. Payload
   /// [AccountsChanged].
   static const String accountsChanged = 'accounts.changed';
+
+  /// A saved server's name or addresses changed, or which address is in
+  /// use. Payload [ServersChanged].
+  static const String serversChanged = 'servers.changed';
   static const String notesChanged = 'notes.changed';
   static const String channelsMessage = 'channels.message';
 
@@ -206,6 +210,7 @@ abstract final class ConduitEvents {
     turnFinished,
     chatsChanged,
     accountsChanged,
+    serversChanged,
     notesChanged,
     channelsMessage,
     channelsTyping,

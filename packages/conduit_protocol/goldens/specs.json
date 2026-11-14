@@ -97,6 +97,31 @@
       "result": "ServerSummary"
     },
     {
+      "name": "servers.addresses.list",
+      "params": "ServerRef",
+      "result": "ServerAddresses"
+    },
+    {
+      "name": "servers.addresses.check",
+      "params": "ServerAddressCheckRequest",
+      "result": "ServerAddressCheckResult"
+    },
+    {
+      "name": "servers.addresses.save",
+      "params": "ServerAddressSaveRequest",
+      "result": "ServerAddressSaveResult"
+    },
+    {
+      "name": "servers.addresses.remove",
+      "params": "ServerAddressRemoveRequest",
+      "result": "ServerAddressEditResult"
+    },
+    {
+      "name": "servers.addresses.reorder",
+      "params": "ServerAddressReorderRequest",
+      "result": "ServerAddressEditResult"
+    },
+    {
       "name": "servers.status",
       "params": null,
       "result": "ServerStatus"
@@ -2106,6 +2131,11 @@
     {
       "name": "accounts.changed",
       "payload": "AccountsChanged",
+      "scoped": false
+    },
+    {
+      "name": "servers.changed",
+      "payload": "ServersChanged",
       "scoped": false
     },
     {

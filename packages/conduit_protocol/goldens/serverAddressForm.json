@@ -1,0 +1,16 @@
+{
+  "url": "chat.home.example.net:8080",
+  "label": "Tailnet",
+  "allowSelfSignedCertificates": true,
+  "headers": [
+    {
+      "name": "X-Conduit-Tenant"
+    },
+    {
+      "name": "X-Region",
+      "value": "north"
+    }
+  ],
+  "mtlsCertificateLabel": "home-client.pem",
+  "clearMutualTls": true
+}

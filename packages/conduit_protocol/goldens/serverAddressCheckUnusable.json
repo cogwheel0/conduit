@@ -1,0 +1,5 @@
+{
+  "outcome": "unusable",
+  "problem": "headerNameReserved",
+  "headerName": "Authorization"
+}
