@@ -66,27 +66,41 @@ final class McpService {
   }
 
   /// Connects to the server as edited and counts its tools.
+  ///
+  /// With the stored credentials only where a save would keep them: an
+  /// edit that points somewhere else carries a token or headers only when
+  /// they were typed again in it, and the stored OAuth sign-in only to the
+  /// address it was made for.
   Future<McpTestResult> test(McpServerEdit edit) async {
     final previous = await _existing(edit.id);
     final DirectMcpServer server;
     try {
-      server = _apply(edit.copyWith(enabled: true), previous);
+      final applied = _apply(edit.copyWith(enabled: true), previous);
+      server = previous == null
+          ? applied
+          : DirectMcpServer.secureUpdate(
+              previous: previous,
+              next: applied,
+              endpointCredentialsConfirmed:
+                  edit.bearerToken != null || edit.customHeaders != null,
+            );
     } on RpcError catch (error) {
       return McpTestResult(reachable: false, message: error.debugMessage);
     }
+    final signedIn =
+        server.authMode == DirectMcpAuthMode.oauth &&
+            previous != null &&
+            sameDirectMcpCredentialEndpoint(previous.endpoint, server.endpoint)
+        ? previous
+        : null;
     final oauth = _container.read(directMcpOAuthCoordinatorProvider);
     try {
       final session = await DirectMcpToolSession.open(
         <DirectMcpServer>[server],
         // A sign-in belongs to the stored server; an unsaved edit has none
         // of its own yet.
-        authorizationResolver: (candidate, {forceRefresh = false}) =>
-            oauth.accessTokenFor(
-              server.authMode == DirectMcpAuthMode.oauth && previous != null
-                  ? previous
-                  : candidate,
-              forceRefresh: forceRefresh,
-            ),
+        authorizationResolver: (candidate, {forceRefresh = false}) => oauth
+            .accessTokenFor(signedIn ?? candidate, forceRefresh: forceRefresh),
       );
       try {
         return McpTestResult(

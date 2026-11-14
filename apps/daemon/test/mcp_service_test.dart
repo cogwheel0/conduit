@@ -76,6 +76,28 @@ void main() {
     expect((await mcp.test(edit(id: saved.id))).reachable, isTrue);
   });
 
+  // The saved token belongs to the saved address: testing an edit that
+  // points elsewhere, without typing the token again, must not send it.
+  test('testing an edited address does not send the saved token', () async {
+    final saved = (await mcp.list()).servers.single;
+    final headers = <String?>[];
+    final elsewhere = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => elsewhere.close(force: true));
+    elsewhere.listen((request) async {
+      headers.add(request.headers.value(HttpHeaders.authorizationHeader));
+      await request.drain<void>();
+      request.response.statusCode = HttpStatus.unauthorized;
+      await request.response.close();
+    });
+
+    final result = await mcp.test(
+      edit(id: saved.id)
+          .copyWith(endpoint: 'http://127.0.0.1:${elsewhere.port}/mcp'),
+    );
+    expect(result.reachable, isFalse);
+    expect(headers, everyElement(isNot(contains('mcp-secret-token'))));
+  });
+
   test('credentials over plain HTTP to another computer need a yes', () {
     expect(
       mcp.save(
