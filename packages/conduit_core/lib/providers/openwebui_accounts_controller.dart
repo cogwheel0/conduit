@@ -17,6 +17,8 @@ import 'package:conduit_core/database/account_storage_isolation.dart'
     show conversationUsesOpenWebUiStorage;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
+        ChatSessionScope,
+        chatSessionRegistryProvider,
         isChatStreamingProvider,
         localChatGenerationActiveProvider,
         stopAllLibreChatRunsProvider,
@@ -45,13 +47,24 @@ enum OpenWebUiAccountChangeResult {
   blockedByActiveReply,
 }
 
+/// The chat session scopes still open under this root: an account-wide
+/// action reaches each of them as well as the root's own chat.
+Iterable<ChatSessionScope> _liveChatScopes(Ref ref) => ref
+    .read(chatSessionRegistryProvider)
+    .scopes
+    .where((scope) => !scope.isDisposed);
+
 /// Whether a reply is still being written that leaving the active account
-/// would cut off. The host may widen it (background streams it tracks).
+/// would cut off, in the root's chat or in any chat session scope. The host
+/// may widen it (background streams it tracks).
 final accountChangeReplyGuardProvider = Provider<bool Function()>((ref) {
   return () {
     try {
       return ref.read(isChatStreamingProvider) ||
-          ref.read(localChatGenerationActiveProvider);
+          ref.read(localChatGenerationActiveProvider) ||
+          _liveChatScopes(
+            ref,
+          ).any((scope) => scope.container.read(isChatStreamingProvider));
     } catch (_) {
       return false;
     }
@@ -66,21 +79,33 @@ final accountChangeReplyGuardProvider = Provider<bool Function()>((ref) {
 final addressChangeReplyGuardProvider = Provider<bool Function()>((ref) {
   return () {
     try {
-      return ref.read(isChatStreamingProvider) &&
-          conversationUsesOpenWebUiStorage(
-            ref.read(activeConversationProvider),
-          );
+      return (ref.read(isChatStreamingProvider) &&
+              conversationUsesOpenWebUiStorage(
+                ref.read(activeConversationProvider),
+              )) ||
+          _liveChatScopes(ref).any(_scopeStreamsOpenWebUi);
     } catch (_) {
       return false;
     }
   };
 });
 
+bool _scopeStreamsOpenWebUi(ChatSessionScope scope) =>
+    scope.container.read(isChatStreamingProvider) &&
+    conversationUsesOpenWebUiStorage(
+      scope.container.read(activeConversationProvider),
+    );
+
 /// Stops the reply [addressChangeReplyGuardProvider] reported, once the user
 /// has agreed to change the address anyway: the open chat's Open WebUI one,
 /// and no Direct, Hermes or on-device run.
 final addressChangeStopRepliesProvider = Provider<void Function()>((ref) {
-  return () => unawaited(stopOpenWebUiMainResponse(ref));
+  return () {
+    unawaited(stopOpenWebUiMainResponse(ref));
+    for (final scope in _liveChatScopes(ref).where(_scopeStreamsOpenWebUi)) {
+      scope.container.read(stopGenerationProvider)();
+    }
+  };
 });
 
 /// Stops the replies [accountChangeReplyGuardProvider] reported, once the
@@ -88,6 +113,10 @@ final addressChangeStopRepliesProvider = Provider<void Function()>((ref) {
 final accountChangeStopRepliesProvider = Provider<void Function()>((ref) {
   return () {
     ref.read(stopGenerationProvider)();
+    // Each chat session scope's reply too, as the guard counts them.
+    for (final scope in _liveChatScopes(ref)) {
+      scope.container.read(stopGenerationProvider)();
+    }
     // LibreChat replies run on in chats not open, which the guard counts.
     ref.read(stopAllLibreChatRunsProvider)();
   };

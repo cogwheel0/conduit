@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
@@ -19,6 +20,7 @@ import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
@@ -283,6 +285,25 @@ void main() {
         isNull,
       );
     }
+  });
+
+  // Leaving the account cuts off every chat's reply, not only the root's.
+  test('a reply in a scope holds an account change back, and leaving '
+      'anyway stops it', () async {
+    final parent = root();
+    final a = open(parent);
+    a.container.read(activeConversationProvider.notifier).set(_chat('chat-a'));
+    a.container
+        .read(chatMessagesProvider.notifier)
+        .addMessage(_streaming('answer-a'));
+    check(parent.read(isChatStreamingProvider)).isFalse();
+
+    check(parent.read(accountChangeReplyGuardProvider)()).isTrue();
+    parent.read(accountChangeStopRepliesProvider)();
+    await pumpEventQueue();
+
+    check(a.container.read(isChatStreamingProvider)).isFalse();
+    check(parent.read(accountChangeReplyGuardProvider)()).isFalse();
   });
 
   test('the composer, model and reasoning are each scope\'s own', () {
