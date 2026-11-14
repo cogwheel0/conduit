@@ -47,6 +47,9 @@ void main() {
         'every 1h': null,
         '0 9 1 JAN *': null,
         '0 9-17 * * *': null,
+        '-1 * * * *': null,
+        '0 -1 * * *': null,
+        '0 6 -3 * *': null,
       };
       for (final MapEntry(:key, :value) in cases.entries) {
         check(because: key, parseHermesCronSchedule(key)).equals(value);
@@ -56,7 +59,9 @@ void main() {
     test('the English sentence is unchanged', () {
       const cases = <String, String>{
         '': 'No schedule',
+        '* * * * *': 'Every minute',
         '*/15 * * * *': 'Every 15 minutes',
+        '0 * * * *': 'Every hour',
         '5 * * * *': 'Every hour at :05',
         '30 */6 * * *': 'Every 6 hours at :30',
         '0 */2 * * *': 'Every 2 hours',
@@ -67,10 +72,25 @@ void main() {
         '0 12 * * *': 'Every day at 12:00 PM',
         '0 6 22 * *': 'Monthly on the 22nd at 6:00 AM',
         '0 6 13 * *': 'Monthly on the 13th at 6:00 AM',
+        '0 9 * * 1-5': 'Weekdays at 9:00 AM',
+        '30 18 * * MON': 'Every Monday at 6:30 PM',
+        '0 8 1 * *': 'Monthly on the 1st at 8:00 AM',
+        '5,35 * * * *': '5,35 * * * *',
         'every  1h': 'every 1h',
       };
       for (final MapEntry(:key, :value) in cases.entries) {
         check(because: key, describeHermesCronSchedule(key)).equals(value);
+      }
+    });
+
+    test('the raw expression shows beside a sentence only', () {
+      const cases = <String, bool>{
+        '0 9 * * 1-5': true,
+        '5,35 * * * *': false,
+        '  5,35   * * * *  ': false,
+      };
+      for (final MapEntry(:key, :value) in cases.entries) {
+        check(because: key, hermesScheduleNeedsRawDisplay(key)).equals(value);
       }
     });
   });

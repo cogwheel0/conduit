@@ -123,6 +123,7 @@ HermesCadence? parseHermesCronSchedule(String expression) {
 
   final numericMinute = int.tryParse(minute);
   if (numericMinute != null &&
+      numericMinute >= 0 &&
       numericMinute <= 59 &&
       dayOfMonth == '*' &&
       month == '*' &&
@@ -145,7 +146,9 @@ HermesCadence? parseHermesCronSchedule(String expression) {
   final numericHour = int.tryParse(hour);
   if (numericMinute == null ||
       numericHour == null ||
+      numericMinute < 0 ||
       numericMinute > 59 ||
+      numericHour < 0 ||
       numericHour > 23) {
     return null;
   }
