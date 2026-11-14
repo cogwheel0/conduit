@@ -20,6 +20,7 @@ import 'package:conduit_core/features/workspace/providers/workspace_session.dart
 import 'package:conduit_core/features/workspace/services/workspace_model_avatar_source.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/utils/server_version_compat.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
@@ -1034,19 +1035,7 @@ final class WorkspaceService {
               await api.getWorkspaceSkill(id) ??
               (throw _notFound(request.kind, id));
           sameAccount();
-          final description = (skill.description ?? '').trim();
-          final saved = await _container
-              .read(workspaceSkillsProvider.notifier)
-              .create(
-                WorkspaceSkillForm(
-                  id: WorkspaceClone.skillId(skill.id),
-                  name: WorkspaceClone.name(skill.name.trim(), suffix),
-                  description: description.isEmpty ? null : description,
-                  content: skill.content ?? '',
-                  meta: skill.meta,
-                ),
-              );
-          copyId = saved.id;
+          copyId = await _duplicateSkill(skill, suffix, sameAccount);
         case WorkspaceKind.knowledge:
           throw _invalid('knowledge is not duplicated');
       }
@@ -1054,6 +1043,51 @@ final class WorkspaceService {
       return _detail(request.kind, copyId);
     },
   );
+
+  /// Duplicates [skill], as the phone does: Open WebUI 0.12 and later copy
+  /// it themselves (`clone`), every file of its package and its on/off
+  /// state included; an older one, or one not known to have it that
+  /// answers 404 or 405, is sent a copy made from what was read.
+  /// [sameAccount] refuses the copy when another account signed in after
+  /// the read (the clone's refusal is awaited before a copy goes).
+  Future<String> _duplicateSkill(
+    WorkspaceSkillDetail skill,
+    String suffix,
+    void Function() sameAccount,
+  ) async {
+    final skills = _container.read(workspaceSkillsProvider.notifier);
+    final newId = WorkspaceClone.skillId(skill.id);
+    final name = WorkspaceClone.name(skill.name.trim(), suffix);
+    Future<String> copy() async {
+      sameAccount();
+      final description = (skill.description ?? '').trim();
+      final saved = await skills.create(
+        WorkspaceSkillForm(
+          id: newId,
+          name: name,
+          description: description.isEmpty ? null : description,
+          content: skill.content ?? '',
+          meta: skill.meta,
+          isActive: skill.isActive,
+        ),
+      );
+      return saved.id;
+    }
+
+    final serverClones = ServerVersionCompat.knownAtLeast(
+      _container.read(workspaceServerVersionProvider),
+      '0.12.0',
+    );
+    if (serverClones == false) return copy();
+    try {
+      final saved = await skills.clone(skill.id, newId: newId, name: name);
+      return saved.id;
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      if (serverClones == true || (status != 404 && status != 405)) rethrow;
+      return copy();
+    }
+  }
 
   /// A skill read from a Markdown file, for the editor to review and save
   /// (the phone's Import Markdown); nothing is sent to the server.

@@ -11,6 +11,8 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart'
     show hermesDesktopModel;
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 import 'package:conduit_core/models/chat_message.dart' as core;
+import 'package:conduit_core/services/chat_completion_transport.dart'
+    show isHeldReplyUnresolvedError;
 import 'package:conduit_core/services/structured_output.dart'
     show displayedChatFiles;
 import 'package:conduit_core/utils/source_reference_helper.dart';
@@ -145,6 +147,10 @@ final class MessageBlocks {
       error: block.text,
       type: block.toolsUnsupported
           ? 'directToolsUnsupported'
+          : isHeldReplyUnresolvedError(block.text)
+          // A polling-only server's reply Conduit stopped waiting for: the
+          // core keeps its words in English; the window says it its way.
+          ? 'heldReplyStillRunning'
           : appleErrorType(block.text),
       hermesError: switch (block.hermes) {
         final surface? => hermesErrorDto(surface),
