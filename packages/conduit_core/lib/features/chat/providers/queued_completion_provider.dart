@@ -412,6 +412,21 @@ final class QueuedCompletionDisplay {
   bool get isFailed => phase == QueuedCompletionPhase.failed;
 }
 
+/// A chat session scope's own queued-completion state and actions, so they
+/// follow the scope's conversation rather than the root's (see
+/// `chatSessionScopeOverrides`).
+List<Override> chatSessionScopedQueuedCompletionOverrides() => <Override>[
+  queuedCompletionInfoByMessageProvider.overrideWith(
+    queuedCompletionInfoByMessage,
+  ),
+  // A family with no overrides is mounted in the root, where it would read
+  // the root's map; the per-answer banner must read the scope's.
+  queuedCompletionInfoForMessageProvider.overrideWith(
+    queuedCompletionInfoForMessage,
+  ),
+  queuedCompletionActionsProvider.overrideWith(queuedCompletionActions),
+];
+
 /// Per-row compatibility selector backed by one chat-scoped Drift watcher.
 ///
 /// Keeping this as a StreamProvider family preserves the existing override

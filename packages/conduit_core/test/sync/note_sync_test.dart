@@ -358,6 +358,30 @@ void main() {
     check(row.data).contains('old');
   });
 
+  test('a note pinned elsewhere arrives pinned; a local pin stays', () async {
+    Map<String, dynamic> server(String id, {required bool pinned}) =>
+        <String, dynamic>{
+          'id': id,
+          'title': 'Seed list',
+          'data': {
+            'content': {'md': 'Beans and squash.'},
+          },
+          'meta': <String, dynamic>{},
+          'is_pinned': pinned,
+          'created_at': kT1,
+          'updated_at': kT1,
+        };
+    await db.notesDao.mergeServerNote(serverRaw: server('fresh', pinned: true));
+    check((await db.notesDao.getNote('fresh'))!.isPinned).isTrue();
+
+    // An existing note keeps the pin this device holds: pins reconcile on
+    // their own axis, not through the watermark merge.
+    await db.notesDao.mergeServerNote(
+      serverRaw: server('fresh', pinned: false)..['updated_at'] = kT2,
+    );
+    check((await db.notesDao.getNote('fresh'))!.isPinned).isTrue();
+  });
+
   test('field-LWW does not spawn another copy from a conflict copy', () async {
     await db
         .into(db.notes)

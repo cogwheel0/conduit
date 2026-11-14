@@ -9,6 +9,7 @@ import '../../shared/utils/locale_display_formatters.dart';
 import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
 import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart'
     show DirectConnectionEditorSource;
+import 'package:conduit_core/features/support/support_links.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
@@ -101,7 +102,7 @@ List<NativeSheetItemConfig> buildNativeAboutItems(
     id: 'github',
     title: l10n.githubRepository,
     sfSymbol: 'chevron.left.forwardslash.chevron.right',
-    url: 'https://github.com/cogwheel0/conduit',
+    url: conduitRepositoryUrl,
   ),
   NativeSheetItemConfig(
     id: NativeSheetRoutes.openSourceLicenses,
@@ -1063,13 +1064,13 @@ List<NativeSheetItemConfig> buildNativeSupportItems(AppLocalizations l10n) => [
     id: 'buy-me-a-coffee',
     title: l10n.buyMeACoffeeTitle,
     sfSymbol: 'gift',
-    url: 'https://www.buymeacoffee.com/cogwheel0',
+    url: buyMeACoffeeUrl,
   ),
   NativeSheetItemConfig(
     id: 'github-sponsors',
     title: l10n.githubSponsorsTitle,
     sfSymbol: 'heart',
-    url: 'https://github.com/sponsors/cogwheel0',
+    url: githubSponsorsUrl,
   ),
 ];
 

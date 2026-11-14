@@ -433,7 +433,17 @@ final defaultModelAutoSelectionProvider = Provider<void>((ref) {
   ref.watch(modelFiltersAutoSelectionProvider);
   ref.watch(modelsProvider);
   ref.watch(defaultModelProvider);
+  ref.watch(defaultModelSettingSelectionProvider);
+});
 
+/// Applies a changed Default Model setting to the selection (resetting a
+/// manual pick), or the server's default when it goes back to automatic.
+///
+/// Part of [defaultModelAutoSelectionProvider] on mobile; a host without
+/// the tool, terminal and filter auto-selection (the desktop daemon, whose
+/// windows choose those per turn) keeps just this one alive.
+final defaultModelSettingSelectionProvider = Provider<void>((ref) {
+  ref.keepAlive();
   ref.listen<AppSettings>(appSettingsProvider, (previous, next) {
     // Only react when default model value changes
     if (previous?.defaultModel == next.defaultModel) return;

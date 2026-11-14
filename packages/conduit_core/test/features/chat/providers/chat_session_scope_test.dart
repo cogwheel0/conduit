@@ -6,7 +6,9 @@ import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
+import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
+import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
@@ -14,12 +16,14 @@ import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:conduit_core/testing.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
 import 'package:drift/native.dart';
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -42,13 +46,14 @@ void main() {
   setUp(() => directDb = AppDatabase(NativeDatabase.memory()));
   tearDown(() => directDb.close());
 
-  ProviderContainer root() {
+  ProviderContainer root({List<Override> extra = const <Override>[]}) {
     final container = ProviderContainer(
       overrides: [
         appDatabaseProvider.overrideWith((ref) => null),
         directLocalDatabaseProvider.overrideWithValue(directDb),
         apiServiceProvider.overrideWithValue(null),
         socketServiceProvider.overrideWithValue(null),
+        ...extra,
       ],
     );
     addTearDown(container.dispose);
@@ -176,6 +181,105 @@ void main() {
     expect(a.isStreaming, isFalse);
     expect(b.isStreaming, isTrue);
     expect(b.messages.last.isStreaming, isTrue);
+  });
+
+  test('a queue follows its own chat\'s answer, and sends through the host', () {
+    final parent = root();
+    final sent = <String>[];
+    final a = ChatSessionScope.open(
+      parent,
+      overrides: [
+        chatDraftQueueSendProvider.overrideWithValue((
+          ref,
+          text,
+          fileIds, {
+          toolIds,
+          contextAttachments,
+          onAssistantPlaceholderCreated,
+          onAdmissionCommitted,
+        }) async {
+          sent.add(text);
+        }),
+      ],
+    );
+    addTearDown(a.dispose);
+    final b = open(parent);
+    a.container.read(activeConversationProvider.notifier).set(_chat('chat-a'));
+    b.container.read(activeConversationProvider.notifier).set(_chat('chat-b'));
+    a.container
+        .read(chatMessagesProvider.notifier)
+        .addMessage(_streaming('answer-a'));
+
+    // The answer that holds a queue back is the scope's own.
+    expect(a.container.read(chatMainAnswerActiveProvider), isTrue);
+    expect(b.container.read(chatMainAnswerActiveProvider), isFalse);
+    expect(parent.read(chatMainAnswerActiveProvider), isFalse);
+    // Each scope has a queue of its own; the root's is another.
+    expect(
+      identical(
+        a.container.read(chatDraftQueueProvider.notifier),
+        b.container.read(chatDraftQueueProvider.notifier),
+      ),
+      isFalse,
+    );
+    expect(a.container.read(activeChatDraftQueueProvider), isNull);
+    // The host's send stands in for the durable one in that scope alone.
+    a.container.read(chatDraftQueueSendProvider)(a.container, 'queued', null);
+    expect(sent, ['queued']);
+    expect(
+      identical(
+        b.container.read(chatDraftQueueSendProvider),
+        a.container.read(chatDraftQueueSendProvider),
+      ),
+      isFalse,
+    );
+  });
+
+  test('an answer\'s queued banner reads its own scope\'s queue', () async {
+    const rootInfo = QueuedCompletionInfo(
+      databaseOwner: Object(),
+      seq: 1,
+      chatId: 'chat-root',
+      scopedChatId: 'openwebui:chat-root',
+      assistantMessageId: 'answer',
+      phase: QueuedCompletionPhase.pending,
+      isOffline: true,
+    );
+    final parent = root(
+      extra: [
+        isOnlineProvider.overrideWith((ref) => true),
+        queuedCompletionInfoByMessageProvider.overrideWith(
+          (ref) => Stream.value(const {'answer': rootInfo}),
+        ),
+      ],
+    );
+    final a = open(parent);
+    final b = open(parent);
+    final rootSub = parent.listen(
+      queuedCompletionInfoForMessageProvider('answer'),
+      (_, _) {},
+    );
+    addTearDown(rootSub.close);
+    expect(
+      await parent.read(
+        queuedCompletionInfoForMessageProvider('answer').future,
+      ),
+      same(rootInfo),
+    );
+    // Each scope's banner follows its own (here empty) queue, not the root's.
+    for (final scope in [a, b]) {
+      final sub = scope.container.listen(
+        queuedCompletionInfoForMessageProvider('answer'),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      expect(
+        await scope.container.read(
+          queuedCompletionInfoForMessageProvider('answer').future,
+        ),
+        isNull,
+      );
+    }
   });
 
   test('the composer, model and reasoning are each scope\'s own', () {

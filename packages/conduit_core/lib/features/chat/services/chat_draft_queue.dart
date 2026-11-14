@@ -15,6 +15,7 @@ library;
 import 'dart:async';
 
 import 'package:meta/meta.dart';
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -43,9 +44,9 @@ import 'package:conduit_core/utils/debug_logger.dart';
 /// A model comparison has one main answer per model, and all of them end the
 /// transcript. [isChatStreamingProvider] stays true while any one of them
 /// streams, so the queue waits for the last slot whichever finishes first.
-final chatMainAnswerActiveProvider = Provider<bool>(
-  (ref) => ref.watch(isChatStreamingProvider),
-);
+final chatMainAnswerActiveProvider = Provider<bool>(_chatMainAnswerActive);
+
+bool _chatMainAnswerActive(Ref ref) => ref.watch(isChatStreamingProvider);
 
 /// Whether a draft's files are ready to send.
 enum ChatDraftReadiness {
@@ -280,10 +281,12 @@ bool _canDrainRoute(dynamic read) {
 /// Whether a draft may be queued now: a response is running on a conversation
 /// that takes queued turns. Existing drafts stay visible and manageable
 /// whatever this says.
-final chatDraftQueueOfferProvider = Provider<bool>((ref) {
+final chatDraftQueueOfferProvider = Provider<bool>(_chatDraftQueueOffer);
+
+bool _chatDraftQueueOffer(Ref ref) {
   if (!ref.watch(chatMainAnswerActiveProvider)) return false;
   return _queueableRoute(ref.watch);
-});
+}
 
 ChatDraftQueue? _queueForActive(dynamic read, List<ChatDraftQueue> queues) {
   final active = read(activeConversationProvider) as Conversation?;
@@ -309,13 +312,66 @@ ChatDraftQueue? _queueForActive(dynamic read, List<ChatDraftQueue> queues) {
 /// The queue of the conversation on screen under the account that is signed
 /// in, or null. A queue of another conversation or account never shows here.
 final activeChatDraftQueueProvider = Provider<ChatDraftQueue?>(
-  (ref) => _queueForActive(ref.watch, ref.watch(chatDraftQueueProvider)),
+  _activeChatDraftQueue,
 );
+
+ChatDraftQueue? _activeChatDraftQueue(Ref ref) =>
+    _queueForActive(ref.watch, ref.watch(chatDraftQueueProvider));
 
 final chatDraftQueueProvider =
     NotifierProvider<ChatDraftQueueController, List<ChatDraftQueue>>(
       ChatDraftQueueController.new,
     );
+
+/// The queue's share of a chat scope (see `chatSessionScopeOverrides`): the
+/// queue itself and everything derived from the scope's chat, made again in
+/// the scope so they follow its conversation and answer, not the root's.
+List<Override> chatSessionScopedDraftQueueOverrides() => <Override>[
+  chatMainAnswerActiveProvider.overrideWith(_chatMainAnswerActive),
+  chatDraftQueueOfferProvider.overrideWith(_chatDraftQueueOffer),
+  activeChatDraftQueueProvider.overrideWith(_activeChatDraftQueue),
+  chatDraftQueueProvider.overrideWith(ChatDraftQueueController.new),
+];
+
+/// How a queue hands its batch over: the same durable send every ordinary
+/// message uses ([durableSend]), with [ref] the queue's own.
+typedef ChatDraftQueueSend = Future<void> Function(
+  dynamic ref,
+  String text,
+  List<String>? fileIds, {
+  List<String>? toolIds,
+  List<ChatContextAttachment>? contextAttachments,
+  void Function(ChatSendPlaceholderHandle handle)?
+  onAssistantPlaceholderCreated,
+  void Function(ChatSendAdmissionReceipt receipt)? onAdmissionCommitted,
+});
+
+/// The send a queue's batch goes through. [durableSend] everywhere mobile
+/// runs; a host that follows each turn it starts (the desktop daemon, which
+/// projects a chat scope's turns onto its windows) overrides it in its chat
+/// scopes, so a turn the queue starts is followed like any other.
+final chatDraftQueueSendProvider = Provider<ChatDraftQueueSend>(
+  (_) => _durableQueueSend,
+);
+
+Future<void> _durableQueueSend(
+  dynamic ref,
+  String text,
+  List<String>? fileIds, {
+  List<String>? toolIds,
+  List<ChatContextAttachment>? contextAttachments,
+  void Function(ChatSendPlaceholderHandle handle)?
+  onAssistantPlaceholderCreated,
+  void Function(ChatSendAdmissionReceipt receipt)? onAdmissionCommitted,
+}) => durableSend(
+  ref,
+  text,
+  fileIds,
+  toolIds: toolIds,
+  contextAttachments: contextAttachments,
+  onAssistantPlaceholderCreated: onAssistantPlaceholderCreated,
+  onAdmissionCommitted: onAdmissionCommitted,
+);
 
 class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
   bool _drainScheduled = false;
@@ -792,7 +848,7 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
     ChatSendPlaceholderHandle? placeholder;
     var committed = false;
     try {
-      await durableSend(
+      await ref.read(chatDraftQueueSendProvider)(
         ref,
         text,
         fileIds.isEmpty ? null : fileIds,

@@ -42,6 +42,8 @@ import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
+import 'package:conduit_core/models/openwebui_chat_settings_form.dart'
+    show ChatParamsPatch;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/folder.dart'
@@ -99,6 +101,10 @@ import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/sync/sync_api_client.dart'
     show SyncTerminalException;
 
+import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart'
+    show chatSessionScopedQueuedCompletionOverrides;
+import 'package:conduit_core/features/chat/services/chat_draft_queue.dart'
+    show chatSessionScopedDraftQueueOverrides;
 import 'package:conduit_core/services/chat_completion_transport.dart';
 
 import 'package:conduit_core/services/api_service.dart';
@@ -203,6 +209,7 @@ import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/providers/chat_picks_session.dart';
 import 'package:conduit_core/features/chat/services/reviewer_mode_service.dart';
 
+part 'chat_action_availability.dart';
 part 'chat_attachments.dart';
 part 'chat_branch_controller.dart';
 part 'chat_capability_providers.dart';

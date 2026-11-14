@@ -91,56 +91,69 @@ enum OpenWebUiChatSettingsMenuEntry {
 /// models (their requests never carry these params), for another user's chat,
 /// and for any chat that is not an Open WebUI chat.
 final openWebUiChatSettingsMenuEntryProvider =
-    Provider<OpenWebUiChatSettingsMenuEntry>((ref) {
-      if (ref.watch(reviewerModeProvider)) {
-        return OpenWebUiChatSettingsMenuEntry.none;
-      }
-      final model = ref.watch(selectedModelProvider);
-      if (model == null || isHermesModel(model) || isLibreChatModel(model)) {
-        return OpenWebUiChatSettingsMenuEntry.none;
-      }
-      final binding = ref.watch(directModelRegistryProvider).resolve(model);
-      if (binding != null && binding.source != DirectModelSource.openWebUi) {
-        return OpenWebUiChatSettingsMenuEntry.none;
-      }
-      if (ref.watch(apiServiceProvider) == null) {
-        return OpenWebUiChatSettingsMenuEntry.none;
-      }
+    Provider<OpenWebUiChatSettingsMenuEntry>(
+      (ref) => openWebUiChatSettingsMenuEntryFor(
+        ref.watch,
+        model: ref.watch(selectedModelProvider),
+        conversation: ref.watch(activeConversationProvider),
+        draftParams: ref.watch(pendingOpenWebUiChatSettingsProvider),
+      ),
+    );
 
-      final conversation = ref.watch(activeConversationProvider);
-      if (conversation != null) {
-        final isOpenWebUiChat =
-            chatMutationOwnerScopeForConversation(conversation) ==
-            openWebUiChatMutationOwnerScope(conversation.id);
-        if (!isOpenWebUiChat ||
-            isReadOnlySharedConversation(
-              conversation,
-              ref.watch(currentUserProvider2.select((user) => user?.id)),
-            )) {
-          return OpenWebUiChatSettingsMenuEntry.none;
-        }
-      }
-      final hasSettings = conversation == null
-          ? ref.watch(pendingOpenWebUiChatSettingsProvider).isNotEmpty
-          : conversation.chatParams.isNotEmpty;
+/// The rule behind [openWebUiChatSettingsMenuEntryProvider], for one chat a
+/// host names rather than the one on screen: [model] is the chat's model,
+/// [conversation] the chat (null for a new chat) and [draftParams] the
+/// settings a new chat would be created with. Everything else (the account,
+/// its permissions, Advanced) is read through [read], a `watch` or a `read`.
+OpenWebUiChatSettingsMenuEntry openWebUiChatSettingsMenuEntryFor(
+  ReasoningEffortReader read, {
+  required Model? model,
+  required Conversation? conversation,
+  required Map<String, dynamic> draftParams,
+}) {
+  if (read(reviewerModeProvider)) {
+    return OpenWebUiChatSettingsMenuEntry.none;
+  }
+  if (model == null || isHermesModel(model) || isLibreChatModel(model)) {
+    return OpenWebUiChatSettingsMenuEntry.none;
+  }
+  final binding = read(directModelRegistryProvider).resolve(model);
+  if (binding != null && binding.source != DirectModelSource.openWebUi) {
+    return OpenWebUiChatSettingsMenuEntry.none;
+  }
+  if (read(apiServiceProvider) == null) {
+    return OpenWebUiChatSettingsMenuEntry.none;
+  }
 
-      final canEdit =
-          ref
-              .watch(openWebUiChatSettingsAccessProvider)
-              .asData
-              ?.value
-              .canEditAnything ??
-          false;
-      if (ref.watch(
-            appSettingsProvider.select((s) => s.advancedFeaturesEnabled),
-          ) &&
-          canEdit) {
-        return OpenWebUiChatSettingsMenuEntry.editor;
-      }
-      return hasSettings
-          ? OpenWebUiChatSettingsMenuEntry.applied
-          : OpenWebUiChatSettingsMenuEntry.none;
-    });
+  if (conversation != null) {
+    final isOpenWebUiChat =
+        chatMutationOwnerScopeForConversation(conversation) ==
+        openWebUiChatMutationOwnerScope(conversation.id);
+    if (!isOpenWebUiChat ||
+        isReadOnlySharedConversation(
+          conversation,
+          read(currentUserProvider2.select((user) => user?.id)),
+        )) {
+      return OpenWebUiChatSettingsMenuEntry.none;
+    }
+  }
+  final hasSettings = conversation == null
+      ? draftParams.isNotEmpty
+      : conversation.chatParams.isNotEmpty;
+
+  final canEdit =
+      read(
+        openWebUiChatSettingsAccessProvider,
+      ).asData?.value.canEditAnything ??
+      false;
+  if (read(appSettingsProvider.select((s) => s.advancedFeaturesEnabled)) &&
+      canEdit) {
+    return OpenWebUiChatSettingsMenuEntry.editor;
+  }
+  return hasSettings
+      ? OpenWebUiChatSettingsMenuEntry.applied
+      : OpenWebUiChatSettingsMenuEntry.none;
+}
 
 /// What was last seen of one account's user-level generation settings.
 typedef OpenWebUiGlobalSettings = ({
@@ -541,10 +554,61 @@ final class OpenWebUiReasoningPickTarget {
 /// passes the result to [selectReasoningEffortForModel].
 OpenWebUiReasoningPickTarget captureOpenWebUiReasoningPickTarget(dynamic ref) {
   final conversation = ref.read(activeConversationProvider) as Conversation?;
-  return OpenWebUiReasoningPickTarget._(
-    conversation,
-    captureChatMutationOwner(ref, conversation),
-  );
+  return captureOpenWebUiReasoningPickTargetFor(ref, conversation);
+}
+
+/// The pick target for [conversation] (null: the next new chat), for a host
+/// that names the chat a picker belongs to instead of reading the one on
+/// screen. Captured now, as [captureOpenWebUiReasoningPickTarget].
+OpenWebUiReasoningPickTarget captureOpenWebUiReasoningPickTargetFor(
+  dynamic ref,
+  Conversation? conversation,
+) => OpenWebUiReasoningPickTarget._(
+  conversation,
+  captureChatMutationOwner(ref, conversation),
+);
+
+/// After the per-chat settings saved [patch] for [model], records the saved
+/// reasoning effort as the model's own pick too.
+///
+/// A model that does not advertise reasoning effort is sent only its own
+/// pick (issue #611), so an effort saved in the settings is recorded as that
+/// pick, as a pick in the model selector is saved on the chat. Going back to
+/// the user's default removes the pick, so that default applies again; only
+/// an explicit Automatic is recorded as one.
+///
+/// [pickKey] is [localReasoningEffortKeyForModel] as read before the save
+/// awaited: nothing is recorded once another server became active. Best
+/// effort: the chat keeps the saved value whatever happens here.
+Future<void> recordChatSettingsReasoningPick(
+  ReasoningEffortReader read, {
+  required Model? model,
+  required ChatParamsPatch patch,
+  required String? pickKey,
+}) async {
+  final inherits = patch.remove.contains(kChatParamReasoningEffort);
+  if (model == null ||
+      pickKey == null ||
+      !(inherits || patch.set.containsKey(kChatParamReasoningEffort)) ||
+      // Another server became active during the save.
+      localReasoningEffortKeyForModel(read, model) != pickKey) {
+    return;
+  }
+  final effort = patch.set[kChatParamReasoningEffort];
+  try {
+    if (inherits) {
+      await read(localReasoningEffortsProvider.notifier).set(pickKey, null);
+      return;
+    }
+    await setReasoningEffortForModel(
+      read,
+      model,
+      effort is String ? effort : kAutomaticReasoningEffort,
+    );
+  } catch (_) {
+    // The chat keeps the saved value; the pick is best effort, as the
+    // chat write behind a model-selector pick is.
+  }
 }
 
 /// Whether a pick on [model] is also saved on the chat: only Open WebUI server
@@ -614,6 +678,71 @@ Future<void> persistOpenWebUiReasoningPick(
       data: {'error': error.runtimeType.toString()},
     );
   }
+}
+
+/// Mentions the reasoning effort parameter, as a provider's refusal of it
+/// does (issue #779).
+final RegExp _reasoningEffortRejectionPattern = RegExp(
+  r'reasoning[_\s-]*effort',
+  caseSensitive: false,
+);
+
+/// Whether [errorText] names the reasoning effort parameter, as a provider's
+/// refusal of it does. Alone it never qualifies a retry: unrelated failures
+/// can mention the parameter.
+bool errorMentionsReasoningEffort(String errorText) =>
+    _reasoningEffortRejectionPattern.hasMatch(errorText);
+
+/// Whether the active chat saved an explicit `reasoning_effort` (not
+/// Automatic) in its params.
+bool _activeChatHasReasoningEffortOverride(dynamic ref) {
+  final params =
+      (ref.read(activeConversationProvider) as Conversation?)?.chatParams;
+  final value = params == null ? null : params[kChatParamReasoningEffort];
+  return value is String &&
+      value.trim().isNotEmpty &&
+      value.trim().toLowerCase() != kAutomaticReasoningEffort;
+}
+
+/// Whether the active chat saved a default (Automatic) for
+/// `reasoning_effort`, which outranks every model's own pick.
+bool _activeChatSavedReasoningEffortDefault(dynamic ref) {
+  final params =
+      (ref.read(activeConversationProvider) as Conversation?)?.chatParams;
+  return params != null &&
+      params.containsKey(kChatParamReasoningEffort) &&
+      !_activeChatHasReasoningEffortOverride(ref);
+}
+
+/// Whether a failed answer of the active chat, failing with [errorText], was
+/// refused over a reasoning effort that a retry through [retryModel] would no
+/// longer send once it is cleared ([clearReasoningEffortForRetry]): the text
+/// names the parameter and the chat or the picker opted in to one for that
+/// model.
+///
+/// An explicitly refusing model never takes the parameter: the request
+/// boundary strips it whatever the opt-ins say, so the error cannot be about
+/// it (issue #779). A model that left the list ([retryModel] null) is unknown,
+/// not refusing. A model that does not advertise support is sent only its own
+/// pick (issue #611); one that does is sent the chat's saved value over the
+/// picker's.
+bool isReasoningEffortRejection(
+  dynamic ref, {
+  required String errorText,
+  required Model? retryModel,
+}) {
+  if (!errorMentionsReasoningEffort(errorText)) return false;
+  if (retryModel?.explicitlyRejectsReasoningEffort ?? false) return false;
+  final pickerOptIn =
+      retryModel != null &&
+      !retryModel.advertisesReasoningEffort &&
+      !_activeChatSavedReasoningEffortDefault(ref) &&
+      reasoningEffortForModel(ref.read, retryModel) !=
+          kAutomaticReasoningEffort;
+  final chatOptIn =
+      (retryModel == null || retryModel.advertisesReasoningEffort) &&
+      _activeChatHasReasoningEffortOverride(ref);
+  return pickerOptIn || chatOptIn;
 }
 
 /// "Retry without reasoning effort" (issue #779 recovery): clears the picker's

@@ -1563,7 +1563,17 @@ class ComparisonMergeController extends Notifier<String?> {
   bool _cancelled = false;
 
   @override
-  String? build() => null;
+  String? build() {
+    // A chat session scope closing mid-merge stops it: nothing of the scope
+    // can be read or written after, so it ends as if the chat had changed.
+    ref.onDispose(() {
+      _cancelled = true;
+      final cancel = _cancelRequest;
+      _cancelRequest = null;
+      if (cancel != null) unawaited(cancel());
+    });
+    return null;
+  }
 
   /// Stops the running merge. Text that already arrived is kept.
   Future<void> cancel() async {
@@ -1597,15 +1607,19 @@ class ComparisonMergeController extends Notifier<String?> {
         responses: responses,
       );
     } catch (_) {
-      state = null;
+      if (ref.mounted) state = null;
       rethrow;
+    }
+    if (!ref.mounted) {
+      throw const ComparisonMergeException(ComparisonMergeFailure.ownerChanged);
     }
     if (_cancelled) {
       state = null;
       return;
     }
     final (:owner, :database, :api, :authSnapshot, :prompt) = admitted;
-    bool ownsContext() => openWebUiCompletionContextIsCurrent(ref, owner);
+    bool ownsContext() =>
+        ref.mounted && openWebUiCompletionContextIsCurrent(ref, owner);
 
     // The merge the target shows, wherever the transcript keeps it: on the
     // displayed message itself or on one of its stored alternatives.
@@ -1640,6 +1654,7 @@ class ComparisonMergeController extends Notifier<String?> {
     // a result that landed in its place meanwhile is newer and stays.
     void show(Map<String, dynamic>? merged, {bool restoring = false}) {
       // The transcript only changes while it is still this chat's.
+      if (!ref.mounted) return;
       if (activeOpenWebUiChatIdForMutation(ref, owner) == null) return;
       final notifier = ref.read(chatMessagesProvider.notifier);
       notifier.updateMessageById(displayedMessageId, (message) {
@@ -1761,7 +1776,13 @@ class ComparisonMergeController extends Notifier<String?> {
       }
     } finally {
       _cancelRequest = null;
-      state = null;
+      if (ref.mounted) {
+        state = null;
+      } else {
+        failure ??= const ComparisonMergeException(
+          ComparisonMergeFailure.ownerChanged,
+        );
+      }
       // The merge is saved as far as it got, like Open WebUI saves what it has
       // when its stream ends or is stopped. Failing before any text leaves what
       // the answer showed before, not an empty merge and not nothing.
@@ -1811,13 +1832,16 @@ class ComparisonMergeController extends Notifier<String?> {
     // row names its owner, which a cached copy on screen may not carry.
     final currentUserId = ref.read(currentUserProvider2)?.id;
     final storedOwner = (await database.chatsDao.getChat(active.id))?.userId;
+    if (!ref.mounted) {
+      throw const ComparisonMergeException(ComparisonMergeFailure.ownerChanged);
+    }
     if (isReadOnlySharedConversation(active, currentUserId) ||
         (storedOwner != null && storedOwner != currentUserId)) {
       throw const ComparisonMergeException(ComparisonMergeFailure.notMergeable);
     }
 
     final prompt = await _mergePrompt(owner, parentMessageId);
-    if (!openWebUiCompletionContextIsCurrent(ref, owner)) {
+    if (!ref.mounted || !openWebUiCompletionContextIsCurrent(ref, owner)) {
       throw const ComparisonMergeException(ComparisonMergeFailure.ownerChanged);
     }
     return (

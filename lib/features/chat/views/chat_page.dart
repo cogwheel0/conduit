@@ -22,6 +22,7 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 
 import 'dart:async';
 
+import 'package:conduit_core/features/chat/services/url_context.dart';
 import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -1946,14 +1947,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
-  /// Checks if a URL is a YouTube URL.
-  bool _isYoutubeUrl(String url) {
-    return url.startsWith('https://www.youtube.com') ||
-        url.startsWith('https://youtu.be') ||
-        url.startsWith('https://youtube.com') ||
-        url.startsWith('https://m.youtube.com');
-  }
-
   Future<void> _promptAttachWebpage() async {
     final api = ref.read(apiServiceProvider);
     if (api == null) return;
@@ -2032,53 +2025,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           });
                           try {
                             final trimmedUrl = url.trim();
-                            final isYoutube = _isYoutubeUrl(trimmedUrl);
-
-                            // Use appropriate API based on URL type
-                            final result = isYoutube
-                                ? await api.processYoutube(url: trimmedUrl)
-                                : await api.processWebpage(url: trimmedUrl);
-
-                            final file = (result?['file'] as Map?)
-                                ?.cast<String, dynamic>();
-                            final fileData = (file?['data'] as Map?)
-                                ?.cast<String, dynamic>();
-                            final content =
-                                fileData?['content']?.toString() ?? '';
-                            if (content.isEmpty) {
+                            final page = await readUrlContext(
+                              api,
+                              trimmedUrl,
+                            );
+                            if (page.content.isEmpty) {
                               setError(
-                                isYoutube
+                                page.youtube
                                     ? l10n.youtubeTranscriptFetchFailed
                                     : l10n.webpageNoReadableContent,
                               );
                               return;
                             }
-                            final meta = (file?['meta'] as Map?)
-                                ?.cast<String, dynamic>();
-                            final name =
-                                meta?['name']?.toString() ?? parsed.host;
-                            final collectionName = result?['collection_name']
-                                ?.toString();
-
-                            // Add as appropriate type
-                            final notifier = ref.read(
-                              contextAttachmentsProvider.notifier,
-                            );
-                            if (isYoutube) {
-                              notifier.addYoutube(
-                                displayName: name,
-                                content: content,
-                                url: trimmedUrl,
-                                collectionName: collectionName,
-                              );
-                            } else {
-                              notifier.addWeb(
-                                displayName: name,
-                                content: content,
-                                url: trimmedUrl,
-                                collectionName: collectionName,
-                              );
-                            }
+                            ref
+                                .read(contextAttachmentsProvider.notifier)
+                                .addUrlContext(page);
 
                             if (!mounted || !dialogContext.mounted) {
                               return;

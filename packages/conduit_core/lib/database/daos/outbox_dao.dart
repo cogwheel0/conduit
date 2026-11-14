@@ -715,6 +715,23 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         .watch();
   }
 
+  /// Queued request-completion ops in every chat (pending|failed, seq ASC):
+  /// what a host that shows several chats at once watches to know which
+  /// chats' queued answers changed.
+  Stream<List<OutboxOp>> watchQueuedCompletions() {
+    return (select(outboxOps)
+          ..where(
+            (t) =>
+                t.kind.equals(OutboxKind.requestCompletion.name) &
+                t.status.isIn(const [
+                  OutboxStatus.pending,
+                  OutboxStatus.failed,
+                ]),
+          )
+          ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
+        .watch();
+  }
+
   /// All pending ops for [chatId] (seq ASC) — coalescing + tests (A2).
   Future<List<OutboxOp>> pendingForChat(
     String chatId, {

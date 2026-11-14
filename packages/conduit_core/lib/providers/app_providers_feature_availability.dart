@@ -223,6 +223,35 @@ bool _imageGenerationAvailable(Ref ref) {
         selectedModel.capabilities?['image_generation'] == true;
   }
 
+  return _openWebUiAllowsImageGeneration(ref);
+}
+
+/// Whether the signed-in Open WebUI account may generate images, whatever
+/// model is selected: the account's `features.image_generation` permission.
+///
+/// False without a signed-in Open WebUI account (a Direct or Hermes session
+/// has no server to ask), and until the permissions have loaded: unlike the
+/// composer's gate, which offers the feature meanwhile, this one is false
+/// until it is known. The selected model's own rules are
+/// [imageGenerationAvailableProvider]'s.
+final openWebUiImageGenerationAllowedProvider = Provider<bool>(
+  (ref) =>
+      ref.watch(openWebUiAccountAvailableProvider) &&
+      _userPermissionsLoaded(ref) &&
+      _openWebUiAllowsImageGeneration(ref),
+);
+
+/// Whether the account's permissions have been read and are settled: not
+/// loading, failed, or refreshing (which keeps the previous answer as data
+/// while the new one is pending, or after it failed).
+bool _userPermissionsLoaded(Ref ref) {
+  final permissions = ref.watch(userPermissionsProvider);
+  return permissions is AsyncData &&
+      !permissions.isLoading &&
+      !permissions.hasError;
+}
+
+bool _openWebUiAllowsImageGeneration(Ref ref) {
   final perms = ref.watch(userPermissionsProvider);
   return perms.maybeWhen(
     data: (data) {
@@ -284,6 +313,21 @@ bool _webSearchAvailable(Ref ref) {
   }
   return _openWebUiAllowsWebSearch(ref);
 }
+
+/// Whether the signed-in Open WebUI account may search the web, whatever
+/// model is selected: the server's web search switch and the account's
+/// permission.
+///
+/// False without a signed-in Open WebUI account, and until the permissions
+/// have loaded (as [openWebUiImageGenerationAllowedProvider]). The selected
+/// model's own rules (and a Direct model's search) are
+/// [webSearchAvailableProvider]'s.
+final openWebUiWebSearchAllowedProvider = Provider<bool>(
+  (ref) =>
+      ref.watch(openWebUiAccountAvailableProvider) &&
+      _userPermissionsLoaded(ref) &&
+      _openWebUiAllowsWebSearch(ref),
+);
 
 /// The Open WebUI server's web search switch and the user's permission.
 bool _openWebUiAllowsWebSearch(Ref ref) {

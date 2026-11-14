@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'dart:ui' show Rect;
 
 import 'package:conduit_core/features/chat/services/chat_backup.dart';
+export 'package:conduit_core/features/chat/utils/chat_export_file_name.dart'
+    show chatExportFileName;
 import 'package:conduit_core/features/workspace/models/workspace_export_files.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -70,15 +72,6 @@ abstract interface class ChatBackupFiles {
 /// `chat-export-<epoch ms>.json`, as Open WebUI's own Data controls name it.
 String libraryBackupFileName(DateTime now) =>
     'chat-export-${now.millisecondsSinceEpoch}.json';
-
-/// The file a single chat exports to: its title, then a stamp.
-String chatExportFileName(String title, DateTime now, String extension) {
-  final stem = title.trim().isEmpty ? 'chat' : title.trim();
-  return WorkspaceExportFiles.withExtension(
-    '$stem-${now.millisecondsSinceEpoch}',
-    extension,
-  );
-}
 
 final chatBackupFilesProvider = Provider<ChatBackupFiles>(
   (ref) => PlatformChatBackupFiles(),

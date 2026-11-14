@@ -256,43 +256,18 @@ class _OpenWebUiChatSettingsSheetState
     }
   }
 
-  /// A model that does not advertise reasoning effort is sent only its own
-  /// pick (issue #611), so an effort saved here is recorded as that pick too,
-  /// as a pick in the model selector is saved on the chat. Going back to the
-  /// user's default removes the pick, so that default applies again; only
-  /// an explicit Automatic is recorded as one.
+  /// The saved reasoning effort becomes the model's own pick too (core's
+  /// [recordChatSettingsReasoningPick]).
   Future<void> _recordReasoningPick(
     ProviderContainer container,
     ChatParamsPatch patch,
     String? pickKey,
-  ) async {
-    final model = _model;
-    final inherits = patch.remove.contains(kChatParamReasoningEffort);
-    if (model == null ||
-        pickKey == null ||
-        !(inherits || patch.set.containsKey(kChatParamReasoningEffort)) ||
-        // Another server became active during the save.
-        localReasoningEffortKeyForModel(container.read, model) != pickKey) {
-      return;
-    }
-    final effort = patch.set[kChatParamReasoningEffort];
-    try {
-      if (inherits) {
-        await container
-            .read(localReasoningEffortsProvider.notifier)
-            .set(pickKey, null);
-        return;
-      }
-      await setReasoningEffortForModel(
-        container.read,
-        model,
-        effort is String ? effort : kAutomaticReasoningEffort,
-      );
-    } catch (_) {
-      // The chat keeps the saved value; the pick is best effort, as the
-      // chat write behind a model-selector pick is.
-    }
-  }
+  ) => recordChatSettingsReasoningPick(
+    container.read,
+    model: _model,
+    patch: patch,
+    pickKey: pickKey,
+  );
 
   @override
   Widget build(BuildContext context) {

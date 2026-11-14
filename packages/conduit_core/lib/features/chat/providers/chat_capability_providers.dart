@@ -122,6 +122,35 @@ CodeInterpreterBlock? _evaluateCodeInterpreterSupport({
   required Model? model,
   required String? terminalId,
 }) {
+  final serverBlock = codeInterpreterServerBlock(
+    config: config,
+    serverId: serverId,
+    user: user,
+    permissions: permissions,
+  );
+  if (serverBlock != null) return serverBlock;
+
+  if (model == null) return CodeInterpreterBlock.unverified;
+  if (_explicitModelCapability(model, 'code_interpreter') == false) {
+    return CodeInterpreterBlock.modelUnsupported;
+  }
+  if (_resolveTerminalIdForRequest(selectedTerminalId: terminalId) != null &&
+      modelSupportsTerminal(model)) {
+    return CodeInterpreterBlock.terminalActive;
+  }
+  return null;
+}
+
+/// The half of Open WebUI's rule that holds for every model: the server's
+/// flag and engine, and the account's permission. Null means the server and
+/// the account would run the interpreter; the model and the terminal
+/// selection still decide each turn ([codeInterpreterBlockProvider]).
+CodeInterpreterBlock? codeInterpreterServerBlock({
+  required BackendConfig? config,
+  required String serverId,
+  required User? user,
+  required Map<String, dynamic>? permissions,
+}) {
   if (config == null ||
       config.serverId != serverId ||
       config.enableCodeInterpreter == null) {
@@ -141,17 +170,26 @@ CodeInterpreterBlock? _evaluateCodeInterpreterSupport({
       return CodeInterpreterBlock.noPermission;
     }
   }
-
-  if (model == null) return CodeInterpreterBlock.unverified;
-  if (_explicitModelCapability(model, 'code_interpreter') == false) {
-    return CodeInterpreterBlock.modelUnsupported;
-  }
-  if (_resolveTerminalIdForRequest(selectedTerminalId: terminalId) != null &&
-      modelSupportsTerminal(model)) {
-    return CodeInterpreterBlock.terminalActive;
-  }
   return null;
 }
+
+/// Whether the signed-in Open WebUI account's server runs the interpreter
+/// for it, whatever model is selected: [codeInterpreterServerBlock] with
+/// nothing in the way. False while the server's answers load, and for a
+/// session with no signed-in Open WebUI account.
+final codeInterpreterAvailableProvider = Provider<bool>((ref) {
+  final api = ref.watch(apiServiceProvider);
+  if (api == null || !ref.watch(openWebUiAccountAvailableProvider)) {
+    return false;
+  }
+  return codeInterpreterServerBlock(
+        config: ref.watch(backendConfigProvider).asData?.value,
+        serverId: api.serverConfig.id,
+        user: ref.watch(currentUserProvider2),
+        permissions: ref.watch(userPermissionsProvider).asData?.value,
+      ) ==
+      null;
+});
 
 /// Whether a request built now may carry the interpreter flag: it is selected,
 /// and the server, the account, the model and the terminal selection allow it.
