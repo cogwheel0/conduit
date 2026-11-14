@@ -203,7 +203,9 @@ final class BrowserSignInDiagnosis {
   /// Why Open WebUI's token exchange would refuse a sign-in; null when it is
   /// on and checks tokens with the provider.
   /// [BrowserSignInFailure.cannotDetermineClient] means it only trusts listed
-  /// clients, and cannot tell this provider's tokens apart.
+  /// clients, and this provider has no introspection to tell its tokens
+  /// apart with. With a provider that has one, whether the list lets Conduit
+  /// in shows only at a real sign-in.
   final BrowserSignInFailure? exchangeFailure;
 
   bool get ready => discoveryFailure == null && exchangeFailure == null;
@@ -577,14 +579,23 @@ class BrowserSignInService {
     required BrowserSignInConfig config,
   }) async {
     // Independent of each other, so asked at once.
-    final (discovery, exchangeFailure) = await (
+    final (discovery, exchange) = await (
       _diagnoseDiscovery(api, config),
       _diagnoseExchange(api, config),
     ).wait;
-    final (issuer, discoveryFailure) = discovery;
+    final (metadata, discoveryFailure) = discovery;
+    // The token the exchange is asked with was never issued, so a provider
+    // that can introspect calls it inactive, and Open WebUI answers as if it
+    // could not introspect at all. Only a provider without the endpoint
+    // settles it.
+    final exchangeFailure =
+        exchange == BrowserSignInFailure.cannotDetermineClient &&
+            (metadata?.hasIntrospectionEndpoint ?? false)
+        ? null
+        : exchange;
 
     final diagnosis = BrowserSignInDiagnosis(
-      issuer: issuer,
+      issuer: metadata?.issuer,
       discoveryFailure: discoveryFailure,
       exchangeFailure: exchangeFailure,
     );
@@ -601,7 +612,7 @@ class BrowserSignInService {
 
   /// The identity provider [config] finds through [api]'s server, or why
   /// none is found.
-  Future<(String?, BrowserSignInFailure?)> _diagnoseDiscovery(
+  Future<(OidcProviderMetadata?, BrowserSignInFailure?)> _diagnoseDiscovery(
     ApiService api,
     BrowserSignInConfig config,
   ) async {
@@ -616,7 +627,7 @@ class BrowserSignInService {
       final probe = await _probe(api, config.provider);
       final http = _http(api.serverConfig);
       try {
-        return ((await _discover(http, config, probe)).issuer, null);
+        return (await _discover(http, config, probe), null);
       } on OidcException catch (error) {
         return (null, browserSignInFailureForOidc(error));
       } finally {
