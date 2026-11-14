@@ -1,37 +1,49 @@
-import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../tool/setup_worktree.dart';
 
-void main() {
-  test(
-    'a program that ignores the signal has exited when stopAll returns',
-    () async {
-      // The shell says "ready" once it ignores SIGTERM; a signal sent before
-      // that would end it and prove nothing.
-      final stubborn = await Process.start('sh', [
-        '-c',
-        'trap "" TERM; echo ready; while :; do sleep 1; done',
-      ]);
-      await stubborn.stdout.transform(utf8.decoder).first;
-      var exited = false;
-      final exit = stubborn.exitCode.then((code) {
-        exited = true;
-        return code;
-      });
+class _FakeProcess extends Fake implements Process {
+  final Completer<int> exit = Completer<int>();
+  final List<ProcessSignal> signals = <ProcessSignal>[];
 
-      await stopAll(
+  @override
+  Future<int> get exitCode => exit.future;
+
+  @override
+  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
+    signals.add(signal);
+    return true;
+  }
+}
+
+void main() {
+  test('stopAll kills a program that ignores the signal, and waits for it', () {
+    fakeAsync((async) {
+      final stubborn = _FakeProcess();
+      var returned = false;
+      stopAll(
         [stubborn],
         ProcessSignal.sigterm,
-        grace: const Duration(milliseconds: 200),
-      );
+        grace: const Duration(seconds: 10),
+      ).then((_) => returned = true);
 
-      check(exited).isTrue();
-      check(await exit).equals(-ProcessSignal.sigkill.signalNumber);
-    },
-    skip: Platform.isWindows ? 'Needs a POSIX shell to ignore a signal.' : null,
-  );
+      async.elapse(const Duration(seconds: 9));
+      check(stubborn.signals).deepEquals([ProcessSignal.sigterm]);
+
+      async.elapse(const Duration(seconds: 1));
+      check(stubborn.signals)
+          .deepEquals([ProcessSignal.sigterm, ProcessSignal.sigkill]);
+      // Killed, but still exiting: the caller must not write its marker yet.
+      check(returned).isFalse();
+
+      stubborn.exit.complete(-9);
+      async.flushMicrotasks();
+      check(returned).isTrue();
+    });
+  });
 }
