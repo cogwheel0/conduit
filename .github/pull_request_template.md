@@ -33,9 +33,11 @@ change is about motion or timing. Upload them here. Do not commit them. -->
       chat, prompt, server address, credential, or other personal detail. All
       example content is invented.
 - [ ] `dart run tool/check_changed.dart` passes.
-- [ ] I agree to the
-      [licensing terms](https://github.com/cogwheel0/conduit/blob/main/CONTRIBUTING.md#licensing)
-      for this contribution.
+
+By opening this pull request you agree to the
+[licensing terms](https://github.com/cogwheel0/conduit/blob/main/CONTRIBUTING.md#licensing)
+for this contribution. There is no opt-out; a pull request that cannot accept
+them should not be opened.
 
 <!-- From outside the project: if an AI agent wrote any of this code, end with
 the model and the tool that ran it. The maintainer's own PRs skip this. -->

@@ -106,7 +106,9 @@ both stay possible, by opening a pull request you:
   irrevocable right to use, modify, sublicense, and distribute it as part of
   Conduit under other license terms as well.
 
-You keep the copyright in your work.
+These terms come with every pull request, drafts included, and cannot be
+opted out of or changed in the pull request itself. If you cannot accept them,
+do not open one. You keep the copyright in your work.
 
 ## Security
 
