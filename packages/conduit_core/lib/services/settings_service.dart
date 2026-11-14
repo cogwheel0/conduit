@@ -354,7 +354,8 @@ class SettingsService {
       PreferenceKeys.temporaryChatByDefault: settings.temporaryChatByDefault,
       PreferenceKeys.advancedFeaturesEnabled: settings.advancedFeaturesEnabled,
       _pinnedModelsKey: settings.pinnedModels.toList(),
-      _notificationsEnabledKey: settings.notificationsEnabled,
+      // The master notification switch has its own setter: left unset, it
+      // follows the host's default, as Send with Enter does.
       _notificationSoundKey: settings.notificationSound,
       _notificationSoundAlwaysKey: settings.notificationSoundAlways,
       _notificationInAppBannerKey: settings.notificationInAppBanner,
@@ -1513,6 +1514,9 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   }
 
   Future<void> setNotificationChannelMentionsOnly(bool value) async {
+    // Before the store has loaded, the write would be lost and the loaded
+    // value would replace the choice.
+    if (!await _awaitHydration()) return;
     state = state.copyWith(notificationChannelMentionsOnly: value);
     await SettingsService.setNotificationChannelMentionsOnly(value);
   }
@@ -1902,8 +1906,10 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> resetToDefaults() async {
     await SettingsService._putOrRemove(PreferenceKeys.citationBackground, null);
     // The host's defaults, as for settings never set.
+    final hostDefaults = ref.read(appSettingsHostDefaultsProvider);
     final defaultSettings = AppSettings(
-      sendOnEnter: ref.read(appSettingsHostDefaultsProvider).sendOnEnter,
+      sendOnEnter: hostDefaults.sendOnEnter,
+      notificationsEnabled: hostDefaults.notificationsEnabled,
     );
     await SettingsService._putOrRemove(PreferenceKeys.computerEnabled, null);
     await SettingsService._putOrRemove(
@@ -1919,8 +1925,12 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
       null,
     );
     await SettingsService.saveSettings(defaultSettings);
-    // Left unset again, so it follows the host's default.
+    // Left unset again, so they follow the host's default.
     await SettingsService._putOrRemove(PreferenceKeys.sendOnEnterKey, null);
+    await SettingsService._putOrRemove(
+      PreferenceKeys.notificationsEnabled,
+      null,
+    );
     // Written only by its own setter, so the bulk save leaves it.
     await SettingsService._putOrRemove(
       PreferenceKeys.notificationChannelMentionsOnly,
