@@ -1568,7 +1568,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               ),
               if (_browserSignIn)
                 AuthGroupedTextField(
-                  key: const ValueKey<String>('browser-sign-in-client-id-field'),
+                  key: const ValueKey<String>(
+                    'browser-sign-in-client-id-field',
+                  ),
                   controller: _browserSignInClientIdController,
                   label: l10n.browserSignInClientId,
                   placeholder: browserSignInDefaultClientId,

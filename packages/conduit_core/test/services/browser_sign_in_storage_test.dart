@@ -1211,6 +1211,13 @@ void main() {
 
     test('changes nothing when a saved sign-in cannot be read', () async {
       await saveAccounts(['a', 'b']);
+      // Read before the failing one: deleting it then would lose a refresh
+      // token nobody revokes.
+      final orphan = await sessionFor('a', refreshToken: 'orphan');
+      await secure.write(
+        key: 'browser_sign_in_session_v1:gone',
+        value: orphan.encode(),
+      );
       final sessionA = await signInWithBrowser('a');
       await signInWithBrowser('b');
       secure.unreadableKey = 'user_credentials_server_v1:a';
@@ -1219,6 +1226,27 @@ void main() {
 
       secure.unreadableKey = null;
       check(await storedSession('a')).equals(sessionA);
+      check(await storedSession('gone')).equals(orphan);
+    });
+
+    test('returns what it deleted when another delete fails', () async {
+      await saveAccounts(['a']);
+      final first = await sessionFor('a', refreshToken: 'first');
+      final second = await sessionFor('a', refreshToken: 'second');
+      await secure.write(
+        key: 'browser_sign_in_session_v1:gone-1',
+        value: first.encode(),
+      );
+      await secure.write(
+        key: 'browser_sign_in_session_v1:gone-2',
+        value: second.encode(),
+      );
+      secure.undeletableKey = 'browser_sign_in_session_v1:gone-2';
+
+      check(await storage.sweepOrphanBrowserSignInSessions()).deepEquals([
+        (accountId: 'gone-1', session: first),
+      ]);
+      check(await storedSession('gone-2')).equals(second);
     });
   });
 

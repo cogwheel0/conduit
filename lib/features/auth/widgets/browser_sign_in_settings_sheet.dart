@@ -69,6 +69,8 @@ Future<void> showServerBrowserSignInSettings(
   required String serverId,
 }) async {
   final entries = await ref.read(openWebUiAccountsProvider.future);
+  // The caller's ref can't be read once it is gone.
+  if (!context.mounted) return;
   final onServer = [
     for (final entry in entries)
       if (entry.server.id == serverId) entry,

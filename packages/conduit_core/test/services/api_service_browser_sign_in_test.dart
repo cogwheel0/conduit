@@ -154,7 +154,7 @@ void main() {
       check(probe.authorizationEndpoint)
           .equals(Uri.parse('https://chat.example/idp/authorize'));
       check(probe.audience).isNull();
-      check(adapter.requests).length.equals(1);
+      check(adapter.requests.single.followRedirects).isFalse();
       check(rejected).isEmpty();
     });
 

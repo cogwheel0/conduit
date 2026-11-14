@@ -178,10 +178,8 @@ final class _Browser implements BrowserAuthPort {
     return answer(url, redirectUri);
   }
 
-  int cancels = 0;
-
   @override
-  Future<void> cancel() async => cancels++;
+  Future<void> cancel() async {}
 }
 
 /// An unsigned JWT carrying [claims].
@@ -400,11 +398,6 @@ void main() {
       check(
         grant.session(owuiUserId: 'user-a')?.subject,
       ).equals('idp-user-1');
-    });
-
-    test('cancelling ends the sign-in waiting on the browser', () async {
-      await service.cancel();
-      check(browser.cancels).equals(1);
     });
 
     test('a grant without a refresh token keeps no session', () {

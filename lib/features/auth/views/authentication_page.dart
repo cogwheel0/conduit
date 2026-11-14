@@ -582,6 +582,19 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           .read(backendConfigProvider.notifier)
           .cacheForServer(backendConfig, config.id);
     }
+
+    // Browser sign-in chosen for the server being added: saved on it now that
+    // the server is, whichever way this first sign-in goes, and before a
+    // browser opens so a cancel keeps it.
+    if (_browserConfigChosen && !_browserConfigPersisted) {
+      await ref
+          .read(authActionsProvider)
+          .saveBrowserSignInConfig(
+            accountId: config.id,
+            config: _chosenBrowserConfig,
+          );
+      _browserConfigPersisted = true;
+    }
   }
 
   /// Whether what this sign-in signs in to is still selected. Cancel, or
@@ -1285,19 +1298,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       if (!mounted) return;
       final actions = ref.read(authActionsProvider);
       _browserActions = actions;
-      // Chosen for a server being added: saved on its server now that the
-      // server is, before the browser opens, so a cancel keeps it.
-      final accountId = _signInAccountId;
-      if (_browserConfigChosen &&
-          !_browserConfigPersisted &&
-          accountId != null) {
-        await actions.saveBrowserSignInConfig(
-          accountId: accountId,
-          config: config,
-        );
-        _browserConfigPersisted = true;
-        if (!mounted) return;
-      }
       if (opensBrowser) setState(() => _browserOpen = true);
       if (await attempt(actions, config)) ConduitHaptics.success();
     } on OpenWebUiTwoStepRequired catch (e) {

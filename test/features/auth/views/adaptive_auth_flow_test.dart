@@ -1370,6 +1370,36 @@ void main() {
       check(actions.events).deepEquals(['login:oidc:conduit-app', 'cancel']);
     });
 
+    testWidgets('set up on Add Server is saved with the server, whichever way '
+        'its first sign-in goes', (tester) async {
+      final actions = _BrowserAuthActions();
+      final harness = await openSignIn(
+        tester,
+        chosen: config,
+        actions: actions,
+      );
+
+      await tester.tap(find.text('Password'));
+      await tester.pumpAndSettle();
+      final fields = find.descendant(
+        of: find.byKey(const ValueKey('credentials_form')),
+        matching: find.byType(TextField),
+      );
+      await tester.enterText(fields.at(0), 'grace@example.com');
+      await tester.enterText(fields.at(1), 'password');
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('authentication-sign-in-button')),
+      );
+      await settle(tester);
+
+      check(actions.events).deepEquals([
+        'save:server-1:oidc:conduit-app',
+        'password:grace@example.com',
+      ]);
+      await harness.unmount(tester);
+    });
+
     testWidgets('set up on Add Server is saved once the server is, before '
         'the browser opens', (tester) async {
       final actions = _BrowserAuthActions();
@@ -1539,6 +1569,16 @@ class _BrowserAuthActions extends Fake implements AuthActions {
   bool _cancelled = false;
 
   /// Ends the sign-in held open as cancelled, as the browser closing does.
+  @override
+  Future<bool> login(
+    String username,
+    String password, {
+    bool rememberCredentials = false,
+  }) async {
+    events.add('password:$username');
+    return false;
+  }
+
   @override
   Future<void> cancelBrowserSignIn() async {
     events.add('cancel');

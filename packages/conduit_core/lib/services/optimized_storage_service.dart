@@ -3568,7 +3568,9 @@ class OptimizedStorageService {
             ? null
             : _savedCredentialsServerId(live) ?? activeId;
 
-        final swept = <StoredBrowserSignInSession>[];
+        // Every read first: one that fails then deletes nothing, so no
+        // session leaves the device without being returned for revocation.
+        final doomed = <String, BrowserSignInSession?>{};
         for (final MapEntry(key: accountId, value: payload) in stored.entries) {
           final session = BrowserSignInSession.tryDecode(payload);
           final account = registry.account(accountId);
@@ -3591,7 +3593,24 @@ class OptimizedStorageService {
               continue;
             }
           }
-          await _secureCredentialStorage.deleteBrowserSignInSession(accountId);
+          doomed[accountId] = session;
+        }
+        final swept = <StoredBrowserSignInSession>[];
+        for (final MapEntry(key: accountId, value: session) in doomed.entries) {
+          try {
+            await _secureCredentialStorage.deleteBrowserSignInSession(
+              accountId,
+            );
+          } catch (error, stackTrace) {
+            // Left for the next sweep; the ones deleted are still returned.
+            DebugLogger.error(
+              'browser-session-sweep-delete-failed',
+              scope: 'storage/optimized/browser-sign-in',
+              error: error,
+              stackTrace: stackTrace,
+            );
+            continue;
+          }
           if (session != null) {
             swept.add((accountId: accountId, session: session));
           }
