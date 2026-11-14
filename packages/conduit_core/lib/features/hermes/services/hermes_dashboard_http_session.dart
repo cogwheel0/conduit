@@ -333,11 +333,14 @@ final class HermesDashboardHttpSession implements HermesDashboardBridge {
   final HermesDashboardHttpClientFactory _httpClient;
   final Duration requestTimeout;
 
-  HttpClient? _client;
   Future<void> _tail = Future<void>.value();
-  bool _closed = false;
 
-  HttpClient get _open => _client ??= _httpClient();
+  /// Urgent requests still running: they hold no queue, so [close] waits
+  /// for them before it ends.
+  final Set<Future<void>> _urgent = {};
+
+  /// Set once [close] begins: no request is taken after.
+  bool _closing = false;
 
   @override
   Future<({int status, String body})> request(
@@ -347,8 +350,15 @@ final class HermesDashboardHttpSession implements HermesDashboardBridge {
     bool urgent = false,
     bool Function()? beforeSend,
   }) {
+    if (_closing) {
+      return Future.error(StateError('Hermes dashboard session is closed.'));
+    }
     if (urgent) {
-      return _send(method, url, body: body, beforeSend: beforeSend);
+      final send = _send(method, url, body: body, beforeSend: beforeSend);
+      final settled = send.then<void>((_) {}, onError: (Object _) {});
+      _urgent.add(settled);
+      unawaited(settled.whenComplete(() => _urgent.remove(settled)));
+      return send;
     }
     final completer = Completer<({int status, String body})>();
     _tail = _tail.then((_) async {
@@ -363,34 +373,54 @@ final class HermesDashboardHttpSession implements HermesDashboardBridge {
     return completer.future;
   }
 
+  /// One request, from opening its connection to reading its answer, on a
+  /// client of its own that is closed when it ends, however it ends: so a
+  /// request past [requestTimeout] is cut off, and over, before the next
+  /// one goes out, and one refused or failing midway holds no connection.
   Future<({int status, String body})> _send(
     String method,
     Uri url, {
     String? body,
     bool Function()? beforeSend,
   }) async {
-    if (_closed) throw StateError('Hermes dashboard session is closed.');
     // The cookies and the access headers go to the dashboard alone.
     if (!hermesDashboardIsExactOrigin(url, _root)) {
       throw StateError('Hermes dashboard requests stay on the dashboard.');
     }
-    if (beforeSend?.call() == false) {
-      throw const HermesDashboardRequestWithdrawn();
+    final exchange = _Exchange(_httpClient());
+    final running = _exchange(exchange, method, url, body, beforeSend);
+    try {
+      return await running.timeout(requestTimeout);
+    } on TimeoutException {
+      // Its answer, should one still come, is not read, and its cookies are
+      // not kept: it ends here, and only then does the queue move on.
+      exchange.abort();
+      await running.then<void>((_) {}, onError: (Object _) {});
+      rethrow;
+    } finally {
+      exchange.client.close(force: true);
     }
-    final response = await _exchange(
-      method,
-      url,
-      body: body,
-    ).timeout(requestTimeout);
-    return response;
   }
 
   Future<({int status, String body})> _exchange(
+    _Exchange exchange,
     String method,
-    Uri url, {
+    Uri url,
     String? body,
-  }) async {
-    final request = await _open.openUrl(method, url);
+    bool Function()? beforeSend,
+  ) async {
+    final request = await exchange.client.openUrl(method, url);
+    exchange.request = request;
+    // Nothing goes out before the first write: asked now, with nothing
+    // awaited before the send, a withdrawal is either seen here or comes
+    // after the request went out.
+    if (exchange.aborted || beforeSend?.call() == false) {
+      // Never sent: its failing `done` is not this request's error.
+      request.done.ignore();
+      request.abort();
+      if (exchange.aborted) throw TimeoutException(null, requestTimeout);
+      throw const HermesDashboardRequestWithdrawn();
+    }
     request.followRedirects = false;
     _accessHeaders.forEach(request.headers.set);
     final cookies = _jar.cookieHeader(url);
@@ -401,22 +431,23 @@ final class HermesDashboardHttpSession implements HermesDashboardBridge {
       request.add(utf8.encode(body));
     }
     final response = await request.close();
+    if (exchange.aborted) throw TimeoutException(null, requestTimeout);
     final setCookies = response.headers[HttpHeaders.setCookieHeader];
     if (setCookies != null && _jar.absorb(url, setCookies)) {
       await _onCookiesChanged?.call();
     }
+    // A redirect or an answer too large is not read: closing the client
+    // ends it.
     if (response.isRedirect ||
         (response.statusCode >= 300 && response.statusCode < 400)) {
-      await response.drain<void>();
       throw StateError('Hermes dashboard answered with a redirect.');
     }
-    final declared = response.contentLength;
-    if (declared > kHermesDashboardMaxResponseBytes) {
-      await response.drain<void>();
+    if (response.contentLength > kHermesDashboardMaxResponseBytes) {
       throw StateError('Hermes dashboard response is too large.');
     }
     final bytes = <int>[];
     await for (final chunk in response) {
+      if (exchange.aborted) throw TimeoutException(null, requestTimeout);
       bytes.addAll(chunk);
       if (bytes.length > kHermesDashboardMaxResponseBytes) {
         throw StateError('Hermes dashboard response is too large.');
@@ -434,12 +465,32 @@ final class HermesDashboardHttpSession implements HermesDashboardBridge {
   @override
   Future<void> reload() => _tail;
 
+  /// Takes no request after it begins; ends once the queue and every urgent
+  /// request (a Stop waiting for its answer) have, their cookies kept.
   @override
   Future<void> close() async {
+    _closing = true;
     await _tail;
-    _closed = true;
-    _client?.close(force: true);
-    _client = null;
+    await Future.wait([..._urgent]);
+  }
+}
+
+/// One request's connection, which a deadline can cut off.
+final class _Exchange {
+  _Exchange(this.client);
+
+  final HttpClient client;
+  HttpClientRequest? request;
+  bool aborted = false;
+
+  void abort() {
+    aborted = true;
+    final open = request;
+    if (open != null) {
+      open.done.ignore();
+      open.abort();
+    }
+    client.close(force: true);
   }
 }
 

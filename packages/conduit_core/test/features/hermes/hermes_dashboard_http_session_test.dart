@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_http_session.dart';
+import 'package:fake_async/fake_async.dart';
+import 'package:test/fake.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -239,4 +242,288 @@ void main() {
       check(seen.single['access']).equals('client.access');
     });
   });
+
+  group('one request at a time', () {
+    final root = Uri.parse('https://hermes.example.test');
+    late _Net net;
+    late HermesDashboardCookieJar jar;
+
+    setUp(() {
+      net = _Net();
+      jar = HermesDashboardCookieJar([
+        const HermesDashboardCookie(
+          name: 'hermes_session_at',
+          value: 'kept',
+          domain: 'hermes.example.test',
+        ),
+      ]);
+    });
+
+    HermesDashboardHttpSession session({
+      Future<void> Function()? onCookiesChanged,
+    }) => HermesDashboardHttpSession(
+      root: root,
+      accessHeaders: const {},
+      jar: jar,
+      onCookiesChanged: onCookiesChanged,
+      httpClient: net.client,
+      requestTimeout: const Duration(seconds: 30),
+    );
+
+    Uri at(String path) => root.replace(path: path);
+
+    test('a request past its deadline is ended before the next one, and its '
+        'late answer keeps no cookie', () {
+      fakeAsync((async) {
+        final slow = net.answers['/api/slow'] = Completer<_Answer>();
+        final dashboard = session();
+        Object? timedOut;
+        dashboard
+            .request('POST', at('/api/slow'))
+            .then(
+              (_) {},
+              onError: (Object e) {
+                timedOut = e;
+              },
+            );
+        final next = dashboard.request('GET', at('/api/next'));
+        async.flushMicrotasks();
+        check(net.log).deepEquals(['open /api/slow', 'send /api/slow']);
+
+        async.elapse(const Duration(seconds: 30));
+        check(timedOut).isA<TimeoutException>();
+        // Cut off first; only then does the next one go out.
+        check(net.log).deepEquals([
+          'open /api/slow',
+          'send /api/slow',
+          'abort /api/slow',
+          'client closed',
+          'open /api/next',
+          'send /api/next',
+          'client closed',
+        ]);
+        slow.complete(const _Answer(cookie: 'hermes_session_at=late; Path=/'));
+        async.flushMicrotasks();
+        check(next).completes();
+        check(jar.cookieHeader(at('/api/x'))).equals('hermes_session_at=kept');
+        dashboard.close();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('a request is withdrawn up to the moment it is sent', () {
+      fakeAsync((async) {
+        final opening = net.openGates['/api/run'] = Completer<void>();
+        final dashboard = session();
+        var withdrawn = false;
+        Object? outcome;
+        dashboard
+            .request('POST', at('/api/run'), beforeSend: () => !withdrawn)
+            .then(
+              (_) {},
+              onError: (Object e) {
+                outcome = e;
+              },
+            );
+        async.flushMicrotasks();
+        // A Stop overtakes it while its connection opens.
+        withdrawn = true;
+        dashboard.request('POST', at('/api/stop'), urgent: true);
+        async.flushMicrotasks();
+        opening.complete();
+        async.flushMicrotasks();
+
+        check(outcome).isA<HermesDashboardRequestWithdrawn>();
+        check(net.log).not((it) => it.contains('send /api/run'));
+        check(net.log).contains('abort /api/run');
+        dashboard.close();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('closing waits for an urgent request, and takes no new ones', () {
+      fakeAsync((async) {
+        final stop = net.answers['/api/stop'] = Completer<_Answer>();
+        final dashboard = session();
+        final stopped = dashboard.request(
+          'POST',
+          at('/api/stop'),
+          urgent: true,
+        );
+        async.flushMicrotasks();
+        var closed = false;
+        dashboard.close().then((_) => closed = true);
+        async.flushMicrotasks();
+        check(closed).isFalse();
+        check(dashboard.request('GET', at('/api/after'))).throws<StateError>();
+
+        stop.complete(const _Answer(cookie: 'hermes_session_at=fresh; Path=/'));
+        async.flushMicrotasks();
+        check(stopped).completes();
+        check(closed).isTrue();
+        check(jar.cookieHeader(at('/api/x'))).equals('hermes_session_at=fresh');
+        check(net.log).not((it) => it.contains('open /api/after'));
+        async.flushMicrotasks();
+      });
+    });
+
+    test('an answer that is refused or not kept lets go of its connection', () {
+      fakeAsync((async) {
+        net.answers['/api/huge'] = Completer<_Answer>()
+          ..complete(const _Answer(contentLength: 100 << 20));
+        net.answers['/api/cookie'] = Completer<_Answer>()
+          ..complete(const _Answer(cookie: 'hermes_session_at=new; Path=/'));
+        final dashboard = session(
+          onCookiesChanged: () async => throw StateError('disk full'),
+        );
+        check(dashboard.request('GET', at('/api/huge'))).throws<StateError>();
+        check(dashboard.request('GET', at('/api/cookie'))).throws<StateError>();
+        async.flushMicrotasks();
+
+        // Neither body is read to its end; each connection is closed.
+        check(net.drained).isEmpty();
+        check(net.log.where((line) => line == 'client closed').length)
+            .equals(2);
+        dashboard.close();
+        async.flushMicrotasks();
+      });
+    });
+  });
+}
+
+/// What the fake dashboard answers.
+final class _Answer {
+  const _Answer({this.cookie, this.contentLength = -1});
+
+  int get status => 200;
+  final String? cookie;
+  final int contentLength;
+}
+
+/// The network a fake [HttpClient] reaches: what each request went through,
+/// in order, with the opening of a connection and an answer held back by
+/// path when the test says.
+final class _Net {
+  final log = <String>[];
+  final openGates = <String, Completer<void>>{};
+  final answers = <String, Completer<_Answer>>{};
+  final drained = <String>[];
+
+  HttpClient client() => _Client(this);
+}
+
+final class _Client extends Fake implements HttpClient {
+  _Client(this.net);
+
+  final _Net net;
+  bool _closed = false;
+
+  @override
+  Future<HttpClientRequest> openUrl(String method, Uri url) async {
+    net.log.add('open ${url.path}');
+    await net.openGates[url.path]?.future;
+    if (_closed) throw const SocketException('closed');
+    return _Request(net, url.path);
+  }
+
+  @override
+  void close({bool force = false}) {
+    if (_closed) return;
+    _closed = true;
+    net.log.add('client closed');
+  }
+}
+
+final class _Request extends Fake implements HttpClientRequest {
+  _Request(this.net, this.path);
+
+  final _Net net;
+  final String path;
+  final _answer = Completer<HttpClientResponse>();
+
+  @override
+  bool followRedirects = true;
+
+  @override
+  final HttpHeaders headers = _Headers();
+
+  @override
+  void add(List<int> data) {}
+
+  @override
+  Future<HttpClientResponse> close() {
+    net.log.add('send $path');
+    final pending = net.answers[path]?.future ?? Future.value(const _Answer());
+    pending.then((answer) {
+      if (!_answer.isCompleted) _answer.complete(_Response(net, path, answer));
+    });
+    return _answer.future;
+  }
+
+  @override
+  Future<HttpClientResponse> get done => _answer.future;
+
+  @override
+  void abort([Object? exception, StackTrace? stackTrace]) {
+    net.log.add('abort $path');
+    if (!_answer.isCompleted) {
+      _answer.completeError(const HttpException('aborted'));
+    }
+  }
+}
+
+final class _Headers extends Fake implements HttpHeaders {
+  _Headers([this.cookies]);
+
+  final List<String>? cookies;
+
+  @override
+  ContentType? contentType;
+
+  @override
+  void set(String name, Object value, {bool preserveHeaderCase = false}) {}
+
+  @override
+  List<String>? operator [](String name) =>
+      name == HttpHeaders.setCookieHeader ? cookies : null;
+}
+
+final class _Response extends Stream<List<int>> implements HttpClientResponse {
+  _Response(this.net, this.path, this.answer)
+    : headers = _Headers([?answer.cookie]);
+
+  final _Net net;
+  final String path;
+  final _Answer answer;
+
+  @override
+  final HttpHeaders headers;
+
+  @override
+  int get statusCode => answer.status;
+
+  @override
+  bool get isRedirect => answer.status >= 300 && answer.status < 400;
+
+  @override
+  int get contentLength => answer.contentLength;
+
+  @override
+  StreamSubscription<List<int>> listen(
+    void Function(List<int> event)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) {
+    net.drained.add(path);
+    return Stream<List<int>>.value(utf8.encode('{}')).listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: cancelOnError,
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
