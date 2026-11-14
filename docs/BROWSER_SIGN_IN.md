@@ -238,9 +238,10 @@ renewal stops working, sign in through the browser again.
    sheet shows the redirect URI to register; tap it to copy it.
 3. **Test** checks discovery and whether the server accepts token exchange.
    Then choose **Save**.
-4. **Continue in browser** signs in. **Use in-app sign-in** is still there as a
-   fallback, and **Browser sign-in settings…** changes or removes the
-   settings later.
+4. The SSO button now signs in through the browser. **Browser sign-in
+   settings…** changes or removes the settings later. The in-app sign-in is
+   offered again only after a failure it gets around, such as no suitable
+   browser or an authenticating proxy.
 
 The settings belong to the **server**, so every account on it uses them, on
 any of its addresses. Changing the provider, client ID or issuer, or removing
@@ -274,7 +275,7 @@ the authenticator code. That covers browser sign-ins, unless
 | --- | --- |
 | Token exchange is turned off | Set `ENABLE_OAUTH_TOKEN_EXCHANGE=true` and restart Open WebUI |
 | The server is too old | Upgrade Open WebUI to 0.8.0 or newer |
-| No Open WebUI account for this user | Sign in once on the web (Conduit offers to open it), then **Retry**. For Microsoft, set `OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true` |
+| No Open WebUI account for this user | Sign in once on the web, then **Retry**. For Microsoft, set `OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true` |
 | The provider isn't set up on the server | Open WebUI doesn't have this provider enabled |
 | The identity provider rejected the client | Check the client ID, that the client is public, the redirect URI, and PKCE `S256` |
 | Access prohibited | The client ID is missing from `OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS`, or the email domain isn't in `OAUTH_ALLOWED_DOMAINS`, or role management found no allowed role in Conduit's token |

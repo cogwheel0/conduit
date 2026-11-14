@@ -4,7 +4,6 @@ import 'package:conduit_core/models/browser_sign_in_config.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/browser_auth_port.dart';
-import 'package:conduit_core/ports/external_url_port.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart';
@@ -140,9 +139,6 @@ class AdaptiveAuthHarness {
   /// The browser sign-in settings saved for the server's accounts, if any.
   final BrowserSignInConfig? browserSignInConfig;
 
-  /// The URLs opened in the browser outside the app.
-  final openedUrls = <Uri>[];
-
   /// The device storage, for a test to see what was saved.
   OptimizedStorageService get storage => _storage;
   final _MockOptimizedStorageService _storage = _MockOptimizedStorageService();
@@ -250,9 +246,6 @@ class AdaptiveAuthHarness {
           browserSignInConfigProvider.overrideWith(
             (ref, account) async => browserSignInConfig,
           ),
-          openExternalUrlProvider.overrideWithValue(
-            _RecordingUrlPort(openedUrls),
-          ),
         ],
         appleOnDeviceStatusProvider.overrideWith(
           (_) async => appleOnDeviceStatus ?? _unavailableAppleStatus(),
@@ -317,18 +310,6 @@ final class _SupportedBrowserAuthPort implements BrowserAuthPort {
 
   @override
   Future<void> cancel() async {}
-}
-
-final class _RecordingUrlPort implements OpenExternalUrlPort {
-  _RecordingUrlPort(this.opened);
-
-  final List<Uri> opened;
-
-  @override
-  Future<bool> open(Uri url) async {
-    opened.add(url);
-    return true;
-  }
 }
 
 final class _AddingAccountFrom extends AccountAdditionOrigin {

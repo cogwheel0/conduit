@@ -2520,10 +2520,6 @@
   "@ssoLoadingLogin": {
     "description": "Loading message while SSO login page loads."
   },
-  "browserSignInContinue": "Kontynuuj w przeglądarce",
-  "@browserSignInContinue": {
-    "description": "Button that signs in through the device's system browser, where passkeys and security keys work."
-  },
   "browserSignInContinueSubtitle": "Działa z kluczami dostępu i kluczami bezpieczeństwa",
   "@browserSignInContinueSubtitle": {
     "description": "Subtitle under the button that signs in through the system browser."
@@ -2548,11 +2544,7 @@
   "@browserSignInHttpWarning": {
     "description": "Warning on the sign-in page when browser sign-in is used with a server reached over plain http."
   },
-  "browserSignInOpenWebSignIn": "Otwórz stronę logowania w przeglądarce",
-  "@browserSignInOpenWebSignIn": {
-    "description": "Button that opens the server's own sign-in page in the browser, so a first web sign-in creates the user."
-  },
-  "browserSignInSessionExpired": "Twoje logowanie przez przeglądarkę wygasło. Kontynuuj w przeglądarce, aby zalogować się ponownie.",
+  "browserSignInSessionExpired": "Twoje logowanie przez przeglądarkę wygasło. Zaloguj się ponownie.",
   "@browserSignInSessionExpired": {
     "description": "Sign-in error when a session signed in through the system browser could not be renewed."
   },
@@ -2750,11 +2742,11 @@
   "@browserSignInErrorIdpError": {
     "description": "Browser sign-in error for any other failure at the identity provider."
   },
-  "browserSignInErrorRefreshExpired": "Twoje logowanie u dostawcy tożsamości wygasło. Kontynuuj w przeglądarce, aby zalogować się ponownie.",
+  "browserSignInErrorRefreshExpired": "Twoje logowanie u dostawcy tożsamości wygasło. Zaloguj się ponownie.",
   "@browserSignInErrorRefreshExpired": {
     "description": "Browser sign-in error when the saved refresh token is no longer accepted."
   },
-  "browserSignInErrorConfigMismatch": "Ustawienia logowania przez przeglądarkę na tym serwerze zmieniły się. Kontynuuj w przeglądarce, aby zalogować się ponownie.",
+  "browserSignInErrorConfigMismatch": "Ustawienia logowania przez przeglądarkę na tym serwerze zmieniły się. Zaloguj się ponownie.",
   "@browserSignInErrorConfigMismatch": {
     "description": "Browser sign-in error when the settings changed since the account signed in."
   },

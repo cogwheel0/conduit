@@ -2655,10 +2655,6 @@
   "@ssoLoadingLogin": {
     "description": "Loading message while SSO login page loads."
   },
-  "browserSignInContinue": "Continue in Browser",
-  "@browserSignInContinue": {
-    "description": "Button that signs in through the device's system browser, where passkeys and security keys work."
-  },
   "browserSignInContinueSubtitle": "Works with passkeys and security keys",
   "@browserSignInContinueSubtitle": {
     "description": "Subtitle under the button that signs in through the system browser."
@@ -2683,11 +2679,7 @@
   "@browserSignInHttpWarning": {
     "description": "Warning on the sign-in page when browser sign-in is used with a server reached over plain http."
   },
-  "browserSignInOpenWebSignIn": "Open Sign-In in Browser",
-  "@browserSignInOpenWebSignIn": {
-    "description": "Button that opens the server's own sign-in page in the browser, so a first web sign-in creates the user."
-  },
-  "browserSignInSessionExpired": "Your browser sign-in has ended. Continue in browser to sign in again.",
+  "browserSignInSessionExpired": "Your browser sign-in has ended. Sign in again.",
   "@browserSignInSessionExpired": {
     "description": "Sign-in error when a session signed in through the system browser could not be renewed."
   },
@@ -2885,11 +2877,11 @@
   "@browserSignInErrorIdpError": {
     "description": "Browser sign-in error for any other failure at the identity provider."
   },
-  "browserSignInErrorRefreshExpired": "Your sign-in with the identity provider has ended. Continue in browser to sign in again.",
+  "browserSignInErrorRefreshExpired": "Your sign-in with the identity provider has ended. Sign in again.",
   "@browserSignInErrorRefreshExpired": {
     "description": "Browser sign-in error when the saved refresh token is no longer accepted."
   },
-  "browserSignInErrorConfigMismatch": "This server's browser sign-in settings changed. Continue in browser to sign in again.",
+  "browserSignInErrorConfigMismatch": "This server's browser sign-in settings changed. Sign in again.",
   "@browserSignInErrorConfigMismatch": {
     "description": "Browser sign-in error when the settings changed since the account signed in."
   },

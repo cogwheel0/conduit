@@ -10,8 +10,8 @@ import '../utils/browser_sign_in_messages.dart';
 
 /// The SSO method of the sign-in page: what signing in through the system
 /// browser (where passkeys and security keys work) or the in-app page does,
-/// and the ways to set it up, switch between the two, or recover from a
-/// failure. The sign-in button itself is the page's.
+/// and the ways to set it up or recover from a failure. The sign-in button
+/// itself is the page's, and signs in through the browser once it is set up.
 class BrowserSignInSection extends StatelessWidget {
   const BrowserSignInSection({
     super.key,
@@ -23,7 +23,6 @@ class BrowserSignInSection extends StatelessWidget {
     this.failure,
     this.onUseInApp,
     this.onOpenSettings,
-    this.onOpenWebSignIn,
     this.onRetry,
   });
 
@@ -46,15 +45,12 @@ class BrowserSignInSection extends StatelessWidget {
   /// Why the last browser sign-in failed, when it did.
   final BrowserSignInFailure? failure;
 
-  /// Signs in with the in-app page instead; null when it cannot run here.
+  /// Signs in with the in-app page instead, after a browser [failure] that
+  /// the in-app page gets around; null otherwise.
   final VoidCallback? onUseInApp;
 
   /// Opens the browser sign-in settings.
   final VoidCallback? onOpenSettings;
-
-  /// Opens the server's own sign-in in the browser, for a user Open WebUI
-  /// does not have yet.
-  final VoidCallback? onOpenWebSignIn;
 
   /// Tries the failed sign-in's exchange again.
   final VoidCallback? onRetry;
@@ -150,27 +146,16 @@ class BrowserSignInSection extends StatelessWidget {
             ],
           ),
         ],
-        if (userNotFound) ...[
+        if (userNotFound && onRetry != null) ...[
           const SizedBox(height: Spacing.md),
-          Wrap(
-            spacing: Spacing.sm,
-            runSpacing: Spacing.xs,
-            children: [
-              if (onOpenWebSignIn != null)
-                ConduitTextButton(
-                  key: const ValueKey<String>('browser-sign-in-open-web'),
-                  text: l10n.browserSignInOpenWebSignIn,
-                  isPrimary: true,
-                  onPressed: busy ? null : onOpenWebSignIn,
-                ),
-              if (onRetry != null)
-                ConduitTextButton(
-                  key: const ValueKey<String>('browser-sign-in-retry'),
-                  text: l10n.retry,
-                  isPrimary: true,
-                  onPressed: busy ? null : onRetry,
-                ),
-            ],
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: ConduitTextButton(
+              key: const ValueKey<String>('browser-sign-in-retry'),
+              text: l10n.retry,
+              isPrimary: true,
+              onPressed: busy ? null : onRetry,
+            ),
           ),
         ],
         const SizedBox(height: Spacing.sm),
@@ -182,8 +167,7 @@ class BrowserSignInSection extends StatelessWidget {
               ConduitTextButton(
                 key: const ValueKey<String>('browser-sign-in-use-in-app'),
                 text: l10n.browserSignInUseInApp,
-                isPrimary:
-                    failure != null && browserSignInSuggestsInApp(failure),
+                isPrimary: true,
                 onPressed: busy ? null : onUseInApp,
               ),
             if (onOpenSettings != null)

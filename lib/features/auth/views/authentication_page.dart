@@ -956,16 +956,9 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
             ].join('\n'),
       error: error,
       children: [
-        if (configured &&
-            _browserFailure == BrowserSignInFailure.userNotFound) ...[
-          action(
-            'browser-sign-in-open-web',
-            l10n.browserSignInOpenWebSignIn,
-            _openWebSignIn,
-          ),
+        if (configured && _browserFailure == BrowserSignInFailure.userNotFound)
           action('browser-sign-in-retry', l10n.retry, _retryBrowserSignIn),
-        ],
-        if (configured && _hasWebViewSso)
+        if (_offersInAppAfterBrowserFailure)
           action(
             'browser-sign-in-use-in-app',
             l10n.browserSignInUseInApp,
@@ -1001,6 +994,16 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   /// The SSO method signs in through the browser when it is set up for this
   /// server.
   bool get _ssoInBrowser => _authMode == AuthMode.sso && _browserConfigured;
+
+  /// The in-app page is offered beside browser sign-in only once the browser
+  /// failed in a way its message says the in-app page gets around.
+  bool get _offersInAppAfterBrowserFailure {
+    final failure = _browserFailure;
+    return _browserConfigured &&
+        _hasWebViewSso &&
+        failure != null &&
+        browserSignInSuggestsInApp(failure);
+  }
 
   /// The SSO method can only set up browser sign-in: it is not set up, and
   /// the in-app page cannot run here.
@@ -1040,9 +1043,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     final sso = _authMode == AuthMode.sso;
     return AuthPrimaryButton(
       key: const ValueKey<String>('authentication-submit'),
-      label: _ssoInBrowser
-          ? l10n.browserSignInContinue
-          : _ssoSetUpOnly
+      label: _ssoSetUpOnly
           ? l10n.browserSignInSetUp
           : sso
           ? l10n.signInContinueWithSso
@@ -1168,11 +1169,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       busy: _isSigningIn,
       insecureAddress: configured && address?.scheme.toLowerCase() == 'http',
       failure: _browserFailure,
-      onUseInApp: configured && _hasWebViewSso ? _navigateToSso : null,
+      onUseInApp: _offersInAppAfterBrowserFailure ? _navigateToSso : null,
       onOpenSettings: configured || _canSetUpBrowserSignIn
           ? _openBrowserSignInSettings
           : null,
-      onOpenWebSignIn: _openWebSignIn,
       onRetry: _retryBrowserSignIn,
     );
   }
@@ -1331,25 +1331,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   void _cancelBrowserSignIn() {
     final actions = _browserActions;
     if (actions != null) unawaited(actions.cancelBrowserSignIn());
-  }
-
-  /// Opens the server's own sign-in in the browser: a first sign-in there
-  /// creates the Open WebUI user that a browser sign-in exchanges for.
-  Future<void> _openWebSignIn() async {
-    final base = _resolvedServerConfig?.url.trim();
-    if (base == null || base.isEmpty) return;
-    var root = base;
-    while (root.endsWith('/')) {
-      root = root.substring(0, root.length - 1);
-    }
-    final url = Uri.tryParse('$root/auth');
-    if (url == null) return;
-    final opened = await ref.read(openExternalUrlProvider).open(url);
-    if (!opened && mounted) {
-      setState(
-        () => _loginError = AppLocalizations.of(context)!.genericSignInFailed,
-      );
-    }
   }
 
   /// Validates that a token is a JWT and not an API key.
@@ -1597,7 +1578,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   Widget _buildSignInButton() {
     final l10n = AppLocalizations.of(context)!;
 
-    final browser = _ssoInBrowser;
     final setUpOnly = _ssoSetUpOnly;
 
     if (_browserOpen) {
@@ -1613,8 +1593,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     String buttonText;
     if (_isSigningIn) {
       buttonText = l10n.signingIn;
-    } else if (browser) {
-      buttonText = l10n.browserSignInContinue;
     } else if (setUpOnly) {
       buttonText = l10n.browserSignInSetUp;
     } else {

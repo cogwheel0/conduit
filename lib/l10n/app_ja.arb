@@ -2260,10 +2260,6 @@
   "@ssoLoadingLogin": {
     "description": "Loading message while SSO login page loads."
   },
-  "browserSignInContinue": "ブラウザーで続行",
-  "@browserSignInContinue": {
-    "description": "Button that signs in through the device's system browser, where passkeys and security keys work."
-  },
   "browserSignInContinueSubtitle": "パスキーとセキュリティキーに対応",
   "@browserSignInContinueSubtitle": {
     "description": "Subtitle under the button that signs in through the system browser."
@@ -2288,11 +2284,7 @@
   "@browserSignInHttpWarning": {
     "description": "Warning on the sign-in page when browser sign-in is used with a server reached over plain http."
   },
-  "browserSignInOpenWebSignIn": "ブラウザーでサインインページを開く",
-  "@browserSignInOpenWebSignIn": {
-    "description": "Button that opens the server's own sign-in page in the browser, so a first web sign-in creates the user."
-  },
-  "browserSignInSessionExpired": "ブラウザーサインインが終了しました。ブラウザーで続行して、もう一度サインインしてください。",
+  "browserSignInSessionExpired": "ブラウザーサインインが終了しました。もう一度サインインしてください。",
   "@browserSignInSessionExpired": {
     "description": "Sign-in error when a session signed in through the system browser could not be renewed."
   },
@@ -2490,11 +2482,11 @@
   "@browserSignInErrorIdpError": {
     "description": "Browser sign-in error for any other failure at the identity provider."
   },
-  "browserSignInErrorRefreshExpired": "ID プロバイダーでのサインインが終了しました。ブラウザーで続行して、もう一度サインインしてください。",
+  "browserSignInErrorRefreshExpired": "ID プロバイダーでのサインインが終了しました。もう一度サインインしてください。",
   "@browserSignInErrorRefreshExpired": {
     "description": "Browser sign-in error when the saved refresh token is no longer accepted."
   },
-  "browserSignInErrorConfigMismatch": "このサーバーのブラウザーサインインの設定が変更されました。ブラウザーで続行して、もう一度サインインしてください。",
+  "browserSignInErrorConfigMismatch": "このサーバーのブラウザーサインインの設定が変更されました。もう一度サインインしてください。",
   "@browserSignInErrorConfigMismatch": {
     "description": "Browser sign-in error when the settings changed since the account signed in."
   },

@@ -2260,10 +2260,6 @@
   "@ssoLoadingLogin": {
     "description": "Loading message while SSO login page loads."
   },
-  "browserSignInContinue": "Pokračovať v prehliadači",
-  "@browserSignInContinue": {
-    "description": "Button that signs in through the device's system browser, where passkeys and security keys work."
-  },
   "browserSignInContinueSubtitle": "Funguje s prístupovými a bezpečnostnými kľúčmi",
   "@browserSignInContinueSubtitle": {
     "description": "Subtitle under the button that signs in through the system browser."
@@ -2288,11 +2284,7 @@
   "@browserSignInHttpWarning": {
     "description": "Warning on the sign-in page when browser sign-in is used with a server reached over plain http."
   },
-  "browserSignInOpenWebSignIn": "Otvoriť prihlasovaciu stránku v prehliadači",
-  "@browserSignInOpenWebSignIn": {
-    "description": "Button that opens the server's own sign-in page in the browser, so a first web sign-in creates the user."
-  },
-  "browserSignInSessionExpired": "Vaše prihlásenie cez prehliadač skončilo. Ak sa chcete znova prihlásiť, pokračujte v prehliadači.",
+  "browserSignInSessionExpired": "Vaše prihlásenie cez prehliadač skončilo. Prihláste sa znova.",
   "@browserSignInSessionExpired": {
     "description": "Sign-in error when a session signed in through the system browser could not be renewed."
   },
@@ -2490,11 +2482,11 @@
   "@browserSignInErrorIdpError": {
     "description": "Browser sign-in error for any other failure at the identity provider."
   },
-  "browserSignInErrorRefreshExpired": "Vaše prihlásenie u poskytovateľa identity skončilo. Ak sa chcete znova prihlásiť, pokračujte v prehliadači.",
+  "browserSignInErrorRefreshExpired": "Vaše prihlásenie u poskytovateľa identity skončilo. Prihláste sa znova.",
   "@browserSignInErrorRefreshExpired": {
     "description": "Browser sign-in error when the saved refresh token is no longer accepted."
   },
-  "browserSignInErrorConfigMismatch": "Nastavenia prihlásenia cez prehliadač na tomto serveri sa zmenili. Ak sa chcete znova prihlásiť, pokračujte v prehliadači.",
+  "browserSignInErrorConfigMismatch": "Nastavenia prihlásenia cez prehliadač na tomto serveri sa zmenili. Prihláste sa znova.",
   "@browserSignInErrorConfigMismatch": {
     "description": "Browser sign-in error when the settings changed since the account signed in."
   },
