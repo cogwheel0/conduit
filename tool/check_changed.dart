@@ -481,8 +481,13 @@ Future<String> _run(Step step) async {
       step.command.sublist(1),
       workingDirectory: step.directory,
       mode: ProcessStartMode.inheritStdio,
-      // flutter and dart are .bat shims on Windows.
-      runInShell: Platform.isWindows,
+      // flutter and dart are .bat shims on Windows and need a shell. Anything
+      // else starts directly: through a shell, a missing program is a
+      // non-zero exit, which would fail an optional step instead of
+      // skipping it.
+      runInShell:
+          Platform.isWindows &&
+          const {'flutter', 'dart'}.contains(step.command.first),
     );
     return await process.exitCode == 0 ? 'pass' : 'FAIL';
   } on ProcessException {

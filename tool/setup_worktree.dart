@@ -108,7 +108,9 @@ Future<void> _setUp(String root) async {
   await _run(root, 'pub get', ['flutter', 'pub', 'get']);
 
   // Each member keeps its own build cache and none waits on another's
-  // output, so the app and the packages generate side by side.
+  // output, so the app and the packages generate side by side. Future.wait
+  // reports a failure only once every generator has exited, so none is still
+  // writing when the failure marker appears.
   await Future.wait([
     _run(root, 'codegen app', _buildRunner),
     for (final package in codegenPackages(root))
