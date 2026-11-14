@@ -227,7 +227,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     final config = handoff.config;
     if (config != null) {
       _applyConfig(config);
-      if (handoff.browserSignInClientId case final clientId?) {
+      // Turned on under Advanced, before a proxy's sign-in or with the
+      // server checked: on here too, should the user come back to connect.
+      final clientId =
+          handoff.browserSignInClientId ??
+          handoff.authFlow?.browserSignIn?.clientId;
+      if (clientId != null) {
         setState(() {
           _browserSignIn = true;
           _browserSignInClientIdController.text = clientId;

@@ -920,15 +920,22 @@ void main() {
     test('unless the choice is undone', () async {
       await saveAccounts(['a']);
       final session = await signInWithBrowser('a');
-      var checks = 0;
+      var bothGone = false;
 
       await storage.selectUnauthenticatedServerConfig(
         account('a'),
-        // Fails once the saved sign-in and its session have gone.
-        canCommit: () => ++checks < 8,
+        // Fails once the saved sign-in and its session have gone, so the
+        // rollback has both to put back.
+        canCommit: () {
+          bothGone =
+              secure.deletedKeys.contains('user_credentials_v2') &&
+              secure.deletedKeys.contains('browser_sign_in_session_v1:a');
+          return !bothGone;
+        },
         publish: () {},
       );
 
+      check(bothGone).isTrue();
       check(await storedSession('a')).equals(session);
       check((await storage.getSavedCredentialsStrict())?['authType'])
           .equals(AuthTypes.ssoBrowser);
@@ -1228,9 +1235,13 @@ final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
   String? undeletableKey;
   bool Function(String key, String? value)? refuseWhen;
 
+  /// Every key deleted so far.
+  final deletedKeys = <String>{};
+
   @override
   Future<void> delete({required String key}) {
     if (key == undeletableKey) throw StateError('keychain refused $key');
+    deletedKeys.add(key);
     return super.delete(key: key);
   }
 
