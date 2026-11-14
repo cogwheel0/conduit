@@ -1653,6 +1653,55 @@ final class TurnsService implements ChatTurns, AddressReplies {
     );
   }
 
+  /// Hands [insertion] to the windows showing [session]'s chat, then takes
+  /// it back, as a phone's composer clears what it took.
+  void _insertText(_ChatSession session, ComposerTextInsertion? insertion) {
+    if (insertion == null ||
+        insertion.text.isEmpty ||
+        insertion.targetId != chatComposerTextInsertionTargetId) {
+      return;
+    }
+    // Words given back (`onlyIntoEmpty`) mean the chat kept its model over
+    // a switch Hermes held: the core puts the chat back on it next.
+    if (insertion.onlyIntoEmpty) session.keptModel = true;
+    final chatId = session.chatId;
+    if (chatId != null && chatId.isNotEmpty) {
+      _events.emit(
+        ConduitEventSpecs.composerInsertText,
+        ComposerInsertText(
+          chatId: chatId,
+          text: insertion.text,
+          onlyIntoEmpty: insertion.onlyIntoEmpty,
+        ),
+        scope: chatId,
+      );
+    } else {
+      DebugLogger.warning(
+        'composer-insert-without-chat',
+        scope: 'daemon/turns',
+      );
+    }
+    // Not from inside the provider's own notification.
+    scheduleMicrotask(() {
+      if (session.scope.isDisposed) return;
+      session.scope.container
+          .read(composerTextInsertionProvider.notifier)
+          .clear(insertion.id);
+    });
+  }
+
+  /// The model a chat kept over a held Hermes switch is the composer's
+  /// again: a phone's picker returns to it, and a window's picker shows the
+  /// account's selection, which follows.
+  void _followKeptModel(_ChatSession session, Model? model) {
+    if (!session.keptModel || model == null) return;
+    session.keptModel = false;
+    if (_container.read(selectedModelProvider)?.id == model.id) return;
+    _container
+        .read(selectedModelProvider.notifier)
+        .set(model, allowHidden: true);
+  }
+
   /// Tells the windows showing [session]'s chat that its queue changed
   /// (`queue.changed`), once per change, and keeps the scope while anything
   /// is queued.
@@ -3381,6 +3430,13 @@ final class TurnsService implements ChatTurns, AddressReplies {
         chatDraftQueueAdmissionWaitProvider.overrideWithValue(
           () => _beforeQueuedBatch(session),
         ),
+        // Words the core gives this chat's composer (a Hermes message kept
+        // back when a model switch was declined, Hermes' prefill) belong to
+        // this chat, not to whichever one a phone would show: each scope
+        // has its own, sent to the chat's windows (`composer.insertText`).
+        composerTextInsertionProvider.overrideWith(
+          ComposerTextInsertionNotifier.new,
+        ),
       ],
     );
     session = _ChatSession(scope, requestedChatId: chatId)..holds = 1;
@@ -3390,6 +3446,14 @@ final class TurnsService implements ChatTurns, AddressReplies {
       scope.container.listen<List<ChatMessage>>(
         chatMessagesProvider,
         (_, _) => _project(session),
+      ),
+      scope.container.listen<ComposerTextInsertion?>(
+        composerTextInsertionProvider,
+        (_, next) => _insertText(session, next),
+      ),
+      scope.container.listen<Model?>(
+        selectedModelProvider,
+        (_, next) => _followKeptModel(session, next),
       ),
       // The messages queued behind the answer, and whether one may be.
       scope.container.listen<List<ChatDraftQueue>>(
@@ -4273,6 +4337,9 @@ final class _ChatSession {
   /// A call in a new chat: the window's temporary and folder choices, for
   /// the turn that makes the chat.
   ({bool temporary, String? folderId})? callNewChat;
+  /// The chat kept its model over a switch Hermes held: the model the core
+  /// puts it back on is the picker's too ([TurnsService._followKeptModel]).
+  bool keptModel = false;
 
   /// The last send asked for, until its turn has started (or it failed): a
   /// send that comes meanwhile waits for it ([TurnsService._run]).

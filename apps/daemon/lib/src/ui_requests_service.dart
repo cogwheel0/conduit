@@ -309,6 +309,33 @@ final class UiRequestsService implements UiRequestPort {
     return choices.contains(response.choice) ? response.choice : 'deny';
   }
 
+  /// Asks whether to switch a Hermes chat to [model], a model Hermes holds
+  /// for the user's confirmation, and send the waiting message: true to
+  /// switch, false to keep the current model. Null when nobody answered
+  /// (no window, or the prompt timed out): core then refuses the switch,
+  /// as it does with no prompt bound. [reason] is Hermes' own, as it gave
+  /// it; the window words the rest.
+  Future<bool?> askHermesModelSwitch({
+    required String model,
+    String? reason,
+  }) async {
+    final response = await _ask(
+      UiRequestKind.hermesModelSwitch,
+      messageCode: 'hermes.modelSwitch',
+      args: <String, String>{
+        'model': model,
+        if (reason != null && reason.trim().isNotEmpty) 'reason': reason,
+      },
+      defaultChoice: 'cancel',
+      timeout: _promptTimeout,
+    );
+    return switch (response.choice) {
+      'allow' => true,
+      'deny' => false,
+      _ => null,
+    };
+  }
+
   /// Asks the windows something whose answer arrives some other way (a
   /// Hermes question answered with `hermes.decisions.answer`): the request
   /// goes out like any other, and [settle] takes it away once answered.

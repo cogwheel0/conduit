@@ -126,6 +126,7 @@ final class CoreSettingsService {
         realtimeInstructions: p.realtimeInstructions,
       ),
     },
+    hermesShowScheduledSessions: settings.hermesShowScheduledSessions,
     messageActions: messageActionIds,
     defaultInlineMessageActions: defaultInlineMessageActions,
   );
@@ -269,6 +270,9 @@ final class CoreSettingsService {
       await n().setDirectVoiceProvider(null);
     } else if (patch.directVoiceProvider case final p?) {
       await n().setDirectVoiceProvider(_voiceProvider(p));
+    }
+    if (patch.hermesShowScheduledSessions case final v?) {
+      await n().setHermesShowScheduledSessions(v);
     }
     _announceIfChanged();
     return get();

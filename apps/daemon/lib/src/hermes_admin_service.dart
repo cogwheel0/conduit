@@ -5,6 +5,7 @@ import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart'
     hide HermesDeliveryOptions;
 import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart'
@@ -27,6 +28,11 @@ import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart'
     as core_cadence
     show HermesCadenceKind;
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_validation.dart';
+import 'package:conduit_core/features/push/services/hermes_push_backend.dart'
+    show
+        hermesDeliverIncludesConduit,
+        hermesDeliverWithConduit,
+        kConduitHermesPluginName;
 import 'package:conduit_core/models/prompt.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart';
@@ -39,6 +45,16 @@ import 'hermes_connection.dart';
 import 'hermes_dashboard_cookies.dart';
 import 'hermes_service.dart';
 import 'settled.dart';
+
+/// A job's `deliver` as the editor sent it ([deliver], its targets, which
+/// never list Conduit's push plugin), with the plugin kept as [notify]
+/// says: a phone's Notify Me survives an edit made on this Mac.
+String hermesJobDeliverKeepingNotifyMe(String deliver, {required bool notify}) {
+  final has = parseHermesDeliveryTargets(deliver)
+      .contains(kConduitHermesPluginName);
+  if (has == notify) return deliver;
+  return hermesDeliverWithConduit(deliver, notify: notify);
+}
 
 /// How long a Run Now waits for Hermes to refuse it before answering: the
 /// gateway answers a trigger only once its run ends, so a run that started
@@ -184,6 +200,7 @@ final class HermesAdminService {
     _stopUnsupported = false;
     _deliveryOptions = null;
     _mcpTools.clear();
+    _catalog = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -807,18 +824,46 @@ final class HermesAdminService {
     );
   });
 
+  /// The catalog as last read, with the connection it was read from: an
+  /// add hands core the entry the window was shown.
+  ({HermesDesktopApiService service, List<HermesMcpCatalogEntry> entries})?
+  _catalog;
+
+  Future<List<HermesMcpCatalogEntry>> _readCatalog(
+    HermesDesktopApiService service,
+  ) async {
+    final entries = await service.mcpCatalog();
+    _catalog = (service: service, entries: entries);
+    return entries;
+  }
+
   Future<HermesMcpCatalog> mcpCatalog() => _bound(null, (scope) async {
-    final entries = await _gatewayService().mcpCatalog();
+    final entries = await _readCatalog(_gatewayService());
     return HermesMcpCatalog(
       entries: <HermesMcpCatalogEntryDto>[
-        for (final entry in entries)
-          HermesMcpCatalogEntryDto(
-            name: entry.name,
-            description: entry.description,
-          ),
+        for (final entry in entries) _catalogEntryDto(entry),
       ],
     );
   });
+
+  static HermesMcpCatalogEntryDto _catalogEntryDto(
+    HermesMcpCatalogEntry entry,
+  ) => HermesMcpCatalogEntryDto(
+    name: entry.name,
+    description: entry.description,
+    authType: entry.authType,
+    credentials: <HermesMcpCatalogCredentialDto>[
+      for (final credential in entry.credentials)
+        HermesMcpCatalogCredentialDto(
+          name: credential.name,
+          prompt: credential.prompt,
+          required: credential.required,
+        ),
+    ],
+    canAdd: entry.canAdd,
+    fromDashboard: entry.fromDashboard,
+    oauth: entry.usesOAuth,
+  );
 
   Future<HermesMcpServers> addMcp(HermesMcpAdd add) => _change(add.connection, (
     scope,
@@ -848,32 +893,81 @@ final class HermesAdminService {
     return _mcpAfter();
   });
 
-  Future<HermesMcpServers> addMcpFromCatalog(HermesMcpRef ref) => _change(
-    ref.connection,
-    (scope) async {
-      final name = ref.name;
-      // The catalog's entry by name, added as it stands: a server that needs
-      // credentials is not asked for them here yet, and the dashboard's refusal
-      // of an incomplete install comes back as the error.
-      final service = _gatewayService();
-      final entry = (await service.mcpCatalog())
-          .where((e) => e.name == name)
-          .firstOrNull;
-      if (entry == null) {
-        throw RpcError(
-          code: ConduitErrorCodes.invalidParams,
-          debugMessage: 'no MCP catalog entry named $name',
-        );
-      }
-      // The entry was read from the connection in use when asked.
-      _check(scope);
-      await service.addMcpCatalogEntry(entry);
-      // Every window reads the list again, so one read before the
-      // change cannot leave it out.
+  /// Adds catalog entry [request.name] with the values it asks for, as the
+  /// phone's catalog page does, on the connection [request] names: a
+  /// required value left empty is refused (`invalidParams`, reason
+  /// `missingCredential`), an entry this connection cannot add with all it
+  /// needs too (`cannotAdd`). The values go to Hermes once and are never
+  /// kept or logged here. Says whether Hermes is still installing it, and
+  /// whether it signs in with OAuth next, which the window starts
+  /// (`hermes.mcp.authenticate`) since a sign-in in the browser can outlast
+  /// a call.
+  Future<HermesMcpCatalogAdded> addMcpFromCatalog(
+    HermesMcpCatalogAdd request,
+  ) => _change(request.connection, (scope) async {
+    final service = _gatewayService();
+    HermesMcpCatalogEntry? find(List<HermesMcpCatalogEntry> entries) =>
+        entries.where((e) => e.name == request.name).firstOrNull;
+    final cached = _catalog;
+    var entry = cached != null && identical(cached.service, service)
+        ? find(cached.entries)
+        : null;
+    entry ??= find(await _readCatalog(service));
+    if (entry == null) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: const <String, String>{'reason': 'notInCatalog'},
+        debugMessage: 'no MCP catalog entry named ${request.name}',
+      );
+    }
+    if (!entry.canAdd) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{'reason': 'cannotAdd'},
+        debugMessage: 'this connection cannot send what the entry needs',
+      );
+    }
+    final credentials = hermesMcpCatalogCredentialValues(
+      entry,
+      request.credentials,
+    );
+    if (credentials == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{'reason': 'missingCredential'},
+        debugMessage: 'a required value is empty',
+      );
+    }
+    // The entry was read from the connection in use when asked.
+    _check(scope);
+    final bool stillInstalling;
+    try {
+      stillInstalling = await service.addMcpCatalogEntry(
+        entry,
+        credentials: credentials,
+      );
+    } finally {
+      // Listed again even when a step after the install failed, so the
+      // entry is not asked for again; every window reads the list again,
+      // so one read before the change cannot leave it out.
+      _catalog = null;
       _announce();
-      return _mcpAfter();
-    },
-  );
+    }
+    // Made: a list that cannot be read says so rather than failing the add.
+    final servers = await _mcpAfter();
+    // A server Hermes set up to sign in with OAuth goes on to signing in;
+    // when the list cannot be read, the catalog says whether it does.
+    final signsIn = servers.listFailed
+        ? entry.usesOAuth
+        : servers.servers.any(
+            (server) => server.name == entry!.name && server.auth == 'oauth',
+          );
+    return HermesMcpCatalogAdded(
+      servers: servers,
+      stillInstalling: stillInstalling,
+      signIn: !stillInstalling && signsIn,
+    );
+  });
 
   Future<HermesMcpServers> setMcpApiKey(HermesMcpApiKey request) =>
       _change(request.connection, (scope) async {
@@ -1057,12 +1151,15 @@ final class HermesAdminService {
       // Routes the core could not read are not shown as `local`: an edit
       // of what is shown would replace them.
       deliver: <HermesDeliveryTargetDto>[
+        // A phone's Notify Me (`conduit`) is its own switch, not a target
+        // this Mac lists or edits; a save keeps it as it was.
         if (job.deliveryKnown)
           for (final target in parseHermesDeliveryTargets(job.deliveryTarget))
-            _target(
-              options?.optionFor(target) ??
-                  describeHermesDeliveryTarget(target),
-            ),
+            if (target != kConduitHermesPluginName)
+              _target(
+                options?.optionFor(target) ??
+                    describeHermesDeliveryTarget(target),
+              ),
       ],
       deliveryKnown: job.deliveryKnown,
       lastDeliveryError: job.lastDeliveryError,
@@ -1118,7 +1215,7 @@ final class HermesAdminService {
       options: <HermesDeliveryTargetDto>[
         for (final option
             in (options ?? delivery.HermesDeliveryOptions.localOnly).options)
-          _target(option),
+          if (option.target != kConduitHermesPluginName) _target(option),
       ],
     );
   });
@@ -1154,13 +1251,25 @@ final class HermesAdminService {
     final scheduling =
         _container.read(hermesApiServiceProvider) is HermesDesktopApiService;
     // An edit never replaces routes the core could not read: they were
-    // never shown, so no choice of the user's is about them.
+    // never shown, so no choice of the user's is about them. A phone's
+    // Notify Me is kept as it was.
     final unread =
         edit.id != null &&
         (_container.read(hermesJobsProvider).value ?? const <HermesJob>[]).any(
           (j) => j.id == edit.id && !j.deliveryKnown,
         );
-    final deliver = scheduling && !unread ? _deliverValue(edit.deliver) : null;
+    final deliver = scheduling && !unread
+        ? _deliverValue(
+            edit.deliver == null
+                ? null
+                : hermesJobDeliverKeepingNotifyMe(
+                    edit.deliver!,
+                    notify: edit.id != null && await _notifiesConduit(edit.id!),
+                  ),
+          )
+        : null;
+    // Read on the connection the edit was made under.
+    _check(scope);
     final catchUp = scheduling ? _catchUp(edit.catchUp) : null;
     // The job written, named in the answer: an editor left open saves to
     // it from then on rather than making another.
@@ -1190,6 +1299,19 @@ final class HermesAdminService {
     _announce();
     return _jobsAfter(saved: saved);
   });
+
+  /// Whether job [id] delivers to Conduit's push plugin: a phone's Notify
+  /// Me, which an edit made here keeps.
+  Future<bool> _notifiesConduit(String id) async {
+    final listed =
+        _container.read(hermesJobsProvider).value ??
+        await readSettled<List<HermesJob>>(
+          _container,
+          hermesJobsProvider.future,
+        ).catchError((Object _) => const <HermesJob>[]);
+    final job = listed.where((j) => j.id == id).firstOrNull;
+    return hermesDeliverIncludesConduit(job?.deliveryTarget);
+  }
 
   /// [value]'s targets as Hermes stores them, or null when the edit leaves
   /// them alone.
