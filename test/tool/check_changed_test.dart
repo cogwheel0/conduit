@@ -14,9 +14,8 @@ dependencies:
   flutter:
     sdk: flutter
   conduit_core:
-  conduit_theme:
 dev_dependencies:
-  conduit_markdown:
+  conduit_theme:
 ''',
   'packages/conduit_core': '''
 name: conduit_core
@@ -64,11 +63,19 @@ void main() {
     ]);
   });
 
-  test('a package nothing else imports is analyzed alone', () {
+  test('a package only tests import still reaches its importer', () {
     final plan = _plan(['packages/conduit_theme/pubspec.yaml']);
 
     check(_names(plan)).deepEquals([
       'Package boundaries',
+      'Analyze conduit_theme',
+      'Analyze app',
+    ]);
+
+    // One lockfile resolves the whole workspace.
+    check(_names(_plan(['pubspec.lock']))).deepEquals([
+      'Analyze conduit_core',
+      'Analyze conduit_markdown',
       'Analyze conduit_theme',
       'Analyze app',
     ]);

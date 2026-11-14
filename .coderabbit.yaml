@@ -35,6 +35,11 @@ reviews:
         shrinks. Flag business logic (networking, parsing, sync, persistence)
         added under lib/ that has no Flutter dependency and belongs in
         packages/conduit_core.
+    - path: "tool/platform_ui_allowlist.yaml"
+      instructions: >-
+        This allow-list only shrinks. Flag any added entry and any raised
+        count; the fix is to use the widgets in lib/shared/widgets/platform_ui
+        instead.
     - path: "packages/**/*.dart"
       instructions: >-
         These packages are pure Dart. Flag any import of Flutter. In

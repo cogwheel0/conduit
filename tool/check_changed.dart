@@ -139,10 +139,14 @@ String _block(String pubspec, String key) {
       .join('\n');
 }
 
-Iterable<String> _dependencyNames(String pubspec) => RegExp(
-  r'^  ([A-Za-z0-9_]+):',
-  multiLine: true,
-).allMatches(_block(pubspec, 'dependencies')).map((match) => match.group(1)!);
+/// What a member imports from its library and from its tests.
+Iterable<String> _dependencyNames(String pubspec) =>
+    RegExp(r'^  ([A-Za-z0-9_]+):', multiLine: true)
+        .allMatches(
+          '${_block(pubspec, 'dependencies')}\n'
+          '${_block(pubspec, 'dev_dependencies')}',
+        )
+        .map((match) => match.group(1)!);
 
 bool _reachesAnalyzer(String path) {
   const configs = {
@@ -227,6 +231,9 @@ Plan planChecks(
   }
 
   final changedMembers = {
+    // The workspace resolves into one lockfile, so a new version there can
+    // reach any member.
+    if (changed.contains('pubspec.lock')) ...workspace.dependencies.keys,
     for (final path in changed)
       if (_reachesAnalyzer(path)) ?workspace.memberOf(path),
   };
