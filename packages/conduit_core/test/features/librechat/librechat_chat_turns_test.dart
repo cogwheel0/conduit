@@ -641,6 +641,75 @@ void main() {
     check(container.read(localChatGenerationActiveProvider)).isFalse();
   });
 
+  /// A chat session scope of the root that opens [conversation], whose reply
+  /// is still running on the server, and follows it.
+  Future<ChatSessionScope> followInScope(Conversation conversation) async {
+    final scope = ChatSessionScope.open(container);
+    addTearDown(scope.dispose);
+    final streams = chat.streams.length;
+    scope.container.read(activeConversationProvider.notifier).set(conversation);
+    await _until(() => chat.streams.length > streams);
+    return scope;
+  }
+
+  test('a generation two scopes follow stays running until both close',
+      () async {
+    fake
+      ..addConversation(
+        'conv-live',
+        title: 'Live',
+        messageList: [_message('u-live', 'Still going?', user: true)],
+      )
+      ..on(
+        'GET',
+        '/api/agents/chat/status/conv-live',
+        (request, match) =>
+            FakeLibreChatResponse.json({'active': true, 'createdAt': 77}),
+      );
+    final live = await container.read(
+      loadConversationProvider('conv-live').future,
+    );
+    final a = await followInScope(live);
+    final b = await followInScope(live);
+    await _until(
+      () => container
+          .read(libreChatActiveGenerationsProvider)
+          .contains('conv-live'),
+    );
+
+    a.dispose();
+    await pumpEventQueue();
+    check(container.read(libreChatActiveGenerationsProvider))
+        .contains('conv-live');
+    check(container.read(localChatGenerationActiveProvider)).isTrue();
+
+    b.dispose();
+    await pumpEventQueue();
+    check(container.read(libreChatActiveGenerationsProvider)).isEmpty();
+    check(container.read(localChatGenerationActiveProvider)).isFalse();
+  });
+
+  test('a scope of the account left, closed late, leaves the next '
+      'account\'s running chat alone', () async {
+    final (old, _) = await runInScope('conv-a');
+    final other = fake.addUser(email: 'other@example.com');
+    final auth = LibreChatAuthService(server, adapter: fake);
+    addTearDown(auth.close);
+    final signedIn =
+        await auth.signIn(email: other.email, password: other.password)
+            as LibreChatSignedIn;
+    await container
+        .read(libreChatAccountsProvider)
+        .saveSignedIn(server: server, session: signedIn.session);
+    // The next account has a reply running in a chat of the same id.
+    container.read(libreChatActiveGenerationsProvider.notifier).add('conv-a');
+
+    old.dispose();
+    await pumpEventQueue();
+    check(container.read(libreChatActiveGenerationsProvider))
+        .contains('conv-a');
+  });
+
   test('another account\'s chat of the same id is followed while the old '
       'account\'s reply runs on', () async {
     final send = sendMessageWithContainer(container, 'Write a lot', null);

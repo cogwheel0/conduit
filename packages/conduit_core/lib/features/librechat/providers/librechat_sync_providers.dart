@@ -33,9 +33,15 @@ class LibreChatActiveGenerations extends Notifier<Set<String>> {
 
   /// Per account: another LibreChat account in use starts with none, so a
   /// chat it holds under the same id never opens as one started here.
+  /// The account the set is for. The notifier outlives an account change
+  /// (a rebuild keeps it), so a late removal says which account it means.
+  String? _accountId;
+
   @override
   Set<String> build() {
-    ref.watch(activeLibreChatAccountProvider.select((account) => account?.id));
+    _accountId = ref.watch(
+      activeLibreChatAccountProvider.select((account) => account?.id),
+    );
     _started.clear();
     return const <String>{};
   }
@@ -45,6 +51,13 @@ class LibreChatActiveGenerations extends Notifier<Set<String>> {
   void remove(String conversationId) {
     _started.remove(conversationId);
     state = {...state}..remove(conversationId);
+  }
+
+  /// [remove], for a reply of account [accountId] only: one of an account
+  /// left since leaves the next account's chat of the same id alone.
+  void removeFor(String? accountId, String conversationId) {
+    if (accountId != _accountId) return;
+    remove(conversationId);
   }
 
   /// Notes [chat] as a new chat whose first reply is generating here.

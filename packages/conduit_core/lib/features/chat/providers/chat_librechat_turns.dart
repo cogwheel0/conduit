@@ -96,10 +96,36 @@ final libreChatRunRegistryProvider = Provider<LibreChatRunRegistry>(
 );
 
 LibreChatRunRegistry _libreChatRunRegistry(Ref ref) {
-  final registry = LibreChatRunRegistry._(ref);
+  final registry = LibreChatRunRegistry._(
+    ref,
+    ref.read(_libreChatLiveRunsProvider),
+  );
   ref.onDispose(registry._dispose);
   return registry;
 }
+
+/// Every LibreChat run going in this app session, whichever registry (the
+/// root's or a chat scope's) holds it: two scopes can follow the same
+/// generation, so a chat stops counting as generating only when no run of
+/// its account is left for it. Never overridden, so every scope shares the
+/// root's.
+final class _LibreChatLiveRuns {
+  final Set<LibreChatRun> _runs = <LibreChatRun>{};
+
+  /// Whether a run other than [run] still writes [run]'s chat for its
+  /// account.
+  bool othersWrite(LibreChatRun run) => _runs.any(
+    (other) =>
+        !identical(other, run) &&
+        !other.isDone &&
+        other.conversationId == run.conversationId &&
+        other.accountId == run.accountId,
+  );
+}
+
+final _libreChatLiveRunsProvider = Provider<_LibreChatLiveRuns>(
+  (_) => _LibreChatLiveRuns(),
+);
 
 /// This file's share of a chat session scope ([ChatSessionScope]): a run
 /// shows its reply through its registry's `ref`, so a scope keeps its own
@@ -129,7 +155,9 @@ final stopAllLibreChatRunsProvider = Provider<void Function()>((ref) {
 });
 
 final class LibreChatRunRegistry {
-  LibreChatRunRegistry._(this._ref);
+  LibreChatRunRegistry._(this._ref, this._live);
+
+  final _LibreChatLiveRuns _live;
 
   final Ref _ref;
   final List<LibreChatRun> _runs = <LibreChatRun>[];
@@ -200,7 +228,10 @@ final class LibreChatRunRegistry {
   bool isGenerating(String conversationId) =>
       forConversation(conversationId) != null;
 
-  void _add(LibreChatRun run) => _runs.add(run);
+  void _add(LibreChatRun run) {
+    _runs.add(run);
+    _live._runs.add(run);
+  }
 
   /// The account's running generations, as [_bind] last read them: the
   /// root's, which outlive a scope's registry, so its disposal can still
@@ -219,12 +250,13 @@ final class LibreChatRunRegistry {
 
   void _finish(LibreChatRun run) {
     _runs.remove(run);
+    _live._runs.remove(run);
     if (!run._done.isCompleted) run._done.complete();
     final conversationId = run.conversationId;
-    if (conversationId != null && forConversation(conversationId) == null) {
+    if (conversationId != null && !_live.othersWrite(run)) {
       _ref
           .read(libreChatActiveGenerationsProvider.notifier)
-          .remove(conversationId);
+          .removeFor(run.accountId, conversationId);
     }
   }
 
@@ -288,6 +320,9 @@ final class LibreChatRunRegistry {
       run._done.complete();
       ended.add(run);
     }
+    // Out of the live runs at once, so two ended here do not keep each
+    // other's chat marked.
+    _live._runs.removeAll(_runs);
     _runs.clear();
     final generations = _generations;
     if (ended.isEmpty) return;
@@ -296,8 +331,10 @@ final class LibreChatRunRegistry {
         run._releaseGeneration?.call();
         final conversationId = run.conversationId;
         if (conversationId == null || generations == null) continue;
+        // Another scope may still follow the same generation.
+        if (_live.othersWrite(run)) continue;
         try {
-          generations.remove(conversationId);
+          generations.removeFor(run.accountId, conversationId);
         } catch (_) {
           // The root closed as well.
         }
