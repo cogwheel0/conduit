@@ -74,6 +74,9 @@ final class LibreChatRun {
   String? _replaces;
 
   bool _stopRequested = false;
+
+  /// Lets go of the run's hold on the app's running generations; once.
+  void Function()? _releaseGeneration;
   void Function()? _settleLocally;
   StreamSubscription<LibreChatTurnUpdate>? _subscription;
 
@@ -199,12 +202,19 @@ final class LibreChatRunRegistry {
 
   void _add(LibreChatRun run) => _runs.add(run);
 
+  /// The account's running generations, as [_bind] last read them: the
+  /// root's, which outlive a scope's registry, so its disposal can still
+  /// take its runs out of them.
+  LibreChatActiveGenerations? _generations;
+
   void _bind(LibreChatRun run, String conversationId) {
     run.conversationId = conversationId;
     // The generations a pull holds back are the account in use's: a run of
     // one left, named late, is not among them.
     if (run.accountId != _ref.read(activeLibreChatAccountProvider)?.id) return;
-    _ref.read(libreChatActiveGenerationsProvider.notifier).add(conversationId);
+    final generations = _ref.read(libreChatActiveGenerationsProvider.notifier);
+    _generations = generations;
+    generations.add(conversationId);
   }
 
   void _finish(LibreChatRun run) {
@@ -262,13 +272,37 @@ final class LibreChatRunRegistry {
     }
   }
 
+  /// Ends the runs still going here without settling them, as the
+  /// registry's container closes (a chat session scope's, while the root
+  /// lives on). Each run's share of the account's state is let go, once:
+  /// its hold on the running generations, and its chat among the account's
+  /// running ones. Nothing of the closing container is read for it, and it
+  /// happens just after, since a provider may not change another while it
+  /// is disposed.
   void _dispose() {
+    final ended = <LibreChatRun>[];
     for (final run in List<LibreChatRun>.of(_runs)) {
       run._subscription?.cancel().ignore();
       if (!run._requests.isCancelled) run._requests.cancel('closed');
-      if (!run._done.isCompleted) run._done.complete();
+      if (run._done.isCompleted) continue;
+      run._done.complete();
+      ended.add(run);
     }
     _runs.clear();
+    final generations = _generations;
+    if (ended.isEmpty) return;
+    scheduleMicrotask(() {
+      for (final run in ended) {
+        run._releaseGeneration?.call();
+        final conversationId = run.conversationId;
+        if (conversationId == null || generations == null) continue;
+        try {
+          generations.remove(conversationId);
+        } catch (_) {
+          // The root closed as well.
+        }
+      }
+    });
   }
 }
 
@@ -683,6 +717,7 @@ Future<void> _runLibreChatTurn(
   final startConversationId = owner.conversationId;
   if (startConversationId != null) registry._bind(run, startConversationId);
   final release = holdLocalChatGeneration(runRef);
+  run._releaseGeneration = release;
   final projector = StructuredOutputStreamingProjector();
   var content = assistant.content;
   var materialized = !following;

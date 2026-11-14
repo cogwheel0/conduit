@@ -623,6 +623,24 @@ void main() {
     await send;
   });
 
+  test('closing a scope mid-reply lets go of its reply alone', () async {
+    final (a, _) = await runInScope('conv-a');
+    final (b, _) = await runInScope('conv-b');
+    check(container.read(localChatGenerationActiveProvider)).isTrue();
+
+    a.dispose();
+    await pumpEventQueue();
+    check(
+      container.read(libreChatActiveGenerationsProvider),
+    ).deepEquals({'conv-b'});
+    check(container.read(localChatGenerationActiveProvider)).isTrue();
+
+    b.dispose();
+    await pumpEventQueue();
+    check(container.read(libreChatActiveGenerationsProvider)).isEmpty();
+    check(container.read(localChatGenerationActiveProvider)).isFalse();
+  });
+
   test('another account\'s chat of the same id is followed while the old '
       'account\'s reply runs on', () async {
     final send = sendMessageWithContainer(container, 'Write a lot', null);
