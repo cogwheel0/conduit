@@ -1478,6 +1478,8 @@ class SocketService {
     'failed host lookup',
     'no route to host',
     'network is unreachable',
+    'network is down',
+    'host is down',
   ];
 
   void _handleReconnectFailed(dynamic _) {

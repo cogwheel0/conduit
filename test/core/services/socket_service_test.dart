@@ -757,6 +757,17 @@ void main() {
     await _flushMicrotasks(4);
     expect(socketFactory.sockets, hasLength(1));
 
+    // Nor a network that is down (ENETDOWN on iOS).
+    socketFactory.sockets.single.emitReserved(
+      'connect_error',
+      const SocketException(
+        'Connection failed',
+        osError: OSError('Network is down', 50),
+      ),
+    );
+    await _flushMicrotasks(4);
+    expect(socketFactory.sockets, hasLength(1));
+
     // A WebSocket that is refused still falls back (issue #172).
     socketFactory.sockets.single.emitReserved(
       'connect_error',
