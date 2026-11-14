@@ -237,7 +237,9 @@ Future<ChatActionAvailability> chatActionAvailability(
       !isTemporary &&
       conversationUsesOpenWebUiStorage(conversation);
   // Share, Mark as Unread, Generate Title and Export: the menus' rule
-  // ([chatMenuAvailability]), with the permissions it reads awaited.
+  // ([chatMenuAvailability]), with the permissions it reads awaited, each
+  // only when the rule would use it.
+  final shareId = conversation.shareId;
   final menu = _chatMenuRule(
     conversation,
     readOnly: readOnly,
@@ -245,6 +247,10 @@ Future<ChatActionAvailability> chatActionAvailability(
     apiPresent: api != null,
     libreChatSharedLinks:
         libreChat &&
+        !isTemporary &&
+        !readOnly &&
+        !isDirectLocalConversation(conversation) &&
+        (shareId == null || shareId.isEmpty) &&
         await allowed(() async {
           final dynamic capabilities = await ref.read(
             libreChatCapabilitiesProvider.future,
@@ -255,6 +261,8 @@ Future<ChatActionAvailability> chatActionAvailability(
     exportAllowed:
         api != null &&
         !isTemporary &&
+        chatMutationOwnerScopeForConversation(conversation) ==
+            openWebUiChatMutationOwnerScope(conversation.id) &&
         await allowed(
           () =>
               ref.read(openWebUiChatActionAllowedProvider('export').future)

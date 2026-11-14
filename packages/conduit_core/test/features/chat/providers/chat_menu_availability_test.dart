@@ -1,16 +1,25 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/chat_database_repository.dart'
     show ChatStorageKind;
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/librechat/models/librechat_capabilities.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_sync_providers.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
+import 'package:mocktail/mocktail.dart' show Fake;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
+
+final class _Api extends Fake implements ApiService {}
 
 /// Answers the reads [chatMenuAvailability] makes, and nothing else.
 final class _Reads {
@@ -113,4 +122,50 @@ void main() {
     check(menu.export).isFalse();
     check(menu.share).isTrue();
   });
+
+  test(
+    'the open chat\'s actions wait only on permissions that count',
+    () async {
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(_Api()),
+          currentUserProvider2.overrideWithValue(_quinn),
+          isAuthenticatedProvider2.overrideWithValue(true),
+          reviewerModeProvider.overrideWithValue(false),
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          appDatabaseProvider.overrideWith((ref) => null),
+          libreChatSyncEngineProvider.overrideWithValue(null),
+          chatMarkUnreadSupportedProvider.overrideWithValue(true),
+          // Neither ever answers.
+          libreChatCapabilitiesProvider.overrideWith(
+            (ref) => Completer<LibreChatCapabilities>().future,
+          ),
+          openWebUiChatActionAllowedProvider.overrideWith(
+            (ref, action) => Completer<bool>().future,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      Future<bool> settles(Conversation chat, {bool temporary = false}) async {
+        var settled = false;
+        unawaited(
+          chatActionAvailability(
+            container,
+            chat,
+            temporary: temporary,
+          ).then((_) => settled = true),
+        );
+        await pumpEventQueue();
+        return settled;
+      }
+
+      final libreChat = _chat('c5', ChatStorageKind.libreChat);
+      // Shared already, temporary, or another user's: no link to ask about.
+      check(await settles(libreChat.copyWith(shareId: 'share-1'))).isTrue();
+      check(await settles(libreChat, temporary: true)).isTrue();
+      check(await settles(libreChat.copyWith(userId: 'someone-else'))).isTrue();
+      // Not an Open WebUI chat: no Export to ask about.
+      check(await settles(_chat('c6', ChatStorageKind.directLocal))).isTrue();
+    },
+  );
 }
