@@ -1338,6 +1338,36 @@ void main() {
       check(submit['text']).equals('And drinks?');
       // The second turn left the chat, so it leaves the session too.
       check(submit['truncate_before_row_id']).equals(15);
+
+      // Another app changed an earlier turn: the turns kept before the note
+      // are not the session's, so nothing is cut or sent.
+      final changed = _Gateway();
+      changed.handler = (method, params) {
+        if (method == 'prompt.submit') scheduleMicrotask(changed.finishTurn);
+        return null;
+      };
+      final changedContainer = await _turnContainer(
+        _service(
+          changed,
+          _Rest([
+            for (final row in _transcript)
+              row['id'] == 11 ? {...row, 'content': 'Plan another picnic'} : row,
+            {'id': 17, 'role': 'user', 'content': 'Thanks'},
+            {'id': 18, 'role': 'assistant', 'content': 'Enjoy.'},
+          ]),
+        ),
+        [
+          ..._chat,
+          _message('k1', 'user', 'And ice?'),
+          _message('k2', 'assistant', '').copyWith(
+            metadata: const {kHermesModelSwitchKeptKey: true},
+          ),
+        ],
+      );
+      await check(
+        regenerateHistoricalMessageById(changedContainer, 'k2'),
+      ).throws<StateError>();
+      check(changed.calls('prompt.submit')).isEmpty();
     });
 
     test('editing a kept prompt cuts the turns sent after it', () async {

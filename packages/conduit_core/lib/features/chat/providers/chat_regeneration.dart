@@ -112,6 +112,9 @@ hermesDesktopRewindTarget({
                       transcript: transcript,
                       messages: messages,
                       index: previous,
+                      // Every earlier turn in its place: a text found out
+                      // of place says nothing of the turns before it.
+                      inPlaceOnly: true,
                     ) ==
                     userRows[ordinal - 1])
         ? hermesTranscriptRowId(transcript[userRows[ordinal]])
