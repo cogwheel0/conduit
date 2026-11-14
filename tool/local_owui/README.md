@@ -19,6 +19,9 @@ tool/local_owui/owui.sh stop
 `~/Library/Caches/conduit-dev/owui-0.13.2` (`CONDUIT_OWUI_VENV`), and the
 instance (data, logs, pids and a generated secret key) in
 `~/Library/Caches/conduit-dev/local-owui` (`CONDUIT_OWUI_DIR`, or `--dir`).
+The daemon's tests find the instance through `CONDUIT_OWUI_DIR` (or
+`CONDUIT_OWUI_ENV`, the env file itself), so an instance started with
+`--dir` needs that variable set to the same directory when they run.
 On Linux the cache root is `${XDG_CACHE_HOME:-~/.cache}/conduit-dev`;
 `CONDUIT_DEV_CACHE` moves it anywhere. The server listens on
 `127.0.0.1:8150` (`--port`), the fake model on 8151 and a fake Hermes

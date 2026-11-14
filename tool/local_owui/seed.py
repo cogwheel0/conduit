@@ -24,6 +24,7 @@ import json
 import os
 import secrets
 import sqlite3
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -142,8 +143,19 @@ def exchange(title, question, answer, at, follow_up=None):
 
 
 def private_file(path, text):
-    with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'w') as f:
-        f.write(text)
+    # Readable by this user only, whatever was at the path before: written
+    # to a new file beside it (mkstemp makes it 0600) and moved over it, so
+    # an existing file's permissions, or a link there, are not kept.
+    directory = os.path.dirname(os.path.abspath(path))
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(dir=directory, prefix='.env-')
+    try:
+        with os.fdopen(fd, 'w') as f:
+            f.write(text)
+        os.replace(temporary, path)
+    except BaseException:
+        os.unlink(temporary)
+        raise
 
 
 def main():
