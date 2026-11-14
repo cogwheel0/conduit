@@ -1348,6 +1348,10 @@ void main() {
       check(rig.page(_newSkill).announcement)
           .equals(_l10n.workspaceSkillImportMarkdownLoaded);
       check(rig.page(_newSkill).edited).isTrue();
+
+      // The file named its id: a name given after keeps it.
+      await rig.change(_skillRow('name'), 'Ridge Walk Planner');
+      check(rig.row(_newSkill, _skillRow('id'))!.value).equals('ridge_walk');
     });
 
     testWidgets('an edit saves the skill; it switches off, duplicates without '

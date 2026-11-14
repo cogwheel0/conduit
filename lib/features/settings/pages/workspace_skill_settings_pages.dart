@@ -915,9 +915,13 @@ class WorkspaceSkillSettingsPages extends SettingsPageModule {
     editor.content = read.content;
     if (read.name.isNotEmpty) editor.name = read.name;
     if (read.id.isNotEmpty) {
+      // An id the file names stays as a name typed after changes; one
+      // derived from its name follows the name.
+      final explicitId =
+          WorkspaceSkillContent.parseFrontmatter(text)['id']?.trim() ?? '';
       editor
         ..id = read.id
-        ..idTyped = false;
+        ..idTyped = explicitId.isNotEmpty;
     }
     if (read.description.isNotEmpty) editor.description = read.description;
     editor
