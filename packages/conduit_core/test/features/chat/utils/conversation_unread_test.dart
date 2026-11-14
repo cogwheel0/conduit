@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:conduit_core/features/chat/utils/conversation_unread.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:test/test.dart';
@@ -14,22 +15,21 @@ void main() {
       );
 
   test('a chat never read is unread', () {
-    expect(isConversationUnread(chat()), isTrue);
+    check(isConversationUnread(chat())).isTrue();
   });
 
   test('unread when something arrived after it was read', () {
-    expect(
+    check(
       isConversationUnread(
         chat(lastReadAt: updated.subtract(const Duration(minutes: 1))),
       ),
-      isTrue,
-    );
-    expect(isConversationUnread(chat(lastReadAt: updated)), isFalse);
+    ).isTrue();
+    check(isConversationUnread(chat(lastReadAt: updated))).isFalse();
   });
 
   test('never while open, answering, or without an id', () {
-    expect(isConversationUnread(chat(), selected: true), isFalse);
-    expect(isConversationUnread(chat(), generating: true), isFalse);
-    expect(isConversationUnread(chat(id: '')), isFalse);
+    check(isConversationUnread(chat(), selected: true)).isFalse();
+    check(isConversationUnread(chat(), generating: true)).isFalse();
+    check(isConversationUnread(chat(id: ''))).isFalse();
   });
 }

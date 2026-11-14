@@ -17,5 +17,6 @@ dependencies:
   meta: ^1.16.0
 
 dev_dependencies:
+  checks: ^0.3.1
   lints: ^6.0.0
   test: ^1.25.0

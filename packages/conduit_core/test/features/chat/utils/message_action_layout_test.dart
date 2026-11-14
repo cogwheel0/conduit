@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:conduit_core/features/chat/utils/message_action_layout.dart';
 import 'package:test/test.dart';
 
@@ -17,14 +18,14 @@ void main() {
 
     test('automatic: the first three that are not overflow-only', () {
       final layout = messageActionLayout(all, null);
-      expect(layout.inline, ['copy', 'regenerate', 'merge']);
-      expect(layout.more, ['usage', 'fork', 'share', 'delete']);
+      check(layout.inline).deepEquals(['copy', 'regenerate', 'merge']);
+      check(layout.more).deepEquals(['usage', 'fork', 'share', 'delete']);
     });
 
     test('automatic: Share and Delete stay in More with room to spare', () {
       final layout = messageActionLayout(['copy', 'share', 'delete'], null);
-      expect(layout.inline, ['copy']);
-      expect(layout.more, ['share', 'delete']);
+      check(layout.inline).deepEquals(['copy']);
+      check(layout.more).deepEquals(['share', 'delete']);
     });
 
     test('automatic: Hermes history actions are overflow-only', () {
@@ -34,20 +35,21 @@ void main() {
         'hermes-undo',
         'usage',
       ], null);
-      expect(layout.inline, ['copy', 'usage']);
-      expect(layout.more, ['hermes-branch', 'hermes-undo']);
+      check(layout.inline).deepEquals(['copy', 'usage']);
+      check(layout.more).deepEquals(['hermes-branch', 'hermes-undo']);
     });
 
     test('chosen: exactly those, in the chosen order', () {
       final layout = messageActionLayout(all, ['delete', 'copy']);
-      expect(layout.inline, ['delete', 'copy']);
-      expect(layout.more, ['regenerate', 'merge', 'usage', 'fork', 'share']);
+      check(layout.inline).deepEquals(['delete', 'copy']);
+      check(layout.more)
+          .deepEquals(['regenerate', 'merge', 'usage', 'fork', 'share']);
     });
 
     test('chosen: an action not offered now is skipped', () {
       final layout = messageActionLayout(['copy', 'usage'], ['fork', 'usage']);
-      expect(layout.inline, ['usage']);
-      expect(layout.more, ['copy']);
+      check(layout.inline).deepEquals(['usage']);
+      check(layout.more).deepEquals(['copy']);
     });
 
     test('chosen: Retry follows Regenerate, Stop Merging follows Merge', () {
@@ -55,20 +57,20 @@ void main() {
         ['copy', 'retry', 'stop-merge', 'usage'],
         ['regenerate', 'merge'],
       );
-      expect(layout.inline, ['retry', 'stop-merge']);
-      expect(layout.more, ['copy', 'usage']);
+      check(layout.inline).deepEquals(['retry', 'stop-merge']);
+      check(layout.more).deepEquals(['copy', 'usage']);
     });
 
     test('chosen: a repeated choice counts once', () {
       final layout = messageActionLayout(['copy', 'usage'], ['copy', 'copy']);
-      expect(layout.inline, ['copy']);
-      expect(layout.more, ['usage']);
+      check(layout.inline).deepEquals(['copy']);
+      check(layout.more).deepEquals(['usage']);
     });
 
     test('chosen: none puts every action in More', () {
       final layout = messageActionLayout(['copy', 'share'], const []);
-      expect(layout.inline, isEmpty);
-      expect(layout.more, ['copy', 'share']);
+      check(layout.inline).isEmpty();
+      check(layout.more).deepEquals(['copy', 'share']);
     });
   });
 }

@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:conduit_core/features/chat/services/url_context.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -43,12 +44,12 @@ class _RetrievalApi extends ApiService {
 void main() {
   test('a YouTube address is read for its transcript, any other page for '
       'its text', () async {
-    expect(isYoutubeUrl('https://youtu.be/abc'), isTrue);
-    expect(isYoutubeUrl('https://m.youtube.com/watch?v=abc'), isTrue);
-    expect(isYoutubeUrl('https://example.test/youtube.com'), isFalse);
-    expect(isFetchableUrl(' https://example.test/a '), isTrue);
-    expect(isFetchableUrl('ftp://example.test/a'), isFalse);
-    expect(isFetchableUrl('not a url'), isFalse);
+    check(isYoutubeUrl('https://youtu.be/abc')).isTrue();
+    check(isYoutubeUrl('https://m.youtube.com/watch?v=abc')).isTrue();
+    check(isYoutubeUrl('https://example.test/youtube.com')).isFalse();
+    check(isFetchableUrl(' https://example.test/a ')).isTrue();
+    check(isFetchableUrl('ftp://example.test/a')).isFalse();
+    check(isFetchableUrl('not a url')).isFalse();
 
     final api = _RetrievalApi({
       'collection_name': 'web-1',
@@ -58,15 +59,15 @@ void main() {
       },
     });
     final page = await readUrlContext(api, 'https://example.test/beds');
-    expect(api.calls, ['web https://example.test/beds']);
-    expect(page.youtube, isFalse);
-    expect(page.displayName, 'Garden guide');
-    expect(page.content, 'Raised beds drain faster.');
-    expect(page.collectionName, 'web-1');
+    check(api.calls).deepEquals(['web https://example.test/beds']);
+    check(page.youtube).isFalse();
+    check(page.displayName).equals('Garden guide');
+    check(page.content).equals('Raised beds drain faster.');
+    check(page.collectionName).equals('web-1');
 
     final video = await readUrlContext(api, 'https://youtu.be/abc');
-    expect(api.calls.last, 'youtube https://youtu.be/abc');
-    expect(video.youtube, isTrue);
+    check(api.calls.last).equals('youtube https://youtu.be/abc');
+    check(video.youtube).isTrue();
   });
 
   test(
@@ -76,8 +77,8 @@ void main() {
         _RetrievalApi(null),
         'https://example.test/empty',
       );
-      expect(page.content, isEmpty);
-      expect(page.displayName, 'example.test');
+      check(page.content).isEmpty();
+      check(page.displayName).equals('example.test');
     },
   );
 }
