@@ -62,10 +62,11 @@ final class SettingsService {
     return read();
   }
 
-  /// Mobile persists `ThemeMode.name`, so the stored strings are already
-  /// `light`, `dark` and `system`. An unrecognised value -- a newer build's
-  /// mode, or a corrupted preference -- falls back rather than throwing: a
-  /// bad theme preference must not stop the app from starting.
+  /// The daemon stores [AppThemeMode.name] in its own preferences, which no
+  /// other app reads: `light`, `dark` or `system`. (Mobile writes Flutter's
+  /// `ThemeMode.toString()` to its own.) An unrecognised value -- a newer
+  /// build's mode, or a corrupted preference -- falls back rather than
+  /// throwing: a bad theme preference must not stop the app from starting.
   static AppThemeMode _parseThemeMode(String? raw) => switch (raw) {
     'light' => AppThemeMode.light,
     'dark' => AppThemeMode.dark,

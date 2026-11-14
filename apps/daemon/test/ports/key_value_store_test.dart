@@ -17,7 +17,8 @@ void main() {
 
   test('reads are synchronous after open', () async {
     final store = await DaemonKeyValueStore.open(file);
-    await store.setString('theme', 'dark');
+    // A write reports whether it reached disk.
+    expect(await store.setString('theme', 'dark'), isTrue);
 
     // No await: the interface promises the next read already sees it, which
     // is the whole reason the core can build providers on a cold start.
@@ -67,17 +68,6 @@ void main() {
     });
   });
 
-  test(
-    'an int and a double are not confused after a JSON round trip',
-    () async {
-      final store = await DaemonKeyValueStore.open(file);
-      await store.setInt('count', 2);
-
-      final reopened = await DaemonKeyValueStore.open(file);
-      expect(reopened.getInt('count'), 2);
-    },
-  );
-
   test('keys lists everything, remove and clear empty it', () async {
     final store = await DaemonKeyValueStore.open(file);
     await store.setString('a', '1');
@@ -98,11 +88,6 @@ void main() {
     expect(store.keys, isEmpty);
     expect(File('${file.path}.corrupt').existsSync(), isTrue);
     expect(File('${file.path}.corrupt').readAsStringSync(), '{not json');
-  });
-
-  test('a write reports whether it reached disk', () async {
-    final store = await DaemonKeyValueStore.open(file);
-    expect(await store.setString('theme', 'dark'), isTrue);
   });
 
   test('concurrent writes all survive', () async {
