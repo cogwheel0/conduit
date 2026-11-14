@@ -382,19 +382,8 @@ void main() {
     await engine.end();
   });
 
-  test('muting tells the voice and closes the microphone', () async {
-    await start();
-
-    engine.setMuted(true);
-
-    check(media.microphone).equals(false);
-    check(media.types.last).equals('session.input_audio.mute');
-    check(engine.state.muted).isTrue();
-    await engine.end();
-  });
-
   test(
-    'the meter follows both sides, and a muted microphone is quiet',
+    'muting tells the voice, closes the microphone and quiets its meter',
     () async {
       await start();
 
@@ -405,6 +394,10 @@ void main() {
       check(engine.state.outputLevel).equals(0.05);
 
       engine.setMuted(true);
+
+      check(media.microphone).equals(false);
+      check(media.types.last).equals('session.input_audio.mute');
+      check(engine.state.muted).isTrue();
       // Quiet at once, not at the next sample.
       check(engine.state.inputLevel).equals(0);
       final heardMuted = engine.states.firstWhere(
