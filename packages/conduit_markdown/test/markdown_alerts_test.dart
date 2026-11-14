@@ -66,6 +66,11 @@ void main() {
     expect(lift(fenced), [text(fenced)]);
     const tilde = '~~~\n> [!TIP]\n~~~\nafter';
     expect(lift(tilde), [text(tilde)]);
+    // A shorter or other inner fence does not close a longer one.
+    const long = '~~~~markdown\n~~~\n> [!NOTE]\n> literal example\n~~~~';
+    expect(lift(long), [text(long)]);
+    const mixed = '````\n~~~~\n> [!NOTE]\n> literal\n````';
+    expect(lift(mixed), [text(mixed)]);
     const math = '\$\$\n> [!TIP]\n\$\$';
     expect(lift(math), [text(math)]);
     const quoted = '> Quote\n> [!NOTE]\n> More';

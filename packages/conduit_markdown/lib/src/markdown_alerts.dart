@@ -24,6 +24,8 @@ final RegExp _blockStart = RegExp(
 
 final RegExp _fenceOpener = RegExp(r'^ {0,3}(`{3,}|~{3,})');
 
+final RegExp _fenceCloser = RegExp(r'^ {0,3}(`{3,}|~{3,})[ \t]*$');
+
 /// [blocks] with every GitHub-style alert at the top level of a text block
 /// lifted out into an [AlertMessageBlock] of its own, in place: the text
 /// before it, the alert, the text after it.
@@ -90,8 +92,11 @@ List<MessageBlock> _liftFromText(String markdown) {
     final trimmed = line.trimLeft();
 
     if (fence != null) {
-      if (trimmed.startsWith(fence) &&
-          trimmed.replaceAll(fence[0], '').trim().isEmpty) {
+      // Closed only by a run of the same character at least as long, with
+      // nothing after it but spaces, as CommonMark has it.
+      if (_fenceCloser.firstMatch(line) case final closer?
+          when closer.group(1)![0] == fence[0] &&
+              closer.group(1)!.length >= fence.length) {
         fence = null;
       }
       addTextLine(line, last: last);
@@ -105,7 +110,7 @@ List<MessageBlock> _liftFromText(String markdown) {
       continue;
     }
     if (_fenceOpener.firstMatch(line) case final opener?) {
-      fence = opener.group(1)!.substring(0, 3);
+      fence = opener.group(1)!;
       addTextLine(line, last: last);
       inQuote = false;
       index++;
