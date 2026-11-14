@@ -165,9 +165,9 @@ mixin _AuthApi on _ApiServiceBase {
 
   /// The provider [response] redirects to, when it is Open WebUI sending a
   /// browser to [provider] for its callback: an absolute http(s) location
-  /// with a client id and a `redirect_uri` under `/oauth/{provider}/`. The
-  /// callback's host is not checked: `WEBUI_URL` can name another address
-  /// than the one in use.
+  /// with a client id and a `redirect_uri` at one of Open WebUI's callbacks
+  /// for [provider]. The callback's host is not checked: `WEBUI_URL` can name
+  /// another address than the one in use.
   OAuthLoginProbe? _oauthLoginProbe(
     Response<dynamic> response,
     String provider,
@@ -189,9 +189,11 @@ mixin _AuthApi on _ApiServiceBase {
       if (clientId == null ||
           clientId.isEmpty ||
           (redirectUri.scheme != 'https' && redirectUri.scheme != 'http') ||
-          // Open WebUI's callback, after any base path WEBUI_URL carries.
+          // One of Open WebUI's two callbacks, after any base path WEBUI_URL
+          // carries: /oauth/{provider}/login/callback, or the legacy
+          // /oauth/{provider}/callback.
           !RegExp(
-            '/oauth/${RegExp.escape(provider)}/[^/]+\$',
+            '/oauth/${RegExp.escape(provider)}/(login/)?callback\$',
           ).hasMatch(redirectUri.path)) {
         return null;
       }

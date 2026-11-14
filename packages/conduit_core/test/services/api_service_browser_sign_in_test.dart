@@ -174,6 +174,26 @@ void main() {
       check(probe.redirectUri.host).equals('public.example');
     });
 
+    for (final callback in [
+      'https://chat.example/oauth/oidc/login/callback',
+      'https://chat.example/base/oauth/oidc/callback',
+    ]) {
+      test('takes Open WebUI\'s callback at $callback', () async {
+        answer({
+          '/oauth/oidc/login': () => _redirect(
+            _providerRedirect(
+              'https://id.example/authorize',
+              callback: callback,
+            ),
+          ),
+        });
+
+        final probe = await api.probeOAuthLogin('oidc');
+
+        check(probe.redirectUri.toString()).equals(callback);
+      });
+    }
+
     for (final (what, answers)
         in <(String, Map<String, ResponseBody Function()>)>[
           ('a page', {'/oauth/oidc/login': () => _page(HttpStatus.ok)}),
