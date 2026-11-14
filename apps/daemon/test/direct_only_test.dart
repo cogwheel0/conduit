@@ -145,4 +145,23 @@ void main() {
     expect(temporary.contains('local:scratch'), isFalse);
     expect(await chats.get('local:scratch'), isNull);
   });
+
+  // The id goes into the server's path, with the account's credential: an
+  // id that is not one plain path segment must not reach anywhere else.
+  test('a file id that is not one plain segment is refused', () async {
+    final files = FilesService(runtime.container);
+    for (final id in <String>['..', '.', 'a?b', 'a#b', '../../auths', r'a\b']) {
+      await expectLater(
+        files.download('any-server', id),
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.invalidParams,
+          ),
+        ),
+        reason: id,
+      );
+    }
+  });
 }

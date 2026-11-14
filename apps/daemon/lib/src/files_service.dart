@@ -108,6 +108,17 @@ final class FilesService {
     String serverId,
     String fileId,
   ) async {
+    // The id is put into the server's path, with the account's credential,
+    // so it must be one plain segment: no `..`, query, fragment or slash.
+    if (fileId.isEmpty ||
+        fileId == '.' ||
+        fileId == '..' ||
+        fileId.contains(RegExp(r'[/\\?#]'))) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'not a file id',
+      );
+    }
     final server = await readSettled(_container, activeServerProvider.future);
     if (server == null || server.id != serverId) {
       throw const RpcError(

@@ -433,6 +433,7 @@ class DaemonServer {
       );
     } on RpcError catch (error) {
       final status = switch (error.code) {
+        ConduitErrorCodes.invalidParams => 400,
         ConduitErrorCodes.unauthenticated => 401,
         ConduitErrorCodes.notFound => 404,
         _ => 502,
