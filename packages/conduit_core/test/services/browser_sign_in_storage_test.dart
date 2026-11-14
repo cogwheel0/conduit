@@ -675,11 +675,16 @@ void main() {
       await saveAccounts(['a']);
       final session = await signInWithBrowser('a');
 
-      final dropped = await droppedBy(
-        () => storage.deleteSavedCredentialsIfMatches(browserSignIn('a')),
-      );
+      late bool deleted;
+      final dropped = await droppedBy(() async {
+        deleted = await storage.deleteSavedCredentialsIfMatches(
+          browserSignIn('a'),
+        );
+      });
 
+      check(deleted).isTrue();
       check(dropped).deepEquals([(accountId: 'a', session: session)]);
+      check(await storedSession('a')).isNull();
     });
 
     test('when the saved sign-in is deleted whoever it names', () async {
@@ -693,7 +698,8 @@ void main() {
     });
 
     test('when choosing the account to sign in to afresh', () async {
-      await saveAccounts(['a']);
+      await saveAccounts(['a', 'b']);
+      final sessionB = await signInWithBrowser('b');
       final session = await signInWithBrowser('a');
 
       final dropped = await droppedBy(
@@ -704,6 +710,8 @@ void main() {
       );
 
       check(dropped).deepEquals([(accountId: 'a', session: session)]);
+      check(await storedSession('a')).isNull();
+      check(await storedSession('b')).equals(sessionB);
     });
 
     test('when a proxy sign-in commits for the account', () async {
@@ -865,32 +873,9 @@ void main() {
       check(await storedSession('a')).isNull();
     });
 
-    test('deleting the saved sign-in it renews deletes it', () async {
-      await saveAccounts(['a']);
-      await signInWithBrowser('a');
-
-      check(await storage.deleteSavedCredentialsIfMatches(browserSignIn('a')))
-          .isTrue();
-
-      check(await storedSession('a')).isNull();
-    });
   });
 
   group('a session ends with its account\'s saved sign-in', () {
-    test('when choosing the account to sign in to afresh', () async {
-      await saveAccounts(['a', 'b']);
-      final sessionB = await signInWithBrowser('b');
-      await signInWithBrowser('a');
-
-      await storage.selectUnauthenticatedServerConfig(
-        account('a'),
-        publish: () {},
-      );
-
-      check(await storedSession('a')).isNull();
-      check(await storedSession('b')).equals(sessionB);
-    });
-
     test('when choosing an account that keeps it in its vault', () async {
       await saveAccounts(['a', 'b']);
       await signInWithBrowser('a');

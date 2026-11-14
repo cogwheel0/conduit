@@ -66,13 +66,21 @@ import '../../profile/widgets/account_actions.dart'
 /// [serverId].
 @immutable
 class ServerConnectionHandoff {
-  const ServerConnectionHandoff({this.config, this.authFlow, this.serverId})
-    : assert(authFlow == null || config != null),
-      assert(config != null || serverId != null);
+  const ServerConnectionHandoff({
+    this.config,
+    this.authFlow,
+    this.serverId,
+    this.browserSignInClientId,
+  }) : assert(authFlow == null || config != null),
+       assert(config != null || serverId != null);
 
   final ServerConfig? config;
   final AuthFlowConfig? authFlow;
   final String? serverId;
+
+  /// The client ID browser sign-in was turned on with, under Advanced, for
+  /// [config]; null when it was left off.
+  final String? browserSignInClientId;
 }
 
 class ServerConnectionPage extends ConsumerStatefulWidget {
@@ -219,6 +227,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     final config = handoff.config;
     if (config != null) {
       _applyConfig(config);
+      if (handoff.browserSignInClientId case final clientId?) {
+        setState(() {
+          _browserSignIn = true;
+          _browserSignInClientIdController.text = clientId;
+        });
+      }
     } else {
       await _prefillFromSavedServer();
       // Unread, the form stays empty and says why: connecting would only
@@ -621,7 +635,14 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           if (!mounted) return;
           // Its sign-in is a page of its own: the connection page goes on
           // from here.
-          widget.onChecked!(ServerConnectionHandoff(config: tempConfig));
+          widget.onChecked!(
+            ServerConnectionHandoff(
+              config: tempConfig,
+              browserSignInClientId: _offersBrowserSignIn && _browserSignIn
+                  ? _browserSignInClientIdController.text
+                  : null,
+            ),
+          );
           return;
         }
         await _handleProxyAuth(tempConfig, workerManager, sessionRevision);
