@@ -87,8 +87,11 @@ else's task.
 3. **Fighting generated code.** `*.g.dart` and `*.freezed.dart` files are
    git-ignored. Hundreds of analyzer errors in files you never touched mean
    code generation has not run, not that the source is broken. Never hand-edit
-   or commit generated files. Change the input (annotated Dart, an ARB file,
-   `pigeons/`) and generate again.
+   a generated file, and never commit an ignored one. Change the input
+   (annotated Dart, an ARB file, `pigeons/`) and generate again. The Pigeon
+   bindings are the exception to "ignored": `conduit_platform_apis.g.dart`,
+   `ConduitPlatformApis.g.swift`, and `ConduitPlatformApis.g.kt` are tracked,
+   so regenerate and commit all three when `pigeons/` changes.
 
 ## Hit every surface
 

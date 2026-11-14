@@ -54,8 +54,9 @@ Future<void> main() async {
   // forever.
   for (final signal in [
     ProcessSignal.sigint,
-    ProcessSignal.sigterm,
-    if (!Platform.isWindows) ProcessSignal.sighup,
+    ProcessSignal.sighup,
+    // Watching SIGTERM throws on Windows.
+    if (!Platform.isWindows) ProcessSignal.sigterm,
   ]) {
     signal.watch().listen((received) {
       for (final process in _running) {
@@ -75,6 +76,12 @@ Future<void> main() async {
   } on _StepFailed catch (failure) {
     finish(failure.toString());
     stderr.writeln('Setup failed: ${failure.step}');
+    exit(1);
+  } catch (error) {
+    // A program that is not installed fails to start instead of exiting
+    // non-zero; that still has to end with a marker.
+    finish('$error');
+    stderr.writeln('Setup failed: $error');
     exit(1);
   }
 }

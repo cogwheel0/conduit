@@ -22,13 +22,22 @@ const String appMember = '.';
 
 /// One command of the plan.
 class Step {
-  const Step(this.name, this.command, {this.directory = '.'});
+  const Step(
+    this.name,
+    this.command, {
+    this.directory = '.',
+    this.optional = false,
+  });
 
   final String name;
   final List<String> command;
 
   /// Where the command runs, from the repository root.
   final String directory;
+
+  /// Whether the step is skipped, not failed, when its program is missing.
+  /// Only for a toolchain a Flutter checkout can do without.
+  final bool optional;
 
   @override
   String toString() =>
@@ -252,9 +261,10 @@ Plan planChecks(
       final relative = member == appMember
           ? path
           : path.substring(member.length + 1);
-      final test = _testFor(relative, inApp: member == appMember);
-      final fromRoot = member == appMember ? test : '$member/$test';
-      if (test != null && exists(fromRoot!)) tests.add(test);
+      final test = _testsFor(relative, inApp: member == appMember)
+          .where((test) => exists(member == appMember ? test : '$member/$test'))
+          .firstOrNull;
+      if (test != null) tests.add(test);
     }
     if (tests.isEmpty) continue;
     final files = tests.toList()..sort();
@@ -271,27 +281,44 @@ Plan planChecks(
   if (any((path) => path.startsWith('relay/'))) {
     steps
       ..add(
-        const Step('Relay format', [
-          'cargo',
-          'fmt',
-          '--check',
-        ], directory: 'relay'),
+        const Step(
+          'Relay format',
+          ['cargo', 'fmt', '--check'],
+          directory: 'relay',
+          optional: true,
+        ),
       )
       ..add(
-        const Step('Relay lint', [
-          'cargo',
-          'clippy',
-          '--all-targets',
-          '--locked',
-          '--',
-          '-D',
-          'warnings',
-        ], directory: 'relay'),
+        const Step(
+          'Relay lint',
+          [
+            'cargo',
+            'clippy',
+            '--all-targets',
+            '--locked',
+            '--',
+            '-D',
+            'warnings',
+          ],
+          directory: 'relay',
+          optional: true,
+        ),
       );
   }
 
   return Plan(steps, [
-    if (affected.isNotEmpty) 'the full Dart test suites',
+    // A fixture or a helper under test/ can change what any test does.
+    if (affected.isNotEmpty ||
+        any(
+          (path) => workspace.dependencies.keys.any(
+            (member) => path.startsWith(
+              member == appMember ? 'test/' : '$member/test/',
+            ),
+          ),
+        ))
+      'the full Dart test suites',
+    if (any((path) => path.startsWith('packages/conduit_markdown/')))
+      'Web-safe packages (conduit_markdown compiled to JS and run)',
     if (affected.contains(appMember) || any((p) => p.startsWith('android/')))
       'Android native tests and the foss build',
     if (any((path) => path.startsWith('relay/') || path.startsWith('push/')))
@@ -319,21 +346,28 @@ String _order(String member) => member == appMember ? '~' : member;
 String _label(String member) =>
     member == appMember ? 'app' : member.split('/').last;
 
-/// The test file for [path], both from the member's own directory: a changed
-/// test file itself, or the test beside a changed library or tool.
-String? _testFor(String path, {required bool inApp}) {
-  if (!path.endsWith('.dart')) return null;
+/// Where the test for [path] may be, best guess first, all from the member's
+/// own directory: a changed test file itself, or the test beside a changed
+/// library or tool.
+List<String> _testsFor(String path, {required bool inApp}) {
+  if (!path.endsWith('.dart')) return const [];
   if (path.startsWith('test/')) {
-    return path.endsWith('_test.dart') ? path : null;
+    return [if (path.endsWith('_test.dart')) path];
   }
   final stem = path.substring(0, path.length - '.dart'.length);
   if (path.startsWith('lib/')) {
-    return 'test/${stem.substring('lib/'.length)}_test.dart';
+    final library = stem.substring('lib/'.length);
+    return [
+      'test/${library}_test.dart',
+      // Some packages keep lib/src/ but put its tests straight under test/.
+      if (library.startsWith('src/'))
+        'test/${library.substring('src/'.length)}_test.dart',
+    ];
   }
   if (inApp && path.startsWith('tool/')) {
-    return 'test/tool/${stem.split('/').last}_test.dart';
+    return ['test/tool/${stem.split('/').last}_test.dart'];
   }
-  return null;
+  return const [];
 }
 
 Future<void> main(List<String> args) async {
@@ -381,10 +415,15 @@ Future<void> main(List<String> args) async {
     return;
   }
 
-  final changed = {
-    ..._lines(_git(['diff', '--name-only', base])),
-    ..._lines(_git(['ls-files', '--others', '--exclude-standard'])),
-  }.toList()..sort();
+  final tracked = _git(['diff', '--name-only', base]);
+  final untracked = _git(['ls-files', '--others', '--exclude-standard']);
+  if (tracked == null || untracked == null) {
+    // An empty list here would read as "nothing changed" and pass.
+    stderr.writeln('Cannot list the changed files: git failed.');
+    exitCode = 1;
+    return;
+  }
+  final changed = {..._lines(tracked), ..._lines(untracked)}.toList()..sort();
   final plan = planChecks(
     changed,
     workspace: Workspace.read('.'),
@@ -426,7 +465,8 @@ void _printLeftToCi(Plan plan) {
   stdout.writeln('Left to CI: ${plan.leftToCi.join('; ')}.');
 }
 
-/// `pass`, `FAIL`, or `skip` when the command's program is not installed.
+/// `pass` or `FAIL`. A step whose program is not installed fails too, unless
+/// it is [Step.optional], which gives `skip`.
 Future<String> _run(Step step) async {
   try {
     final process = await Process.start(
@@ -439,7 +479,9 @@ Future<String> _run(Step step) async {
     );
     return await process.exitCode == 0 ? 'pass' : 'FAIL';
   } on ProcessException {
-    return 'skip';
+    if (step.optional) return 'skip';
+    stderr.writeln('Cannot start ${step.command.first}. Is it installed?');
+    return 'FAIL';
   }
 }
 
@@ -448,5 +490,5 @@ String? _git(List<String> args) {
   return result.exitCode == 0 ? (result.stdout as String).trim() : null;
 }
 
-Iterable<String> _lines(String? text) =>
-    (text ?? '').split('\n').where((line) => line.isNotEmpty);
+Iterable<String> _lines(String text) =>
+    text.split('\n').where((line) => line.isNotEmpty);

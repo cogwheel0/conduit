@@ -41,7 +41,11 @@ List<String> _names(Plan plan) => [for (final step in plan.steps) step.name];
 
 void main() {
   test('a package change analyzes it and everything that depends on it', () {
-    final plan = _plan(['packages/conduit_markdown/lib/src/blocks.dart']);
+    // This package keeps lib/src/ but puts its tests straight under test/.
+    final plan = _plan(
+      ['packages/conduit_markdown/lib/src/blocks.dart'],
+      missing: {'packages/conduit_markdown/test/src/blocks_test.dart'},
+    );
 
     check(_names(plan)).deepEquals([
       'Package boundaries',
@@ -52,8 +56,12 @@ void main() {
     ]);
     final test = plan.steps.last;
     check(test.directory).equals('packages/conduit_markdown');
-    check(test.command)
-        .deepEquals(['dart', 'test', 'test/src/blocks_test.dart']);
+    check(test.command).deepEquals(['dart', 'test', 'test/blocks_test.dart']);
+    check(plan.leftToCi).deepEquals([
+      'the full Dart test suites',
+      'Web-safe packages (conduit_markdown compiled to JS and run)',
+      'Android native tests and the foss build',
+    ]);
   });
 
   test('a package nothing else imports is analyzed alone', () {
@@ -108,6 +116,7 @@ void main() {
   test('changes outside Dart run only their own checks', () {
     final relay = _plan(['relay/src/main.rs']);
     check(_names(relay)).deepEquals(['Relay format', 'Relay lint']);
+    check(relay.steps.every((step) => step.optional)).isTrue();
     check(relay.steps.first.directory).equals('relay');
     check(relay.leftToCi).deepEquals(['Push relay tests (cargo test)']);
 
@@ -119,6 +128,11 @@ void main() {
     check(plugins.steps).isEmpty();
     check(plugins.leftToCi)
         .deepEquals(['Push server plugins (pytest and the --check scripts)']);
+
+    // Nothing maps a fixture to the tests that read it.
+    final fixture = _plan(['packages/conduit_core/test/fixtures/chat.json']);
+    check(fixture.steps).isEmpty();
+    check(fixture.leftToCi).deepEquals(['the full Dart test suites']);
   });
 
   test('host-agnostic Swift is checked against the package boundaries', () {
