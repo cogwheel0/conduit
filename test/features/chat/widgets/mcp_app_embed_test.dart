@@ -526,7 +526,7 @@ void main() {
     expect(api.requests, ['ui/resource', 'ui/resource']);
   });
 
-  testWidgets('an app that did not start loads its page again on retry', (
+  testWidgets('retry fetches repaired HTML when a cached app did not start', (
     tester,
   ) async {
     final api = _ServingApi();
@@ -537,11 +537,16 @@ void main() {
     await tester.pump(const Duration(seconds: 31));
     expect(find.text('The app did not start.'), findsOneWidget);
 
+    api.html = '<p>repaired app</p>';
     await tester.tap(find.text('Retry'));
     await tester.pump();
     await tester.pump();
 
-    expect(api.requests.map((request) => request.method), ['ui/resource']);
+    expect(app.view.initialData!.data, contains('repaired app'));
+    expect(api.requests.map((request) => request.method), [
+      'ui/resource',
+      'ui/resource',
+    ]);
     expect(await app.navigate(app.documentUrl), NavigationActionPolicy.ALLOW);
   });
 
@@ -622,101 +627,127 @@ void main() {
 
   for (final reverse in [false, true]) {
     for (final dragging in [false, true]) {
-      testWidgets(
-        'earlier apps preserve the visible message (reverse=$reverse, dragging=$dragging)',
-        (tester) async {
-          final api = _ServingApi();
-          final webViews = _installWebViews();
-          final timeline = ChatTimelineViewportController();
-          addTearDown(() async {
-            await tester.pumpWidget(const SizedBox());
-            timeline.dispose();
-          });
-          final ids = List.generate(20, (i) => 'message-$i');
-          await tester.pumpWidget(
-            _harness(
-              api,
-              child: SizedBox(
-                height: 600,
-                child: ChatTimelineViewport(
-                  controller: timeline,
-                  ownerGeneration: 1,
-                  initialAnchor: reverse
-                      ? const ChatScrollAnchor(
-                          messageId: 'message-15',
-                          offsetWithinMessage: 0,
-                        )
-                      : null,
-                  messageIds: ids,
-                  rowBuilder: (_, i) => Column(
-                    children: [
-                      if (i == 12 || i == 13)
-                        McpAppEmbed(app: _app, cacheId: ids[i]),
-                      SizedBox(height: 160, child: Text(ids[i])),
-                    ],
+      for (final inside in [false, true]) {
+        testWidgets(
+          'app resize preserves the reader (reverse=$reverse, dragging=$dragging, inside=$inside)',
+          (tester) async {
+            final api = _ServingApi();
+            final webViews = _installWebViews();
+            final timeline = ChatTimelineViewportController();
+            addTearDown(() async {
+              await tester.pumpWidget(const SizedBox());
+              timeline.dispose();
+            });
+            final ids = List.generate(20, (i) => 'message-$i');
+            await tester.pumpWidget(
+              _harness(
+                api,
+                child: SizedBox(
+                  height: 600,
+                  child: ChatTimelineViewport(
+                    controller: timeline,
+                    ownerGeneration: 1,
+                    initialAnchor: reverse
+                        ? const ChatScrollAnchor(
+                            messageId: 'message-15',
+                            offsetWithinMessage: 0,
+                          )
+                        : null,
+                    messageIds: ids,
+                    rowBuilder: (_, i) => Column(
+                      children: [
+                        if (i == 12 || i == 13)
+                          McpAppEmbed(app: _app, cacheId: ids[i]),
+                        SizedBox(height: 160, child: Text(ids[i])),
+                      ],
+                    ),
+                    topContentInset: 0,
+                    bottomPadding: 0,
+                    horizontalPadding: 0,
+                    cacheExtent: 1200,
+                    physics: const ClampingScrollPhysics(),
+                    maintainVisibleAnchor: true,
+                    followLatest: false,
+                    pinAutomatic: false,
+                    onPointerDown: () {},
+                    onUserDragStart: () {},
+                    onUserDragEnd: () {},
+                    onMetricsChanged: (_) {},
+                    onPinEndSpaceChanged: (_) {},
+                    onTrailingRefresh: () async {},
+                    onNativeScrollToTop: () async {},
                   ),
-                  topContentInset: 0,
-                  bottomPadding: 0,
-                  horizontalPadding: 0,
-                  cacheExtent: 1200,
-                  physics: const ClampingScrollPhysics(),
-                  maintainVisibleAnchor: true,
-                  followLatest: false,
-                  pinAutomatic: false,
-                  onPointerDown: () {},
-                  onUserDragStart: () {},
-                  onUserDragEnd: () {},
-                  onMetricsChanged: (_) {},
-                  onPinEndSpaceChanged: (_) {},
-                  onTrailingRefresh: () async {},
-                  onNativeScrollToTop: () async {},
                 ),
               ),
-            ),
-          );
-          await tester.pump();
-          await tester.pump();
-          final pages = [
-            for (final view in webViews.built)
-              _OpenApp(_WebViews()..built.add(view)),
-          ];
-          for (final page in pages) {
-            page.view.onWebViewCreated!(page.controller);
-            await page.post({
-              'jsonrpc': '2.0',
-              'method': 'ui/notifications/initialized',
-            });
-          }
-          final seek = timeline.jumpMessageToTop(ids[14]);
-          await tester.pumpAndSettle();
-          await seek;
-          final gesture = dragging
-              ? await tester.startGesture(const Offset(700, 300))
-              : null;
-          await gesture?.moveBy(const Offset(0, 30));
-          await tester.pump();
-          final before = timeline.rowRect(ids[14])!.top;
-          for (final app in pages) {
-            await app.post({
-              'jsonrpc': '2.0',
-              'method': 'ui/notifications/size-changed',
-              'params': {'height': 4000},
-            });
-          }
-          await gesture?.moveBy(const Offset(0, 15));
-          await tester.pump();
-          expect(
-            timeline.rowRect(ids[14])?.top,
-            closeTo(before + (dragging ? 15 : 0), 1),
-          );
-          await tester.pump();
-          expect(
-            timeline.rowRect(ids[14])?.top,
-            closeTo(before + (dragging ? 15 : 0), 1),
-          );
-          await gesture?.cancel();
-        },
-      );
+            );
+            await tester.pump();
+            await tester.pump();
+            final pages = <_OpenApp>[];
+            Future<void> initializePages() async {
+              for (final view in webViews.built.skip(pages.length).toList()) {
+                final page = _OpenApp(_WebViews()..built.add(view));
+                pages.add(page);
+                page.view.onWebViewCreated!(page.controller);
+                await page.post({
+                  'jsonrpc': '2.0',
+                  'method': 'ui/notifications/initialized',
+                });
+                if (inside) {
+                  await page.post({
+                    'jsonrpc': '2.0',
+                    'method': 'ui/notifications/size-changed',
+                    'params': {'height': 2000},
+                  });
+                }
+              }
+              await tester.pump();
+            }
+
+            await initializePages();
+            final target = inside ? ids[13] : ids[14];
+            final seek = timeline.jumpMessageToTop(target);
+            await tester.pump();
+            await initializePages();
+            await initializePages();
+            await tester.pumpAndSettle();
+            await seek;
+            if (inside) {
+              final scroll = await tester.startGesture(const Offset(700, 300));
+              await scroll.moveBy(const Offset(0, -140));
+              await tester.pump();
+              await scroll.up();
+              await tester.pumpAndSettle();
+              expect(timeline.rowRect(target)!.top, lessThan(0));
+              expect(timeline.rowRect(target)!.bottom, greaterThan(600));
+            }
+            final gesture = dragging
+                ? await tester.startGesture(const Offset(700, 300))
+                : null;
+            await gesture?.moveBy(const Offset(0, 30));
+            await tester.pump();
+            final before = timeline.rowRect(target)!.top;
+            for (final app in pages) {
+              await app.post({
+                'jsonrpc': '2.0',
+                'method': 'ui/notifications/size-changed',
+                'params': {'height': 4000},
+              });
+            }
+            await gesture?.moveBy(const Offset(0, 15));
+            await tester.pump();
+            expect(
+              timeline.rowRect(target)?.top,
+              closeTo(before + (dragging ? 15 : 0), 1),
+            );
+            await tester.pump();
+            expect(
+              timeline.rowRect(target)?.top,
+              closeTo(before + (dragging ? 15 : 0), 1),
+            );
+            await gesture?.cancel();
+          },
+        );
+      }
     }
   }
 

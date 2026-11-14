@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
+import 'package:drift/drift.dart' show Variable;
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/database/app_database.dart';
@@ -35,6 +37,19 @@ class McpAppResourceCache {
     ready = _queue(_load);
   }
 
+  static String? keyFor(String? cacheId, OpenWebUiMcpApp app) {
+    if (cacheId == null) return null;
+    final identity = jsonEncode([
+      cacheId,
+      app.serverId,
+      app.toolName,
+      app.binding,
+      app.arguments,
+      app.result,
+    ]);
+    return sha256.convert(utf8.encode(identity)).toString();
+  }
+
   static const _prefix = 'mcp_app_resource:';
   static const _maxEntries = 32;
   static const _maxBytes = 20 * 1024 * 1024;
@@ -42,6 +57,8 @@ class McpAppResourceCache {
   final DatabaseManager? _manager;
   final _entries = <String, McpAppCacheEntry>{};
   final _sizes = <String, int>{};
+  final _heightWrites =
+      <(String, OpenWebUiMcpAppResource), ({double height, int usedAt})>{};
   int _bytes = 0;
   int _lastUsed = 0;
   bool _disposed = false;
@@ -65,6 +82,46 @@ class McpAppResourceCache {
 
   void put(String key, McpAppCacheEntry entry) {
     if (_disposed) return;
+    final previous = _entries[key];
+    if (previous != null && identical(previous.resource, entry.resource)) {
+      final size =
+          _sizes[key]! +
+          jsonEncode(entry.height).length -
+          jsonEncode(previous.height).length;
+      final evicted = _store(key, entry, size);
+      if (_database == null) return;
+      final pendingKey = (key, entry.resource);
+      final queued = _heightWrites.containsKey(pendingKey);
+      _heightWrites[pendingKey] = (height: entry.height, usedAt: _usedAt());
+      if (!queued) {
+        unawaited(
+          _queue((db) async {
+            final latest = _heightWrites.remove(pendingKey)!;
+            // Updating only the numeric field avoids encoding/queuing HTML on
+            // every resize. SQL UPDATE cannot resurrect an evicted resource.
+            await db.customUpdate(
+              "UPDATE app_cache SET value = json_set(value, '\$.height', json(?)), "
+              'updated_at = ? WHERE key = ?',
+              variables: [
+                Variable.withString(jsonEncode(latest.height)),
+                Variable.withInt(latest.usedAt),
+                Variable.withString('$_prefix$key'),
+              ],
+              updates: {db.appCache},
+            );
+          }),
+        );
+      }
+      if (evicted.isNotEmpty) {
+        unawaited(
+          _queue(
+            (db) =>
+                db.appCacheDao.deleteKeys(evicted.map((key) => '$_prefix$key')),
+          ),
+        );
+      }
+      return;
+    }
     final value = jsonEncode({
       'resource': entry.resource.toJson(),
       'height': entry.height,
@@ -89,6 +146,13 @@ class McpAppResourceCache {
         }),
       ),
     );
+  }
+
+  void remove(String? key) {
+    if (_disposed || key == null) return;
+    _entries.remove(key);
+    _bytes -= _sizes.remove(key) ?? 0;
+    unawaited(_queue((db) => db.appCacheDao.deleteKey('$_prefix$key')));
   }
 
   List<String> _store(String key, McpAppCacheEntry entry, int size) {
@@ -172,5 +236,6 @@ class McpAppResourceCache {
     _entries.clear();
     _sizes.clear();
     _bytes = 0;
+    unawaited(_pending.then((_) => _heightWrites.clear()));
   }
 }

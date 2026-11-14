@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -5,6 +6,8 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit_core/features/mcp_apps/mcp_app_resource_cache.dart';
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
+import 'package:drift/drift.dart'
+    show ApplyInterceptor, QueryExecutor, QueryInterceptor;
 import 'package:drift/native.dart';
 import 'package:test/test.dart';
 
@@ -19,6 +22,40 @@ const _resource = OpenWebUiMcpAppResource(
   },
   tool: {'name': 'render_itinerary', 'description': 'Synthetic fixture'},
 );
+
+final class _HeldCacheWrites extends QueryInterceptor {
+  final started = Completer<void>();
+  final release = Completer<void>();
+  final argumentSizes = <int>[];
+  bool hold = false;
+
+  Future<void> _beforeWrite(String statement, List<Object?> args) async {
+    if (!hold || !statement.contains('app_cache')) return;
+    argumentSizes.add(args.whereType<String>().fold(0, (n, s) => n + s.length));
+    if (!started.isCompleted) started.complete();
+    await release.future;
+  }
+
+  @override
+  Future<int> runInsert(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    await _beforeWrite(statement, args);
+    return executor.runInsert(statement, args);
+  }
+
+  @override
+  Future<int> runUpdate(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    await _beforeWrite(statement, args);
+    return executor.runUpdate(statement, args);
+  }
+}
 
 void main() {
   late Directory directory;
@@ -80,6 +117,49 @@ void main() {
     expect(entry?.resource.toJson(), _resource.toJson());
     expect(entry?.height, 9935);
     expect(await reopened.read('message:invocation:changed-result'), isNull);
+  });
+
+  test('resize writes stay small and coalesce behind slow storage', () async {
+    final writes = _HeldCacheWrites();
+    final database = AppDatabase(NativeDatabase.memory().interceptWith(writes));
+    databases.add(database);
+    final first = await cache(database);
+    final resource = OpenWebUiMcpAppResource(
+      html: 'x' * (1024 * 1024),
+      csp: _resource.csp,
+    );
+    first.put('call', (resource: resource, height: 300));
+    await first.settled;
+    writes.hold = true;
+    addTearDown(() {
+      if (!writes.release.isCompleted) writes.release.complete();
+    });
+    first.put('call', (resource: resource, height: 2000));
+    await writes.started.future;
+    for (var height = 2100; height < 2200; height++) {
+      first.put('call', (resource: resource, height: height.toDouble()));
+    }
+    writes.release.complete();
+    await first.settled;
+    expect(writes.argumentSizes, hasLength(lessThanOrEqualTo(2)));
+    expect(writes.argumentSizes, everyElement(lessThan(100)));
+    first.dispose();
+    final restored = await (await cache(database)).read('call');
+    expect(restored?.height, 2199);
+    expect(restored?.resource.html, resource.html);
+  });
+
+  test('explicit removal survives restart and keeps other entries', () async {
+    final database = open('a');
+    final first = await cache(database);
+    first.put('failed', (resource: _resource, height: 300));
+    first.put('keep', (resource: _resource, height: 9935));
+    first.remove('failed');
+    await first.settled;
+    first.dispose();
+    final reopened = await cache(database);
+    expect(await reopened.read('failed'), isNull);
+    expect((await reopened.read('keep'))?.height, 9935);
   });
 
   test('32-entry LRU and recent reads survive a restart', () async {
@@ -194,6 +274,7 @@ void main() {
       final first = McpAppResourceCache(database: database, manager: manager);
       caches.add(first);
       await first.ready;
+      first.put('call', (resource: _resource, height: 2000));
       first.put('call', (resource: _resource, height: 10000));
       first.dispose();
       await manager.deleteFor('a');

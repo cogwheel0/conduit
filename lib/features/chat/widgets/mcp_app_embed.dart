@@ -3,7 +3,6 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -68,18 +67,8 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   late String? _cacheKey = _appCacheKey();
   double _height = _initialHeight;
 
-  String? _appCacheKey() {
-    if (widget.cacheId == null) return null;
-    final identity = jsonEncode([
-      widget.cacheId,
-      widget.app.serverId,
-      widget.app.toolName,
-      widget.app.binding,
-      widget.app.arguments,
-      widget.app.result,
-    ]);
-    return sha256.convert(utf8.encode(identity)).toString();
-  }
+  String? _appCacheKey() =>
+      McpAppResourceCache.keyFor(widget.cacheId, widget.app);
 
   double get _cachedHeight {
     final height = ref.read(mcpAppResourceCacheProvider)[_cacheKey]?.height;
@@ -424,7 +413,12 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
         title: widget.app.toolName,
         message: failure,
         actionLabel: _opened ? l10n.retry : null,
-        onAction: _opened ? _open : null,
+        onAction: _opened
+            ? () {
+                ref.read(mcpAppResourceCacheProvider).remove(_cacheKey);
+                unawaited(_open());
+              }
+            : null,
       );
     }
     final resource = _resource;
@@ -688,14 +682,18 @@ String mcpAppBridgeScript({
   const bridgeToken = ${jsonEncode(bridgeToken)};
   const queue = [];
   const nativePostMessage = window.postMessage.bind(window);
-  // Only canvases that explicitly own touch gestures (e.g. maps) claim vertical
-  // drags. Ordinary charts keep the browser's auto policy and scroll the chat.
-  const canvasRects = () => Array.from(document.querySelectorAll('canvas'))
-    .filter(canvas => getComputedStyle(canvas).touchAction === 'none')
-    .map(canvas => {
-      const r = canvas.getBoundingClientRect();
+  // Explicit touch policies reserve vertical gestures for maps and DOM controls.
+  // Ordinary charts/content retain browser vertical panning and scroll the chat.
+  const canvasRects = () => Array.from(document.querySelectorAll('*'))
+    .filter(element => {
+      const action = getComputedStyle(element).touchAction;
+      return action !== 'auto' && action !== 'manipulation' &&
+        !action.split(' ').some(value => ['pan-y', 'pan-up', 'pan-down'].includes(value));
+    })
+    .map(element => {
+      const r = element.getBoundingClientRect();
       return [r.x, r.y, r.width, r.height];
-    });
+    }).filter(rect => rect[2] > 0 && rect[3] > 0);
   const deliverToHost = (message) => {
     let payload;
     try {
@@ -717,14 +715,27 @@ String mcpAppBridgeScript({
       queue.push(message);
     }
   };
-  // A map may create its canvas asynchronously without changing content height.
+  let rectReportPending = false;
+  let lastRects = '';
   new MutationObserver(records => {
-    if (records.some(record => [...record.addedNodes, ...record.removedNodes].some(node =>
-      node.nodeType === 1 && (node.matches('canvas') || node.querySelector('canvas'))))) {
+    const changed = records.some(record => record.type === 'childList'
+      ? [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1)
+      : record.attributeName === 'class' ||
+        (record.oldValue || '').includes('touch-action') ||
+        record.target.style.touchAction);
+    if (!changed || rectReportPending) return;
+    rectReportPending = true;
+    requestAnimationFrame(() => {
+      rectReportPending = false;
+      const rects = canvasRects();
+      const encoded = JSON.stringify(rects);
+      if (encoded === lastRects) return;
+      lastRects = encoded;
       deliverToHost({jsonrpc: '2.0', method: 'conduit/canvas-rects',
-        params: {_conduitCanvasRects: canvasRects()}});
-    }
-  }).observe(document, {childList: true, subtree: true});
+        params: {_conduitCanvasRects: rects}});
+    });
+  }).observe(document, {childList: true, subtree: true, attributes: true,
+    attributeOldValue: true, attributeFilter: ['class', 'style']});
   // The page's parent is the page itself in a web view: what it posts over
   // the MCP Apps bridge goes to Conduit, and anything else, such as a
   // library's own scheduling, stays the page's.

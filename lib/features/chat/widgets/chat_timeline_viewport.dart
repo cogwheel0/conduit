@@ -2185,7 +2185,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       return;
     }
     final above =
-        box.localToGlobal(Offset.zero).dy <=
+        box.localToGlobal(Offset(0, box.size.height)).dy <=
         viewport.top + widget.topContentInset;
     // The older sliver grows upwards; the center sliver grows downwards.
     // Preserve content below an app above the viewport, or above one below it.
