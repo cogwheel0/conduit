@@ -198,4 +198,17 @@ void main() {
     expect((late as Map)['accepted'], isFalse);
     expect(await answer, isFalse);
   });
+
+  // Last: it closes the file's window. A window that drops without
+  // closing is gone as surely as one that closed, and a question with no
+  // timeout must not wait on it for ever.
+  test(
+    'when the last window drops, a waiting question takes its default',
+    () async {
+      final answer = server.uiRequests!.confirm(title: 'Still there?');
+      await nextRequest();
+      await peer.close();
+      expect(await answer, isFalse);
+    },
+  );
 }
