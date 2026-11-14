@@ -288,6 +288,29 @@ List<String?> _openWebUiRequestPrompts(
   ];
 }
 
+/// The model a request for [modelId] goes to: [selected] when it is that
+/// model, else the account's model list's, as loaded. Null when neither has
+/// it.
+Model? _openWebUiRequestModel(dynamic ref, String modelId, {Model? selected}) {
+  if (selected != null && selected.id == modelId) return selected;
+  try {
+    final loaded = ref.read(modelsProvider) as AsyncValue<List<Model>>;
+    return loaded.asData?.value
+        .where((model) => model.id == modelId)
+        .firstOrNull;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Exposes [_openWebUiRequestModel] for focused unit tests.
+@visibleForTesting
+Model? openWebUiRequestModelForTest(
+  dynamic ref,
+  String modelId, {
+  Model? selected,
+}) => _openWebUiRequestModel(ref, modelId, selected: selected);
+
 /// Exposes [_openWebUiRequestPrompts] for focused unit tests.
 @visibleForTesting
 List<String?> openWebUiRequestPromptsForTest(

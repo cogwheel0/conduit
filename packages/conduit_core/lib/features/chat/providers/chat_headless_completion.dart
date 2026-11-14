@@ -188,9 +188,13 @@ Future<void> runQueuedCompletion(
       userSettings: userSettingsData,
       prompts: _openWebUiRequestPrompts(
         requestMessages,
+        // The model the request goes to, which the picker may not show.
         models: <Model?>[
-          if (selectedModel != null && selectedModel.id == effectiveModelId)
-            selectedModel,
+          _openWebUiRequestModel(
+            ref,
+            effectiveModelId,
+            selected: selectedModel,
+          ),
         ],
       ),
     );
@@ -507,9 +511,13 @@ Future<void> runHeadlessCompletion(
       userSettings: userSettingsData,
       prompts: _openWebUiRequestPrompts(
         requestMessages,
+        // The model the request goes to, which the picker may not show.
         models: <Model?>[
-          if (selectedModel != null && selectedModel.id == effectiveModelId)
-            selectedModel,
+          _openWebUiRequestModel(
+            ref,
+            effectiveModelId,
+            selected: selectedModel,
+          ),
         ],
       ),
     );
