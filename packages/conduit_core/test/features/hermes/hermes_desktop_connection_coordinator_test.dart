@@ -1,14 +1,21 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
+import 'package:conduit_core/ports/app_lifecycle.dart';
+import 'package:conduit_core/ports/browser_auth_port.dart';
 import 'package:conduit_core/ports/external_url_port.dart';
+import 'package:clock/clock.dart';
+import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -158,6 +165,171 @@ void main() {
     check(gateway.rpcMethods).deepEquals(['client.capabilities', 'model.options']);
   });
 
+  // Hermes redirects only to a loopback address: its listener sends the
+  // browser sheet on to the app's own redirect, which ends the sheet.
+  group('native sign-in in the browser sheet', () {
+    late _Gateway gateway;
+    late List<HermesDesktopCredentials> saved;
+
+    setUp(() async {
+      gateway = await _Gateway.start();
+      saved = [];
+    });
+    tearDown(() => gateway.close());
+
+    Future<bool> signIn(BrowserAuthPort sheet, {OpenExternalUrlPort? browser}) =>
+        HermesDesktopConnectionCoordinator(
+          openExternalUrl: browser,
+          browserAuth: sheet,
+        ).signInNative(
+          HermesConfig(
+            baseUrl: gateway.baseUrl,
+            mode: HermesBackendMode.desktopGateway,
+            desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+          ),
+          onCredentialsChanged: (credentials) async => saved.add(credentials),
+        );
+
+    test('returns to the app with no secret, then exchanges the code', () async {
+      final sheet = _Sheet();
+
+      check(await signIn(sheet)).isTrue();
+
+      final page = sheet.opened.single;
+      check(page.path).equals('/auth/native/authorize');
+      check(sheet.redirects.single).equals(Uri.parse(browserAuthDefaultRedirect));
+      check(sheet.answers.single.status).equals(HttpStatus.found);
+      // Only the state the bridge matches the sign-in by: no code, no token.
+      check(sheet.answers.single.location).equals(
+        '$browserAuthDefaultRedirect?state=${page.queryParameters['state']}',
+      );
+      check(gateway.exchangedCodes).deepEquals(['one-time-code']);
+      check(saved.single.nativeTokens?.refreshToken).equals('refresh');
+    });
+
+    test('a closed sheet cancels, with no error, and stops listening', () async {
+      final sheet = _Sheet(closedByUser: true);
+
+      check(await signIn(sheet)).isFalse();
+
+      check(saved).isEmpty();
+      check(gateway.exchangedCodes).isEmpty();
+      final listener = Uri.parse(
+        sheet.opened.single.queryParameters['redirect_uri']!,
+      );
+      await check(
+        Socket.connect(listener.host, listener.port),
+      ).throws<SocketException>();
+    });
+
+    test('a callback with another state fails, and closes the sheet', () async {
+      final sheet = _Sheet(state: 'forged');
+
+      await check(signIn(sheet)).throws<StateError>();
+
+      check(sheet.answers.single.status).equals(HttpStatus.found);
+      check(saved).isEmpty();
+      check(gateway.exchangedCodes).isEmpty();
+    });
+
+    test('without a browser sheet, opens the default browser', () async {
+      final sheet = _Sheet(supported: false);
+      final browser = _CallbackBrowser();
+
+      check(await signIn(sheet, browser: browser)).isTrue();
+
+      check(sheet.opened).isEmpty();
+      check(browser.opened.single.path).equals('/auth/native/authorize');
+      check(gateway.exchangedCodes).deepEquals(['one-time-code']);
+    });
+  });
+
+  group('gateway tokens', () {
+    final now = DateTime.utc(2026, 11, 15, 12);
+
+    HermesDesktopApiService service(
+      _TokenRest rest, {
+      required DateTime expiresAt,
+      required List<HermesDesktopCredentials> saved,
+    }) {
+      final service = HermesDesktopApiService(
+        config: HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          mode: HermesBackendMode.desktopGateway,
+          desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+          desktopCredentials: HermesDesktopCredentials(
+            nativeTokens: HermesDesktopTokenSet(
+              accessToken: 'access',
+              refreshToken: 'refresh',
+              expiresAt: expiresAt,
+            ),
+          ),
+        ),
+        dio: Dio()..httpClientAdapter = rest,
+        onCredentialsChanged: (credentials) async => saved.add(credentials),
+      );
+      addTearDown(service.close);
+      return service;
+    }
+
+    for (final (expiresIn, renews) in [
+      (const Duration(minutes: 2), true),
+      (const Duration(hours: 1), false),
+    ]) {
+      test(
+        'coming back to the foreground ${renews ? 'renews' : 'keeps'} '
+        'tokens that expire in ${expiresIn.inMinutes} minutes',
+        () => withClock(Clock.fixed(now), () async {
+          final rest = _TokenRest();
+          final saved = <HermesDesktopCredentials>[];
+          final lifecycle = _Lifecycle();
+          service(
+            rest,
+            expiresAt: now.add(expiresIn),
+            saved: saved,
+          ).startLifecycleObservation(lifecycle);
+
+          lifecycle.emit(AppLifecyclePhase.resumed);
+          await pumpEventQueue();
+
+          check(rest.paths.contains('/auth/native/refresh')).equals(renews);
+          check(saved.length).equals(renews ? 1 : 0);
+        }),
+      );
+    }
+
+    // Hermes answers `session_expired`: the refresh token is dead, so the
+    // tokens go, and every request after says sign-in is needed.
+    test('a refused renewal asks to sign in again', () async {
+      final rest = _TokenRest(refreshStatus: HttpStatus.unauthorized);
+      final saved = <HermesDesktopCredentials>[];
+      final gateway = service(
+        rest,
+        expiresAt: DateTime.utc(2020),
+        saved: saved,
+      );
+
+      await check(gateway.listJobs()).throws<HermesGatewaySignInRequired>();
+      check(saved.single.nativeTokens).isNull();
+      await check(gateway.listJobs()).throws<HermesGatewaySignInRequired>();
+      check(rest.paths).not((it) => it.contains('/api/cron/jobs'));
+    });
+
+    test('a 401 the renewed tokens get too asks to sign in again', () async {
+      final rest = _TokenRest(requestStatus: HttpStatus.unauthorized);
+      final saved = <HermesDesktopCredentials>[];
+      final gateway = service(
+        rest,
+        expiresAt: DateTime.utc(2099),
+        saved: saved,
+      );
+
+      await check(gateway.listJobs()).throws<HermesGatewaySignInRequired>();
+      check(saved.last.nativeTokens).isNull();
+    });
+  });
+
   group('connection name suggestion', () {
     test('uses the Desktop profile title, else its name', () async {
       final gateway = await _Gateway.start(
@@ -260,6 +432,9 @@ final class _Gateway {
   final sockets = <WebSocket>[];
   final ticketAuthorizations = <String?>[];
   final socketTickets = <String?>[];
+
+  /// The codes `/auth/native/token` was asked to exchange.
+  final exchangedCodes = <Object?>[];
   final rpcMethods = <String>[];
   String get baseUrl => 'http://127.0.0.1:${server.port}';
 
@@ -318,7 +493,9 @@ final class _Gateway {
           }),
         );
       case '/auth/native/token':
-        await request.drain<void>();
+        exchangedCodes.add(
+          (jsonDecode(await utf8.decodeStream(request)) as Map)['code'],
+        );
         request.response.write(
           jsonEncode({
             'access_token': 'access',
@@ -377,6 +554,130 @@ final class _CallbackBrowser implements OpenExternalUrlPort {
     }());
     return true;
   }
+}
+
+/// The system browser's sheet. It follows the sign-in page to the loopback
+/// redirect Hermes sends it to, and ends where the listener sends it next:
+/// on the app's redirect, it returns that, as the platform does.
+final class _Sheet implements BrowserAuthPort {
+  _Sheet({this.supported = true, this.closedByUser = false, this.state});
+
+  final bool supported;
+
+  /// Closed before Hermes redirects, so the listener is never reached.
+  final bool closedByUser;
+
+  /// The state Hermes' redirect carries; the page's own when null.
+  final String? state;
+
+  final opened = <Uri>[];
+  final redirects = <Uri>[];
+  final answers = <({int status, String? location})>[];
+
+  @override
+  bool get isSupported => supported;
+
+  @override
+  Future<BrowserAuthResult> authorize(
+    Uri url, {
+    required Uri redirectUri,
+    bool preferEphemeral = false,
+  }) async {
+    opened.add(url);
+    redirects.add(redirectUri);
+    if (closedByUser) return const BrowserAuthResult.cancelled();
+    final callback = Uri.parse(url.queryParameters['redirect_uri']!).replace(
+      queryParameters: {
+        'code': 'one-time-code',
+        'state': state ?? url.queryParameters['state']!,
+      },
+    );
+    final client = HttpClient();
+    try {
+      final request = await client.getUrl(callback);
+      request.followRedirects = false;
+      final response = await request.close();
+      await response.drain<void>();
+      final location = response.headers.value(HttpHeaders.locationHeader);
+      answers.add((status: response.statusCode, location: location));
+      final landed = Uri.tryParse(location ?? '');
+      if (landed == null ||
+          landed.scheme != redirectUri.scheme ||
+          landed.host != redirectUri.host ||
+          landed.path != redirectUri.path) {
+        return const BrowserAuthResult.failed(
+          BrowserAuthErrorCodes.unexpectedCallback,
+        );
+      }
+      return BrowserAuthResult(
+        outcome: BrowserAuthOutcome.success,
+        callbackUri: landed,
+      );
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  @override
+  Future<void> cancel() async {}
+}
+
+/// A gateway that requires sign-in: answers the token refresh with
+/// [refreshStatus] and any other request with [requestStatus].
+final class _TokenRest implements HttpClientAdapter {
+  _TokenRest({
+    this.refreshStatus = HttpStatus.ok,
+    this.requestStatus = HttpStatus.ok,
+  });
+
+  final int refreshStatus;
+  final int requestStatus;
+  final paths = <String>[];
+
+  @override
+  void close({bool force = false}) {}
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final path = options.uri.path;
+    paths.add(path);
+    final (status, body) = switch (path) {
+      '/api/status' => (HttpStatus.ok, {'auth_required': true}),
+      '/auth/native/refresh' when refreshStatus == HttpStatus.ok => (
+        HttpStatus.ok,
+        {
+          'access_token': 'renewed-access',
+          'refresh_token': 'renewed-refresh',
+          'expires_at': DateTime.utc(2099).millisecondsSinceEpoch ~/ 1000,
+        },
+      ),
+      '/auth/native/refresh' => (refreshStatus, {'error': 'session_expired'}),
+      _ => (requestStatus, const <String, Object?>{}),
+    };
+    return ResponseBody.fromString(
+      jsonEncode(body),
+      status,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+}
+
+final class _Lifecycle implements AppLifecyclePort {
+  final _changes = StreamController<AppLifecyclePhase>.broadcast();
+
+  void emit(AppLifecyclePhase phase) => _changes.add(phase);
+
+  @override
+  AppLifecyclePhase? get current => AppLifecyclePhase.resumed;
+
+  @override
+  Stream<AppLifecyclePhase> get changes => _changes.stream;
 }
 
 final class _ProfileBridge implements HermesDashboardBridge {

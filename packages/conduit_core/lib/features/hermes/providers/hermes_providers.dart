@@ -564,7 +564,13 @@ class HermesConfigController extends Notifier<HermesConfig> {
               enabled: true,
               secrets: await _readSecrets(connectionId),
             );
-      if (!hermesDesktopConnectionMatches(stored, connection) ||
+      // The tokens are the gateway's, kept across a profile change: a
+      // rotation from a client of the old profile must land, or the stored
+      // refresh token is one Hermes has already spent.
+      if (!hermesDesktopConnectionMatches(
+            stored,
+            connection.copyWith(desktopProfile: stored.desktopProfile),
+          ) ||
           stored.mode != connection.mode ||
           stored.allowSelfSignedCertificates !=
               connection.allowSelfSignedCertificates ||
@@ -2287,6 +2293,7 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
     final desktopService = HermesDesktopApiService(
       config: config,
       openExternalUrl: ref.read(openExternalUrlProvider),
+      browserAuth: ref.read(browserAuthPortProvider),
       dashboardBridgeFactory: ref.read(
         hostHermesDashboardBridgeFactoryProvider,
       ),

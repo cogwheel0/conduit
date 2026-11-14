@@ -395,10 +395,11 @@ NativeSheetDetailConfig buildHermesConnectionPage(
       if (!state.editsActive && state.variant != HermesEditorVariant.connect)
         l10n.hermesSignInActivatesConnection,
     ].join('\n\n'),
-    HermesDesktopAuthKind.nativePkce =>
-      !state.editsActive && state.variant != HermesEditorVariant.connect
-          ? l10n.hermesSignInActivatesConnection
-          : null,
+    HermesDesktopAuthKind.nativePkce => [
+      l10n.hermesNativeSignInHelp,
+      if (!state.editsActive && state.variant != HermesEditorVariant.connect)
+        l10n.hermesSignInActivatesConnection,
+    ].join('\n\n'),
     HermesDesktopAuthKind.legacyToken => null,
   };
 
@@ -1862,6 +1863,7 @@ class HermesSettingsPages extends SettingsPageModule {
   HermesDesktopConnectionCoordinator get _desktopConnection =>
       HermesDesktopConnectionCoordinator(
         openExternalUrl: _ref.read(openExternalUrlProvider),
+        browserAuth: _ref.read(browserAuthPortProvider),
         dashboardBridgeFactory: _ref.read(
           hostHermesDashboardBridgeFactoryProvider,
         ),
@@ -2129,14 +2131,16 @@ class HermesSettingsPages extends SettingsPageModule {
         .nativeCredentialsWriter();
     try {
       final live = _ref.read(hermesApiServiceProvider);
-      await _desktopConnection.signInNative(
+      final signedIn = await _desktopConnection.signInNative(
         saved.copyWith(enabled: true),
         onCredentialsChanged: writeCredentials,
         service: live is HermesDesktopApiService ? live : null,
       );
       if (!identical(_editors[key], editor)) return;
-      await _loadProfiles(key, editor);
-      await _test(l10n, key, editor);
+      if (signedIn) {
+        await _loadProfiles(key, editor);
+        await _test(l10n, key, editor);
+      }
     } catch (error) {
       DebugLogger.warning(
         'native-sign-in-failed',

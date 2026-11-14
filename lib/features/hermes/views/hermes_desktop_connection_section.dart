@@ -67,6 +67,7 @@ class _HermesDesktopConnectionSectionState
   HermesDesktopConnectionCoordinator get _desktopConnection =>
       HermesDesktopConnectionCoordinator(
         openExternalUrl: ref.read(openExternalUrlProvider),
+        browserAuth: ref.read(browserAuthPortProvider),
         dashboardBridgeFactory: ref.read(
           hostHermesDashboardBridgeFactoryProvider,
         ),
@@ -280,12 +281,12 @@ class _HermesDesktopConnectionSectionState
         .nativeCredentialsWriter();
     try {
       final live = ref.read(hermesApiServiceProvider);
-      await _desktopConnection.signInNative(
+      final signedIn = await _desktopConnection.signInNative(
         saved.copyWith(enabled: true),
         onCredentialsChanged: writeCredentials,
         service: live is HermesDesktopApiService ? live : null,
       );
-      if (mounted) {
+      if (signedIn && mounted) {
         await _loadProfiles();
         await widget.testConnection();
       }
@@ -378,7 +379,10 @@ class _HermesDesktopConnectionSectionState
                   ?widget.signInFooter,
                 ].join('\n\n')
               : _controller.desktopAuthKind == HermesDesktopAuthKind.nativePkce
-              ? widget.signInFooter
+              ? [
+                  l10n.hermesNativeSignInHelp,
+                  ?widget.signInFooter,
+                ].join('\n\n')
               : null,
           flat: !PlatformInfo.isIOS,
           child: Column(

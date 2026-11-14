@@ -280,6 +280,11 @@ then pick how you want to connect.
    is generated automatically on first chat if you leave it blank.
 4. Open the Hermes tab for conversations and scheduled agents.
 
+If you connect through Hermes' Desktop Gateway and sign in with a Hermes
+password, set `HERMES_DASHBOARD_BASIC_AUTH_SECRET` on the gateway, for example
+to the output of `openssl rand -base64 32`. Without it, the gateway makes a new
+signing key each time it starts, so every restart signs Conduit out.
+
 </details>
 
 ## Privacy

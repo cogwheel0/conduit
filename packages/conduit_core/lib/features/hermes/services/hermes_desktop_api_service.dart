@@ -239,6 +239,7 @@ final class HermesDesktopApiService
     Dio? dio,
     HermesDesktopRpcClient? rpc,
     OpenExternalUrlPort? openExternalUrl,
+    BrowserAuthPort? browserAuth,
     HermesDashboardBridgeFactory? dashboardBridgeFactory,
     this.onCredentialsChanged,
     HermesModelSwitchPrompt? confirmModelSwitch,
@@ -256,6 +257,7 @@ final class HermesDesktopApiService
     @visibleForTesting
     this.pendingCompactionDeadline = const Duration(minutes: 15),
   }) : _openExternalUrl = openExternalUrl ?? const NullOpenExternalUrlPort(),
+       _browserAuth = browserAuth ?? const NullBrowserAuthPort(),
        _dashboardBridgeFactory = dashboardBridgeFactory,
        _confirmModelSwitch = confirmModelSwitch,
        _nativeTokens = config.desktopCredentials?.nativeTokens,
@@ -286,6 +288,10 @@ final class HermesDesktopApiService
   /// sidecar has no browser and refuses, and the flow reports that it could
   /// not start rather than waiting for a callback nothing will send.
   final OpenExternalUrlPort _openExternalUrl;
+
+  /// Runs native sign-in in the system browser's sheet, which returns to
+  /// the app by itself; without one, [_openExternalUrl] opens the page.
+  final BrowserAuthPort _browserAuth;
 
   /// How long to wait before each new attempt to reach a gateway that said
   /// it is not ready (starting, restarting or draining).
@@ -520,7 +526,10 @@ final class HermesDesktopApiService
   Future<Map<String, dynamic>> statusProbe({bool refresh = false}) =>
       _authStatusProbe(refresh: refresh);
   Future<List<String>> listProfiles() => _authListProfiles();
-  Future<HermesDesktopTokenSet> signInNative({String? provider}) =>
+
+  /// Signs in to the gateway in the browser and saves the tokens. Null when
+  /// the user closed the browser.
+  Future<HermesDesktopTokenSet?> signInNative({String? provider}) =>
       _authSignInNative(provider: provider);
 
   @override

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart'
@@ -110,6 +111,96 @@ void main() {
     // The new target reaches the new server.
     final now = await factory().hermesConfigFor(_target(_moved.baseUrl, 'p-2'));
     check(now.baseUrl).equals(_moved.baseUrl);
+  });
+
+  // A gateway's tokens outlive a profile change, and the live client keeps
+  // rotating them: the refresh token the old settings were kept with is
+  // spent, and a provider that detects reuse ends the session on seeing it.
+  test('an old target on the same gateway uses its current tokens', () async {
+    HermesConfig desktop(String profile, String refreshToken) => HermesConfig(
+      enabled: true,
+      connectionId: 'conn-1',
+      baseUrl: _home.baseUrl,
+      mode: HermesBackendMode.desktopGateway,
+      desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+      desktopProfile: profile,
+      desktopCredentials: HermesDesktopCredentials(
+        nativeTokens: HermesDesktopTokenSet(
+          accessToken: 'access-$refreshToken',
+          refreshToken: refreshToken,
+          expiresAt: DateTime.utc(2030),
+        ),
+      ),
+    );
+    configs.saved = desktop('default', 'spent-refresh');
+    const old = HermesPushTarget(
+      connectionId: 'conn-1',
+      label: 'Home',
+      baseUrl: 'https://home.test',
+      mode: HermesBackendMode.desktopGateway,
+      credentialsRevision: 'p-1',
+    );
+    await factory().retain(old);
+    configs.saved = desktop('work', 'rotated-refresh');
+    profiles = [_profile(_home.baseUrl, 'p-2')];
+    container.invalidate(hermesConnectionsProvider);
+
+    final config = await factory().hermesConfigFor(old);
+    check(config.desktopProfile).equals('default');
+    check(
+      config.desktopCredentials?.nativeTokens?.refreshToken,
+    ).equals('rotated-refresh');
+  });
+
+  // The live client renews the same tokens as the app resumes, and stores
+  // its rotation first: this client's is refused, which is no sign-out, and
+  // the tokens it holds still work.
+  test('a Hermes client works on when its rotation is not stored', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final authorizations = <String?>[];
+    server.listen((request) async {
+      request.response.headers.contentType = ContentType.json;
+      switch (request.uri.path) {
+        case '/api/status':
+          request.response.write('{"auth_required":true}');
+        case '/auth/native/refresh':
+          request.response.write(
+            jsonEncode({
+              'access_token': 'fresh-access',
+              'refresh_token': 'fresh-refresh',
+              'expires_at': DateTime.utc(2030).millisecondsSinceEpoch ~/ 1000,
+            }),
+          );
+        case '/api/cron/jobs':
+          authorizations.add(
+            request.headers.value(HttpHeaders.authorizationHeader),
+          );
+          request.response.write('[]');
+        default:
+          request.response.statusCode = HttpStatus.notFound;
+      }
+      await request.response.close();
+    });
+    configs.saved = HermesConfig(
+      enabled: true,
+      connectionId: 'conn-1',
+      baseUrl: 'http://127.0.0.1:${server.port}',
+      mode: HermesBackendMode.desktopGateway,
+      desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+      desktopCredentials: HermesDesktopCredentials(
+        nativeTokens: HermesDesktopTokenSet(
+          accessToken: 'old-access',
+          refreshToken: 'old-refresh',
+          expiresAt: DateTime.utc(2020),
+        ),
+      ),
+    );
+
+    final service = await factory().openHermesService('conn-1');
+    addTearDown(service.close);
+    check(await service.listJobs()).isEmpty();
+    check(authorizations).deepEquals(['Bearer fresh-access']);
   });
 
   test('without the old settings, the old target is refused', () async {

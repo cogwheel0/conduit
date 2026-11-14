@@ -1374,6 +1374,14 @@ void main() {
         in <(String, Future<void> Function(HermesConfigController))>[
       ('a switch away', (controller) => controller.setActiveConnection(_b)),
       ('turning Hermes off', (controller) => controller.setEnabled(false)),
+      // The tokens are the gateway's, kept across a profile change.
+      (
+        'a profile change',
+        (controller) => controller.saveConnection(
+          baseUrl: 'https://alpha.example',
+          desktopProfile: 'work',
+        ),
+      ),
     ]) {
       test('a token rotation landing after $change is kept', () async {
         _seedConnections([

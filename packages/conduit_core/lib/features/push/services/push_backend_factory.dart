@@ -20,6 +20,7 @@ import 'package:conduit_core/models/server_user_settings.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Opens a [PushBackend] for one target. Each backend is short-lived: the
 /// coordinator closes it after one pass.
@@ -212,16 +213,32 @@ final class AppPushBackendFactory implements PushBackendFactory {
     return config;
   }
 
-  HermesDesktopApiService _desktopService(HermesConfig config) =>
-      HermesDesktopApiService(
-        config: config,
-        dashboardBridgeFactory: _ref.read(
-          hostHermesDashboardBridgeFactoryProvider,
-        ),
-        onCredentialsChanged: _ref
-            .read(hermesConfigProvider.notifier)
-            .credentialsWriterFor(config),
-      );
+  HermesDesktopApiService _desktopService(HermesConfig config) {
+    final writeCredentials = _ref
+        .read(hermesConfigProvider.notifier)
+        .credentialsWriterFor(config);
+    return HermesDesktopApiService(
+      config: config,
+      dashboardBridgeFactory: _ref.read(
+        hostHermesDashboardBridgeFactoryProvider,
+      ),
+      // A refused write means another client stored its rotation first, as
+      // the live one does renewing the same tokens on resume, or a sign-out
+      // came first: the stored tokens stay theirs, and the ones this client
+      // holds still serve its one pass. Not a sign-out of its own.
+      onCredentialsChanged: (credentials) async {
+        try {
+          await writeCredentials(credentials);
+        } catch (error) {
+          DebugLogger.warning(
+            'hermes-token-rotation-not-stored',
+            scope: 'push/backend',
+            data: {'errorType': error.runtimeType.toString()},
+          );
+        }
+      },
+    );
+  }
 
   @override
   Future<HermesBackendService> openHermesService(String connectionId) async {
@@ -239,6 +256,7 @@ final class AppPushBackendFactory implements PushBackendFactory {
   @visibleForTesting
   Future<HermesConfig> hermesConfigFor(HermesPushTarget target) async {
     final connectionId = target.connectionId;
+    HermesConfig? saved;
     HermesConfig? current;
     String? identity;
     PushBackendException? unusable;
@@ -246,7 +264,7 @@ final class AppPushBackendFactory implements PushBackendFactory {
       // The principal is read before and after the settings: an edit that
       // lands in between leaves them unpaired, and they are not used.
       final principal = _principalOf(connectionId);
-      final config = await _hermesConfig(connectionId);
+      final config = saved = await _hermesConfig(connectionId);
       if (principal != null && principal == _principalOf(connectionId)) {
         current = config;
         identity = HermesPushTarget.identityOf(
@@ -277,12 +295,40 @@ final class AppPushBackendFactory implements PushBackendFactory {
       return current;
     }
     final kept = _retainedHermes[connectionId]?[target.serverIdentity];
-    if (kept != null) return kept;
+    if (kept != null) return _withGatewayTokens(kept, saved);
     if (unusable != null) throw unusable;
     throw const PushBackendException(
       PushFailure(
         PushFailureReason.serverRejected,
         detail: 'connection_changed',
+      ),
+    );
+  }
+
+  /// [kept] with [saved]'s gateway tokens when both sign in natively to the
+  /// same gateway. The tokens belong to the gateway, not a profile, and the
+  /// live client rotates them: the refresh token [kept] was retained with
+  /// may be spent, and a provider that detects reuse ends the session.
+  static HermesConfig _withGatewayTokens(
+    HermesConfig kept,
+    HermesConfig? saved,
+  ) {
+    final tokens = saved?.desktopCredentials?.nativeTokens;
+    if (saved == null ||
+        tokens == null ||
+        kept.mode != HermesBackendMode.desktopGateway ||
+        saved.mode != HermesBackendMode.desktopGateway ||
+        kept.desktopAuthKind != HermesDesktopAuthKind.nativePkce ||
+        saved.desktopAuthKind != HermesDesktopAuthKind.nativePkce ||
+        HermesConfig.connectionEndpoint(kept.baseUrl) !=
+            HermesConfig.connectionEndpoint(saved.baseUrl)) {
+      return kept;
+    }
+    return kept.copyWith(
+      desktopCredentials: HermesDesktopCredentials(
+        legacyToken: kept.desktopCredentials?.legacyToken,
+        nativeTokens: tokens,
+        accessHeaders: kept.accessHeaders,
       ),
     );
   }

@@ -164,6 +164,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         // closing a valid transport merely because the app backgrounded.
         _reconciliationStale = true;
       case AppLifecyclePhase.resumed:
+        unawaited(_authRefreshOnResume());
         _foregroundReconciliation ??= _reconcileForeground().whenComplete(
           () => _foregroundReconciliation = null,
         );

@@ -10789,6 +10789,10 @@
   "@hermesErrorGateway": {
     "description": "Title of a Hermes error card: Hermes itself failed, not the model provider."
   },
+  "hermesErrorGatewaySignIn": "Signed out of Hermes",
+  "@hermesErrorGatewaySignIn": {
+    "description": "Title of a Hermes error card: the Hermes gateway no longer accepts this app's sign-in, so the user has to sign in again."
+  },
   "hermesErrorDisk": "Hermes is out of disk space",
   "@hermesErrorDisk": {
     "description": "Title of a Hermes error card: the Hermes server's disk is full."
@@ -11057,6 +11061,14 @@
   "hermesNativeSignInFailed": "Hermes sign-in failed or was cancelled. Check that native PKCE is enabled and try again.",
   "@hermesNativeSignInFailed": {
     "description": "Shown when signing in to a Hermes Desktop Gateway with native PKCE did not finish."
+  },
+  "hermesGatewaySignInAgain": "Sign In Again",
+  "@hermesGatewaySignInAgain": {
+    "description": "Button on a Hermes error card that signs in to the Hermes gateway again after it signed the app out."
+  },
+  "hermesNativeSignInHelp": "With Hermes password sign-in, set HERMES_DASHBOARD_BASIC_AUTH_SECRET on the gateway. Without it, every gateway restart signs Conduit out.",
+  "@hermesNativeSignInHelp": {
+    "description": "Help under the native Hermes sign-in option. HERMES_DASHBOARD_BASIC_AUTH_SECRET is an environment variable name and must not be translated."
   },
   "hermesDashboardSignInTitle": "Hermes Sign-In",
   "@hermesDashboardSignInTitle": {

@@ -1,6 +1,7 @@
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/ports/browser_auth_port.dart';
 import 'package:conduit_core/ports/external_url_port.dart';
 
 HermesDesktopAuthKind hermesRecommendedDesktopAuth(
@@ -88,10 +89,12 @@ bool hermesDesktopConnectionMatches(HermesConfig left, HermesConfig right) {
 final class HermesDesktopConnectionCoordinator {
   const HermesDesktopConnectionCoordinator({
     this.openExternalUrl,
+    this.browserAuth,
     this.dashboardBridgeFactory,
   });
 
   final OpenExternalUrlPort? openExternalUrl;
+  final BrowserAuthPort? browserAuth;
   final HermesDashboardBridgeFactory? dashboardBridgeFactory;
 
   Future<List<String>> profiles(
@@ -111,17 +114,21 @@ final class HermesDesktopConnectionCoordinator {
     );
   }
 
-  Future<void> signInNative(
+  /// Whether the user signed in: false when they closed the browser.
+  Future<bool> signInNative(
     HermesConfig config, {
     required HermesDesktopCredentialsWriter onCredentialsChanged,
     HermesDesktopApiService? service,
-  }) =>
-      service?.signInNative() ??
-      _using(
-        config,
-        (temporary) => temporary.signInNative(),
-        onCredentialsChanged: onCredentialsChanged,
-      );
+  }) async {
+    final tokens =
+        await (service?.signInNative() ??
+            _using(
+              config,
+              (temporary) => temporary.signInNative(),
+              onCredentialsChanged: onCredentialsChanged,
+            ));
+    return tokens != null;
+  }
 
   Future<HermesDesktopAuthKind> recommendedAuth(HermesConfig config) =>
       _using(config, (service) async {
@@ -143,6 +150,7 @@ final class HermesDesktopConnectionCoordinator {
     final service = HermesDesktopApiService(
       config: config,
       openExternalUrl: openExternalUrl,
+      browserAuth: browserAuth,
       dashboardBridgeFactory: dashboardBridgeFactory,
       onCredentialsChanged: onCredentialsChanged,
     );
