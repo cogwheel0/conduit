@@ -140,7 +140,11 @@ void main() {
   });
 
   group('Hermes Desktop Gateway', () {
-    Future<RealtimeCallRoute> hermesRoute(String status) async {
+    Future<RealtimeCallRoute> hermesRoute(
+      String status, {
+      Conversation? active,
+      bool temporaryEnforced = false,
+    }) async {
       final service = HermesDesktopApiService(
         config: HermesConfig(
           enabled: true,
@@ -155,8 +159,8 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           appSettingsProvider.overrideWithValue(const AppSettings()),
-          activeConversationProvider.overrideWith(() => _Active(null)),
-          temporaryChatEnforcedProvider.overrideWithValue(false),
+          activeConversationProvider.overrideWith(() => _Active(active)),
+          temporaryChatEnforcedProvider.overrideWithValue(temporaryEnforced),
           hermesApiServiceProvider.overrideWithValue(service),
         ],
       );
@@ -170,6 +174,24 @@ void main() {
       final result = await hermesRoute('{"mode":"gpt-live","available":true}');
       check(result.hermes).isNotNull();
       check(result.block).isNull();
+    });
+
+    test('an open Hermes chat, with its local: id, still goes live', () async {
+      final result = await hermesRoute(
+        '{"mode":"gpt-live","available":true}',
+        active: _chat('local:hermes_20261110_143436_5e767a'),
+      );
+      check(result.hermes).isNotNull();
+      check(result.block).isNull();
+    });
+
+    test('temporary mode still keeps a Hermes call Standard', () async {
+      final result = await hermesRoute(
+        '{"mode":"gpt-live","available":true}',
+        active: _chat('local:hermes_20261110_143436_5e767a'),
+        temporaryEnforced: true,
+      );
+      check(result.block).equals(RealtimeCallBlock.temporaryChat);
     });
 
     test('a chained profile, or one without a key, stays Standard', () async {
