@@ -7,15 +7,17 @@ const String kHermesStoredUserContentKey = 'hermesStoredContent';
 /// A Desktop Gateway session's place to cut before [replayedUserIndex], or
 /// null when the turn goes to a new session instead: the REST transport
 /// replays an explicit history, and a chat with no session has nothing to
-/// cut. [rowId] is null when the replayed turn never reached the session,
-/// which then only gets the prompt again.
+/// cut. [rowId] is null when the replayed turn never reached the session
+/// and nothing stored after it needs to go, which then only gets the prompt
+/// again. [promptStored] says whether the session holds the replayed turn
+/// itself.
 ///
 /// [originalText] is the replayed prompt as the session stores it, when an
 /// edit has already changed it on screen. [previousText] is the text shown
 /// before that edit: a turn edited before is stored with that one once the
 /// earlier edit went through, and with [originalText] when it did not.
 @visibleForTesting
-Future<({String sessionId, int? rowId, int? lastRowId})?>
+Future<({String sessionId, int? rowId, int? lastRowId, bool promptStored})?>
 hermesDesktopRewindTarget({
   required HermesBackendService? service,
   required Conversation? conversation,
@@ -72,22 +74,61 @@ hermesDesktopRewindTarget({
   }
   final rowId = row == null ? null : hermesTranscriptRowId(transcript[row]);
   if (rowId != null) {
-    return (sessionId: sessionId, rowId: rowId, lastRowId: lastRowId);
-  }
-  final ordinal = hermesSentUserTurnsBefore(messages, replayedUserIndex);
-  final storedTurns = transcript
-      .where((row) => hermesTranscriptUserContent(row) != null)
-      .length;
-  if (storedTurns > ordinal &&
-      !hermesUserTurnNeverSent(messages, replayedUserIndex)) {
-    // The session holds this turn or a later one, and neither can be told
-    // apart for certain: sending again uncut would leave them in place.
-    throw StateError(
-      'This message could not be found in the Hermes chat. Reopen the chat '
-      'and try again.',
+    return (
+      sessionId: sessionId,
+      rowId: rowId,
+      lastRowId: lastRowId,
+      promptStored: true,
     );
   }
-  return (sessionId: sessionId, rowId: null, lastRowId: lastRowId);
+  final ordinal = hermesSentUserTurnsBefore(messages, replayedUserIndex);
+  final userRows = <int>[
+    for (var index = 0; index < transcript.length; index++)
+      if (hermesTranscriptUserContent(transcript[index]) != null) index,
+  ];
+  if (userRows.length > ordinal) {
+    // A prompt kept off a model switch has no row of its own: what the
+    // session stores after the turns kept before it goes, as it left the
+    // chat, once those turns are certainly the session's own.
+    var previous = replayedUserIndex - 1;
+    while (previous >= 0 &&
+        (messages[previous].role != 'user' ||
+            hermesUserTurnNeverSent(messages, previous))) {
+      previous--;
+    }
+    final cut =
+        hermesUserTurnNeverSent(messages, replayedUserIndex) &&
+            (ordinal == 0 ||
+                hermesTranscriptUserRowIndex(
+                      transcript: transcript,
+                      messages: messages,
+                      index: previous,
+                    ) ==
+                    userRows[ordinal - 1])
+        ? hermesTranscriptRowId(transcript[userRows[ordinal]])
+        : null;
+    // Otherwise the session holds this turn or a later one, and neither can
+    // be told apart for certain: sending again uncut would leave them in
+    // place.
+    if (cut == null) {
+      throw StateError(
+        'This message could not be found in the Hermes chat. Reopen the chat '
+        'and try again.',
+      );
+    }
+    return (
+      sessionId: sessionId,
+      rowId: cut,
+      lastRowId: lastRowId,
+      promptStored: false,
+    );
+  }
+  return (
+    sessionId: sessionId,
+    rowId: null,
+    lastRowId: lastRowId,
+    promptStored: false,
+  );
 }
 
 Future<void> _regenerateHermesMessage(
@@ -231,6 +272,7 @@ Future<void> _regenerateHermesMessage(
     forceNewSession: rewind == null,
     truncateBeforeRowId: rewind?.rowId,
     truncateSeenThroughRowId: rewind?.lastRowId,
+    replaysStoredPrompt: rewind?.promptStored ?? false,
     // Regeneration branches from [continuityMessages]. Chaining the response
     // being replaced would restore the wrong tail and the wrong server session.
     previousResponseIdOverride: null,

@@ -10,7 +10,13 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         forgetReplacedHermesStoredContent,
         hermesDesktopRewindTarget,
         hermesRewindCandidateTexts,
-        kHermesStoredUserContentKey;
+        kHermesStoredUserContentKey,
+        regenerateMessage;
+import 'package:conduit_core/features/chat/services/historical_message_regeneration.dart'
+    show regenerateHistoricalMessageById;
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/features/chat/services/chat_message_actions.dart'
     show undoLastHermesTurn;
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -256,8 +262,13 @@ final class _Rest implements HttpClientAdapter {
   }
 }
 
-HermesDesktopApiService _service(_Gateway gateway, _Rest rest) {
+HermesDesktopApiService _service(
+  _Gateway gateway,
+  _Rest rest, {
+  HermesModelSwitchPrompt? confirmModelSwitch,
+}) {
   final service = HermesDesktopApiService(
+    confirmModelSwitch: confirmModelSwitch,
     config: HermesConfig(
       enabled: true,
       baseUrl: 'https://hermes.example',
@@ -454,6 +465,71 @@ ProviderContainer _chatContainer(
     ],
   );
   addTearDown(container.dispose);
+  return container;
+}
+
+final _pricierModel = hermesDesktopModel(
+  modelId: 'pricier-model',
+  name: 'Pricier',
+  provider: 'synthetic-provider',
+);
+
+final class _OpenDatabaseAccess extends OpenWebUiDatabaseAccessNotifier {
+  @override
+  OpenWebUiDatabaseAccessPhase build() => OpenWebUiDatabaseAccessPhase.open;
+}
+
+final class _DesktopConfig extends HermesConfigController {
+  @override
+  HermesConfig build() => HermesConfig(
+    enabled: true,
+    baseUrl: 'https://hermes.example',
+    mode: HermesBackendMode.desktopGateway,
+    desktopAuthKind: HermesDesktopAuthKind.legacyToken,
+    desktopCredentials: HermesDesktopCredentials(legacyToken: 'session-token'),
+  );
+}
+
+final class _Models extends Models {
+  @override
+  Future<List<Model>> build() async => [_pricierModel];
+}
+
+final class _SelectedPricier extends SelectedModel {
+  @override
+  Model build() => _pricierModel;
+}
+
+/// [_chatContainer] that can also send turns: a regenerate, or a
+/// regenerate of an earlier reply.
+Future<ProviderContainer> _turnContainer(
+  HermesDesktopApiService service,
+  List<ChatMessage> messages,
+) async {
+  final container = ProviderContainer(
+    overrides: [
+      openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+      appDatabaseProvider.overrideWith((ref) {
+        final database = AppDatabase(NativeDatabase.memory());
+        ref.onDispose(() => unawaited(database.close()));
+        return database;
+      }),
+      apiServiceProvider.overrideWithValue(null),
+      socketServiceProvider.overrideWithValue(null),
+      reviewerModeProvider.overrideWithValue(false),
+      hermesConfigProvider.overrideWith(_DesktopConfig.new),
+      hermesApiServiceProvider.overrideWithValue(service),
+      modelsProvider.overrideWith(_Models.new),
+      selectedModelProvider.overrideWith(_SelectedPricier.new),
+      activeConversationProvider.overrideWith(
+        () => _SeededConversation(_picnic),
+      ),
+      chatMessagesProvider.overrideWith(() => _SeededMessages(messages)),
+    ],
+  );
+  addTearDown(container.dispose);
+  container.read(hermesConfigProvider);
+  await container.read(modelsProvider.future);
   return container;
 }
 
@@ -1247,6 +1323,23 @@ void main() {
       check(editTarget).isNotNull().has((t) => t.rowId, 'rowId').equals(15);
     });
 
+    test('regenerating a kept note cuts the turns sent after it', () async {
+      final gateway = _Gateway();
+      gateway.handler = (method, params) {
+        if (method == 'prompt.submit') scheduleMicrotask(gateway.finishTurn);
+        return null;
+      };
+      final service = _service(gateway, _Rest(_transcript));
+      final container = await _turnContainer(service, _keptChat);
+
+      await regenerateHistoricalMessageById(container, 'k2');
+
+      final submit = gateway.calls('prompt.submit').single;
+      check(submit['text']).equals('And drinks?');
+      // The second turn left the chat, so it leaves the session too.
+      check(submit['truncate_before_row_id']).equals(15);
+    });
+
     test('a stored turn that cannot be told apart is not sent uncut', () async {
       final service = _service(_Gateway(), _Rest(_transcript));
       final drifted = [
@@ -1857,6 +1950,39 @@ void main() {
       check(
         container.read(chatMessagesProvider).map((message) => message.id),
       ).deepEquals(['u1', 'a1', 'k1', 'k2']);
+    });
+
+    test('a regenerate kept off a model switch leaves its stored turn in '
+        'place', () async {
+      final gateway = _Gateway()
+        ..handler = (method, params) =>
+            method == 'config.set' && params['key'] == 'model'
+            ? {'confirm_required': true}
+            : null;
+      final service = _service(
+        gateway,
+        _Rest(_transcript),
+        confirmModelSwitch: (_) async => false,
+      );
+      final container = await _turnContainer(service, _chat);
+
+      await regenerateMessage(container, 'And drinks?', null);
+
+      check(gateway.calls('prompt.submit')).isEmpty();
+      // The turn is still the session's: found, and undone there too.
+      final kept = container.read(chatMessagesProvider);
+      check(
+        hermesTranscriptUserRowIndex(
+          transcript: [for (final row in _transcript) {...row}],
+          messages: kept,
+          index: 2,
+        ),
+      ).equals(4);
+      check(await undoLastHermesTurn(container)).isTrue();
+      check(gateway.calls('session.undo')).length.equals(1);
+      check(
+        container.read(chatMessagesProvider).map((message) => message.id),
+      ).deepEquals(['u1', 'a1']);
     });
 
     test('rewinds to the row it checked on the canonical wire', () async {

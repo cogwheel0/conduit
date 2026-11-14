@@ -1158,6 +1158,10 @@ Future<void> _dispatchHermesRunFromChat(
   /// still ends at [truncateSeenThroughRowId], as it did when it was chosen.
   int? truncateBeforeRowId,
   int? truncateSeenThroughRowId,
+
+  /// The turn replays a prompt the session already stores (a regenerate or
+  /// an edit): one kept off a model switch stays the session's.
+  bool replaysStoredPrompt = false,
 }) async {
   final releaseGeneration = holdLocalChatGeneration(ref);
   try {
@@ -1213,6 +1217,7 @@ Future<void> _dispatchHermesRunFromChat(
         onRunStarting: onRunStarting,
         truncateBeforeRowId: truncateBeforeRowId,
         truncateSeenThroughRowId: truncateSeenThroughRowId,
+        replaysStoredPrompt: replaysStoredPrompt,
       );
     } finally {
       await ownedDatabaseLease?.release();
@@ -1245,6 +1250,7 @@ Future<void> _dispatchOwnedHermesRunFromChat(
   required void Function()? onRunStarting,
   required int? truncateBeforeRowId,
   required int? truncateSeenThroughRowId,
+  required bool replaysStoredPrompt,
 }) async {
   final ChatMessagesNotifier notifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
@@ -1475,6 +1481,7 @@ Future<void> _dispatchOwnedHermesRunFromChat(
       onRunStarting: onRunStarting,
       truncateBeforeRowId: truncateBeforeRowId,
       truncateSeenThroughRowId: truncateSeenThroughRowId,
+      replaysStoredPrompt: replaysStoredPrompt,
     );
   } finally {
     var primaryProjectionPersisted = !owner.usesOpenWebUiBackend;
@@ -1680,6 +1687,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
   required void Function()? onRunStarting,
   required int? truncateBeforeRowId,
   required int? truncateSeenThroughRowId,
+  required bool replaysStoredPrompt,
 }) async {
   final configController =
       ref.read(hermesConfigProvider.notifier) as HermesConfigController;
@@ -2314,15 +2322,16 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
           previousModel: declined.previousModel,
           previousProvider: declined.previousProvider,
         );
-        // The note speaks for the model the chat stayed on, and marks its
-        // prompt as never sent, so history actions skip both.
+        // The note speaks for the model the chat stayed on. A prompt sent
+        // for the first time never reached the session, so history actions
+        // skip it; a replayed one is still the session's.
         updateProjectedMessage(
           (message) => message.copyWith(
             model: kept?.id ?? message.model,
             metadata: {
               ...?message.metadata,
               'modelName': ?kept?.name,
-              kHermesModelSwitchKeptKey: true,
+              if (!replaysStoredPrompt) kHermesModelSwitchKeptKey: true,
             },
           ),
         );
