@@ -25,6 +25,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:conduit_core/features/mcp_apps/mcp_app_host.dart';
+import 'package:conduit_core/features/mcp_apps/mcp_app_resource_cache.dart';
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -54,17 +55,6 @@ class McpAppEmbed extends ConsumerStatefulWidget {
   ConsumerState<McpAppEmbed> createState() => _McpAppEmbedState();
 }
 
-// Keep only successful resources for this authenticated account session, even
-// when chat rows are disposed. Each revisit still creates a fresh sealed page.
-final _resourceCacheProvider = Provider((ref) {
-  ref.watch(apiServiceProvider);
-  ref.watch(openWebUiAuthSessionEpochProvider);
-  return LinkedHashMap<
-    String,
-    ({OpenWebUiMcpAppResource resource, double height})
-  >();
-});
-
 class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   bool _opened = false;
   bool _started = false;
@@ -88,8 +78,16 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
           widget.app.result,
         ]);
 
-  double get _cachedHeight =>
-      ref.read(_resourceCacheProvider)[_cacheKey]?.height ?? _initialHeight;
+  double get _cachedHeight {
+    final height = ref.read(mcpAppResourceCacheProvider)[_cacheKey]?.height;
+    return height != null && _validHeight(height) ? height : _initialHeight;
+  }
+
+  // Flutter's float32 coordinates must still distinguish adjacent pixels.
+  bool _validHeight(double height) =>
+      height.isFinite &&
+      height > 0 &&
+      height * MediaQuery.devicePixelRatioOf(context) <= (1 << 24);
   double _width = 0;
   Brightness? _brightness;
 
@@ -217,13 +215,21 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
     final load = CancelableLoad();
     _load = load;
     try {
-      final cache = ref.read(_resourceCacheProvider);
+      final cache = ref.read(mcpAppResourceCacheProvider);
       final key = _cacheKey;
-      // Bind HTML and height to this invocation, including reply revisions.
-      // Remove/reinsert on a hit so the oldest unused resource is evicted.
-      final cached = cache.remove(key);
+      final cached = await cache.read(key);
+      if (!mounted || load.cancelled) return;
       var resource = cached?.resource;
-      _height = cached?.height ?? _initialHeight;
+      final height = cached != null && _validHeight(cached.height)
+          ? cached.height
+          : _initialHeight;
+      if (height != _height) {
+        ChatTimelineViewport.preserveMcpAppScrollPosition(
+          context,
+          height - _height,
+        );
+        _height = height;
+      }
       if (resource == null) {
         final json = await api.runMcpAppRequest(
           widget.app,
@@ -233,9 +239,8 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
         if (!mounted || load.cancelled) return;
         resource = OpenWebUiMcpAppResource.fromJson(json);
       }
-      if (key != null) {
-        cache[key] = (resource: resource, height: _height);
-        if (cache.length > 8) cache.remove(cache.keys.first);
+      if (key != null && cached == null) {
+        cache.put(key, (resource: resource, height: _height));
       }
       _resource = resource;
       _host = McpAppHost(
@@ -249,13 +254,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
         hostContext: _hostContext,
         onSizeChanged: (height) {
           if (!mounted) return;
-          // Flutter renders with float32 coordinates. Beyond this precision,
-          // adjacent physical pixels coincide; do not pass such values to layout.
-          if (!height.isFinite ||
-              height <= 0 ||
-              height * MediaQuery.devicePixelRatioOf(context) > (1 << 24)) {
-            return;
-          }
+          if (!_validHeight(height)) return;
           final nextHeight = max(_minHeight, height.ceilToDouble());
           // Ignore rounding noise from the page's layout/ResizeObserver cycle.
           if ((nextHeight - _height).abs() <= 1) return;
@@ -265,7 +264,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
           );
           setState(() => _height = nextHeight);
           if (key != null && cache[key]?.resource == resource) {
-            cache[key] = (resource: resource!, height: nextHeight);
+            cache.put(key, (resource: resource!, height: nextHeight));
           }
         },
         onInitialized: () {
@@ -414,7 +413,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(_resourceCacheProvider, (_, _) => _close());
+    ref.listen(mcpAppResourceCacheProvider, (_, _) => _close());
     final l10n = AppLocalizations.of(context)!;
     final failure = _failure;
     if (failure != null) {

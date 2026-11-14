@@ -11,6 +11,7 @@ import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 import 'package:conduit_core/database/models/chat_transcript_window.dart';
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -222,6 +223,7 @@ Widget _harness(
   String? cacheId = 'message:tool-call',
 }) => ProviderScope(
   overrides: [
+    appDatabaseProvider.overrideWithValue(null),
     apiServiceProvider.overrideWithValue(api),
     openWebUiAuthSessionEpochProvider.overrideWithValue(
       sessionEpoch ?? _sessionEpoch,
@@ -858,7 +860,7 @@ void main() {
   ) async {
     final api = _ServingApi();
     _installWebViews();
-    for (var i = 0; i < 9; i++) {
+    for (var i = 0; i < 33; i++) {
       await tester.pumpWidget(
         _harness(
           api,
@@ -872,7 +874,7 @@ void main() {
       await tester.pump();
       await tester.pump();
     }
-    expect(api.requests, hasLength(9));
+    expect(api.requests, hasLength(33));
     await tester.pumpWidget(
       _harness(
         api,
@@ -885,7 +887,7 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
-    expect(api.requests, hasLength(10));
+    expect(api.requests, hasLength(34));
     await tester.pumpWidget(
       _harness(
         api,
@@ -899,7 +901,7 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
-    expect(api.requests, hasLength(11));
+    expect(api.requests, hasLength(35));
   });
 
   testWidgets('on Android the loaded page cannot load itself again', (
