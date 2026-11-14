@@ -499,9 +499,12 @@ void main() {
     'failed direct-local purge keeps destructive-clear barriers closed',
     () async {
       final signedOut = <String?>[];
+      final auth = _BrowserSignedInAuthStateManager(
+        FullAppDataClearOutcome.cleared,
+      );
       final container = ProviderContainer(
         overrides: [
-          authStateManagerProvider.overrideWith(_ClearedAuthStateManager.new),
+          authStateManagerProvider.overrideWith(() => auth),
           directConnectionProfilesProvider.overrideWith(
             _EmptyDirectProfiles.new,
           ),
@@ -538,8 +541,11 @@ void main() {
           assistantMessageId: 'assistant',
         ), 'profile'),
       ).throws<StateError>();
-      // Signed out all the same: no account's notifications stay posted.
+      // Signed out all the same: no account's notifications stay posted, and
+      // the browser sign-in the wipe took is still revoked.
       check(signedOut).deepEquals([null]);
+      await pumpEventQueue();
+      check(auth.revoked).deepEquals([_browserSession]);
     },
   );
 
