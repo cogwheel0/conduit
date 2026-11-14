@@ -155,6 +155,11 @@ List<MessageBlock> _liftFromText(String markdown) {
       }
       // Only the blank lines around the body go: what its lines hold, such
       // as an indented code block's spaces or a hard break's, is Markdown.
+      // A line right under the marker goes on the marker's paragraph, where
+      // leading spaces mean nothing (CommonMark), so those go.
+      if (body.isNotEmpty && body.first.trim().isNotEmpty) {
+        body[0] = body.first.trimLeft();
+      }
       while (body.isNotEmpty && body.first.trim().isEmpty) {
         body.removeAt(0);
       }

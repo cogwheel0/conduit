@@ -87,6 +87,8 @@ void main() {
         lift('> [!TIP]\n>\n>     code\n>\n> Line one  \n> Line two  \n>'),
         [alert('tip', '    code\n\nLine one  \nLine two  ')],
       );
+      // Right under the marker, it goes on the marker's paragraph: not code.
+      expect(lift('> [!NOTE]\n>     print(1)'), [alert('note', 'print(1)')]);
     },
   );
 
