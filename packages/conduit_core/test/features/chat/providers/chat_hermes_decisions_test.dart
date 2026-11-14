@@ -31,6 +31,34 @@ Map<String, dynamic> _decision(Map<String, dynamic> extra) => <String, dynamic>{
 };
 
 void main() {
+  test('a replay under a new runtime asks the same question', () {
+    HermesPendingDecision? read(Map<String, dynamic> extra) =>
+        pendingHermesDecisionOf(_answer(_decision(extra)), now: _now);
+    final asked = read(<String, dynamic>{
+      'kind': 'secret',
+      'prompt': 'Enter your Demo Weather API key',
+    })!;
+    final replayed = read(<String, dynamic>{
+      'kind': 'secret',
+      'prompt': 'Enter your Demo Weather API key ',
+      'requestId': 'request-2',
+      'runtimeId': 'runtime-2',
+      'expiresAt': _now.add(const Duration(minutes: 9)).toIso8601String(),
+    })!;
+    expect(hermesDecisionsAskTheSame(asked, replayed), isTrue);
+    final other = read(<String, dynamic>{
+      'kind': 'secret',
+      'prompt': 'Enter your Demo Maps API key',
+      'requestId': 'request-2',
+    })!;
+    expect(hermesDecisionsAskTheSame(asked, other), isFalse);
+    final sudo = read(<String, dynamic>{
+      'kind': 'sudo',
+      'prompt': 'Enter your Demo Weather API key',
+    })!;
+    expect(hermesDecisionsAskTheSame(asked, sudo), isFalse);
+  });
+
   test('reads a clarify form with its questions', () {
     final decision = pendingHermesDecisionOf(
       _answer(

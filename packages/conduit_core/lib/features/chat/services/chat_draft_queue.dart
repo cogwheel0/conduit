@@ -354,6 +354,21 @@ final chatDraftQueueSendProvider = Provider<ChatDraftQueueSend>(
   (_) => _durableQueueSend,
 );
 
+/// What a queue's batch waits for before it is admitted, once the stop or the
+/// stopped answers the chat owed are settled; null when it waits for nothing.
+typedef ChatDraftQueueAdmissionWait = Future<void>? Function();
+
+/// What a batch waits for before it is admitted: nothing everywhere mobile
+/// runs, so the batch goes the moment its answer ends. A host that lets a chat
+/// settle after every answer before the next turn starts (the desktop daemon:
+/// the stored copy, then a quiet transcript) waits here rather than inside its
+/// send. The composer is free meanwhile, as while a Stop waits on the server:
+/// a message sent then goes first, and the batch follows that answer.
+final chatDraftQueueAdmissionWaitProvider =
+    Provider<ChatDraftQueueAdmissionWait>((_) => _noAdmissionWait);
+
+Future<void>? _noAdmissionWait() => null;
+
 Future<void> _durableQueueSend(
   dynamic ref,
   String text,
@@ -796,9 +811,19 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
       final refused = await _settleOwedWork(queueId, draftIds, owed);
       if (refused != null) return refused;
     }
-    // Waiting on the server leaves the composer free, so another answer may have
-    // started meanwhile. A turn is not sent over it: the drafts stay whole, and
-    // the queue drains when that answer is done, as it does after any other.
+    final settling = ref.read(chatDraftQueueAdmissionWaitProvider)();
+    if (settling != null) {
+      final refused = await _settleOwedWork(
+        queueId,
+        draftIds,
+        settling.then((_) => true, onError: (Object _) => true),
+      );
+      if (refused != null) return refused;
+    }
+    // Waiting on the server (or the host) leaves the composer free, so another
+    // answer may have started meanwhile. A turn is not sent over it: the drafts
+    // stay whole, and the queue drains when that answer is done, as it does
+    // after any other.
     if (!ref.mounted) return ChatDraftSendNowOutcome.changed;
     if (ref.read(chatMainAnswerActiveProvider)) {
       _replace(

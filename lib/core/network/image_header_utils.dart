@@ -5,6 +5,10 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit_core/network/conduit_user_agent.dart';
+import 'package:conduit_core/network/server_origin.dart';
+
+export 'package:conduit_core/network/server_origin.dart'
+    show imageUrlIsServerOrigin;
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
@@ -280,39 +284,9 @@ String resolveServerRelativeImageUrlFromWidgetRef(WidgetRef ref, String url) {
   }
 }
 
-bool imageUrlIsServerOrigin(String? serverBaseUrl, String imageUrl) {
-  if (serverBaseUrl == null || serverBaseUrl.isEmpty) return false;
-  final serverUri = Uri.tryParse(serverBaseUrl.trim());
-  if (serverUri == null || !_isHttpScheme(serverUri.scheme)) return false;
-  if (serverUri.host.isEmpty) return false;
-
-  final imageUri = Uri.tryParse(imageUrl.trim());
-  if (imageUri == null) return false;
-  if (!imageUri.hasScheme && imageUri.host.isEmpty) return true;
-
-  final imageScheme = imageUri.scheme.isEmpty
-      ? serverUri.scheme.toLowerCase()
-      : imageUri.scheme.toLowerCase();
-  if (!_isHttpScheme(imageScheme)) return false;
-
-  return imageScheme == serverUri.scheme.toLowerCase() &&
-      imageUri.host.toLowerCase() == serverUri.host.toLowerCase() &&
-      _effectivePort(imageUri, imageScheme) ==
-          _effectivePort(serverUri, serverUri.scheme.toLowerCase());
-}
-
 bool _isHttpScheme(String scheme) {
   final lower = scheme.toLowerCase();
   return lower == 'http' || lower == 'https';
-}
-
-int? _effectivePort(Uri uri, String scheme) {
-  if (uri.hasPort) return uri.port;
-  return switch (scheme) {
-    'http' => 80,
-    'https' => 443,
-    _ => null,
-  };
 }
 
 Map<String, String>? buildImageHeadersForUrlFromContainer(

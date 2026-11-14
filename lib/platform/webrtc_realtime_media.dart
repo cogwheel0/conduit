@@ -22,6 +22,10 @@ final class WebRtcRealtimeMedia implements RealtimeWebRtcMediaPort {
   @override
   Stream<RealtimeMediaState> get states => _states.stream;
 
+  /// flutter_webrtc measures no levels here.
+  @override
+  Stream<RealtimeMediaLevels> get levels => const Stream.empty();
+
   @override
   Future<String> createOffer({String dataChannel = 'oai-events'}) async {
     final microphone = await navigator.mediaDevices.getUserMedia({

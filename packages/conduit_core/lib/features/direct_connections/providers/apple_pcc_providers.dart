@@ -22,8 +22,9 @@ final applePccAdapterProvider = Provider<ApplePccAdapter>(
   ),
 );
 
-/// Apple Intelligence never exists off iOS, so status probes must not reach
-/// the platform channel there. Returning [PlatformPccAvailability.unsupported]
+/// Apple Intelligence never exists off iOS (or, for Private Cloud Compute,
+/// in a build without its entitlement), so status probes must not reach the
+/// platform channel there. Returning [PlatformPccAvailability.unsupported]
 /// keeps every consumer on the same "not on this device" path.
 PlatformPccStatus _unsupportedApplePlatformStatus() => PlatformPccStatus(
   availability: PlatformPccAvailability.unsupported,
@@ -33,7 +34,7 @@ PlatformPccStatus _unsupportedApplePlatformStatus() => PlatformPccStatus(
 );
 
 final applePccStatusProvider = FutureProvider<PlatformPccStatus>((ref) {
-  if (!ref.watch(applePccPlatformSupportedProvider)) {
+  if (!ref.watch(applePrivateCloudComputeSupportedProvider)) {
     return _unsupportedApplePlatformStatus();
   }
   return ref

@@ -171,11 +171,17 @@ final class AssistantStatusLine {
     required this.queries,
     required this.links,
     required this.details,
+    this.phrase,
+    this.count,
+    this.query,
   });
 
   factory AssistantStatusLine.of(ChatStatusUpdate update) =>
       AssistantStatusLine(
         description: resolveStatusDescription(update),
+        phrase: resolveStatusPhrase(update),
+        count: update.count,
+        query: update.query,
         action: update.action,
         done: update.done == true,
         queries: collectStatusQueries(update),
@@ -200,6 +206,16 @@ final class AssistantStatusLine {
 
   /// Items shown as a snippet under a title.
   final List<ChatStatusItem> details;
+
+  /// When [description] is core's own wording, which ([resolveStatusPhrase]),
+  /// for a host that words it in its own language.
+  final ChatStatusPhrase? phrase;
+
+  /// The update's count (sources found).
+  final int? count;
+
+  /// The update's query (what a knowledge search searched for).
+  final String? query;
 }
 
 /// The status timeline: the row shows the last line (or [toolSummary]),

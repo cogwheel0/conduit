@@ -667,6 +667,49 @@ void main() {
     });
   });
 
+  group('new rooms', () {
+    const fern = HermesBot(name: 'fern', title: 'Fern');
+    const moss = HermesBot(name: 'moss', title: 'Moss');
+    const reed = HermesBot(name: 'reed', title: 'reed');
+
+    test('seat the bots Hermes can seat, two or more', () {
+      const bots = [fern, moss, reed];
+      const all = HermesRoomCapabilities(driver: true);
+      const two = HermesRoomCapabilities(
+        driver: true,
+        seatableProfiles: {'fern', 'reed'},
+      );
+      check(hermesSeatableBots(bots, all).map((b) => b.name))
+          .deepEquals(['fern', 'moss', 'reed']);
+      check(hermesSeatableBots(bots, two).map((b) => b.name))
+          .deepEquals(['fern', 'reed']);
+      check(hermesRoomsCanCreate(two, bots)).isTrue();
+      check(hermesRoomsCanCreate(two, const [fern, moss])).isFalse();
+      check(hermesRoomsCanCreate(const HermesRoomCapabilities(), bots))
+          .isFalse();
+      check(
+        hermesRoomsCanCreate(
+          const HermesRoomCapabilities(driver: true, methods: {'groups.list'}),
+          bots,
+        ),
+      ).isFalse();
+      check(hermesRoomMemberBot(bots, 'moss')).equals(moss);
+      check(hermesRoomMemberBot(null, 'moss')).isNull();
+    });
+
+    test('seat every bot picked, or none', () {
+      final members = hermesRoomMembersFor(
+        const [fern, moss, reed],
+        ['reed', 'fern'],
+      )!;
+      check(members.map((m) => m.memberId)).deepEquals(['reed', 'fern']);
+      // A title that is the profile name labels nothing.
+      check(members.first.displayName).isNull();
+      check(members.last.name).equals('Fern');
+      check(hermesRoomMembersFor(const [fern], ['fern', 'moss'])).isNull();
+    });
+  });
+
   group('service', () {
     // Fifteen events of the largest size Hermes keeps did not fit a socket
     // frame, so the page was dropped; pages are smaller, and there are

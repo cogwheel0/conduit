@@ -11,6 +11,7 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/server_tls_http_client_factory.dart';
@@ -111,7 +112,12 @@ Future<RealtimeCallRoute> resolveRealtimeCallRoute(
       ? ref.read(temporaryChatEnforcedProvider) ||
             ref.read(appSettingsProvider).temporaryChatByDefault
       : ref.read(temporaryChatEnabledProvider);
-  if (temporary || (active != null && isTemporaryChat(active.id))) {
+  // A Hermes session is kept by Hermes under a `local:` id of this app's:
+  // that is no temporary chat (the user's temporary chats still are).
+  final hermesSession =
+      isHermesModel(model) && isHermesSessionConversation(active);
+  if (temporary ||
+      (active != null && isTemporaryChat(active.id) && !hermesSession)) {
     return _blocked(RealtimeCallBlock.temporaryChat);
   }
   // Hermes keeps the OpenAI key and opens GPT-Live calls itself, from its

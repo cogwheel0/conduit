@@ -186,6 +186,13 @@ Future<void> runQueuedCompletion(
       ref,
       now: DateTime.now(),
       userSettings: userSettingsData,
+      prompts: _openWebUiRequestPrompts(
+        requestMessages,
+        models: <Model?>[
+          if (selectedModel != null && selectedModel.id == effectiveModelId)
+            selectedModel,
+        ],
+      ),
     );
   } catch (_) {}
   try {
@@ -498,6 +505,13 @@ Future<void> runHeadlessCompletion(
       ref,
       now: DateTime.now(),
       userSettings: userSettingsData,
+      prompts: _openWebUiRequestPrompts(
+        requestMessages,
+        models: <Model?>[
+          if (selectedModel != null && selectedModel.id == effectiveModelId)
+            selectedModel,
+        ],
+      ),
     );
   } catch (_) {}
   requireCurrentOwner();

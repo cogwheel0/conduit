@@ -52,4 +52,36 @@ void main() {
     expect(relaunched.read(appSettingsProvider).sendOnEnter, isFalse);
     expect(PreferencesStore.containsKey(PreferenceKeys.sendOnEnterKey), isTrue);
   });
+
+  test('a host default turns notifications on until the user or server sets '
+      'them', () async {
+    expect(launch().read(appSettingsProvider).notificationsEnabled, isFalse);
+    final container = launch(
+      hostDefaults: const AppSettingsHostDefaults(notificationsEnabled: true),
+    );
+    expect(container.read(appSettingsProvider).notificationsEnabled, isTrue);
+
+    await container
+        .read(appSettingsProvider.notifier)
+        .setNotificationsEnabled(false);
+    final relaunched = launch(
+      hostDefaults: const AppSettingsHostDefaults(notificationsEnabled: true),
+    );
+    expect(relaunched.read(appSettingsProvider).notificationsEnabled, isFalse);
+  });
+
+  test('mentions only is off until set, and is stored', () async {
+    final container = launch();
+    expect(
+      container.read(appSettingsProvider).notificationChannelMentionsOnly,
+      isFalse,
+    );
+    await container
+        .read(appSettingsProvider.notifier)
+        .setNotificationChannelMentionsOnly(true);
+    expect(
+      launch().read(appSettingsProvider).notificationChannelMentionsOnly,
+      isTrue,
+    );
+  });
 }

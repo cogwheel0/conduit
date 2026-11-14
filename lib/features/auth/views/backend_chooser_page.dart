@@ -4,17 +4,12 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:conduit_core/persistence/persistence_keys.dart';
-import 'package:conduit_core/persistence/preferences_store.dart';
-
+import 'package:conduit_core/features/direct_connections/services/apple_backend_choice.dart';
 import 'package:conduit_core/features/direct_connections/services/apple_pcc_host.dart';
 
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
-import 'package:conduit_core/providers/backend_mode_providers.dart';
 
 import '../../../shared/services/navigation_service.dart';
-
-import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -355,8 +350,7 @@ Future<void> _selectAppleModel(
           : applePccStatusProvider.future,
     );
     if (!context.mounted) return;
-    if (status.availability != PlatformPccAvailability.available ||
-        status.quotaLimitReached) {
+    if (!appleModelChoosable(status)) {
       AdaptiveSnackBar.show(
         context,
         message: status.message ?? unavailable,
@@ -365,22 +359,7 @@ Future<void> _selectAppleModel(
       return;
     }
 
-    if (onDevice) {
-      await ref.read(appleOnDeviceEnabledProvider.notifier).setEnabled(true);
-    } else {
-      await ref.read(applePccEnabledProvider.notifier).setEnabled(true);
-    }
-    if (!context.mounted) return;
-    if (PreferencesStore.getString(PreferenceKeys.directHistoryPolicy) ==
-        null) {
-      await ref
-          .read(directHistoryPolicyProvider.notifier)
-          .setPolicy(DirectHistoryPolicy.localOnly);
-    }
-    if (!context.mounted) return;
-    await ref
-        .read(preferredBackendProvider.notifier)
-        .set(PreferredBackend.direct);
+    await chooseAppleModelBackend(ref.read, model);
     if (context.mounted) context.go(Routes.chat);
   } catch (_) {
     if (!context.mounted) return;

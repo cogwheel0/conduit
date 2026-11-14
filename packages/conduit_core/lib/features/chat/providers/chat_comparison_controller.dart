@@ -898,6 +898,10 @@ Future<void> runComparisonCompletion(
       ref,
       now: DateTime.now(),
       userSettings: userSettingsData,
+      prompts: _openWebUiRequestPrompts(
+        requestMessages,
+        models: <Model?>[for (final slot in slots) modelFor(slot.model)],
+      ),
     );
   } catch (_) {}
   try {

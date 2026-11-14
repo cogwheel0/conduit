@@ -475,6 +475,16 @@ final applePccPlatformSupportedProvider = Provider<bool>(
   (ref) => Platform.isIOS,
 );
 
+/// Whether Apple Private Cloud Compute may be offered where Apple models
+/// exist. FoundationModels traps, rather than throws, on the first request
+/// of a binary without the `com.apple.developer.private-cloud-compute`
+/// entitlement, so a host whose build lacks it says no here and only Apple
+/// On-Device is offered. The phone's build carries it: by default this is
+/// [applePccPlatformSupportedProvider].
+final applePrivateCloudComputeSupportedProvider = Provider<bool>(
+  (ref) => ref.watch(applePccPlatformSupportedProvider),
+);
+
 /// Adapters only a particular host can build.
 ///
 /// The OpenAI-compatible and Ollama adapters are plain HTTP and belong here.
@@ -1857,7 +1867,9 @@ final effectiveDirectConnectionProfilesProvider =
     Provider<AsyncValue<List<DirectConnectionProfile>>>((ref) {
       final onDeviceOffered = ref.watch(appleOnDeviceOfferedProvider);
       final onDeviceEnabled = onDeviceOffered ?? false;
-      final pccEnabled = ref.watch(applePccEnabledProvider);
+      final pccEnabled =
+          ref.watch(applePccEnabledProvider) &&
+          ref.watch(applePrivateCloudComputeSupportedProvider);
       final pccSupported = ref.watch(applePccPlatformSupportedProvider);
       final local = ref.watch(directConnectionProfilesProvider);
       // While Apple On-Device's model has not yet said whether it answers,
@@ -1936,7 +1948,9 @@ final effectiveDirectConnectionProfilesProvider =
 final effectiveDirectConnectionProfilesFutureProvider =
     FutureProvider<List<DirectConnectionProfile>>((ref) async {
       final onDeviceOffered = ref.watch(appleOnDeviceOfferedProvider);
-      final pccEnabled = ref.watch(applePccEnabledProvider);
+      final pccEnabled =
+          ref.watch(applePccEnabledProvider) &&
+          ref.watch(applePrivateCloudComputeSupportedProvider);
       final pccSupported = ref.watch(applePccPlatformSupportedProvider);
       final effective = ref.watch(effectiveDirectConnectionProfilesProvider);
       if (effective.hasValue) return effective.requireValue;

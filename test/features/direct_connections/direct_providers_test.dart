@@ -14,6 +14,7 @@ import 'package:conduit_core/features/direct_connections/services/direct_chat_br
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/providers/apple_pcc_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_connection_profile_store.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_http_client.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_cache_store.dart';
@@ -279,6 +280,37 @@ void main() {
     expect(profiles, hasLength(1));
     expect(profiles.single.isApplePrivateCloudCompute, isTrue);
   });
+
+  test(
+    'only Apple On-Device is offered where PCC lacks its entitlement',
+    () async {
+      await PreferencesStore.put(PreferenceKeys.appleOnDeviceEnabled, true);
+      await PreferencesStore.put(PreferenceKeys.applePccEnabled, true);
+      final container = ProviderContainer(
+        overrides: [
+          applePccPlatformSupportedProvider.overrideWithValue(true),
+          applePrivateCloudComputeSupportedProvider.overrideWithValue(false),
+          applePccHostProvider.overrideWithValue(_ReadyAppleHost()),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(directConnectionProfilesProvider.future);
+      // On-Device is offered once its model has said it answers.
+      await container.read(appleOnDeviceStatusProvider.future);
+      final profiles = container
+          .read(effectiveDirectConnectionProfilesProvider)
+          .requireValue;
+      final awaited = await container.read(
+        effectiveDirectConnectionProfilesFutureProvider.future,
+      );
+      final pcc = await container.read(applePccStatusProvider.future);
+
+      expect(profiles.map((profile) => profile.id), [kAppleOnDeviceProfileId]);
+      expect(awaited.map((profile) => profile.id), [kAppleOnDeviceProfileId]);
+      expect(pcc.availability, PlatformPccAvailability.unsupported);
+    },
+  );
 
   test('enabled Apple profiles stay hidden on unsupported platforms', () async {
     await PreferencesStore.put(PreferenceKeys.appleOnDeviceEnabled, true);

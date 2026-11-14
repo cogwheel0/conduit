@@ -1439,6 +1439,10 @@ Future<void> regenerateMessage(
         ref,
         now: DateTime.now(),
         userSettings: userSettingsData,
+        prompts: _openWebUiRequestPrompts(
+          requestMessages,
+          models: <Model?>[selectedModel],
+        ),
       );
     } catch (_) {}
 

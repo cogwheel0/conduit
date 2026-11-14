@@ -1062,7 +1062,8 @@ void _bindHermesSessionToConversation(
     return;
   }
 
-  final nextConversationId = 'local:hermes_$normalizedSessionId';
+  final nextConversationId =
+      '$kHermesSessionConversationIdPrefix$normalizedSessionId';
   final now = DateTime.now();
   final selectedModel = ref.read(selectedModelProvider) as Model?;
   final messages = List<ChatMessage>.unmodifiable(<ChatMessage>[

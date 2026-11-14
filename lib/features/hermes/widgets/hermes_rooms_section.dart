@@ -3,11 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
-import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_room.dart';
-import 'package:conduit_core/features/hermes/models/hermes_room_log.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_room_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_room_projection.dart';
 
 import '../../../core/services/haptic_service.dart';
 import '../../../l10n/app_localizations.dart';
@@ -27,19 +26,6 @@ void openHermesRoom(BuildContext context, String roomId) {
   NavigationService.router.go(Routes.hermesRoomPath(roomId));
 }
 
-/// The bots a new room may seat: the roster, narrowed to the profiles
-/// Hermes says it can seat when it says.
-List<HermesBot> hermesSeatableBots(
-  List<HermesBot> bots,
-  HermesRoomCapabilities capabilities,
-) {
-  final seatable = capabilities.seatableProfiles;
-  return [
-    for (final bot in bots)
-      if (seatable == null || seatable.contains(bot.name)) bot,
-  ];
-}
-
 /// The Hermes tab's Rooms section: the gateway's Group Chats, and "+" to
 /// seat bots in a new one. Absent where Hermes has no rooms to offer.
 class HermesRoomsSection extends ConsumerWidget {
@@ -53,10 +39,7 @@ class HermesRoomsSection extends ConsumerWidget {
     }
     final rooms = ref.watch(hermesRoomsProvider).value ?? const [];
     final bots = ref.watch(hermesBotsProvider).value ?? const [];
-    final canCreate =
-        capabilities.driver &&
-        capabilities.offers('groups.create') &&
-        hermesSeatableBots(bots, capabilities).length >= kMinHermesRoomSeats;
+    final canCreate = hermesRoomsCanCreate(capabilities, bots);
     if (rooms.isEmpty && !canCreate) {
       return const SliverToBoxAdapter(child: SizedBox.shrink());
     }

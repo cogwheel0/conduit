@@ -83,10 +83,17 @@ abstract interface class RealtimePcmAudioPort {
 /// Where a WebRTC call's connection stands.
 enum RealtimeMediaState { connecting, connected, failed, closed }
 
+/// Loudness of a WebRTC call's microphone and of the voice, 0 to 1.
+typedef RealtimeMediaLevels = ({double input, double output});
+
 /// A WebRTC call to a realtime voice: the microphone and the voice on the
 /// platform's echo-cancelled call audio, and a data channel for the voice's
 /// events.
 abstract interface class RealtimeWebRtcMediaPort {
+  /// The loudness of both sides a few times a second, where the platform
+  /// measures it; a platform that does not never emits.
+  Stream<RealtimeMediaLevels> get levels;
+
   /// Opens the microphone and returns the SDP offer with every ICE candidate
   /// gathered, exactly as it must be sent, with a data channel named
   /// [dataChannel].

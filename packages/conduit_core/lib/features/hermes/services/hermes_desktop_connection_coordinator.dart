@@ -30,6 +30,41 @@ HermesDesktopAuthKind hermesRecommendedDesktopAuth(
       : HermesDesktopAuthKind.dashboardCookie;
 }
 
+/// Why a connection editor's profile list is not the gateway's own: the
+/// editor keeps the profile it has, and says this under the list.
+enum HermesProfileListIssue {
+  /// No usable server URL yet.
+  noUrl,
+
+  /// Listing would send the draft's credentials unencrypted before the
+  /// user agreed to (Test, Save or sign-in asks).
+  testFirst,
+
+  /// The gateway listed none.
+  empty,
+
+  /// The gateway refused, or could not be reached: sign in first.
+  signInFirst,
+}
+
+/// What keeps [draft]'s profiles from being listed at all, or null when
+/// they can be asked for.
+HermesProfileListIssue? hermesProfileListBlocker(HermesConfig draft) {
+  if (HermesConfig.connectionOrigin(draft.baseUrl) == null) {
+    return HermesProfileListIssue.noUrl;
+  }
+  if (!draft.mayUsePlainHttp) return HermesProfileListIssue.testFirst;
+  return null;
+}
+
+/// The profile an editor shows once the gateway listed [profiles]:
+/// [current] while it is listed, else `default`, else the first. An empty
+/// list keeps [current].
+String hermesProfileAfterRefresh(List<String> profiles, String current) {
+  if (profiles.isEmpty || profiles.contains(current)) return current;
+  return profiles.contains('default') ? 'default' : profiles.first;
+}
+
 bool hermesDesktopConnectionMatches(HermesConfig left, HermesConfig right) {
   if (HermesConfig.connectionEndpoint(left.baseUrl) !=
           HermesConfig.connectionEndpoint(right.baseUrl) ||
