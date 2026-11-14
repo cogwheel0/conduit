@@ -3064,6 +3064,38 @@ void main() {
             .stop();
       },
     );
+
+    test('closing a scope with no call leaves the shared audio alone', () async {
+      final tts = _FakeTextToSpeechService();
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      final parent = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          appDatabaseProvider.overrideWith((ref) => null),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          voiceModeInputProvider.overrideWithValue(_FakeVoiceInputService()),
+          voiceModeSpeechProvider.overrideWithValue(tts),
+          voiceCallKitProvider.overrideWithValue(_UnavailableCallKitService()),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          voiceAudioSessionProvider.overrideWithValue(audioSession),
+        ],
+      );
+      addTearDown(parent.dispose);
+      final scope = ChatSessionScope.open(parent);
+      scope.container.read(chatVoiceModeControllerProvider.notifier);
+
+      // A call elsewhere (another scope, or read aloud) holds these.
+      scope.dispose();
+      await pumpEventQueue();
+
+      check(audioSession.deactivateCalls).equals(0);
+      check(tts.voiceCallFlags).isEmpty();
+      check(tts.stopCalls).equals(0);
+    });
   });
 }
 

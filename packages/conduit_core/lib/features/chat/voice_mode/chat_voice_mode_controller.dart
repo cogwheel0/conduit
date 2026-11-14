@@ -181,6 +181,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   int _stopRequestGeneration = 0;
   int _emptyTranscriptRestarts = 0;
   bool _disposed = false;
+
+  /// Whether a call of this controller took the shared audio (the session,
+  /// the background lease, the speech engine's call route) and has not
+  /// given it back. Another chat's call, or read aloud, may hold it
+  /// otherwise: a controller that never had it leaves it alone.
+  bool _holdsSharedAudio = false;
   Completer<void>? _pendingStartReadinessCancellation;
 
   StreamSubscription<VoiceTranscriptEvent>? _transcriptSub;
@@ -297,6 +303,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       final audioSessionCoordinator = _audioSessionCoordinator;
       final callKit = _callKit;
       final callId = _activeCallId;
+      final holdsSharedAudio = _holdsSharedAudio;
+      _holdsSharedAudio = false;
       final socketBackgroundLease = _socketBackgroundLease;
       final realtime = _realtime;
       final realtimeSub = _realtimeSub;
@@ -326,21 +334,25 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
                 audioResponseCaptureFailureSub,
               );
               await _stopVoiceInputAfterDispose(input);
-              await _endResponseWaitCaptureAfterDispose(
-                audioSessionCoordinator,
-              );
+              if (holdsSharedAudio) {
+                await _endResponseWaitCaptureAfterDispose(
+                  audioSessionCoordinator,
+                );
+              }
               await _cancelSubscriptionAfterDispose(ttsSub);
-              await _stopTtsAfterDispose(tts);
-              // The engine is shared with read-aloud, which belongs on the
-              // media stream. Nothing survives provider disposal to hand it
-              // back, so it happens here.
-              tts?.setVoiceCallActive(false);
-              await _stopBackgroundVoiceLeaseAfterDispose(
-                backgroundCoordinator,
-              );
-              await _deactivateAudioSessionAfterDispose(
-                audioSessionCoordinator,
-              );
+              if (holdsSharedAudio) {
+                await _stopTtsAfterDispose(tts);
+                // The engine is shared with read-aloud, which belongs on the
+                // media stream. Nothing survives provider disposal to hand
+                // it back, so it happens here.
+                tts?.setVoiceCallActive(false);
+                await _stopBackgroundVoiceLeaseAfterDispose(
+                  backgroundCoordinator,
+                );
+                await _deactivateAudioSessionAfterDispose(
+                  audioSessionCoordinator,
+                );
+              }
               await _cancelSubscriptionAfterDispose(callKitSub);
               await _cancelSubscriptionAfterDispose(speakerphoneRouteSub);
               if (callId != null) {
@@ -397,6 +409,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             result = ChatVoiceModeStartResult.alreadyActive;
             return;
           }
+          _holdsSharedAudio = true;
 
           final VoiceCallEligibility eligibility;
           if (admittedModel != null) {
@@ -2034,6 +2047,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       ownershipToken: stopToken,
     );
     if (!_isCurrent(stopToken)) return;
+    _holdsSharedAudio = false;
     _stoppingFromCallKit = false;
     state = state.copyWith(
       phase: ChatVoiceModePhase.ended,
