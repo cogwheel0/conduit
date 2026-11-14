@@ -57,8 +57,7 @@ class McpAppResourceCache {
   final DatabaseManager? _manager;
   final _entries = <String, McpAppCacheEntry>{};
   final _sizes = <String, int>{};
-  final _heightWrites =
-      <(String, OpenWebUiMcpAppResource), ({double height, int usedAt})>{};
+  final _heightWrites = <String, Map<String, num>>{};
   int _bytes = 0;
   int _lastUsed = 0;
   bool _disposed = false;
@@ -73,6 +72,7 @@ class McpAppResourceCache {
     final entry = _entries.remove(key);
     if (entry == null || _disposed) return null;
     _entries[key!] = entry;
+    _heightWrites.remove(key);
     final usedAt = _usedAt();
     unawaited(
       _queue((db) => db.appCacheDao.touch('$_prefix$key', updatedAt: usedAt)),
@@ -90,21 +90,25 @@ class McpAppResourceCache {
           jsonEncode(previous.height).length;
       final evicted = _store(key, entry, size);
       if (_database == null) return;
-      final pendingKey = (key, entry.resource);
-      final queued = _heightWrites.containsKey(pendingKey);
-      _heightWrites[pendingKey] = (height: entry.height, usedAt: _usedAt());
+      final queued = _heightWrites.containsKey(key);
+      final pending = _heightWrites.putIfAbsent(key, () => <String, num>{});
+      pending['height'] = entry.height;
+      pending['usedAt'] = _usedAt();
       if (!queued) {
         unawaited(
           _queue((db) async {
-            final latest = _heightWrites.remove(pendingKey)!;
+            // Removal/reinsertion may already have queued a different update.
+            if (identical(_heightWrites[key], pending)) {
+              _heightWrites.remove(key);
+            }
             // Updating only the numeric field avoids encoding/queuing HTML on
             // every resize. SQL UPDATE cannot resurrect an evicted resource.
             await db.customUpdate(
               "UPDATE app_cache SET value = json_set(value, '\$.height', json(?)), "
               'updated_at = ? WHERE key = ?',
               variables: [
-                Variable.withString(jsonEncode(latest.height)),
-                Variable.withInt(latest.usedAt),
+                Variable.withString(jsonEncode(pending['height'])),
+                Variable.withInt(pending['usedAt']!.toInt()),
                 Variable.withString('$_prefix$key'),
               ],
               updates: {db.appCache},
@@ -128,6 +132,7 @@ class McpAppResourceCache {
     });
     final size = utf8.encode('$_prefix$key').length + utf8.encode(value).length;
     if (size > _maxBytes) return;
+    _heightWrites.remove(key);
     final evicted = _store(key, entry, size);
     final usedAt = _usedAt();
     unawaited(
@@ -150,6 +155,7 @@ class McpAppResourceCache {
 
   void remove(String? key) {
     if (_disposed || key == null) return;
+    _heightWrites.remove(key);
     _entries.remove(key);
     _bytes -= _sizes.remove(key) ?? 0;
     unawaited(_queue((db) => db.appCacheDao.deleteKey('$_prefix$key')));
@@ -165,6 +171,7 @@ class McpAppResourceCache {
     while (_entries.length > _maxEntries || _bytes > _maxBytes) {
       final oldest = _entries.keys.first;
       _entries.remove(oldest);
+      _heightWrites.remove(oldest);
       _bytes -= _sizes.remove(oldest)!;
       evicted.add(oldest);
     }
@@ -236,6 +243,6 @@ class McpAppResourceCache {
     _entries.clear();
     _sizes.clear();
     _bytes = 0;
-    unawaited(_pending.then((_) => _heightWrites.clear()));
+    _heightWrites.clear();
   }
 }

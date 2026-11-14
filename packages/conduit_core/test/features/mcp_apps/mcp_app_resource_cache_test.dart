@@ -149,6 +149,51 @@ void main() {
     expect(restored?.resource.html, resource.html);
   });
 
+  for (final operation in ['removal', 'eviction', 'read']) {
+    test('pending height writes stay ordered after $operation', () async {
+      final writes = _HeldCacheWrites();
+      final database = AppDatabase(
+        NativeDatabase(File('${directory.path}/a.sqlite'))
+            .interceptWith(writes),
+      );
+      databases.add(database);
+      final first = await cache(database);
+      first.put('call', (resource: _resource, height: 300));
+      await first.settled;
+      writes.hold = true;
+      addTearDown(() {
+        if (!writes.release.isCompleted) writes.release.complete();
+      });
+      first.put('blocker', (resource: _resource, height: 300));
+      await writes.started.future;
+      first.put('call', (resource: _resource, height: 400));
+      if (operation == 'eviction') {
+        for (var i = 0; i < 32; i++) {
+          first.put('other-$i', (resource: _resource, height: 300));
+        }
+      } else if (operation == 'removal') {
+        first.remove('call');
+      } else {
+        await first.read('call');
+        first.put('other', (resource: _resource, height: 300));
+      }
+      first.put('call', (resource: _resource, height: 500));
+      first.put('call', (resource: _resource, height: 600));
+      writes.release.complete();
+      await first.settled;
+      final rows = await database.appCacheDao.entriesWithPrefix(
+        'mcp_app_resource:',
+      );
+      expect(rows.last.key, 'mcp_app_resource:call');
+      first.dispose();
+      await database.close();
+      databases.remove(database);
+      final restored = await (await cache(open('a'))).read('call');
+      expect(restored?.height, 600);
+      expect(restored?.resource.toJson(), _resource.toJson());
+    });
+  }
+
   test('explicit removal survives restart and keeps other entries', () async {
     final database = open('a');
     final first = await cache(database);
