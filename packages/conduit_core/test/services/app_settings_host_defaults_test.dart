@@ -59,5 +59,11 @@ void main() {
       PreferencesStore.containsKey(PreferenceKeys.sendOnEnterKey),
       isFalse,
     );
+    // Saving another setting afterwards keeps it unset.
+    await relaunched.read(appSettingsProvider.notifier).setTtsSpeed(1.5);
+    expect(
+      PreferencesStore.containsKey(PreferenceKeys.sendOnEnterKey),
+      isFalse,
+    );
   });
 }

@@ -332,7 +332,9 @@ class SettingsService {
       PreferenceKeys.voiceCallMode: settings.voiceCallMode.name,
       _socketTransportModeKey: settings.socketTransportMode,
       _quickPillsKey: settings.quickPills.toList(),
-      _sendOnEnterKey: settings.sendOnEnter,
+      // Send with Enter has its own setter: left unset, it follows the
+      // host's default, so a bulk save never stores one the user did not
+      // choose.
       PreferenceKeys.ttsSpeed: settings.ttsSpeed,
       PreferenceKeys.ttsPitch: settings.ttsPitch,
       PreferenceKeys.ttsVolume: settings.ttsVolume,

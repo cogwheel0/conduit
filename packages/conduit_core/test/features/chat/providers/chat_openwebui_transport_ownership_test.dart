@@ -5788,9 +5788,19 @@ void main() {
         unawaited(startMerge(scope, outcome: outcome));
         await api.mergeEntered.future;
         if (!headers) {
-          await Future<void>.delayed(Duration.zero);
+          await api.mergeSubscribed.future;
+          final shown = Completer<void>();
+          final watch = container.listen(chatMessagesProvider, (_, _) {
+            final merged = shownAnswer(container).metadata?['merged'];
+            if (merged is Map &&
+                merged['content'] == 'Half a merge' &&
+                !shown.isCompleted) {
+              shown.complete();
+            }
+          });
+          addTearDown(watch.close);
           api.mergeUpdates!.add(const OpenWebUIContentDelta('Half a merge'));
-          await Future<void>.delayed(Duration.zero);
+          await shown.future;
         }
 
         scope.dispose();
@@ -11406,6 +11416,9 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
   final List<({String model, String prompt, List<String> responses})> merges =
       [];
   StreamController<OpenWebUIStreamUpdate>? mergeUpdates;
+
+  /// Completes once the merge's stream is listened to.
+  final mergeSubscribed = Completer<void>();
   bool mergeEndpointMissing = false;
 
   /// When set, the merge endpoint answers with its headers only once this
@@ -11505,7 +11518,11 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
     await holdMergeHeaders?.future;
     final failure = mergeFailure;
     if (failure != null) throw failure;
-    final updates = StreamController<OpenWebUIStreamUpdate>();
+    final updates = StreamController<OpenWebUIStreamUpdate>(
+      onListen: () {
+        if (!mergeSubscribed.isCompleted) mergeSubscribed.complete();
+      },
+    );
     mergeUpdates = updates;
     return MoaCompletion(
       updates: updates.stream,
