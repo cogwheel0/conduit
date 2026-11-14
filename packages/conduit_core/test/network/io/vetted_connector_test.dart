@@ -1,3 +1,5 @@
+import 'package:checks/checks.dart';
+
 import 'dart:io';
 
 import 'package:conduit_core/network/io/vetted_connector.dart';
@@ -38,12 +40,12 @@ void main() {
     ];
     for (final a in allowed) {
       test('allows $a', () {
-        expect(isLanOrPublicHostAddress(InternetAddress(a)), isTrue);
+        check(isLanOrPublicHostAddress(InternetAddress(a))).isTrue();
       });
     }
     for (final a in refused) {
       test('refuses $a', () {
-        expect(isLanOrPublicHostAddress(InternetAddress(a)), isFalse);
+        check(isLanOrPublicHostAddress(InternetAddress(a))).isFalse();
       });
     }
   });
@@ -74,11 +76,10 @@ void main() {
         ..findProxy = ((_) => 'DIRECT')
         ..connectionFactory = (uri, _, _) => connector.connect(uri);
       addTearDown(client.close);
-      await expectLater(
+      await check(
         client.getUrl(Uri.parse('http://lan.example:${server.port}/')),
-        throwsA(isA<RefusedAddressException>()),
-      );
-      expect(requests, 0);
+      ).throws<RefusedAddressException>();
+      check(requests).equals(0);
     });
 
     test('connects to the vetted address itself', () async {
@@ -99,9 +100,9 @@ void main() {
       );
       final response = await request.close();
       await response.drain<void>();
-      expect(response.statusCode, 200);
-      expect(requests, 1);
-      expect(looked, ['site.example']);
+      check(response.statusCode).equals(200);
+      check(requests).equals(1);
+      check(looked).deepEquals(['site.example']);
     });
 
     test('no address at all is a socket error, not a refusal', () async {
@@ -109,10 +110,20 @@ void main() {
         allowed: (_) => true,
         lookup: (_) async => <InternetAddress>[],
       );
-      await expectLater(
-        connector.vettedAddresses('nowhere.example'),
-        throwsA(isA<SocketException>()),
+      await check(connector.vettedAddresses('nowhere.example'))
+          .throws<SocketException>();
+    });
+
+    test('a cancelled connect hands over no socket', () async {
+      final connector = VettedConnector(
+        allowed: (_) => true,
+        lookup: (_) async => [InternetAddress.loopbackIPv4],
       );
+      final task = await connector.connect(
+        Uri.parse('http://site.example:${server.port}/'),
+      );
+      task.cancel();
+      await check(task.socket).throws<SocketException>();
     });
   });
 }

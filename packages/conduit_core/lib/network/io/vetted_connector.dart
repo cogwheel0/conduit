@@ -42,22 +42,45 @@ final class VettedConnector {
 
   /// The connection for [url] (an `HttpClient.connectionFactory`); [stopped]
   /// says the request was given up, so a connect that lands late is closed.
+  /// Cancelling the task does the same: its socket fails with a
+  /// [SocketException] at once, and one that lands after is closed.
   /// Throws [RefusedAddressException] for a refused address.
   Future<ConnectionTask<Socket>> connect(
     Uri url, {
     bool Function()? stopped,
   }) async {
-    final halted = stopped ?? () => false;
+    var cancelled = false;
+    bool halted() => cancelled || (stopped?.call() ?? false);
     final host = url.host;
     final port = url.hasPort ? url.port : (url.scheme == 'https' ? 443 : 80);
     final addresses = await vettedAddresses(host);
     if (halted()) throw const SocketException('Connection stopped');
-    final socket = _connectAny(addresses, port, halted).then<Socket>(
-      (socket) => url.scheme == 'https'
-          ? SecureSocket.secure(socket, host: host)
-          : socket,
-    );
-    return ConnectionTask.fromSocket(socket, () {});
+    final result = Completer<Socket>();
+    _connectAny(addresses, port, halted)
+        .then<Socket>(
+          (socket) => url.scheme == 'https'
+              ? SecureSocket.secure(socket, host: host)
+              : socket,
+        )
+        .then(
+          (socket) {
+            // Cancelled meanwhile: nobody takes it.
+            if (result.isCompleted) {
+              socket.destroy();
+            } else {
+              result.complete(socket);
+            }
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            if (!result.isCompleted) result.completeError(error, stackTrace);
+          },
+        );
+    return ConnectionTask.fromSocket(result.future, () {
+      cancelled = true;
+      if (!result.isCompleted) {
+        result.completeError(const SocketException('Connection cancelled'));
+      }
+    });
   }
 
   /// [host]'s addresses, all of them allowed; an address literal is not
