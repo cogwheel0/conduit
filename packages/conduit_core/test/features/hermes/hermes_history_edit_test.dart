@@ -1459,8 +1459,10 @@ void main() {
     test('a kept prompt Hermes took after a stop counts as sent', () async {
       final gateway = _Gateway()..holdSubmit = Completer<void>();
       final rest = _Rest(_transcript);
+      final submitted = Completer<void>();
       gateway.handler = (method, params) {
         if (method != 'prompt.submit') return null;
+        submitted.complete();
         // Stored as Hermes takes it.
         rest.transcript = [
           ...rest.transcript,
@@ -1478,16 +1480,13 @@ void main() {
       ]);
 
       final replay = regenerateMessage(container, 'And ice?', null);
-      for (var i = 0; i < 100 && gateway.calls('prompt.submit').isEmpty; i++) {
-        await Future<void>.delayed(Duration.zero);
-      }
+      await submitted.future;
       check(gateway.calls('prompt.submit')).length.equals(1);
       // Stopped while Hermes has not answered the submit yet, which it then
       // takes.
       await container.read(stopGenerationSettledProvider)();
       gateway.holdSubmit!.complete();
       await replay;
-      await _settle();
 
       check(
         container.read(chatMessagesProvider).last.metadata?[
