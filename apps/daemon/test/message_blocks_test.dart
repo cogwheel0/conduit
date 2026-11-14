@@ -175,6 +175,14 @@ void main() {
       ]);
     });
 
+    test('a file is known by its address\'s path, whatever the query', () {
+      final file = chatFileDto(<String, dynamic>{
+        'url': '/api/v1/files/file-9/content?attachment=false',
+        'name': 'notes.txt',
+      });
+      expect(file?.id, 'file-9');
+    });
+
     test('a refused tool definition is flagged for the window\'s advice', () {
       final dtos = MessageBlocks().forMessage(
         answer(content: '').copyWith(
@@ -257,17 +265,15 @@ void main() {
       tick(full, null);
     }
     final uncached = whole.elapsedMicroseconds / 5;
-    // ignore: avoid_print
-    print(
-      'per tick: ${(average / 1000).toStringAsFixed(2)} ms on average, '
-      '${(lateAverage / 1000).toStringAsFixed(2)} ms over the last quarter '
-      '(${threadCpuTimeAvailable ? 'CPU' : 'wall-clock'} time; '
-      '${(wallAverage / 1000).toStringAsFixed(2)} ms wall-clock); '
-      'uncached ${(uncached / 1000).toStringAsFixed(2)} ms '
-      '($ticks ticks, ${full.length} chars)',
-    );
-    expect(average, lessThan(4000));
-    expect(lateAverage, lessThan(4000));
+    final timing =
+        'per tick: ${(average / 1000).toStringAsFixed(2)} ms on average, '
+        '${(lateAverage / 1000).toStringAsFixed(2)} ms over the last quarter '
+        '(${threadCpuTimeAvailable ? 'CPU' : 'wall-clock'} time; '
+        '${(wallAverage / 1000).toStringAsFixed(2)} ms wall-clock); '
+        'uncached ${(uncached / 1000).toStringAsFixed(2)} ms '
+        '($ticks ticks, ${full.length} chars)';
+    expect(average, lessThan(4000), reason: timing);
+    expect(lateAverage, lessThan(4000), reason: timing);
   });
 }
 

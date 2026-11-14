@@ -302,8 +302,9 @@ ChatFileDto? chatFileDto(Map<String, dynamic> file) {
       ? Map<String, dynamic>.from(nested['meta'] as Map)
       : const <String, dynamic>{};
   String? id = file['file_id']?.toString() ?? nested['id']?.toString();
+  // Matched on the path: a query (`?attachment=false`) is not the id's.
   final fromUrl = RegExp(r'/api/v1/files/([^/]+)(?:/content)?$')
-      .firstMatch(url);
+      .firstMatch(Uri.tryParse(url)?.path ?? url);
   if (id == null && fromUrl != null) id = fromUrl.group(1);
   if (id == null &&
       url.isNotEmpty &&
