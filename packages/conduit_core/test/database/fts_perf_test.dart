@@ -21,8 +21,8 @@
 ///
 ///     CONDUIT_PERF_BUDGETS=1 dart test test/database/fts_perf_test.dart
 ///
-/// Without the flag those tests still check what they load and in what
-/// order; budget 2 measures nothing else, so it is skipped.
+/// Without the flag those tests still run and check what they load, its order,
+/// and that the appends land; only the timing is left out.
 library;
 
 import 'dart:async';
@@ -192,10 +192,18 @@ void main() {
         data: {'ms': elapsed.inMilliseconds},
       );
       _checkBudget(elapsed, _appendBudget);
+
+      // With the triggers live, every measured append landed.
+      final ids = {
+        for (final m in await db.messagesDao.getForChat(fixture.bigChatId))
+          m.id,
+      };
+      for (var sample = 0; sample < 3; sample++) {
+        check(ids).contains(
+          appendCandidate(fixture.bigChatId, suffix: 'sample-$sample').id,
+        );
+      }
     },
-    skip: _enforceBudgets
-        ? null
-        : 'Wall-clock budget only; set CONDUIT_PERF_BUDGETS=1 to run it.',
   );
 
   // -------------------------------------------------------------------------
