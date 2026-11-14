@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/oidc/oidc.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
@@ -311,18 +312,27 @@ void main() {
           token: 'refresh-1',
         ),
       ).isFalse();
+    });
 
-      final hanging = OidcTokenClient(
-        OidcHttp(client: MockClient((_) => Completer<http.Response>().future)),
-      );
-      check(
-        await hanging.revoke(
-          revocationEndpoint: _metadata.revocationEndpoint!,
-          clientId: 'conduit',
-          token: 'refresh-1',
-          timeout: const Duration(milliseconds: 10),
-        ),
-      ).isFalse();
+    test('gives up on a provider that never answers', () {
+      fakeAsync((async) {
+        final hanging = OidcTokenClient(
+          OidcHttp(
+            client: MockClient((_) => Completer<http.Response>().future),
+          ),
+        );
+        bool? revoked;
+        hanging
+            .revoke(
+              revocationEndpoint: _metadata.revocationEndpoint!,
+              clientId: 'conduit',
+              token: 'refresh-1',
+              timeout: const Duration(seconds: 4),
+            )
+            .then((value) => revoked = value);
+        async.elapse(const Duration(seconds: 4));
+        check(revoked).equals(false);
+      });
     });
   });
 }

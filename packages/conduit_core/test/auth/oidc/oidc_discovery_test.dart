@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/oidc/oidc.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
@@ -473,28 +474,31 @@ void main() {
       check(asked).equals(1);
     });
 
-    test('stops at a provider that does not answer in time', () async {
-      var asked = 0;
-      final client = OidcDiscoveryClient(
-        OidcHttp(
-          timeout: const Duration(milliseconds: 10),
-          client: MockClient((_) async {
-            asked++;
-            await Future<void>.delayed(const Duration(seconds: 1));
-            return http.Response('{}', 200);
-          }),
-        ),
-      );
-      check(
-        await _failureOf(
+    test('stops at a provider that does not answer in time', () {
+      fakeAsync((async) {
+        var asked = 0;
+        final client = OidcDiscoveryClient(
+          OidcHttp(
+            timeout: const Duration(seconds: 15),
+            client: MockClient((_) async {
+              asked++;
+              await Future<void>.delayed(const Duration(minutes: 1));
+              return http.Response('{}', 200);
+            }),
+          ),
+        );
+        OidcFailureKind? failure;
+        _failureOf(
           client.discover(
             provider: 'oidc',
             authorizationEndpoint: Uri.parse(keycloakAuth),
             clientId: 'conduit',
           ),
-        ),
-      ).equals(OidcFailureKind.timeout);
-      check(asked).equals(1);
+        ).then((kind) => failure = kind);
+        async.elapse(const Duration(seconds: 15));
+        check(failure).equals(OidcFailureKind.timeout);
+        check(asked).equals(1);
+      });
     });
 
     test('goes on past a candidate that fails on the server', () async {

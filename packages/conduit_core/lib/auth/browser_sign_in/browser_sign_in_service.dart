@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:clock/clock.dart';
 import 'package:dio/dio.dart';
 import 'package:meta/meta.dart';
 import 'package:riverpod/riverpod.dart';
@@ -68,7 +69,7 @@ bool browserSessionNeedsRenewal(String token, {DateTime? now}) {
   final claims = jwtClaims(token);
   final exp = claims?['exp'];
   if (exp is! num) return false;
-  final current = (now ?? DateTime.now()).millisecondsSinceEpoch / 1000;
+  final current = (now ?? clock.now()).millisecondsSinceEpoch / 1000;
   final remaining = exp - current;
   if (remaining <= 600) return true;
   final iat = claims?['iat'];
@@ -81,7 +82,7 @@ bool browserSessionNeedsRenewal(String token, {DateTime? now}) {
 bool browserSessionExpired(String token, {DateTime? now}) {
   final exp = jwtClaims(token)?['exp'];
   if (exp is! num) return false;
-  return exp <= (now ?? DateTime.now()).millisecondsSinceEpoch / 1000;
+  return exp <= (now ?? clock.now()).millisecondsSinceEpoch / 1000;
 }
 
 /// Whether [a] and [b] are the same browser sign-in settings, the issuer
