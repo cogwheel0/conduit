@@ -719,17 +719,20 @@ void main() {
       final session = await signInWithBrowser('a');
       final staged = await storage.stageServerConfigCandidate(account('a'));
 
-      final dropped = await droppedBy(
-        () => storage.commitServerConfigCandidateSession(
+      late bool committed;
+      final dropped = await droppedBy(() async {
+        committed = await storage.commitServerConfigCandidateSession(
           candidate: account('a'),
           transactionId: staged.transactionId,
           token: 'proxy-token',
           canCommit: () => true,
           publish: () {},
-        ),
-      );
+        );
+      });
 
+      check(committed).isTrue();
       check(dropped).deepEquals([(accountId: 'a', session: session)]);
+      check(await storedSession('a')).isNull();
     });
 
     test('when a merge replaces the existing account\'s own', () async {
@@ -763,6 +766,8 @@ void main() {
         (accountId: 'a', session: sessionA),
         (accountId: 'b', session: sessionB),
       ]);
+      check(await storedSession('a')).isNull();
+      check(await storedSession('b')).isNull();
     });
 
     test('when the active account\'s sign-in is cleared other than by a '
@@ -929,24 +934,6 @@ void main() {
           .equals(AuthTypes.ssoBrowser);
     });
 
-    test('when a proxy sign-in commits for the account', () async {
-      await saveAccounts(['a']);
-      await signInWithBrowser('a');
-      final staged = await storage.stageServerConfigCandidate(account('a'));
-
-      check(
-        await storage.commitServerConfigCandidateSession(
-          candidate: account('a'),
-          transactionId: staged.transactionId,
-          token: 'proxy-token',
-          canCommit: () => true,
-          publish: () {},
-        ),
-      ).isTrue();
-
-      check(await storedSession('a')).isNull();
-    });
-
     test('when signing out of the active account alone', () async {
       await saveAccounts(['a', 'b']);
       final sessionA = await signInWithBrowser('a');
@@ -1000,20 +987,6 @@ void main() {
       await check(storage.removeInactiveAccount('a')).throws<StateError>();
 
       check(await storedSession('a')).equals(sessionA);
-    });
-
-    test('when the account\'s server moves', () async {
-      await saveAccounts(['a', 'b']);
-      await signInWithBrowser('a');
-      await signInWithBrowser('b');
-
-      await storage.saveServerConfigs([
-        account('a', url: 'https://elsewhere.test'),
-        account('b', url: 'https://elsewhere.test'),
-      ]);
-
-      check(await storedSession('a')).isNull();
-      check(await storedSession('b')).isNull();
     });
 
     test('but not when switching accounts', () async {
