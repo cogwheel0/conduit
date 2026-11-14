@@ -636,6 +636,12 @@ final class ChatsService {
       : _api.archiveConversation(id, value);
 
   Future<ChatList> delete(String id) async {
+    // Never on the server: forgetting it here is the whole delete.
+    if (_temporary.contains(id)) {
+      _temporary.forget(id);
+      _events?.emit(ConduitEventSpecs.chatsChanged, ChatsChanged(chatId: id));
+      return _refresh();
+    }
     if (_isDirectLocal(id)) {
       await mutations.deleteDirectLocalConversation(_container, id);
       return _refresh();

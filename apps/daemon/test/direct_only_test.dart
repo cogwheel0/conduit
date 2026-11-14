@@ -133,4 +133,16 @@ void main() {
     final deleted = await chats.delete(accepted.chatId);
     expect(deleted.chats.map((c) => c.id), isNot(contains(accepted.chatId)));
   });
+
+  // A temporary chat lives only in the daemon's memory; deleting it must
+  // forget it there, or `chats.get` and the next send still have it.
+  test('deleting a temporary chat forgets its transcript', () async {
+    final temporary = TemporaryChats()..start('local:scratch');
+    final chats = ChatsService(runtime.container, temporary: temporary);
+    addTearDown(chats.dispose);
+    expect(await chats.get('local:scratch'), isNotNull);
+    await chats.delete('local:scratch');
+    expect(temporary.contains('local:scratch'), isFalse);
+    expect(await chats.get('local:scratch'), isNull);
+  });
 }

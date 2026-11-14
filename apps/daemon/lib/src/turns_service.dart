@@ -96,10 +96,13 @@ final class TurnsService {
     // A chat belongs to the account it was opened under. On another
     // account, or none, every scope goes, and a running turn with it.
     _accountWatches = <ProviderSubscription<Object?>>[
-      _container.listen<Object?>(
-        openWebUiAuthSessionEpochProvider,
-        (previous, next) => _closeAll(reason: 'account-changed'),
-      ),
+      _container.listen<Object?>(openWebUiAuthSessionEpochProvider, (
+        previous,
+        next,
+      ) {
+        _closeAll(reason: 'account-changed');
+        this.temporary.clear();
+      }),
       _container.listen<Object?>(apiServiceProvider, (previous, next) {
         if (!identical(previous, next)) _closeAll(reason: 'session-changed');
       }),

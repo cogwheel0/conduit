@@ -261,6 +261,8 @@ void main() {
       SendTurn(model: model, text: 'hold:busy writing a long answer'),
     );
     expect(turns.activeChatIds, contains(accepted.chatId));
+    // A temporary chat of Ada's, which the next account must not see.
+    turns.temporary.start('local:ada-scratch');
 
     final blocked = await accounts.switchTo(AccountRef(accountId: bobAccount));
     expect(blocked.outcome, AccountChangeOutcome.blockedByActiveReply);
@@ -272,6 +274,7 @@ void main() {
     expect(forced.outcome, AccountChangeOutcome.done);
     expect(forced.accounts.activeAccountId, bobAccount);
     expect(turns.activeChatIds, isEmpty);
+    expect(turns.temporary.contains('local:ada-scratch'), isFalse);
     // The chat belonged to the account it was opened under: its scope went
     // with it.
     final deadline = DateTime.now().add(const Duration(seconds: 5));

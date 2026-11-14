@@ -33,4 +33,8 @@ final class TemporaryChats {
       ];
 
   void forget(String chatId) => _transcripts.remove(chatId);
+
+  /// Forgets them all: the account they were had under is no longer the
+  /// one in use, and the next must not read or continue them.
+  void clear() => _transcripts.clear();
 }
