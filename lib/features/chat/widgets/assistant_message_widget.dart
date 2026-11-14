@@ -2126,7 +2126,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           if (OpenWebUiMcpApp.tryParse(embed) case final app?) {
             return KeyedSubtree(
               key: ValueKey('message-mcp-app-$index-${app.binding}'),
-              child: McpAppEmbed(app: app),
+              child: McpAppEmbed(
+                app: app,
+                cacheId: '${_markdownStateScopeId()}|embed:$index',
+              ),
             );
           }
           final source = extractEmbedSource(embed);

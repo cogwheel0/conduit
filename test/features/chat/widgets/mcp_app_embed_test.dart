@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:conduit/features/chat/widgets/mcp_app_embed.dart';
 import 'package:conduit/features/direct_connections/widgets/direct_mcp_app_view.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
@@ -64,7 +65,7 @@ final class _ServingApi extends ApiService {
       );
 
   final String? csp;
-  final String html;
+  String html;
   final requests = <({String method, Map<String, dynamic> params})>[];
 
   @override
@@ -216,6 +217,7 @@ Widget _harness(
   OpenWebUiMcpApp app = _app,
   Widget? child,
   Object? sessionEpoch,
+  String? cacheId = 'message:tool-call',
 }) => ProviderScope(
   overrides: [
     apiServiceProvider.overrideWithValue(api),
@@ -228,7 +230,9 @@ Widget _harness(
     localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     home: Scaffold(
-      body: SingleChildScrollView(child: child ?? McpAppEmbed(app: app)),
+      body: SingleChildScrollView(
+        child: child ?? McpAppEmbed(app: app, cacheId: cacheId),
+      ),
     ),
   ),
 );
@@ -564,7 +568,10 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
-    expect(api.requests.map((request) => request.method), ['ui/resource']);
+    expect(api.requests.map((request) => request.method), [
+      'ui/resource',
+      'ui/resource',
+    ]);
     expect(app.documentUrl, isNot(secondOrigin));
 
     final otherAccount = _ServingApi();
@@ -606,6 +613,142 @@ void main() {
         height,
       );
     }
+  });
+
+  testWidgets('reopening reserves the last height before the new page loads', (
+    tester,
+  ) async {
+    final api = _ServingApi();
+    final app = await _openApp(tester, api);
+    await app.post({
+      'jsonrpc': '2.0',
+      'method': 'ui/notifications/size-changed',
+      'params': {'height': 10000},
+    });
+    await tester.pump();
+    final firstOrigin = app.documentUrl;
+    await tester.pumpWidget(_harness(api, child: const SizedBox()));
+    await tester.pumpWidget(_harness(api));
+    expect(tester.getSize(find.byType(McpAppEmbed)).height, 10000);
+    await tester.pump();
+    expect(tester.getSize(find.byType(McpAppEmbed)).height, 10000);
+    expect(app.documentUrl, isNot(firstOrigin));
+    expect(api.requests, hasLength(1));
+  });
+
+  testWidgets('identical invocations in different messages fetch fresh HTML', (
+    tester,
+  ) async {
+    final api = _ServingApi(html: '<p>first version</p>');
+    final app = await _openApp(tester, api);
+    api.html = '<p>updated version</p>';
+    await tester.pumpWidget(
+      _harness(api, cacheId: 'another-message:tool-call'),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(api.requests, hasLength(2));
+    expect(app.view.initialData!.data, contains('updated version'));
+  });
+
+  testWidgets('a revised tool result fetches fresh HTML for the same message', (
+    tester,
+  ) async {
+    final api = _ServingApi(html: '<p>first version</p>');
+    final app = await _openApp(tester, api);
+    api.html = '<p>revised version</p>';
+    await tester.pumpWidget(
+      _harness(
+        api,
+        app: const OpenWebUiMcpApp(
+          serverId: 'maps',
+          toolName: 'show_map',
+          binding: 'b',
+          result: {'revision': 2},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(api.requests, hasLength(2));
+    expect(app.view.initialData!.data, contains('revised version'));
+  });
+
+  for (final method in [
+    'ui/notifications/size-changed',
+    'conduit/canvas-rects',
+  ]) {
+    testWidgets('canvases own pans while ordinary content scrolls ($method)', (
+      tester,
+    ) async {
+      final app = await _openApp(tester, _ServingApi());
+      await app.post({
+        'jsonrpc': '2.0',
+        'method': method,
+        'params': {
+          'height': 2000,
+          '_conduitCanvasRects': [
+            [0, 0, 200, 400],
+          ],
+        },
+      });
+      final recognizer =
+          app.view.gestureRecognizers!.single.constructor()
+              as HorizontalDragGestureRecognizer;
+      addTearDown(recognizer.dispose);
+      var appDrags = 0;
+      var chatDrags = 0;
+      recognizer.onDown = (_) {};
+      recognizer.onStart = (_) => appDrags++;
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: GestureDetector(
+            onVerticalDragUpdate: (_) => chatDrags++,
+            child: Listener(
+              behavior: HitTestBehavior.opaque,
+              onPointerDown: recognizer.addPointer,
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      );
+      await tester.dragFrom(const Offset(100, 200), const Offset(0, -100));
+      expect(appDrags, 1);
+      expect(chatDrags, 0);
+      await tester.dragFrom(const Offset(100, 200), const Offset(60, -100));
+      expect(appDrags, 2);
+      expect(chatDrags, 0);
+      await tester.dragFrom(const Offset(300, 200), const Offset(0, -100));
+      expect(appDrags, 2);
+      expect(chatDrags, greaterThan(0));
+      await tester.dragFrom(const Offset(300, 200), const Offset(100, 0));
+      expect(appDrags, 3);
+    });
+  }
+
+  testWidgets('resize rounding noise and unrenderable heights are ignored', (
+    tester,
+  ) async {
+    final app = await _openApp(tester, _ServingApi());
+    Future<void> resize(Object height) async {
+      await app.post({
+        'jsonrpc': '2.0',
+        'method': 'ui/notifications/size-changed',
+        'params': {'height': height},
+      });
+      await tester.pump();
+    }
+
+    await resize(10000);
+    for (final height in [10000.1, 9999.9, 0, -1, 1e300, '20000']) {
+      await resize(height);
+      expect(tester.getSize(find.byType(McpAppEmbed)).height, 10000);
+    }
+    await resize(50000);
+    expect(tester.getSize(find.byType(McpAppEmbed)).height, 50000);
+    await resize(2000);
+    expect(tester.getSize(find.byType(McpAppEmbed)).height, 2000);
   });
 
   testWidgets('the resource cache is bounded and clears on session changes', (

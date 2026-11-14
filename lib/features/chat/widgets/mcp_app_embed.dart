@@ -42,9 +42,12 @@ const Duration _startTimeout = Duration(seconds: 30);
 /// talks to Conduit over the MCP Apps bridge ([McpAppHost]); every tool it
 /// calls is confirmed by the user first.
 class McpAppEmbed extends ConsumerStatefulWidget {
-  const McpAppEmbed({super.key, required this.app});
+  const McpAppEmbed({super.key, required this.app, required this.cacheId});
 
   final OpenWebUiMcpApp app;
+
+  /// Stable message/tool-call identity; absent outside a saved conversation.
+  final String? cacheId;
 
   @override
   ConsumerState<McpAppEmbed> createState() => _McpAppEmbedState();
@@ -55,7 +58,10 @@ class McpAppEmbed extends ConsumerStatefulWidget {
 final _resourceCacheProvider = Provider((ref) {
   ref.watch(apiServiceProvider);
   ref.watch(openWebUiAuthSessionEpochProvider);
-  return LinkedHashMap<(String, String, String), OpenWebUiMcpAppResource>();
+  return LinkedHashMap<
+    String,
+    ({OpenWebUiMcpAppResource resource, double height})
+  >();
 });
 
 class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
@@ -67,7 +73,22 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   InAppWebViewController? _controller;
   CancelableLoad? _load;
   Timer? _startTimer;
+  late String? _cacheKey = _appCacheKey();
   double _height = _initialHeight;
+
+  String? _appCacheKey() => widget.cacheId == null
+      ? null
+      : jsonEncode([
+          widget.cacheId,
+          widget.app.serverId,
+          widget.app.toolName,
+          widget.app.binding,
+          widget.app.arguments,
+          widget.app.result,
+        ]);
+
+  double get _cachedHeight =>
+      ref.read(_resourceCacheProvider)[_cacheKey]?.height ?? _initialHeight;
   double _width = 0;
   Brightness? _brightness;
 
@@ -92,10 +113,13 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
     _deliverName = '__conduitMcpDeliver_${_randomHex(12)}';
   }
 
-  final Set<Factory<OneSequenceGestureRecognizer>> _gestures = {
-    // Vertical drags belong to the chat; wide tables and map panning still
-    // receive horizontal drags, while taps reach the embedded controls.
-    Factory<OneSequenceGestureRecognizer>(HorizontalDragGestureRecognizer.new),
+  List<Rect> _canvasRects = const [];
+  late final Set<Factory<OneSequenceGestureRecognizer>> _gestures = {
+    Factory<OneSequenceGestureRecognizer>(
+      () => _McpAppDragGestureRecognizer(
+        (position) => _canvasRects.any((rect) => rect.contains(position)),
+      ),
+    ),
   };
 
   @override
@@ -106,6 +130,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       _host?.hostContextChanged({'theme': _themeName(brightness)});
     }
     _brightness = brightness;
+    if (!_opened) _height = _cachedHeight;
     _scheduleOpen();
   }
 
@@ -113,7 +138,10 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   void didUpdateWidget(covariant McpAppEmbed oldWidget) {
     super.didUpdateWidget(oldWidget);
     // Another version of the reply needs a fresh page with its own data.
-    if (oldWidget.app != widget.app) _close();
+    if (oldWidget.app != widget.app || oldWidget.cacheId != widget.cacheId) {
+      _cacheKey = _appCacheKey();
+      _close();
+    }
   }
 
   @override
@@ -153,8 +181,9 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       _failure = null;
       _resource = null;
       _controller = null;
+      _canvasRects = const [];
       _documentLoaded = false;
-      _height = _initialHeight;
+      _height = _cachedHeight;
     }
 
     rebuild ? setState(reset) : reset();
@@ -177,6 +206,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       // host of its own like any other page.
       _documentLoaded = false;
       _controller = null;
+      _canvasRects = const [];
       _newPage();
     });
     if (api == null) {
@@ -187,10 +217,12 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
     _load = load;
     try {
       final cache = ref.read(_resourceCacheProvider);
-      final key = (widget.app.serverId, widget.app.toolName, widget.app.binding);
-      // The resource belongs to the bound tool, independently of its result.
+      final key = _cacheKey;
+      // Bind HTML and height to this invocation, including reply revisions.
       // Remove/reinsert on a hit so the oldest unused resource is evicted.
-      var resource = cache.remove(key);
+      final cached = cache.remove(key);
+      var resource = cached?.resource;
+      _height = cached?.height ?? _initialHeight;
       if (resource == null) {
         final json = await api.runMcpAppRequest(
           widget.app,
@@ -200,8 +232,10 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
         if (!mounted || load.cancelled) return;
         resource = OpenWebUiMcpAppResource.fromJson(json);
       }
-      cache[key] = resource;
-      if (cache.length > 8) cache.remove(cache.keys.first);
+      if (key != null) {
+        cache[key] = (resource: resource, height: _height);
+        if (cache.length > 8) cache.remove(cache.keys.first);
+      }
       _resource = resource;
       _host = McpAppHost(
         app: widget.app,
@@ -214,8 +248,20 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
         hostContext: _hostContext,
         onSizeChanged: (height) {
           if (!mounted) return;
-          final nextHeight = max(_minHeight, height);
-          if (_height != nextHeight) setState(() => _height = nextHeight);
+          // Flutter renders with float32 coordinates. Beyond this precision,
+          // adjacent physical pixels coincide; do not pass such values to layout.
+          if (!height.isFinite ||
+              height <= 0 ||
+              height * MediaQuery.devicePixelRatioOf(context) > (1 << 24)) {
+            return;
+          }
+          final nextHeight = max(_minHeight, height.ceilToDouble());
+          // Ignore rounding noise from the page's layout/ResizeObserver cycle.
+          if ((nextHeight - _height).abs() <= 1) return;
+          setState(() => _height = nextHeight);
+          if (key != null && cache[key]?.resource == resource) {
+            cache[key] = (resource: resource!, height: nextHeight);
+          }
         },
         onInitialized: () {
           _startTimer?.cancel();
@@ -376,7 +422,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
     }
     final resource = _resource;
     if (resource == null || _host == null) {
-      return const _McpAppLoading(height: _initialHeight);
+      return _McpAppLoading(height: _height);
     }
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -460,7 +506,35 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
             )) {
               return false;
             }
-            await _host?.receive(data.args[1] as String);
+            final message = data.args[1] as String;
+            Object? decoded;
+            try {
+              decoded = jsonDecode(message);
+            } catch (_) {
+              // The protocol host handles malformed messages as before.
+            }
+            final params = decoded is Map ? decoded['params'] : null;
+            if (decoded is Map &&
+                (decoded['method'] == 'ui/notifications/size-changed' ||
+                    decoded['method'] == 'conduit/canvas-rects') &&
+                params is Map) {
+              final rects = params['_conduitCanvasRects'];
+              if (rects is List) {
+                _canvasRects = [
+                  for (final rect in rects)
+                    if (rect is List &&
+                        rect.length == 4 &&
+                        rect.every((v) => v is num && v.isFinite))
+                      Rect.fromLTWH(
+                        (rect[0] as num).toDouble(),
+                        (rect[1] as num).toDouble(),
+                        (rect[2] as num).toDouble(),
+                        (rect[3] as num).toDouble(),
+                      ),
+                ];
+              }
+            }
+            await _host?.receive(message);
             return true;
           },
         );
@@ -607,9 +681,21 @@ String mcpAppBridgeScript({
   const bridgeToken = ${jsonEncode(bridgeToken)};
   const queue = [];
   const nativePostMessage = window.postMessage.bind(window);
+  const canvasRects = () => Array.from(document.querySelectorAll('canvas'), canvas => {
+    const r = canvas.getBoundingClientRect();
+    return [r.x, r.y, r.width, r.height];
+  });
   const deliverToHost = (message) => {
     let payload;
-    try { payload = JSON.stringify(message); } catch (_) { return; }
+    try {
+      if (message.method === 'ui/notifications/size-changed') {
+        // Reuse the app's layout notifications; no extra resize observer/RPC.
+        message = {...message, params: {...message.params,
+          _conduitCanvasRects: canvasRects(),
+        }};
+      }
+      payload = JSON.stringify(message);
+    } catch (_) { return; }
     const bridge = window.flutter_inappwebview;
     if (bridge && typeof bridge.callHandler === 'function') {
       bridge.callHandler(bridgeName, bridgeToken, payload);
@@ -617,6 +703,14 @@ String mcpAppBridgeScript({
       queue.push(message);
     }
   };
+  // A map may create its canvas asynchronously without changing content height.
+  new MutationObserver(records => {
+    if (records.some(record => [...record.addedNodes, ...record.removedNodes].some(node =>
+      node.nodeType === 1 && (node.matches('canvas') || node.querySelector('canvas'))))) {
+      deliverToHost({jsonrpc: '2.0', method: 'conduit/canvas-rects',
+        params: {_conduitCanvasRects: canvasRects()}});
+    }
+  }).observe(document, {childList: true, subtree: true});
   // The page's parent is the page itself in a web view: what it posts over
   // the MCP Apps bridge goes to Conduit, and anything else, such as a
   // library's own scheduling, stays the page's.
@@ -660,6 +754,20 @@ String mcpAppBridgeScript({
   }
 })();
 ''';
+
+// Maps and other interactive canvases need vertical/diagonal drags and pinch.
+// Everywhere else, retain horizontal controls while the chat owns vertical drags.
+class _McpAppDragGestureRecognizer extends HorizontalDragGestureRecognizer {
+  _McpAppDragGestureRecognizer(this.isCanvas);
+
+  final bool Function(Offset position) isCanvas;
+
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    super.addAllowedPointer(event);
+    if (isCanvas(event.localPosition)) resolve(GestureDisposition.accepted);
+  }
+}
 
 /// A request that is dropped when its widget goes away.
 @visibleForTesting
