@@ -825,7 +825,15 @@ class TtsManager {
     _activeSession = null;
     _isTransitioningChunks = false;
     _resetPlaybackState();
-    unawaited(_player.stop().catchError((Object _) {}));
+    // Through the playlist queue, dropped if another reading has started by
+    // its turn: a slow stop must not stop that reading.
+    final generation = _sessionCounter;
+    unawaited(
+      _onPlaylist(
+        () => _sessionCounter == generation,
+        _player.stop,
+      ).then<void>((_) {}, onError: (Object _) {}),
+    );
     _emitEvent(TtsError(error.toString()));
   }
 

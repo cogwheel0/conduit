@@ -111,6 +111,32 @@ void main() {
     },
   );
 
+  test('a failed reading\'s slow stop does not stop the next reading',
+      () async {
+    manager.setServerSpeech(_Server());
+    await manager.speak('Old strip.', useServer: true, seekable: true);
+    // The reading fails while moving, and the player is slow to stop.
+    final stopping = player.stopGate = Completer<void>();
+    player.failSeek = true;
+    final failed = manager.events.firstWhere((e) => e is TtsError);
+    await manager.seekTo(const Duration(seconds: 1));
+    await failed;
+    player.failSeek = false;
+
+    final replacing = manager.speak(
+      'New strip.',
+      useServer: true,
+      seekable: true,
+    );
+    await pumpEventQueue();
+    stopping.complete();
+    await replacing;
+    await pumpEventQueue();
+
+    check(player.clips).length.equals(1);
+    check(player.playing).isTrue();
+  });
+
   test('an old reading whose second clip comes late leaves the new one '
       'playing', () async {
     final second = Completer<SynthesizedSpeech>();
@@ -230,6 +256,12 @@ final class _Player extends NullAudioPlayback {
   Completer<void>? addGate;
   Completer<void> addWaiting = Completer<void>();
 
+  /// Holds the next stop until completed.
+  Completer<void>? stopGate;
+
+  /// A seek fails while set.
+  bool failSeek = false;
+
   void reset() {
     clips.clear();
     playing = false;
@@ -238,6 +270,8 @@ final class _Player extends NullAudioPlayback {
     processing = AudioProcessingState.ready;
     addGate = null;
     addWaiting = Completer<void>();
+    stopGate = null;
+    failSeek = false;
   }
 
   /// The clip playing comes to its end.
@@ -301,8 +335,16 @@ final class _Player extends NullAudioPlayback {
   Future<void> pause() async => playing = false;
 
   @override
+  Future<void> seek(Duration? position, {int? index}) async {
+    if (failSeek) throw StateError('seek failed');
+  }
+
+  @override
   Future<void> stop() async {
     stops++;
+    final gate = stopGate;
+    stopGate = null;
+    await gate?.future;
     playing = false;
   }
 }
