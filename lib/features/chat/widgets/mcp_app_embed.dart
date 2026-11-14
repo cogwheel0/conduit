@@ -29,12 +29,11 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 const double _initialHeight = 300;
 const double _minHeight = 100;
-const double _maxHeight = 1600;
 const Duration _startTimeout = Duration(seconds: 30);
 
 /// An MCP App a tool call showed in an Open WebUI chat (0.13 and later).
 ///
-/// It loads when the user opens it, like other embedded content. The app's
+/// It loads when mounted near the chat viewport. The app's
 /// page comes from the server's app RPC and runs in a sealed web view: no
 /// storage, cookies, popups or navigation, and only the network origins the
 /// app declared, which the server's content security policy enforces; an app
@@ -49,6 +48,14 @@ class McpAppEmbed extends ConsumerStatefulWidget {
   @override
   ConsumerState<McpAppEmbed> createState() => _McpAppEmbedState();
 }
+
+// Keep only successful resources for this authenticated account session, even
+// when chat rows are disposed. Each revisit still creates a fresh sealed page.
+final _resourceCacheProvider = Provider((ref) {
+  ref.watch(apiServiceProvider);
+  ref.watch(openWebUiAuthSessionEpochProvider);
+  return LinkedHashMap<OpenWebUiMcpApp, OpenWebUiMcpAppResource>();
+});
 
 class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   bool _opened = false;
@@ -85,7 +92,9 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   }
 
   final Set<Factory<OneSequenceGestureRecognizer>> _gestures = {
-    Factory<OneSequenceGestureRecognizer>(EagerGestureRecognizer.new),
+    // Vertical drags belong to the chat; wide tables and map panning still
+    // receive horizontal drags, while taps reach the embedded controls.
+    Factory<OneSequenceGestureRecognizer>(HorizontalDragGestureRecognizer.new),
   };
 
   @override
@@ -96,13 +105,13 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       _host?.hostContextChanged({'theme': _themeName(brightness)});
     }
     _brightness = brightness;
+    _scheduleOpen();
   }
 
   @override
   void didUpdateWidget(covariant McpAppEmbed oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Another version of the reply calls the same tool with other data: the
-    // open app showed the old one, so it closes and is offered again.
+    // Another version of the reply needs a fresh page with its own data.
     if (oldWidget.app != widget.app) _close();
   }
 
@@ -116,7 +125,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   @override
   void activate() {
     super.activate();
-    // Moved elsewhere: the app was told it is going, so it is offered again.
+    // Moved elsewhere: recreate the page after telling the app it is going.
     // The element rebuilds on activation, so no setState is needed.
     if (_opened) _close(rebuild: false);
   }
@@ -148,6 +157,13 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
     }
 
     rebuild ? setState(reset) : reset();
+    _scheduleOpen();
+  }
+
+  void _scheduleOpen() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_opened) unawaited(_open());
+    });
   }
 
   Future<void> _open() async {
@@ -169,13 +185,20 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
     final load = CancelableLoad();
     _load = load;
     try {
-      final json = await api.runMcpAppRequest(
-        widget.app,
-        method: 'ui/resource',
-        cancelToken: load.token,
-      );
-      if (!mounted || load.cancelled) return;
-      final resource = OpenWebUiMcpAppResource.fromJson(json);
+      final cache = ref.read(_resourceCacheProvider);
+      // Remove/reinsert on a hit so the oldest unused resource is evicted.
+      var resource = cache.remove(widget.app);
+      if (resource == null) {
+        final json = await api.runMcpAppRequest(
+          widget.app,
+          method: 'ui/resource',
+          cancelToken: load.token,
+        );
+        if (!mounted || load.cancelled) return;
+        resource = OpenWebUiMcpAppResource.fromJson(json);
+      }
+      cache[widget.app] = resource;
+      if (cache.length > 8) cache.remove(cache.keys.first);
       _resource = resource;
       _host = McpAppHost(
         app: widget.app,
@@ -188,7 +211,8 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
         hostContext: _hostContext,
         onSizeChanged: (height) {
           if (!mounted) return;
-          setState(() => _height = height.clamp(_minHeight, _maxHeight));
+          final nextHeight = max(_minHeight, height);
+          if (_height != nextHeight) setState(() => _height = nextHeight);
         },
         onInitialized: () {
           _startTimer?.cancel();
@@ -227,10 +251,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
     'availableDisplayModes': const ['inline'],
     'locale': Localizations.maybeLocaleOf(context)?.toLanguageTag() ?? 'en',
     'deviceCapabilities': const {'touch': true, 'hover': false},
-    'containerDimensions': {
-      if (_width > 0) 'width': _width,
-      'maxHeight': _maxHeight,
-    },
+    'containerDimensions': {if (_width > 0) 'width': _width},
   };
 
   static String _themeName(Brightness brightness) =>
@@ -339,6 +360,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(_resourceCacheProvider, (_, _) => _close());
     final l10n = AppLocalizations.of(context)!;
     final failure = _failure;
     if (failure != null) {
@@ -347,14 +369,6 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
         message: failure,
         actionLabel: _opened ? l10n.retry : null,
         onAction: _opened ? _open : null,
-      );
-    }
-    if (!_opened) {
-      return _McpAppCard(
-        title: widget.app.toolName,
-        message: l10n.mcpAppPreviewDescription(widget.app.serverId),
-        actionLabel: l10n.mcpAppOpen,
-        onAction: _open,
       );
     }
     final resource = _resource;
@@ -369,7 +383,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
           _width = width;
           if (changed) {
             _host?.hostContextChanged({
-              'containerDimensions': {'width': width, 'maxHeight': _maxHeight},
+              'containerDimensions': {'width': width},
             });
           }
         }

@@ -167,9 +167,9 @@ final class _OpenApp {
   /// Posts [message] from the page over the MCP Apps bridge.
   Future<Object?> post(Map<String, Object?> message) {
     final script = view.initialUserScripts!.first.source;
-    final token = RegExp(
-      r'const bridgeToken = "([0-9a-f]+)"',
-    ).firstMatch(script)!.group(1);
+    final token = RegExp(r'const bridgeToken = "([0-9a-f]+)"')
+        .firstMatch(script)!
+        .group(1);
     final data = JavaScriptHandlerFunctionData(
       args: [token, jsonEncode(message)],
       isMainFrame: true,
@@ -202,7 +202,6 @@ _WebViews _installWebViews() {
 Future<_OpenApp> _openApp(WidgetTester tester, ApiService api) async {
   final webViews = _installWebViews();
   await tester.pumpWidget(_harness(api));
-  await tester.tap(find.text('Open App'));
   await tester.pump();
   await tester.pump();
   final app = _OpenApp(webViews);
@@ -210,13 +209,27 @@ Future<_OpenApp> _openApp(WidgetTester tester, ApiService api) async {
   return app;
 }
 
-Widget _harness(ApiService api, {OpenWebUiMcpApp app = _app}) => ProviderScope(
-  overrides: [apiServiceProvider.overrideWithValue(api)],
+final _sessionEpoch = Object();
+
+Widget _harness(
+  ApiService api, {
+  OpenWebUiMcpApp app = _app,
+  Widget? child,
+  Object? sessionEpoch,
+}) => ProviderScope(
+  overrides: [
+    apiServiceProvider.overrideWithValue(api),
+    openWebUiAuthSessionEpochProvider.overrideWithValue(
+      sessionEpoch ?? _sessionEpoch,
+    ),
+  ],
   child: MaterialApp(
     theme: AppTheme.light(TweakcnThemes.t3Chat),
     localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
-    home: Scaffold(body: McpAppEmbed(app: app)),
+    home: Scaffold(
+      body: SingleChildScrollView(child: child ?? McpAppEmbed(app: app)),
+    ),
   ),
 );
 
@@ -334,7 +347,6 @@ void main() {
     final webViews = _installWebViews();
     await tester.pumpWidget(_harness(_ServingApi(csp: null)));
 
-    await tester.tap(find.text('Open App'));
     await tester.pumpAndSettle();
 
     expect(
@@ -373,9 +385,9 @@ void main() {
     final api = _ServingApi();
     final first = await _openApp(tester, api);
     final firstHost = first.documentUrl.host;
-    final firstToken = RegExp(
-      r'const bridgeToken = "([0-9a-f]+)"',
-    ).firstMatch(first.view.initialUserScripts!.first.source)!.group(1);
+    final firstToken = RegExp(r'const bridgeToken = "([0-9a-f]+)"')
+        .firstMatch(first.view.initialUserScripts!.first.source)!
+        .group(1);
 
     await tester.pumpWidget(
       _harness(
@@ -387,7 +399,6 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.text('Open App'));
     await tester.pump();
     await tester.pump();
 
@@ -419,9 +430,7 @@ void main() {
     expect(document, endsWith('\n<html><body>app</body></html>'));
   });
 
-  testWidgets('comments before an app\'s doctype move with it', (
-    tester,
-  ) async {
+  testWidgets('comments before an app\'s doctype move with it', (tester) async {
     final app = await _openApp(
       tester,
       _ServingApi(
@@ -449,13 +458,15 @@ void main() {
     );
   });
 
-  testWidgets('an app loads only when opened', (tester) async {
+  testWidgets('an app loads automatically when mounted', (tester) async {
     final api = _RefusingApi();
     await tester.pumpWidget(_harness(api));
+    await tester.pumpAndSettle();
 
-    expect(find.text('show_map'), findsOneWidget);
-    expect(find.text('Open App'), findsOneWidget);
-    expect(api.requests, isEmpty);
+    expect(find.text('Open App'), findsNothing);
+    expect(api.requests, ['ui/resource']);
+    await tester.pump(const Duration(seconds: 31));
+    expect(api.requests, ['ui/resource']);
   });
 
   testWidgets("a refused app says the server's reason and can be retried", (
@@ -464,7 +475,6 @@ void main() {
     final api = _RefusingApi();
     await tester.pumpWidget(_harness(api));
 
-    await tester.tap(find.text('Open App'));
     await tester.pumpAndSettle();
 
     expect(api.requests, ['ui/resource']);
@@ -480,13 +490,12 @@ void main() {
     expect(api.requests, ['ui/resource', 'ui/resource']);
   });
 
-  testWidgets('another version of the reply closes the open app', (
+  testWidgets('another version of the reply automatically loads its app', (
     tester,
   ) async {
     // Two answers calling the same tool share its binding.
     final api = _RefusingApi();
     await tester.pumpWidget(_harness(api));
-    await tester.tap(find.text('Open App'));
     await tester.pumpAndSettle();
     expect(find.text('Retry'), findsOneWidget);
 
@@ -503,8 +512,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Open App'), findsOneWidget);
-    expect(find.text('Retry'), findsNothing);
+    expect(find.text('Open App'), findsNothing);
+    expect(find.text('Retry'), findsOneWidget);
+    expect(api.requests, ['ui/resource', 'ui/resource']);
   });
 
   testWidgets('an app that did not start loads its page again on retry', (
@@ -522,11 +532,112 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(api.requests.map((request) => request.method), [
-      'ui/resource',
+    expect(api.requests.map((request) => request.method), ['ui/resource']);
+    expect(await app.navigate(app.documentUrl), NavigationActionPolicy.ALLOW);
+  });
+
+  testWidgets('revisiting uses the resource with a fresh isolated page', (
+    tester,
+  ) async {
+    final api = _ServingApi();
+    final app = await _openApp(tester, api);
+    final firstOrigin = app.documentUrl;
+    await tester.pumpWidget(_harness(api, child: const SizedBox()));
+    await tester.pumpWidget(_harness(api));
+    await tester.pump();
+    await tester.pump();
+
+    expect(api.requests.map((request) => request.method), ['ui/resource']);
+    expect(app.documentUrl, isNot(firstOrigin));
+
+    final otherAccount = _ServingApi();
+    await tester.pumpWidget(_harness(otherAccount));
+    await tester.pump();
+    await tester.pump();
+    expect(otherAccount.requests.map((request) => request.method), [
       'ui/resource',
     ]);
-    expect(await app.navigate(app.documentUrl), NavigationActionPolicy.ALLOW);
+    expect(app.documentUrl, isNot(firstOrigin));
+  });
+
+  testWidgets('size notifications expand long apps and shrink dynamically', (
+    tester,
+  ) async {
+    final app = await _openApp(tester, _ServingApi());
+    await app.post({
+      'jsonrpc': '2.0',
+      'id': 1,
+      'method': 'ui/initialize',
+      'params': {
+        'protocolVersion': '2026-01-26',
+        'appInfo': {'name': 'test', 'version': '1'},
+        'appCapabilities': {},
+      },
+    });
+    expect(app.page.delivered.join(), isNot(contains('maxHeight')));
+    for (final height in [2000, 10000, 2500, 120]) {
+      await app.post({
+        'jsonrpc': '2.0',
+        'method': 'ui/notifications/size-changed',
+        'params': {'height': height},
+      });
+      await tester.pump();
+      expect(
+        tester
+            .getSize(find.byKey(const ValueKey<String>('mcp-app-view')))
+            .height,
+        height,
+      );
+    }
+  });
+
+  testWidgets('the resource cache is bounded and clears on session changes', (
+    tester,
+  ) async {
+    final api = _ServingApi();
+    _installWebViews();
+    for (var i = 0; i < 9; i++) {
+      await tester.pumpWidget(
+        _harness(
+          api,
+          app: OpenWebUiMcpApp(
+            serverId: 'maps',
+            toolName: 'show_map',
+            binding: '$i',
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+    expect(api.requests, hasLength(9));
+    await tester.pumpWidget(
+      _harness(
+        api,
+        app: const OpenWebUiMcpApp(
+          serverId: 'maps',
+          toolName: 'show_map',
+          binding: '0',
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(api.requests, hasLength(10));
+    await tester.pumpWidget(
+      _harness(
+        api,
+        app: const OpenWebUiMcpApp(
+          serverId: 'maps',
+          toolName: 'show_map',
+          binding: '0',
+        ),
+        sessionEpoch: Object(),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(api.requests, hasLength(11));
   });
 
   testWidgets('on Android the loaded page cannot load itself again', (
@@ -580,7 +691,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.textContaining(const JsonEncoder.withIndent('  ').convert(arguments)),
+      find.textContaining(
+        const JsonEncoder.withIndent('  ').convert(arguments),
+      ),
       findsOneWidget,
     );
 
@@ -588,7 +701,10 @@ void main() {
     await tester.pumpAndSettle();
     await call;
     expect(api.requests.last.method, 'tools/call');
-    expect(api.requests.last.params, {'name': 'delete', 'arguments': arguments});
+    expect(api.requests.last.params, {
+      'name': 'delete',
+      'arguments': arguments,
+    });
 
     // A started app is told it is going, and is not waited for.
     await tester.pumpWidget(const SizedBox());
