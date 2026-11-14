@@ -97,5 +97,18 @@ void main() {
       launch().read(appSettingsProvider).notificationChannelMentionsOnly,
       isTrue,
     );
+
+    // A bulk save of an older snapshot (another setting's) leaves it.
+    await SettingsService.saveSettings(const AppSettings());
+    expect(
+      launch().read(appSettingsProvider).notificationChannelMentionsOnly,
+      isTrue,
+    );
+    // A reset clears it.
+    await container.read(appSettingsProvider.notifier).resetToDefaults();
+    expect(
+      launch().read(appSettingsProvider).notificationChannelMentionsOnly,
+      isFalse,
+    );
   });
 }

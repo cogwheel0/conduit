@@ -362,8 +362,8 @@ class SettingsService {
       _notificationChatEnabledKey: settings.notificationChatEnabled,
       _notificationChannelEnabledKey: settings.notificationChannelEnabled,
       _notificationScheduledEnabledKey: settings.notificationScheduledEnabled,
-      _notificationChannelMentionsOnlyKey:
-          settings.notificationChannelMentionsOnly,
+      // Mentions only has its own setter, so a stale bulk snapshot (another
+      // setting's save waiting its turn) cannot undo it.
     };
 
     // Resolve every account-scoped key now, before the first write yields: a
@@ -1921,6 +1921,11 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     await SettingsService.saveSettings(defaultSettings);
     // Left unset again, so it follows the host's default.
     await SettingsService._putOrRemove(PreferenceKeys.sendOnEnterKey, null);
+    // Written only by its own setter, so the bulk save leaves it.
+    await SettingsService._putOrRemove(
+      PreferenceKeys.notificationChannelMentionsOnly,
+      null,
+    );
     await SettingsService.setSlidingSidebarEnabled(
       defaultSettings.slidingSidebarEnabled,
     );
