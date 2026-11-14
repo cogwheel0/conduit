@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -67,16 +68,18 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   late String? _cacheKey = _appCacheKey();
   double _height = _initialHeight;
 
-  String? _appCacheKey() => widget.cacheId == null
-      ? null
-      : jsonEncode([
-          widget.cacheId,
-          widget.app.serverId,
-          widget.app.toolName,
-          widget.app.binding,
-          widget.app.arguments,
-          widget.app.result,
-        ]);
+  String? _appCacheKey() {
+    if (widget.cacheId == null) return null;
+    final identity = jsonEncode([
+      widget.cacheId,
+      widget.app.serverId,
+      widget.app.toolName,
+      widget.app.binding,
+      widget.app.arguments,
+      widget.app.result,
+    ]);
+    return sha256.convert(utf8.encode(identity)).toString();
+  }
 
   double get _cachedHeight {
     final height = ref.read(mcpAppResourceCacheProvider)[_cacheKey]?.height;

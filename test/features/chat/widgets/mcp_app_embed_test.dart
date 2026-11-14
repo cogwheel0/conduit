@@ -10,6 +10,7 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
+import 'package:conduit_core/features/mcp_apps/mcp_app_resource_cache.dart';
 import 'package:conduit_core/database/models/chat_transcript_window.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -718,6 +719,37 @@ void main() {
       );
     }
   }
+
+  testWidgets('cache keys hash the existing invocation identity', (
+    tester,
+  ) async {
+    final api = _ServingApi();
+    _installWebViews();
+    await tester.pumpWidget(
+      _harness(
+        api,
+        app: const OpenWebUiMcpApp(
+          serverId: 'maps',
+          toolName: 'show_map',
+          binding: 'b',
+          arguments: {'city': 'Invented harbor'},
+          result: {'summary': 'Synthetic route'},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    final cache = ProviderScope.containerOf(
+      tester.element(find.byType(McpAppEmbed)),
+    ).read(mcpAppResourceCacheProvider);
+    // Known SHA-256 of the original JSON identity, including input and result.
+    expect(
+      cache['7502bf804c126e44228a1afe02aa232aa582aba63fbf98937390dbfc85149c3e']
+          ?.resource
+          .html,
+      '<p>app</p>',
+    );
+  });
 
   testWidgets('reopening reserves the last height before the new page loads', (
     tester,

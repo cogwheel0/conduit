@@ -58,17 +58,25 @@ void main() {
   });
 
   test('restart restores the complete resource and last height', () async {
+    const key =
+        '7502bf804c126e44228a1afe02aa232aa582aba63fbf98937390dbfc85149c3e';
     final database = open('a');
     final first = await cache(database);
-    first.put('message:invocation:result', (resource: _resource, height: 2000));
-    first.put('message:invocation:result', (resource: _resource, height: 9935));
+    first.put(key, (resource: _resource, height: 2000));
+    first.put(key, (resource: _resource, height: 9935));
     await first.settled;
+    expect(
+      (await database.appCacheDao.entriesWithPrefix('mcp_app_resource:'))
+          .single
+          .key,
+      'mcp_app_resource:$key',
+    );
     first.dispose();
     await database.close();
     databases.remove(database);
 
     final reopened = await cache(open('a'));
-    final entry = await reopened.read('message:invocation:result');
+    final entry = await reopened.read(key);
     expect(entry?.resource.toJson(), _resource.toJson());
     expect(entry?.height, 9935);
     expect(await reopened.read('message:invocation:changed-result'), isNull);
