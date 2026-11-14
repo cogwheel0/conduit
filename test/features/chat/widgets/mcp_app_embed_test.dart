@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:conduit/features/chat/widgets/mcp_app_embed.dart';
+import 'package:conduit/features/chat/widgets/chat_timeline_viewport.dart';
 import 'package:conduit/features/direct_connections/widgets/direct_mcp_app_view.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -9,6 +10,7 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
+import 'package:conduit_core/database/models/chat_transcript_window.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -614,6 +616,106 @@ void main() {
       );
     }
   });
+
+  for (final reverse in [false, true]) {
+    for (final dragging in [false, true]) {
+      testWidgets(
+        'earlier apps preserve the visible message (reverse=$reverse, dragging=$dragging)',
+        (tester) async {
+          final api = _ServingApi();
+          final webViews = _installWebViews();
+          final timeline = ChatTimelineViewportController();
+          addTearDown(() async {
+            await tester.pumpWidget(const SizedBox());
+            timeline.dispose();
+          });
+          final ids = List.generate(20, (i) => 'message-$i');
+          await tester.pumpWidget(
+            _harness(
+              api,
+              child: SizedBox(
+                height: 600,
+                child: ChatTimelineViewport(
+                  controller: timeline,
+                  ownerGeneration: 1,
+                  initialAnchor: reverse
+                      ? const ChatScrollAnchor(
+                          messageId: 'message-15',
+                          offsetWithinMessage: 0,
+                        )
+                      : null,
+                  messageIds: ids,
+                  rowBuilder: (_, i) => Column(
+                    children: [
+                      if (i == 12 || i == 13)
+                        McpAppEmbed(app: _app, cacheId: ids[i]),
+                      SizedBox(height: 160, child: Text(ids[i])),
+                    ],
+                  ),
+                  topContentInset: 0,
+                  bottomPadding: 0,
+                  horizontalPadding: 0,
+                  cacheExtent: 1200,
+                  physics: const ClampingScrollPhysics(),
+                  maintainVisibleAnchor: true,
+                  followLatest: false,
+                  pinAutomatic: false,
+                  onPointerDown: () {},
+                  onUserDragStart: () {},
+                  onUserDragEnd: () {},
+                  onMetricsChanged: (_) {},
+                  onPinEndSpaceChanged: (_) {},
+                  onTrailingRefresh: () async {},
+                  onNativeScrollToTop: () async {},
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+          await tester.pump();
+          final pages = [
+            for (final view in webViews.built)
+              _OpenApp(_WebViews()..built.add(view)),
+          ];
+          for (final page in pages) {
+            page.view.onWebViewCreated!(page.controller);
+            await page.post({
+              'jsonrpc': '2.0',
+              'method': 'ui/notifications/initialized',
+            });
+          }
+          final seek = timeline.jumpMessageToTop(ids[14]);
+          await tester.pumpAndSettle();
+          await seek;
+          final gesture = dragging
+              ? await tester.startGesture(const Offset(700, 300))
+              : null;
+          await gesture?.moveBy(const Offset(0, 30));
+          await tester.pump();
+          final before = timeline.rowRect(ids[14])!.top;
+          for (final app in pages) {
+            await app.post({
+              'jsonrpc': '2.0',
+              'method': 'ui/notifications/size-changed',
+              'params': {'height': 4000},
+            });
+          }
+          await gesture?.moveBy(const Offset(0, 15));
+          await tester.pump();
+          expect(
+            timeline.rowRect(ids[14])?.top,
+            closeTo(before + (dragging ? 15 : 0), 1),
+          );
+          await tester.pump();
+          expect(
+            timeline.rowRect(ids[14])?.top,
+            closeTo(before + (dragging ? 15 : 0), 1),
+          );
+          await gesture?.cancel();
+        },
+      );
+    }
+  }
 
   testWidgets('reopening reserves the last height before the new page loads', (
     tester,

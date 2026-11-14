@@ -10,6 +10,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/widgets.dart';
 
+import 'package:conduit/features/chat/widgets/chat_timeline_viewport.dart';
 import 'package:conduit/features/direct_connections/widgets/direct_mcp_app_view.dart'
     show
         directMcpAppBridgeMessageAllowed,
@@ -258,6 +259,10 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
           final nextHeight = max(_minHeight, height.ceilToDouble());
           // Ignore rounding noise from the page's layout/ResizeObserver cycle.
           if ((nextHeight - _height).abs() <= 1) return;
+          ChatTimelineViewport.preserveMcpAppScrollPosition(
+            context,
+            nextHeight - _height,
+          );
           setState(() => _height = nextHeight);
           if (key != null && cache[key]?.resource == resource) {
             cache[key] = (resource: resource!, height: nextHeight);
