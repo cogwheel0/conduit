@@ -419,6 +419,11 @@ List<Override> chatSessionScopedQueuedCompletionOverrides() => <Override>[
   queuedCompletionInfoByMessageProvider.overrideWith(
     queuedCompletionInfoByMessage,
   ),
+  // A family with no overrides is mounted in the root, where it would read
+  // the root's map; the per-answer banner must read the scope's.
+  queuedCompletionInfoForMessageProvider.overrideWith(
+    queuedCompletionInfoForMessage,
+  ),
   queuedCompletionActionsProvider.overrideWith(queuedCompletionActions),
 ];
 
