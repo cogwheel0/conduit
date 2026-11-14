@@ -7,7 +7,11 @@ import 'dart:io';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatSessionRegistryProvider;
+import 'package:conduit_core/database/database_provider.dart'
+    show openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/providers/storage_providers.dart'
+    show optimizedStorageServiceProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
@@ -34,6 +38,7 @@ void main() {
   late AccountsService accounts;
   late AuthService auth;
   final announced = <AccountsChanged>[];
+  final announcements = StreamController<void>.broadcast();
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('accounts-test');
@@ -57,6 +62,7 @@ void main() {
     events.attach('window', (envelope) {
       if (envelope.event == ConduitEvents.accountsChanged) {
         announced.add(AccountsChanged.fromJson(envelope.payload));
+        announcements.add(null);
       }
     });
     turns = TurnsService(runtime.container, events);
@@ -70,6 +76,7 @@ void main() {
     await provider.close();
     await owui.close();
     await runtime.dispose();
+    await announcements.close();
     temporary.deleteSync(recursive: true);
   });
 
@@ -80,14 +87,42 @@ void main() {
     expect(snapshot.isAuthenticated, isTrue, reason: 'signed in as $email');
   }
 
+  /// The account list once [ready] holds. Every change it can wait for
+  /// (the active account, an addition, a session, a user) is announced, so
+  /// it reads again after each announcement.
   Future<AccountList> settledList(bool Function(AccountList) ready) async {
-    final deadline = DateTime.now().add(const Duration(seconds: 10));
-    var list = await accounts.list();
-    while (!ready(list) && DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      list = await accounts.list();
+    while (true) {
+      final next = announcements.stream.first;
+      final list = await accounts.list();
+      if (ready(list)) return list;
+      await next;
     }
-    return list;
+  }
+
+  /// Waits until [accountId]'s database is certified for its signed-in user.
+  /// That is when the core records which user the account belongs to, and
+  /// a later sign-in as the same user folds into it only once recorded. A
+  /// switch before then abandons the certification, so a test that switches
+  /// right after a sign-in waits here first.
+  Future<void> certified(String accountId) async {
+    final done = Completer<void>();
+    final watch = runtime.container.listen<String?>(
+      openWebUiCertifiedDatabaseServerProvider,
+      (_, next) {
+        if (next == accountId && !done.isCompleted) done.complete();
+      },
+      fireImmediately: true,
+    );
+    await done.future;
+    watch.close();
+  }
+
+  /// The user the core has recorded for [accountId].
+  Future<String?> recordedUser(String accountId) async {
+    final registry = await runtime.container
+        .read(optimizedStorageServiceProvider)
+        .getOpenWebUiRegistryStrict();
+    return registry.account(accountId)?.userId;
   }
 
   AccountSummary active(AccountList list) =>
@@ -120,6 +155,8 @@ void main() {
     await signIn('ada@example.com', 'pw-ada');
     final list = await settledList((l) => active(l).hasSession);
     adaAccount = list.activeAccountId!;
+    await certified(adaAccount);
+    expect(await recordedUser(adaAccount), 'user-ada');
     expect(active(list).hasSession, isTrue);
     expect(active(list).user?.name, 'Ada');
     expect(active(list).user?.email, 'ada@example.com');
@@ -169,6 +206,8 @@ void main() {
     );
     bobAccount = list.activeAccountId!;
     expect(bobAccount, isNot(adaAccount));
+    await certified(bobAccount);
+    expect(await recordedUser(bobAccount), 'user-bob');
     expect(list.addingAccount, isFalse);
     expect(
       list.accounts.map((a) => a.id),
