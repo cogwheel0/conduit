@@ -523,6 +523,27 @@ void main() {
       );
     });
 
+    // EventSubscription has only defaulted fields, so an empty map would
+    // decode, and the window's filter would quietly become every event.
+    test('positional params are refused, not read as defaults', () async {
+      final peer = await connect();
+      addTearDown(peer.close);
+      await handshake(peer);
+
+      await expectLater(
+        peer.sendRequest(ConduitMethods.eventsSubscribe, <Object?>[
+          <String>['turn.delta'],
+        ]),
+        throwsA(
+          isA<json_rpc.RpcException>().having(
+            (e) => RpcError.fromException(e).code,
+            'code',
+            ConduitErrorCodes.invalidParams,
+          ),
+        ),
+      );
+    });
+
     test('two windows both receive a broadcast', () async {
       final a = await connect();
       final b = await connect();
