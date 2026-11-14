@@ -22,6 +22,7 @@ import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
+import 'package:conduit_core/features/mcp_apps/mcp_app_document.dart';
 import 'package:conduit_core/features/mcp_apps/mcp_app_host.dart';
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -310,32 +311,10 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
     );
   }
 
-  String _document(OpenWebUiMcpAppResource resource) {
-    String csp(String policy) => policy.trim().isEmpty
-        ? ''
-        : '<meta http-equiv="Content-Security-Policy" '
-              'content="${const HtmlEscape(HtmlEscapeMode.attribute).convert(policy)}">';
-    // The host's tags go before the app's page, as in the web client. An
-    // app that opens with a doctype keeps it first, so it is laid out in
-    // standards mode as written; one without stays in quirks mode, as there.
-    final doctype = _leadingDoctype.firstMatch(resource.html);
-    final page = doctype == null
-        ? resource.html
-        : resource.html.substring(doctype.end);
-    return '${doctype?.group(1) ?? ''}'
-        '<meta http-equiv="X-DNS-Prefetch-Control" content="off">'
-        '${csp(resource.csp)}${csp(resource.additionalCsp)}'
-        '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        '<style>*{scrollbar-width:none}::-webkit-scrollbar{display:none}</style>'
-        '$page';
-  }
-
-  // Comments may come before the doctype and it still counts, so they move
-  // with it.
-  static final _leadingDoctype = RegExp(
-    r'^(\s*(?:<!--[\s\S]*?-->\s*)*<!doctype[^>]*>)',
-    caseSensitive: false,
-  );
+  // The host's tags, then the app's page: conduit_core's
+  // (features/mcp_apps/mcp_app_document.dart), shared with the desktop.
+  String _document(OpenWebUiMcpAppResource resource) =>
+      mcpAppPageDocument(resource);
 
   @override
   Widget build(BuildContext context) {

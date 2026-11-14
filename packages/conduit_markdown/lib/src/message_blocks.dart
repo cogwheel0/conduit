@@ -16,6 +16,9 @@ enum MessageBlockKind {
 
   /// Any other `<details>` section, shown as a plain disclosure.
   details,
+
+  /// A GitHub-style alert lifted out of the text ([liftMarkdownAlerts]).
+  alert,
 }
 
 /// One ordered piece of an assistant message, as produced by
@@ -57,6 +60,47 @@ final class TextMessageBlock extends MessageBlock {
 
   @override
   int get hashCode => markdown.hashCode;
+}
+
+/// The kinds of GitHub-style alert, as `> [!NOTE]` names them.
+const List<String> markdownAlertTypes = <String>[
+  'note',
+  'tip',
+  'important',
+  'warning',
+  'caution',
+];
+
+/// A GitHub-style alert (`> [!WARNING]`) at the top level of the text,
+/// lifted out of it by [liftMarkdownAlerts] for a renderer that does not
+/// know the syntax.
+final class AlertMessageBlock extends MessageBlock {
+  const AlertMessageBlock({required this.type, required this.markdown});
+
+  /// One of [markdownAlertTypes].
+  final String type;
+
+  /// The alert's body, with its `>` markers taken off.
+  final String markdown;
+
+  @override
+  MessageBlockKind get kind => MessageBlockKind.alert;
+
+  @override
+  Map<String, Object?> toJson() => {
+    'kind': kind.name,
+    'type': type,
+    'markdown': markdown,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      other is AlertMessageBlock &&
+      other.type == type &&
+      other.markdown == markdown;
+
+  @override
+  int get hashCode => Object.hash(type, markdown);
 }
 
 /// What the header of a reasoning block reads.

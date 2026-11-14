@@ -272,6 +272,10 @@ List<Object?> _segmenterView(List<MessageBlock> blocks) {
             'pending': block.pending,
           },
         });
+      case AlertMessageBlock():
+        // Only the desktop's path lifts alerts out (liftMarkdownAlerts);
+        // the segmenter leaves them in the text, as the app draws them.
+        throw StateError('the segmenter emitted an alert block');
       case DetailsMessageBlock():
         view.add({
           'details': {

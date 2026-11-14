@@ -7,6 +7,7 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
     show currentUserProvider2;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/chat/services/quick_pill_catalog.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/features/push/models/push_status.dart'
@@ -578,13 +579,11 @@ class SettingsController {
             .read(toolsListProvider)
             .maybeWhen(data: (v) => v, orElse: () => const <Tool>[]);
         final selectedModel = ref.read(selectedModelProvider);
-        final allowed = <String>{
-          'web',
-          'image',
-          ...tools.map((t) => t.id),
-          ...(selectedModel?.filters ?? const []).map((f) => 'filter:${f.id}'),
-        };
-        if (!allowed.contains(pillId)) return;
+        final offered = quickPillCandidates(
+          tools: tools,
+          filters: selectedModel?.filters ?? const [],
+        );
+        if (!offered.any((pill) => pill.id == pillId)) return;
         final current = List<String>.from(
           ref.read(appSettingsProvider).quickPills,
         );

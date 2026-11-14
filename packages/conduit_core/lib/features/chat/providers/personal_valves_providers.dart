@@ -14,6 +14,7 @@ import 'package:conduit_core/features/push/services/openwebui_push_backend.dart'
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/features/workspace/models/workspace_valve_values.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -440,12 +441,42 @@ final personalValvesTargetsProvider = Provider<List<PersonalValvesTarget>>((
       isHermesModel(model)) {
     return const [];
   }
-  final permissions = ref
-      .watch(userPermissionsProvider)
-      .maybeWhen(data: (value) => value, orElse: () => null);
-  if (!_permitsPersonalValves(ref.watch(currentUserProvider2), permissions)) {
+  return personalValvesTargetsFor(
+    model: model,
+    user: ref.watch(currentUserProvider2),
+    permissions: ref
+        .watch(userPermissionsProvider)
+        .maybeWhen(data: (value) => value, orElse: () => null),
+    models: ref
+        .watch(modelsProvider)
+        .maybeWhen(data: (value) => value, orElse: () => const <Model>[]),
+    tools: ref
+        .watch(toolsListProvider)
+        .maybeWhen(data: (value) => value, orElse: () => const []),
+    selectedToolIds: ref.watch(selectedToolIdsProvider),
+    selectedFilterIds: ref.watch(selectedFilterIdsProvider),
+  );
+});
+
+/// The rule behind [personalValvesTargetsProvider], for a chat whose model,
+/// tools and filters a host names: the pipe behind [model], then the
+/// selected filters, then the selected tools, each once, when they expose
+/// personal valves and the account's `chat.valves` permission allows them.
+List<PersonalValvesTarget> personalValvesTargetsFor({
+  required Model? model,
+  required User? user,
+  required Map<String, dynamic>? permissions,
+  required List<Model> models,
+  required List<Tool> tools,
+  required Iterable<String> selectedToolIds,
+  required Iterable<String> selectedFilterIds,
+}) {
+  if (model == null ||
+      hasReservedDirectIdentity(model) ||
+      isHermesModel(model)) {
     return const [];
   }
+  if (!_permitsPersonalValves(user, permissions)) return const [];
 
   final targets = <PersonalValvesTarget>[];
   final seen = <String>{};
@@ -460,32 +491,26 @@ final personalValvesTargetsProvider = Provider<List<PersonalValvesTarget>>((
     }
   }
 
-  final models = ref
-      .watch(modelsProvider)
-      .maybeWhen(data: (value) => value, orElse: () => const <Model>[]);
   final pipeFunctionId = _pipeFunctionId(model, models);
   if (pipeFunctionId != null) {
     add(PersonalValvesTargetKind.function, pipeFunctionId, model.name);
   }
 
-  final selectedFilters = ref.watch(selectedFilterIdsProvider).toSet();
+  final selectedFilters = selectedFilterIds.toSet();
   for (final filter in model.filters ?? const []) {
     if (filter.hasUserValves && selectedFilters.contains(filter.id)) {
       add(PersonalValvesTargetKind.function, filter.id, filter.name);
     }
   }
 
-  final selectedTools = ref.watch(selectedToolIdsProvider).toSet();
-  final tools = ref
-      .watch(toolsListProvider)
-      .maybeWhen(data: (value) => value, orElse: () => const []);
+  final selectedTools = selectedToolIds.toSet();
   for (final tool in tools) {
     if (tool.hasUserValves == true && selectedTools.contains(tool.id)) {
       add(PersonalValvesTargetKind.tool, tool.id, tool.name);
     }
   }
   return targets;
-});
+}
 
 /// Whether the composer offers "Tool settings". Advanced gates only this new
 /// command; it never changes which values are stored or used by requests.

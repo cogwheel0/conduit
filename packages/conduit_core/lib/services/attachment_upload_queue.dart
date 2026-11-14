@@ -13,6 +13,7 @@ import 'package:conduit_core/database/daos/attachment_queue_dao.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
+import 'attachment_upload_retry.dart';
 import 'share_staging_cleanup.dart';
 
 const Object _queuedAttachmentUnset = Object();
@@ -304,9 +305,7 @@ class AttachmentUploadQueue {
        _maxRetries = maxRetries,
        assert(maxRetries > 0);
 
-  static const int _defaultMaxRetries = 4;
-  static const Duration _baseRetryDelay = Duration(seconds: 5);
-  static const Duration _maxRetryDelay = Duration(minutes: 5);
+  static const int _defaultMaxRetries = kUploadMaxRetries;
   static const String _interruptedUploadError =
       'Upload was interrupted after it started; automatic retry is disabled '
       'because the server outcome is unknown.';
@@ -711,62 +710,14 @@ class AttachmentUploadQueue {
     }
   }
 
-  bool _isSafeTransientTransportFailure(Object error) {
-    if (error is! DioException) return false;
-    // These failures surface before a connection to the server is established,
-    // so no request byte can have reached the upload route and the server
-    // cannot hold the file. They are pure connectivity outages: keep the row
-    // pending and defer (without consuming the retry budget) so the upload
-    // resumes when the network returns.
-    return switch (error.type) {
-      DioExceptionType.connectionTimeout ||
-      DioExceptionType.connectionError => true,
-      DioExceptionType.unknown =>
-        error.error is SocketException || error.error is HandshakeException,
-      DioExceptionType.sendTimeout ||
-      DioExceptionType.receiveTimeout ||
-      DioExceptionType.transformTimeout ||
-      DioExceptionType.badCertificate ||
-      DioExceptionType.badResponse ||
-      DioExceptionType.cancel => false,
-    };
-  }
+  bool _isSafeTransientTransportFailure(Object error) =>
+      classifyUploadFailure(error) == UploadFailureKind.offline;
 
-  bool _isIndeterminateUploadFailure(Object error) {
-    // Pre-connection connectivity failures are never indeterminate: bytes were
-    // not sent, so the "server may already hold the file" rationale does not
-    // apply. Classify them first so they take the safe deferral path.
-    if (_isSafeTransientTransportFailure(error)) return false;
-    if (_isTransientIoFailure(error)) return true;
-    if (error is! DioException) return false;
-    return switch (error.type) {
-      DioExceptionType.sendTimeout ||
-      DioExceptionType.receiveTimeout ||
-      DioExceptionType.transformTimeout => true,
-      DioExceptionType.unknown => _isTransientIoFailure(error.error),
-      DioExceptionType.connectionTimeout ||
-      DioExceptionType.connectionError ||
-      DioExceptionType.badCertificate ||
-      DioExceptionType.badResponse ||
-      DioExceptionType.cancel => false,
-    };
-  }
+  bool _isIndeterminateUploadFailure(Object error) =>
+      classifyUploadFailure(error) == UploadFailureKind.indeterminate;
 
-  bool _isTransientIoFailure(Object? error) =>
-      error is SocketException ||
-      error is TimeoutException ||
-      error is HandshakeException ||
-      error is HttpException;
-
-  Duration _retryDelayWithJitter(int retryCount) {
-    final base = _baseRetryDelay.inMilliseconds;
-    final exp = min(
-      base * pow(2, retryCount - 1),
-      _maxRetryDelay.inMilliseconds.toDouble(),
-    ).toInt();
-    final jitter = _random.nextInt(1000); // up to 1s jitter
-    return Duration(milliseconds: exp + jitter);
-  }
+  Duration _retryDelayWithJitter(int retryCount) =>
+      uploadRetryDelay(retryCount, random: _random);
 
   void _scheduleNextProcessing({bool immediate = false}) {
     _retryTimer?.cancel();

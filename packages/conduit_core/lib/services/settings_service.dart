@@ -758,7 +758,9 @@ class SettingsService {
     await _putPreference(_androidAssistantTriggerKey, trigger.storageValue);
   }
 
-  static AppSettings _loadSettingsSync() {
+  static AppSettings _loadSettingsSync([
+    AppSettingsHostDefaults hostDefaults = const AppSettingsHostDefaults(),
+  ]) {
     T? get<T>(String key) =>
         PreferencesStore.get<T>(scopedPreferenceReadKey(key));
     List<String>? getStringList(String key) =>
@@ -813,7 +815,7 @@ class SettingsService {
       inlineMessageActions: getStringList(PreferenceKeys.inlineMessageActions)
           ?.toSet()
           .toList(),
-      sendOnEnter: get<bool>(_sendOnEnterKey) ?? false,
+      sendOnEnter: get<bool>(_sendOnEnterKey) ?? hostDefaults.sendOnEnter,
       ttsVoice: get<String>(PreferenceKeys.ttsVoice),
       ttsVoiceName: get<String>(PreferenceKeys.ttsVoiceName),
       ttsSpeed:
@@ -902,6 +904,20 @@ class SettingsService {
 class _DefaultValue {
   const _DefaultValue();
 }
+
+/// Every message action a response can offer, by its stable id, in the order
+/// Settings › Chats › Message Actions lists them.
+const messageActionIds = <String>[
+  'copy',
+  'tts',
+  'regenerate',
+  'retry-without-effort',
+  'merge',
+  'usage',
+  'fork',
+  'share',
+  'delete',
+];
 
 /// Actions shown before customization; null settings retain the adaptive layout.
 const defaultInlineMessageActions = ['copy', 'tts', 'regenerate'];
@@ -1322,6 +1338,32 @@ bool _listEquals(List<String> a, List<String> b) {
   return true;
 }
 
+/// What a host uses for a setting the user has never set, in place of
+/// [AppSettings]' own default. A stored value always wins, so turning a
+/// setting off on a host whose default is on sticks.
+///
+/// Mobile keeps every default as it is. The desktop daemon overrides
+/// [appSettingsHostDefaultsProvider]: a Mac always has a hardware keyboard,
+/// so Enter sends there unless the user turns it off.
+final class AppSettingsHostDefaults {
+  const AppSettingsHostDefaults({this.sendOnEnter = false});
+
+  /// `sendOnEnter` while the user has never set it.
+  final bool sendOnEnter;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AppSettingsHostDefaults && other.sendOnEnter == sendOnEnter;
+
+  @override
+  int get hashCode => sendOnEnter.hashCode;
+}
+
+/// The host's [AppSettingsHostDefaults]: none unless the host overrides it.
+final appSettingsHostDefaultsProvider = Provider<AppSettingsHostDefaults>(
+  (ref) => const AppSettingsHostDefaults(),
+);
+
 /// Provider for app settings
 @Riverpod(keepAlive: true)
 class AppSettingsNotifier extends _$AppSettingsNotifier {
@@ -1332,19 +1374,20 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     // Model and chat defaults belong to the active Open WebUI account, so a
     // settled switch reloads them. Device-wide settings read the same values.
     ref.watch(settledActiveAccountIdProvider);
+    final hostDefaults = ref.watch(appSettingsHostDefaultsProvider);
     if (PreferencesStore.isReady) {
-      return SettingsService._loadSettingsSync();
+      return SettingsService._loadSettingsSync(hostDefaults);
     }
 
-    _pendingLoad ??= _hydrateFromPrefs();
-    return const AppSettings();
+    _pendingLoad ??= _hydrateFromPrefs(hostDefaults);
+    return AppSettings(sendOnEnter: hostDefaults.sendOnEnter);
   }
 
-  Future<void> _hydrateFromPrefs() async {
+  Future<void> _hydrateFromPrefs(AppSettingsHostDefaults hostDefaults) async {
     try {
       await PreferencesStore.ensureInitialized();
       if (!ref.mounted) return;
-      state = SettingsService._loadSettingsSync();
+      state = SettingsService._loadSettingsSync(hostDefaults);
     } catch (error, stackTrace) {
       developer.log(
         'Failed to hydrate settings',

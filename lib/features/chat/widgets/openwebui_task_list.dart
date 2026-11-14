@@ -1,3 +1,4 @@
+import 'package:conduit_core/features/chat/utils/openwebui_tasks.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
@@ -19,20 +20,13 @@ class OpenWebUiTaskList extends ConsumerWidget {
     }
     final raw = ref.watch(
       activeConversationProvider.select(
-        (chat) => chat?.metadata['openwebui_tasks'],
+        (chat) => chat?.metadata[kOpenWebUiTasksMetadataKey],
       ),
     );
-    final tasks = raw is List
-        ? raw
-              .whereType<Map>()
-              .where((task) => task['content'] is String)
-              .toList()
-        : const <Map>[];
+    final tasks = openWebUiTasksOf({kOpenWebUiTasksMetadataKey: raw});
     if (tasks.isEmpty) return const SizedBox.shrink();
     final l10n = AppLocalizations.of(context)!;
-    final completed = tasks
-        .where((task) => task['status'] == 'completed')
-        .length;
+    final completed = tasks.where((task) => task.completed).length;
     return ExpansionTile(
       key: ValueKey(
         ref.watch(activeConversationProvider.select((chat) => chat?.id)),
@@ -47,14 +41,14 @@ class OpenWebUiTaskList extends ConsumerWidget {
                 for (final task in tasks)
                   ListTile(
                     dense: true,
-                    leading: Icon(switch (task['status']) {
+                    leading: Icon(switch (task.status) {
                       'completed' => Icons.check_circle_outline,
                       'cancelled' => Icons.cancel_outlined,
                       'in_progress' => Icons.timelapse,
                       _ => Icons.radio_button_unchecked,
                     }),
-                    title: Text(task['content'] as String),
-                    subtitle: Text(switch (task['status']) {
+                    title: Text(task.content),
+                    subtitle: Text(switch (task.status) {
                       'completed' => l10n.chatTaskCompleted,
                       'cancelled' => l10n.chatTaskCancelled,
                       'in_progress' => l10n.chatTaskInProgress,

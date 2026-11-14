@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:conduit_core/features/chat/services/quick_pill_catalog.dart';
+import 'package:conduit_core/utils/model_system_prompt.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
 import '../../features/chat/providers/text_to_speech_provider.dart';
@@ -1977,15 +1979,10 @@ class NativeSheetHydrationService {
           ? l10n.transportModePolling
           : l10n.transportModeWs;
       final filters = selectedModel?.filters ?? const [];
-      final allowedQuickIds = <String>{
-        'web',
-        'image',
-        ...tools.map((tool) => tool.id),
-        ...filters.map((filter) => 'filter:${filter.id}'),
-      };
-      final selectedQuickPills = appSettings.quickPills
-          .where((id) => allowedQuickIds.contains(id))
-          .toList();
+      final selectedQuickPills = availableQuickPills(
+        appSettings.quickPills,
+        quickPillCandidates(tools: tools, filters: filters),
+      );
       final quickActionsTitle = nativeQuickActionsTitle(l10n);
       final quickPillsSubtitle = l10n.quickActionsSelectedCount(
         selectedQuickPills.length,
@@ -2565,15 +2562,10 @@ class NativeSheetHydrationService {
       final appSettings = _ref.read(appSettingsProvider);
       final selectedModel = _ref.read(selectedModelProvider);
       final filters = selectedModel?.filters ?? const [];
-      final allowedIds = <String>{
-        'web',
-        'image',
-        ...tools.map((tool) => tool.id),
-        ...filters.map((filter) => 'filter:${filter.id}'),
-      };
-      final selected = appSettings.quickPills
-          .where((id) => allowedIds.contains(id))
-          .toSet();
+      final selected = availableQuickPills(
+        appSettings.quickPills,
+        quickPillCandidates(tools: tools, filters: filters),
+      ).toSet();
 
       await _surface.applyDetailPatch(
         detailId: 'quick-pills',
@@ -2687,12 +2679,8 @@ class NativeSheetHydrationService {
       return;
     }
 
-    final writeAccess = detail['write_access'] == true;
-    var prompt = '';
-    final params = detail['params'];
-    if (params is Map && params['system'] is String) {
-      prompt = (params['system'] as String).trim();
-    }
+    final writeAccess = modelRecordWritable(detail);
+    final prompt = modelSystemPromptOf(detail) ?? '';
 
     final items = writeAccess
         ? [

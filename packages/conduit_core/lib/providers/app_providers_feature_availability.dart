@@ -223,6 +223,22 @@ bool _imageGenerationAvailable(Ref ref) {
         selectedModel.capabilities?['image_generation'] == true;
   }
 
+  return _openWebUiAllowsImageGeneration(ref);
+}
+
+/// Whether the signed-in Open WebUI account may generate images, whatever
+/// model is selected: the account's `features.image_generation` permission.
+///
+/// False without a signed-in Open WebUI account (a Direct or Hermes session
+/// has no server to ask). The selected model's own rules are
+/// [imageGenerationAvailableProvider]'s.
+final openWebUiImageGenerationAllowedProvider = Provider<bool>(
+  (ref) =>
+      ref.watch(openWebUiAccountAvailableProvider) &&
+      _openWebUiAllowsImageGeneration(ref),
+);
+
+bool _openWebUiAllowsImageGeneration(Ref ref) {
   final perms = ref.watch(userPermissionsProvider);
   return perms.maybeWhen(
     data: (data) {
@@ -284,6 +300,18 @@ bool _webSearchAvailable(Ref ref) {
   }
   return _openWebUiAllowsWebSearch(ref);
 }
+
+/// Whether the signed-in Open WebUI account may search the web, whatever
+/// model is selected: the server's web search switch and the account's
+/// permission.
+///
+/// False without a signed-in Open WebUI account. The selected model's own
+/// rules (and a Direct model's search) are [webSearchAvailableProvider]'s.
+final openWebUiWebSearchAllowedProvider = Provider<bool>(
+  (ref) =>
+      ref.watch(openWebUiAccountAvailableProvider) &&
+      _openWebUiAllowsWebSearch(ref),
+);
 
 /// The Open WebUI server's web search switch and the user's permission.
 bool _openWebUiAllowsWebSearch(Ref ref) {

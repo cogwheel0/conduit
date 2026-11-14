@@ -134,6 +134,10 @@ List<MessageBlock> normalizeBlocksForPlainMarkdown(
           done: block.done,
           pending: block.pending,
         ),
+        AlertMessageBlock(:final type, :final markdown) => AlertMessageBlock(
+          type: type,
+          markdown: plain(markdown, sources: hasSources),
+        ),
         ToolCallsMessageBlock() => block,
       },
   ]);

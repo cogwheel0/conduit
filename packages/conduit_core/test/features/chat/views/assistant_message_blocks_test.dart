@@ -101,6 +101,7 @@ void main() {
     for (final block in blocks)
       switch (block) {
         AssistantFilesBlock() => 'files',
+        AssistantEmbedsBlock() => 'embeds',
         AssistantStatusBlock() => 'status',
         AssistantMarkdownBlock(:final block) => block.kind.name,
         AssistantErrorBlock() => 'error',
@@ -356,6 +357,70 @@ void main() {
     expect(error.toolsUnsupported, isTrue);
   });
 
+  test('alerts get blocks of their own, after the text before them', () {
+    final blocks = assistantMessageBlocks(
+      ChatMessage(
+        id: 'msg-alert',
+        role: 'assistant',
+        content: 'Plan.\n\n> [!IMPORTANT]\n> Leave **before** noon.\n\nDone.',
+        timestamp: DateTime.utc(2026, 11, 8),
+      ),
+    );
+    expect(kinds(blocks), 'text alert text');
+    final alert =
+        (blocks[1] as AssistantMarkdownBlock).block as AlertMessageBlock;
+    expect(alert.type, 'important');
+    expect(alert.markdown, 'Leave **before** noon.');
+  });
+
+  test('the answer\'s embeds come after its files, each read once', () {
+    final blocks = assistantMessageBlocks(
+      ChatMessage(
+        id: 'msg-embeds',
+        role: 'assistant',
+        content: 'Here is the board.',
+        timestamp: DateTime.utc(2026, 11, 8),
+        files: const <Map<String, dynamic>>[
+          {'type': 'image', 'id': 'f1', 'name': 'board.png'},
+        ],
+        embeds: const <Map<String, dynamic>>[
+          {'src': '<h1>Tide board</h1>'},
+          {'url': '//example.com/harbour'},
+          {'src': 'https://'},
+          {
+            'type': 'mcp_app',
+            'server_id': 'harbour',
+            'tool_name': 'show_tides',
+            'binding': 'signed',
+            'arguments': {'port': 'Wren'},
+          },
+          {'type': 'mcp_app', 'server_id': 'harbour'},
+        ],
+      ),
+    );
+    expect(kinds(blocks), 'files embeds text');
+    final embeds = (blocks[1] as AssistantEmbedsBlock).embeds;
+    expect(embeds.map((e) => e.kind), [
+      AssistantEmbedKind.html,
+      AssistantEmbedKind.url,
+      AssistantEmbedKind.mcpApp,
+    ]);
+    expect(embeds[0].source, '<h1>Tide board</h1>');
+    expect(embeds[1].source, 'https://example.com/harbour');
+    expect(embeds[2].app!.arguments, {'port': 'Wren'});
+  });
+
+  test('a tool call\'s embeds attribute is read with its arguments', () {
+    final embeds = assistantEmbeds(
+      jsonEncode(jsonEncode(['<p>Board</p>'])),
+      argsText: '{"port":"Wren"}',
+    );
+    expect(embeds.single.kind, AssistantEmbedKind.html);
+    expect(embeds.single.argsText, '{"port":"Wren"}');
+    expect(assistantEmbeds('not json'), isEmpty);
+    expect(assistantEmbeds(null), isEmpty);
+  });
+
   test('a question has no blocks', () {
     final question = ChatMessage(
       id: 'msg-q',
@@ -467,6 +532,15 @@ void main() {
         content.replaceFirst('Paragraph 3.', 'Paragraph 3 </details>.'),
         sources: 0,
       );
+    });
+
+    test('matches a whole parse through GitHub-style alerts', () {
+      const alerts =
+          'Before the trip [1].\n\n> [!WARNING]\n> Check the **tide** [2].\n'
+          '> Twice.\n\nBetween.\n\n> [!TIP]\n> Lazy line\ncontinues.\n\n'
+          '```md\n> [!NOTE]\n> In code\n```\n\n> [!NOTE]\n> At the end';
+      expectSameAsWholeParse('alerts', alerts, sources: 2);
+      expectSameAsWholeParse('alerts, no sources', alerts, sources: 0);
     });
 
     test('keeps what is closed and re-reads only the tail', () {
