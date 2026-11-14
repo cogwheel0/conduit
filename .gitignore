@@ -166,3 +166,6 @@ GoogleService-Info.plist
 
 # Push relay (Rust) build output
 relay/target/
+
+# T3 Code worktree setup markers (tool/setup_worktree.dart).
+.t3/
