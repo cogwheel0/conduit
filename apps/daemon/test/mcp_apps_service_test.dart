@@ -216,6 +216,36 @@ void main() {
       expect(seen.where((e) => e.event == ConduitEvents.openUrl), isEmpty);
     });
 
+    test('closing an app takes back its tool call question', () async {
+      final appId = await started();
+      final asking = apps.message(
+        McpAppMessage(
+          appId: appId,
+          payload: jsonEncode(<String, Object>{
+            'jsonrpc': '2.0',
+            'id': 9,
+            'method': 'tools/call',
+            'params': <String, Object>{
+              'name': 'show_tides',
+              'arguments': <String, String>{'harbour': 'North'},
+            },
+          }),
+        ),
+      );
+      final question = ui.pending.single;
+      apps.close(McpAppRef(appId: appId));
+      await asking;
+      expect(ui.pending, isEmpty, reason: 'the card stayed up');
+      expect(
+        seen.where(
+          (e) =>
+              e.event == ConduitEvents.uiSettled &&
+              UiSettled.fromJson(e.payload).requestId == question.requestId,
+        ),
+        hasLength(1),
+      );
+    });
+
     test('a closed app hears that it is going', () async {
       final appId = await started();
       seen.clear();

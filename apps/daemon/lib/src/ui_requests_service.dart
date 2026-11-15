@@ -172,12 +172,14 @@ final class UiRequestsService implements UiRequestPort {
     required String serverName,
     required String toolName,
     required String argumentsJson,
+    Future<void>? until,
   }) async {
     final response = await _ask(
       UiRequestKind.mcpAppToolCall,
       messageCode: 'mcpApp.toolCall',
       args: <String, String>{'serverName': serverName, 'toolName': toolName},
       detail: <String, dynamic>{'arguments': argumentsJson},
+      until: until,
     );
     return response.choice == 'allow';
   }

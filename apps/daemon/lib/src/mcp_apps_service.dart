@@ -119,6 +119,7 @@ final class McpAppsService {
             argumentsJson: const JsonEncoder.withIndent(
               '  ',
             ).convert(arguments),
+            until: running.stopped.future,
           ) ??
           false,
       openLink: (url) async {
