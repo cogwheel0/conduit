@@ -294,9 +294,25 @@ impl DirectView {
         let session = self.stores.session.clone();
         let onboarding = self.onboarding;
         let l10n = cx.l10n().clone();
+        let ids = |l: &DirectConnectionList| -> Vec<String> {
+            l.connections.iter().map(|c| c.id.clone()).collect()
+        };
+        let known = self.list.as_ref().map(ids);
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
+                // What was saved before this one, to tell the new connection
+                // in the answer: asked now if the list never loaded. With
+                // no such list, nothing is taken for the new one.
+                let before = match known {
+                    Some(known) => Some(known),
+                    None if edit.id.is_none() => rpc
+                        .call::<methods::DirectList>(&NoParams)
+                        .await
+                        .ok()
+                        .map(|l| ids(&l)),
+                    None => None,
+                };
                 let saved = rpc.call::<methods::DirectSave>(&edit).await;
                 // Chosen on the welcome screen: Direct is how this Mac chats.
                 let preferred = match &saved {
@@ -316,20 +332,12 @@ impl DirectView {
                     // never adds it twice).
                     if let Ok(list) = &saved
                         && edit.id.is_none()
+                        && let Some(before) = &before
+                        && let Some(made) =
+                            list.connections.iter().find(|c| !before.contains(&c.id))
                     {
-                        let before: Vec<&str> = s
-                            .list
-                            .iter()
-                            .flat_map(|l| l.connections.iter().map(|c| c.id.as_str()))
-                            .collect();
-                        if let Some(made) = list
-                            .connections
-                            .iter()
-                            .find(|c| !before.contains(&c.id.as_str()))
-                        {
-                            s.editing = Some(made.id.clone());
-                            s.saved = Some(made.clone());
-                        }
+                        s.editing = Some(made.id.clone());
+                        s.saved = Some(made.clone());
                     }
                     let result = match (saved, preferred) {
                         (Ok(list), Some(Err(e))) => {
@@ -786,8 +794,40 @@ mod tests {
     }
 
     #[gpui_kit::test]
+    fn without_a_list_a_retry_never_takes_over_another_connection(cx: &mut TestAppContext) {
+        let (daemon, view, vcx) = bench(true, cx);
+        daemon.on::<methods::DirectList>(|_| {
+            Err(conduit_daemon::protocol::error("rpc.timeout", "slow"))
+        });
+        daemon.returns::<methods::DirectSave>(list(vec![connection("old"), connection("made")]));
+        daemon.once::<methods::DirectSetPreferred>(Err(conduit_daemon::protocol::error(
+            "rpc.timeout",
+            "slow",
+        )));
+        daemon.returns::<methods::DirectSetPreferred>(list(vec![connection("made")]));
+        view.update_in(vcx, |v, window, cx| {
+            v.list = None;
+            v.open_new(window, cx);
+            v.base_url.update(cx, |i, cx| {
+                i.set_value("http://127.0.0.1:11434/v1", window, cx)
+            });
+            v.save(window, cx);
+        });
+        vcx.run_until_parked();
+        view.update_in(vcx, |v, window, cx| v.save(window, cx));
+        vcx.run_until_parked();
+        let sent = daemon.calls::<methods::DirectSave>();
+        assert_eq!(sent.len(), 2);
+        assert_ne!(
+            sent[1]["id"], "old",
+            "another connection was taken for the new one"
+        );
+    }
+
+    #[gpui_kit::test]
     fn a_save_that_went_through_is_not_added_twice(cx: &mut TestAppContext) {
         let (daemon, view, vcx) = bench(true, cx);
+        daemon.returns::<methods::DirectList>(list(vec![]));
         daemon.returns::<methods::DirectSave>(list(vec![connection("made")]));
         daemon.once::<methods::DirectSetPreferred>(Err(conduit_daemon::protocol::error(
             "rpc.timeout",
