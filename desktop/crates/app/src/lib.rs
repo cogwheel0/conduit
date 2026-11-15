@@ -200,6 +200,12 @@ pub fn run() {
         eprintln!("conduit-desktop: {flag} needs a build with the `harness` feature");
         std::process::exit(64);
     }
+    // An E2E pass runs inside the smoke pass (`--shots <dir>`): alone it
+    // would open the app normally and report nothing.
+    if args.iter().any(|a| a == "--e2e") && arg(&args, "--shots").is_none() {
+        eprintln!("conduit-desktop: --e2e runs with --shots <dir>");
+        std::process::exit(64);
+    }
     // The smoke wrapper launches through `open`, which starts apps in `/`.
     if let Some(dir) = arg(&args, "--cwd") {
         std::env::set_current_dir(dir).ok();
