@@ -1011,7 +1011,15 @@ final class TurnsService implements ChatTurns {
       scope: run.chatId,
     );
     _release(session);
-    unawaited(_announceWhenSynced(run.chatId));
+    // The merge's stored copy, as a turn's: a turn started before its pull
+    // lands would have the transcript it reads replaced.
+    final synced = _announceWhenSynced(run.chatId);
+    session.settling = synced;
+    unawaited(
+      synced.whenComplete(() {
+        if (identical(session.settling, synced)) session.settling = null;
+      }),
+    );
   }
 
   /// Save Chat: the temporary chat [chatId] becomes a stored one (the core's
