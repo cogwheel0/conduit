@@ -153,6 +153,8 @@ pub fn has_usage(u: Option<&ChatUsageDto>) -> bool {
             || u.total_seconds.is_some()
             || u.queue_seconds.is_some()
             || u.load_seconds.is_some()
+            // The context window alone is a row too.
+            || (u.context_tokens.is_some() && u.context_length.is_some_and(|l| l > 0))
     })
 }
 
@@ -511,6 +513,12 @@ mod tests {
             incomplete: true,
         };
         assert!(!has_usage(Some(&empty)) && !has_usage(None));
+        // Only the context window: Info shows it.
+        let window_only = ChatUsageDto {
+            context_tokens: Some(1024),
+            ..empty
+        };
+        assert!(has_usage(Some(&window_only)));
     }
 
     #[test]

@@ -3230,7 +3230,13 @@ impl Render for ChatComposer {
         // Chips for this message's `@` model, its Compare Models model and
         // `#` knowledge.
         let mut chips: Vec<AnyElement> = vec![];
-        if let Some(other) = composer.read(cx).compare_with.clone() {
+        // Not in a temporary chat, which is never compared.
+        if let Some(other) = composer
+            .read(cx)
+            .compare_with
+            .clone()
+            .filter(|_| !self.temporary)
+        {
             let composer = composer.clone();
             chips.push(chip(
                 "compare-with".into(),

@@ -16,7 +16,7 @@ use gpui_kit::{App, Pixels, Point, WeakEntity, Window};
 
 use crate::l10n::ActiveL10n as _;
 use crate::shell::sheet::{SheetSpec, present_sheet};
-use crate::stores::chat::ChatStore;
+use crate::stores::chat::{ChatAction, ChatStore};
 use crate::views::chat_pane::ChatPane;
 
 /// One message action, by its stable id (core's `messageActionIds`).
@@ -250,13 +250,17 @@ fn confirm_delete(ctx: RowContext, window: &mut Window, cx: &mut App) {
         return;
     };
     let handle = window.window_handle();
+    let store = ctx.store.clone();
     cx.spawn(async move |cx| {
         let count = match count.await {
             Ok(n) if n > 0 => n,
             Ok(_) => return,
+            // Not counted (an answer running, the server away): nothing is
+            // asked or deleted on a guess of how much goes.
             Err(e) => {
                 log::warn!("messages.delete (count): {e}");
-                1
+                let _ = store.update(cx, |s, cx| s.failed(ChatAction::Delete, &e, cx));
+                return;
             }
         };
         let asked = handle.update(cx, |_, window, cx| {

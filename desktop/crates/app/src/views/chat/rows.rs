@@ -672,6 +672,12 @@ impl AssistantRow {
             .values()
             .map(|(_, state)| state.read(cx).selected_text())
             .find(|text| !text.trim().is_empty())
+            // A Compare Models answer's text is in its columns' views.
+            .or_else(|| {
+                self.compare
+                    .iter()
+                    .find_map(|(_, column)| column.read(cx).selected_text(cx))
+            })
     }
 
     /// What VoiceOver reads for the answer: the text blocks as drawn (as

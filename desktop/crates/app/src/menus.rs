@@ -371,6 +371,8 @@ pub struct MenuState {
     /// Chat › Chat Settings… and Tool Settings… have something to show.
     pub chat_settings: bool,
     pub tool_settings: bool,
+    /// Chat › Save Chat: a temporary chat with messages is open.
+    pub save_chat: bool,
 }
 
 impl Default for MenuState {
@@ -386,6 +388,7 @@ impl Default for MenuState {
             zoom: ZoomState::default(),
             chat_settings: false,
             tool_settings: false,
+            save_chat: false,
         }
     }
 }
@@ -471,6 +474,11 @@ pub fn menu_state(cx: &App) -> MenuState {
         .filter(|_| main)
         .map(|v| v.read(cx).chat_pane.read(cx).settings_offer.clone())
         .unwrap_or_default();
+    let save_chat = state
+        .main_view
+        .as_ref()
+        .filter(|_| main)
+        .is_some_and(|v| v.read(cx).chat_pane.read(cx).can_save_temporary(cx));
     MenuState {
         areas,
         can_go_back,
@@ -482,6 +490,7 @@ pub fn menu_state(cx: &App) -> MenuState {
         zoom,
         chat_settings: offer.chat_settings,
         tool_settings: !offer.tool_targets.is_empty(),
+        save_chat,
     }
 }
 
@@ -508,17 +517,22 @@ fn install(state: MenuState, cx: &mut App) {
     let l: L10n = cx.l10n().clone();
     let menus = build_menus(&l, &state);
     let move_disabled = move_to_disabled(&state);
+    let export_disabled = export_disabled(&state);
     cx.default_global::<MenuSnapshot>().state = Some(state);
     cx.set_menus(menus);
     // GPUI's `disabled` on a submenu does not reach AppKit, which enables
     // every item holding a submenu.
     #[cfg(target_os = "macos")]
     {
+        let mut off = vec![];
         if move_disabled {
-            crate::shell::macos::disable_submenus(
-                &l.desktop_menu_chat(),
-                &[l.desktop_menu_move_to()],
-            );
+            off.push(l.desktop_menu_move_to());
+        }
+        if export_disabled {
+            off.push(l.chat_export_action());
+        }
+        if !off.is_empty() {
+            crate::shell::macos::disable_submenus(&l.desktop_menu_chat(), &off);
         }
         // GPUI writes "tab" as the key equivalent's text (AppKit draws T).
         crate::shell::macos::tab_key_equivalents(
@@ -530,7 +544,13 @@ fn install(state: MenuState, cx: &mut App) {
         );
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = move_disabled;
+    let _ = (move_disabled, export_disabled);
+}
+
+/// Chat › Export Chat has nothing to export: no chat open, or one the
+/// server does not hold (a `local:` chat).
+pub fn export_disabled(state: &MenuState) -> bool {
+    !state.chat.as_ref().is_some_and(|c| c.served)
 }
 
 /// Chat › Move to has nothing to act on: no chat open (or another user's),
@@ -779,7 +799,7 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
         MenuItem::action(l10n.ask_conduit_action(), crate::actions::AskConduit).disabled(no_chat),
         MenuItem::separator(),
         MenuItem::action(l10n.desktop_menu_show_branches(), ShowBranches).disabled(no_chat),
-        MenuItem::action(l10n.save_chat(), SaveTemporaryChat),
+        MenuItem::action(l10n.save_chat(), SaveTemporaryChat).disabled(!state.save_chat),
         MenuItem::separator(),
         MenuItem::action(l10n.regenerate(), RegenerateLastAnswer).disabled(no_chat),
         MenuItem::action(l10n.desktop_stop_generating(), StopGenerating),
@@ -960,19 +980,31 @@ mod tests {
             "Mark as Unread",
             "Generate Title",
             "Show Branches…",
+            "Save Chat",
         ] {
             assert!(disabled(chat_menu, name), "{name}");
         }
+        // A stored chat: nothing to save.
+        assert!(disabled(
+            menu(&build_menus(&l, &open_chat(None)), "Chat"),
+            "Save Chat"
+        ));
         let offered = build_menus(
             &l,
             &MenuState {
                 chat_settings: true,
                 tool_settings: true,
+                save_chat: true,
                 ..open_chat(None)
             },
         );
         assert!(!disabled(menu(&offered, "Chat"), "Chat Settings…"));
         assert!(!disabled(menu(&offered, "Chat"), "Tool Settings…"));
+        assert!(!disabled(menu(&offered, "Chat"), "Save Chat"));
+        // Export, as Move to, is told to AppKit too: off without a chat
+        // the server holds.
+        assert!(export_disabled(&MenuState::default()));
+        assert!(!export_disabled(&open_chat(None)));
         // Move to too (AppKit is told again after the bar is installed,
         // since it enables any item holding a submenu).
         assert!(move_to_disabled(&MenuState::default()));

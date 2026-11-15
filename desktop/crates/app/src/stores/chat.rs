@@ -1466,6 +1466,7 @@ impl ChatStore {
         alternative_to: Option<&str>,
         cx: &mut Context<Self>,
     ) -> Task<bool> {
+        let asked = self.chat_id.clone();
         let call = self.rpc.call::<methods::ChatsSetCurrent>(&ChatCurrent {
             chat_id: self.chat_id.clone(),
             message_id: message_id.to_string(),
@@ -1476,6 +1477,11 @@ impl ChatStore {
             let result = call.await;
             this.update(cx, |s, cx| {
                 s.switching = false;
+                // Saved under a new id meanwhile (Save Chat): its own fetch
+                // shows it, never this answer's copy of the old id.
+                if s.chat_id != asked {
+                    return result.is_ok();
+                }
                 // A fetch already on its way would put the old branch back.
                 s.generation += 1;
                 let ok = match result {
@@ -1587,7 +1593,12 @@ impl ChatStore {
 
     // ── Actions ─────────────────────────────────────────────────────────
 
-    fn failed(&mut self, action: ChatAction, e: &RpcError, cx: &mut Context<Self>) {
+    /// A branch switch (`chats.setCurrent`) is on its way.
+    pub fn is_switching(&self) -> bool {
+        self.switching
+    }
+
+    pub(crate) fn failed(&mut self, action: ChatAction, e: &RpcError, cx: &mut Context<Self>) {
         log::warn!("{action:?} failed: {e}");
         cx.emit(ChatStoreEvent::Failed {
             action,
@@ -1830,6 +1841,7 @@ impl ChatStore {
     /// Deletes `ids` (with the answers to them); the stored copy the
     /// daemon answers with replaces the transcript.
     pub fn delete_messages(&mut self, ids: Vec<String>, cx: &mut Context<Self>) {
+        let asked = self.chat_id.clone();
         let call = self.rpc.call::<methods::MessagesDelete>(&DeleteMessages {
             chat_id: self.chat_id.clone(),
             message_ids: ids,
@@ -1839,10 +1851,24 @@ impl ChatStore {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
                 match result {
+                    // Saved under a new id meanwhile: its own fetch shows it.
+                    Ok(_) if s.chat_id != asked => {}
                     Ok(done) => {
                         s.generation += 1;
                         if let Some(chat) = done.chat {
                             s.detail = Some(chat);
+                        }
+                        // A finished answer's overlay whose message went
+                        // with the deletion goes too (no fetch would find
+                        // it to clear it).
+                        if let Some(live) = &s.live
+                            && live.phase != LivePhase::Streaming
+                            && !s.messages().iter().any(|m| {
+                                m.id == live.message_id
+                                    || m.versions.iter().any(|v| v.id == live.message_id)
+                            })
+                        {
+                            s.live = None;
                         }
                     }
                     Err(e) => s.failed(ChatAction::Delete, &e, cx),
@@ -2084,7 +2110,13 @@ impl TurnOptions {
             context: self.context,
             mentions: self.mentions,
             filter_ids: self.filter_ids,
-            compare_models: self.compare_models,
+            // A temporary chat is never compared: the server stores no
+            // second answer for it.
+            compare_models: if temporary {
+                vec![]
+            } else {
+                self.compare_models
+            },
             temporary,
             folder_id: self.folder_id,
             chat_params: self.chat_params,

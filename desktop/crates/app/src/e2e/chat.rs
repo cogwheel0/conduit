@@ -584,8 +584,10 @@ async fn local(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
                 .last()
                 .and_then(|r| s.item(*r))
                 // The newest is the chat's own again (not a version shown in
-                // its place while the switch is on its way).
+                // its place while the switch is on its way), and no switch
+                // is still on its way.
                 .is_some_and(|i| i.stored && i.siblings.last() == Some(&i.key))
+                && !s.is_switching()
         })
     })
     .await;
