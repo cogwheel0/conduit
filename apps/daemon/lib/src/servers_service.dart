@@ -284,6 +284,16 @@ final class ServersService {
         debugMessage: 'server url must be an absolute http(s) URL',
       );
     }
+    // `user:password@` would be stored, and sent back in every summary;
+    // a server's credentials go in the sign-in, never in its address. Not
+    // echoed in the error either.
+    if (parsed.userInfo.isNotEmpty) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{'reason': 'userInfo'},
+        debugMessage: 'a server url must not carry a user or password',
+      );
+    }
     // Stored without a trailing slash so two spellings of the same server do
     // not become two servers.
     return trimmed.endsWith('/')

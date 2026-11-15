@@ -86,6 +86,24 @@ void main() {
     expect((await auth.status()).isAuthenticated, isTrue);
   });
 
+  test('an address with a user or password in it is refused', () async {
+    for (final url in <String>[
+      'https://someone:made-up-pass@example.com',
+      'https://:made-up-pass@example.com',
+      'https://someone@example.com',
+    ]) {
+      await expectLater(
+        servers.update(ServerDraft(id: account, name: 'Fake', url: url)),
+        throwsA(
+          isA<RpcError>()
+              .having((e) => e.code, 'code', ConduitErrorCodes.invalidParams)
+              .having((e) => '$e', 'text', isNot(contains('made-up-pass'))),
+        ),
+        reason: url,
+      );
+    }
+  });
+
   test('moving to another address ends the session first', () async {
     final moved = 'http://127.0.0.1:${elsewhere.port}';
     final summary = await servers.update(
