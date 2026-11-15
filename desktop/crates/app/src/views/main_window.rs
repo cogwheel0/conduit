@@ -412,6 +412,12 @@ impl MainWindow {
     }
 }
 
+/// Whether the approvals card floats over the window: everywhere but the
+/// chat pane, which docks it above its composer.
+fn floats_approvals(shows_main: bool, shows_chat: bool) -> bool {
+    !(shows_main && shows_chat)
+}
+
 impl Focusable for MainWindow {
     fn focus_handle(&self, _: &gpui_kit::App) -> FocusHandle {
         self.focus.clone()
@@ -512,9 +518,11 @@ impl Render for MainWindow {
             }
             _ => None,
         };
-        // On the main frame the chat pane docks the card above its composer.
+        // On the main frame the chat pane docks the card above its composer;
+        // over another area's pane it floats, as it does off the main frame.
+        let floats = floats_approvals(shows_main, self.shows_chat(cx));
         let approvals =
-            (!blocked && !shows_main && self.approvals.read(cx).has_request(cx)).then(|| {
+            (!blocked && floats && self.approvals.read(cx).has_request(cx)).then(|| {
                 div()
                     .absolute()
                     .bottom(px(20.))
@@ -714,5 +722,18 @@ mod material_tests {
         assert_eq!(hold.step(None, true), MaterialStep::Hold);
         assert_eq!(hold.step(Some(260.), true), MaterialStep::Sync(Some(260.)));
         assert_eq!(hold.step(None, true), MaterialStep::Hold);
+    }
+}
+
+#[cfg(test)]
+mod approvals_tests {
+    #[test]
+    fn a_request_floats_over_every_pane_but_the_chats() {
+        assert!(!super::floats_approvals(true, true));
+        assert!(
+            super::floats_approvals(true, false),
+            "a note hides a chat's request"
+        );
+        assert!(super::floats_approvals(false, false));
     }
 }
