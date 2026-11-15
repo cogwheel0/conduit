@@ -218,6 +218,7 @@ fn describe(request: &OpenRequest) -> &'static str {
         OpenRequest::Channel { .. } => "channel",
         OpenRequest::Note { .. } => "note",
         OpenRequest::Settings { .. } => "settings",
+        OpenRequest::QuickAskDraft { .. } => "quick ask draft",
     }
 }
 
@@ -267,55 +268,14 @@ fn dispatch(request: OpenRequest, cx: &mut App) {
                     .update(cx, |p, cx| p.focus_composer(window, cx))
             });
         }
-        OpenRequest::NewChat { text, files } => {
-            show_main(cx);
-            let carried = if cx.has_global::<DraftAttachments>() {
-                cx.remove_global::<DraftAttachments>().0
-            } else {
-                vec![]
+        OpenRequest::QuickAskDraft { id } => {
+            // Taken by the request it was kept for, and only once.
+            let Some((text, attachments)) = take_quick_ask_draft(id, cx) else {
+                return;
             };
-            let plan = open_files::plan(&files, open_files::file_size);
-            for path in &plan.skipped {
-                log::info!("open with: skipped a folder or missing file");
-                let _ = path;
-            }
-            crate::with_main_view(cx, move |view, window, cx| {
-                view.new_chat(false, window, cx);
-                let pane = view.chat_pane.clone();
-                pane.update(cx, |p, cx| {
-                    if let Some(text) = &text {
-                        p.composer.update(cx, |c, cx| c.set_text(text, window, cx));
-                    }
-                    if !plan.accepted.is_empty() {
-                        p.composer_store
-                            .update(cx, |c, cx| c.add_paths(&plan.accepted, cx));
-                    }
-                    if !carried.is_empty() {
-                        p.composer_store
-                            .update(cx, |c, cx| c.adopt_attachments(carried, cx));
-                    }
-                    p.focus_composer(window, cx);
-                });
-            });
-            let l10n = cx.l10n().clone();
-            if plan.too_many > 0 {
-                toast(
-                    NoticeLevel::Warning,
-                    l10n.desktop_open_files_too_many(
-                        plan.too_many as i64,
-                        open_files::MAX_FILES as i64,
-                    ),
-                    cx,
-                );
-            }
-            for name in &plan.too_large {
-                toast(
-                    NoticeLevel::Warning,
-                    l10n.desktop_open_file_too_large(name),
-                    cx,
-                );
-            }
+            open_new_chat(text, vec![], attachments, cx);
         }
+        OpenRequest::NewChat { text, files } => open_new_chat(text, files, vec![], cx),
         OpenRequest::Channel { .. } => {
             show_main(cx);
             let text = cx.l10n().desktop_channels_not_available();
@@ -326,6 +286,55 @@ fn dispatch(request: OpenRequest, cx: &mut App) {
             let text = cx.l10n().desktop_notes_not_available();
             toast(NoticeLevel::Info, text, cx);
         }
+    }
+}
+
+/// The main window on a new chat with `text`, the files at `files` and
+/// `attachments` (already uploaded) in its composer, never sent.
+fn open_new_chat(
+    text: Option<String>,
+    files: Vec<std::path::PathBuf>,
+    carried: Vec<crate::stores::composer::Attachment>,
+    cx: &mut App,
+) {
+    show_main(cx);
+    let plan = open_files::plan(&files, open_files::file_size);
+    for path in &plan.skipped {
+        log::info!("open with: skipped a folder or missing file");
+        let _ = path;
+    }
+    crate::with_main_view(cx, move |view, window, cx| {
+        view.new_chat(false, window, cx);
+        let pane = view.chat_pane.clone();
+        pane.update(cx, |p, cx| {
+            if let Some(text) = &text {
+                p.composer.update(cx, |c, cx| c.set_text(text, window, cx));
+            }
+            if !plan.accepted.is_empty() {
+                p.composer_store
+                    .update(cx, |c, cx| c.add_paths(&plan.accepted, cx));
+            }
+            if !carried.is_empty() {
+                p.composer_store
+                    .update(cx, |c, cx| c.adopt_attachments(carried, cx));
+            }
+            p.focus_composer(window, cx);
+        });
+    });
+    let l10n = cx.l10n().clone();
+    if plan.too_many > 0 {
+        toast(
+            NoticeLevel::Warning,
+            l10n.desktop_open_files_too_many(plan.too_many as i64, open_files::MAX_FILES as i64),
+            cx,
+        );
+    }
+    for name in &plan.too_large {
+        toast(
+            NoticeLevel::Warning,
+            l10n.desktop_open_file_too_large(name),
+            cx,
+        );
     }
 }
 
@@ -1013,10 +1022,39 @@ fn schedule_quick_ask_blur(cx: &mut App) {
     .detach();
 }
 
-/// Attachments Quick Ask's Open in Conduit hands to the next new chat.
-struct DraftAttachments(Vec<crate::stores::composer::Attachment>);
+/// Quick Ask drafts on their way to the main window, by id: the text and
+/// uploaded files of each Open in Conduit.
+#[derive(Default)]
+struct QuickAskDrafts(
+    std::collections::HashMap<u64, (Option<String>, Vec<crate::stores::composer::Attachment>)>,
+    u64,
+);
 
-impl gpui_kit::Global for DraftAttachments {}
+impl gpui_kit::Global for QuickAskDrafts {}
+
+/// The draft kept under `id`, taken out (once).
+fn take_quick_ask_draft(
+    id: u64,
+    cx: &mut App,
+) -> Option<(Option<String>, Vec<crate::stores::composer::Attachment>)> {
+    if !cx.has_global::<QuickAskDrafts>() {
+        return None;
+    }
+    cx.global_mut::<QuickAskDrafts>().0.remove(&id)
+}
+
+/// Keeps a Quick Ask draft for its [`OpenRequest::QuickAskDraft`]; its id.
+fn keep_quick_ask_draft(
+    text: Option<String>,
+    attachments: Vec<crate::stores::composer::Attachment>,
+    cx: &mut App,
+) -> u64 {
+    let drafts = cx.default_global::<QuickAskDrafts>();
+    drafts.1 += 1;
+    let id = drafts.1;
+    drafts.0.insert(id, (text, attachments));
+    id
+}
 
 fn on_quick_ask_event(event: QuickAskEvent, cx: &mut App) {
     match event {
@@ -1034,20 +1072,11 @@ fn on_quick_ask_event(event: QuickAskEvent, cx: &mut App) {
         QuickAskEvent::OpenDraft { text, attachments } => {
             hide_quick_ask(cx);
             let text = Some(text).filter(|t| !t.trim().is_empty());
-            // The new chat takes them once the main window shows it.
-            if !attachments.is_empty() {
-                cx.set_global(DraftAttachments(attachments));
-            }
+            // Kept under its own id: only its request takes it, once the
+            // main window shows a new chat.
+            let id = keep_quick_ask_draft(text, attachments, cx);
             if let Some(shell) = shell(cx) {
-                shell.update(cx, |s, cx| {
-                    s.push(
-                        OpenRequest::NewChat {
-                            text,
-                            files: vec![],
-                        },
-                        cx,
-                    )
-                });
+                shell.update(cx, |s, cx| s.push(OpenRequest::QuickAskDraft { id }, cx));
             }
             show_main(cx);
             drain(cx);
@@ -1226,4 +1255,27 @@ pub fn menu_bar_item_visible(cx: &App) -> bool {
     cx.try_global::<Desktop>()
         .and_then(|d| d.platform.tray.as_ref())
         .is_some_and(|t| t.is_visible())
+}
+
+#[cfg(test)]
+mod quick_ask_draft_tests {
+    use super::*;
+
+    #[gpui_kit::test]
+    fn a_draft_goes_only_to_its_own_request(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(|cx| {
+            let a = keep_quick_ask_draft(Some("first".into()), vec![], cx);
+            let b = keep_quick_ask_draft(Some("second".into()), vec![], cx);
+            assert_ne!(a, b);
+            assert_eq!(
+                take_quick_ask_draft(b, cx).map(|d| d.0),
+                Some(Some("second".to_string()))
+            );
+            assert!(take_quick_ask_draft(b, cx).is_none(), "taken once");
+            assert_eq!(
+                take_quick_ask_draft(a, cx).map(|d| d.0),
+                Some(Some("first".to_string()))
+            );
+        });
+    }
 }

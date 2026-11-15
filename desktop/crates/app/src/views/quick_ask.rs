@@ -218,9 +218,7 @@ impl QuickAskView {
     /// draft and its attachments.
     pub fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.clear(window, cx);
-        self.composer_store.update(cx, |c, cx| {
-            c.take_turn(cx);
-        });
+        self.composer_store.update(cx, |c, cx| c.start_over(cx));
         self.composer.update(cx, |c, cx| c.focus_input(window, cx));
     }
 
@@ -387,8 +385,9 @@ impl QuickAskView {
             cx.spawn_in(window, async move |_, cx| {
                 let result = task.await;
                 if result.is_err() {
-                    let _ = composer.update_in(cx, |c, window, cx| c.restore(&text, window, cx));
-                    let _ = models.update(cx, |m, cx| m.give_back(used, cx));
+                    // Not after New Chat or another account (give_back).
+                    let _ = composer
+                        .update_in(cx, |c, window, cx| c.give_back(&text, used, window, cx));
                 }
                 // The daemon may have picked the model just now.
                 let _ = models.update(cx, |m, cx| m.refresh_models(cx));
@@ -427,9 +426,7 @@ impl QuickAskView {
                     Err(e) => {
                         log::warn!("turns.send (quick ask): {e}");
                         this.composer
-                            .update(cx, |c, cx| c.restore(&text, window, cx));
-                        this.composer_store
-                            .update(cx, |c, cx| c.give_back(used, cx));
+                            .update(cx, |c, cx| c.give_back(&text, used, window, cx));
                         this.notice = Some(cx.l10n().desktop_action_failed());
                     }
                 }
@@ -837,6 +834,71 @@ mod tests {
         });
         vcx.run_until_parked();
         empty(&view, vcx);
+    }
+
+    #[gpui_kit::test]
+    fn a_failed_send_in_its_chat_gives_nothing_back_after_new_chat(cx: &mut TestAppContext) {
+        let (daemon, _stores, view, vcx) = bench(cx);
+        daemon.returns::<methods::ChatsGet>(
+            serde_json::from_value(serde_json::json!({"chat": {
+                "summary": {"id": "chat-q", "title": "Quick", "updatedAtMs": 1,
+                    "pinned": false, "archived": false, "tags": [], "shared": false,
+                    "readOnly": false},
+                "messages": [], "readOnly": false
+            }}))
+            .unwrap(),
+        );
+        daemon.on::<methods::TurnsSend>(|_| {
+            Err(conduit_daemon::protocol::error("rpc.timeout", "slow"))
+        });
+        view.update(vcx, |v, cx| {
+            v.open_chat("chat-q".into(), cx);
+        });
+        vcx.run_until_parked();
+        let held = daemon.hold::<methods::TurnsSend>();
+        view.update_in(vcx, |v, window, cx| {
+            v.composer_store
+                .update(cx, |c, cx| c.adopt_attachments(vec![uploaded("q.txt")], cx));
+            v.send_text("In the chat".into(), window, cx);
+            v.new_chat(window, cx);
+        });
+        held.release();
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, cx| {
+            assert!(v.composer_store.read(cx).attachments.is_empty());
+            assert_eq!(v.composer.read(cx).text(cx), "");
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_failed_first_send_gives_nothing_back_after_another_account(cx: &mut TestAppContext) {
+        let (daemon, stores, view, vcx) = bench(cx);
+        daemon.on::<methods::TurnsSend>(|_| {
+            Err(conduit_daemon::protocol::error("rpc.timeout", "slow"))
+        });
+        let held = daemon.hold::<methods::TurnsSend>();
+        view.update_in(vcx, |v, window, cx| {
+            v.composer_store.update(cx, |c, cx| {
+                c.adopt_attachments(vec![uploaded("first.txt")], cx)
+            });
+            v.send_text("First".into(), window, cx);
+        });
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blake", true, true),
+                ]),
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, cx| {
+            assert!(v.composer_store.read(cx).attachments.is_empty());
+            assert_eq!(v.composer.read(cx).text(cx), "");
+        });
     }
 
     #[gpui_kit::test]
