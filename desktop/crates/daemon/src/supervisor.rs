@@ -311,7 +311,7 @@ async fn launch(config: &SupervisorConfig, log: &SharedLog) -> std::io::Result<R
     }
 
     let (ready_tx, ready) = oneshot::channel();
-    if let Some(stdout) = child.stdout.take() {
+    let stdout_reader = child.stdout.take().map(|stdout| {
         let log = log.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
@@ -327,8 +327,8 @@ async fn launch(config: &SupervisorConfig, log: &SharedLog) -> std::io::Result<R
                     _ => log_line(&log, &format!("[stdout] {line}")),
                 }
             }
-        });
-    }
+        })
+    });
     let stderr_reader = child.stderr.take().map(|stderr| {
         let log = log.clone();
         tokio::spawn(async move {
@@ -367,8 +367,16 @@ async fn launch(config: &SupervisorConfig, log: &SharedLog) -> std::io::Result<R
         // The daemon's last stderr lines (why it stopped) reach the log before
         // the supervisor reports the exit. The pipe closes with the process,
         // so this is quick; the bound covers a grandchild that kept it open.
-        if let Some(reader) = stderr_reader {
-            let _ = timeout(Duration::from_millis(500), reader).await;
+        // A reader still waiting past the bound (a grandchild holds the pipe)
+        // is stopped, so it keeps neither the pipe nor the log.
+        for (reader, bound) in [(stderr_reader, 500), (stdout_reader, 100)] {
+            if let Some(mut reader) = reader
+                && timeout(Duration::from_millis(bound), &mut reader)
+                    .await
+                    .is_err()
+            {
+                reader.abort();
+            }
         }
         let _ = drained_tx.send(());
     });

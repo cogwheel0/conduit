@@ -211,9 +211,10 @@ async fn crashes_restart_five_times_then_give_up_and_retry_resets() {
         .filter(|e| {
             matches!(
                 e,
+                // A late wake-up can see the exit before the ready line.
                 SupervisorEvent::Exited {
                     exit: ExitInfo::Code(3),
-                    before_ready: false
+                    ..
                 }
             )
         })

@@ -483,7 +483,7 @@ impl Connection {
         loop {
             let Some(port) = *self.endpoint.borrow_and_update() else {
                 self.set_state(ConnectionState::WaitingForDaemon);
-                match self.idle(None, None).await {
+                match self.idle(None, None, None).await {
                     Idle::Shutdown => break,
                     _ => continue,
                 }
@@ -507,7 +507,7 @@ impl Connection {
                     mismatch.args.insert("expected".into(), daemon.clone());
                     mismatch.args.insert("actual".into(), app.clone());
                     self.fail_waiting(|| mismatch.clone());
-                    match self.idle(None, Some(&mismatch)).await {
+                    match self.idle(None, Some(&mismatch), Some(port)).await {
                         Idle::Shutdown => break,
                         _ => failures = 0,
                     }
@@ -522,7 +522,10 @@ impl Connection {
                             error: error.clone(),
                         });
                         self.fail_waiting(disconnected_error);
-                        match self.idle(None, Some(&disconnected_error())).await {
+                        match self
+                            .idle(None, Some(&disconnected_error()), Some(port))
+                            .await
+                        {
                             Idle::Shutdown => break,
                             _ => {
                                 failures = 0;
@@ -541,7 +544,10 @@ impl Connection {
                         delay,
                         error,
                     });
-                    match self.idle(Some(Instant::now() + delay), None).await {
+                    match self
+                        .idle(Some(Instant::now() + delay), None, Some(port))
+                        .await
+                    {
                         Idle::Shutdown => break,
                         Idle::EndpointChanged | Idle::Retry => failures = 0,
                         Idle::Elapsed => {}
@@ -555,9 +561,20 @@ impl Connection {
     /// Waits without a session: queues calls (or, after a fatal state,
     /// fails them at once with `reject`), keeps the subscription, expires
     /// deadlines. Ends on shutdown, a new endpoint, `retry`, or `until`.
-    async fn idle(&mut self, until: Option<Instant>, reject: Option<&RpcError>) -> Idle {
+    ///
+    /// `seen` is the endpoint the caller decided on: a change from it, even
+    /// one published before this started, ends the wait.
+    async fn idle(
+        &mut self,
+        until: Option<Instant>,
+        reject: Option<&RpcError>,
+        seen: Option<u16>,
+    ) -> Idle {
         let mut tick = interval(Duration::from_millis(100));
-        let start = *self.endpoint.borrow();
+        if *self.endpoint.borrow_and_update() != seen {
+            return Idle::EndpointChanged;
+        }
+        let start = seen;
         loop {
             let wake = until.unwrap_or_else(|| Instant::now() + Duration::from_secs(3600));
             tokio::select! {
@@ -965,16 +982,19 @@ impl Connection {
                 if let Some(error) = v.get("error") {
                     let e = error_from_wire(error);
                     let now = Instant::now();
+                    let step = self
+                        .config
+                        .unavailable_step
+                        .saturating_mul(1u32 << call.unavailable_retries.min(3));
+                    // A retry goes only if it would still be sent within the
+                    // start-up budget and the call's deadline.
+                    let due = now + step;
                     if e.is(codes::DAEMON_UNAVAILABLE)
-                        && now.duration_since(call.created) < self.config.unavailable_budget
-                        && now < call.deadline
+                        && due <= call.created + self.config.unavailable_budget
+                        && due < call.deadline
                     {
-                        let step = self
-                            .config
-                            .unavailable_step
-                            .saturating_mul(1u32 << call.unavailable_retries.min(3));
                         call.unavailable_retries += 1;
-                        self.delayed.push((now + step, call));
+                        self.delayed.push((due, call));
                     } else {
                         call.finish(Err(e));
                     }
@@ -1086,6 +1106,51 @@ mod tests {
             next_id: 0,
             state: None,
         }
+    }
+
+    /// A connection whose endpoint and command senders stay open.
+    fn connection_with_endpoint() -> (
+        Connection,
+        watch::Sender<Option<u16>>,
+        mpsc::UnboundedSender<Cmd>,
+    ) {
+        let (events, _) = mpsc::unbounded_channel();
+        let (cmd_tx, cmds) = mpsc::unbounded_channel();
+        let (endpoint_tx, endpoint) = watch::channel(None);
+        let mut conn = connection();
+        conn.events = events;
+        conn.cmds = cmds;
+        conn.endpoint = endpoint;
+        (conn, endpoint_tx, cmd_tx)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_daemon_published_just_before_idle_wakes_it() {
+        let (mut conn, endpoint, _cmds) = connection_with_endpoint();
+        // `run` reads no endpoint and decides to wait…
+        let seen = *conn.endpoint.borrow_and_update();
+        // …and the supervisor publishes the port before `idle` starts.
+        endpoint.send(Some(4242)).unwrap();
+        let woke =
+            tokio::time::timeout(Duration::from_secs(3600), conn.idle(None, None, seen)).await;
+        assert!(matches!(woke, Ok(Idle::EndpointChanged)));
+    }
+
+    #[test]
+    fn a_retry_that_would_land_past_the_budget_is_not_scheduled() {
+        let mut conn = connection();
+        conn.config.unavailable_budget = Duration::from_millis(100);
+        conn.config.unavailable_step = Duration::from_millis(250);
+        let (call, mut rx) = live("accounts.list");
+        let mut inflight = HashMap::from([(7, Inflight::User(call))]);
+        let reply = json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "error": {"code": -32000, "message": "starting", "data": {"code": "rpc.daemonUnavailable"}}
+        });
+        conn.on_message(reply, &mut inflight, &mut 0, &mut None);
+        assert!(conn.delayed.is_empty());
+        assert_eq!(code(&mut rx), codes::DAEMON_UNAVAILABLE);
     }
 
     fn call(
