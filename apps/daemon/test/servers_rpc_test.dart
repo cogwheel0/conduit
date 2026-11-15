@@ -748,7 +748,13 @@ void main() {
           params: const SendTurn(model: 'gpt-4o', text: '   ').toJson(),
           decodeResult: SendTurnAccepted.fromJson,
         ),
-        throwsA(isA<RpcError>()),
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.invalidParams,
+          ),
+        ),
       );
     });
 

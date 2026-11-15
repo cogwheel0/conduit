@@ -135,6 +135,14 @@ final class FilesService {
         debugMessage: 'sign in before loading files',
       );
     }
+    // The account can change while the check above awaits: the client read
+    // after it must still be the requested server's.
+    if (api.serverConfig.id != serverId) {
+      throw const RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: 'not the active server',
+      );
+    }
     // The core answers an image as a data URL and anything else as bare
     // base64 -- the shape its Flutter widgets want. Undone here, once.
     final content = await api.getFileContent(fileId, maxBytes: maxFileBytes);

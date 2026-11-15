@@ -4,8 +4,15 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:dio/dio.dart' show CancelToken;
+import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_openai.dart';
@@ -195,4 +202,51 @@ void main() {
       );
     }
   });
+
+  // The server check and the client must name the same server: an account
+  // switch between them would otherwise show the new account's file under
+  // the old account's id.
+  test('a file is refused when the client belongs to another server', () async {
+    final container = ProviderContainer(
+      overrides: [
+        activeServerProvider.overrideWith(
+          (ref) async =>
+              const ServerConfig(id: 'a', name: 'A', url: 'https://a.example'),
+        ),
+        apiServiceProvider.overrideWithValue(_OtherServerApi()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await expectLater(
+      FilesService(container).download('a', 'file-1'),
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.notFound,
+        ),
+      ),
+    );
+  });
+}
+
+/// The client of another account's server, which must never be asked.
+final class _OtherServerApi extends ApiService {
+  _OtherServerApi()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'b',
+          name: 'B',
+          url: 'https://b.example',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  @override
+  Future<String> getFileContent(
+    String fileId, {
+    int? maxBytes,
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) async => fail('read $fileId from the other account\'s server');
 }
