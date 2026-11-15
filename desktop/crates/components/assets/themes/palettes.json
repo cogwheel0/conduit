@@ -114,7 +114,7 @@
           "hover": "#0000000D",
           "selected": "#00000012",
           "borderHover": "#C3C3C3FF",
-          "foregroundSubtle": "#6E6E73FF",
+          "foregroundSubtle": "#65656AFF",
           "foregroundSubtlest": "#838384FF",
           "tab": "#F7F7F7FF",
           "tabActive": "#FFFFFFFF",
@@ -123,8 +123,9 @@
           "tooltipForeground": "#000000FF"
         },
         "accessible": {
-          "destructive": "#CB3A3AFF"
-        }
+          "destructive": "#C33838FF"
+        },
+        "destructiveFill": "#C33838FF"
       },
       "dark": {
         "radius": 10.0,
@@ -175,14 +176,17 @@
           "selected": "#ECECEC1A",
           "borderHover": "#3D3D3DFF",
           "foregroundSubtle": "#98989FFF",
-          "foregroundSubtlest": "#6A6A6FFF",
+          "foregroundSubtlest": "#7E7E82FF",
           "tab": "#090909FF",
           "tabActive": "#000000FF",
           "brand": "#ECECECFF",
           "tooltip": "#2F2F2FFF",
           "tooltipForeground": "#ECECECFF"
         },
-        "accessible": {}
+        "accessible": {
+          "destructive": "#F36C6CFF"
+        },
+        "destructiveFill": "#BE5454FF"
       }
     },
     {
@@ -242,15 +246,16 @@
           "hover": "#3D39290D",
           "selected": "#3D392912",
           "borderHover": "#C2C1BAFF",
-          "foregroundSubtle": "#6F6D65FF",
-          "foregroundSubtlest": "#89877FFF",
+          "foregroundSubtle": "#6B6960FF",
+          "foregroundSubtlest": "#838178FF",
           "tab": "#F4F3EFFF",
           "tabActive": "#FAF9F5FF",
           "brand": "#C96442FF",
           "tooltip": "#F3F3F2FF",
           "tooltipForeground": "#3D3929FF"
         },
-        "accessible": {}
+        "accessible": {},
+        "destructiveFill": "#141413FF"
       },
       "dark": {
         "radius": 8.0,
@@ -308,7 +313,10 @@
           "tooltip": "#3F3E3CFF",
           "tooltipForeground": "#C3C0B6FF"
         },
-        "accessible": {}
+        "accessible": {
+          "destructive": "#F38C8CFF"
+        },
+        "destructiveFill": "#A86161FF"
       }
     },
     {
@@ -369,16 +377,15 @@
           "selected": "#50185412",
           "borderHover": "#D7A4D4FF",
           "foregroundSubtle": "#834588FF",
-          "foregroundSubtlest": "#A77AAAFF",
+          "foregroundSubtlest": "#A072A3FF",
           "tab": "#F5EEF5FF",
           "tabActive": "#FAF5FAFF",
           "brand": "#A84370FF",
           "tooltip": "#F5F1F5FF",
           "tooltipForeground": "#501854FF"
         },
-        "accessible": {
-          "destructive": "#973B3EFF"
-        }
+        "accessible": {},
+        "destructiveFill": "#AB4347FF"
       },
       "dark": {
         "radius": 8.0,
@@ -437,8 +444,9 @@
           "tooltipForeground": "#D2C4DEFF"
         },
         "accessible": {
-          "destructive": "#857275FF"
-        }
+          "destructive": "#9B8C8FFF"
+        },
+        "destructiveFill": "#7F7275FF"
       }
     },
     {
@@ -498,8 +506,8 @@
           "hover": "#4C4F690D",
           "selected": "#4C4F6912",
           "borderHover": "#ABAFBDFF",
-          "foregroundSubtle": "#555871FF",
-          "foregroundSubtlest": "#6E7186FF",
+          "foregroundSubtle": "#4B4E66FF",
+          "foregroundSubtlest": "#696C82FF",
           "tab": "#EAECF1FF",
           "tabActive": "#EFF1F5FF",
           "brand": "#8839EFFF",
@@ -507,8 +515,9 @@
           "tooltipForeground": "#4C4F69FF"
         },
         "accessible": {
-          "destructive": "#B30C31FF"
-        }
+          "destructive": "#A50C2DFF"
+        },
+        "destructiveFill": "#A50C2DFF"
       },
       "dark": {
         "radius": 5.6,
@@ -558,8 +567,8 @@
           "hover": "#CDD6F40D",
           "selected": "#CDD6F41A",
           "borderHover": "#484B5EFF",
-          "foregroundSubtle": "#AFB6D2FF",
-          "foregroundSubtlest": "#8E93ABFF",
+          "foregroundSubtle": "#C2CBE8FF",
+          "foregroundSubtlest": "#A0A6C0FF",
           "tab": "#1F202DFF",
           "tabActive": "#181825FF",
           "brand": "#CBA6F7FF",
@@ -567,8 +576,9 @@
           "tooltipForeground": "#CDD6F4FF"
         },
         "accessible": {
-          "destructive": "#F3CBD9FF"
-        }
+          "destructive": "#F3BDCDFF"
+        },
+        "destructiveFill": "#F3BDCDFF"
       }
     },
     {
@@ -638,7 +648,8 @@
         },
         "accessible": {
           "destructive": "#BB3636FF"
-        }
+        },
+        "destructiveFill": "#BB3636FF"
       },
       "dark": {
         "radius": 12.0,
@@ -688,15 +699,18 @@
           "hover": "#E5E5E50D",
           "selected": "#E5E5E51A",
           "borderHover": "#565B6AFF",
-          "foregroundSubtle": "#A3A3A3FF",
-          "foregroundSubtlest": "#7B7D81FF",
+          "foregroundSubtle": "#A8A8A8FF",
+          "foregroundSubtlest": "#8B8D90FF",
           "tab": "#242C3AFF",
           "tabActive": "#1C2433FF",
           "brand": "#E05D38FF",
           "tooltip": "#393E49FF",
           "tooltipForeground": "#E5E5E5FF"
         },
-        "accessible": {}
+        "accessible": {
+          "destructive": "#F38C8CFF"
+        },
+        "destructiveFill": "#A86161FF"
       }
     }
   ]

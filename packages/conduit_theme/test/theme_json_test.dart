@@ -49,6 +49,7 @@ void main() {
           ...colors.values,
           ...surfaces.values,
           ...accessible.values,
+          variant['destructiveFill'] as String,
         ]) {
           expect(value, matches(hex));
         }

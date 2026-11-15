@@ -21,7 +21,8 @@ const int kDesktopThemeJsonVersion = 1;
 /// Each mode carries the 33 colour tokens as the palette defines them, the
 /// 17 surface tokens after [desktopSurfaces] (derived where the palette
 /// leaves them out, text tokens held to WCAG AA), the colours
-/// [accessibleColors] moved (only those that differ), and the radius.
+/// [accessibleColors] moved (only those that differ), the
+/// [destructiveFill] under `destructiveForeground`, and the radius.
 /// Colours are `#RRGGBBAA`, the CSS order, so the alpha of a translucent
 /// surface survives.
 ///
@@ -67,6 +68,7 @@ Map<String, Object> _variantJson(ThemeVariant variant) {
       for (final entry in accessible.entries)
         if (colors[entry.key] != entry.value) entry.key: cssHex(entry.value),
     },
+    'destructiveFill': cssHex(destructiveFill(variant)),
   };
 }
 

@@ -39,11 +39,26 @@ const List<String> kSurfaceTokens = <String>[
   'tooltipForeground',
 ];
 
+/// The surface tokens text is drawn on, when they are opaque: the frames,
+/// menus and their hovered row, tooltips and tabs. The translucent ones
+/// (`surface`, `hover`, `selected`) sit on these.
+const List<String> kTextLayerSurfaces = <String>[
+  'window',
+  'panel',
+  'header',
+  'menu',
+  'menuHover',
+  'tooltip',
+  'tab',
+  'tabActive',
+];
+
 /// [variant]'s surface tokens: its own [ThemeVariant.surfaces], with any it
 /// leaves out derived from its colours.
 ///
 /// Text tokens are then held to WCAG AA whatever their source:
-/// `foregroundSubtle` reads at 4.5:1 on every opaque layer, and
+/// `foregroundSubtle` reads at 4.5:1 on every opaque layer (hovered menu
+/// rows and tooltips included), and
 /// `foregroundSubtlest`, used for icons and hints rather than text, at 3:1.
 Map<String, int> desktopSurfaces(ThemeVariant variant) {
   final c = variant.colors;
@@ -77,17 +92,24 @@ Map<String, int> desktopSurfaces(ThemeVariant variant) {
   surfaces['tab'] ??= surfaces['window']!;
   surfaces['tabActive'] ??= surfaces['panel']!;
 
+  // Every opaque layer text sits on, hovered menu rows and tooltips included.
   final layers = <int>[
-    for (final token in const <String>['background', 'card', 'popover'])
+    for (final token in const <String>[
+      'background',
+      'card',
+      'popover',
+      'muted',
+    ])
       c[token]!,
-    for (final token in const <String>['window', 'panel', 'menu'])
-      surfaces[token]!,
+    for (final token in kTextLayerSurfaces)
+      if (surfaces[token]! >> 24 & 0xFF == 0xFF) surfaces[token]!,
   ];
   final subtle = _towardContrast(
     surfaces['foregroundSubtle']!,
     fg,
     layers,
     4.5,
+    dark: dark,
   );
   surfaces['foregroundSubtle'] = subtle;
   surfaces['foregroundSubtlest'] = _towardContrast(
@@ -95,6 +117,7 @@ Map<String, int> desktopSurfaces(ThemeVariant variant) {
     fg,
     layers,
     3,
+    dark: dark,
   );
   return <String, int>{
     for (final token in kSurfaceTokens) token: surfaces[token]!,
@@ -102,15 +125,26 @@ Map<String, int> desktopSurfaces(ThemeVariant variant) {
 }
 
 /// Moves [color] toward [foreground] until it has [ratio] against every one
-/// of [layers].
-int _towardContrast(int color, int foreground, List<int> layers, double ratio) {
+/// of [layers]; once a step toward [foreground] no longer changes it (the two
+/// are a rounding step apart), toward black on a light variant or white on a
+/// dark one instead.
+int _towardContrast(
+  int color,
+  int foreground,
+  List<int> layers,
+  double ratio, {
+  required bool dark,
+}) {
   var value = color;
   for (
     var step = 0;
     step < 40 && layers.any((l) => contrastRatio(value, l) < ratio);
     step++
   ) {
-    value = mixColor(value, foreground, 0.08);
+    final next = mixColor(value, foreground, 0.08);
+    value = next != value
+        ? next
+        : mixColor(value, dark ? 0xFFFFFFFF : 0xFF000000, 0.08);
   }
   return value;
 }

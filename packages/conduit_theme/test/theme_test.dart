@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:conduit_theme/conduit_theme.dart';
 import 'package:test/test.dart';
 
@@ -83,25 +81,48 @@ void main() {
       },
     );
 
-    test('a dark variant never loses the fill\'s contrast', () {
+    test('every variant\'s red reads as text on every opaque layer', () {
       for (final palette in kConduitPalettes) {
-        final before = palette.dark.colors;
-        final after = accessibleColors(palette.dark);
-        final fill = contrastRatio(
-          after['destructiveForeground']!,
-          after['destructive']!,
-        );
-        expect(
-          fill,
-          greaterThanOrEqualTo(
-            math.min(
-              4.5,
-              contrastRatio(
-                before['destructiveForeground']!,
-                before['destructive']!,
-              ),
+        for (final (mode, variant) in <(String, ThemeVariant)>[
+          ('light', palette.light),
+          ('dark', palette.dark),
+        ]) {
+          final red = accessibleColors(variant)['destructive']!;
+          for (final (name, layer) in _opaqueLayers(variant)) {
+            expect(
+              contrastRatio(red, layer),
+              greaterThanOrEqualTo(4.5),
+              reason: '${palette.id} $mode red on $name',
+            );
+          }
+        }
+      }
+    });
+
+    test('every variant\'s fill reads under its own foreground', () {
+      for (final palette in kConduitPalettes) {
+        for (final (mode, variant) in <(String, ThemeVariant)>[
+          ('light', palette.light),
+          ('dark', palette.dark),
+        ]) {
+          final colors = accessibleColors(variant);
+          expect(
+            contrastRatio(
+              colors['destructiveForeground']!,
+              destructiveFill(variant),
             ),
-          ),
+            greaterThanOrEqualTo(4.5),
+            reason: '${palette.id} $mode text on the fill',
+          );
+        }
+      }
+    });
+
+    test('a light variant\'s fill is its text red', () {
+      for (final palette in kConduitPalettes) {
+        expect(
+          destructiveFill(palette.light),
+          accessibleColors(palette.light)['destructive'],
           reason: palette.id,
         );
       }
@@ -137,6 +158,29 @@ void main() {
   });
 
   group('desktopSurfaces', () {
+    test('secondary text and icons read on every opaque layer', () {
+      for (final palette in kConduitPalettes) {
+        for (final (mode, variant) in <(String, ThemeVariant)>[
+          ('light', palette.light),
+          ('dark', palette.dark),
+        ]) {
+          final s = desktopSurfaces(variant);
+          for (final (name, layer) in _opaqueLayers(variant)) {
+            expect(
+              contrastRatio(s['foregroundSubtle']!, layer),
+              greaterThanOrEqualTo(4.5),
+              reason: '${palette.id} $mode foregroundSubtle on $name',
+            );
+            expect(
+              contrastRatio(s['foregroundSubtlest']!, layer),
+              greaterThanOrEqualTo(3),
+              reason: '${palette.id} $mode foregroundSubtlest on $name',
+            );
+          }
+        }
+      }
+    });
+
     test('every variant gets every surface token', () {
       for (final palette in kConduitPalettes) {
         for (final variant in <ThemeVariant>[palette.light, palette.dark]) {
@@ -233,3 +277,20 @@ void main() {
 }
 
 String _hex(int argb) => '0x${argb.toRadixString(16).padLeft(8, '0')}';
+
+/// The opaque layers text is drawn on in the desktop window: the shared
+/// tokens and the desktop's own surfaces.
+List<(String, int)> _opaqueLayers(ThemeVariant variant) {
+  final surfaces = desktopSurfaces(variant);
+  return <(String, int)>[
+    for (final token in const <String>[
+      'background',
+      'card',
+      'popover',
+      'muted',
+    ])
+      (token, variant.colors[token]!),
+    for (final token in kTextLayerSurfaces)
+      if (surfaces[token]! >> 24 & 0xFF == 0xFF) (token, surfaces[token]!),
+  ];
+}

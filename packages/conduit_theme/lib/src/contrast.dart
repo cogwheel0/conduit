@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'palette.dart';
+import 'surfaces.dart';
 
 /// WCAG's relative luminance of an ARGB colour.
 double relativeLuminance(int argb) {
@@ -38,36 +39,61 @@ int mixColor(int argb, int toward, double amount) {
 }
 
 /// [variant]'s colours for the desktop window, with the destructive red
-/// moved until it meets WCAG AA (4.5:1) where the window uses it: as text
-/// on the surfaces, and as a fill under its own foreground.
+/// moved until it reads as text at WCAG AA (4.5:1) on every opaque layer the
+/// window draws: the shared surfaces and the desktop's own (window, panels,
+/// menus, their hovered row, tooltips).
 ///
-/// On a light variant both needs point the same way, so the red darkens
-/// until both are met. On a dark one they pull apart -- text wants it
-/// lighter, the fill under white text darker -- so it lightens for text
-/// only as far as the fill keeps its contrast. The phone app reads the
+/// On a light variant the red darkens, which also keeps its fill readable
+/// under its own foreground. On a dark one the two pull apart -- text wants
+/// it lighter, a fill under white text darker -- so this red is the text
+/// colour, and [destructiveFill] is the fill. The phone app reads the
 /// palettes directly and is unaffected.
 Map<String, int> accessibleColors(ThemeVariant variant) {
   final colors = Map<String, int>.of(variant.colors);
-  final surfaces = <int>[
+  final surfaces = desktopSurfaces(variant);
+  final layers = <int>[
     for (final token in const <String>[
       'background',
       'card',
+      'popover',
       'muted',
-      'secondary',
     ])
       ?colors[token],
+    for (final token in kTextLayerSurfaces)
+      if (surfaces[token]! >> 24 & 0xFF == 0xFF) surfaces[token]!,
   ];
   final foreground = colors['destructiveForeground'];
   var red = colors['destructive'];
-  if (red == null || foreground == null || surfaces.isEmpty) return colors;
-  bool readable(int c) => surfaces.every((s) => contrastRatio(c, s) >= 4.5);
+  if (red == null || foreground == null || layers.isEmpty) return colors;
+  bool readable(int c) => layers.every((s) => contrastRatio(c, s) >= 4.5);
   bool filled(int c) => contrastRatio(foreground, c) >= 4.5;
-  final light = relativeLuminance(colors['background'] ?? surfaces.first) > 0.5;
-  for (var step = 0; step < 40 && !(readable(red!) && filled(red)); step++) {
-    final next = mixColor(red, light ? 0xFF000000 : 0xFFFFFFFF, 0.04);
-    if (!light && !filled(next)) break;
-    red = next;
+  final light = relativeLuminance(colors['background'] ?? layers.first) > 0.5;
+  for (
+    var step = 0;
+    step < 40 && !(readable(red!) && (!light || filled(red)));
+    step++
+  ) {
+    red = mixColor(red, light ? 0xFF000000 : 0xFFFFFFFF, 0.04);
   }
   colors['destructive'] = red!;
   return colors;
+}
+
+/// The fill of a destructive button in [variant]: the red from
+/// [accessibleColors], darkened under a light foreground (lightened under a
+/// dark one) until the foreground reads on it at 4.5:1. On a light variant
+/// that is the red itself. The desktop's `legible_fill` does the same.
+int destructiveFill(ThemeVariant variant) {
+  final colors = accessibleColors(variant);
+  final foreground = colors['destructiveForeground']!;
+  final toward = relativeLuminance(foreground) > 0.5 ? 0xFF000000 : 0xFFFFFFFF;
+  var fill = colors['destructive']!;
+  for (
+    var step = 0;
+    step < 40 && contrastRatio(foreground, fill) < 4.5;
+    step++
+  ) {
+    fill = mixColor(fill, toward, 0.04);
+  }
+  return fill;
 }
