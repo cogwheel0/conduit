@@ -202,6 +202,16 @@ pub enum UploadState {
     },
 }
 
+/// The draft a new chat's settings were set in, its round, and which
+/// assignment they were in it ([`ComposerStore::params_owner`]): every save
+/// is its own owner, even two in one round.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParamsOwner {
+    draft: Option<DraftKey>,
+    round: u64,
+    rev: u64,
+}
+
 /// What one message uses up ([`ComposerStore::one_shot`]).
 #[derive(Clone, Debug, Default)]
 pub struct OneShot {
@@ -346,6 +356,12 @@ pub struct ComposerStore {
     /// message takes them. Dropped once another chat opens, as mobile drops
     /// its pending settings.
     pub draft_params: serde_json::Value,
+    /// Whose [`Self::draft_params`] they are: the draft (and its round)
+    /// they were set in. A send forgets only settings it still owns.
+    params_owner: Option<ParamsOwner>,
+    /// Bumped whenever the settings change: a reply asked before then
+    /// never puts older ones back.
+    params_rev: u64,
     /// The model a new chat in a folder starts on: the folder's default
     /// (`folders.draftModel`), until the user picks another.
     pub draft_model: Option<String>,
@@ -404,6 +420,8 @@ impl ComposerStore {
             knowledge: vec![],
             context: vec![],
             draft_params: serde_json::Value::Null,
+            params_owner: None,
+            params_rev: 0,
             draft_model: None,
             _draft_model: None,
             model_options: None,
@@ -533,6 +551,7 @@ impl ComposerStore {
         let chat_id = self.chat_id();
         let new_chat = chat_id.is_none();
         let (scope, round, asked) = (self.scope, self.draft_round, model_id.clone());
+        let rev = self.params_rev;
         let call = self.rpc.call::<methods::ModelsSetReasoningEffort>(
             &conduit_protocol::SetReasoningEffort {
                 model_id,
@@ -555,8 +574,12 @@ impl ComposerStore {
                     }
                     match result {
                         Ok(options) => {
-                            if new_chat && let Some(draft) = options.draft.clone() {
-                                s.draft_params = draft;
+                            // Settings saved since it was asked stay.
+                            if new_chat
+                                && s.params_rev == rev
+                                && let Some(draft) = options.draft.clone()
+                            {
+                                s.set_params(draft);
                             }
                             s.model_options = Some(options);
                             cx.notify();
@@ -1310,22 +1333,41 @@ impl ComposerStore {
     /// Settings sent with a new chat that was made after the user moved on
     /// ([`Self::new_chat_sent`] is for the chat that opens): they went with
     /// it, so the next new chat does not take them too.
-    pub fn forget_sent_params(&mut self, sent: Option<&serde_json::Value>, cx: &mut Context<Self>) {
-        if sent.is_some_and(|p| *p == self.draft_params) {
-            self.draft_params = serde_json::Value::Null;
+    pub fn forget_sent_params(&mut self, sent: Option<&ParamsOwner>, cx: &mut Context<Self>) {
+        // Only the settings that send carried, still owned by its draft:
+        // never another draft's, even with the same values.
+        if sent.is_some() && sent == self.params_owner.as_ref() {
+            self.set_params(serde_json::Value::Null);
             cx.notify();
         }
     }
 
+    /// Who owns the settings now: what a send takes with it, so its late
+    /// answer forgets only those ([`Self::forget_sent_params`]).
+    pub fn params_owner(&self) -> Option<ParamsOwner> {
+        self.params_owner.clone()
+    }
+
+    /// The settings now, owned by this draft and round.
+    fn set_params(&mut self, params: serde_json::Value) {
+        self.params_rev += 1;
+        self.params_owner = (!params.is_null()).then(|| ParamsOwner {
+            draft: self.draft.clone(),
+            round: self.draft_round,
+            rev: self.params_rev,
+        });
+        self.draft_params = params;
+    }
+
     /// Keeps a new chat's settings for its first message.
     pub fn set_draft_params(&mut self, params: serde_json::Value, cx: &mut Context<Self>) {
-        self.draft_params = params;
+        self.set_params(params);
         cx.notify();
     }
 
     /// A new chat was made with what this composer held for it.
     pub fn new_chat_sent(&mut self, cx: &mut Context<Self>) {
-        self.draft_params = serde_json::Value::Null;
+        self.set_params(serde_json::Value::Null);
         self.draft_model = None;
         self._draft_model = None;
         cx.notify();
@@ -1449,7 +1491,7 @@ impl ComposerStore {
             }) => self.resolve_draft_model(folder.clone(), cx),
             Some(DraftKey {
                 chat_id: Some(_), ..
-            }) => self.draft_params = serde_json::Value::Null,
+            }) => self.set_params(serde_json::Value::Null),
             _ => {}
         }
         cx.emit(ComposerEvent::DraftSwitched);
@@ -1642,7 +1684,7 @@ impl ComposerStore {
         self.draft = None;
         self.draft_saved = String::new();
         self._draft = None;
-        self.draft_params = serde_json::Value::Null;
+        self.set_params(serde_json::Value::Null);
         self.draft_model = None;
         self._draft_model = None;
         self.refresh_models(cx);
@@ -2371,6 +2413,58 @@ mod tests {
             assert!(
                 s.draft_params.is_null(),
                 "the new chat's settings came back"
+            );
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_late_first_send_forgets_only_the_settings_it_carried(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let store = store(&daemon, Arc::default(), cx);
+        let saved = serde_json::json!({"temperature": 0.4});
+        store.update(cx, |s, cx| {
+            s.set_draft_params(serde_json::json!({"temperature": 0.3}), cx);
+            let sent = s.params_owner();
+            // Saved again in the same draft while that send is out.
+            s.set_draft_params(saved.clone(), cx);
+            s.forget_sent_params(sent.as_ref(), cx);
+            assert_eq!(
+                s.draft_params, saved,
+                "the later save went with the first send"
+            );
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_late_reasoning_reply_keeps_settings_saved_since(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ModelsList>(ModelList {
+            models: vec![model("a", "A")],
+            selected_id: Some("a".into()),
+            ..Default::default()
+        });
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        daemon.returns::<methods::ModelsSetReasoningEffort>(conduit_protocol::ModelOptionsDto {
+            model_id: Some("a".into()),
+            draft: Some(serde_json::json!({"reasoning_effort": "high"})),
+            ..Default::default()
+        });
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| s.refresh_models(cx));
+        cx.run_until_parked();
+        let pick = daemon.hold::<methods::ModelsSetReasoningEffort>();
+        let saved = serde_json::json!({"temperature": 0.2});
+        store.update(cx, |s, cx| {
+            s.set_reasoning_effort("high", cx);
+            // Chat Settings saved while the pick is on its way.
+            s.set_draft_params(saved.clone(), cx);
+        });
+        drop(pick);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.draft_params, saved,
+                "the pick's reply put older settings back"
             );
         });
     }

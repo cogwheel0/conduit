@@ -672,7 +672,8 @@ impl ChatPane {
             files,
             ..PendingMessage::new(text.clone())
         };
-        let sent_params = options.chat_params.clone();
+        // Whose settings the first message carries (not their values).
+        let sent_params = self.composer_store.read(cx).params_owner();
         if let Some(chat) = &self.chat {
             let turn = options.into_turn(text.clone(), None, false);
             let task = chat.store.update(cx, |s, cx| {
@@ -711,7 +712,15 @@ impl ChatPane {
         self.starting = true;
         // The new chat this send came from: if the user has gone elsewhere
         // by the reply, the chat is made but not opened over their choice.
-        let origin = self.stores.navigation.read(cx).selection().clone();
+        // A new chat in a folder is the same selection in another folder:
+        // the folder counts too.
+        let place = |n: &crate::stores::navigation::NavigationStore| {
+            (
+                n.selection().clone(),
+                n.new_chat_folder().map(str::to_string),
+            )
+        };
+        let origin = place(self.stores.navigation.read(cx));
         let account = self.account.clone();
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
@@ -724,7 +733,7 @@ impl ChatPane {
                     return;
                 }
                 this.starting = false;
-                let still_here = *this.stores.navigation.read(cx).selection() == origin;
+                let still_here = place(this.stores.navigation.read(cx)) == origin;
                 match result {
                     // Made (in its folder, by the daemon), but not opened over
                     // where the user went since. Its settings went with it.
@@ -2303,6 +2312,52 @@ mod tests {
                     .draft_params
                     .is_null()),
                 "the next new chat takes the made one's settings"
+            );
+        }
+
+        #[gpui_kit::test]
+        fn a_first_send_from_one_folder_leaves_anothers_draft_alone(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "c1", "userMessageId": "m1", "assistantMessageId": "a1"
+                }))
+                .unwrap(),
+            );
+            let settings = serde_json::json!({"temperature": 0.3});
+            stores
+                .navigation
+                .update(vcx, |n, cx| n.new_chat_in_folder("f1".into(), cx));
+            vcx.run_until_parked();
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer_store
+                    .update(cx, |c, cx| c.set_draft_params(settings.clone(), cx));
+                p.send_text("Plan the trip".into(), vec![], window, cx);
+            });
+            // Another folder's new chat, given the same settings, before
+            // the first one is made.
+            stores
+                .navigation
+                .update(vcx, |n, cx| n.new_chat_in_folder("f2".into(), cx));
+            vcx.run_until_parked();
+            pane.update(vcx, |p, cx| {
+                p.composer_store
+                    .update(cx, |c, cx| c.set_draft_params(settings.clone(), cx))
+            });
+            drop(held);
+            vcx.run_until_parked();
+            assert_eq!(
+                stores
+                    .navigation
+                    .read_with(vcx, |n, _| n.new_chat_folder().map(str::to_string)),
+                Some("f2".to_string()),
+                "the chat made in Trips opened over the new chat in the other folder"
+            );
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer_store.read(cx).draft_params.clone()),
+                settings,
+                "the other folder's settings went with the first chat"
             );
         }
 
