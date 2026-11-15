@@ -249,6 +249,10 @@ impl QuickAskView {
             cx.emit(QuickAskEvent::OpenChat(id));
             return;
         }
+        // Files still uploading would be left behind here.
+        if self.composer_store.read(cx).uploading() {
+            return;
+        }
         let text = self.composer.read(cx).text(cx);
         self.composer.update(cx, |c, cx| c.set_text("", window, cx));
         let attachments = self.composer_store.update(cx, |c, cx| c.take_uploaded(cx));
@@ -354,7 +358,9 @@ impl QuickAskView {
         if text.trim().is_empty() && !self.composer_store.read(cx).has_attachments() {
             return;
         }
-        if self.chat.is_none() && self.starting {
+        // A follow-up from the transcript while a file still uploads would
+        // go without it: it waits in the field instead.
+        if (self.chat.is_none() && self.starting) || self.composer_store.read(cx).uploading() {
             self.composer
                 .update(cx, |c, cx| c.restore(&text, window, cx));
             return;
@@ -587,8 +593,9 @@ impl Render for QuickAskView {
         };
         let ready = self.ready(cx);
         let has_chat = self.chat.is_some();
-        let draft = !self.composer.read(cx).text(cx).trim().is_empty()
-            || self.composer_store.read(cx).has_attachments();
+        let draft = (!self.composer.read(cx).text(cx).trim().is_empty()
+            || self.composer_store.read(cx).has_attachments())
+            && !self.composer_store.read(cx).uploading();
         // Key caps as the palette's footer draws them ("esc" in words).
         let hint = |keys: &'static str, label: String| {
             div()
@@ -788,6 +795,40 @@ mod tests {
                 file_id: format!("file-{name}"),
             },
         }
+    }
+
+    #[gpui_kit::test]
+    fn a_file_still_uploading_is_never_left_behind(cx: &mut TestAppContext) {
+        let (daemon, _stores, view, vcx) = bench(cx);
+        let mut uploading = uploaded("big.pdf");
+        uploading.state = UploadState::Uploading { sent: 1, total: 3 };
+        let opened = Rc::new(std::cell::Cell::new(false));
+        let seen = opened.clone();
+        let _sub = vcx.update(|_, cx| {
+            cx.subscribe(&view, move |_, e: &QuickAskEvent, _| {
+                if matches!(e, QuickAskEvent::OpenDraft { .. }) {
+                    seen.set(true);
+                }
+            })
+        });
+        view.update_in(vcx, |v, window, cx| {
+            v.composer_store
+                .update(cx, |c, cx| c.adopt_attachments(vec![uploading], cx));
+            v.composer
+                .update(cx, |c, cx| c.set_text("Read this", window, cx));
+            // Open in Conduit while it uploads: nothing moves.
+            v.open_in_conduit(window, cx);
+            // A follow-up from the transcript waits in the field.
+            v.composer.update(cx, |c, cx| c.set_text("", window, cx));
+            v.send_text("Follow up".into(), window, cx);
+        });
+        vcx.run_until_parked();
+        assert!(!opened.get(), "the draft left without its file");
+        assert!(daemon.calls::<methods::TurnsSend>().is_empty());
+        view.read_with(vcx, |v, cx| {
+            assert_eq!(v.composer_store.read(cx).attachments.len(), 1);
+            assert_eq!(v.composer.read(cx).text(cx), "Follow up");
+        });
     }
 
     #[gpui_kit::test]
