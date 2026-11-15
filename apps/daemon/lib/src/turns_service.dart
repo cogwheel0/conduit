@@ -40,6 +40,8 @@ import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
+import 'package:conduit_core/models/openwebui_chat_settings.dart'
+    show OpenWebUiChatSettingsAccess, kChatParamSystem;
 import 'package:conduit_core/ports/ui_request_port.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -300,6 +302,7 @@ final class TurnsService {
           ? request.compareModels.first
           : request.model,
     );
+    if (request.chatId == null) await _requireChatParamsAccess(model, request);
     await _requireBackendFor(model);
     final session = await _sessionFor(request.chatId);
     try {
@@ -362,6 +365,40 @@ final class TurnsService {
       );
     } finally {
       _release(session);
+    }
+  }
+
+  /// A new Open WebUI chat's settings ([SendTurn.chatParams]) are saved as
+  /// it is made: held to the rule `chatSettings.save` keeps, the system
+  /// prompt by the account's prompt right and the rest by its parameters
+  /// right. A Direct or Hermes chat keeps no Open WebUI settings.
+  Future<void> _requireChatParamsAccess(Model model, SendTurn request) async {
+    final params = request.chatParams;
+    if (params == null || params.isEmpty) return;
+    if (isHermesModel(model) ||
+        _container.read(directModelRegistryProvider).resolve(model) != null) {
+      return;
+    }
+    OpenWebUiChatSettingsAccess access;
+    try {
+      access = await readSettled(
+        _container,
+        openWebUiChatSettingsAccessProvider.future,
+      );
+    } on Object {
+      access = OpenWebUiChatSettingsAccess.denied;
+    }
+    for (final key in params.keys) {
+      final allowed = key == kChatParamSystem
+          ? access.canEditSystemPrompt
+          : access.canEditParameters;
+      if (!allowed) {
+        throw RpcError(
+          code: ConduitErrorCodes.unauthorized,
+          args: const <String, String>{'reason': 'permissionDenied'},
+          debugMessage: 'this account may not set "$key" on a chat',
+        );
+      }
     }
   }
 

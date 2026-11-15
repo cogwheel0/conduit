@@ -3,9 +3,12 @@ library;
 
 import 'dart:io';
 
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show openWebUiChatSettingsAccessProvider;
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesFastTierSelectionProvider;
 import 'package:conduit_core/models/model.dart' as core;
+import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
@@ -134,6 +137,36 @@ void main() {
         ),
       ),
       refused(ConduitErrorCodes.notFound),
+    );
+  });
+
+  // `turns.send` with a new chat's settings, as `chatSettings.save` would
+  // write them: only what the account may change.
+  test("a new chat's settings keep to the account's rights", () async {
+    final container = ProviderContainer(
+      overrides: [
+        modelsProvider.overrideWith(_Listed.new),
+        openWebUiChatSettingsAccessProvider.overrideWith(
+          (ref) async => const OpenWebUiChatSettingsAccess(
+            canEditSystemPrompt: false,
+            canEditParameters: true,
+          ),
+        ),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    final turns = TurnsService(container, EventBus());
+    addTearDown(turns.dispose);
+    await expectLater(
+      turns.send(
+        const SendTurn(
+          model: 'first-model',
+          text: 'Hello',
+          chatParams: <String, dynamic>{'system': 'Answer in riddles.'},
+        ),
+      ),
+      refused(ConduitErrorCodes.unauthorized),
     );
   });
 
