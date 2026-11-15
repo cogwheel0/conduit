@@ -32,6 +32,12 @@ case "$FAKE_MODE" in
     i=0; while [ $i -lt 2000 ]; do echo "closing $i" >&2; i=$((i+1)); done
     echo "stdin closed" >&2
     exit 0 ;;
+  lingering)
+    echo '{"ready":true,"port":4242}'
+    while IFS= read -r rest; do :; done
+    # Exits at once on stdin EOF, but a grandchild keeps stderr open.
+    sleep 1 &
+    exit 0 ;;
   term)
     trap 'echo "got TERM" >&2; exit 0' TERM
     echo '{"ready":true,"port":4242}'
@@ -278,4 +284,18 @@ async fn a_missing_binary_is_fatal() {
 unsafe extern "C" {
     #[link_name = "kill"]
     fn libc_kill(pid: i32, sig: i32) -> i32;
+}
+
+#[tokio::test]
+async fn an_exit_with_stderr_still_open_is_graceful_and_signals_nothing() {
+    // The daemon exits as soon as stdin closes, well inside the 300 ms
+    // grace, while a grandchild holds stderr open for a second. Its pid is
+    // reaped then: nothing may be signalled after that.
+    let (config, dir) = setup("lingering", "lingering");
+    let (sup, mut rx) = Supervisor::spawn(config, &tokio::runtime::Handle::current());
+    until(&mut rx, |e| matches!(e, SupervisorEvent::Ready { .. })).await;
+    assert_eq!(sup.stop().await, StopOutcome::Graceful);
+    let log = std::fs::read_to_string(dir.join("logs/conduitd.log")).unwrap();
+    assert!(!log.contains("SIGTERM"), "{log}");
+    assert!(!log.contains("SIGKILL"), "{log}");
 }
