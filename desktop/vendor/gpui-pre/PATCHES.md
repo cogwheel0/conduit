@@ -38,6 +38,16 @@ copied. It is excluded from the workspace, so fmt, clippy and tests skip it.
    focused control and its ring off screen: the app could only scroll the
    whole row into view, not the control.
 
+   In `src/elements/list.rs`, `ListState::prepaint_items` and `List::prepaint`:
+   an autoscroll the list accepts pauses tail-following
+   (`FollowMode::Tail`), which resumes once the list is back at the bottom;
+   before, the retry put the anchor back at the end and the focused control
+   stayed off screen while an answer streamed. A focused item outside the
+   visible range, which the list draws after the visible items at a stand-in
+   position, is revealed from the top when its index is above the viewport,
+   so Shift-Tab into the row above scrolls by that row, not a whole page.
+   `conduit-components`' `focus_reveal` tests cover both.
+
 To update: copy the new release's `src/`, `build.rs`, `resources/`,
 README and licence over this one, re-apply the changes above, and keep the
 manifest edits. Drop a patch once upstream carries it.

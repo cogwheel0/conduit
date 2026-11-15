@@ -1308,7 +1308,12 @@ impl StateInner {
                     if let Some(autoscroll_bounds) = window.take_autoscroll()
                         && autoscroll
                     {
-                        if autoscroll_bounds.top() < bounds.top() {
+                        // Conduit patch 3: a focused item outside the visible
+                        // range is drawn after the visible items, at a stand-in
+                        // position below them. One that really sits above the
+                        // viewport is revealed from the top, from its own index.
+                        let above_viewport = item.index < layout_response.scroll_top.item_ix;
+                        if above_viewport || autoscroll_bounds.top() < bounds.top() {
                             let mut item_ix = item.index;
                             let mut offset_in_item = autoscroll_bounds.top() - item_origin.y;
 
@@ -1589,6 +1594,10 @@ impl Element for List {
                 Ok(layout) => break layout,
                 Err(autoscroll_request) => {
                     state.set_scroll_anchor(Some(autoscroll_request));
+                    // Conduit patch 3: an accepted request pauses tail-following,
+                    // or the retry below puts the anchor back at the end. It
+                    // resumes when the list is back at the bottom.
+                    state.follow_state.stop_following();
                     autoscroll = false;
                 }
             }
