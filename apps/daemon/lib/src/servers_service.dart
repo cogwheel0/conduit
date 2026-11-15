@@ -72,7 +72,7 @@ final class ServersService {
     final next = <ServerConfig>[...configs]..[index] = updated;
     final hadSession = await _storage.getAuthTokenStrict() != null;
     await _storage.saveServerConfigs(next);
-    await _endSessionIfMoved(id, hadSession: hadSession);
+    await _endSessionIfMoved(hadSession: hadSession);
     _republishServerConfigs();
     return summarize(
       updated,
@@ -84,13 +84,14 @@ final class ServersService {
   /// to another address or client identity.
   ///
   /// Storage judges that, and drops the saved token when it does: the
-  /// session belongs to the old address. The auth manager still holds it,
-  /// though, and the client rebuilt for the new address would send it
-  /// there. So it is ended here, before [_republishServerConfigs] rebuilds
-  /// the client; the account then needs a sign-in on the new address.
-  Future<void> _endSessionIfMoved(String id, {required bool hadSession}) async {
+  /// session belongs to the old address. That holds for an edit to another
+  /// account too, as accounts on one server share its address. The auth
+  /// manager still holds the session, though, and the client rebuilt for the
+  /// new address would send it there. So it is ended here, before
+  /// [_republishServerConfigs] rebuilds the client; the account then needs a
+  /// sign-in on the new address.
+  Future<void> _endSessionIfMoved({required bool hadSession}) async {
     if (!hadSession) return;
-    if (await _storage.getEffectiveActiveServerId() != id) return;
     if (await _storage.getAuthTokenStrict() != null) return;
     await _container
         .read(authStateManagerProvider.notifier)
