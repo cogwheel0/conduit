@@ -1191,7 +1191,7 @@ void main() {
     });
 
     testWidgets('a user Open WebUI does not have yet is told to sign in on '
-        'the web, then retries', (tester) async {
+        'the web, is offered the in-app page, then retries', (tester) async {
       final actions = _BrowserAuthActions(
         outcomes: [
           const BrowserSignInException(BrowserSignInFailure.userNotFound),
@@ -1208,6 +1208,10 @@ void main() {
           'the web, then try again.',
         ),
         findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('browser-sign-in-use-in-app')),
+        findsOne,
       );
 
       await tester.tap(find.byKey(const ValueKey('browser-sign-in-retry')));

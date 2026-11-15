@@ -68,16 +68,18 @@ String? browserSignInFailureMessage(
 
 /// Whether [failure] is better answered by the in-app sign-in: the system
 /// browser cannot run it here, something in front of the server wants a
-/// sign-in of its own that only the in-app page can carry, or the server
-/// accepts no token Conduit's client can show it. The sign-in page offers
-/// the in-app page only then.
+/// sign-in of its own that only the in-app page can carry, the server
+/// accepts no token Conduit's client can show it, or Open WebUI has no
+/// account for this user yet, which only its own sign-in creates. The
+/// sign-in page offers the in-app page only then.
 bool browserSignInSuggestsInApp(BrowserSignInFailure failure) =>
     switch (failure) {
       BrowserSignInFailure.browserUnavailable ||
       BrowserSignInFailure.authTabRequired ||
       BrowserSignInFailure.presentationFailed ||
       BrowserSignInFailure.proxySignInRequired ||
-      BrowserSignInFailure.cannotDetermineClient => true,
+      BrowserSignInFailure.cannotDetermineClient ||
+      BrowserSignInFailure.userNotFound => true,
       _ => false,
     };
 

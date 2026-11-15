@@ -16,7 +16,7 @@ ID, once per server.
 | Open WebUI | `0.8.0` or newer, with `ENABLE_OAUTH_TOKEN_EXCHANGE=true`. `0.11.0` or newer to limit which apps' tokens it accepts |
 | SSO provider | `oidc`, `microsoft`, or `google`, already working for Open WebUI on the web. GitHub and Feishu use the in-app sign-in only |
 | Identity provider | Serves HTTPS, and lets you register a public client (no secret) with PKCE |
-| Users | Already exist in Open WebUI. Token exchange never creates accounts, so a new user signs in once on the web first |
+| Users | Already exist in Open WebUI. Token exchange never creates accounts, so a new user signs in once on the web or with the in-app sign-in first |
 
 ## How it works
 
@@ -247,8 +247,8 @@ Browser sign-in is set up in the server's settings, not on the sign-in screen.
 The SSO button then signs in through the browser. After a failure the settings
 fix, such as a wrong client ID or an issuer Conduit couldn't find, the sign-in
 screen offers **Browser sign-in settings…**. The in-app sign-in is offered
-again only after a failure it gets around, such as no suitable browser or an
-authenticating proxy.
+again only after a failure it gets around, such as no suitable browser, an
+authenticating proxy, or a user Open WebUI doesn't have yet.
 
 The settings belong to the **server**, so every account on it uses them, on
 any of its addresses. Changing the provider, client ID or issuer, or removing
@@ -282,7 +282,7 @@ the authenticator code. That covers browser sign-ins, unless
 | --- | --- |
 | Token exchange is turned off | Set `ENABLE_OAUTH_TOKEN_EXCHANGE=true` and restart Open WebUI |
 | The server is too old | Upgrade Open WebUI to 0.8.0 or newer |
-| No Open WebUI account for this user | Sign in once on the web, then **Retry**. For Microsoft, set `OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true` |
+| No Open WebUI account for this user | Sign in once on the web or with **Use In-App Sign-In**, then **Retry**. For Microsoft, set `OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true` |
 | The provider isn't set up on the server | Open WebUI doesn't have this provider enabled |
 | The identity provider rejected the client | Check the client ID, that the client is public, the redirect URI, and PKCE `S256` |
 | Access prohibited | The client ID is missing from `OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS`, or the email domain isn't in `OAUTH_ALLOWED_DOMAINS`, or role management found no allowed role in Conduit's token |
