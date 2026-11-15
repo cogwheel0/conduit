@@ -932,10 +932,13 @@ impl ChatPane {
         cx.spawn_in(window, async move |this, cx| {
             let saved = task.await;
             let _ = this.update_in(cx, |this, window, cx| {
-                let same = this
-                    .queue_edit
-                    .as_ref()
-                    .is_some_and(|e| e.draft_id == draft_id && e.input.entity_id() == input);
+                // The editor that asked, still holding what was saved: text
+                // typed while the save was out stays to be saved again.
+                let same = this.queue_edit.as_ref().is_some_and(|e| {
+                    e.draft_id == draft_id
+                        && e.input.entity_id() == input
+                        && e.input.read(cx).value().trim() == text
+                });
                 if saved && same {
                     this.queue_edit = None;
                     this.focus_composer(window, cx);
@@ -2278,12 +2281,31 @@ mod tests {
             daemon.returns::<methods::QueueEdit>(
                 serde_json::from_value(serde_json::json!({"chatId": "chat-q"})).unwrap(),
             );
+            // Typed on while the save is out: the editor stays with it.
+            let held = daemon.hold::<methods::QueueEdit>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.save_queue_edit(window, cx);
+                if let Some(edit) = &p.queue_edit {
+                    edit.input.update(cx, |i, cx| {
+                        i.set_value("Then this instead, later", window, cx)
+                    });
+                }
+            });
+            vcx.run_until_parked();
+            drop(held);
+            vcx.run_until_parked();
+            assert_eq!(
+                editing(&pane, vcx),
+                Some("Then this instead, later".to_string()),
+                "what was typed while saving was dropped"
+            );
             pane.update_in(vcx, |p, window, cx| p.save_queue_edit(window, cx));
             vcx.run_until_parked();
             assert_eq!(editing(&pane, vcx), None);
             let sent = daemon.calls::<methods::QueueEdit>();
-            assert_eq!(sent.len(), 2);
+            assert_eq!(sent.len(), 3);
             assert_eq!(sent[1]["text"], "Then this instead");
+            assert_eq!(sent[2]["text"], "Then this instead, later");
         }
 
         #[gpui_kit::test]
