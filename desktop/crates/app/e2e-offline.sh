@@ -9,7 +9,7 @@
 # 2. While the app is closed, a chat is made on the server (`owui.sh chat`,
 #    saved to <shots>/offline-chat/chat.json) and the server stops.
 # 3. `--e2e offline`: the app opens with the server out of reach, conduitd is
-#    killed once while the window opens, and the pass starts the server
+#    restarted once while the window opens, and the pass starts the server
 #    again and expects the app to catch up.
 #
 # Arguments go to run.sh; `--shots` is required. Both launches use one

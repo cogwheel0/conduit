@@ -34,7 +34,7 @@
 //!   login, the model the composer names after a send and Show Sidebar
 //!   ([`shell`]).
 //! * `offline-setup`, `offline`: a signed-in account whose server is out of
-//!   reach at launch, with conduitd killed once while the window opens;
+//!   reach at launch, with conduitd restarted once while the window opens;
 //!   two launches, run by `crates/app/e2e-offline.sh` ([`offline`]).
 //!
 //! The server's synthetic credentials come from the env file `owui.sh seed`
