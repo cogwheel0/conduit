@@ -27,5 +27,9 @@ objc2.workspace = true
 objc2-foundation.workspace = true
 objc2-app-kit.workspace = true
 
+[dev-dependencies]
+# TestAppContext, for the focus-reveal tests (tests/focus_reveal.rs).
+gpui-kit = { workspace = true, features = ["test-support"] }
+
 [lints]
 workspace = true
