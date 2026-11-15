@@ -30,7 +30,16 @@ const Set<String> wholeSuiteMembers = {'packages/conduit_protocol'};
 const List<String> desktopWorkflowPaths = [
   'desktop/',
   'packages/conduit_protocol/',
+  // The app's strings are generated from the ARBs, and its bundle carries
+  // conduitd, built from the core and markdown packages.
+  'lib/l10n/',
+  'apps/daemon/',
+  'packages/conduit_core/lib/',
+  'packages/conduit_core/pubspec.yaml',
+  'packages/conduit_markdown/lib/',
+  'packages/conduit_markdown/pubspec.yaml',
   '.github/workflows/desktop.yml',
+  '.github/workflows/release-desktop.yml',
 ];
 
 /// One command of the plan.

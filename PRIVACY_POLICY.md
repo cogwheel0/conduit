@@ -1,8 +1,8 @@
 # Conduit Privacy Policy
 
-Effective date: 2026-10-10
+Effective date: 2026-11-09
 
-Conduit is an open‑source mobile client for Open‑WebUI and directly connected AI providers. This app acts as a client to services you choose and configure. This policy describes how the app itself handles data on your device. Open WebUI servers and AI providers may collect, process, and store data under their own policies; please review their privacy terms separately.
+Conduit is an open‑source client for Open‑WebUI and directly connected AI providers, on mobile and on the Mac (Conduit Desktop). This app acts as a client to services you choose and configure. This policy describes how the app itself handles data on your device. Open WebUI servers and AI providers may collect, process, and store data under their own policies; please review their privacy terms separately.
 
 ## Information We Collect
 - Device-stored data: minimal settings and preferences (e.g., theme, UI options) saved locally on your device.
@@ -63,6 +63,16 @@ We use platform‑provided secure storage for sensitive credentials where suppor
 - You can turn web search off for a chat, and choose which search engine on-device web search uses, in the Direct Connections settings.
 - You can turn push notifications on or off, and choose which accounts and kinds of notification use them, in Notifications settings.
 - You can choose not to grant optional permissions; some features may not work without them.
+
+## Conduit Desktop (macOS)
+Conduit Desktop is the app for Apple Silicon Macs. Everything above applies to it as well; this section covers what is specific to the Mac.
+- Local data: your accounts, settings, preferences and the chats downloaded to your Mac are kept in `~/Library/Application Support/Conduit`. The app runs a helper process (`conduitd`) that keeps this data and talks to your servers; the app reaches it only over the loopback interface (127.0.0.1) with a secret that changes on every launch, so other devices cannot connect to it.
+- Credentials: sign-in tokens, API keys and other secrets are kept in an encrypted store in that folder. Its encryption key is created on your Mac and kept in the macOS Keychain (item `app.cogwheel.conduit.desktop`); it is never written to disk unencrypted and never leaves your Mac.
+- Logs and diagnostics: the app and the helper write diagnostic logs (and a crash report if the app crashes) to `~/Library/Logs/Conduit`. They stay on your Mac and are never uploaded; the logs are rotated, and only the ten newest crash reports are kept. Settings › About › Export diagnostics saves the logs and a redacted configuration to a zip file on your Mac and shows it in Finder; nothing is sent anywhere unless you choose to share that file.
+- Notifications: if you allow them, the notification that an answer has finished shows only the chat's title and “Answer ready”, never the text of your messages or the answer, because notifications can appear on the lock screen and on shared screens.
+- No telemetry: the app includes no analytics, advertising or crash-reporting services.
+- Update checks: the app uses Sparkle to check for updates once a day, and when you choose Check for Updates…. Each check downloads the update feed from GitHub, which receives your IP address and the app's name and version, as with any download. Sparkle's optional system profile is turned off, so no hardware or system details are sent. Updates are downloaded from GitHub Releases and installed only if they carry the developer's update signature and a valid Apple code signature. You can turn automatic checks off in Settings › About; beta updates are offered only if you turn on “Receive beta updates” there.
+- Your choices on the Mac: Settings › Data signs you out or clears local data (the old data is moved aside, not deleted). Deleting the app, the two folders above and any `Conduit (reset …)` folders a clear left beside them removes Conduit's data from your Mac; the Keychain item can be removed in Keychain Access.
 
 ## Children’s Privacy
 Conduit is not directed to children under 13 (or the minimum age required in your jurisdiction). Do not use the app if you do not meet the applicable age requirements.

@@ -70,6 +70,8 @@ void main() {
       'the full Dart test suites',
       'Web-safe packages (conduit_markdown compiled to JS and run)',
       'Desktop daemon (macOS build and smoke test)',
+      // conduitd is built from conduit_markdown, and the bundle carries it.
+      'Desktop workflow (cargo tests, builds and the generated Rust)',
     ]);
   });
 
@@ -155,8 +157,13 @@ void main() {
   });
 
   test('a translation change runs the ARB checks and the analyzer', () {
-    check(_names(_plan(['lib/l10n/app_de.arb'])))
+    final plan = _plan(['lib/l10n/app_de.arb']);
+    check(_names(plan))
         .deepEquals(['ARB descriptions', 'ARB locales', 'Analyze app']);
+    // The desktop app builds its strings from the same files.
+    check(
+      plan.leftToCi,
+    ).contains('Desktop workflow (cargo tests, builds and the generated Rust)');
   });
 
   test('changes outside Dart run only their own checks', () {
@@ -187,6 +194,11 @@ void main() {
     final fixture = _plan(['packages/conduit_core/test/fixtures/chat.json']);
     check(fixture.steps).isEmpty();
     check(fixture.leftToCi).deepEquals(['the full Dart test suites']);
+
+    // The core's code is built into conduitd, which the bundle carries.
+    check(
+      _plan(['packages/conduit_core/lib/src/x.dart']).leftToCi,
+    ).contains('Desktop workflow (cargo tests, builds and the generated Rust)');
   });
 
   test('host-agnostic Swift is checked against the package boundaries', () {

@@ -282,22 +282,40 @@ then pick how you want to connect.
 
 </details>
 
+## Conduit Desktop for Mac
+
+A native macOS app for Apple Silicon Macs (macOS 14 Sonoma or later), built on
+the same core as the mobile app: Open WebUI, direct connections and Hermes,
+several accounts, `conduit://` links, Open with Conduit, Quick Ask (⌘⇧Space) and
+a menu-bar item.
+
+- Releases are tagged `desktop-v<version>` on
+  [GitHub Releases](https://github.com/cogwheel0/conduit/releases): download
+  `Conduit-<version>.dmg`, open it and drag Conduit to Applications. Builds are
+  signed with a Developer ID and notarized by Apple.
+- It updates itself (Sparkle) from the stable channel. Betas are opt-in:
+  Settings › About › Receive beta updates.
+- Build it yourself with [docs/BUILDING-DESKTOP.md](docs/BUILDING-DESKTOP.md);
+  development notes are in [desktop/README.md](desktop/README.md).
+
 ## Privacy
 
 - Chats, notes, and drafts are stored on your device. Notes and drafts stay
   available without a connection.
-- Credentials use platform secure storage: Keychain on iOS, Keystore on
-  Android.
+- Credentials use platform secure storage: Keychain on iOS and macOS, Keystore
+  on Android.
 - No third-party analytics or advertising SDKs.
-- Diagnostic logging is local and transient.
+- Diagnostic logging is local and transient. On the Mac, logs stay in
+  `~/Library/Logs/Conduit` and are never uploaded, and the only network request
+  the app makes on its own is a daily update check (which you can turn off).
 - No developer-operated backend receives your chats or other content. Traffic
   goes from your device to the server or provider you configured. The one
-  developer-operated service is for optional push notifications: they are
-  encrypted on your own server and pass through an open-source relay we run,
-  which cannot read them and sees only delivery details such as your server's
-  IP address and the time
+  developer-operated service is for optional push notifications on the phone:
+  they are encrypted on your own server and pass through an open-source relay
+  we run, which cannot read them and sees only delivery details such as your
+  server's IP address and the time
   ([what each party sees](docs/push/THREAT_MODEL.md)). On Android you can use
-  UnifiedPush instead and skip the relay.
+  UnifiedPush instead and skip the relay. The Mac app does not use push.
 - Signing out lets you choose what stays behind. Clearing everything clears
   on-device chats too, and fails safely rather than half-deleting.
 
@@ -306,7 +324,9 @@ Full details in [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
 ## Build from source
 
 See **[docs/BUILDING.md](docs/BUILDING.md)** for requirements, submodules,
-codegen, verification, project layout, and troubleshooting.
+codegen, verification, project layout, and troubleshooting. The Mac app has its
+own guide: **[docs/BUILDING-DESKTOP.md](docs/BUILDING-DESKTOP.md)** (build,
+sign, notarize, release, updates).
 
 ```bash
 git clone --recursive https://github.com/cogwheel0/conduit.git
