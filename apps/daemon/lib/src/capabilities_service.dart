@@ -2,6 +2,7 @@ import 'package:conduit_core/features/navigation/models/account_features.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit_core/features/navigation/providers/account_features_provider.dart';
 import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -34,6 +35,10 @@ final class CapabilitiesService {
       backendConfigProvider,
       (_, _) => _update(),
     );
+    _server = _container.listen<AsyncValue<ServerConfig?>>(
+      activeServerProvider,
+      (_, _) => _update(),
+    );
     _update();
   }
 
@@ -42,6 +47,7 @@ final class CapabilitiesService {
   final void Function(Capabilities capabilities)? _onChange;
   late final ProviderSubscription<AccountFeatures> _features;
   late final ProviderSubscription<AsyncValue<BackendConfig?>> _config;
+  late final ProviderSubscription<AsyncValue<ServerConfig?>> _server;
 
   Capabilities _current = Capabilities.none;
 
@@ -51,9 +57,7 @@ final class CapabilitiesService {
   void _update() {
     final next = capabilitiesOf(
       _container.read(accountFeaturesProvider),
-      config: _container.read(openWebUiAccountAvailableProvider)
-          ? _container.read(backendConfigProvider).asData?.value
-          : null,
+      config: _activeServersConfig(),
     );
     if (next == _current) return;
     _current = next;
@@ -61,9 +65,24 @@ final class CapabilitiesService {
     _events?.emit(ConduitEventSpecs.capabilitiesChanged, null);
   }
 
+  /// The backend config, only once the active server answered it. The core
+  /// caches one config for every server, so a config tagged for another
+  /// server (an account switch, a refresh still in flight) or not tagged at
+  /// all answers nothing here, as the core's own server checks decide.
+  BackendConfig? _activeServersConfig() {
+    if (!_container.read(openWebUiAccountAvailableProvider)) return null;
+    final active = _container.read(activeServerProvider).asData?.value?.id;
+    final config = _container.read(backendConfigProvider).asData?.value;
+    if (active == null || config == null || config.serverId != active) {
+      return null;
+    }
+    return config;
+  }
+
   void dispose() {
     _features.close();
     _config.close();
+    _server.close();
   }
 
   /// The protocol's flags for [features]. [config] is the signed-in Open

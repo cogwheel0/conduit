@@ -6,10 +6,14 @@ import 'dart:io';
 
 import 'package:conduit_core/features/navigation/models/account_features.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
+import 'package:conduit_core/features/navigation/providers/account_features_provider.dart';
 import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/navigation/routes.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_hermes_server.dart';
@@ -65,6 +69,41 @@ void main() {
       );
       expect(capabilities, Capabilities.none);
     });
+  });
+
+  // The backend config is cached once for every server: a config another
+  // server answered (an account switch, a refresh still in flight) must
+  // never show its flags for the active one.
+  test("a config another server answered is not the active one's", () async {
+    ProviderContainer over(String? configServer) => ProviderContainer(
+      overrides: [
+        accountFeaturesProvider.overrideWithValue(const AccountFeatures()),
+        openWebUiAccountAvailableProvider.overrideWithValue(true),
+        activeServerProvider.overrideWith(
+          (ref) async =>
+              const ServerConfig(id: 'b', name: 'B', url: 'https://b.example'),
+        ),
+        backendConfigProvider.overrideWith(
+          () => _Config(
+            BackendConfig(
+              serverId: configServer,
+              enableDirectConnections: true,
+              enableMessageRating: true,
+            ),
+          ),
+        ),
+      ],
+    );
+    for (final (server, shown) in [('a', false), (null, false), ('b', true)]) {
+      final container = over(server);
+      addTearDown(container.dispose);
+      await container.read(activeServerProvider.future);
+      await container.read(backendConfigProvider.future);
+      final service = CapabilitiesService(container);
+      addTearDown(service.dispose);
+      expect(service.current.directConnections, shown, reason: '$server');
+      expect(service.current.messageRating, shown, reason: '$server');
+    }
   });
 
   group('over a running core', () {
@@ -136,6 +175,16 @@ void main() {
       );
     });
   });
+}
+
+/// A backend config that answers [config].
+final class _Config extends BackendConfigNotifier {
+  _Config(this.config);
+
+  final BackendConfig config;
+
+  @override
+  Future<BackendConfig?> build() async => config;
 }
 
 /// Waits (up to 5 s) for [done].
