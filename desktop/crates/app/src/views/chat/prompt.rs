@@ -415,21 +415,38 @@ impl PromptCard {
                 secondary(l10n.hermes_approval_deny_action()),
                 primary(l10n.hermes_approval_approve_action()),
             ]),
-            ChatPromptKind::Confirmation | ChatPromptKind::Unknown => ApprovalCard::new(
-                id.clone(),
-                if prompt.title.trim().is_empty() {
-                    l10n.confirm()
-                } else {
-                    prompt.title.clone()
-                },
-                prompt.message.clone(),
-                source,
-                ApprovalKind::Message,
-            )
-            .tile(IconName::MessageSquare)
-            .actions(vec![secondary(l10n.cancel()), primary(l10n.confirm())]),
+            ChatPromptKind::Confirmation | ChatPromptKind::Unknown => {
+                let mut actions = vec![secondary(l10n.cancel())];
+                if confirms(prompt.kind) {
+                    actions.push(primary(l10n.confirm()));
+                }
+                ApprovalCard::new(
+                    id.clone(),
+                    if prompt.title.trim().is_empty() {
+                        l10n.confirm()
+                    } else {
+                        prompt.title.clone()
+                    },
+                    prompt.message.clone(),
+                    source,
+                    ApprovalKind::Message,
+                )
+                .tile(IconName::MessageSquare)
+                .actions(actions)
+            }
         }
     }
+}
+
+/// Whether a prompt of `kind` offers Confirm (Approve): only the kinds this
+/// app answers. One it doesn't know (a newer server's) can only be
+/// cancelled, which answers it, rather than offer a button that does
+/// nothing.
+fn confirms(kind: ChatPromptKind) -> bool {
+    matches!(
+        kind,
+        ChatPromptKind::Confirmation | ChatPromptKind::ToolApproval
+    )
 }
 
 impl Render for PromptCard {
@@ -527,6 +544,13 @@ mod tests {
             questions: vec![question("when", true), question("crew", false)],
             expires_at_ms: None,
         }
+    }
+
+    #[test]
+    fn a_prompt_this_app_does_not_know_offers_only_cancel() {
+        assert!(super::confirms(ChatPromptKind::Confirmation));
+        assert!(super::confirms(ChatPromptKind::ToolApproval));
+        assert!(!super::confirms(ChatPromptKind::Unknown));
     }
 
     #[test]
