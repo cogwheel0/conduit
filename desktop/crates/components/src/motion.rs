@@ -587,7 +587,8 @@ pub enum Anchor {
 
 /// A measured, clipped vertical reveal: draws `progress` (0…1) of its
 /// child's height. Until it has measured the child it draws nothing (rather
-/// than the whole child for a frame), unless fully open.
+/// than the whole child for a frame), unless fully open, when the child is
+/// laid out in place and the reveal is its height.
 pub struct Reveal {
     id: ElementId,
     progress: f32,
@@ -675,11 +676,17 @@ impl Element for Reveal {
         );
         let mut style = Style::default();
         style.size.width = relative(1.).into();
-        match height {
-            None if self.progress >= 1. => {}
-            None => style.size.height = px(0.).into(),
-            Some(height) => style.size.height = (height * self.progress).into(),
+        // Fully open, the child is laid out as an ordinary child, so the
+        // reveal is its height in the same frame, on its first one too and
+        // when the content grows or shrinks.
+        if self.progress >= 1. {
+            let child = self.child.request_layout(window, cx);
+            return (window.request_layout(style, [child], cx), ());
         }
+        style.size.height = match height {
+            None => px(0.).into(),
+            Some(height) => (height * self.progress).into(),
+        };
         (window.request_layout(style, None, cx), ())
     }
 
@@ -692,6 +699,17 @@ impl Element for Reveal {
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
+        if self.progress >= 1. {
+            // Laid out in place: what it measures is kept, so closing starts
+            // from the height on screen.
+            window.with_element_state(
+                global_id.expect("Reveal has an id"),
+                |_: Option<Option<Pixels>>, _| ((), Some(bounds.size.height)),
+            );
+            let mask = self.mask(bounds);
+            window.with_content_mask(Some(mask), |window| self.child.prepaint(window, cx));
+            return;
+        }
         let measured = self.child.layout_as_root(
             size(
                 AvailableSpace::Definite(bounds.size.width),
@@ -707,7 +725,7 @@ impl Element for Reveal {
                 (changed, Some(measured.height))
             },
         );
-        if changed && self.progress < 1. {
+        if changed {
             window.request_animation_frame();
         }
         let origin = match self.anchor {

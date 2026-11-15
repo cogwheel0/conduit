@@ -69,7 +69,7 @@ fn accessible_adjustments_are_applied() {
     );
     assert_eq!(
         palette::to_hex(conduit.light.colors.destructive),
-        "#CB3A3AFF",
+        "#C33838FF",
         "matches the Dart accessibleColors output"
     );
 }

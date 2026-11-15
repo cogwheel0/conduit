@@ -356,12 +356,14 @@ impl RenderOnce for Button {
             .child(self.label)
             .when_some(self.trailing_shortcut, |d, k| {
                 d.child(shortcut(k, shortcut_color, size - 1.))
-            })
-            .on_click(on_click_or_noop(self.on_click));
+            });
+        // A disabled button runs nothing, whether clicked or pressed by
+        // VoiceOver, and is no Tab stop.
         if disabled {
             el
         } else {
-            el.keyboard_control(Ring::Outset(ring), window, cx)
+            el.on_click(on_click_or_noop(self.on_click))
+                .keyboard_control(Ring::Outset(ring), window, cx)
         }
     }
 }
@@ -556,7 +558,8 @@ impl RenderOnce for Switch {
         } else {
             gpui_kit::white()
         };
-        div()
+        let disabled = self.disabled;
+        let el = div()
             .id(self.id)
             .role(Role::Switch)
             .aria_label(self.label)
@@ -582,9 +585,14 @@ impl RenderOnce for Switch {
                     .rounded_full()
                     .bg(knob)
                     .shadow(knob_shadow(&t)),
-            )
-            .on_click(on_click_or_noop(self.on_click.filter(|_| !self.disabled)))
-            .keyboard_control(Ring::Outset(9.), window, cx)
+            );
+        // As a disabled button: no action and no Tab stop.
+        if disabled {
+            el
+        } else {
+            el.on_click(on_click_or_noop(self.on_click))
+                .keyboard_control(Ring::Outset(9.), window, cx)
+        }
     }
 }
 

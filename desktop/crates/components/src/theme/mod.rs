@@ -390,7 +390,8 @@ impl ConduitTheme {
         t.popover = if self.dark { r.raised } else { s.panel };
         t.popover_foreground = c.foreground;
         t.muted = c.muted;
-        t.muted_foreground = s.foreground_subtle;
+        // The grey held to AA on every content layer, as Conduit's views.
+        t.muted_foreground = r.text_subtle;
         t.link = r.link;
         t.link_hover = r.link;
         t.link_active = r.link;
@@ -464,7 +465,7 @@ impl ConduitTheme {
         t.tab_active = s.tab_active;
         t.tab_active_foreground = c.foreground;
         t.tab_bar = s.tab;
-        t.tab_foreground = s.foreground_subtle;
+        t.tab_foreground = r.text_subtle;
         t.title_bar = s.header;
         t.title_bar_border = c.border;
         t.window_border = c.border;
