@@ -105,6 +105,24 @@ final class _Held extends Models {
   }
 }
 
+/// Account A's one model while [first] is the session, held until [listed];
+/// any other session's is B's.
+final class _PerAccount extends Models {
+  _PerAccount(this.first, this.listed);
+
+  final Object first;
+  final Future<void> listed;
+
+  @override
+  Future<List<core.Model>> build() async {
+    if (!identical(ref.watch(openWebUiAuthSessionEpochProvider), first)) {
+      return const [core.Model(id: 'b-model', name: 'B model')];
+    }
+    await listed;
+    return const [core.Model(id: 'a-model', name: 'A model')];
+  }
+}
+
 /// Signed out, or never signed in: there is no list to fall back on.
 final class _Failing extends Models {
   @override
@@ -333,6 +351,47 @@ void main() {
       ),
     );
     await expectLater(sending, refused(ConduitErrorCodes.sessionExpired));
+  });
+
+  test("a list started under one account never offers its models to the "
+      'next', () async {
+    final first = Object();
+    var account = first;
+    final listed = Completer<void>();
+    final loaded = Completer<void>();
+    final container = ProviderContainer(
+      overrides: [
+        modelsProvider.overrideWith(() => _PerAccount(first, listed.future)),
+        apiServiceProvider.overrideWithValue(
+          ApiService(
+            serverConfig: const ServerConfig(
+              id: 'server',
+              name: 'Home server',
+              url: 'https://home.invalid',
+            ),
+            workerManager: WorkerManager(),
+          ),
+        ),
+        openWebUiAuthSessionEpochProvider.overrideWith((ref) => account),
+        personalizationSettingsProvider.overrideWith(
+          () => _Personal(loaded.future),
+        ),
+        effectivePinnedModelIdsProvider.overrideWithValue(const <String>[]),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    container.listen(personalizationSettingsProvider, (_, _) {});
+    final listing = ModelsService(container).list();
+    listed.complete();
+    // A's models are in; another account signs in while the account's
+    // settings load.
+    await container.read(modelsProvider.future);
+    account = Object();
+    container.invalidate(openWebUiAuthSessionEpochProvider);
+    loaded.complete();
+    final list = await listing;
+    expect(list.models.map((m) => m.id), <String>['b-model']);
   });
 
   test('a pin asked for under one account is not made under the next',

@@ -130,7 +130,32 @@ final class ModelsService {
     }
   }
 
+  /// One account's list: started again once if the account (or its
+  /// signed-in user) changes while it is put together, and refused if it
+  /// changes again, so no list mixes one account's models with the next's
+  /// selection and pins.
   Future<ModelList> list() async {
+    for (var attempt = 0; ; attempt++) {
+      final session = _container.read(openWebUiAuthSessionEpochProvider);
+      final accountId = currentPreferenceAccountId();
+      final list = await _list();
+      if (identical(
+            session,
+            _container.read(openWebUiAuthSessionEpochProvider),
+          ) &&
+          accountId == currentPreferenceAccountId()) {
+        return list;
+      }
+      if (attempt > 0) {
+        throw const RpcError(
+          code: ConduitErrorCodes.sessionExpired,
+          debugMessage: 'the account changed while its models were listed',
+        );
+      }
+    }
+  }
+
+  Future<ModelList> _list() async {
     final models = await _models();
     await _accountSettings(wait: _listSettingsWait);
     // The model the next turn runs with, not the first in the list: the
