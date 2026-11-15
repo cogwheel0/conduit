@@ -89,14 +89,22 @@ narrows which apps' tokens are accepted, but doesn't rule this out.
 
 ### Other checks on exchanged tokens
 
-- `OAUTH_ALLOWED_DOMAINS` restricts which email domains can sign in.
-- With `ENABLE_OAUTH_ROLE_MANAGEMENT` or `ENABLE_OAUTH_GROUP_MANAGEMENT` on,
-  Open WebUI reads roles and groups from Conduit's token. It reads the user
-  info first, then the access token's own claims.
+Token exchange runs these checks only on newer Open WebUI. On an older server
+it skips them, so an existing user can sign in through Conduit when the web
+sign-in would refuse them. If you rely on a check, upgrade before you turn on
+token exchange. The trusted-client list doesn't stand in for them: it checks
+the app, not the user.
+
+- From 0.9: `OAUTH_ALLOWED_DOMAINS` restricts which email domains can sign in.
+- From 0.12: with `ENABLE_OAUTH_ROLE_MANAGEMENT` or
+  `ENABLE_OAUTH_GROUP_MANAGEMENT` on, Open WebUI reads roles and groups from
+  Conduit's token. It reads the user info first, then the access token's own
+  claims. Before 0.12, exchange keeps the roles and groups the user had from
+  their last web sign-in.
 - So Conduit's client must emit the same role and group claims as Open
   WebUI's client, or users can lose their groups or be refused.
-- A token with no roles claim is refused while `OAUTH_ALLOWED_ROLES` doesn't
-  contain `*`.
+- From 0.12, with role management on: a token with no roles claim is refused
+  while `OAUTH_ALLOWED_ROLES` doesn't contain `*`.
 
 ### Session length
 
