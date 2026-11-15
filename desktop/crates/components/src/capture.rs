@@ -101,7 +101,9 @@ fn create_image_from_array_fn() -> Option<CreateImageFromArrayFn> {
 }
 
 /// What [`capture_windows`] asks CoreGraphics for: exactly these windows,
-/// composited in their on-screen order, cut to `bounds`.
+/// composited front to back in the order given (the first in front, as
+/// CoreGraphics draws the array whatever the windows' on-screen order), cut
+/// to `bounds`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WindowsCapture {
     pub windows: Vec<u32>,
@@ -132,9 +134,10 @@ pub fn plan_windows(windows: &[u32], bounds: Option<CGRect>) -> Result<WindowsCa
     })
 }
 
-/// Captures only `windows` (this process's, by CGWindowID) to a PNG at the
-/// display's native resolution, within `bounds` or their union: whatever
-/// else is on screen there is left out. Returns the pixel size.
+/// Captures only `windows` (this process's, by CGWindowID), listed front to
+/// back (content first, a backdrop after), to a PNG at the display's native
+/// resolution, within `bounds` or their union: whatever else is on screen
+/// there is left out. Returns the pixel size.
 pub fn capture_windows(
     windows: &[u32],
     bounds: Option<CGRect>,
@@ -268,6 +271,7 @@ mod tests {
             w: 300.,
             h: 200.,
         };
+        // Kept in the caller's order: CoreGraphics draws the first in front.
         let plan = plan_windows(&[42, 7], Some(rect)).unwrap();
         assert_eq!(plan.windows, vec![42, 7]);
         assert_eq!(plan.bounds, rect);

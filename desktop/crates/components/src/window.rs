@@ -166,13 +166,24 @@ pub mod macos {
         ns_window(window).map(|w| w.windowNumber() as u32)
     }
 
-    /// Orders `window` directly below the window numbered `above`, so a
-    /// material in `above` blurs only `window` (the gallery's synthetic
-    /// backdrop) and never another app's window between them.
+    /// Orders `window` directly below the window numbered `above`, at its
+    /// level, so a material in `above` blurs only `window` (the gallery's
+    /// synthetic backdrop) and never another app's window between them.
+    /// AppKit orders windows only within a level, so `window` first takes
+    /// the level of `above` (a Quick Ask panel floats above normal windows).
     pub fn order_below(window: &Window, above: u32) {
-        if let Some(w) = ns_window(window) {
-            w.orderWindow_relativeTo(NSWindowOrderingMode::Below, above as isize);
+        let Some(w) = ns_window(window) else {
+            return;
+        };
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        if let Some(top) =
+            NSApplication::sharedApplication(mtm).windowWithWindowNumber(above as isize)
+        {
+            w.setLevel(top.level());
         }
+        w.orderWindow_relativeTo(NSWindowOrderingMode::Below, above as isize);
     }
 
     /// Raw pointer to the NSWindow, for walking its accessibility tree.
