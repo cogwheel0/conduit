@@ -31,22 +31,44 @@ pub const HOST_HANDLER: &str = "conduitHost";
 pub const ACTIVATION_WINDOW: Duration = Duration::from_secs(1);
 
 /// The last click or key press, and where it was; used up by the one link
-/// it lets open.
+/// it lets open. A click counts where its mouse-down went (a mouse-up goes
+/// to the view the press began in, so a drag released over a web view is
+/// not a click in it), and only once its mouse-up follows.
 #[derive(Debug)]
 pub struct Gate<T> {
     last: Option<(Instant, T)>,
+    /// A mouse-down, and the view it hit, waiting for its mouse-up.
+    pressed: Option<T>,
 }
 
 impl<T> Default for Gate<T> {
     fn default() -> Self {
-        Self { last: None }
+        Self {
+            last: None,
+            pressed: None,
+        }
     }
 }
 
 impl<T> Gate<T> {
-    /// A click or key press at `at`, on `target`.
+    /// A key press at `at`, on `target`.
     pub fn record(&mut self, at: Instant, target: T) {
+        self.pressed = None;
         self.last = Some((at, target));
+    }
+
+    /// A mouse-down on `target`.
+    pub fn press(&mut self, target: T) {
+        self.pressed = Some(target);
+        self.last = None;
+    }
+
+    /// A mouse-up at `at`: the click its mouse-down began, if there was
+    /// one. A mouse-up alone counts for nothing.
+    pub fn release(&mut self, at: Instant) {
+        if let Some(target) = self.pressed.take() {
+            self.last = Some((at, target));
+        }
     }
 
     /// Whether a link may open at `now` for the web view `inside` tells
@@ -139,29 +161,36 @@ mod macos {
             let Some(mtm) = MainThreadMarker::new() else {
                 return event.as_ptr();
             };
-            let target = match e.r#type() {
-                // The view the click went to, as AppKit hit-tests it now
-                // (the content view's superview uses window coordinates).
-                NSEventType::LeftMouseUp => e
-                    .window(mtm)
-                    .and_then(|w| w.contentView())
-                    .and_then(|content| content.hitTest(e.locationInWindow()))
-                    .map(Target::Click),
-                NSEventType::KeyDown if ACTIVATING_KEYS.contains(&e.keyCode()) => e
-                    .window(mtm)
-                    .and_then(|w| w.firstResponder())
-                    .map(Target::Key),
-                _ => None,
-            };
-            if let Some(target) = target {
-                GATE.with(|g| g.borrow_mut().record(Instant::now(), target));
+            match e.r#type() {
+                // The view the press went to, as AppKit hit-tests it now
+                // (the content view's superview uses window coordinates);
+                // its mouse-up then makes it a click.
+                NSEventType::LeftMouseDown => {
+                    let hit = e
+                        .window(mtm)
+                        .and_then(|w| w.contentView())
+                        .and_then(|content| content.hitTest(e.locationInWindow()));
+                    GATE.with(|g| match hit {
+                        Some(hit) => g.borrow_mut().press(Target::Click(hit)),
+                        None => *g.borrow_mut() = Gate::default(),
+                    });
+                }
+                NSEventType::LeftMouseUp => {
+                    GATE.with(|g| g.borrow_mut().release(Instant::now()));
+                }
+                NSEventType::KeyDown if ACTIVATING_KEYS.contains(&e.keyCode()) => {
+                    if let Some(target) = e.window(mtm).and_then(|w| w.firstResponder()) {
+                        GATE.with(|g| g.borrow_mut().record(Instant::now(), Target::Key(target)));
+                    }
+                }
+                _ => {}
             }
             event.as_ptr()
         });
         // SAFETY: the block returns the event it was given.
         let monitor = unsafe {
             NSEvent::addLocalMonitorForEventsMatchingMask_handler(
-                NSEventMask::LeftMouseUp | NSEventMask::KeyDown,
+                NSEventMask::LeftMouseDown | NSEventMask::LeftMouseUp | NSEventMask::KeyDown,
                 &block,
             )
         };
@@ -372,10 +401,39 @@ mod tests {
         // And the gate only lets a link through for such a click.
         let t0 = Instant::now();
         let mut gate = Gate::<&str>::default();
-        gate.record(t0, "gpui");
+        gate.press("gpui");
+        gate.release(t0);
         assert!(!gate.take(t0, |hit| landed_in(hit, &"webview", parent)));
-        gate.record(t0, "wk-content");
+        gate.press("wk-content");
+        gate.release(t0);
         assert!(gate.take(t0, |hit| landed_in(hit, &"webview", parent)));
+    }
+
+    #[test]
+    fn a_drag_released_over_the_web_view_opens_nothing() {
+        fn parent(v: &&'static str) -> Option<&'static str> {
+            match *v {
+                "gpui" | "webview" => Some("content"),
+                "wk-content" => Some("webview"),
+                _ => None,
+            }
+        }
+        let inside = |hit: &&'static str| landed_in(hit, &"webview", parent);
+        let t0 = Instant::now();
+        let mut gate = Gate::<&str>::default();
+        // Pressed in the transcript, released over the embed: the press's
+        // view is the click's.
+        gate.press("gpui");
+        gate.release(t0);
+        assert!(!gate.take(t0, inside));
+        // A mouse-up with no mouse-down the app saw counts for nothing.
+        gate.release(t0);
+        assert!(!gate.take(t0, inside));
+        // Pressed in the page and released: one link.
+        gate.press("wk-content");
+        assert!(!gate.take(t0, inside), "a press alone is not a click");
+        gate.release(t0);
+        assert!(gate.take(t0, inside));
     }
 
     #[test]
