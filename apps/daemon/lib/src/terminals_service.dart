@@ -326,6 +326,12 @@ final class TerminalsService {
       await window.sink.close(4404, 'no such terminal');
       return;
     }
+    // The credential is the account's in use now, read before any await:
+    // after a switch it is another account's, for another server.
+    final account = _session();
+    final token = h.server.isSystem
+        ? _container.read(apiServiceProvider)?.authToken
+        : h.server.apiKey;
     WebSocketChannel? upstream;
     try {
       final service = _service();
@@ -339,9 +345,7 @@ final class TerminalsService {
         kind: h.server.kind,
       );
       await upstream.ready;
-      final token = h.server.isSystem
-          ? _container.read(apiServiceProvider)?.authToken
-          : h.server.apiKey;
+      _requireSession(account);
       if (token == null || token.isEmpty) {
         throw StateError('no credential for this terminal');
       }

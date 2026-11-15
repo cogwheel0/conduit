@@ -496,8 +496,19 @@ final class WorkspaceService {
         final grants = [for (final g in edit.grants) _grantInput(g)];
         switch (edit.kind) {
           case WorkspaceKind.models:
+            final session = _container.read(openWebUiAuthSessionEpochProvider);
             final model = await _api().getWorkspaceModel(edit.id);
             if (model == null) throw _notFound(edit.kind, edit.id);
+            // Read under one account, it is not written under the next.
+            if (!identical(
+              session,
+              _container.read(openWebUiAuthSessionEpochProvider),
+            )) {
+              throw const RpcError(
+                code: ConduitErrorCodes.sessionExpired,
+                debugMessage: 'the account changed',
+              );
+            }
             await _container
                 .read(workspaceModelsProvider.notifier)
                 .updateAccess(edit.id, model.name, grants);
