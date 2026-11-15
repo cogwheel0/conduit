@@ -538,6 +538,30 @@ void main() {
     await expectLater(saving, throwsA(isA<RpcError>()));
   });
 
+  test('a chat whose messages are being deleted takes no turn meanwhile',
+      () async {
+    open('deleting');
+    final chat = await turns.send(SendTurn(model: model, text: 'drop this'));
+    subscribeWindow(events, turns, 'deleting', <String>[chat.chatId]);
+    await until(() => ended('deleting', chat.assistantMessageId));
+    final deleting = turns.deleteMessages(
+      DeleteMessages(
+        chatId: chat.chatId,
+        messageIds: <String>[chat.assistantMessageId],
+      ),
+    );
+    final sending = turns.send(
+      SendTurn(model: model, chatId: chat.chatId, text: 'and this'),
+    );
+    await expectLater(
+      sending,
+      throwsA(
+        isA<RpcError>().having((e) => e.code, 'code', ConduitErrorCodes.conflict),
+      ),
+    );
+    await deleting;
+  });
+
   test('a merge naming one answer twice is refused', () async {
     await expectLater(
       turns.merge(

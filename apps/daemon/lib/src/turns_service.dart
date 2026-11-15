@@ -774,14 +774,21 @@ final class TurnsService implements ChatTurns {
   /// while the chat is answering.
   Future<int> deleteMessages(DeleteMessages request) async {
     final session = await _sessionFor(request.chatId);
+    var reserved = false;
     try {
-      if (isRunning(request.chatId) || session.merge != null) {
+      if (isRunning(request.chatId) ||
+          session.merge != null ||
+          session.deleting) {
         throw const RpcError(
           code: ConduitErrorCodes.conflict,
           debugMessage: 'that chat is still answering',
         );
       }
-      await _requireIdle(session);
+      // Reserved before the first await: the core writes the shorter
+      // transcript before the server answers, and puts the old one back if
+      // it refuses, so a turn or merge started meanwhile would be lost.
+      session.deleting = reserved = true;
+      await _requireIdle(session, deleting: true);
       final scope = session.scope.container;
       final count = chatMessageIdsRemovedByDelete(
         session.scope.messages,
@@ -826,6 +833,7 @@ final class TurnsService implements ChatTurns {
       }
       return count;
     } finally {
+      if (reserved) session.deleting = false;
       _release(session);
     }
   }
@@ -2749,6 +2757,7 @@ final class TurnsService implements ChatTurns {
     _ChatSession session, {
     _Merge? admitting,
     bool saving = false,
+    bool deleting = false,
   }) async {
     void refuse() => throw const RpcError(
       code: ConduitErrorCodes.conflict,
@@ -2756,7 +2765,7 @@ final class TurnsService implements ChatTurns {
     );
     // A temporary chat being saved takes nothing else meanwhile: the saved
     // chat would miss it, and the temporary one goes once it is saved.
-    void refuseWhileSaving() {
+    void refuseWhileReserved() {
       if (session.saving && !saving) {
         throw const RpcError(
           code: ConduitErrorCodes.conflict,
@@ -2764,9 +2773,15 @@ final class TurnsService implements ChatTurns {
           debugMessage: 'that chat is being saved',
         );
       }
+      if (session.deleting && !deleting) {
+        throw const RpcError(
+          code: ConduitErrorCodes.conflict,
+          debugMessage: 'messages in that chat are being deleted',
+        );
+      }
     }
 
-    refuseWhileSaving();
+    refuseWhileReserved();
     // A merge writes into the transcript too: nothing else starts meanwhile.
     bool merging() =>
         session.merge != null && !identical(session.merge, admitting);
@@ -2785,7 +2800,7 @@ final class TurnsService implements ChatTurns {
     if (session.requestedChatId != null || session.scope.conversation != null) {
       await _settleBeforeTurn(session);
     }
-    refuseWhileSaving();
+    refuseWhileReserved();
     if ((!session.scope.isDisposed && session.scope.isStreaming) ||
         merging()) {
       refuse();
@@ -2948,6 +2963,9 @@ final class _ChatSession {
 
   /// Save Chat is making this temporary chat a stored one.
   bool saving = false;
+
+  /// Messages in this chat are being deleted.
+  bool deleting = false;
 
   /// Requests preparing a turn in this chat; it is not let go meanwhile.
   int holds = 0;
