@@ -430,6 +430,10 @@ async fn fresh_profile(cx: &mut AsyncApp) -> bool {
     if !ok("connected before the reset", connected) {
         return false;
     }
+    let ours = cx.update(|cx| crate::may_reset_profile(&cx.global::<AppState>().paths));
+    if !ok("the profile to reset is not the app's own", ours) {
+        return false;
+    }
     cx.update(|cx| {
         let c = cx.global::<AppState>().connection.clone();
         c.update(cx, |c, cx| c.clear_local_data(cx));
