@@ -128,6 +128,8 @@ pub struct ComposerStore {
     /// `#`: knowledge for the next message.
     pub knowledge: Vec<KnowledgeSummary>,
     next_id: u64,
+    /// Bumped by [`Self::reset`]: answers to an older account are dropped.
+    scope: u64,
     _models: Option<Task<()>>,
     _options: Option<Task<()>>,
     _knowledge: Option<Task<()>>,
@@ -153,6 +155,7 @@ impl ComposerStore {
             mention: None,
             knowledge: vec![],
             next_id: 0,
+            scope: 0,
             _models: None,
             _options: None,
             _knowledge: None,
@@ -181,10 +184,12 @@ impl ComposerStore {
     /// `models.list`, then `composer.options` (which depends on it).
     pub fn refresh_models(&mut self, cx: &mut Context<Self>) {
         let call = self.rpc.call::<methods::ModelsList>(&NoParams);
+        let scope = self.scope;
         self._models = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| match result {
+                    _ if s.scope != scope => {}
                     Ok(list) => {
                         s.set_models(list, cx);
                         s.refresh_options(cx);
@@ -236,10 +241,15 @@ impl ComposerStore {
     /// `composer.options`; switches it no longer offers go off.
     pub fn refresh_options(&mut self, cx: &mut Context<Self>) {
         let call = self.rpc.call::<methods::ComposerOptions>(&NoParams);
+        let scope = self.scope;
         self._options = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 if let Ok(options) = call.await {
-                    let _ = this.update(cx, |s, cx| s.set_options(options, cx));
+                    let _ = this.update(cx, |s, cx| {
+                        if s.scope == scope {
+                            s.set_options(options, cx)
+                        }
+                    });
                 }
             }),
         );
@@ -290,9 +300,14 @@ impl ComposerStore {
         }
         self.prompts = Some(vec![]);
         let call = self.rpc.call::<methods::PromptsList>(&NoParams);
+        let scope = self.scope;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
+                // Another account's list never fills this one's.
+                if s.scope != scope {
+                    return;
+                }
                 match result {
                     Ok(list) => s.prompts = Some(list.prompts),
                     Err(e) => {
@@ -322,19 +337,31 @@ impl ComposerStore {
             return;
         }
         self.knowledge_query = Some(query.to_string());
-        let call = self
-            .rpc
-            .call::<methods::ComposerKnowledge>(&KnowledgeQuery {
-                query: query.to_string(),
-            });
+        let rpc = self.rpc.clone();
+        let (query, scope) = (query.to_string(), self.scope);
+        // Replacing the task drops a search still waiting: only the query
+        // typed last is asked, once its pause is over.
         self._knowledge = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 cx.background_executor()
                     .timer(Duration::from_millis(150))
                     .await;
-                let result = call.await;
+                let result = rpc
+                    .call::<methods::ComposerKnowledge>(&KnowledgeQuery { query })
+                    .await;
                 let _ = this.update(cx, |s, cx| {
-                    s.knowledge_results = result.map(|l| l.items).unwrap_or_default();
+                    if s.scope != scope {
+                        return;
+                    }
+                    match result {
+                        Ok(list) => s.knowledge_results = list.items,
+                        Err(e) => {
+                            log::info!("composer.knowledge: {e}");
+                            s.knowledge_results.clear();
+                            // The same query may be asked again.
+                            s.knowledge_query = None;
+                        }
+                    }
                     cx.notify();
                 });
             }),
@@ -393,6 +420,11 @@ impl ComposerStore {
         let ext = extension_for(image.format);
         let name = format!("Pasted image.{ext}");
         let bytes = image.bytes.clone();
+        if bytes.len() as u64 > MAX_ATTACHMENT_BYTES {
+            let id = self.push(name, bytes.len() as u64, None);
+            self.fail(id, "larger than 256 MB".into(), cx);
+            return;
+        }
         let id = self.push(
             name,
             bytes.len() as u64,
@@ -434,6 +466,12 @@ impl ComposerStore {
             self.fail(id, "the daemon is not running".into(), cx);
             return;
         };
+        // The bytes read, not the size first seen: a file that grew since
+        // is held to the same limit.
+        if bytes.len() as u64 > MAX_ATTACHMENT_BYTES {
+            self.fail(id, "larger than 256 MB".into(), cx);
+            return;
+        }
         let Some(a) = self.get(id) else {
             return; // removed while reading
         };
@@ -556,8 +594,13 @@ impl ComposerStore {
         options
     }
 
-    /// Another account: start over.
+    /// Another account: start over. Answers to what the last account
+    /// asked are dropped when they arrive.
     pub fn reset(&mut self, cx: &mut Context<Self>) {
+        self.scope += 1;
+        self._knowledge = None;
+        self._options = None;
+        self.code_interpreter = false;
         self.models = None;
         self.options = ComposerOptions::default();
         self.prompts = None;
@@ -861,6 +904,17 @@ mod tests {
         })
     }
 
+    /// Answers each file by its name, whichever is read first.
+    fn uploader_by_name(outcome: Vec<(&'static str, Result<UploadedFile, String>)>) -> Uploader {
+        let outcome = Arc::new(Mutex::new(outcome));
+        Arc::new(move |req: UploadRequest| {
+            let mut outcome = outcome.lock().unwrap();
+            let at = outcome.iter().position(|(n, _)| *n == req.name).unwrap();
+            let answer = outcome.remove(at).1;
+            Box::pin(async move { answer })
+        })
+    }
+
     fn uploaded(id: &str) -> Result<UploadedFile, String> {
         Ok(UploadedFile {
             id: id.into(),
@@ -882,11 +936,12 @@ mod tests {
     #[gpui_kit::test]
     fn attachments_upload_on_their_own_and_send_waits_for_them(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
-        let outcome = Arc::new(Mutex::new(vec![
-            uploaded("f1"),
-            Err("too big for the server".into()),
-        ]));
-        let store = store(&daemon, outcome, cx);
+        let rpc = daemon.rpc();
+        let uploader = uploader_by_name(vec![
+            ("notes.md", uploaded("f1")),
+            ("big.pdf", Err("too big for the server".into())),
+        ]);
+        let store = cx.new(|_| ComposerStore::new(rpc, Some(uploader)));
         let dir = std::env::temp_dir().join(format!("p7-attach-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (a, b) = (dir.join("notes.md"), dir.join("big.pdf"));
@@ -1024,5 +1079,52 @@ mod tests {
         store.read_with(cx, |s, _| {
             assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some("b"))
         });
+    }
+
+    #[gpui_kit::test]
+    fn an_old_accounts_answers_never_fill_the_new_ones(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::PromptsList>(
+            serde_json::from_value(json!({
+                "prompts": [{"command": "/old-account", "title": "A"}]
+            }))
+            .unwrap(),
+        );
+        let held = daemon.hold::<methods::PromptsList>();
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| {
+            s.code_interpreter = true;
+            s.load_prompts(cx);
+            s.reset(cx);
+        });
+        held.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(
+                s.prompts.as_ref().is_none_or(|p| p.is_empty()),
+                "{:?}",
+                s.prompts
+            );
+            assert!(!s.code_interpreter);
+        });
+    }
+
+    #[gpui_kit::test]
+    fn knowledge_is_asked_once_typing_pauses(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ComposerKnowledge>(
+            serde_json::from_value(json!({"items": []})).unwrap(),
+        );
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| {
+            for q in ["c", "ca", "cat"] {
+                s.search_knowledge(q, cx);
+            }
+        });
+        cx.executor().advance_clock(Duration::from_millis(200));
+        cx.run_until_parked();
+        let calls = daemon.calls::<methods::ComposerKnowledge>();
+        assert_eq!(calls.len(), 1, "{calls:?}");
+        assert_eq!(calls[0]["query"], "cat");
     }
 }

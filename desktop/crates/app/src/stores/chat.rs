@@ -1135,7 +1135,10 @@ impl ChatStore {
     /// `turns.stop`. Before the daemon has taken the turn there is nothing
     /// to stop yet: it goes out once it has ([`Self::answered`]).
     pub fn stop(&mut self, cx: &mut Context<Self>) {
-        if self.waits() {
+        // A regenerate's placeholder streams at once, before the daemon has
+        // taken the turn: its Stop waits for that too.
+        let regenerate_pending = self.live.as_ref().is_some_and(|l| l.awaiting_id);
+        if self.waits() || regenerate_pending {
             self.stop_requested = true;
             return;
         }
@@ -1194,8 +1197,13 @@ impl ChatStore {
                     s.keep_row_key(&accepted.assistant_message_id, &old);
                     s.expect_answer(&accepted.assistant_message_id, Some(old));
                     s.rebuild(cx);
+                    // A Stop pressed while it was on its way goes out now.
+                    if std::mem::take(&mut s.stop_requested) {
+                        s.stop(cx);
+                    }
                 }
                 Err(e) => {
+                    s.stop_requested = false;
                     if s.live.as_ref().is_some_and(|l| l.message_id == old) {
                         s.live = None;
                     }
@@ -1934,6 +1942,42 @@ mod tests {
             s.stop(cx);
         });
         assert!(daemon.calls::<methods::TurnsStop>().is_empty());
+        cx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::TurnsStop>(),
+            vec![json!({"chatId": "c1"})]
+        );
+    }
+
+    #[gpui_kit::test]
+    fn a_stop_pressed_while_a_regenerate_starts_goes_out_once_it_has(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "q"),
+                message("a1", "assistant", "old"),
+            ],
+        ));
+        daemon.returns::<methods::TurnsStop>(StoppedResult { stopped: true });
+        daemon.returns::<methods::TurnsRegenerate>(SendTurnAccepted {
+            chat_id: "c1".into(),
+            user_message_id: "u1".into(),
+            assistant_message_id: "a2".into(),
+        });
+        let (store, _) = open(&daemon, "c1", cx);
+        let held = daemon.hold::<methods::TurnsRegenerate>();
+        store.update(cx, |s, cx| {
+            s.regenerate("a1", None, cx);
+            assert!(s.is_streaming());
+            s.stop(cx);
+        });
+        cx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::TurnsStop>().is_empty(),
+            "nothing to stop before the daemon takes the regenerate"
+        );
+        held.release();
         cx.run_until_parked();
         assert_eq!(
             daemon.calls::<methods::TurnsStop>(),

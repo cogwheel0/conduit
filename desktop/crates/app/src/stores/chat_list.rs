@@ -100,6 +100,9 @@ pub struct ChatListStore {
     /// Bumped whenever anything the sidebar draws from changes.
     revision: u64,
     generation: u64,
+    /// Bumped by [`Self::reset`] (another account): answers and Try Again
+    /// from before it are dropped.
+    account: u64,
     search_generation: u64,
     _fetch: Option<Task<()>>,
     _sync: Option<Task<()>>,
@@ -127,6 +130,7 @@ impl ChatListStore {
             searching: false,
             revision: 0,
             generation: 0,
+            account: 0,
             search_generation: 0,
             _fetch: None,
             _sync: None,
@@ -148,6 +152,8 @@ impl ChatListStore {
 
     /// Forgets everything: another account (or none) is in use.
     pub fn reset(&mut self, cx: &mut Context<Self>) {
+        self.account += 1;
+        self._sync = None;
         self.generation += 1;
         self.search_generation += 1;
         self.list = None;
@@ -197,11 +203,17 @@ impl ChatListStore {
     /// `sync.get`.
     pub fn refresh_sync(&mut self, cx: &mut Context<Self>) {
         let call = self.rpc.call::<methods::SyncGet>(&NoParams);
+        let account = self.account;
         self._sync =
             Some(cx.spawn(
                 async move |this: WeakEntity<Self>, cx: &mut AsyncApp| match call.await {
                     Ok(state) => {
-                        this.update(cx, |s, cx| s.on_sync_status(state, cx)).ok();
+                        this.update(cx, |s, cx| {
+                            if s.account == account {
+                                s.on_sync_status(state, cx)
+                            }
+                        })
+                        .ok();
                     }
                     Err(e) => log::debug!("sync.get: {e}"),
                 },
@@ -520,22 +532,28 @@ impl ChatListStore {
     {
         let call = self.rpc.call::<M>(params);
         let again = params.clone();
+        let account = self.account;
         self.generation += 1;
         let generation = self.generation;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             this.update(cx, |s, cx| match &result {
+                // Another account since: nothing of this one's to show.
+                _ if s.account != account => {}
                 Ok(list) if s.generation == generation => s.adopt(list.clone(), cx),
                 Ok(_) => {}
                 Err(error) => {
                     log::warn!("{}: {error}", M::NAME);
-                    // The same request again, if it could go through now.
+                    // The same request again, if it could go through now,
+                    // and only for the account it was made in.
                     let retry = error.retryable.then(|| {
                         let store = cx.weak_entity();
                         let action = action.clone();
                         Retry::new(move |cx: &mut App| {
                             let _ = store.update(cx, |s, cx| {
-                                s.mutate::<M>(&again, action.clone(), cx).detach()
+                                if s.account == account {
+                                    s.mutate::<M>(&again, action.clone(), cx).detach()
+                                }
                             });
                         })
                     });
@@ -762,16 +780,31 @@ impl ChatListStore {
         folder_id: &str,
         cx: &mut Context<Self>,
     ) -> Task<Result<(), RpcError>> {
-        if let Some(expanded) = self.expanded.as_mut() {
-            expanded.remove(folder_id);
-        }
-        self.mutate::<methods::FoldersDelete>(
+        let was_open = self
+            .expanded
+            .as_mut()
+            .is_some_and(|expanded| expanded.remove(folder_id));
+        let task = self.mutate::<methods::FoldersDelete>(
             &FolderRef {
                 folder_id: folder_id.into(),
             },
             ChatAction::DeleteFolder,
             cx,
-        )
+        );
+        // A refused delete leaves the folder open as it was.
+        let folder = folder_id.to_string();
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = task.await;
+            if result.is_err() && was_open {
+                let _ = this.update(cx, |s, cx| {
+                    if let Some(expanded) = s.expanded.as_mut() {
+                        expanded.insert(folder);
+                    }
+                    s.changed(cx);
+                });
+            }
+            result
+        })
     }
 
     /// `chats.share`: the share id the link is built from.
@@ -1193,6 +1226,67 @@ mod tests {
         store.read_with(cx, |s, _| {
             assert_eq!(s.list.as_ref().unwrap().chats.len(), 1)
         });
+    }
+
+    #[gpui_kit::test]
+    fn a_refused_folder_delete_leaves_it_open(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsList>(list(vec![], vec![folder("f1", true)]));
+        daemon.on::<methods::ChatsFolder>(|_| Ok(json!({"chats": []})));
+        daemon.once::<methods::FoldersDelete>(Err(conduit_daemon::protocol::error(
+            "rpc.internal",
+            "no",
+        )));
+        let store = cx.new(|_| ChatListStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+        assert!(store.read_with(cx, |s, _| s.expanded().contains("f1")));
+        let task = store.update(cx, |s, cx| s.delete_folder("f1", cx));
+        cx.run_until_parked();
+        assert!(cx.foreground_executor().block_test(task).is_err());
+        assert!(store.read_with(cx, |s, _| s.expanded().contains("f1")));
+    }
+
+    #[gpui_kit::test]
+    fn try_again_never_reaches_another_account(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.once::<methods::ChatsDelete>(Err({
+            use conduit_daemon::protocol::RpcErrorExt as _;
+            conduit_daemon::protocol::error("rpc.timeout", "slow").retryable()
+        }));
+        daemon.returns::<methods::ChatsList>(list(vec![chat("a", None)], vec![]));
+        daemon.returns::<methods::SyncGet>(SyncState {
+            running: true,
+            progress: Some(0.5),
+            ever_completed: false,
+            last_error: None,
+            online: true,
+        });
+        let store = cx.new(|_| ChatListStore::new(daemon.rpc()));
+        let seen = events(&store, cx);
+        let task = store.update(cx, |s, cx| s.delete("a", cx));
+        cx.run_until_parked();
+        let _ = cx.foreground_executor().block_test(task);
+        let retry = match seen.borrow().as_slice() {
+            [ChatListEvent::Failed { retry: Some(r), .. }] => r.clone(),
+            other => panic!("{other:?}"),
+        };
+        // Another account, and its sidebar, before Try Again is pressed; a
+        // sync answer for the last one arrives late.
+        let held = daemon.hold::<methods::SyncGet>();
+        store.update(cx, |s, cx| {
+            s.refresh_sync(cx);
+            s.reset(cx);
+        });
+        held.release();
+        cx.update(|cx| (retry.0)(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::ChatsDelete>().len(),
+            1,
+            "not sent again"
+        );
+        store.read_with(cx, |s, _| assert!(s.sync.is_none(), "{:?}", s.sync));
     }
 
     #[gpui_kit::test]

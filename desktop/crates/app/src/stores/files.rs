@@ -226,7 +226,19 @@ pub fn open_attachment(
                 if let Some(dir) = target.parent() {
                     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
                 }
-                std::fs::write(&target, bytes).map_err(|e| e.to_string())
+                // Written beside it, then moved into place: a viewer still
+                // reading an earlier open never sees a half-written file.
+                static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let n = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let part = target.with_file_name(format!(
+                    ".{}.{n}.part",
+                    target
+                        .file_name()
+                        .and_then(|f| f.to_str())
+                        .unwrap_or("file")
+                ));
+                std::fs::write(&part, bytes).map_err(|e| e.to_string())?;
+                std::fs::rename(&part, &target).map_err(|e| e.to_string())
             })
             .await?;
         match how {
@@ -234,13 +246,17 @@ pub fn open_attachment(
                 cx.update(|cx| cx.open_with_system(&path));
             }
             OpenWith::QuickLook => {
-                std::process::Command::new("/usr/bin/qlmanage")
+                let mut child = std::process::Command::new("/usr/bin/qlmanage")
                     .arg("-p")
                     .arg(&path)
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null())
                     .spawn()
                     .map_err(|e| e.to_string())?;
+                // Reaped once the preview closes, on a thread of its own.
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
             }
         }
         Ok(path)
