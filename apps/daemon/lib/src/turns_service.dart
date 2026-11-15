@@ -303,7 +303,9 @@ final class TurnsService {
           ? request.compareModels.first
           : request.model,
     );
-    if (request.chatId == null) await _requireChatParamsAccess(model, request);
+    final paramsOwner = request.chatId == null
+        ? await _requireChatParamsAccess(model, request)
+        : null;
     await _requireBackendFor(model);
     final session = await _sessionFor(request.chatId);
     try {
@@ -325,6 +327,11 @@ final class TurnsService {
         // A new chat: made in its folder ("New Chat in Folder"), so the
         // folder's prompt and knowledge apply from the first answer, and
         // with the settings its window kept for it (`chatSettings.*`).
+        // Checked again here, as they are stored: the rights were the
+        // asking account's, and the waits since could have let another in.
+        if (paramsOwner != null && !_stillOwner(paramsOwner)) {
+          throw _accountChanged;
+        }
         final folderId = request.folderId;
         if (folderId != null && folderId.isNotEmpty) {
           scope.read(pendingFolderIdProvider.notifier).set(folderId);
@@ -373,21 +380,29 @@ final class TurnsService {
   /// it is made: held to the rule `chatSettings.save` keeps, the system
   /// prompt by the account's prompt right and the rest by its parameters
   /// right. A Direct or Hermes chat keeps no Open WebUI settings.
-  Future<void> _requireChatParamsAccess(Model model, SendTurn request) async {
+  ///
+  /// Returns the account the rights were read for, to check again as the
+  /// settings are stored; null when nothing needs them.
+  Future<_ParamsOwner?> _requireChatParamsAccess(
+    Model model,
+    SendTurn request,
+  ) async {
     final params = request.chatParams;
-    if (params == null || params.isEmpty) return;
+    if (params == null || params.isEmpty) return null;
     // Only a chat this device runs keeps no Open WebUI settings: Hermes, or
     // a Direct connection of its own. A server's own connection is still
     // the server's chat, held to its rights.
     if (isHermesModel(model) ||
         _container.read(directModelRegistryProvider).resolve(model)?.source ==
             DirectModelSource.device) {
-      return;
+      return null;
     }
     // The rights are the asking account's: another one signed in or made
     // active while they load gets nothing stored or sent.
-    final session = _container.read(openWebUiAuthSessionEpochProvider);
-    final accountId = currentPreferenceAccountId();
+    final owner = (
+      session: _container.read(openWebUiAuthSessionEpochProvider),
+      accountId: currentPreferenceAccountId(),
+    );
     OpenWebUiChatSettingsAccess access;
     try {
       access = await readSettled(
@@ -397,13 +412,7 @@ final class TurnsService {
     } on Object {
       access = OpenWebUiChatSettingsAccess.denied;
     }
-    if (!identical(session, _container.read(openWebUiAuthSessionEpochProvider)) ||
-        accountId != currentPreferenceAccountId()) {
-      throw const RpcError(
-        code: ConduitErrorCodes.sessionExpired,
-        debugMessage: 'the account changed while its chat rights were read',
-      );
-    }
+    if (!_stillOwner(owner)) throw _accountChanged;
     for (final key in params.keys) {
       final allowed = key == kChatParamSystem
           ? access.canEditSystemPrompt
@@ -416,7 +425,22 @@ final class TurnsService {
         );
       }
     }
+    return owner;
   }
+
+  /// The session (the signed-in user's, by its epoch) and account the rights
+  /// were read for, still the current ones.
+  bool _stillOwner(_ParamsOwner owner) =>
+      identical(
+        owner.session,
+        _container.read(openWebUiAuthSessionEpochProvider),
+      ) &&
+      owner.accountId == currentPreferenceAccountId();
+
+  static const _accountChanged = RpcError(
+    code: ConduitErrorCodes.sessionExpired,
+    debugMessage: 'the account changed after its chat rights were read',
+  );
 
   /// Compare Models: one message to two models, as one durable Open WebUI
   /// turn (the core's [durableCompareSend]); the server answers each under
@@ -2380,3 +2404,6 @@ final class _Ended {
   final TurnCompleted? completed;
   final TurnFailed? failed;
 }
+
+/// Who a new chat's settings were checked for.
+typedef _ParamsOwner = ({Object session, String? accountId});
