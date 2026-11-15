@@ -19,7 +19,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use conduit_daemon::http::HttpClient;
 use conduit_daemon::paths::{AppPaths, move_aside};
@@ -190,6 +190,9 @@ pub struct ConnectionStore {
     pub reset_error: Option<String>,
     /// Clearing local data: stopping, moving aside, starting again.
     pub clearing: bool,
+    /// A restart (no clear) is under way: the old daemon's stop is part of
+    /// it, so the window keeps saying it reconnects.
+    restarting: bool,
     /// URLs opened for `shell.openUrl` (for tests and diagnostics).
     pub opened_urls: Vec<String>,
 }
@@ -258,6 +261,7 @@ impl ConnectionStore {
             diagnostics: Diagnostics::Idle,
             reset_error: None,
             clearing: false,
+            restarting: false,
             opened_urls: vec![],
         };
         this.spawn_supervisor(cx);
@@ -379,6 +383,8 @@ impl ConnectionStore {
             }
             SupervisorEvent::Restarting { .. } => self.daemon = DaemonPhase::Restarting,
             SupervisorEvent::Fatal(reason) => self.daemon = DaemonPhase::Fatal(reason),
+            // The stop a restart asked for: the next daemon is on its way.
+            SupervisorEvent::Stopped(_) if self.restarting => {}
             SupervisorEvent::Stopped(_) => self.daemon = DaemonPhase::Stopped,
         }
         cx.notify();
@@ -511,7 +517,7 @@ impl ConnectionStore {
     }
 
     pub fn clear_local_data(&mut self, cx: &mut Context<Self>) {
-        self.stop_and_respawn(true, cx);
+        self.stop_and_respawn(true, Duration::ZERO, cx);
     }
 
     /// Stops the daemon through its supervisor and starts a fresh one, as a
@@ -519,11 +525,25 @@ impl ConnectionStore {
     /// the supervisor signals the daemon, and never once it has exited.
     #[cfg(feature = "harness")]
     pub fn restart_daemon(&mut self, cx: &mut Context<Self>) -> bool {
-        self.stop_and_respawn(false, cx)
+        self.stop_and_respawn(false, Duration::ZERO, cx)
+    }
+
+    /// [`Self::restart_daemon`], with the fresh daemon started `hold` after
+    /// the old one stopped: a stop and start take a few milliseconds, too
+    /// short for the reconnecting state to be seen and photographed.
+    #[cfg(feature = "harness")]
+    pub fn restart_daemon_after(&mut self, hold: Duration, cx: &mut Context<Self>) -> bool {
+        self.stop_and_respawn(false, hold, cx)
     }
 
     /// `move_data`: move userData aside between the stop and the start.
-    fn stop_and_respawn(&mut self, move_data: bool, cx: &mut Context<Self>) -> bool {
+    /// `hold`: how long to wait before the start.
+    fn stop_and_respawn(
+        &mut self,
+        move_data: bool,
+        hold: Duration,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if self.clearing {
             return false;
         }
@@ -531,6 +551,7 @@ impl ConnectionStore {
             return false;
         };
         self.clearing = true;
+        self.restarting = !move_data;
         self.reset_error = None;
         self.daemon = DaemonPhase::Restarting;
         self.client.set_endpoint(None);
@@ -545,9 +566,13 @@ impl ConnectionStore {
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let stopped = rx.await;
             log::info!("daemon stopped for a restart: {stopped:?}");
+            if !hold.is_zero() {
+                cx.background_executor().timer(hold).await;
+            }
             let moved = move_data.then(|| move_aside(&user_data, SystemTime::now()));
             let _ = this.update(cx, |s, cx| {
                 s.clearing = false;
+                s.restarting = false;
                 match moved {
                     Some(Ok(moved_to)) => {
                         log::warn!("cleared local data: moved to {}", moved_to.display());

@@ -475,8 +475,8 @@ pub async fn run(run: &mut Run, cx: &mut AsyncApp) {
     pause(cx, 500).await;
 }
 
-/// The reconnecting banner: this run's own daemon is stopped (SIGKILL, as a
-/// crash), and the supervisor starts it again.
+/// The reconnecting banner: the supervisor stops this run's own daemon and
+/// starts a fresh one a few seconds later, long enough to photograph.
 pub async fn reconnect(run: &mut Run, cx: &mut AsyncApp) {
     if !run.wants("reconnect") {
         return;
@@ -488,7 +488,9 @@ pub async fn reconnect(run: &mut Run, cx: &mut AsyncApp) {
     // signals no process itself (a pid it read could have been reused).
     let started = cx.update(|cx| {
         let c = cx.global::<AppState>().connection.clone();
-        c.update(cx, |c, cx| c.restart_daemon(cx))
+        c.update(cx, |c, cx| {
+            c.restart_daemon_after(Duration::from_secs(3), cx)
+        })
     });
     if !started {
         run.missing(
