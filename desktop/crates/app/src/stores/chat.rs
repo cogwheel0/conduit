@@ -447,6 +447,13 @@ pub struct ChatStore {
     pub tasks: Vec<ChatTaskDto>,
     /// Queued answers whose Retry or Remove is on its way.
     pub queued_busy: std::collections::HashSet<String>,
+    /// Bumped by every `chatPrompts.get` asked and every
+    /// `chatPrompts.changed`: a reply asked before the latest is dropped.
+    prompt_round: u64,
+    /// The `chatPrompts.get` on its way.
+    _prompt_fetch: Option<Task<()>>,
+    /// The answer or decision on its way (never dropped by a fetch, which
+    /// would leave the card busy).
     _prompt: Option<Task<()>>,
     _fetch: Option<Task<()>>,
     _refetch: Option<Task<()>>,
@@ -490,6 +497,8 @@ impl ChatStore {
             prompt: None,
             prompt_busy: false,
             prompt_failed: false,
+            prompt_round: 0,
+            _prompt_fetch: None,
             tasks: vec![],
             queued_busy: Default::default(),
             _prompt: None,
@@ -515,13 +524,20 @@ impl ChatStore {
         let call = self.rpc.call::<methods::ChatPromptsGet>(&ChatPromptRef {
             chat_id: self.chat_id.clone(),
         });
-        self._prompt = Some(
-            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+        self.prompt_round += 1;
+        let round = self.prompt_round;
+        self._prompt_fetch = Some(cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 if let Ok(state) = call.await {
-                    let _ = this.update(cx, |s, cx| s.set_prompt(state, cx));
+                    let _ = this.update(cx, |s, cx| {
+                        // A `chatPrompts.changed` came after it was asked.
+                        if s.prompt_round == round {
+                            s.set_prompt(state, cx);
+                        }
+                    });
                 }
-            }),
-        );
+            },
+        ));
     }
 
     fn set_prompt(&mut self, state: ChatPromptState, cx: &mut Context<Self>) {
@@ -1068,7 +1084,10 @@ impl ChatStore {
                 self.fetch(cx);
             }
             Event::QueueChanged(queue) => self.set_queue(queue.clone(), cx),
-            Event::ChatPromptsChanged(state) => self.set_prompt(state.clone(), cx),
+            Event::ChatPromptsChanged(state) if state.chat_id == self.chat_id => {
+                self.prompt_round += 1;
+                self.set_prompt(state.clone(), cx);
+            }
             Event::McpAppsEvent(event) => cx.emit(ChatStoreEvent::McpApp(event.clone())),
             _ => {}
         }
@@ -2500,6 +2519,70 @@ mod tests {
         store.read_with(cx, |s, _| {
             s.rows().iter().map(|r| s.row_key(*r)).collect::<Vec<_>>()
         })
+    }
+
+    fn prompt(id: &str) -> ChatPromptDto {
+        serde_json::from_value(json!({
+            "id": id, "chatId": "c1", "kind": "confirmation", "title": "Proceed?",
+        }))
+        .unwrap()
+    }
+
+    #[gpui_kit::test]
+    fn a_prompt_fetched_before_it_was_answered_never_comes_back(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat("c1", vec![]));
+        daemon.returns::<methods::ChatPromptsGet>(ChatPromptState {
+            chat_id: "c1".into(),
+            prompt: Some(prompt("p1")),
+        });
+        let (store, _) = open(&daemon, "c1", cx);
+        store.read_with(cx, |s, _| assert!(s.prompt.is_some()));
+        // A fetch on its way while the prompt is answered elsewhere.
+        let held = daemon.hold::<methods::ChatPromptsGet>();
+        store.update(cx, |s, cx| {
+            s.refresh_prompt(cx);
+            s.on_event(
+                &Event::ChatPromptsChanged(ChatPromptState {
+                    chat_id: "c1".into(),
+                    prompt: None,
+                }),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        held.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.prompt.is_none(), "the answered card came back")
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_fetch_never_leaves_an_answer_busy(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat("c1", vec![]));
+        daemon.returns::<methods::ChatPromptsGet>(ChatPromptState {
+            chat_id: "c1".into(),
+            prompt: Some(prompt("p1")),
+        });
+        daemon.on::<methods::ChatPromptsDecide>(|_| {
+            Err(conduit_daemon::protocol::error("rpc.timeout", "slow"))
+        });
+        let (store, _) = open(&daemon, "c1", cx);
+        let held = daemon.hold::<methods::ChatPromptsDecide>();
+        store.update(cx, |s, cx| {
+            s.decide_prompt(true, cx);
+            // The chat is read again while the decision is on its way.
+            s.refresh_prompt(cx);
+        });
+        cx.run_until_parked();
+        held.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(!s.prompt_busy, "the card stayed busy");
+            assert!(s.prompt_failed);
+        });
     }
 
     #[gpui_kit::test]
