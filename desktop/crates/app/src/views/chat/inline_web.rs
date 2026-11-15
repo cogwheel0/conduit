@@ -146,10 +146,15 @@ impl InlineWebView {
         self.inner.pause();
     }
 
+    /// Hides it (not drawn this frame); a playing video stops, rather than
+    /// go on playing sound where it can't be seen.
     fn hide(&self) {
         if self.shown.replace(false) {
             #[cfg(target_os = "macos")]
-            self.inner.set_hidden(true);
+            {
+                self.inner.set_hidden(true);
+                self.inner.pause();
+            }
         }
     }
 

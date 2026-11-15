@@ -549,6 +549,14 @@ impl AssistantRow {
         }
         self.item = item;
         self.flags = flags;
+        // An embed the answer no longer has (a new version, a replaced
+        // answer) goes, its page and MCP App with it; the leaving answer's
+        // stay while it fades.
+        let mut keep = super::blocks::embed_ids(&self.item.blocks);
+        if let Some(leaving) = &self.leaving {
+            keep.extend(super::blocks::embed_ids(&leaving.item.blocks));
+        }
+        self.embeds.retain(|id, _| keep.contains(id));
         cx.notify();
     }
 
@@ -2658,4 +2666,75 @@ pub mod rhythm {
     /// question still sits a turn gap from its last line (whose row keeps
     /// ~6 pt of its own under the text).
     pub const AFTER_LIST: f32 = TURN_GAP - QUESTION_TOP - 6.;
+}
+
+#[cfg(test)]
+mod embed_tests {
+    use std::rc::Rc;
+
+    use conduit_protocol::{EmbedDto, EmbedKind, MessageBlockDto, MessageBlockKind};
+    use gpui_kit::TestAppContext;
+
+    use super::*;
+    use crate::stores::chat::{ChatStore, Subscribe, empty_block};
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    fn page(source: &str) -> EmbedDto {
+        EmbedDto {
+            kind: EmbedKind::Html,
+            source: Some(source.into()),
+            ..serde_json::from_value(serde_json::json!({"kind": "html"})).unwrap()
+        }
+    }
+
+    fn embeds(sources: &[&str]) -> Vec<MessageBlockDto> {
+        vec![MessageBlockDto {
+            embeds: Some(sources.iter().map(|s| page(s)).collect()),
+            ..empty_block(MessageBlockKind::Embeds)
+        }]
+    }
+
+    #[test]
+    fn embed_keys_follow_the_blocks_that_draw_them() {
+        let mut blocks = vec![empty_block(MessageBlockKind::Text)];
+        blocks.extend(embeds(&["<p>a</p>", "<p>b</p>"]));
+        let ids = super::super::blocks::embed_ids(&blocks);
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains("e1.0") && ids.contains("e1.1"));
+    }
+
+    #[gpui_kit::test]
+    fn an_embed_the_answer_no_longer_has_lets_go_of_its_view(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let subscribe: Subscribe = Rc::new(|_, _| {});
+        let rpc = daemon.rpc();
+        let store = cx.new(|cx| ChatStore::new(rpc, subscribe, "c1".into(), cx));
+        let host = RowHost {
+            store: store.downgrade(),
+            pane: RowSink::None,
+            server_id: None,
+            composer: None,
+        };
+        let item = RowItem {
+            key: "a1".into(),
+            blocks: embeds(&["<p>a</p>"]),
+            ..Default::default()
+        };
+        let row = cx.new(|_| AssistantRow::new(host, item.clone(), RowFlags::default()));
+        row.update(cx, |r, cx| {
+            let embed = page("<p>a</p>");
+            r.embed_view("e0.0", &embed, false, cx);
+            assert_eq!(r.embeds.len(), 1);
+            // Another version of the answer, without the embed.
+            r.set(
+                RowItem {
+                    blocks: vec![empty_block(MessageBlockKind::Text)],
+                    ..item
+                },
+                RowFlags::default(),
+                cx,
+            );
+            assert!(r.embeds.is_empty(), "the old page kept running");
+        });
+    }
 }

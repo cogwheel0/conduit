@@ -311,6 +311,40 @@ enum Run {
     Failed,
 }
 
+/// The key of the `k`th embed of block `i` (an Embeds block).
+fn embed_id(i: usize, k: usize) -> String {
+    format!("e{i}.{k}")
+}
+
+/// The key of the `k`th embed tool call `j` of block `i` showed.
+fn tool_embed_id(i: usize, j: usize, k: usize) -> String {
+    format!("t{i}.{j}.{k}")
+}
+
+/// The keys of every embed `blocks` draw, as [`AssistantRow::render_block`]
+/// names them: the row keeps those views and lets the others go (their
+/// pages and MCP Apps with them).
+pub(super) fn embed_ids(blocks: &[MessageBlockDto]) -> std::collections::HashSet<String> {
+    let mut ids = std::collections::HashSet::new();
+    for (i, block) in blocks.iter().enumerate() {
+        match block.kind {
+            MessageBlockKind::Embeds => {
+                let n = block.embeds.as_ref().map_or(0, Vec::len);
+                ids.extend((0..n).map(|k| embed_id(i, k)));
+            }
+            MessageBlockKind::ToolCalls => {
+                for (j, call) in block.calls.iter().flatten().enumerate() {
+                    if call.done && !call.pending {
+                        ids.extend((0..call.shown_embeds.len()).map(|k| tool_embed_id(i, j, k)));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    ids
+}
+
 impl AssistantRow {
     /// How much of text block `ordinal` (`md`) to draw while the answer
     /// streams, and for a moment after: what has arrived, released at a
@@ -612,7 +646,7 @@ impl AssistantRow {
                         call.shown_embeds
                             .iter()
                             .enumerate()
-                            .map(move |(k, e)| (format!("t{i}.{j}.{k}"), e.clone()))
+                            .map(move |(k, e)| (tool_embed_id(i, j, k), e.clone()))
                     })
                     .map(|(id, embed)| self.embed_view(&id, &embed, true, cx).into_any_element())
                     .collect();
@@ -646,7 +680,7 @@ impl AssistantRow {
                     .flex_col()
                     .gap(px(8.))
                     .children(embeds.iter().enumerate().map(|(k, embed)| {
-                        self.embed_view(&format!("e{i}.{k}"), embed, false, cx)
+                        self.embed_view(&embed_id(i, k), embed, false, cx)
                             .into_any_element()
                     }))
                     .into_any_element()
