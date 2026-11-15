@@ -309,6 +309,12 @@ async fn strip_waiting(
         return;
     }
 
+    // Nothing usable was grabbed: no strip, and the run says so.
+    if grabbed.frames.is_empty() {
+        run.problem(format!("motion {name}: no frame could be read"));
+        return;
+    }
+
     let times = &grabbed.times;
     let duration = times.last().copied().unwrap_or(0.) - times.first().copied().unwrap_or(0.);
     let capture_intervals: Vec<f64> = times.windows(2).map(|w| w[1] - w[0]).collect();

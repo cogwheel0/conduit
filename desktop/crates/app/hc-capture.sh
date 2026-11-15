@@ -214,4 +214,6 @@ sed "s|$HOME|~|g" "$log" > "$out/notes/capture.log"
 # 6. Strips, contact sheets, copy notes.
 compose "$out" "$run_dir"
 grep -q "^CAPTURE FAILED" "$log" && exit 1
+# A run that ended without saying it finished (a crash, a quit) failed too.
+grep -q "^CAPTURE done" "$log" || { echo "the capture did not finish" >&2; exit 1; }
 exit 0
