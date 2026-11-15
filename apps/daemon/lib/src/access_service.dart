@@ -30,12 +30,14 @@ final class AccessService {
   final ProviderContainer _container;
 
   Future<AccessState> get(AccessRef ref) async {
+    final session = _session();
     final controller = _controller(ref.kind, ref.id);
     final snapshot = await _guard(controller.load);
-    return _state(ref.kind, ref.id, snapshot);
+    return _state(ref.kind, ref.id, snapshot, session);
   }
 
   Future<AccessState> set(AccessEdit edit) async {
+    final session = _session();
     final controller = _controller(edit.kind, edit.id);
     final base = await _guard(controller.load);
     final sharing = await _sharing(edit.kind);
@@ -87,7 +89,7 @@ final class AccessService {
         },
       ),
     );
-    return _state(edit.kind, edit.id, fresh);
+    return _state(edit.kind, edit.id, fresh, session);
   }
 
   /// What the account may not give, as the sheet hides it: a person or a
@@ -183,10 +185,26 @@ final class AccessService {
     );
   }
 
+  Object _session() => _container.read(openWebUiAuthSessionEpochProvider);
+
+  /// Refuses an answer read under [session] once another account is in use.
+  void _sameAccount(Object session) {
+    if (!identical(session, _session())) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed',
+      );
+    }
+  }
+
+  /// [snapshot] as the window shows it, named. Read under [session]: once
+  /// another account is in use (while the names are looked up, say), the
+  /// grants, names and emails are not shown to it.
   Future<AccessState> _state(
     AccessResourceKind kind,
     String id,
     ResourceAccessSnapshot snapshot,
+    Object session,
   ) async {
     final sharing = await _sharing(kind);
     final byPrincipal = <String, AccessGrantDto>{};
@@ -227,6 +245,9 @@ final class AccessService {
           );
         }(),
     ];
+    final ownerName = await _ownerName(kind, id);
+    // After every lookup above: none of it is shown to another account.
+    _sameAccount(session);
     return AccessState(
       kind: kind,
       id: id,
@@ -243,7 +264,7 @@ final class AccessService {
       // A folder has no audience of its own (mobile shows none).
       allowPublic:
           kind != AccessResourceKind.folder && sharing.section.sharePublicly,
-      ownerName: await _ownerName(kind, id),
+      ownerName: ownerName,
     );
   }
 

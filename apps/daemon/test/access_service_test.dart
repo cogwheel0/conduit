@@ -46,7 +46,7 @@ void main() {
   });
   tearDown(() => api.dispose());
 
-  ProviderContainer containerWith() {
+  ProviderContainer containerWith({WorkspacePrincipalLookup? lookup}) {
     final container = ProviderContainer(
       overrides: [
         apiServiceProvider.overrideWith((ref) => api),
@@ -57,7 +57,7 @@ void main() {
         workspaceCapabilitiesProvider.overrideWith(
           (ref) async => WorkspaceCapabilities(chats: chats),
         ),
-        workspacePrincipalLookupProvider.overrideWithValue(null),
+        workspacePrincipalLookupProvider.overrideWithValue(lookup),
       ],
     );
     addTearDown(container.dispose);
@@ -133,6 +133,39 @@ void main() {
       }
       expect(api.written, isEmpty);
     });
+  });
+
+  test('grants named for one account are never shown to the next', () async {
+    final named = Completer<WorkspacePrincipalPreview?>();
+    final asked = Completer<void>();
+    final container = containerWith(
+      lookup: WorkspacePrincipalLookup(
+        fetchUser: (id) {
+          asked.complete();
+          return named.future;
+        },
+        fetchGroups: () async => const <WorkspacePrincipalPreview>[],
+      ),
+    );
+    api.grants = <Map<String, dynamic>>[
+      {'principal_type': 'user', 'principal_id': 'kept', 'permission': 'read'},
+    ];
+    final reading = AccessService(
+      container,
+    ).get(const AccessRef(kind: AccessResourceKind.chat, id: 'chat-1'));
+    await asked.future;
+    // Another account signs in while the names are looked up.
+    epoch = Object();
+    container.invalidate(openWebUiAuthSessionEpochProvider);
+    named.complete(
+      const WorkspacePrincipalPreview(
+        id: 'kept',
+        type: WorkspacePrincipalType.user,
+        name: 'Kept Person',
+        email: 'kept@example.com',
+      ),
+    );
+    await expectLater(reading, refused(ConduitErrorCodes.sessionExpired));
   });
 
   test('people found for one account are never shown to the next', () async {
