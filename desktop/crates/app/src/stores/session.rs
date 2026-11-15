@@ -110,6 +110,9 @@ pub struct RouteInputs<'a> {
     pub needs_onboarding: Option<bool>,
     pub accounts: Option<&'a AccountList>,
     pub auth: Option<&'a AuthSnapshot>,
+    /// The Direct and Hermes answers are in: with no account, they are
+    /// what the main window chats through.
+    pub backends_known: bool,
 }
 
 /// The route for `inputs`; [`Route::Unknown`] while any is missing.
@@ -139,8 +142,9 @@ pub fn derive_route(inputs: RouteInputs<'_>) -> Route {
     match inputs.needs_onboarding {
         Some(true) => Route::Onboarding,
         // No account, but the core says there is a backend: Direct or
-        // Hermes, chosen and ready.
-        Some(false) => Route::Main,
+        // Hermes, chosen and ready, once their answers say which.
+        Some(false) if inputs.backends_known => Route::Main,
+        Some(false) => Route::Unknown,
         None => Route::Unknown,
     }
 }
@@ -240,6 +244,7 @@ impl SessionStore {
             needs_onboarding: self.needs_onboarding,
             accounts: self.accounts.read(cx).list.as_ref(),
             auth: self.auth.as_ref(),
+            backends_known: self.direct.is_some() && self.hermes.is_some(),
         })
     }
 
@@ -401,6 +406,12 @@ impl SessionStore {
                                     // the last answer.
                                     s.direct = keep_on_error(s.direct.take(), direct);
                                     s.hermes = keep_on_error(s.hermes.take(), hermes);
+                                    // They may have been what the route
+                                    // waited for.
+                                    if s.route(cx) != Route::Unknown {
+                                        s.resolve_attempts = 0;
+                                        s._resolve = None;
+                                    }
                                     cx.notify();
                                 }
                             });
@@ -604,6 +615,7 @@ mod tests {
             needs_onboarding: onb,
             accounts,
             auth: a,
+            backends_known: true,
         })
     }
 
@@ -1023,6 +1035,31 @@ mod tests {
         store.read_with(cx, |s, cx| {
             assert_eq!(s.route(cx), Route::Main);
             assert!(s.direct.is_some());
+        });
+    }
+
+    #[gpui_kit::test]
+    fn with_no_account_main_waits_for_the_backend_answers(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(list(vec![]));
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Unauthenticated, false));
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+        daemon.returns::<methods::DirectList>(DirectConnectionList {
+            preferred: true,
+            usable: true,
+            ..Default::default()
+        });
+        let held = daemon.hold::<methods::DirectList>();
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| s.on_connected(&handshake(None), request(), cx));
+        cx.run_until_parked();
+        // Main without a backend would be a window that chats through nothing.
+        assert_eq!(route_of(&store, cx), Route::Unknown);
+        held.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, cx| {
+            assert_eq!(s.route(cx), Route::Main);
+            assert_eq!(s.backend(cx), Some(Backend::Direct));
         });
     }
 
