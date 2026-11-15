@@ -184,11 +184,17 @@ final class UiRequestsService implements UiRequestPort {
 
   /// Asks whether to open [url], a page an MCP App asked for: an app can
   /// ask at any time, not only when the user clicked something.
-  Future<bool> askMcpAppOpenLink({required String url}) async {
+  /// [until] completing (the app closed) takes the question back: it is
+  /// settled as refused and every window closes its card.
+  Future<bool> askMcpAppOpenLink({
+    required String url,
+    Future<void>? until,
+  }) async {
     final response = await _ask(
       UiRequestKind.mcpAppOpenLink,
       messageCode: 'mcpApp.openLink',
       args: <String, String>{'url': url},
+      until: until,
     );
     return response.choice == 'allow';
   }
@@ -239,6 +245,7 @@ final class UiRequestsService implements UiRequestPort {
     Duration? timeout,
     UiInputType? inputType,
     List<UiInputOption>? options,
+    Future<void>? until,
   }) {
     final request = UiRequest(
       requestId: _uuid.v4(),
@@ -262,6 +269,18 @@ final class UiRequestsService implements UiRequestPort {
     final answer = Completer<UiResponse>();
     _pending[request.requestId] = (request: request, answer: answer);
     _events.emit(ConduitEventSpecs.uiRequest, request);
+    // What asked is gone: the question goes with it, answered as refused.
+    unawaited(
+      until?.then((_) {
+        if (_pending.remove(request.requestId) == null) return;
+        _publishSettled(request.requestId);
+        if (!answer.isCompleted) {
+          answer.complete(
+            UiResponse(requestId: request.requestId, choice: defaultChoice),
+          );
+        }
+      }),
+    );
 
     if (timeout == null) return answer.future;
     return answer.future.timeout(

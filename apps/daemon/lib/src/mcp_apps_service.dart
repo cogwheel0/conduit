@@ -123,7 +123,10 @@ final class McpAppsService {
           false,
       openLink: (url) async {
         final asked =
-            await _uiRequests?.askMcpAppOpenLink(url: url.toString()) ??
+            await _uiRequests?.askMcpAppOpenLink(
+              url: url.toString(),
+              until: running.stopped.future,
+            ) ??
             false;
         // Allowed after the app closed or the account changed: nothing
         // opens.
@@ -245,6 +248,8 @@ final class McpAppsService {
     final running = _running[appId];
     if (running == null) return;
     running.startTimer?.cancel();
+    // A question it asked (Open Link?) goes with it.
+    if (!running.stopped.isCompleted) running.stopped.complete();
     // Torn down while still listed, so its teardown notice finds its chat.
     running.host?.teardown();
     _running.remove(appId);
@@ -295,4 +300,7 @@ final class _Running {
   double width;
   McpAppHost? host;
   Timer? startTimer;
+
+  /// Completes when the app is stopped.
+  final Completer<void> stopped = Completer<void>();
 }

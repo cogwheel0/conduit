@@ -111,6 +111,7 @@ void main() {
               ConduitEvents.mcpAppsEvent,
               ConduitEvents.openUrl,
               ConduitEvents.uiRequest,
+              ConduitEvents.uiSettled,
             ],
             scopes: <String>['chat-1'],
           ),
@@ -184,6 +185,34 @@ void main() {
       apps.close(McpAppRef(appId: appId));
       ui.respond(UiResponse(requestId: question.requestId, choice: 'allow'));
       await asking;
+      expect(seen.where((e) => e.event == ConduitEvents.openUrl), isEmpty);
+    });
+
+    test('closing an app takes back the link question it asked', () async {
+      final appId = await started();
+      final asking = apps.message(
+        McpAppMessage(
+          appId: appId,
+          payload: jsonEncode(<String, Object>{
+            'jsonrpc': '2.0',
+            'id': 8,
+            'method': 'ui/open-link',
+            'params': <String, String>{'url': 'https://example.org/tides'},
+          }),
+        ),
+      );
+      final question = ui.pending.single;
+      apps.close(McpAppRef(appId: appId));
+      await asking;
+      expect(ui.pending, isEmpty, reason: 'the card stayed up');
+      expect(
+        seen.where(
+          (e) =>
+              e.event == ConduitEvents.uiSettled &&
+              UiSettled.fromJson(e.payload).requestId == question.requestId,
+        ),
+        hasLength(1),
+      );
       expect(seen.where((e) => e.event == ConduitEvents.openUrl), isEmpty);
     });
 
