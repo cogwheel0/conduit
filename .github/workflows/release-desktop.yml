@@ -37,9 +37,11 @@ permissions:
 jobs:
   release:
     name: Build, sign, notarize and publish
-    # Apple Silicon. Pinned rather than macos-latest so an image change
-    # never lands in the middle of a release series.
-    runs-on: macos-15
+    # Apple Silicon with Xcode 26 or later (the app links FoundationModels):
+    # the image the desktop workflow builds and smoke-tests on, and the
+    # same DESKTOP_MACOS_RUNNER override. Pinned rather than macos-latest so
+    # an image change never lands in the middle of a release series.
+    runs-on: ${{ vars.DESKTOP_MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 120
     permissions:
       contents: write
@@ -49,6 +51,16 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Pick Xcode 26 or later
+        shell: bash
+        run: |
+          major="$(xcodebuild -version | awk 'NR == 1 {split($2, v, "."); print v[1]}')"
+          if [ "$major" -lt 26 ]; then
+            newest="$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -1)"
+            [ -n "$newest" ] || { echo "::error::Xcode 26 or later is needed"; exit 1; }
+            sudo xcode-select -s "$newest"
+          fi
+          xcodebuild -version
 
       - name: Read the version from the tag
         id: version
@@ -179,12 +191,19 @@ jobs:
       - name: Smoke-test the signed app
         run: desktop/packaging/macos/smoke.sh "$OUT/Conduit.app" --launch
 
+      # A new feed only for the first release: after that, a feed that cannot
+      # be read stops the release rather than replacing the older items.
       - name: Add the release to the appcast
         env:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          allow=()
+          earlier="$(gh release list --limit 200 --json tagName --jq '.[].tagName' |
+            grep '^desktop-v' | grep -vx "$GITHUB_REF_NAME" || true)"
+          [ -z "$earlier" ] && allow=(--allow-new)
           desktop/packaging/macos/appcast.sh --dmg "$OUT/Conduit-$VERSION.dmg" \
-            --version "$VERSION" --allow-new
+            --version "$VERSION" "${allow[@]}"
 
       # The DMG goes up before the appcast that points at it.
       - name: Publish the GitHub release
@@ -196,7 +215,13 @@ jobs:
           [ "$PRERELEASE" = true ] && flags+=(--prerelease)
           notes="Conduit Desktop $VERSION for Apple Silicon Macs (macOS 14 Sonoma or later). Download Conduit-$VERSION.dmg, open it and drag Conduit to Applications. Installed copies update themselves."
           [ "$PRERELEASE" = true ] && notes="$notes This is a beta: installed copies get it only with Settings › About › Receive beta updates turned on."
-          gh release create "$GITHUB_REF_NAME" "$OUT/Conduit-$VERSION.dmg" "${flags[@]}" --notes "$notes"
+          # Run again after a later step failed: the release is there, so
+          # only its DMG is replaced.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$OUT/Conduit-$VERSION.dmg" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$OUT/Conduit-$VERSION.dmg" "${flags[@]}" --notes "$notes"
+          fi
 
       - name: Publish the appcast
         env:

@@ -1,4 +1,4 @@
-# cargo-about's configuration for desktop/THIRD_PARTY_NOTICES.md (see
+# cargo-about's configuration for the bundle's THIRD_PARTY_NOTICES.md (see
 # notices.sh). Only what ships: the conduit-desktop binary's normal
 # dependencies on Apple Silicon, without build and dev dependencies and
 # without our own unpublished crates.

@@ -70,6 +70,8 @@ void main() {
       'the full Dart test suites',
       'Web-safe packages (conduit_markdown compiled to JS and run)',
       'Desktop daemon (macOS build and smoke test)',
+      // conduitd is built from conduit_markdown, and the bundle carries it.
+      'Desktop workflow (cargo tests, builds and the generated Rust)',
     ]);
   });
 
@@ -192,6 +194,11 @@ void main() {
     final fixture = _plan(['packages/conduit_core/test/fixtures/chat.json']);
     check(fixture.steps).isEmpty();
     check(fixture.leftToCi).deepEquals(['the full Dart test suites']);
+
+    // The core's code is built into conduitd, which the bundle carries.
+    check(
+      _plan(['packages/conduit_core/lib/src/x.dart']).leftToCi,
+    ).contains('Desktop workflow (cargo tests, builds and the generated Rust)');
   });
 
   test('host-agnostic Swift is checked against the package boundaries', () {

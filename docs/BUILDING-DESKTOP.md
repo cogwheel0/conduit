@@ -21,7 +21,7 @@ Conduit.app/Contents/
 └── Resources/
     ├── AppIcon.icns            packaging/macos/AppIcon.icns (macOS 14/15)
     ├── Assets.car              packaging/macos/Assets.car (the icon on macOS 26+)
-    ├── THIRD_PARTY_NOTICES.md  desktop/THIRD_PARTY_NOTICES.md
+    ├── THIRD_PARTY_NOTICES.md  made by packaging/notices/notices.sh at bundle time
     └── conduitd/
         ├── bin/conduitd        `dart build cli` of apps/daemon (Dart AOT)
         └── lib/
@@ -318,12 +318,13 @@ feed on `127.0.0.1`, without touching the real app:
 
 ## Third-party notices
 
-`desktop/THIRD_PARTY_NOTICES.md` ships in the bundle. Regenerate it after a
-dependency changes (the release workflow regenerates it anyway):
+`THIRD_PARTY_NOTICES.md` ships in the bundle. It is not committed:
+`bundle.sh` generates it into each bundle (`Contents/Resources/`), so it
+always matches the dependencies built in.
 
 ```sh
-desktop/packaging/notices/notices.sh           # rewrite it
-desktop/packaging/notices/notices.sh --check   # fail if stale
+desktop/packaging/notices/notices.sh           # write desktop/target/notices/THIRD_PARTY_NOTICES.md
+desktop/packaging/notices/notices.sh --check   # generate it in a temporary folder; fail if a licence is missing
 ```
 
 It lists the components bundled directly (the vendored and modified

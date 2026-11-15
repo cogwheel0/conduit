@@ -9,9 +9,14 @@ on:
       - 'desktop/**'
       - 'packages/conduit_protocol/**'
       # The app's strings are generated from the ARBs (crates/app/build.rs),
-      # and the release bundle carries conduitd.
+      # and the release bundle carries conduitd, with the core and markdown
+      # packages it is built from.
       - 'lib/l10n/**'
       - 'apps/daemon/**'
+      - 'packages/conduit_core/lib/**'
+      - 'packages/conduit_core/pubspec.yaml'
+      - 'packages/conduit_markdown/lib/**'
+      - 'packages/conduit_markdown/pubspec.yaml'
       - '.github/workflows/desktop.yml'
       - '.github/workflows/release-desktop.yml'
   pull_request:
@@ -19,9 +24,14 @@ on:
       - 'desktop/**'
       - 'packages/conduit_protocol/**'
       # The app's strings are generated from the ARBs (crates/app/build.rs),
-      # and the release bundle carries conduitd.
+      # and the release bundle carries conduitd, with the core and markdown
+      # packages it is built from.
       - 'lib/l10n/**'
       - 'apps/daemon/**'
+      - 'packages/conduit_core/lib/**'
+      - 'packages/conduit_core/pubspec.yaml'
+      - 'packages/conduit_markdown/lib/**'
+      - 'packages/conduit_markdown/pubspec.yaml'
       - '.github/workflows/desktop.yml'
       - '.github/workflows/release-desktop.yml'
 

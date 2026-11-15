@@ -52,10 +52,13 @@ appcast_url() {
   esac
 }
 
-# Validates a version: X.Y.Z or X.Y.Z-beta.N.
+# Validates a version: X.Y.Z or X.Y.Z-beta.N, each part without leading
+# zeros (shell arithmetic would read 010 as octal, and Sparkle orders the
+# build numbers made from them).
 check_version() {
-  printf '%s\n' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$' ||
-    die "version '$1' is not X.Y.Z or X.Y.Z-beta.N"
+  local part='(0|[1-9][0-9]*)'
+  printf '%s\n' "$1" | grep -Eq "^$part\\.$part\\.$part(-beta\\.$part)?\$" ||
+    die "version '$1' is not X.Y.Z or X.Y.Z-beta.N (no leading zeros)"
 }
 
 is_beta() { case "$1" in *-beta.*) return 0 ;; *) return 1 ;; esac }

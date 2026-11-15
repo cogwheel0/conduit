@@ -481,8 +481,15 @@ do_verify() {
   }
   printf '%s\n' "$spctl_out" | sed 's/^/     /'
   if [ -f "$dmg" ]; then
+    # A release's DMG is what users download: Gatekeeper must accept it.
     spctl_out="$(spctl -a -vv -t open --context context:primary-signature "$dmg" 2>&1)" &&
-      ok "spctl accepts the DMG" || printf 'note spctl on the DMG:\n'
+      ok "spctl accepts the DMG" || {
+      if [ "$release" = 1 ]; then
+        fail "spctl rejects the DMG"
+      else
+        printf 'note spctl on the DMG:\n'
+      fi
+    }
     printf '%s\n' "$spctl_out" | sed 's/^/     /'
   fi
 
