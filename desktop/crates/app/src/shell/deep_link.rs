@@ -34,6 +34,9 @@ pub enum OpenRequest {
     Note { id: String },
     /// `conduit://settings[/<tab>]`.
     Settings { tab: Option<String> },
+    /// Quick Ask's Open in Conduit: a new chat with the draft kept under
+    /// `id` (its text and uploaded files), which only this request takes.
+    QuickAskDraft { id: u64 },
 }
 
 impl OpenRequest {
