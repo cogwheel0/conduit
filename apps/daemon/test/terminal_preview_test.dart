@@ -95,13 +95,23 @@ void main() {
   });
 
   test('a path that would climb out of the port is refused', () async {
-    // The proxy decodes `%2F` and then resolves the `..` it makes; one that
-    // decodes twice would read `%252F` the same way.
+    // The proxy decodes `%2F` and then resolves the `..` it makes; a server
+    // that decodes again reads `%252F` and deeper encodings the same way.
     for (final path in <String>[
       '/..%2F..%2Ffiles/read',
       '/..%252F..%252Ffiles/read',
+      '/..%25252F..%25252Ffiles/read',
+      '/..%252525252F..%252525252Ffiles/read',
+      '/..%2f..%2Ffiles/read',
+      '/%252e%252E/%252E%252e/files/read',
+      '/..%5C..%5Cfiles/read',
+      '/..%255c..%255Cfiles/read',
     ]) {
-      expect((await visit(path)).statusCode, HttpStatus.badRequest);
+      expect(
+        (await visit(path)).statusCode,
+        HttpStatus.badRequest,
+        reason: path,
+      );
     }
     expect(asked, isEmpty);
   });
@@ -125,5 +135,17 @@ void main() {
       HttpStatus.ok,
     );
     expect(asked, <String>['$prefix/form']);
+  });
+
+  test('a path whose encoding never settles is refused', () {
+    var path = '..%2Ffiles';
+    for (var i = 0; i < 12; i++) {
+      path = path.replaceAll('%', '%25');
+    }
+    expect(previewPathAllowed(Uri.parse('http://127.0.0.1/$path')), isFalse);
+    expect(
+      previewPathAllowed(Uri.parse('http://127.0.0.1/assets/app%20v2.js')),
+      isTrue,
+    );
   });
 }

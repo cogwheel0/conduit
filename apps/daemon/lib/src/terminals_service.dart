@@ -647,34 +647,32 @@ final class PortPreview {
   }
 }
 
-/// Whether a preview may ask for [uri]'s path: none of its segments, once
-/// decoded, is `.` or `..` or holds a slash. The terminal's proxy decodes
-/// and normalises the path it is given, so `/..%2F..%2Ffiles/read` would
-/// otherwise leave the port for the terminal's own API, with the
-/// credential.
+/// Whether a preview may ask for [uri]'s path.
+///
+/// The terminal's proxy decodes the path it is given, perhaps more than
+/// once, and then resolves `.` and `..`, so `/..%2F..%2Ffiles/read`, or the
+/// same with `%25` in front of each escape as many times as it likes, would
+/// leave the port for the terminal's own API with the credential. So the
+/// path is decoded until it settles (refused if it has not within a few
+/// rounds, or holds a malformed escape), split on `/` and `\`, and refused
+/// when any part is `.` or `..`.
 bool previewPathAllowed(Uri uri) {
-  for (final segment in uri.pathSegments) {
-    // Decoded again until it settles: a server that decodes twice would
-    // read `%252F` as a slash.
-    var decoded = segment;
-    for (var i = 0; i < 4; i++) {
-      if (decoded == '.' ||
-          decoded == '..' ||
-          decoded.contains('/') ||
-          decoded.contains('\\')) {
-        return false;
-      }
-      final String next;
-      try {
-        next = Uri.decodeComponent(decoded);
-      } on ArgumentError {
-        break;
-      }
-      if (next == decoded) break;
-      decoded = next;
+  var path = uri.path;
+  for (var round = 0; round < 8; round++) {
+    final String decoded;
+    try {
+      decoded = Uri.decodeComponent(path);
+    } on Object {
+      return false;
     }
+    if (decoded == path) {
+      return !path
+          .split(RegExp(r'[/\\]'))
+          .any((part) => part == '.' || part == '..');
+    }
+    path = decoded;
   }
-  return true;
+  return false;
 }
 
 /// The path to ask the terminal's proxy for, given the [path] the preview
