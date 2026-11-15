@@ -461,6 +461,9 @@ pub fn run(mode: Mode) {
             let shown = crate::stores::areas::visible_areas(&capabilities);
             stores.areas.update(cx, |a, cx| a.set_wanted(&shown, cx));
             stores.sections.update(cx, |s, cx| {
+                // Under the canned account's scope, which the sidebar reads
+                // once the account list is in.
+                s.set_scope("account:acct-1".into(), cx);
                 for area in [Area::Notes, Area::Channels, Area::Hermes] {
                     s.set_show_all(area.id(), true, cx);
                 }
