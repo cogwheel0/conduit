@@ -881,7 +881,7 @@ impl AssistantRow {
                                         .child(SharedString::from(link.label.clone()))
                                         .on_click(move |_, _, cx| {
                                             if let Some(u) = &url {
-                                                cx.open_url(u)
+                                                super::markdown::open_web_link(u, cx)
                                             }
                                         })
                                 }))

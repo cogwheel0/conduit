@@ -486,7 +486,16 @@ impl Transcript {
     fn prune(&mut self) {
         if self.rows.len() > ROW_CACHE {
             let drawn = std::mem::take(&mut self.drawn);
-            self.rows.retain(|k, _| drawn.contains(k));
+            // Find holds the text states of the rows it searched: those rows
+            // stay while it is open, or a match would light a state no row
+            // draws.
+            let found: std::collections::HashSet<_> = self
+                .find
+                .iter()
+                .flat_map(|f| f.searched_rows().cloned())
+                .collect();
+            self.rows
+                .retain(|k, _| drawn.contains(k) || found.contains(k));
         }
     }
 
@@ -615,7 +624,7 @@ impl Transcript {
                     })
                     .on_click(move |_, _, cx| {
                         if let Some(u) = &url {
-                            cx.open_url(u);
+                            super::markdown::open_web_link(u, cx);
                         }
                         let _ = close.update(cx, |t, cx| t.close_citation(cx));
                     })

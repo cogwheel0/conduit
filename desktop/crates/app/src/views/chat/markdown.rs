@@ -76,12 +76,26 @@ pub fn cite_numbers(target: &str) -> Vec<usize> {
 pub fn open_link(key: &str, url: &str, position: Point<Pixels>, window: &mut Window, cx: &mut App) {
     if let Some(target) = url.strip_prefix(CITE_SCHEME) {
         show_citation(key, cite_numbers(target), position, window, cx);
-    } else if let Ok(parsed) = url::Url::parse(url)
-        && matches!(parsed.scheme(), "http" | "https" | "mailto")
-    {
-        cx.open_url(parsed.as_str());
     } else {
-        log::info!("ignored a link that is not http(s)");
+        open_web_link(url, cx);
+    }
+}
+
+/// `url` when the system may open it from a chat: http, https or mailto.
+/// Whatever a server or model wrote is checked here before it reaches the
+/// system (no `file:`, no other app's scheme).
+pub fn web_link(url: &str) -> Option<url::Url> {
+    url::Url::parse(url)
+        .ok()
+        .filter(|u| matches!(u.scheme(), "http" | "https" | "mailto"))
+}
+
+/// Opens `url` from a chat (a link, a source, a status link) if
+/// [`web_link`] allows it.
+pub fn open_web_link(url: &str, cx: &mut App) {
+    match web_link(url) {
+        Some(parsed) => cx.open_url(parsed.as_str()),
+        None => log::info!("ignored a link that is not http(s) or mailto"),
     }
 }
 
@@ -258,6 +272,22 @@ fn resolve_image(uri: &SharedUri) -> ImageSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_web_and_mail_links_reach_the_system() {
+        assert!(web_link("https://docs.example.org/a").is_some());
+        assert!(web_link("http://127.0.0.1:8080").is_some());
+        assert!(web_link("mailto:someone@example.org").is_some());
+        for refused in [
+            "file:///etc/hosts",
+            "x-apple-systempreferences:com.apple.preference.security",
+            "javascript:alert(1)",
+            "conduit://settings",
+            "not a url",
+        ] {
+            assert!(web_link(refused).is_none(), "{refused}");
+        }
+    }
 
     #[test]
     fn citation_targets_name_one_or_more_sources() {

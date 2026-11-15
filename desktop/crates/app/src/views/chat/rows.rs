@@ -497,14 +497,7 @@ impl AssistantRow {
             if block.kind != MessageBlockKind::Text {
                 continue;
             }
-            // One state, or one per chunk of a long answer.
-            let mut keys = vec![format!("text{ordinal}")];
-            if !self.texts.contains_key(&keys[0]) {
-                keys = (0..)
-                    .map(|k| format!("text{ordinal}.{k}"))
-                    .take_while(|k| self.texts.contains_key(k))
-                    .collect();
-            }
+            let keys = spoken_keys(ordinal, |k| self.texts.contains_key(k));
             for key in keys {
                 if let Some((_, state)) = self.texts.get(&key) {
                     let text = state.read(cx).rendered_text().as_str().to_string();
@@ -651,7 +644,7 @@ pub fn source_list(id: &str, sources: &[ChatSourceDto], cx: &App) -> AnyElement 
                 )
                 .on_click(move |_, _, cx| {
                     if let Some(u) = &url {
-                        cx.open_url(u)
+                        super::markdown::open_web_link(u, cx)
                     }
                 })
         }));
@@ -1798,9 +1791,33 @@ fn group_activity(parts: Vec<(bool, AnyElement)>) -> Vec<AnyElement> {
     out
 }
 
+/// The text states block `ordinal` is read from: one per chunk of a long
+/// answer once it has them (the whole-block state made while it streamed
+/// short holds only its start), else the one state.
+fn spoken_keys(ordinal: usize, has: impl Fn(&str) -> bool) -> Vec<String> {
+    let chunks: Vec<String> = (0..)
+        .map(|k| format!("text{ordinal}.{k}"))
+        .take_while(|k| has(k))
+        .collect();
+    if !chunks.is_empty() {
+        return chunks;
+    }
+    let whole = format!("text{ordinal}");
+    if has(&whole) { vec![whole] } else { vec![] }
+}
+
 #[cfg(test)]
 mod activity_tests {
     use super::*;
+
+    #[test]
+    fn a_long_answer_is_spoken_from_its_chunks_not_its_first_state() {
+        let made = ["text0", "text0.0", "text0.1", "text1"];
+        let has = |k: &str| made.contains(&k);
+        assert_eq!(spoken_keys(0, has), vec!["text0.0", "text0.1"]);
+        assert_eq!(spoken_keys(1, has), vec!["text1"]);
+        assert!(spoken_keys(2, has).is_empty());
+    }
 
     #[test]
     fn activity_lines_run_together_between_text() {

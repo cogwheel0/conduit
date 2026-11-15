@@ -69,6 +69,13 @@ pub(super) struct Finder {
     _subscriptions: Vec<Subscription>,
 }
 
+impl Finder {
+    /// The rows whose text states Find holds.
+    pub(super) fn searched_rows(&self) -> impl Iterator<Item = &String> {
+        self.states.keys().map(|(row, _)| row)
+    }
+}
+
 /// Where `needle` occurs in `haystack`, ignoring case: byte ranges of
 /// `haystack` on character boundaries, left to right, never overlapping.
 pub fn find_ranges(haystack: &str, needle: &str) -> Vec<Range<usize>> {
@@ -388,8 +395,10 @@ impl Transcript {
             FindPart::Question => None,
         };
         self.stop_following();
-        let laid_out = self.list.bounds_for_item(ix).is_some();
-        match (&state, laid_out) {
+        // Measured once is not on screen: a row below or above the view
+        // comes in first.
+        let shown = self.on_screen(ix);
+        match (&state, shown) {
             // On screen: the answer scrolls to the line itself.
             (Some(_), true) => {}
             (None, true) => self.list.scroll_to_reveal_item(ix),
@@ -599,6 +608,44 @@ mod tests {
         let count = status(&transcript, cx).map(|s| s.1);
         // "Answer 3", "Answer 30" … "Answer 39".
         assert_eq!(count, Some(11));
+    }
+
+    #[gpui_kit::test]
+    fn an_answer_measured_once_but_off_screen_is_scrolled_to(cx: &mut TestAppContext) {
+        let mut messages = vec![
+            message("u0", "user", "First question?"),
+            message("a0", "assistant", "The haystack hides one needle here."),
+        ];
+        for i in 1..40 {
+            messages.push(message(&format!("u{i}"), "user", &format!("Question {i}?")));
+            messages.push(message(
+                &format!("a{i}"),
+                "assistant",
+                &format!("Answer {i} of many, long enough to take a line."),
+            ));
+        }
+        let (_, transcript, cx) = open(messages, cx);
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        // Drawn at the top once (so measured), then back at the end.
+        list.scroll_to(ListOffset {
+            item_ix: 0,
+            offset_in_item: px(0.),
+        });
+        draw(&transcript, cx);
+        assert!(list.bounds_for_item(1).is_some());
+        list.scroll_to(ListOffset {
+            item_ix: 79,
+            offset_in_item: px(0.),
+        });
+        draw(&transcript, cx);
+        assert_eq!(list.item_is_above_viewport(1), Some(true));
+        find(&transcript, Some("needle"), cx);
+        draw(&transcript, cx);
+        assert_eq!(
+            list.item_is_above_viewport(1),
+            Some(false),
+            "the answer with the match is scrolled into view"
+        );
     }
 
     #[gpui_kit::test]

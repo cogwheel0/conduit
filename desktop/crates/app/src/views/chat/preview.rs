@@ -22,7 +22,7 @@
 use gpui_kit::{App, Window};
 
 /// mermaid 12.2.0, pinned by its SHA-256 in `assets/preview/README.md`.
-/// The inline diagram renderer ([`super::diagrams`]) uses this copy too.
+/// The inline diagram renderer ([`super::diagram`]) uses this copy too.
 /// Statics, not consts: a const's 5.5 MB literal is copied into each
 /// codegen unit that uses it, and the binary carried it twice.
 pub(crate) static MERMAID_JS: &str = include_str!("../../../assets/preview/mermaid.min.js");

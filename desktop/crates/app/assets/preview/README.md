@@ -2,7 +2,7 @@
 
 Bundled into the app for the code-block Preview window
 (`src/views/chat/preview.rs`) and the inline diagram renderer
-(`src/views/chat/diagrams.rs`), which run with no network access:
+(`src/views/chat/diagram.rs`), which run with no network access:
 
 - `mermaid.min.js`: mermaid 12.2.0 from npm (`package/dist/mermaid.min.js`),
   MIT (`MERMAID-LICENSE`).

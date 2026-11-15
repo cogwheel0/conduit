@@ -76,6 +76,8 @@ pub struct ChatPane {
     pub chat: Option<OpenChat>,
     /// A new chat's first message is on its way.
     starting: bool,
+    /// The active account the composer's attachments belong to.
+    account: Option<String>,
     /// A new chat's first send handing over to its transcript: when it
     /// began, and the greeting that fades out (see [`Handoff`]).
     handoff: Option<Handoff>,
@@ -207,6 +209,15 @@ impl ChatPane {
                 },
             ),
             cx.observe(&stores.navigation, |this, _, cx| this.sync_selection(cx)),
+            cx.observe(&stores.accounts, |this, accounts, cx| {
+                // Another account: nothing the composer holds for one
+                // message (files, knowledge, an `@` model) carries over.
+                let active = accounts.read(cx).active().map(|a| a.id.clone());
+                if active != this.account {
+                    this.account = active;
+                    this.composer_store.update(cx, |c, cx| c.reset(cx));
+                }
+            }),
             cx.observe(&layout, |_, _, cx| cx.notify()),
             cx.observe(&approvals, |_, _, cx| cx.notify()),
             follow_daemon_http(&stores.connection, cx),
@@ -250,6 +261,7 @@ impl ChatPane {
                 this.toast(NoticeLevel::Warning, text, cx);
             }),
         ];
+        let account = stores.accounts.read(cx).active().map(|a| a.id.clone());
         let mut this = Self {
             stores,
             layout,
@@ -258,6 +270,7 @@ impl ChatPane {
             composer,
             chat: None,
             starting: false,
+            account,
             handoff: None,
             find_input,
             find_open: false,
@@ -474,6 +487,8 @@ impl ChatPane {
             .read(cx)
             .next_model()
             .map(|m| m.name.clone());
+        // Given back with the text if the send fails.
+        let used = self.composer_store.read(cx).one_shot();
         let options = self.composer_store.update(cx, |c, cx| c.take_turn(cx));
         let pending = PendingMessage {
             files,
@@ -491,6 +506,7 @@ impl ChatPane {
             cx.spawn_in(window, async move |_, cx| {
                 if task.await.is_err() {
                     let _ = composer.update_in(cx, |c, window, cx| c.restore(&text, window, cx));
+                    let _ = models.update(cx, |m, cx| m.give_back(used, cx));
                 }
                 // `turns.send` with no model lets the daemon pick (and keep)
                 // one: the label shows it without opening the picker.
@@ -518,12 +534,25 @@ impl ChatPane {
             .new_chat_folder()
             .map(str::to_string);
         self.starting = true;
+        // The new chat this send came from: if the user has gone elsewhere
+        // by the reply, the chat is made but not opened over their choice.
+        let origin = self.stores.navigation.read(cx).selection().clone();
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             let result = call.await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.starting = false;
+                let still_here = *this.stores.navigation.read(cx).selection() == origin;
                 match result {
+                    Ok(accepted) if !still_here => {
+                        if let Some(folder) = folder.as_deref() {
+                            let id = accepted.chat_id.clone();
+                            this.stores
+                                .chat_list
+                                .update(cx, |c, cx| c.move_to(&id, Some(folder), cx))
+                                .detach();
+                        }
+                    }
                     Ok(accepted) => {
                         if let Some(folder) = folder.as_deref() {
                             let id = accepted.chat_id.clone();
@@ -551,6 +580,8 @@ impl ChatPane {
                         log::warn!("turns.send (new chat): {e}");
                         this.composer
                             .update(cx, |c, cx| c.restore(&text, window, cx));
+                        this.composer_store
+                            .update(cx, |c, cx| c.give_back(used, cx));
                         let msg = cx.l10n().desktop_action_failed();
                         this.toast(NoticeLevel::Warning, msg, cx);
                     }
@@ -1407,5 +1438,126 @@ mod tests {
         // Reduce Motion: the fades, no travel.
         assert!((0..=12).all(|k| at(k * 16, true).2 == 0.));
         assert_eq!(at(60, true).1, at(60, false).1);
+    }
+
+    mod pane {
+        use conduit_protocol::methods;
+        use gpui_kit::{AppContext as _, Entity, TestAppContext, VisualTestContext};
+
+        use crate::stores::Stores;
+        use crate::stores::accounts::tests::{account, list};
+        use crate::stores::composer::{Attachment, UploadState};
+        use crate::stores::layout::LayoutStore;
+        use crate::stores::rpc::fake::FakeDaemon;
+        use crate::views::approvals::ApprovalsView;
+        use crate::views::chat_pane::ChatPane;
+
+        fn bench(
+            cx: &mut TestAppContext,
+        ) -> (FakeDaemon, Stores, Entity<ChatPane>, &mut VisualTestContext) {
+            let daemon = FakeDaemon::new();
+            let scratch = std::env::temp_dir().join(format!("conduit-pane-{}", std::process::id()));
+            let stores = cx.update(|cx| {
+                crate::views::test_globals(cx);
+                Stores::for_test(daemon.rpc(), &scratch, cx)
+            });
+            stores.accounts.update(cx, |a, cx| {
+                a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+            });
+            let layout = cx.new(|_| LayoutStore::load(scratch.join("window-state.json")));
+            let s = stores.clone();
+            let (pane, vcx) = cx.add_window_view(move |window, cx| {
+                let approvals = cx.new(|cx| ApprovalsView::new(s.clone(), window, cx));
+                ChatPane::new(s, layout, approvals, window, cx)
+            });
+            (daemon, stores, pane, vcx)
+        }
+
+        fn uploaded(name: &str) -> Attachment {
+            Attachment {
+                local_id: 1,
+                name: name.into(),
+                size: 3,
+                content_type: None,
+                image: None,
+                state: UploadState::Done {
+                    file_id: format!("file-{name}"),
+                },
+            }
+        }
+
+        fn attachment_names(pane: &Entity<ChatPane>, vcx: &mut VisualTestContext) -> Vec<String> {
+            pane.read_with(vcx, |p, cx| {
+                p.composer_store
+                    .read(cx)
+                    .attachments
+                    .iter()
+                    .map(|a| a.name.clone())
+                    .collect()
+            })
+        }
+
+        #[gpui_kit::test]
+        fn another_account_starts_with_an_empty_composer(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            pane.update(vcx, |p, cx| {
+                p.composer_store
+                    .update(cx, |c, _| c.attachments.push(uploaded("a.txt")))
+            });
+            stores.accounts.update(vcx, |a, cx| {
+                a.adopt(
+                    list(vec![
+                        account("a", "Avery", false, true),
+                        account("b", "Blake", true, true),
+                    ]),
+                    cx,
+                )
+            });
+            vcx.run_until_parked();
+            assert!(attachment_names(&pane, vcx).is_empty());
+        }
+
+        #[gpui_kit::test]
+        fn a_failed_first_send_keeps_its_files(cx: &mut TestAppContext) {
+            let (daemon, _stores, pane, vcx) = bench(cx);
+            daemon.on::<methods::TurnsSend>(|_| {
+                Err(conduit_daemon::protocol::error("rpc.timeout", "slow"))
+            });
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer_store
+                    .update(cx, |c, _| c.attachments.push(uploaded("plan.pdf")));
+                p.send_text("Read this".into(), window, cx);
+            });
+            assert!(
+                attachment_names(&pane, vcx).is_empty(),
+                "taken for the send"
+            );
+            vcx.run_until_parked();
+            assert_eq!(attachment_names(&pane, vcx), vec!["plan.pdf".to_string()]);
+        }
+
+        #[gpui_kit::test]
+        fn a_late_first_send_does_not_take_over_another_chat(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "chat-new",
+                    "userMessageId": "m",
+                    "assistantMessageId": "a",
+                }))
+                .unwrap(),
+            );
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| p.send_text("Hello".into(), window, cx));
+            stores.navigation.update(vcx, |n, cx| n.open("chat-b", cx));
+            held.release();
+            vcx.run_until_parked();
+            assert_eq!(
+                stores
+                    .navigation
+                    .read_with(vcx, |n, _| n.selected_chat().map(String::from)),
+                Some("chat-b".to_string())
+            );
+        }
     }
 }
