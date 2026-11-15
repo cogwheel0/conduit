@@ -791,12 +791,17 @@ impl ChatListStore {
             ChatAction::DeleteFolder,
             cx,
         );
-        // A refused delete leaves the folder open as it was.
+        // A refused delete leaves the folder open as it was, in the account
+        // it was deleted in.
         let folder = folder_id.to_string();
+        let account = self.account;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = task.await;
             if result.is_err() && was_open {
                 let _ = this.update(cx, |s, cx| {
+                    if s.account != account {
+                        return;
+                    }
                     if let Some(expanded) = s.expanded.as_mut() {
                         expanded.insert(folder);
                     }
@@ -1245,6 +1250,28 @@ mod tests {
         cx.run_until_parked();
         assert!(cx.foreground_executor().block_test(task).is_err());
         assert!(store.read_with(cx, |s, _| s.expanded().contains("f1")));
+
+        // Refused after another account's list came: that list is left alone.
+        let held = daemon.hold::<methods::FoldersDelete>();
+        daemon.once::<methods::FoldersDelete>(Err(conduit_daemon::protocol::error(
+            "rpc.internal",
+            "no",
+        )));
+        let task = store.update(cx, |s, cx| s.delete_folder("f1", cx));
+        store.update(cx, |s, cx| {
+            s.reset(cx);
+            s.refresh(cx);
+        });
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.toggle_folder("f1", cx));
+        let open_after_reset = store.read_with(cx, |s, _| s.expanded().contains("f1"));
+        held.release();
+        cx.run_until_parked();
+        assert!(cx.foreground_executor().block_test(task).is_err());
+        assert_eq!(
+            store.read_with(cx, |s, _| s.expanded().contains("f1")),
+            open_after_reset
+        );
     }
 
     #[gpui_kit::test]
