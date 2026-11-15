@@ -269,9 +269,14 @@ fn main() {
                             }
                         }
                         if let Some(dir) = index_dir {
-                            let json = serde_json::to_string_pretty(&index).unwrap_or_default();
-                            std::fs::write(dir.join("index.json"), json + "\n").ok();
-                            eprintln!("wrote {}", dir.join("index.json").display());
+                            let path = dir.join("index.json");
+                            match write_index(&path, &index) {
+                                Ok(()) => eprintln!("wrote {}", path.display()),
+                                Err(e) => {
+                                    failures += 1;
+                                    eprintln!("FAILED {}: {e}", path.display());
+                                }
+                            }
                         }
                         cx.update(|cx| cx.quit());
                         if failures > 0 {
@@ -351,6 +356,12 @@ impl Render for Backdrop {
                     .bg(gpui_kit::Hsla::from(rgb(c)).opacity(0.55)),
             )
     }
+}
+
+/// Writes the run's index of images, as pretty JSON.
+fn write_index(path: &std::path::Path, index: &[impl serde::Serialize]) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(index).map_err(|e| e.to_string())?;
+    std::fs::write(path, json + "\n").map_err(|e| e.to_string())
 }
 
 fn open_backdrop(cx: &mut App) -> AnyWindowHandle {
@@ -478,6 +489,29 @@ async fn render_job(
             opened
         })
         .map_err(|e| e.to_string())?;
+    // The shot takes the gallery's own windows by id, the screen and the
+    // backdrop under it, and nothing else on screen. The backdrop sits
+    // directly below the screen, so the screen's materials blur only it.
+    let screen_id = cx
+        .update(|cx| {
+            let id = handle
+                .update(cx, |_, w, _| cw::macos::window_number(w))
+                .ok()
+                .flatten()?;
+            backdrop
+                .update(cx, |_, w, _| cw::macos::order_below(w, id))
+                .ok();
+            Some(id)
+        })
+        .ok_or("the screen window has no number")?;
+    let backdrop_id = cx
+        .update(|cx| {
+            backdrop
+                .update(cx, |_, w, _| cw::macos::window_number(w))
+                .ok()
+                .flatten()
+        })
+        .ok_or("the backdrop window has no number")?;
     cx.background_executor().timer(SETTLE).await;
     let frame = job.screen.frame(&job.prefs);
     let x = f32::from(bounds.origin.x) as f64;
@@ -503,7 +537,11 @@ async fn render_job(
         },
     };
     let out = job.out.to_string_lossy().to_string();
-    let result = capture::capture_rect(rect, &out);
+    let windows: &[u32] = match frame {
+        Frame::Scene { .. } => &[screen_id],
+        _ => &[screen_id, backdrop_id],
+    };
+    let result = capture::capture_windows(windows, Some(rect), &out);
     cx.update(|cx| {
         handle
             .update(cx, |_, window, _| window.remove_window())
@@ -564,5 +602,16 @@ async fn a11y_job(job: &Job, accent: gpui_kit::Hsla, cx: &mut AsyncApp) -> a11y:
     match json {
         Some(json) => a11y::check(&name, &json),
         None => a11y::Report::error(&name, "no AccessKit tree (accessibility never activated)"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_index_that_cannot_be_written_is_an_error() {
+        let path = std::path::Path::new("/nonexistent-gallery-output/index.json");
+        assert!(write_index(path, &[serde_json::json!({"screen": "sign-in"})]).is_err());
     }
 }

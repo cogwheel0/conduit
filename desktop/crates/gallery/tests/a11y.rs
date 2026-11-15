@@ -1,5 +1,6 @@
-//! VoiceOver gate (plan: "VoiceOver-operable core"): opens screens 4, 5 and
-//! 8 in a real window, activates accessibility, and walks the AccessKit tree
+//! VoiceOver check: opens screens 4, 5 and 8 (the empty chat, a streaming
+//! answer and ⌘K) in a real window, activates accessibility, and walks the
+//! AccessKit tree
 //! GPUI sends to AppKit. Every control needs a role and a non-empty label,
 //! and every message must be a labelled Article.
 //!
@@ -74,9 +75,20 @@ fn screens_4_5_and_8_are_voiceover_operable() {
         .iter()
         .filter_map(Value::as_str)
         .collect();
+    // The report lists them in the tree dump's order, not the screen's.
     assert_eq!(articles.len(), 2, "{articles:?}");
-    assert!(articles[0].starts_with("You: How long does a moon"));
-    assert!(articles[1].starts_with("Aster 2 Pro (writing): For a small body"));
+    assert!(
+        articles
+            .iter()
+            .any(|a| a.starts_with("You: How long does a moon")),
+        "{articles:?}"
+    );
+    assert!(
+        articles
+            .iter()
+            .any(|a| a.starts_with("Aster 2 Pro (writing): For a small body")),
+        "{articles:?}"
+    );
     let buttons = labels(&streaming, "Button");
     for expected in ["Stop Generating", "Copy", "Thought for 6 seconds"] {
         assert!(

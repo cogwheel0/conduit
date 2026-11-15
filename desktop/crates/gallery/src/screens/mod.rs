@@ -89,7 +89,8 @@ impl Screen {
         }
     }
 
-    /// The brief's screen number (1–12; 13 for extras).
+    /// The screen's number in the gallery's list and its file names (1–12;
+    /// 13 for extras).
     pub fn number(self) -> u8 {
         match self {
             Screen::OnboardingBackend | Screen::OnboardingServer => 1,
