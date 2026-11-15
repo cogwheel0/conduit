@@ -49,7 +49,7 @@ use crate::stores::chat::{
 use crate::stores::composer::{
     ComposerEvent, ComposerStore, UploadFuture, UploadRequest, Uploader,
 };
-use crate::stores::connection::ConnectionEvent;
+use crate::stores::connection::{ConnectionEvent, ConnectionStore};
 use crate::stores::layout::LayoutStore;
 use crate::stores::navigation::Selection;
 use crate::stores::router::RouterEvent;
@@ -162,6 +162,20 @@ pub fn daemon_uploader() -> Uploader {
 /// (uploads run off the UI thread and cannot read GPUI globals).
 static CURRENT_HTTP: Mutex<Option<conduit_daemon::http::HttpClient>> = Mutex::new(None);
 
+/// Publishes `connection`'s HTTP client for [`daemon_uploader`] now and on
+/// every change. Each window with a composer keeps one, so uploads work
+/// whichever window exists (Quick Ask with no main window, say).
+pub fn follow_daemon_http(connection: &Entity<ConnectionStore>, cx: &mut App) -> Subscription {
+    let publish = |connection: &Entity<ConnectionStore>, cx: &App| {
+        let http = connection.read(cx).http().cloned();
+        if let Ok(mut current) = CURRENT_HTTP.lock() {
+            *current = http;
+        }
+    };
+    publish(connection, cx);
+    cx.observe(connection, move |connection, cx| publish(&connection, cx))
+}
+
 impl ChatPane {
     pub fn new(
         stores: Stores,
@@ -195,13 +209,8 @@ impl ChatPane {
             cx.observe(&stores.navigation, |this, _, cx| this.sync_selection(cx)),
             cx.observe(&layout, |_, _, cx| cx.notify()),
             cx.observe(&approvals, |_, _, cx| cx.notify()),
-            cx.observe(&stores.connection, |this, connection, cx| {
-                let http = connection.read(cx).http().cloned();
-                if let Ok(mut current) = CURRENT_HTTP.lock() {
-                    *current = http;
-                }
-                this.sync_offline(cx);
-            }),
+            follow_daemon_http(&stores.connection, cx),
+            cx.observe(&stores.connection, |this, _, cx| this.sync_offline(cx)),
             cx.subscribe(&stores.connection, |this, _, event, cx| {
                 this.on_connection(event, cx)
             }),
