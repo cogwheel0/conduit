@@ -1,0 +1,1031 @@
+{
+  "@@locale": "zh",
+  "desktopSignIn": "登录",
+  "desktopSignOut": "退出登录",
+  "desktopSignOutEllipsis": "退出登录…",
+  "desktopSignOutOf": "退出登录 {name}…",
+  "@desktopSignOutOf": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopSignOutAnyway": "仍然退出登录",
+  "desktopSwitchAnyway": "仍然切换",
+  "desktopReplyInProgress": "仍有回答正在生成。",
+  "desktopAddAccountEllipsis": "添加账户…",
+  "desktopAddAccount": "添加账户",
+  "desktopConnectToServer": "连接到服务器",
+  "desktopServerAddress": "服务器地址",
+  "desktopServerName": "服务器名称",
+  "desktopAdvancedSettings": "高级设置",
+  "desktopAllowUnverifiedCertificate": "允许未验证的证书",
+  "desktopCustomHeaders": "自定义标头",
+  "desktopAddHeader": "添加标头",
+  "desktopHeaderName": "标头名称",
+  "desktopHeaderValue": "标头值",
+  "desktopRemoveHeader": "删除标头",
+  "desktopPrivateKey": "私钥",
+  "desktopConnecting": "正在连接…",
+  "desktopInvalidServerAddress": "请输入以 http:// 或 https:// 开头的地址。",
+  "desktopApiKey": "API 密钥",
+  "desktopEmailOrUsername": "电子邮件或用户名",
+  "desktopSignInWithSso": "使用 SSO 登录",
+  "desktopSignInWithLdap": "使用 LDAP 登录",
+  "desktopSigningIn": "正在登录…",
+  "desktopSsoFailed": "单点登录失败。请重试。",
+  "desktopUseDifferentServer": "使用其他服务器",
+  "desktopWrongCredentials": "电子邮件或密码不匹配。请重试。",
+  "desktopLdapNotEnabled": "此服务器不允许使用 LDAP 登录。",
+  "desktopCertificateUntrusted": "无法验证此服务器的证书。",
+  "desktopChooseHowToConnect": "选择连接方式",
+  "desktopSelfHostedServices": "自托管服务",
+  "desktopConnectDirectly": "直接连接",
+  "desktopTryDemo": "试用演示",
+  "desktopStopGenerating": "停止生成",
+  "desktopImageGeneration": "图像生成",
+  "desktopSearchModels": "搜索模型",
+  "desktopNoModelsAvailable": "没有可用的模型。",
+  "desktopSomethingWentWrong": "出了点问题。请重试。",
+  "desktopRanCode": "已运行代码",
+  "desktopRunningCode": "正在运行代码…",
+  "desktopCodeFailed": "代码未能运行",
+  "desktopAllowOnce": "允许一次",
+  "desktopAllowForSession": "本次会话允许",
+  "desktopAlwaysAllow": "始终允许",
+  "desktopToolApproval": "工具审批",
+  "desktopToolApprovalQuestion": "允许 {name}？",
+  "desktopApprovalRequired": "需要批准",
+  "desktopMoveToMenu": "移到",
+  "desktopShareChat": "分享聊天",
+  "desktopShareLinkCopied": "已将分享链接复制到剪贴板。",
+  "desktopShareFailed": "无法分享此聊天。",
+  "desktopLoadMore": "加载更多",
+  "desktopTestConnection": "测试连接",
+  "desktopSaving": "正在保存…",
+  "desktopSignInWithHermes": "使用 Hermes Agent 登录",
+  "desktopSignOutOfHermes": "退出登录 Hermes Agent",
+  "desktopAddConnection": "添加连接",
+  "desktopAddConnectionEllipsis": "添加连接…",
+  "desktopEditConnection": "编辑连接",
+  "desktopConnectionName": "连接名称",
+  "desktopProviderType": "提供商类型",
+  "desktopMyProvider": "我的提供商",
+  "desktopRenameEllipsis": "重命名…",
+  "desktopDeleteEllipsis": "删除…",
+  "desktopShowLogs": "显示日志",
+  "desktopPaletteNoResults": "没有匹配的聊天或命令。",
+  "desktopCoreConnecting": "正在启动 Conduit…",
+  "desktopCoreConnected": "已连接到核心",
+  "desktopCoreReconnecting": "正在重新连接…",
+  "desktopCoreUnavailable": "Conduit 已停止工作",
+  "desktopCoreVersionMismatch": "需要重新安装 Conduit。其中部分组件来自不同版本。",
+  "desktopKeyringUnavailable": "未找到系统密钥环，已保存的凭据保护较弱。请安装 gnome-keyring 或 kwallet。",
+  "desktopQuickAskPlaceholder": "询问 Conduit…",
+  "desktopQuickAskContinue": "在主窗口中继续",
+  "desktopSettingsKeyboardTab": "键盘",
+  "desktopShortcutConflict": "{shortcut} 已被“{command}”使用。",
+  "@desktopShortcutConflict": {
+    "placeholders": {
+      "shortcut": {
+        "type": "String",
+        "example": "Cmd+K"
+      },
+      "command": {
+        "type": "String",
+        "example": "Search"
+      }
+    }
+  },
+  "desktopSettingsTitle": "设置",
+  "desktopSettingsNoServers": "还没有账户。",
+  "desktopSettingsAddServer": "添加服务器",
+  "desktopSettingsSignedIn": "已登录",
+  "desktopSettingsSwitchServer": "切换",
+  "desktopSettingsRemoveServer": "移除",
+  "desktopSigningOut": "正在退出登录…",
+  "desktopSignedOut": "已退出登录。",
+  "desktopSignOutSuperseded": "有更新的登录取代了此次登录，因此未移除任何内容。",
+  "desktopSignOutIncomplete": "已在此处退出登录，但此设备尚未完成清除。Conduit 将在下次启动时重试。",
+  "desktopChooseFile": "选择文件…",
+  "desktopReplaceFile": "替换…",
+  "desktopChatsLabel": "聊天",
+  "desktopNoChatsYet": "尚无聊天。发送消息即可开始。",
+  "desktopSending": "正在发送…",
+  "desktopSignInMethod": "登录方式",
+  "desktopChatActions": "“{title}”的操作",
+  "@desktopChatActions": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopRenameChat": "重命名",
+  "desktopPinChat": "置顶",
+  "desktopUnpinChat": "取消置顶",
+  "desktopArchiveChat": "存档",
+  "desktopConfirmDelete": "此操作无法撤销。",
+  "desktopRenamePrompt": "新标题",
+  "desktopSearchChats": "搜索聊天",
+  "desktopSearchNoResults": "没有匹配的聊天。请尝试更少或不同的字词。",
+  "desktopSearchClear": "清除搜索",
+  "desktopPickAConversation": "选择一个对话",
+  "desktopPickAConversationHint": "从侧边栏中选择一个，或在下方输入以开始新对话。",
+  "desktopNewConversation": "新对话",
+  "desktopShortcutsTitle": "键盘快捷键",
+  "desktopShortcutFocusComposer": "转到消息框",
+  "desktopShortcutOpenPalette": "搜索聊天和命令",
+  "desktopShortcutFocusModelPicker": "选择模型",
+  "desktopShortcutShowShortcuts": "显示键盘快捷键",
+  "desktopShortcutCopyLastResponse": "复制最后一个回答",
+  "desktopShortcutCopyLastCodeBlock": "复制最后一个代码块",
+  "desktopComposerHint": "按 Enter 发送，Shift+Enter 换行",
+  "desktopCopied": "已复制",
+  "desktopNothingToCopy": "暂无可复制的内容",
+  "desktopPreview": "预览",
+  "desktopHidePreview": "隐藏预览",
+  "desktopAttachFiles": "附加文件",
+  "desktopRemoveAttachment": "移除 {name}",
+  "@desktopRemoveAttachment": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAttachmentFailed": "无法附加 {name}",
+  "@desktopAttachmentFailed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAttachmentsUploading": "正在等待附件上传完成",
+  "desktopAlreadyGenerating": "请等待当前回答完成，或将其停止。",
+  "desktopPreviousAnswer": "上一个回答",
+  "desktopNextAnswer": "下一个回答",
+  "desktopAnswerPosition": "第 {index} 个回答，共 {count} 个",
+  "@desktopAnswerPosition": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSearchIncomplete": "仍在同步中，部分聊天可能尚未显示。",
+  "desktopSyncing": "正在同步…",
+  "desktopSyncingPercent": "正在同步… {percent}%",
+  "@desktopSyncingPercent": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSyncFailed": "同步失败",
+  "desktopTemporaryHint": "不会保存。关闭应用后即消失。",
+  "desktopAllow": "允许",
+  "desktopDeny": "拒绝",
+  "desktopServerAsks": "来自服务器的请求",
+  "desktopShortcutAllowRequest": "允许请求",
+  "desktopShortcutDenyRequest": "拒绝请求",
+  "desktopToolRunning": "正在运行 {name}…",
+  "@desktopToolRunning": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "web_search"
+      }
+    }
+  },
+  "desktopToolUsed": "已使用 {name}",
+  "@desktopToolUsed": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "web_search"
+      }
+    }
+  },
+  "desktopUnnamedTool": "工具",
+  "desktopToolInput": "输入",
+  "desktopDetails": "详情",
+  "desktopDropToAttach": "拖放文件以附加",
+  "desktopPaletteLabel": "命令面板",
+  "desktopPalettePlaceholder": "搜索聊天和命令",
+  "desktopPaletteCommands": "命令",
+  "desktopPaletteRecent": "最近的聊天",
+  "desktopPaletteConversations": "聊天",
+  "desktopNewTemporaryChat": "新建临时聊天",
+  "desktopPromptMenu": "提示词",
+  "desktopPromptInsert": "插入",
+  "desktopPromptFill": "填写“{title}”",
+  "@desktopPromptFill": {
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Stand-up notes"
+      }
+    }
+  },
+  "desktopSourcesCount": "来源（{count}）",
+  "@desktopSourcesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopGoodResponse": "好的回答",
+  "desktopBadResponse": "差的回答",
+  "desktopAddTag": "添加标签",
+  "desktopTagName": "标签名称",
+  "desktopRemoveTag": "移除标签 {name}",
+  "@desktopRemoveTag": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "desktopShowTagged": "显示带有标签 {name} 的对话",
+  "@desktopShowTagged": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "desktopMoveTo": "移至 {folder}",
+  "@desktopMoveTo": {
+    "placeholders": {
+      "folder": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "desktopRemoveFromFolder": "从文件夹中移除",
+  "desktopSelectedCount": "已选择 {count} 个",
+  "@desktopSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopDone": "完成",
+  "desktopMoveSelected": "移到…",
+  "desktopNoFolder": "无文件夹",
+  "desktopBulkDeleteConfirm": "删除 {count} 个聊天？",
+  "@desktopBulkDeleteConfirm": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopBulkFailed": "{count} 个无法更改。",
+  "@desktopBulkFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
+  "desktopOffline": "您已离线。您的聊天仍在此处，重新联网后将继续发送。",
+  "desktopControls": "控制",
+  "desktopSystemPromptHint": "仅用于此对话。留空则使用 Open WebUI 设置中的默认值。",
+  "desktopSaved": "已保存",
+  "desktopOpenImage": "打开图片 {name}",
+  "@desktopOpenImage": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "diagram.png"
+      }
+    }
+  },
+  "desktopModelMenu": "模型",
+  "desktopAnswerWith": "使用 {model} 回答",
+  "@desktopAnswerWith": {
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-4o"
+      }
+    }
+  },
+  "desktopClearMention": "改用所选模型",
+  "desktopSortBy": "排序方式",
+  "desktopSortUpdated": "最近更新",
+  "desktopSortTitle": "标题",
+  "desktopFolderEmpty": "此文件夹中还没有内容。",
+  "desktopToggleFolder": "显示或隐藏 {name} 中的内容",
+  "@desktopToggleFolder": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "desktopOverview": "概览",
+  "desktopOverviewHint": "此对话的所有分支。选择一条消息以显示其分支。",
+  "desktopKnowledgeMenu": "知识库",
+  "desktopOpenAiCompatible": "OpenAI 兼容",
+  "desktopDirectHistoryLocal": "直连聊天仅保存在此电脑上",
+  "desktopDirectEnable": "使用 {name}",
+  "@desktopDirectEnable": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "OpenRouter"
+      }
+    }
+  },
+  "desktopMcpReachabilityHelp": "添加此电脑可访问的 Streamable HTTP 端点。之后即可将其工具提供给直连中的模型。",
+  "desktopMcpSignedIn": "已登录",
+  "desktopMcpNotSignedIn": "未登录",
+  "desktopMcpHeadersConfigured": "已配置：{names}。输入新的请求头以替换它们。",
+  "@desktopMcpHeadersConfigured": {
+    "placeholders": {
+      "names": {
+        "type": "String",
+        "example": "X-Team, X-Region"
+      }
+    }
+  },
+  "desktopMcpSaveFirst": "请先保存服务器再登录。",
+  "desktopNoteSaveFailed": "尚未保存；将在下次更改时重试",
+  "desktopLoadOlderMessages": "加载更早的消息",
+  "desktopMessageEdited": "已编辑",
+  "desktopReasoningSeconds": "{count, plural, =0{不到 1 秒} other{# 秒}}",
+  "desktopReasoningMinutes": "{count, plural, other{# 分钟}}",
+  "desktopChatMissing": "此聊天已不存在。",
+  "desktopChatLoadFailed": "无法加载此聊天。",
+  "desktopActionFailed": "操作未成功，请重试。",
+  "desktopRatingNotSaved": "你的评分未保存。",
+  "desktopModelChip": "模型：{name}",
+  "desktopModelNotSelected": "无法选择该模型。",
+  "desktopUploadingPercent": "正在上传… {percent}%",
+  "desktopWriting": "{name}，正在撰写",
+  "desktopSourceLabel": "来源 {index}：{title}",
+  "desktopOpenFile": "打开 {name}",
+  "desktopWaitingForAnswer": "正在等待回答…",
+  "desktopKnowledgeChip": "知识库：{name}",
+  "desktopNoPromptsMatch": "没有匹配的提示词。",
+  "desktopNoKnowledgeMatch": "没有匹配的知识库。",
+  "desktopEditMessageLabel": "编辑你的消息",
+  "desktopSendOffline": "离线",
+  "desktopFeatures": "功能",
+  "desktopFieldRequired": "请填写{field}。",
+  "desktopAttachmentImage": "图片 {name}",
+  "desktopVersionOf": "第 {index} 个回答，共 {count} 个",
+  "desktopWorkspaceImport": "导入",
+  "desktopWorkspaceExportAll": "全部导出",
+  "desktopWorkspaceExport": "导出",
+  "desktopWorkspaceUpdated": "更新于 {date}",
+  "@desktopWorkspaceUpdated": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceImportFailed": "未导入：{items}",
+  "@desktopWorkspaceImportFailed": {
+    "placeholders": {
+      "items": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceOnePerLine": "每行一个",
+  "desktopWorkspaceCommaSeparated": "用逗号分隔",
+  "desktopWorkspaceActive": "启用",
+  "desktopWorkspaceNoSections": "在此服务器上，工作区中没有您可以管理的内容。",
+  "desktopWorkspaceNotFound": "此项目已不存在。",
+  "desktopWorkspaceCleanupFailed": "移除失败的文件",
+  "desktopWorkspaceAccessSaved": "访问权限已保存。",
+  "desktopWorkspaceAccessAdd": "添加",
+  "desktopWorkspaceValvesUserHint": "此工具的个人设置；服务器 valves 对所有人生效。",
+  "desktopWorkspaceDefaultFeaturesHint": "使用此模型新建聊天时默认开启的功能，例如 web_search、code_interpreter。",
+  "desktopHermesTestOk": "已连接到 Hermes Agent。",
+  "desktopHermesTestUnauthorized": "Hermes Agent 拒绝了该密钥。",
+  "desktopHermesTestUnreachable": "无法通过该地址连接到 Hermes Agent。",
+  "desktopHermesOpenSession": "打开",
+  "desktopHermesMode": "连接类型",
+  "desktopHermesSignInToFinish": "已保存。登录 Hermes Agent 以完成设置。",
+  "desktopHermesSignInRequired": "请在设置中登录 Hermes 以与代理对话。",
+  "desktopStopDictation": "停止听写",
+  "desktopMicrophoneUnavailable": "Conduit 无法使用麦克风。请检查麦克风是否已连接，以及是否允许 Conduit 使用它。",
+  "desktopNothingHeard": "没有听到任何声音。",
+  "desktopTranscriptionFailed": "无法转写。请重试。",
+  "desktopShortcutDictate": "开始或停止听写",
+  "desktopMilliseconds": "{ms} 毫秒",
+  "@desktopMilliseconds": {
+    "placeholders": {
+      "ms": {}
+    }
+  },
+  "desktopReadAloud": "朗读",
+  "desktopStopReading": "停止朗读",
+  "desktopVoiceCallHeard": "您说：{text}",
+  "@desktopVoiceCallHeard": {
+    "placeholders": {
+      "text": {}
+    }
+  },
+  "desktopSettingsDesktopTab": "通用",
+  "desktopCloseToTray": "关闭窗口后保持运行",
+  "desktopCloseToTrayDescription": "Conduit 会保留在托盘中，通知和快速提问将继续可用。",
+  "desktopLaunchAtLogin": "登录时打开",
+  "desktopLaunchAtLoginDescription": "登录电脑时在托盘中启动。仅限安装版。",
+  "desktopQuickAskTitle": "快速提问",
+  "desktopQuickAskEnabled": "在任意位置打开快速提问",
+  "desktopQuickAskShortcut": "快捷键",
+  "desktopQuickAskShortcutInvalid": "请使用一个或多个修饰键加一个按键，例如 CommandOrControl+Shift+Space。",
+  "desktopQuickAskShortcutTaken": "另一个应用正在使用此快捷键。请选择其他快捷键。",
+  "desktopQuickAskNeedsSetup": "请先打开 Conduit 完成设置。",
+  "desktopNotificationsSection": "通知",
+  "desktopShortcutPressKeys": "按下新的按键，或按 Esc 取消",
+  "desktopShortcutChange": "更改",
+  "desktopShortcutReset": "重置",
+  "desktopShortcutResetAll": "恢复默认设置",
+  "desktopShortcutChangeLabel": "更改“{command}”的快捷键",
+  "@desktopShortcutChangeLabel": {
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopReleaseSeeChanges": "查看更新内容",
+  "desktopReleaseDismiss": "关闭",
+  "desktopAboutDaemon": "后台服务版本",
+  "desktopAboutUserData": "用户数据",
+  "desktopAboutLogs": "日志",
+  "desktopSttEngineLocal": "在此电脑上",
+  "desktopSttEngineLocalDescription": "由此电脑上的 Whisper 转写。您的语音不会离开此电脑。",
+  "desktopSttModelsTitle": "语音模型",
+  "desktopSttModelsDescription": "从 Hugging Face 下载一次并保存在此电脑上。模型越大，识别越准确，但耗时越长。",
+  "desktopSttModelDownload": "下载（{size}）",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "正在下载… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "删除",
+  "desktopSttModelUse": "使用",
+  "desktopSttModelInUse": "使用中",
+  "desktopSttModelEnglishOnly": "仅限英语",
+  "desktopSttModelFailedChecksum": "下载的文件与预期不符，已丢弃。",
+  "desktopSttModelFailedNetwork": "下载失败。请检查连接后重试。",
+  "desktopSttLocalNeedsModel": "下载模型后即可在此电脑上转写；在此之前由服务器转写。",
+  "desktopUiFontSize": "文字大小",
+  "desktopUiFontSizeValue": "{size} pt",
+  "desktopUiFontSizeHint": "代码块保持各自的字号。",
+  "desktopSidebar": "侧边栏",
+  "desktopSidePane": "侧面板",
+  "desktopShortcutToggleSidebar": "显示或隐藏侧边栏",
+  "desktopShortcutToggleSidePane": "显示或隐藏侧面板",
+  "desktopSearch": "搜索",
+  "desktopMinimizeWindow": "最小化",
+  "desktopMaximizeWindow": "最大化",
+  "desktopRestoreWindow": "向下还原",
+  "desktopCloseWindow": "关闭",
+  "desktopResizeSidebar": "调整侧边栏大小",
+  "desktopResizeSidePane": "调整侧面板大小",
+  "desktopEarlier": "更早",
+  "desktopChatRunning": "正在回答",
+  "desktopChatUnread": "新回答",
+  "desktopChatFailed": "回答失败",
+  "desktopShell": "Shell",
+  "desktopSources": "来源",
+  "desktopNoSources": "此对话中尚未引用任何来源。",
+  "desktopClosePane": "关闭侧面板",
+  "desktopNoPreview": "暂无可预览的内容。当回答编写网页时，会显示在这里。",
+  "desktopPreviewPosition": "第 {index} 个，共 {count} 个",
+  "desktopPreviousPreview": "上一页",
+  "desktopNextPreview": "下一页",
+  "desktopOpenShell": "打开 Shell",
+  "desktopCloseShell": "关闭 Shell",
+  "desktopResizeShell": "调整 Shell 大小",
+  "desktopAllNotes": "所有笔记",
+  "desktopMenuSettings": "设置…",
+  "desktopMenuServices": "服务",
+  "desktopMenuHide": "隐藏 Conduit",
+  "desktopMenuHideOthers": "隐藏其他",
+  "desktopMenuShowAll": "全部显示",
+  "desktopMenuQuit": "退出 Conduit",
+  "desktopMenuCloseWindow": "关闭窗口",
+  "desktopMenuUndo": "撤销",
+  "desktopMenuRedo": "重做",
+  "desktopMenuCut": "剪切",
+  "desktopMenuPaste": "粘贴",
+  "desktopMenuSelectAll": "全选",
+  "desktopMenuView": "显示",
+  "desktopMenuToggleSidebar": "显示或隐藏边栏",
+  "desktopMenuFullScreen": "进入/退出全屏幕",
+  "desktopMenuWindow": "窗口",
+  "desktopMenuZoom": "缩放",
+  "desktopMenuBringAllToFront": "前置全部窗口",
+  "desktopMenuHelp": "帮助",
+  "desktopMenuConduitHelp": "Conduit 帮助",
+  "desktopCoreOpeningData": "正在打开您的数据…",
+  "desktopCoreFailedHint": "请重试。如果问题持续出现，请点按“显示日志”，并在报告问题时附上日志。",
+  "desktopStoreUnreadableTitle": "Conduit 无法打开已保存的数据",
+  "desktopStoreUnreadableBody": "此 Mac 上的数据是用 Conduit 已不再拥有的密钥保存的，通常来自较早的版本。重置本地数据即可重新开始。旧文件夹会以新名称保留，不会删除任何内容。",
+  "desktopResetLocalData": "重置本地数据",
+  "desktopResetFailed": "无法移走旧数据。请重试，或点按“显示日志”查看详细信息。",
+  "desktopExportDiagnosticsHint": "将日志和已脱敏的配置保存为 zip 文件，并在“访达”中显示。不会上传任何内容。",
+  "desktopExporting": "正在导出…",
+  "desktopDiagnosticsSaved": "已保存 {name}",
+  "desktopDiagnosticsFailed": "无法导出诊断信息。",
+  "desktopSettingsAppearanceTab": "外观",
+  "desktopSettingsAccountsTab": "账户",
+  "desktopSettingsDirectTab": "直接连接",
+  "desktopSettingsDataTab": "数据",
+  "desktopNotAvailableYet": "暂不可用",
+  "desktopAppearanceTheme": "主题",
+  "desktopPalette": "调色板",
+  "desktopAppearanceLayout": "布局",
+  "desktopSidebarTranslucent": "半透明",
+  "desktopSidebarSolid": "不透明",
+  "desktopDensity": "密度",
+  "desktopDensityCompact": "紧凑",
+  "desktopDensityComfortable": "宽松",
+  "desktopLanguageSystem": "系统（{language}）",
+  "desktopShortcutOpenSettings": "打开设置",
+  "desktopShortcutNeedsModifier": "快捷键中请包含 ⌘ 或 ⌥。",
+  "desktopAccountAddedNeedsSignIn": "请登录新账户以完成添加。",
+  "desktopAccountAlreadyActive": "账户 {name} 已在使用中。",
+  "@desktopAccountAlreadyActive": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountChangeFailed": "无法更改账户。请重试。",
+  "desktopAccountNothingToCancel": "该登录已经完成，因此没有可取消的内容。",
+  "desktopAccountSignedOut": "已退出 {name}。",
+  "@desktopAccountSignedOut": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountSignedOutNext": "已退出 {name}。现在使用的是 {next}。",
+  "@desktopAccountSignedOutNext": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "next": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountSignedOutNextNeedsSignIn": "已退出 {name}。请登录 {next} 以继续。",
+  "@desktopAccountSignedOutNextNeedsSignIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "next": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountSwitchedNeedsSignIn": "已切换到 {name}。请登录以继续。",
+  "@desktopAccountSwitchedNeedsSignIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountSwitchedTo": "已切换到 {name}。",
+  "@desktopAccountSwitchedTo": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountUnknownOutcome": "账户更改已完成，但此版本的 Conduit 无法判断结果。请查看账户列表。",
+  "desktopAdd": "添加",
+  "desktopAllModels": "所有模型",
+  "desktopAnswering": "正在发送您的回答…",
+  "desktopApprovalFailed": "您的回答未送达。请重试。",
+  "desktopApprovalUnsupportedBody": "暂时无法在此回应此请求。请在手机上的 Conduit 或网页版 Open WebUI 中回应，或将其关闭。",
+  "desktopApprovalUnsupportedTitle": "请在其他设备上回应",
+  "desktopBackend": "连接方式",
+  "desktopChangeServer": "更改",
+  "desktopChatToolbar": "聊天工具栏",
+  "desktopClearLocalDataConfirm": "清除",
+  "desktopClearLocalDataConfirmBody": "Conduit 将在这台 Mac 上退出所有账户并重新开始。旧数据会被移到一旁，而不是删除。",
+  "desktopClearLocalDataConfirmTitle": "清除本地数据？",
+  "desktopClearLocalDataHint": "已保存的账户、会话以及下载到这台 Mac 上的聊天。您的聊天仍保留在服务器上。",
+  "desktopClientCertificateHelp": "适用于需要双向 TLS 的服务器。",
+  "desktopClose": "关闭",
+  "desktopComposerLabel": "消息编辑区",
+  "desktopConnectedTo": "已连接到 {server}（Open WebUI {version}）",
+  "@desktopConnectedTo": {
+    "placeholders": {
+      "server": {
+        "type": "String"
+      },
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopConversation": "聊天",
+  "desktopCustomHeadersHelp": "随每个请求发送，例如用于通过登录代理。",
+  "desktopDataSignOutHint": "退出 {name}。将改用下一个已保存的账户。",
+  "@desktopDataSignOutHint": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopDirectNone": "还没有直接连接。",
+  "desktopDirectTestFailed": "无法连接到提供商。请检查服务器地址和 API 密钥。",
+  "desktopDirectTestOk": "已连接。找到 {count} 个模型。",
+  "@desktopDirectTestOk": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopHermesModeApi": "API 服务器",
+  "desktopHermesReady": "Hermes Agent 已可使用。",
+  "desktopHermesSigningIn": "请在浏览器中完成登录…",
+  "desktopHideSidebar": "隐藏边栏",
+  "desktopMessageField": "消息",
+  "desktopMessages": "消息",
+  "desktopModelsCanMakeMistakes": "模型可能会出错。请核实重要信息。",
+  "desktopMoreActionsFor": "{name} 的更多操作",
+  "@desktopMoreActionsFor": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopNewFolder": "新建文件夹",
+  "desktopNoAccountInUse": "当前没有使用 Open WebUI 账户。",
+  "desktopOr": "或",
+  "desktopPaletteNavigate": "导航",
+  "desktopPaletteOpen": "打开",
+  "desktopPaletteOpenInBackground": "在后台打开",
+  "desktopPaletteResults": "结果",
+  "desktopQuickAskAsk": "提问",
+  "desktopRecentQuestions": "最近的问题",
+  "desktopSelfSignedHelp": "仅用于您自己运行的服务器。",
+  "desktopServerChip": "服务器：{name}。更改",
+  "@desktopServerChip": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopServerChipLabel": "服务器：{name}，{host}",
+  "@desktopServerChipLabel": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopServerNameHelp": "可选。显示在边栏和账户切换器中。",
+  "desktopServerUrlHelp": "Conduit 会在您登录前检查服务器。",
+  "desktopSessionExpired": "会话已过期。请登录以同步此账户。",
+  "desktopSetUpConduit": "设置 Conduit",
+  "desktopSettingsSections": "设置分区",
+  "desktopShellExtrasLater": "这些功能将随菜单栏项目在后续更新中提供。",
+  "desktopSignInAgain": "重新登录…",
+  "desktopSignInAgainBody": "您在此服务器上的会话已结束。请重新登录以继续同步。",
+  "desktopSignInFieldsRequired": "请输入您的邮箱或用户名以及密码。",
+  "desktopSsoCancelled": "单点登录已取消。",
+  "desktopSsoNeedsPassword": "您已通过登录代理。现在请登录 Open WebUI。",
+  "desktopSsoTimedOut": "单点登录耗时过长。请重试。",
+  "desktopSsoWindowTitle": "登录 {server}",
+  "@desktopSsoWindowTitle": {
+    "placeholders": {
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopToolResult": "结果",
+  "desktopPositionOf": "第 {index} 个，共 {count} 个",
+  "@desktopPositionOf": {
+    "placeholders": {
+      "index": {
+        "type": "String"
+      },
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopTimeNow": "刚刚",
+  "desktopTimeMinutesShort": "{count}分钟",
+  "@desktopTimeMinutesShort": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopTimeHoursShort": "{count}小时",
+  "@desktopTimeHoursShort": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopTimeMinutesAgo": "{count}分钟前",
+  "@desktopTimeMinutesAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopTimeHoursAgo": "{count}小时前",
+  "@desktopTimeHoursAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopWeekdayShort": "{weekday, select, 1{周一} 2{周二} 3{周三} 4{周四} 5{周五} 6{周六} 7{周日} other{}}",
+  "@desktopWeekdayShort": {
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWeekdayLong": "{weekday, select, 1{星期一} 2{星期二} 3{星期三} 4{星期四} 5{星期五} 6{星期六} 7{星期日} other{}}",
+  "@desktopWeekdayLong": {
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopMonthShort": "{month, select, 1{1月} 2{2月} 3{3月} 4{4月} 5{5月} 6{6月} 7{7月} 8{8月} 9{9月} 10{10月} 11{11月} 12{12月} other{}}",
+  "@desktopMonthShort": {
+    "placeholders": {
+      "month": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopDateShort": "{month}{day}日",
+  "@desktopDateShort": {
+    "placeholders": {
+      "month": {
+        "type": "String"
+      },
+      "day": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopDateShortYear": "{year}年{month}{day}日",
+  "@desktopDateShortYear": {
+    "placeholders": {
+      "month": {
+        "type": "String"
+      },
+      "day": {
+        "type": "String"
+      },
+      "year": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopPaletteResultCount": "{count} 个结果",
+  "@desktopPaletteResultCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopChatCount": "{count} 个聊天",
+  "@desktopChatCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSyncOffline": "离线",
+  "desktopSynced": "已是最新",
+  "desktopChatChangeFailed": "未能完成更改。",
+  "@desktopChatChangeFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopBulkPartlyFailed": "有 {count} 个聊天未能更改。",
+  "@desktopBulkPartlyFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSelectChat": "选择{title}",
+  "@desktopSelectChat": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopQuickAskEmpty": "随便问。回答会显示在这里，并保存到你的对话中。",
+  "desktopOpenInConduit": "在 Conduit 中打开",
+  "desktopOpenFilesTooMany": "另有 {count} 个文件未附加：一次最多可打开 {max} 个。",
+  "@desktopOpenFilesTooMany": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopOpenFileTooLarge": "{name} 超过 256 MB，因此未附加。",
+  "@desktopOpenFileTooLarge": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopChannelsNotAvailable": "桌面版暂不支持频道。",
+  "desktopNotesNotAvailable": "桌面版暂不支持笔记。",
+  "desktopNotificationAnswerReady": "回答已就绪。",
+  "desktopNotificationAnswerFailed": "回答未能完成。",
+  "desktopTrayOpen": "打开 Conduit",
+  "desktopTrayQuickAsk": "快速提问",
+  "desktopCloseToMenuBar": "关闭时保留在菜单栏",
+  "desktopCloseToMenuBarDescription": "关闭窗口后，Conduit 会在菜单栏中继续运行，快速提问和通知将继续可用。",
+  "desktopLaunchAtLoginHint": "登录时打开 Conduit。开启“关闭时保留在菜单栏”后，它会在菜单栏中启动。",
+  "desktopLoginItemNeedsApproval": "请在“系统设置” › “通用” › “登录项”中允许 Conduit。",
+  "desktopLoginItemNotFound": "macOS 找不到此 Conduit 副本。请将它移到“应用程序”文件夹后重试。",
+  "desktopLoginItemFailed": "无法更改。请在“系统设置”中检查“登录项”。",
+  "@desktopLoginItemFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopOpenSystemSettings": "打开系统设置",
+  "desktopQuickAskShortcutUnsupported": "此按键不能用作全局快捷键。请选择其他按键。",
+  "desktopQuickAskShortcutUnavailable": "全局快捷键暂时不可用。",
+  "desktopNotifyAnswers": "回答完成时通知",
+  "desktopNotifyAnswersFooter": "通知只显示聊天标题，绝不显示回答内容，因为通知可能出现在锁定屏幕和共享屏幕上。",
+  "desktopNotificationsDenied": "Conduit 的通知已在系统设置中关闭。",
+  "desktopNotificationsUnavailable": "通知仅在已安装的应用中可用。",
+  "desktopNotificationsOff": "通知已关闭",
+  "desktopMenuBarSection": "菜单栏",
+  "desktopShowSidebar": "显示边栏",
+  "desktopCheckForUpdates": "检查更新…",
+  "desktopUpdatesSection": "更新",
+  "desktopAutomaticUpdateChecks": "自动检查更新",
+  "desktopBetaUpdates": "接收测试版更新",
+  "desktopBetaUpdatesFooter": "测试版会更早推出，但可能不太稳定。关闭后，Conduit 会等待下一个稳定版本；不会退回到旧版本。",
+  "desktopUpdatesUnavailable": "仅已安装的应用可以更新。",
+  "desktopSuggestionsHeading": "建议",
+  "desktopImageLoadFailed": "无法加载此图片。",
+  "desktopPreviewHtmlTitle": "HTML 预览",
+  "desktopPreviewDiagramTitle": "图示预览",
+  "desktopPreviewChartTitle": "图表预览",
+  "desktopMenuHideSidebar": "隐藏边栏",
+  "desktopMenuShowSidebar": "显示边栏",
+  "desktopMenuEnterFullScreen": "进入全屏幕",
+  "desktopMenuExitFullScreen": "退出全屏幕",
+  "desktopMenuFind": "查找…",
+  "desktopMenuChat": "对话",
+  "desktopMenuRenameChat": "重命名…",
+  "desktopMenuMoveTo": "移到",
+  "desktopMenuRemoveFromFolder": "从文件夹中移除",
+  "desktopMenuDeleteChat": "删除…",
+  "desktopMenuCopyLastReply": "复制最后一个回答",
+  "desktopMenuCopyLastCodeBlock": "复制最后一个代码块",
+  "desktopMenuKeyboardShortcuts": "键盘快捷键",
+  "desktopFolderNewChat": "在此文件夹中新建对话",
+  "desktopFolderExpand": "展开",
+  "desktopFolderCollapse": "折叠",
+  "desktopCopyAsMarkdown": "复制为 Markdown",
+  "desktopShortcutTypeShortcut": "键入快捷键",
+  "desktopShortcutResetToDefault": "恢复默认",
+  "desktopShortcutRecordHelp": "点按快捷键，然后按下新的按键；按 Esc 取消。",
+  "desktopMenuFindSubmenu": "查找",
+  "desktopFindNext": "查找下一个",
+  "desktopFindPrevious": "查找上一个",
+  "desktopMenuSearchChats": "搜索聊天",
+  "desktopMenuSearchChatsAndCommands": "搜索聊天和命令…",
+  "desktopMenuChooseModel": "选择模型…",
+  "desktopMenuActualSize": "实际大小",
+  "desktopMenuZoomIn": "放大",
+  "desktopMenuZoomOut": "缩小",
+  "desktopFindInChat": "在聊天中查找",
+  "desktopFindNoMatches": "无匹配项",
+  "desktopSoftwareUpdate": "软件更新",
+  "desktopCheckNow": "立即检查",
+  "desktopDiagnostics": "诊断",
+  "desktopDiagnosticReport": "诊断报告",
+  "desktopExportEllipsis": "导出…",
+  "desktopLocalData": "本地数据",
+  "desktopClearEllipsis": "清除…",
+  "desktopHermesAgent": "Hermes Agent",
+  "desktopSyncNow": "立即同步",
+  "desktopPaletteClay": "陶土",
+  "desktopPaletteBerry": "莓果",
+  "desktopServerNamePlaceholder": "家庭服务器",
+  "desktopPrivateKeyPassword": "私钥密码",
+  "desktopOptional": "可选",
+  "desktopSignInFailed": "无法登录。请检查登录信息和服务器地址。",
+  "desktopCouldntReachServer": "无法连接到服务器。请检查网络连接以及服务器是否正在运行。",
+  "desktopNotOpenWebUi": "这似乎不是 Open WebUI 服务器。",
+  "desktopServerFormSubtitle": "输入 Open WebUI 服务器的地址。",
+  "desktopSsoDescription": "使用组织的身份提供方登录。",
+  "desktopHermesSubtitle": "连接到自托管的 Hermes Agent。",
+  "desktopSelectChats": "选择聊天…",
+  "desktopNewSubfolder": "新建子文件夹",
+  "desktopDeleteFolderEllipsis": "删除文件夹…",
+  "desktopDeleteFolderTitle": "删除“{name}”？",
+  "desktopDeleteFolderKeepsChats": "其中的聊天不会被删除，而是移到聊天列表中。",
+  "desktopDeleteFolderWithSubfolders": "其子文件夹也会被删除。其中的聊天不会被删除，而是移到聊天列表中。",
+  "desktopFolderNameTaken": "名称“{name}”已被使用。",
+  "desktopFolderNameTakenMessage": "请选择其他名称。",
+  "desktopKeyboardChats": "聊天",
+  "desktopKeyboardMessages": "消息",
+  "desktopKeyboardFindAndView": "查找与显示",
+  "desktopKeyboardDeleteChat": "删除聊天",
+  "desktopKeyboardFindInChat": "在聊天中查找",
+  "desktopKeyboardQuickAskOff": "快速提问已关闭。请在“通用”中打开。",
+  "desktopEmailPlaceholder": "name@example.com",
+  "desktopRequiredPlaceholder": "必填",
+  "desktopCopyErrorDetails": "复制错误详细信息",
+  "desktopConnect": "连接",
+  "desktopSignInSubtitle": "使用你的 Open WebUI 账户登录。",
+  "desktopCodeCopied": "已将代码复制到剪贴板。",
+  "desktopHeaderAlreadyExists": "标头“{key}”已设置。请先移除它再更改。",
+  "desktopMcpAlwaysAllowNote": "在工具发生变化之前，{serverName} 可以直接运行 {toolName}，不再询问。",
+  "desktopSkip": "跳过",
+  "desktopHermesModeApiHelp": "使用代理的 API 服务器和 API 密钥。",
+  "desktopHermesModeGatewayHelp": "通过浏览器登录，并使用代理的某个配置文件。",
+  "desktopSendWaitsReconnecting": "Conduit 重新连接后即可发送。",
+  "desktopSendWaitsStarting": "Conduit 启动后即可发送。",
+  "desktopSendWaitsOffline": "恢复联网后即可发送。",
+  "desktopMenuNextChat": "下一个聊天",
+  "desktopMenuPreviousChat": "上一个聊天",
+  "desktopClearSearch": "清除搜索",
+  "desktopPreviewCopyCode": "复制代码",
+  "desktopPreviewSave": "存储…",
+  "desktopPreviewOpenInBrowser": "在浏览器中打开",
+  "desktopPreviewSaveFailed": "无法存储文件。",
+  "desktopShortcutFixedNote": "灰显的快捷键属于菜单栏，无法更改。",
+  "desktopAboutVersionLine": "版本 {version}",
+  "desktopTryAgain": "重试"
+}

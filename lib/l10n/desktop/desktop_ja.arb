@@ -1,0 +1,1031 @@
+{
+  "@@locale": "ja",
+  "desktopSignIn": "サインイン",
+  "desktopSignOut": "サインアウト",
+  "desktopSignOutEllipsis": "サインアウト…",
+  "desktopSignOutOf": "{name} からサインアウト…",
+  "@desktopSignOutOf": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopSignOutAnyway": "それでもサインアウト",
+  "desktopSwitchAnyway": "それでも切り替える",
+  "desktopReplyInProgress": "まだ回答を作成中です。",
+  "desktopAddAccountEllipsis": "アカウントを追加…",
+  "desktopAddAccount": "アカウントを追加",
+  "desktopConnectToServer": "サーバーに接続",
+  "desktopServerAddress": "サーバーのアドレス",
+  "desktopServerName": "サーバー名",
+  "desktopAdvancedSettings": "詳細設定",
+  "desktopAllowUnverifiedCertificate": "未検証の証明書を許可",
+  "desktopCustomHeaders": "カスタムヘッダー",
+  "desktopAddHeader": "ヘッダーを追加",
+  "desktopHeaderName": "ヘッダー名",
+  "desktopHeaderValue": "ヘッダー値",
+  "desktopRemoveHeader": "ヘッダーを削除",
+  "desktopPrivateKey": "秘密鍵",
+  "desktopConnecting": "接続中…",
+  "desktopInvalidServerAddress": "http:// または https:// で始まるアドレスを入力してください。",
+  "desktopApiKey": "API キー",
+  "desktopEmailOrUsername": "メールアドレスまたはユーザー名",
+  "desktopSignInWithSso": "SSO でサインイン",
+  "desktopSignInWithLdap": "LDAP でサインイン",
+  "desktopSigningIn": "サインイン中…",
+  "desktopSsoFailed": "シングルサインオンに失敗しました。もう一度お試しください。",
+  "desktopUseDifferentServer": "別のサーバーを使用",
+  "desktopWrongCredentials": "メールアドレスまたはパスワードが一致しません。もう一度お試しください。",
+  "desktopLdapNotEnabled": "このサーバーでは LDAP でのサインインが許可されていません。",
+  "desktopCertificateUntrusted": "このサーバーの証明書を検証できません。",
+  "desktopChooseHowToConnect": "接続方法を選択",
+  "desktopSelfHostedServices": "セルフホストのサービス",
+  "desktopConnectDirectly": "直接接続",
+  "desktopTryDemo": "デモを試す",
+  "desktopStopGenerating": "生成を停止",
+  "desktopImageGeneration": "画像生成",
+  "desktopSearchModels": "モデルを検索",
+  "desktopNoModelsAvailable": "利用できるモデルがありません。",
+  "desktopSomethingWentWrong": "問題が発生しました。もう一度お試しください。",
+  "desktopRanCode": "コードを実行しました",
+  "desktopRunningCode": "コードを実行中…",
+  "desktopCodeFailed": "コードを実行できませんでした",
+  "desktopAllowOnce": "1 回だけ許可",
+  "desktopAllowForSession": "このセッション中は許可",
+  "desktopAlwaysAllow": "常に許可",
+  "desktopToolApproval": "ツールの承認",
+  "desktopToolApprovalQuestion": "{name} を許可しますか？",
+  "desktopApprovalRequired": "承認が必要です",
+  "desktopMoveToMenu": "移動先",
+  "desktopShareChat": "チャットを共有",
+  "desktopShareLinkCopied": "共有リンクをクリップボードにコピーしました。",
+  "desktopShareFailed": "このチャットを共有できませんでした。",
+  "desktopLoadMore": "さらに読み込む",
+  "desktopTestConnection": "接続をテスト",
+  "desktopSaving": "保存中…",
+  "desktopSignInWithHermes": "Hermes Agent でサインイン",
+  "desktopSignOutOfHermes": "Hermes Agent からサインアウト",
+  "desktopAddConnection": "接続を追加",
+  "desktopAddConnectionEllipsis": "接続を追加…",
+  "desktopEditConnection": "接続を編集",
+  "desktopConnectionName": "接続名",
+  "desktopProviderType": "プロバイダーの種類",
+  "desktopMyProvider": "マイプロバイダー",
+  "desktopRenameEllipsis": "名前を変更…",
+  "desktopDeleteEllipsis": "削除…",
+  "desktopShowLogs": "ログを表示",
+  "desktopPaletteNoResults": "一致するチャットやコマンドはありません。",
+  "desktopCoreConnecting": "Conduit を起動しています…",
+  "desktopCoreConnected": "コアに接続しました",
+  "desktopCoreReconnecting": "再接続しています…",
+  "desktopCoreUnavailable": "Conduit が動作を停止しました",
+  "desktopCoreVersionMismatch": "Conduit を再インストールする必要があります。一部のコンポーネントのバージョンが異なります。",
+  "desktopKeyringUnavailable": "システムのキーリングが見つからないため、保存された認証情報の保護が弱くなっています。gnome-keyring または kwallet をインストールしてください。",
+  "desktopQuickAskPlaceholder": "Conduit に質問…",
+  "desktopQuickAskContinue": "メインウィンドウで続ける",
+  "desktopSettingsKeyboardTab": "キーボード",
+  "desktopShortcutConflict": "{shortcut} は {command} で使用されています。",
+  "@desktopShortcutConflict": {
+    "placeholders": {
+      "shortcut": {
+        "type": "String",
+        "example": "Cmd+K"
+      },
+      "command": {
+        "type": "String",
+        "example": "Search"
+      }
+    }
+  },
+  "desktopSettingsTitle": "設定",
+  "desktopSettingsNoServers": "アカウントはまだありません。",
+  "desktopSettingsAddServer": "サーバーを追加",
+  "desktopSettingsSignedIn": "サインイン済み",
+  "desktopSettingsSwitchServer": "切り替え",
+  "desktopSettingsRemoveServer": "削除",
+  "desktopSigningOut": "サインアウトしています…",
+  "desktopSignedOut": "サインアウトしました。",
+  "desktopSignOutSuperseded": "新しいサインインに置き換えられたため、何も削除されませんでした。",
+  "desktopSignOutIncomplete": "サインアウトしましたが、このデバイスからの消去はまだ完了していません。Conduit は次回起動時に再試行します。",
+  "desktopChooseFile": "ファイルを選択…",
+  "desktopReplaceFile": "置き換え…",
+  "desktopChatsLabel": "チャット",
+  "desktopNoChatsYet": "まだチャットがありません。メッセージを送信して始めましょう。",
+  "desktopSending": "送信中…",
+  "desktopSignInMethod": "サインイン方法",
+  "desktopChatActions": "{title} の操作",
+  "@desktopChatActions": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopRenameChat": "名前を変更",
+  "desktopPinChat": "ピン留め",
+  "desktopUnpinChat": "ピン留め解除",
+  "desktopArchiveChat": "アーカイブ",
+  "desktopConfirmDelete": "この操作は取り消せません。",
+  "desktopRenamePrompt": "新しいタイトル",
+  "desktopSearchChats": "チャットを検索",
+  "desktopSearchNoResults": "一致するチャットはありません。語句を減らすか、別の語句でお試しください。",
+  "desktopSearchClear": "検索をクリア",
+  "desktopPickAConversation": "会話を選択",
+  "desktopPickAConversationHint": "サイドバーから選択するか、下に入力して新しい会話を始めてください。",
+  "desktopNewConversation": "新しいチャット",
+  "desktopShortcutsTitle": "キーボードショートカット",
+  "desktopShortcutFocusComposer": "メッセージ入力欄へ移動",
+  "desktopShortcutOpenPalette": "チャットとコマンドを検索",
+  "desktopShortcutFocusModelPicker": "モデルを選択",
+  "desktopShortcutShowShortcuts": "キーボードショートカットを表示",
+  "desktopShortcutCopyLastResponse": "最後の回答をコピー",
+  "desktopShortcutCopyLastCodeBlock": "最後のコードブロックをコピー",
+  "desktopComposerHint": "Enter で送信、Shift+Enter で改行",
+  "desktopCopied": "コピーしました",
+  "desktopNothingToCopy": "コピーするものがまだありません",
+  "desktopPreview": "プレビュー",
+  "desktopHidePreview": "プレビューを隠す",
+  "desktopAttachFiles": "ファイルを添付",
+  "desktopRemoveAttachment": "{name} を削除",
+  "@desktopRemoveAttachment": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAttachmentFailed": "{name} を添付できませんでした",
+  "@desktopAttachmentFailed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAttachmentsUploading": "添付ファイルのアップロード完了を待っています",
+  "desktopAlreadyGenerating": "現在の回答が完了するまで待つか、停止してください。",
+  "desktopPreviousAnswer": "前の回答",
+  "desktopNextAnswer": "次の回答",
+  "desktopAnswerPosition": "回答 {index}/{count}",
+  "@desktopAnswerPosition": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSearchIncomplete": "同期中のため、一部のチャットがまだ表示されない場合があります。",
+  "desktopSyncing": "同期中…",
+  "desktopSyncingPercent": "同期中… {percent}%",
+  "@desktopSyncingPercent": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSyncFailed": "同期に失敗しました",
+  "desktopTemporaryHint": "保存されません。アプリを閉じると消えます。",
+  "desktopAllow": "許可",
+  "desktopDeny": "拒否",
+  "desktopServerAsks": "サーバーからのリクエスト",
+  "desktopShortcutAllowRequest": "リクエストを許可",
+  "desktopShortcutDenyRequest": "リクエストを拒否",
+  "desktopToolRunning": "{name} を実行中…",
+  "@desktopToolRunning": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "web_search"
+      }
+    }
+  },
+  "desktopToolUsed": "{name} を使用しました",
+  "@desktopToolUsed": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "web_search"
+      }
+    }
+  },
+  "desktopUnnamedTool": "ツール",
+  "desktopToolInput": "入力",
+  "desktopDetails": "詳細",
+  "desktopDropToAttach": "ドロップしてファイルを添付",
+  "desktopPaletteLabel": "コマンドパレット",
+  "desktopPalettePlaceholder": "チャットとコマンドを検索",
+  "desktopPaletteCommands": "コマンド",
+  "desktopPaletteRecent": "最近のチャット",
+  "desktopPaletteConversations": "チャット",
+  "desktopNewTemporaryChat": "新しい一時チャット",
+  "desktopPromptMenu": "プロンプト",
+  "desktopPromptInsert": "挿入",
+  "desktopPromptFill": "{title} を入力",
+  "@desktopPromptFill": {
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Stand-up notes"
+      }
+    }
+  },
+  "desktopSourcesCount": "ソース（{count}）",
+  "@desktopSourcesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopGoodResponse": "良い回答",
+  "desktopBadResponse": "悪い回答",
+  "desktopAddTag": "タグを追加",
+  "desktopTagName": "タグ名",
+  "desktopRemoveTag": "タグ {name} を削除",
+  "@desktopRemoveTag": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "desktopShowTagged": "タグ {name} の会話を表示",
+  "@desktopShowTagged": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "work"
+      }
+    }
+  },
+  "desktopMoveTo": "{folder} に移動",
+  "@desktopMoveTo": {
+    "placeholders": {
+      "folder": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "desktopRemoveFromFolder": "フォルダーから削除",
+  "desktopSelectedCount": "{count} 件選択中",
+  "@desktopSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopDone": "完了",
+  "desktopMoveSelected": "移動先…",
+  "desktopNoFolder": "フォルダーなし",
+  "desktopBulkDeleteConfirm": "{count} 件のチャットを削除しますか？",
+  "@desktopBulkDeleteConfirm": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "desktopBulkFailed": "{count} 件を変更できませんでした。",
+  "@desktopBulkFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
+  "desktopOffline": "オフラインです。チャットはそのまま残っており、オンラインに戻ると送信が再開されます。",
+  "desktopControls": "コントロール",
+  "desktopSystemPromptHint": "この会話のみに適用されます。空欄にすると Open WebUI の設定の既定値を使用します。",
+  "desktopSaved": "保存しました",
+  "desktopOpenImage": "画像 {name} を開く",
+  "@desktopOpenImage": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "diagram.png"
+      }
+    }
+  },
+  "desktopModelMenu": "モデル",
+  "desktopAnswerWith": "{model} で回答",
+  "@desktopAnswerWith": {
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-4o"
+      }
+    }
+  },
+  "desktopClearMention": "選択中のモデルを使用",
+  "desktopSortBy": "並べ替え",
+  "desktopSortUpdated": "最終更新",
+  "desktopSortTitle": "タイトル",
+  "desktopFolderEmpty": "このフォルダーにはまだ何もありません。",
+  "desktopToggleFolder": "{name} の中身を表示または非表示",
+  "@desktopToggleFolder": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Work"
+      }
+    }
+  },
+  "desktopOverview": "概要",
+  "desktopOverviewHint": "この会話のすべてのブランチです。メッセージを選ぶとそのブランチを表示します。",
+  "desktopKnowledgeMenu": "ナレッジ",
+  "desktopOpenAiCompatible": "OpenAI 互換",
+  "desktopDirectHistoryLocal": "Direct チャットをこのコンピューターにのみ保存",
+  "desktopDirectEnable": "{name} を使用",
+  "@desktopDirectEnable": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "OpenRouter"
+      }
+    }
+  },
+  "desktopMcpReachabilityHelp": "このコンピューターから到達できる Streamable HTTP エンドポイントを追加します。そのツールを Direct 接続のモデルに提供できるようになります。",
+  "desktopMcpSignedIn": "サインイン済み",
+  "desktopMcpNotSignedIn": "未サインイン",
+  "desktopMcpHeadersConfigured": "設定済み: {names}。新しいヘッダーを入力すると置き換えます。",
+  "@desktopMcpHeadersConfigured": {
+    "placeholders": {
+      "names": {
+        "type": "String",
+        "example": "X-Team, X-Region"
+      }
+    }
+  },
+  "desktopMcpSaveFirst": "サインインする前にサーバーを保存してください。",
+  "desktopNoteSaveFailed": "まだ保存されていません。次の変更時に再試行します",
+  "desktopLoadOlderMessages": "以前のメッセージを読み込む",
+  "desktopMessageEdited": "編集済み",
+  "desktopReasoningSeconds": "{count, plural, =0{1秒未満} other{#秒}}",
+  "desktopReasoningMinutes": "{count, plural, other{#分}}",
+  "desktopChatMissing": "このチャットはもう存在しません。",
+  "desktopChatLoadFailed": "このチャットを読み込めませんでした。",
+  "desktopActionFailed": "うまくいきませんでした。もう一度お試しください。",
+  "desktopRatingNotSaved": "評価を保存できませんでした。",
+  "desktopModelChip": "モデル: {name}",
+  "desktopModelNotSelected": "そのモデルを選択できませんでした。",
+  "desktopUploadingPercent": "アップロード中… {percent}%",
+  "desktopWriting": "{name}、作成中",
+  "desktopSourceLabel": "出典 {index}: {title}",
+  "desktopOpenFile": "{name} を開く",
+  "desktopWaitingForAnswer": "回答を待っています…",
+  "desktopKnowledgeChip": "ナレッジ: {name}",
+  "desktopNoPromptsMatch": "一致するプロンプトはありません。",
+  "desktopNoKnowledgeMatch": "一致するナレッジはありません。",
+  "desktopEditMessageLabel": "メッセージを編集",
+  "desktopSendOffline": "オフライン",
+  "desktopFeatures": "機能",
+  "desktopFieldRequired": "{field} を入力してください。",
+  "desktopAttachmentImage": "画像 {name}",
+  "desktopVersionOf": "回答 {index}/{count}",
+  "desktopWorkspaceImport": "インポート",
+  "desktopWorkspaceExportAll": "すべてエクスポート",
+  "desktopWorkspaceExport": "エクスポート",
+  "desktopWorkspaceUpdated": "{date} に更新",
+  "@desktopWorkspaceUpdated": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceImportFailed": "インポートされなかった項目: {items}",
+  "@desktopWorkspaceImportFailed": {
+    "placeholders": {
+      "items": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceOnePerLine": "1 行に 1 つ",
+  "desktopWorkspaceCommaSeparated": "カンマで区切る",
+  "desktopWorkspaceActive": "有効",
+  "desktopWorkspaceNoSections": "このサーバーには、管理できるワークスペースの項目がありません。",
+  "desktopWorkspaceNotFound": "この項目は存在しません。",
+  "desktopWorkspaceCleanupFailed": "失敗したファイルを削除",
+  "desktopWorkspaceAccessSaved": "アクセス権を保存しました。",
+  "desktopWorkspaceAccessAdd": "追加",
+  "desktopWorkspaceValvesUserHint": "このツールのあなた専用の設定です。サーバーのバルブは全員に適用されます。",
+  "desktopWorkspaceDefaultFeaturesHint": "このモデルの新しいチャットでオンになる機能（例: web_search、code_interpreter）。",
+  "desktopHermesTestOk": "Hermes Agent に接続しました。",
+  "desktopHermesTestUnauthorized": "Hermes Agent がキーを拒否しました。",
+  "desktopHermesTestUnreachable": "そのアドレスの Hermes Agent に接続できませんでした。",
+  "desktopHermesOpenSession": "開く",
+  "desktopHermesMode": "接続の種類",
+  "desktopHermesSignInToFinish": "保存しました。Hermes Agent にサインインして完了してください。",
+  "desktopHermesSignInRequired": "エージェントと話すには、設定で Hermes にサインインしてください。",
+  "desktopStopDictation": "音声入力を停止",
+  "desktopMicrophoneUnavailable": "Conduit がマイクを使用できません。マイクが接続され、Conduit に使用が許可されていることを確認してください。",
+  "desktopNothingHeard": "何も聞き取れませんでした。",
+  "desktopTranscriptionFailed": "文字起こしできませんでした。もう一度お試しください。",
+  "desktopShortcutDictate": "音声入力を開始または停止",
+  "desktopMilliseconds": "{ms} ms",
+  "@desktopMilliseconds": {
+    "placeholders": {
+      "ms": {}
+    }
+  },
+  "desktopReadAloud": "読み上げ",
+  "desktopStopReading": "読み上げを停止",
+  "desktopVoiceCallHeard": "あなたの発言: {text}",
+  "@desktopVoiceCallHeard": {
+    "placeholders": {
+      "text": {}
+    }
+  },
+  "desktopSettingsDesktopTab": "一般",
+  "desktopCloseToTray": "ウィンドウを閉じても実行を続ける",
+  "desktopCloseToTrayDescription": "Conduit はトレイに常駐するため、通知とクイック質問は引き続き機能します。",
+  "desktopLaunchAtLogin": "ログイン時に開く",
+  "desktopLaunchAtLoginDescription": "サインイン時にトレイで起動します。インストール版のみ。",
+  "desktopQuickAskTitle": "クイック質問",
+  "desktopQuickAskEnabled": "どこからでもクイック質問を開く",
+  "desktopQuickAskShortcut": "ショートカット",
+  "desktopQuickAskShortcutInvalid": "1 つ以上の修飾キーと 1 つのキーを使用してください（例: CommandOrControl+Shift+Space）。",
+  "desktopQuickAskShortcutTaken": "このショートカットは別のアプリが使用しています。別のものを選択してください。",
+  "desktopQuickAskNeedsSetup": "まず Conduit を開いて設定を完了してください。",
+  "desktopNotificationsSection": "通知",
+  "desktopShortcutPressKeys": "新しいキーを押してください（Esc でキャンセル）",
+  "desktopShortcutChange": "変更",
+  "desktopShortcutReset": "リセット",
+  "desktopShortcutResetAll": "デフォルトに戻す",
+  "desktopShortcutChangeLabel": "{command} のショートカットを変更",
+  "@desktopShortcutChangeLabel": {
+    "placeholders": {
+      "command": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopReleaseSeeChanges": "変更内容を見る",
+  "desktopReleaseDismiss": "閉じる",
+  "desktopAboutDaemon": "バックグラウンドサービスのバージョン",
+  "desktopAboutUserData": "ユーザーデータ",
+  "desktopAboutLogs": "ログ",
+  "desktopSttEngineLocal": "このコンピューター",
+  "desktopSttEngineLocalDescription": "このコンピューター上の Whisper で文字起こしします。音声が外部に送られることはありません。",
+  "desktopSttModelsTitle": "音声モデル",
+  "desktopSttModelsDescription": "Hugging Face から一度だけダウンロードし、このコンピューターに保存します。大きいモデルほど聞き取りの精度が高く、時間がかかります。",
+  "desktopSttModelDownload": "ダウンロード ({size})",
+  "@desktopSttModelDownload": {
+    "placeholders": { "size": { "type": "String" } }
+  },
+  "desktopSttModelDownloading": "ダウンロード中… {percent}%",
+  "@desktopSttModelDownloading": {
+    "placeholders": { "percent": { "type": "String" } }
+  },
+  "desktopSttModelDelete": "削除",
+  "desktopSttModelUse": "使用",
+  "desktopSttModelInUse": "使用中",
+  "desktopSttModelEnglishOnly": "英語のみ",
+  "desktopSttModelFailedChecksum": "ダウンロードしたファイルが想定と異なるため、破棄しました。",
+  "desktopSttModelFailedNetwork": "ダウンロードに失敗しました。接続を確認して、もう一度お試しください。",
+  "desktopSttLocalNeedsModel": "このコンピューターで文字起こしするにはモデルをダウンロードしてください。それまではサーバーが文字起こしします。",
+  "desktopUiFontSize": "文字サイズ",
+  "desktopUiFontSizeValue": "{size} pt",
+  "desktopUiFontSizeHint": "コードブロックは独自のサイズを保ちます。",
+  "desktopSidebar": "サイドバー",
+  "desktopSidePane": "サイドパネル",
+  "desktopShortcutToggleSidebar": "サイドバーを表示または非表示",
+  "desktopShortcutToggleSidePane": "サイドパネルを表示または非表示",
+  "desktopSearch": "検索",
+  "desktopMinimizeWindow": "最小化",
+  "desktopMaximizeWindow": "最大化",
+  "desktopRestoreWindow": "元に戻す (縮小)",
+  "desktopCloseWindow": "閉じる",
+  "desktopResizeSidebar": "サイドバーのサイズを変更",
+  "desktopResizeSidePane": "サイドパネルのサイズを変更",
+  "desktopEarlier": "それ以前",
+  "desktopChatRunning": "回答中",
+  "desktopChatUnread": "新しい回答",
+  "desktopChatFailed": "回答に失敗しました",
+  "desktopShell": "シェル",
+  "desktopSources": "ソース",
+  "desktopNoSources": "この会話ではまだソースが引用されていません。",
+  "desktopClosePane": "サイドパネルを閉じる",
+  "desktopNoPreview": "プレビューするものはまだありません。回答がウェブページを書くと、ここに表示されます。",
+  "desktopPreviewPosition": "{index} / {count}",
+  "desktopPreviousPreview": "前のページ",
+  "desktopNextPreview": "次のページ",
+  "desktopOpenShell": "シェルを開く",
+  "desktopCloseShell": "シェルを閉じる",
+  "desktopResizeShell": "シェルのサイズを変更",
+  "desktopAllNotes": "すべてのノート",
+  "desktopMenuSettings": "設定…",
+  "desktopMenuServices": "サービス",
+  "desktopMenuHide": "Conduitを非表示",
+  "desktopMenuHideOthers": "ほかを非表示",
+  "desktopMenuShowAll": "すべてを表示",
+  "desktopMenuQuit": "Conduitを終了",
+  "desktopMenuCloseWindow": "ウインドウを閉じる",
+  "desktopMenuUndo": "取り消す",
+  "desktopMenuRedo": "やり直す",
+  "desktopMenuCut": "カット",
+  "desktopMenuPaste": "ペースト",
+  "desktopMenuSelectAll": "すべてを選択",
+  "desktopMenuView": "表示",
+  "desktopMenuToggleSidebar": "サイドバーを表示/非表示",
+  "desktopMenuFullScreen": "フルスクリーンにする/解除",
+  "desktopMenuWindow": "ウインドウ",
+  "desktopMenuZoom": "拡大/縮小",
+  "desktopMenuBringAllToFront": "すべてを手前に移動",
+  "desktopMenuHelp": "ヘルプ",
+  "desktopMenuConduitHelp": "Conduitヘルプ",
+  "desktopCoreOpeningData": "データを開いています…",
+  "desktopCoreFailedHint": "もう一度お試しください。繰り返し発生する場合は、「ログを表示」をクリックし、問題を報告する際にログを添付してください。",
+  "desktopStoreUnreadableTitle": "Conduitは保存されたデータを開けません",
+  "desktopStoreUnreadableBody": "このMacのデータは、Conduitがもう持っていない鍵で保存されています。通常は以前のバージョンによるものです。ローカルデータをリセットすると最初からやり直せます。古いフォルダは名前を変えて残され、何も削除されません。",
+  "desktopResetLocalData": "ローカルデータをリセット",
+  "desktopResetFailed": "古いデータを移動できませんでした。もう一度お試しいただくか、「ログを表示」をクリックして詳細を確認してください。",
+  "desktopExportDiagnosticsHint": "ログと機密情報を除いた設定をzipファイルに保存し、Finderで表示します。何もアップロードされません。",
+  "desktopExporting": "書き出し中…",
+  "desktopDiagnosticsSaved": "{name} を保存しました",
+  "desktopDiagnosticsFailed": "診断情報を書き出せませんでした。",
+  "desktopSettingsAppearanceTab": "外観",
+  "desktopSettingsAccountsTab": "アカウント",
+  "desktopSettingsDirectTab": "直接接続",
+  "desktopSettingsDataTab": "データ",
+  "desktopNotAvailableYet": "まだ利用できません",
+  "desktopAppearanceTheme": "テーマ",
+  "desktopPalette": "パレット",
+  "desktopAppearanceLayout": "レイアウト",
+  "desktopSidebarTranslucent": "半透明",
+  "desktopSidebarSolid": "不透明",
+  "desktopDensity": "密度",
+  "desktopDensityCompact": "コンパクト",
+  "desktopDensityComfortable": "ゆったり",
+  "desktopLanguageSystem": "システム ({language})",
+  "desktopShortcutOpenSettings": "設定を開く",
+  "desktopShortcutNeedsModifier": "ショートカットに ⌘ または ⌥ を含めてください。",
+  "desktopAccountAddedNeedsSignIn": "新しいアカウントにサインインして追加を完了してください。",
+  "desktopAccountAlreadyActive": "{name} のアカウントはすでに使用中です。",
+  "@desktopAccountAlreadyActive": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountChangeFailed": "アカウントを変更できませんでした。もう一度お試しください。",
+  "desktopAccountNothingToCancel": "そのサインインはすでに完了していたため、キャンセルするものはありませんでした。",
+  "desktopAccountSignedOut": "{name} からサインアウトしました。",
+  "@desktopAccountSignedOut": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountSignedOutNext": "{name} からサインアウトしました。現在は {next} を使用しています。",
+  "@desktopAccountSignedOutNext": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "next": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountSignedOutNextNeedsSignIn": "{name} からサインアウトしました。続けるには {next} にサインインしてください。",
+  "@desktopAccountSignedOutNextNeedsSignIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "next": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountSwitchedNeedsSignIn": "{name} に切り替えました。続けるにはサインインしてください。",
+  "@desktopAccountSwitchedNeedsSignIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountSwitchedTo": "{name} に切り替えました。",
+  "@desktopAccountSwitchedTo": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopAccountUnknownOutcome": "アカウントの変更は完了しましたが、このバージョンの Conduit では結果を判別できません。アカウント一覧を確認してください。",
+  "desktopAdd": "追加",
+  "desktopAllModels": "すべてのモデル",
+  "desktopAnswering": "回答を送信しています…",
+  "desktopApprovalFailed": "回答が届きませんでした。もう一度お試しください。",
+  "desktopApprovalUnsupportedBody": "このリクエストにはまだここから応答できません。スマートフォンの Conduit か Web 版の Open WebUI で応答するか、閉じてください。",
+  "desktopApprovalUnsupportedTitle": "別のデバイスで応答してください",
+  "desktopBackend": "接続方法",
+  "desktopChangeServer": "変更",
+  "desktopChatToolbar": "チャットのツールバー",
+  "desktopClearLocalDataConfirm": "消去",
+  "desktopClearLocalDataConfirmBody": "Conduit はこの Mac のすべてのアカウントからサインアウトし、最初からやり直します。古いデータは削除されず、別の場所に移動されます。",
+  "desktopClearLocalDataConfirmTitle": "ローカルデータを消去しますか？",
+  "desktopClearLocalDataHint": "保存されたアカウント、セッション、この Mac にダウンロードされたチャット。チャットはサーバー上に残ります。",
+  "desktopClientCertificateHelp": "相互 TLS が必要なサーバー向けです。",
+  "desktopClose": "閉じる",
+  "desktopComposerLabel": "メッセージ入力欄",
+  "desktopConnectedTo": "{server} に接続済み（Open WebUI {version}）",
+  "@desktopConnectedTo": {
+    "placeholders": {
+      "server": {
+        "type": "String"
+      },
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopConversation": "チャット",
+  "desktopCustomHeadersHelp": "すべてのリクエストに付けて送信されます。たとえば、サインイン用プロキシを通過するときに使います。",
+  "desktopDataSignOutHint": "{name} からサインアウトします。保存されている次のアカウントに切り替わります。",
+  "@desktopDataSignOutHint": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopDirectNone": "直接接続はまだありません。",
+  "desktopDirectTestFailed": "プロバイダーに接続できませんでした。サーバーのアドレスと API キーを確認してください。",
+  "desktopDirectTestOk": "接続しました。{count} 件のモデルが見つかりました。",
+  "@desktopDirectTestOk": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopHermesModeApi": "API サーバー",
+  "desktopHermesReady": "Hermes Agent を使用する準備ができました。",
+  "desktopHermesSigningIn": "ブラウザでサインインを完了してください…",
+  "desktopHideSidebar": "サイドバーを隠す",
+  "desktopMessageField": "メッセージ",
+  "desktopMessages": "メッセージ",
+  "desktopModelsCanMakeMistakes": "モデルは間違えることがあります。重要な情報は確認してください。",
+  "desktopMoreActionsFor": "{name} のその他の操作",
+  "@desktopMoreActionsFor": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopNewFolder": "新しいフォルダ",
+  "desktopNoAccountInUse": "使用中の Open WebUI アカウントはありません。",
+  "desktopOr": "または",
+  "desktopPaletteNavigate": "移動",
+  "desktopPaletteOpen": "開く",
+  "desktopPaletteOpenInBackground": "バックグラウンドで開く",
+  "desktopPaletteResults": "結果",
+  "desktopQuickAskAsk": "質問する",
+  "desktopRecentQuestions": "最近の質問",
+  "desktopSelfSignedHelp": "ご自身で運用しているサーバーにのみ使用してください。",
+  "desktopServerChip": "サーバー: {name}。変更",
+  "@desktopServerChip": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopServerChipLabel": "サーバー: {name}、{host}",
+  "@desktopServerChipLabel": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopServerNameHelp": "任意。サイドバーとアカウント切り替えに表示されます。",
+  "desktopServerUrlHelp": "サインインの前に Conduit がサーバーを確認します。",
+  "desktopSessionExpired": "セッションの有効期限が切れました。このアカウントを同期するにはサインインしてください。",
+  "desktopSetUpConduit": "Conduit のセットアップ",
+  "desktopSettingsSections": "設定のセクション",
+  "desktopShellExtrasLater": "これらはメニューバー項目とともに今後のアップデートで追加されます。",
+  "desktopSignInAgain": "もう一度サインイン…",
+  "desktopSignInAgainBody": "このサーバーのセッションが終了しました。同期を続けるにはもう一度サインインしてください。",
+  "desktopSignInFieldsRequired": "メールアドレスまたはユーザー名とパスワードを入力してください。",
+  "desktopSsoCancelled": "シングルサインオンはキャンセルされました。",
+  "desktopSsoNeedsPassword": "サインイン用プロキシを通過しました。次に Open WebUI にサインインしてください。",
+  "desktopSsoTimedOut": "シングルサインオンに時間がかかりすぎました。もう一度お試しください。",
+  "desktopSsoWindowTitle": "{server} にサインイン",
+  "@desktopSsoWindowTitle": {
+    "placeholders": {
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopToolResult": "結果",
+  "desktopPositionOf": "{index} / {count}",
+  "@desktopPositionOf": {
+    "placeholders": {
+      "index": {
+        "type": "String"
+      },
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopTimeNow": "今",
+  "desktopTimeMinutesShort": "{count}分",
+  "@desktopTimeMinutesShort": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopTimeHoursShort": "{count}時間",
+  "@desktopTimeHoursShort": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopTimeMinutesAgo": "{count}分前",
+  "@desktopTimeMinutesAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopTimeHoursAgo": "{count}時間前",
+  "@desktopTimeHoursAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopWeekdayShort": "{weekday, select, 1{月曜} 2{火曜} 3{水曜} 4{木曜} 5{金曜} 6{土曜} 7{日曜} other{}}",
+  "@desktopWeekdayShort": {
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWeekdayLong": "{weekday, select, 1{月曜日} 2{火曜日} 3{水曜日} 4{木曜日} 5{金曜日} 6{土曜日} 7{日曜日} other{}}",
+  "@desktopWeekdayLong": {
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopMonthShort": "{month, select, 1{1月} 2{2月} 3{3月} 4{4月} 5{5月} 6{6月} 7{7月} 8{8月} 9{9月} 10{10月} 11{11月} 12{12月} other{}}",
+  "@desktopMonthShort": {
+    "placeholders": {
+      "month": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopDateShort": "{month}{day}日",
+  "@desktopDateShort": {
+    "placeholders": {
+      "month": {
+        "type": "String"
+      },
+      "day": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopDateShortYear": "{year}年{month}{day}日",
+  "@desktopDateShortYear": {
+    "placeholders": {
+      "month": {
+        "type": "String"
+      },
+      "day": {
+        "type": "String"
+      },
+      "year": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopPaletteResultCount": "{count}件の結果",
+  "@desktopPaletteResultCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopChatCount": "{count}件のチャット",
+  "@desktopChatCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSyncOffline": "オフライン",
+  "desktopSynced": "最新の状態",
+  "desktopChatChangeFailed": "変更を適用できませんでした。",
+  "@desktopChatChangeFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopBulkPartlyFailed": "{count}件のチャットを変更できませんでした。",
+  "@desktopBulkPartlyFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSelectChat": "{title}を選択",
+  "@desktopSelectChat": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopQuickAskEmpty": "何でも質問してください。回答はここに表示され、チャットに保存されます。",
+  "desktopOpenInConduit": "Conduitで開く",
+  "desktopOpenFilesTooMany": "さらに{count}個のファイルは添付されませんでした。一度に開けるのは{max}個までです。",
+  "@desktopOpenFilesTooMany": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopOpenFileTooLarge": "{name}は256 MBを超えているため、添付されませんでした。",
+  "@desktopOpenFileTooLarge": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopChannelsNotAvailable": "チャンネルはデスクトップ版ではまだ使えません。",
+  "desktopNotesNotAvailable": "メモはデスクトップ版ではまだ使えません。",
+  "desktopNotificationAnswerReady": "回答ができました。",
+  "desktopNotificationAnswerFailed": "回答を完了できませんでした。",
+  "desktopTrayOpen": "Conduitを開く",
+  "desktopTrayQuickAsk": "クイック質問",
+  "desktopCloseToMenuBar": "閉じるとメニューバーに常駐",
+  "desktopCloseToMenuBarDescription": "ウインドウを閉じても Conduit はメニューバーで動作し続けるため、クイック質問と通知を引き続き使えます。",
+  "desktopLaunchAtLoginHint": "ログイン時に Conduit が開きます。「閉じるとメニューバーに常駐」がオンのときは、メニューバーで起動します。",
+  "desktopLoginItemNeedsApproval": "システム設定 › 一般 › ログイン項目で Conduit を許可してください。",
+  "desktopLoginItemNotFound": "macOS がこの Conduit を見つけられません。アプリケーションフォルダに移動して、もう一度お試しください。",
+  "desktopLoginItemFailed": "変更できませんでした。システム設定の「ログイン項目」を確認してください。",
+  "@desktopLoginItemFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopOpenSystemSettings": "システム設定を開く",
+  "desktopQuickAskShortcutUnsupported": "このキーはグローバルショートカットにできません。別のキーを選択してください。",
+  "desktopQuickAskShortcutUnavailable": "現在、グローバルショートカットは使用できません。",
+  "desktopNotifyAnswers": "回答が完了したら通知",
+  "desktopNotifyAnswersFooter": "通知に表示されるのはチャットのタイトルだけで、回答は表示されません。通知はロック画面や共有中の画面にも表示されることがあるためです。",
+  "desktopNotificationsDenied": "システム設定で Conduit の通知がオフになっています。",
+  "desktopNotificationsUnavailable": "通知はインストールされたアプリでのみ使えます。",
+  "desktopNotificationsOff": "通知はオフです",
+  "desktopMenuBarSection": "メニューバー",
+  "desktopShowSidebar": "サイドバーを表示",
+  "desktopCheckForUpdates": "アップデートを確認…",
+  "desktopUpdatesSection": "アップデート",
+  "desktopAutomaticUpdateChecks": "アップデートを自動的に確認",
+  "desktopBetaUpdates": "ベータ版のアップデートを受け取る",
+  "desktopBetaUpdatesFooter": "ベータ版は先に届きますが、安定性が低いことがあります。オフにすると次の安定版を待ちます。古いバージョンに戻ることはありません。",
+  "desktopUpdatesUnavailable": "アップデートはインストールされたアプリでのみ利用できます。",
+  "desktopSuggestionsHeading": "提案",
+  "desktopImageLoadFailed": "この画像を読み込めませんでした。",
+  "desktopPreviewHtmlTitle": "HTMLプレビュー",
+  "desktopPreviewDiagramTitle": "図のプレビュー",
+  "desktopPreviewChartTitle": "グラフのプレビュー",
+  "desktopMenuHideSidebar": "サイドバーを非表示",
+  "desktopMenuShowSidebar": "サイドバーを表示",
+  "desktopMenuEnterFullScreen": "フルスクリーンにする",
+  "desktopMenuExitFullScreen": "フルスクリーンを解除",
+  "desktopMenuFind": "検索…",
+  "desktopMenuChat": "チャット",
+  "desktopMenuRenameChat": "名前を変更…",
+  "desktopMenuMoveTo": "移動先",
+  "desktopMenuRemoveFromFolder": "フォルダーから削除",
+  "desktopMenuDeleteChat": "削除…",
+  "desktopMenuCopyLastReply": "最後の回答をコピー",
+  "desktopMenuCopyLastCodeBlock": "最後のコードブロックをコピー",
+  "desktopMenuKeyboardShortcuts": "キーボードショートカット",
+  "desktopFolderNewChat": "このフォルダーに新しいチャット",
+  "desktopFolderExpand": "展開",
+  "desktopFolderCollapse": "折りたたむ",
+  "desktopCopyAsMarkdown": "Markdownとしてコピー",
+  "desktopShortcutTypeShortcut": "ショートカットを入力",
+  "desktopShortcutResetToDefault": "デフォルトに戻す",
+  "desktopShortcutRecordHelp": "ショートカットをクリックして新しいキーを押してください。キャンセルするには Esc を押します。",
+  "desktopMenuFindSubmenu": "検索",
+  "desktopFindNext": "次を検索",
+  "desktopFindPrevious": "前を検索",
+  "desktopMenuSearchChats": "チャットを検索",
+  "desktopMenuSearchChatsAndCommands": "チャットとコマンドを検索…",
+  "desktopMenuChooseModel": "モデルを選択…",
+  "desktopMenuActualSize": "実際のサイズ",
+  "desktopMenuZoomIn": "拡大",
+  "desktopMenuZoomOut": "縮小",
+  "desktopFindInChat": "チャット内を検索",
+  "desktopFindNoMatches": "一致なし",
+  "desktopSoftwareUpdate": "ソフトウェアアップデート",
+  "desktopCheckNow": "今すぐ確認",
+  "desktopDiagnostics": "診断",
+  "desktopDiagnosticReport": "診断レポート",
+  "desktopExportEllipsis": "書き出す…",
+  "desktopLocalData": "ローカルデータ",
+  "desktopClearEllipsis": "消去…",
+  "desktopHermesAgent": "Hermes Agent",
+  "desktopSyncNow": "今すぐ同期",
+  "desktopPaletteClay": "クレイ",
+  "desktopPaletteBerry": "ベリー",
+  "desktopServerNamePlaceholder": "自宅サーバー",
+  "desktopPrivateKeyPassword": "秘密鍵のパスワード",
+  "desktopOptional": "任意",
+  "desktopSignInFailed": "サインインできませんでした。サインイン情報とサーバーのアドレスを確認してください。",
+  "desktopCouldntReachServer": "サーバーに接続できませんでした。接続状況と、サーバーが稼働していることを確認してください。",
+  "desktopNotOpenWebUi": "これは Open WebUI サーバーではないようです。",
+  "desktopServerFormSubtitle": "Open WebUI サーバーのアドレスを入力してください。",
+  "desktopSsoDescription": "組織の ID プロバイダーでサインインします。",
+  "desktopHermesSubtitle": "セルフホストの Hermes Agent に接続します。",
+  "desktopSelectChats": "チャットを選択…",
+  "desktopNewSubfolder": "新しいサブフォルダ",
+  "desktopDeleteFolderEllipsis": "フォルダを削除…",
+  "desktopDeleteFolderTitle": "「{name}」を削除しますか？",
+  "desktopDeleteFolderKeepsChats": "フォルダ内のチャットは削除されず、チャットリストに移動します。",
+  "desktopDeleteFolderWithSubfolders": "サブフォルダも削除されます。中のチャットは削除されず、チャットリストに移動します。",
+  "desktopFolderNameTaken": "「{name}」という名前はすでに使われています。",
+  "desktopFolderNameTakenMessage": "別の名前を選んでください。",
+  "desktopKeyboardChats": "チャット",
+  "desktopKeyboardMessages": "メッセージ",
+  "desktopKeyboardFindAndView": "検索と表示",
+  "desktopKeyboardDeleteChat": "チャットを削除",
+  "desktopKeyboardFindInChat": "チャット内を検索",
+  "desktopKeyboardQuickAskOff": "クイック質問はオフです。「一般」でオンにしてください。",
+  "desktopEmailPlaceholder": "name@example.com",
+  "desktopRequiredPlaceholder": "必須",
+  "desktopCopyErrorDetails": "エラーの詳細をコピー",
+  "desktopConnect": "接続",
+  "desktopSignInSubtitle": "Open WebUI アカウントでサインインしてください。",
+  "desktopCodeCopied": "コードをクリップボードにコピーしました。",
+  "desktopHeaderAlreadyExists": "ヘッダー「{key}」はすでに設定されています。変更するには先に削除してください。",
+  "desktopMcpAlwaysAllowNote": "ツールが変更されるまで、{serverName} は確認なしで {toolName} を実行できるようになります。",
+  "desktopSkip": "スキップ",
+  "desktopHermesModeApiHelp": "エージェントの API サーバーと API キーを使います。",
+  "desktopHermesModeGatewayHelp": "ブラウザでサインインし、エージェントのプロファイルを 1 つ使います。",
+  "desktopSendWaitsReconnecting": "Conduit が再接続されると送信できます。",
+  "desktopSendWaitsStarting": "Conduit が起動すると送信できます。",
+  "desktopSendWaitsOffline": "オンラインに戻ると送信できます。",
+  "desktopMenuNextChat": "次のチャット",
+  "desktopMenuPreviousChat": "前のチャット",
+  "desktopClearSearch": "検索をクリア",
+  "desktopPreviewCopyCode": "コードをコピー",
+  "desktopPreviewSave": "保存…",
+  "desktopPreviewOpenInBrowser": "ブラウザで開く",
+  "desktopPreviewSaveFailed": "ファイルを保存できませんでした。",
+  "desktopShortcutFixedNote": "淡色表示のショートカットはメニューバーのもので、変更できません。",
+  "desktopAboutVersionLine": "バージョン {version}",
+  "desktopTryAgain": "もう一度試す"
+}
