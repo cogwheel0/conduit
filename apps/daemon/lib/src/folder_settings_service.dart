@@ -65,7 +65,16 @@ final class FolderSettingsService {
         data: <String, Object?>{'error': error.runtimeType.toString()},
       );
     }
-    return _settings(folder, missing: await _missingFiles(owner, folder));
+    final settings = await _settings(
+      folder,
+      missing: await _missingFiles(owner, folder),
+    );
+    // Put together for the account that asked: once another is in use, its
+    // prompt and knowledge are not shown to it.
+    if (!notifier.isCurrentProjectOwner(owner)) {
+      throw _failure(FolderProjectWriteFailure.ownerChanged);
+    }
+    return settings;
   }
 
   Future<FolderSettings> update(FolderUpdate request) async {

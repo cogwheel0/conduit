@@ -371,6 +371,11 @@ void main() {
     late Completer<void> listed;
     var access = OpenWebUiChatSettingsAccess.all;
 
+    /// When set, the account's rights answer once it completes, and
+    /// [accessAsked] says they were asked for.
+    Completer<void>? accessGate;
+    Completer<void>? accessAsked;
+
     FolderSettingsService settings(List<Folder> folders) {
       api = _FolderApi();
       epoch = Object();
@@ -390,9 +395,11 @@ void main() {
           authTokenProvider3.overrideWithValue('token'),
           activeServerProvider.overrideWith((ref) async => _server),
           openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
-          openWebUiChatSettingsAccessProvider.overrideWith(
-            (ref) async => access,
-          ),
+          openWebUiChatSettingsAccessProvider.overrideWith((ref) async {
+            accessAsked?.complete();
+            await accessGate?.future;
+            return access;
+          }),
         ],
       );
       return FolderSettingsService(container);
@@ -412,6 +419,23 @@ void main() {
       listed.complete();
       await expectLater(renaming, refused(ConduitErrorCodes.conflict));
       expect(api.calls, isEmpty);
+    });
+
+    test("a folder's settings read for one account are not the next one's",
+        () async {
+      final gate = accessGate = Completer<void>();
+      final asked = accessAsked = Completer<void>();
+      addTearDown(() => accessGate = accessAsked = null);
+      final folders = settings(const <Folder>[Folder(id: 'work', name: 'Work')]);
+      await container.read(activeServerProvider.future);
+      listed.complete();
+      final reading = folders.get('work');
+      // Another account signs in while the settings are put together.
+      await asked.future;
+      epoch = Object();
+      container.invalidate(openWebUiAuthSessionEpochProvider);
+      gate.complete();
+      await expectLater(reading, refused(ConduitErrorCodes.conflict));
     });
 
     test('a new system prompt needs the right to edit prompts', () async {
