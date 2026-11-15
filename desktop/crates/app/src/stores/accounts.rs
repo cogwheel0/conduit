@@ -262,6 +262,9 @@ impl AccountsStore {
     /// refresh), unless a change of this store is in flight.
     pub fn adopt(&mut self, list: AccountList, cx: &mut Context<Self>) {
         if self.busy.is_none() {
+            // A read of this store's still on its way is older than this.
+            self.generation += 1;
+            self._fetch = None;
             self.load_error = None;
             self.set_list(list, cx);
         }
@@ -736,5 +739,25 @@ pub(crate) mod tests {
             assert!(matches!(s.notice, Some(AccountNotice::Failed { .. })));
             assert_eq!(s.list.as_ref(), Some(&two()));
         });
+    }
+
+    #[gpui_kit::test]
+    fn an_older_read_never_replaces_an_adopted_list(cx: &mut gpui_kit::TestAppContext) {
+        use gpui_kit::AppContext as _;
+        let daemon = crate::stores::rpc::fake::FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(two());
+        let held = daemon.hold::<methods::AccountsList>();
+        let store = cx.new(|_| AccountsStore::new(daemon.rpc()));
+        store.update(cx, |a, cx| a.refresh(cx));
+        cx.run_until_parked();
+        // The session's newer fetch saw a switch to B.
+        let switched = list(vec![
+            account("a", "Avery", false, true),
+            account("b", "Blake", true, true),
+        ]);
+        store.update(cx, |a, cx| a.adopt(switched.clone(), cx));
+        held.release();
+        cx.run_until_parked();
+        store.read_with(cx, |a, _| assert_eq!(a.list.as_ref(), Some(&switched)));
     }
 }

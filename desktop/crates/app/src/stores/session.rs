@@ -397,9 +397,10 @@ impl SessionStore {
                             let _ = this.update(cx, |s, cx| {
                                 if s.generation == generation {
                                     // A daemon without Direct or Hermes
-                                    // answers as none.
-                                    s.direct = Some(direct.unwrap_or_default());
-                                    s.hermes = Some(hermes.unwrap_or_default());
+                                    // answers as none; a failed read keeps
+                                    // the last answer.
+                                    s.direct = keep_on_error(s.direct.take(), direct);
+                                    s.hermes = keep_on_error(s.hermes.take(), hermes);
                                     cx.notify();
                                 }
                             });
@@ -486,7 +487,17 @@ impl SessionStore {
                     if s.generation == generation {
                         match result {
                             Ok(status) => s.adopt_server(status, cx),
-                            Err(e) => log::warn!("servers.status: {e}"),
+                            Err(e) => {
+                                log::warn!("servers.status: {e}");
+                                // Out of reach still, as far as we know: keep
+                                // checking, or it is never seen coming back.
+                                let unreachable = s.server.as_ref().is_some_and(|s| {
+                                    s.reachability == ServerReachability::Unreachable
+                                });
+                                if unreachable {
+                                    s.recheck_server(cx);
+                                }
+                            }
                         }
                         cx.notify();
                     }
@@ -506,12 +517,7 @@ impl SessionStore {
         let back = was_unreachable && status.reachability == ServerReachability::Reachable;
         self.server = Some(status);
         if unreachable {
-            self._recheck = Some(cx.spawn(
-                async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                    cx.background_executor().timer(SERVER_RECHECK).await;
-                    let _ = this.update(cx, |s, cx| s.refresh_server(cx));
-                },
-            ));
+            self.recheck_server(cx);
         } else {
             self._recheck = None;
         }
@@ -519,6 +525,16 @@ impl SessionStore {
             log::info!("session: the server answers again");
             cx.emit(SessionEvent::ServerBack);
         }
+    }
+
+    /// Asks `servers.status` again after [`SERVER_RECHECK`].
+    fn recheck_server(&mut self, cx: &mut Context<Self>) {
+        self._recheck = Some(
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                cx.background_executor().timer(SERVER_RECHECK).await;
+                let _ = this.update(cx, |s, cx| s.refresh_server(cx));
+            }),
+        );
     }
 
     /// Adopts an auth snapshot the daemon answered a sign-in with, then
@@ -534,6 +550,17 @@ impl SessionStore {
     pub fn preview_route(&mut self, route: Option<Route>, cx: &mut Context<Self>) {
         self.preview = route;
         cx.notify();
+    }
+}
+
+/// The new answer, or on an error the last one (none yet: the default).
+fn keep_on_error<T: Default>(last: Option<T>, answer: Result<T, RpcError>) -> Option<T> {
+    match answer {
+        Ok(value) => Some(value),
+        Err(e) => {
+            log::warn!("session: {e}");
+            Some(last.unwrap_or_default())
+        }
     }
 }
 
@@ -1039,6 +1066,62 @@ mod tests {
         wait_asks(1, cx);
         assert_eq!(route_of(&store, cx), Route::SignIn);
         drop(held);
+    }
+
+    #[gpui_kit::test]
+    fn a_failed_check_of_an_unreachable_server_is_tried_again(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(signed_in());
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Authenticated, true));
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+        daemon.returns::<methods::ServersStatus>(server(ServerReachability::Unreachable));
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| {
+            s.on_connected(&handshake(Some(false)), request(), cx)
+        });
+        cx.run_until_parked();
+        assert!(store.read_with(cx, |s, cx| s.server_unreachable(cx)));
+        // The next check fails outright; the one after finds the server.
+        daemon.once::<methods::ServersStatus>(Err(conduit_daemon::protocol::error(
+            "rpc.timeout",
+            "slow",
+        )));
+        daemon.returns::<methods::ServersStatus>(server(ServerReachability::Reachable));
+        cx.executor().advance_clock(SERVER_RECHECK);
+        cx.run_until_parked();
+        cx.executor().advance_clock(SERVER_RECHECK);
+        cx.run_until_parked();
+        assert!(!store.read_with(cx, |s, cx| s.server_unreachable(cx)));
+    }
+
+    #[gpui_kit::test]
+    fn a_failed_direct_list_keeps_the_last_answer(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(list(vec![]));
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Unauthenticated, false));
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+        daemon.returns::<methods::DirectList>(DirectConnectionList {
+            preferred: true,
+            usable: true,
+            ..Default::default()
+        });
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| s.on_connected(&handshake(None), request(), cx));
+        cx.run_until_parked();
+        assert_eq!(
+            store.read_with(cx, |s, cx| s.backend(cx)),
+            Some(Backend::Direct)
+        );
+        daemon.once::<methods::DirectList>(Err(conduit_daemon::protocol::error(
+            "rpc.timeout",
+            "slow",
+        )));
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            store.read_with(cx, |s, cx| s.backend(cx)),
+            Some(Backend::Direct)
+        );
     }
 
     #[gpui_kit::test]
