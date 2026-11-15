@@ -7,6 +7,7 @@ import 'package:conduit_core/features/support/support_links.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
+import 'package:conduit_core/persistence/account_scoped_preferences.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -135,12 +136,16 @@ final class CoreSettingsService {
     // The whole patch is for the account in use when it was sent: core
     // picks an account's keys as each setter starts, so each starts only
     // while that account still is.
+    // Both the sign-in and the account itself: switching between accounts
+    // that are not signed in keeps the session epoch.
     final account = _container.read(openWebUiAuthSessionEpochProvider);
+    final accountId = currentPreferenceAccountId();
     AppSettingsNotifier n() {
       if (!identical(
-        account,
-        _container.read(openWebUiAuthSessionEpochProvider),
-      )) {
+            account,
+            _container.read(openWebUiAuthSessionEpochProvider),
+          ) ||
+          accountId != currentPreferenceAccountId()) {
         throw const RpcError(
           code: ConduitErrorCodes.sessionExpired,
           debugMessage: 'the account changed while the settings were saved',

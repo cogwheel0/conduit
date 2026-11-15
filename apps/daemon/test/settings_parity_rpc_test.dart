@@ -12,6 +12,8 @@ import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -619,6 +621,31 @@ void _withAnAccount() {
       // Another account signs in while the first setting is written.
       epoch = Object();
       container.invalidate(openWebUiAuthSessionEpochProvider);
+      settings.written.complete();
+      await expectLater(saving, refused(ConduitErrorCodes.sessionExpired));
+      expect(settings.calls, <String>['computerEnabled']);
+    });
+
+    test('a settings patch stops once another account is active, signed in '
+        'or not', () async {
+      final settings = _Settings();
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWith(() => settings),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+        ],
+      );
+      addTearDown(container.dispose);
+      final before = PreferencesStore.getString(PreferenceKeys.activeServerId);
+      addTearDown(
+        () => PreferencesStore.put(PreferenceKeys.activeServerId, before),
+      );
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-a');
+      final saving = CoreSettingsService(container).set(
+        const AppSettingsPatch(computerEnabled: false, sendOnEnter: false),
+      );
+      // Account B becomes active with no sign-in: the session epoch stays.
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
       settings.written.complete();
       await expectLater(saving, refused(ConduitErrorCodes.sessionExpired));
       expect(settings.calls, <String>['computerEnabled']);
