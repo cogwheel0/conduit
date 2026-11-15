@@ -311,6 +311,40 @@ enum Run {
     Failed,
 }
 
+/// The key of the `k`th embed of block `i` (an Embeds block).
+fn embed_id(i: usize, k: usize) -> String {
+    format!("e{i}.{k}")
+}
+
+/// The key of the `k`th embed tool call `j` of block `i` showed.
+fn tool_embed_id(i: usize, j: usize, k: usize) -> String {
+    format!("t{i}.{j}.{k}")
+}
+
+/// The keys of every embed `blocks` draw, as [`AssistantRow::render_block`]
+/// names them: the row keeps those views and lets the others go (their
+/// pages and MCP Apps with them).
+pub(super) fn embed_ids(blocks: &[MessageBlockDto]) -> std::collections::HashSet<String> {
+    let mut ids = std::collections::HashSet::new();
+    for (i, block) in blocks.iter().enumerate() {
+        match block.kind {
+            MessageBlockKind::Embeds => {
+                let n = block.embeds.as_ref().map_or(0, Vec::len);
+                ids.extend((0..n).map(|k| embed_id(i, k)));
+            }
+            MessageBlockKind::ToolCalls => {
+                for (j, call) in block.calls.iter().flatten().enumerate() {
+                    if call.done && !call.pending {
+                        ids.extend((0..call.shown_embeds.len()).map(|k| tool_embed_id(i, j, k)));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    ids
+}
+
 impl AssistantRow {
     /// How much of text block `ordinal` (`md`) to draw while the answer
     /// streams, and for a moment after: what has arrived, released at a
@@ -400,17 +434,36 @@ impl AssistantRow {
         String,
         gpui_kit::Entity<gpui_kit::component::text::TextViewState>,
     )> {
-        let texts: Vec<String> = self
-            .item
-            .blocks
-            .iter()
-            .filter(|b| b.kind == MessageBlockKind::Text)
-            .map(|b| b.markdown.clone().unwrap_or_default())
-            .collect();
+        // Text and alert bodies, in the answer's order (Find walks them
+        // as drawn).
+        let mut texts: Vec<(bool, usize, String)> = vec![];
+        let (mut text_n, mut alert_n) = (0, 0);
+        for b in &self.item.blocks {
+            match b.kind {
+                MessageBlockKind::Text => {
+                    texts.push((false, text_n, b.markdown.clone().unwrap_or_default()));
+                    text_n += 1;
+                }
+                MessageBlockKind::Alert => {
+                    texts.push((true, alert_n, b.markdown.clone().unwrap_or_default()));
+                    alert_n += 1;
+                }
+                _ => {}
+            }
+        }
         let now = cx.background_executor().now();
         let reduce_motion = cx.reduce_motion();
         let mut out = vec![];
-        for (ordinal, md) in texts.iter().enumerate() {
+        for (alert, ordinal, md) in texts.iter() {
+            if *alert {
+                if !md.trim().is_empty() {
+                    let key = format!("alert{ordinal}");
+                    let state = self.ensure_text(&key, md, cx);
+                    out.push((key, state));
+                }
+                continue;
+            }
+            let ordinal = *ordinal;
             // The same text the row draws: never more (the pace releases it).
             let (md, paced, _) = self.shown_text(ordinal, md, false, now, reduce_motion);
             let streaming = self.item.streaming && !paced;
@@ -457,8 +510,6 @@ impl AssistantRow {
         let m = t.metrics;
         let key = self.item.key.clone();
         Some(match block.kind {
-            // Not drawn yet.
-            MessageBlockKind::Alert | MessageBlockKind::Embeds => return None,
             MessageBlockKind::Text => {
                 // No caret appended while streaming: each snapshot must
                 // extend the last one for TextView to parse only the new
@@ -584,6 +635,21 @@ impl AssistantRow {
             }
             MessageBlockKind::ToolCalls => {
                 let calls = block.calls.clone().unwrap_or_default();
+                // What a finished call showed (HTML, a page, an MCP App)
+                // goes under the group, as the phone shows it even with
+                // the group closed.
+                let embeds: Vec<AnyElement> = calls
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, call)| call.done && !call.pending)
+                    .flat_map(|(j, call)| {
+                        call.shown_embeds
+                            .iter()
+                            .enumerate()
+                            .map(move |(k, e)| (tool_embed_id(i, j, k), e.clone()))
+                    })
+                    .map(|(id, embed)| self.embed_view(&id, &embed, true, cx).into_any_element())
+                    .collect();
                 div()
                     .flex()
                     .flex_col()
@@ -593,6 +659,75 @@ impl AssistantRow {
                             .iter()
                             .enumerate()
                             .map(|(j, call)| self.tool_call(i, j, call, &l10n, &t, cx)),
+                    )
+                    .when(!embeds.is_empty(), |d| {
+                        d.child(
+                            div()
+                                .pt(px(4.))
+                                .flex()
+                                .flex_col()
+                                .gap(px(8.))
+                                .children(embeds),
+                        )
+                    })
+                    .into_any_element()
+            }
+            MessageBlockKind::Embeds => {
+                let embeds = block.embeds.clone().unwrap_or_default();
+                div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .children(embeds.iter().enumerate().map(|(k, embed)| {
+                        self.embed_view(&embed_id(i, k), embed, false, cx)
+                            .into_any_element()
+                    }))
+                    .into_any_element()
+            }
+            MessageBlockKind::Alert => {
+                let kind = block.r#type.clone().unwrap_or_default();
+                let (label, glyph, color) = alert_style(&kind, &l10n, &t);
+                let md = block.markdown.clone().unwrap_or_default();
+                let body = (!md.trim().is_empty()).then(|| {
+                    let state = self.text_state(&format!("alert{ordinal}"), &md, window, cx);
+                    div()
+                        .text_size(px(m.body))
+                        .line_height(relative(m.leading))
+                        .text_color(r.text)
+                        .child(chat_text(&state, key.clone().into()))
+                });
+                div()
+                    .id(ElementId::Name(format!("alert-{key}-{i}").into()))
+                    .role(Role::Note)
+                    .aria_label(SharedString::from(label.clone()))
+                    .w_full()
+                    .flex()
+                    .gap(px(12.))
+                    .child(div().w(px(3.)).flex_none().rounded(px(1.5)).bg(color))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .py(px(2.))
+                            .flex()
+                            .flex_col()
+                            .gap(px(4.))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(6.))
+                                    .child(icon(glyph, 16., color))
+                                    .child(
+                                        div()
+                                            .text_size(px(m.body))
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .text_color(color)
+                                            .child(SharedString::from(label)),
+                                    ),
+                            )
+                            .children(body),
                     )
                     .into_any_element()
             }
@@ -1152,6 +1287,43 @@ impl AssistantRow {
     }
 }
 
+/// A GitHub-style alert's label, glyph and colour, as the phone draws it
+/// (`block_renderer.dart`): blue note, green tip, purple important, amber
+/// warning, red caution. They are what the text means, so they keep their
+/// hues in the monochrome palette, as the danger red does.
+pub fn alert_style(
+    kind: &str,
+    l10n: &L10n,
+    t: &ConduitTheme,
+) -> (String, IconName, gpui_kit::Hsla) {
+    let r = t.roles;
+    match kind {
+        "tip" => (l10n.alert_tip(), IconName::Lightbulb, r.success),
+        "important" => (
+            l10n.alert_important(),
+            IconName::CircleAlert,
+            if t.dark {
+                gpui_kit::hsla(270. / 360., 0.65, 0.72, 1.)
+            } else {
+                gpui_kit::hsla(270. / 360., 0.55, 0.48, 1.)
+            },
+        ),
+        "warning" => (l10n.alert_warning(), IconName::TriangleAlert, r.warning),
+        "caution" => (l10n.alert_caution(), IconName::OctagonAlert, r.danger),
+        // Blue, as on the phone (the palette's info tone is teal, too
+        // close to the tip's green).
+        _ => (
+            l10n.alert_note(),
+            IconName::Info,
+            if t.dark {
+                gpui_kit::hsla(212. / 360., 0.85, 0.66, 1.)
+            } else {
+                gpui_kit::hsla(212. / 360., 0.80, 0.45, 1.)
+            },
+        ),
+    }
+}
+
 /// The largest an inline image is drawn (it keeps its proportions); a
 /// click opens it full size in Quick Look.
 const IMAGE_MAX: (f32, f32) = (480., 400.);
@@ -1183,6 +1355,32 @@ pub fn file_list(
     let r = t.roles;
     let m = t.metrics;
     let mut children: Vec<AnyElement> = Vec::with_capacity(files.len());
+    // The message's pictures, for the viewer to step through.
+    let gallery: Vec<(usize, crate::views::image_viewer::ViewerImage)> = files
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| f.image)
+        .filter_map(|(n, f)| {
+            let name = f.name.clone();
+            let image = match (&f.data_url, server_id, &f.id) {
+                (Some(url), _, _) => crate::views::image_viewer::ViewerImage::Data {
+                    image: std::sync::Arc::new(decode_data_image(url)?),
+                    name,
+                },
+                (None, Some(s), Some(id)) => crate::views::image_viewer::ViewerImage::File {
+                    file: FileRef {
+                        server_id: s.to_string(),
+                        file_id: id.clone(),
+                    },
+                    name,
+                },
+                _ => return None,
+            };
+            Some((n, image))
+        })
+        .collect();
+    let images: Vec<crate::views::image_viewer::ViewerImage> =
+        gallery.iter().map(|(_, i)| i.clone()).collect();
     for (n, f) in files.iter().enumerate() {
         let file_ref = match (server_id, &f.id) {
             (Some(s), Some(id)) => Some(FileRef {
@@ -1222,13 +1420,32 @@ pub fn file_list(
                 },
                 (None, None) => ImageState::Failed,
             };
+            let open = gallery.iter().position(|(k, _)| *k == n).map(|start| {
+                let images = images.clone();
+                std::rc::Rc::new(move |cx: &mut App| {
+                    crate::views::image_viewer::open(images.clone(), start, cx)
+                }) as OpenImage
+            });
             children.push(image_tile(
                 element_id,
                 &name,
                 state,
                 file_ref.clone(),
+                open,
                 l10n,
                 t,
+            ));
+            continue;
+        }
+        if is_video(f)
+            && let Some(file) = file_ref.clone()
+        {
+            children.push(super::video::video_tile(
+                element_id,
+                file,
+                f.name.clone(),
+                window,
+                cx,
             ));
             continue;
         }
@@ -1313,12 +1530,28 @@ pub fn image_label(name: &str) -> Option<String> {
     Some(first.to_uppercase().chain(chars).collect())
 }
 
-/// One inline image in its state.
+/// Shows an image in the viewer.
+type OpenImage = std::rc::Rc<dyn Fn(&mut App)>;
+
+/// Whether `file` is a video (by its type, else its name), which plays
+/// inline.
+pub fn is_video(file: &ChatFileDto) -> bool {
+    if let Some(t) = &file.content_type {
+        return t.to_ascii_lowercase().starts_with("video/");
+    }
+    let name = file.name.to_ascii_lowercase();
+    [".mp4", ".mov", ".m4v", ".webm"]
+        .iter()
+        .any(|ext| name.ends_with(ext))
+}
+
+/// One inline image in its state. `open` shows it in the viewer.
 fn image_tile(
     element_id: ElementId,
     name: &str,
     state: ImageState,
     file: Option<FileRef>,
+    open: Option<OpenImage>,
     l10n: &L10n,
     t: &ConduitTheme,
 ) -> AnyElement {
@@ -1330,8 +1563,6 @@ fn image_tile(
     let file_name = SharedString::from(name.to_string());
     match state {
         ImageState::Ready(source, size) => {
-            let open = file.clone();
-            let open_name = name.to_string();
             let picture = match size {
                 Some((w, h)) => img(source).w(px(w)).h(px(h)),
                 None => img(source).max_w(px(IMAGE_MAX.0)).max_h(px(IMAGE_MAX.1)),
@@ -1356,8 +1587,8 @@ fn image_tile(
                 .when(open.is_some(), |d| d.cursor_pointer())
                 .child(picture)
                 .on_click(move |_, _, cx| {
-                    if let Some(f) = &open {
-                        open_attachment(f.clone(), &open_name, OpenWith::QuickLook, cx).detach();
+                    if let Some(open) = &open {
+                        open(cx);
                     }
                 })
                 .into_any_element()

@@ -53,6 +53,14 @@ pub enum Card {
         summary: String,
         choices: Vec<String>,
     },
+    /// An MCP App in a chat wants to call one of its server's tools.
+    McpAppTool {
+        server: String,
+        tool: String,
+        arguments: String,
+    },
+    /// An MCP App asks to open a web page.
+    OpenLink { url: String },
     /// A kind this window does not host: answer on mobile or the web.
     Unsupported,
 }
@@ -101,8 +109,6 @@ pub fn card(request: &UiRequest) -> Card {
                 cancel_label: arg(request, "cancelLabel"),
             }
         }
-        // Not shown in a window yet.
-        UiRequestKind::McpAppToolCall | UiRequestKind::McpAppOpenLink => Card::Unsupported,
         UiRequestKind::McpApproval => Card::Mcp {
             server: arg(request, "serverName").unwrap_or_default(),
             tool: arg(request, "toolName").unwrap_or_default(),
@@ -134,6 +140,19 @@ pub fn card(request: &UiRequest) -> Card {
                 },
             }
         }
+        UiRequestKind::McpAppToolCall => Card::McpAppTool {
+            server: arg(request, "serverName").unwrap_or_default(),
+            tool: arg(request, "toolName").unwrap_or_default(),
+            arguments: match request.detail.get("arguments") {
+                Some(Value::String(s)) => s.clone(),
+                Some(Value::Null) | None => String::new(),
+                Some(other) => other.to_string(),
+            },
+        },
+        UiRequestKind::McpAppOpenLink => match arg(request, "url") {
+            Some(url) => Card::OpenLink { url },
+            None => Card::Unsupported,
+        },
         UiRequestKind::HermesDecision | UiRequestKind::Unknown => Card::Unsupported,
     }
 }
@@ -166,7 +185,11 @@ impl Answer {
 /// no "allow").
 pub fn allow(request: &UiRequest, text: Option<String>) -> Option<Answer> {
     match card(request) {
-        Card::Confirm { .. } | Card::Tool { .. } | Card::Mcp { .. } => Some(Answer::new("allow")),
+        Card::Confirm { .. }
+        | Card::Tool { .. }
+        | Card::Mcp { .. }
+        | Card::McpAppTool { .. }
+        | Card::OpenLink { .. } => Some(Answer::new("allow")),
         Card::Input { .. } => Some(Answer {
             choice: "allow".into(),
             text: Some(text.unwrap_or_default()),

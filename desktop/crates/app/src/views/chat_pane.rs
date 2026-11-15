@@ -73,6 +73,10 @@ pub struct ChatPane {
     stores: Stores,
     layout: Entity<LayoutStore>,
     approvals: Entity<ApprovalsView>,
+    /// Open WebUI's question or approval in the open chat.
+    pub prompt_card: Entity<crate::views::chat::prompt::PromptCard>,
+    /// The open chat's task checklist shows every task.
+    tasks_open: bool,
     pub composer_store: Entity<ComposerStore>,
     pub composer: Entity<ChatComposer>,
     pub chat: Option<OpenChat>,
@@ -354,10 +358,13 @@ impl ChatPane {
             }),
         ];
         let account = stores.accounts.read(cx).active().map(|a| a.id.clone());
+        let prompt_card = cx.new(|cx| crate::views::chat::prompt::PromptCard::new(window, cx));
         let mut this = Self {
             stores,
             layout,
             approvals,
+            prompt_card,
+            tasks_open: false,
             composer_store,
             composer,
             chat: None,
@@ -691,6 +698,7 @@ impl ChatPane {
                     cx,
                 );
                 self.chat = None;
+                self.prompt_card.update(cx, |p, cx| p.set_store(None, cx));
                 self.queue_edit = None;
                 // Nothing to find in a new chat.
                 self.find_open = false;
@@ -704,6 +712,12 @@ impl ChatPane {
                 });
             }
         }
+        cx.notify();
+    }
+
+    /// Opens or closes the open chat's task checklist.
+    pub fn set_tasks_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        self.tasks_open = open;
         cx.notify();
     }
 
@@ -783,6 +797,9 @@ impl ChatPane {
                 });
             }));
         });
+        self.prompt_card
+            .update(cx, |p, cx| p.set_store(Some(store.clone()), cx));
+        self.tasks_open = false;
         // The find bar stays open over the next chat, finding the same text.
         let query = self.find_input.read(cx).value().to_string();
         if self.find_open && !query.is_empty() {
@@ -804,11 +821,18 @@ impl ChatPane {
             cx.subscribe(&store, |this, _, event: &ChatStoreEvent, cx| {
                 let l10n = cx.l10n().clone();
                 match event {
+                    // The prompt card says so itself.
+                    ChatStoreEvent::Failed {
+                        action: ChatAction::Prompt,
+                        ..
+                    } => {}
                     ChatStoreEvent::Failed { action, reason, .. } => {
                         let text = failure_text(*action, reason.as_deref(), &l10n);
                         this.toast(NoticeLevel::Warning, text, cx);
                     }
                     ChatStoreEvent::Missing => cx.notify(),
+                    // For the app's view in the transcript.
+                    ChatStoreEvent::McpApp(_) => {}
                 }
             }),
         ];
@@ -1478,7 +1502,8 @@ impl ChatPane {
         });
     }
 
-    /// The More menu's leading items: Chat Settings… and Tool Settings…
+    /// The More menu's items for the open chat itself, before Delete…:
+    /// Chat Settings…, Tool Settings… and Show Branches…
     pub fn more_menu_items(&self, cx: &App) -> Vec<(String, Box<dyn gpui_kit::Action>)> {
         let l10n = cx.l10n();
         let mut items: Vec<(String, Box<dyn gpui_kit::Action>)> = vec![];
@@ -1492,6 +1517,12 @@ impl ChatPane {
             items.push((
                 l10n.desktop_tool_settings_menu(),
                 Box::new(crate::actions::ToolSettings),
+            ));
+        }
+        if self.chat.is_some() {
+            items.push((
+                l10n.desktop_menu_show_branches(),
+                Box::new(crate::actions::ShowBranches),
             ));
         }
         items
@@ -1861,12 +1892,33 @@ impl ChatPane {
             let pane = cx.entity().downgrade();
             queue_panel(&queue, self.queue_edit.as_ref(), pane, &t, window, cx)
         });
+        // Open WebUI's task checklist, over everything else, as on the
+        // phone.
+        let tasks = self.chat.as_ref().and_then(|chat| {
+            let t = cx.conduit().clone();
+            let tasks = chat.store.read(cx).tasks.clone();
+            let pane = cx.entity().downgrade();
+            crate::views::chat::tasks::task_list(
+                &tasks,
+                self.tasks_open,
+                std::rc::Rc::new(move |_, cx| {
+                    let _ = pane.update(cx, |p, cx| {
+                        p.tasks_open = !p.tasks_open;
+                        cx.notify();
+                    });
+                }),
+                &t,
+                cx,
+            )
+        });
         Some(
             div()
                 .flex()
                 .flex_col()
+                .children(tasks)
                 .children(queue)
                 .child(self.approvals.clone())
+                .when(self.chat.is_some(), |d| d.child(self.prompt_card.clone()))
                 .into_any_element(),
         )
     }

@@ -292,6 +292,131 @@ pub fn preview_document(kind: PreviewKind, code: &str, theme: &PreviewTheme) -> 
     }
 }
 
+/// An embed's reported height is kept in these bounds (the phone's
+/// `kWebEmbedMinHeight`/`kWebEmbedMaxHeight`), and starts at the default.
+pub const EMBED_MIN_HEIGHT: f32 = 220.;
+pub const EMBED_MAX_HEIGHT: f32 = 900.;
+pub const EMBED_DEFAULT_HEIGHT: f32 = 360.;
+
+/// A string as a JavaScript literal that cannot close a `<script>` or start
+/// markup inside one (the core's `jsonForInlineScript`).
+pub fn js_string(value: &str) -> String {
+    serde_json::to_string(value)
+        .unwrap_or_else(|_| "\"\"".into())
+        .replace('&', "\\u0026")
+        .replace('<', "\\u003C")
+        .replace('>', "\\u003E")
+}
+
+/// What an embedded page tells its host, from every frame (the phone's
+/// `webEmbedAllFrameBootstrapScript`): its height, and a link the user
+/// clicked, which opens in the browser rather than in the frame. The
+/// height is the content's, measured from the body: the document's own
+/// scroll height is never less than the frame, so an embed could grow but
+/// never shrink to a short page.
+pub const EMBED_FRAME_SCRIPT: &str = "(()=>{\
+const report=()=>{const b=document.body;if(!b)return;\
+const r=b.getBoundingClientRect(),m=parseFloat(getComputedStyle(b).marginBottom)||0;\
+const height=Math.ceil(Math.max(r.bottom,r.top+b.scrollHeight)+scrollY+m);\
+if(parent!==window)parent.postMessage({type:'conduit-embed-height',height},'*');};\
+addEventListener('load',report);\
+if(typeof ResizeObserver!=='undefined'){const o=new ResizeObserver(report);\
+const go=()=>{if(document.documentElement)o.observe(document.documentElement);\
+if(document.body)o.observe(document.body);};\
+if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',go,{once:true});}\
+else{go();}}\
+setTimeout(report,0);setTimeout(report,250);setTimeout(report,1000);\
+addEventListener('click',(e)=>{if(!e.isTrusted||parent===window)return;\
+const a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a)return;\
+const url=a.href;if(!/^https?:/i.test(url))return;e.preventDefault();\
+parent.postMessage({type:'conduit-open-link',url},'*');},true);})();";
+
+/// The host page's half: what the embed's frame posts goes on to the app
+/// through its own handler (the top document's only: see `web_guard`), as
+/// `{"type":"height","height":N}` or `{"type":"open","url":"…"}`. The app
+/// opens a link only after a click or key press it saw in the web view.
+const EMBED_HOST_SCRIPT: &str = "<script>window.addEventListener('message',(e)=>{\
+const f=document.getElementById('embed-frame');if(!f||e.source!==f.contentWindow)return;\
+const d=e.data||{};\
+const host=(m)=>window.webkit.messageHandlers.conduitHost.postMessage(JSON.stringify(m));\
+if(d.type==='conduit-embed-height'){const h=Number(d.height);\
+if(Number.isFinite(h)&&h>0)host({type:'height',height:h});}\
+else if(d.type==='conduit-open-link'&&typeof d.url==='string'){\
+host({type:'open',url:d.url});}});</script>";
+
+/// The page for HTML or SVG a tool returned, shown inline in an answer:
+/// the Preview window's page and policy (no network: inline scripts and
+/// styles, `data:`/`blob:` media, nothing fetched), the markup in a
+/// `sandbox="allow-scripts allow-forms"` frame, given the tool call's
+/// arguments as `window.args` (as the phone gives them) and reporting its
+/// height. Chart.js is offered to a page that uses it, its CDN being
+/// blocked.
+pub fn embed_document(source: &str, args_text: &str, theme: &PreviewTheme) -> String {
+    let mut head = format!(
+        "<meta name=\"color-scheme\" content=\"{scheme}\">\
+         <style>:root{{color-scheme:{scheme}}}\
+         html{{background:transparent;color:{fg}}}</style>",
+        scheme = theme.scheme(),
+        fg = theme.text,
+    );
+    if !args_text.trim().is_empty() {
+        head.push_str(&format!(
+            "<script>window.args = {};</script>",
+            js_string(args_text)
+        ));
+    }
+    head.push_str(&format!("<script>{EMBED_FRAME_SCRIPT}</script>"));
+    if source.contains("Chart") || source.contains("chart.js") {
+        head.push_str(&format!("<script>{}</script>", script_safe(CHART_JS)));
+    }
+    let inner = into_head(source, &head);
+    embed_page(
+        theme,
+        CSP,
+        &format!(
+            "<iframe id=\"embed-frame\" sandbox=\"allow-scripts allow-forms\" \
+             referrerpolicy=\"no-referrer\" srcdoc=\"{}\"></iframe>",
+            escape_html(&inner)
+        ),
+    )
+}
+
+/// The page for a web page an answer embeds by its address: the page in a
+/// `sandbox="allow-scripts allow-forms"` frame, and nothing else reachable
+/// from the host page itself. The page is the network's, as on the phone.
+pub fn remote_embed_document(url: &url::Url, theme: &PreviewTheme) -> String {
+    let origin = url.origin().ascii_serialization();
+    let csp = format!(
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; \
+         frame-src {origin}; child-src {origin}; connect-src 'none'; \
+         form-action 'none'; base-uri 'none'"
+    );
+    embed_page(
+        theme,
+        &csp,
+        &format!(
+            "<iframe id=\"embed-frame\" sandbox=\"allow-scripts allow-forms\" \
+             referrerpolicy=\"no-referrer\" src=\"{}\"></iframe>",
+            escape_html(url.as_str())
+        ),
+    )
+}
+
+/// The host page around an embed's frame, which fills it.
+fn embed_page(theme: &PreviewTheme, csp: &str, body: &str) -> String {
+    let scheme = theme.scheme();
+    format!(
+        "<!doctype html><html><head><meta charset=\"utf-8\">\
+         <meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">\
+         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
+         <meta name=\"color-scheme\" content=\"{scheme}\">\
+         <style>html,body{{margin:0;height:100%;background:transparent;\
+         color-scheme:{scheme};overflow:hidden}}\
+         iframe{{border:0;width:100%;height:100%;display:block;background:transparent}}</style>\
+         {EMBED_HOST_SCRIPT}</head><body>{body}</body></html>"
+    )
+}
+
 /// Opens a Preview window for a code block (the markdown plugin's hook):
 /// subtitled with the main window's open chat when the block is in it
 /// (Quick Ask's has no title of its own to show).
@@ -747,6 +872,35 @@ mod tests {
             &PreviewTheme::plain(true),
         );
         assert!(chart.contains("Chart.js v4"));
+    }
+
+    #[test]
+    fn embeds_run_sandboxed_with_their_arguments_and_no_network() {
+        let doc = embed_document(
+            "<p>Board</p><script>draw(window.args)</script>",
+            "{\"port\":\"</script>\"}",
+            &PreviewTheme::plain(false),
+        );
+        assert!(doc.contains("connect-src 'none'") && doc.contains("default-src 'none'"));
+        assert!(doc.contains("sandbox=\"allow-scripts allow-forms\" referrerpolicy"));
+        assert!(!doc.contains("allow-same-origin") && !doc.contains("allow-popups"));
+        // The arguments are a string the frame cannot break out of.
+        assert_eq!(
+            js_string("{\"port\":\"</script>\"}"),
+            "\"{\\\"port\\\":\\\"\\u003C/script\\u003E\\\"}\""
+        );
+        assert!(doc.contains("window.args = "));
+        assert!(!doc.contains("</script>\"}"));
+        assert!(
+            doc.contains("conduit-embed-height") && doc.contains("messageHandlers.conduitHost")
+        );
+        let remote = remote_embed_document(
+            &url::Url::parse("https://example.com/harbour?cam=1").unwrap(),
+            &PreviewTheme::plain(true),
+        );
+        assert!(remote.contains("frame-src https://example.com;"));
+        assert!(remote.contains("src=\"https://example.com/harbour?cam=1\""));
+        assert!(remote.contains("connect-src 'none'"));
     }
 
     #[test]

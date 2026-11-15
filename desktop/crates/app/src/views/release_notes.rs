@@ -270,7 +270,8 @@ pub fn open_sheet(
     window: &mut Window,
     cx: &mut App,
 ) {
-    if notes_entity_sheet(cx).is_some() {
+    // One sheet on the main window at a time: the one down keeps it.
+    if notes_entity_sheet(cx).is_some() || crate::views::sheet::refuse_another(cx) {
         return;
     }
     let stores = stores(cx);
@@ -281,7 +282,7 @@ pub fn open_sheet(
             cx.new(|cx| ReleaseNotesSheet::new(items, from_banner, stores, window, cx))
         },
     );
-    let (handle, _) = match opened {
+    let (handle, view) = match opened {
         Ok(v) => v,
         Err(e) => {
             log::error!("could not open the release notes: {e}");
@@ -291,21 +292,10 @@ pub fn open_sheet(
     if let Some(n) = notes(cx) {
         n.update(cx, |n, _| n.sheet = Some(handle));
     }
-    #[cfg(target_os = "macos")]
-    {
-        let parent = crate::shell::macos::ns_window(window);
-        let sheet = handle
-            .update(cx, |_, w, _| crate::shell::macos::ns_window(w))
-            .ok()
-            .flatten();
-        if let (Some(parent), Some(sheet)) = (parent, sheet) {
-            cx.foreground_executor()
-                .spawn(async move { crate::shell::macos::begin_sheet(&parent, &sheet) })
-                .detach();
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    let _ = window;
+    // The main window's sheet now: no chat sheet opens over it, and Quit
+    // ends it first.
+    crate::views::sheet::adopt(handle, view.into_any(), cx);
+    crate::views::sheet::begin(window, handle, cx);
 }
 
 fn notes_entity_sheet(cx: &App) -> Option<AnyWindowHandle> {
@@ -618,5 +608,27 @@ mod tests {
         cx.run_until_parked();
         let checked = cx.update(|cx| notes(cx).map(|n| n.read(cx).checked));
         assert_eq!(checked, Some(false), "a failed check is never asked again");
+    }
+
+    #[gpui_kit::test]
+    fn the_notes_never_open_over_another_sheet(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-notes-sheet-{}", std::process::id()));
+        cx.update(|cx| {
+            crate::views::test_globals(cx);
+            let stores = Stores::for_test(daemon.rpc(), &scratch, cx);
+            install(&stores, cx);
+        });
+        let other = cx.add_empty_window();
+        let handle = other.window_handle();
+        let body = other.update(|_, cx| cx.new(|_| ()));
+        other.update(|window, cx| {
+            crate::views::sheet::adopt(handle, body.into_any(), cx);
+            open_sheet(vec![], false, window, cx);
+        });
+        let sheet = cx.update(|cx| notes(cx).and_then(|n| n.read(cx).sheet));
+        assert!(sheet.is_none(), "the notes opened over another sheet");
     }
 }

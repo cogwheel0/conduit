@@ -641,8 +641,7 @@ fn register_actions(cx: &mut App) {
             .try_global::<AppState>()
             .and_then(|s| s.main_view.clone())
         {
-            let approvals = view.read(cx).approvals.clone();
-            approvals.update(cx, |a, cx| a.allow(cx));
+            view.update(cx, |v, cx| v.answer_request(true, cx));
         }
     });
     cx.on_action(|_: &DenyRequest, cx| {
@@ -650,8 +649,7 @@ fn register_actions(cx: &mut App) {
             .try_global::<AppState>()
             .and_then(|s| s.main_view.clone())
         {
-            let approvals = view.read(cx).approvals.clone();
-            approvals.update(cx, |a, cx| a.deny(cx));
+            view.update(cx, |v, cx| v.answer_request(false, cx));
         }
     });
     cx.on_action(|action: &SetLocale, cx| {

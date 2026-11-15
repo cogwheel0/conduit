@@ -1,7 +1,9 @@
 //! The access sheet: who may read, or read and edit, one resource (users
 //! and groups), as mobile's sharing sheet, in a window sheet on the main
-//! window. Share Folder… opens it for a folder; it takes any
-//! [`AccessResourceKind`], so Notes and Workspace items reuse it.
+//! window. Share Folder… opens it for a folder, and Share Chat's Who Has
+//! Access for a chat, where it also offers the chat's general access (only
+//! the people added, everyone on the server, anyone with the link); it
+//! takes any [`AccessResourceKind`], so Notes and Workspace items reuse it.
 //!
 //! Over `access.*`: the daemon reads the grants, names their people and
 //! groups, says what this account may change, and writes the edited list
@@ -14,7 +16,7 @@ use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::IconName;
 use conduit_components::views::kit::{Button, IconButton, avatar, grouped_section};
 use conduit_protocol::{
-    AccessEdit, AccessGrantDto, AccessPrincipal, AccessPrincipalQuery, AccessRef,
+    AccessAudience, AccessEdit, AccessGrantDto, AccessPrincipal, AccessPrincipalQuery, AccessRef,
     AccessResourceKind, AccessState, NoticeLevel, methods,
 };
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -53,16 +55,48 @@ pub fn open_for_folder(
     });
 }
 
+/// Share Chat's Who Has Access: the access sheet for chat `chat_id`, named
+/// `title`. Share Chat comes back once it is saved or cancelled, as the
+/// phone's share flow returns to its sheet.
+pub fn open_for_chat(
+    stores: Stores,
+    chat_id: &str,
+    title: String,
+    window: &mut Window,
+    cx: &mut App,
+) -> Option<Entity<AccessSheet>> {
+    let id = chat_id.to_string();
+    let opened = sheet::open(window, WIDTH, cx, move |w, cx| {
+        AccessSheet::new(stores, AccessResourceKind::Chat, id, title, w, cx)
+    });
+    if opened.is_some() {
+        let id = chat_id.to_string();
+        sheet::after_dismiss(cx, move |cx| {
+            let main = cx
+                .try_global::<crate::AppState>()
+                .and_then(|s| s.main_window);
+            if let Some(main) = main {
+                let _ = main.update(cx, |_, window, cx| {
+                    crate::views::chat::share_sheet::open(id, window, cx)
+                });
+            }
+        });
+    }
+    opened
+}
+
 pub struct AccessSheet {
     stores: Stores,
     rpc: Rpc,
-    kind: AccessResourceKind,
+    pub kind: AccessResourceKind,
     id: String,
     resource_name: String,
     pub state: Option<AccessState>,
     /// The grants as the sheet holds them, and as they were loaded.
     pub grants: Vec<AccessGrantDto>,
     initial: Vec<AccessGrantDto>,
+    /// The general access picked in the sheet; None keeps the one loaded.
+    picked_audience: Option<AccessAudience>,
     search: Entity<InputState>,
     pub results: Vec<AccessPrincipal>,
     saving: bool,
@@ -105,6 +139,7 @@ impl AccessSheet {
             state: None,
             grants: vec![],
             initial: vec![],
+            picked_audience: None,
             search,
             results: vec![],
             saving: false,
@@ -144,7 +179,34 @@ impl AccessSheet {
     fn adopt(&mut self, state: AccessState) {
         self.grants = state.grants.clone();
         self.initial = state.grants.clone();
+        self.picked_audience = None;
         self.state = Some(state);
+    }
+
+    /// The sheet offers general access: a chat always, as the phone does;
+    /// a note when it may be opened to everyone (or already is); never a
+    /// folder.
+    fn offers_audience(state: &AccessState) -> bool {
+        match state.kind {
+            AccessResourceKind::Chat => true,
+            AccessResourceKind::Folder => false,
+            _ => state.allow_public || state.audience != AccessAudience::Private,
+        }
+    }
+
+    /// The general access on screen: the one picked, else the one loaded.
+    pub fn audience(&self) -> AccessAudience {
+        self.picked_audience
+            .or_else(|| self.state.as_ref().map(|s| s.audience))
+            .unwrap_or(AccessAudience::Private)
+    }
+
+    /// Picks the general access (saved with the grants).
+    pub fn set_audience(&mut self, audience: AccessAudience, cx: &mut Context<Self>) {
+        let loaded = self.state.as_ref().map(|s| s.audience);
+        self.picked_audience = (Some(audience) != loaded).then_some(audience);
+        self.failure = None;
+        cx.notify();
     }
 
     /// People and groups matching `query`, once typing pauses.
@@ -173,7 +235,7 @@ impl AccessSheet {
     }
 
     pub fn is_dirty(&self) -> bool {
-        self.grants != self.initial
+        self.grants != self.initial || self.picked_audience.is_some()
     }
 
     fn can_save(&self) -> bool {
@@ -264,8 +326,9 @@ impl AccessSheet {
             kind: self.kind,
             id: self.id.clone(),
             grants: self.grants.clone(),
-            audience: None,
+            audience: self.picked_audience,
         });
+        let picked = self.picked_audience;
         let handle = window.window_handle();
         let asked: Vec<String> = self
             .grants
@@ -295,8 +358,11 @@ impl AccessSheet {
                                 })
                                 .map(|g| display_name(g, &l10n))
                                 .collect();
+                            let audience_kept = picked.is_none_or(|a| a == state.audience);
                             s.adopt(state);
-                            if dropped.is_empty() {
+                            if !audience_kept {
+                                s.failure = Some(l10n.resource_sharing_filtered());
+                            } else if dropped.is_empty() {
                                 s.stores.toasts.update(cx, |t, cx| {
                                     t.show(NoticeLevel::Info, l10n.saved(), cx)
                                 });
@@ -321,6 +387,13 @@ impl AccessSheet {
     fn on_choice(&mut self, action: &SettingsChoice, cx: &mut Context<Self>) {
         if let Some(key) = action.menu.strip_prefix("access-level:") {
             self.set_write(key, action.value == "write", cx);
+        } else if action.menu == "access-audience" {
+            let audience = match action.value.as_str() {
+                "public" => AccessAudience::Public,
+                "open" => AccessAudience::Open,
+                _ => AccessAudience::Private,
+            };
+            self.set_audience(audience, cx);
         }
     }
 
@@ -507,6 +580,79 @@ impl AccessSheet {
     }
 }
 
+impl AccessSheet {
+    /// The sheet's title: Who Has Access for a chat (the Share Chat row that
+    /// opens it), Share Folder for a folder.
+    fn title(&self, l10n: &L10n) -> String {
+        match self.kind {
+            AccessResourceKind::Chat => l10n.chat_share_audience(),
+            _ => l10n.folder_share_settings(),
+        }
+    }
+
+    /// General Access: who may open it beyond the people below. A choice
+    /// the account may not make is left out (unless the resource has it),
+    /// with a line saying so, as on the phone.
+    fn audience_section(
+        &self,
+        state: &AccessState,
+        l10n: &L10n,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let current = self.audience();
+        let chat = state.kind == AccessResourceKind::Chat;
+        let mut choices = vec![Choice::new(
+            "private",
+            l10n.library_access_only_people_added(),
+        )];
+        if state.allow_public || current == AccessAudience::Public {
+            choices.push(Choice::new(
+                "public",
+                l10n.library_access_everyone_on_server(),
+            ));
+        }
+        if chat && (state.allow_open || current == AccessAudience::Open) {
+            choices.push(Choice::new("open", l10n.library_access_anyone_with_link()));
+        }
+        let selected = match current {
+            AccessAudience::Public => "public",
+            AccessAudience::Open => "open",
+            _ => "private",
+        };
+        let label = l10n.library_general_access();
+        let popup = controls::popup(
+            "access-audience",
+            &label,
+            choices,
+            selected,
+            !self.can_edit() || self.saving,
+            window,
+            cx,
+        );
+        let mut footer = vec![match current {
+            AccessAudience::Public => l10n.library_access_everyone_hint(),
+            AccessAudience::Open => l10n.resource_audience_open_hint(),
+            _ => l10n.resource_audience_private_hint(),
+        }];
+        if state.can_edit {
+            if !state.allow_public && current != AccessAudience::Public {
+                footer.push(l10n.desktop_access_public_not_allowed());
+            }
+            if chat && !state.allow_open && current != AccessAudience::Open {
+                footer.push(l10n.library_access_link_not_allowed());
+            }
+        }
+        grouped_section(
+            None,
+            vec![forms::form_row(label, popup, cx).into_any_element()],
+            Some(footer.join(" ").into()),
+            cx,
+        )
+        .into_any_element()
+    }
+}
+
 /// A grant's name: an unnamed one is an unknown person or group, never its
 /// id.
 fn display_name(grant: &AccessGrantDto, l10n: &L10n) -> String {
@@ -582,7 +728,7 @@ impl SheetBody for AccessSheet {
     }
 
     fn label(&self, cx: &App) -> SharedString {
-        cx.l10n().folder_share_settings().into()
+        self.title(cx.l10n()).into()
     }
 }
 
@@ -601,7 +747,7 @@ impl Render for AccessSheet {
                         .role(Role::Heading)
                         .text_size(px(t.metrics.body + 2.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(l10n.folder_share_settings()),
+                        .child(self.title(&l10n)),
                 )
                 .child(
                     div()
@@ -625,6 +771,9 @@ impl Render for AccessSheet {
                     .into_any_element(),
             ),
             Some(state) => {
+                if Self::offers_audience(&state) {
+                    body.push(self.audience_section(&state, &l10n, window, cx));
+                }
                 let mut rows = vec![];
                 if let Some(owner) = state.owner_name.clone() {
                     rows.push(

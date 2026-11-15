@@ -997,23 +997,21 @@ pub async fn run(run: &mut Run, cx: &mut AsyncApp) {
             pause(cx, 500).await;
             let pill = |n: &drive::Node| n.role == "Button" && n.label.starts_with("Sources");
             if reveal(run, pill, cx).await.is_some() && click_settled(run, pill, cx).await {
-                pause(cx, 700).await;
+                // It opens the Sources sheet (as the phone's sources sheet).
+                pause(cx, 900).await;
                 drive::unhover(main, cx);
-                scroll_transcript(None, 220., cx);
-                pause(cx, 500).await;
                 run.state(
                     main,
                     "main",
                     "long-chat-sources",
-                    "The sources pill opened: the answer's sources listed under it.",
+                    "The sources pill opened: the Sources sheet, every source the answer cites.",
                     Shot::default(),
                     cx,
                 )
                 .await;
-                if reveal(run, pill, cx).await.is_some() {
-                    click_settled(run, pill, cx).await;
-                    pause(cx, 300).await;
-                }
+                // Done: the sheet goes before the next step.
+                cx.update(crate::views::sheet::dismiss);
+                pause(cx, 800).await;
             } else {
                 run.missing(
                     "main · sources list",

@@ -693,6 +693,7 @@ impl Render for QuickAskView {
             .size_full()
             .flex()
             .flex_col()
+            .child(crate::views::chat::inline_web::frame_start())
             .font_family(UI_FONT)
             .text_color(r.text)
             .rounded(px(PANEL_RADIUS))
@@ -762,6 +763,7 @@ impl Render for QuickAskView {
                             .child(SharedString::from(n))
                     })),
             )
+            .child(crate::views::chat::inline_web::frame_end())
     }
 }
 

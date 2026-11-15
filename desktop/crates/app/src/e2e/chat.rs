@@ -760,9 +760,19 @@ async fn local(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     });
 
     // 10. A tool call that needs approval: the card docks above the composer.
+    // Open WebUI asks in the chat (its prompt card); an approval put to the
+    // app over `ui.request` docks the approvals card. ⌥⌘↩ answers either.
     send("What time is it? Please approve", cx).await;
     let card = wait_until(cx, Duration::from_secs(20), |cx| {
-        main_window(cx).is_some_and(|(_, v)| v.read(cx).approvals.read(cx).has_request(cx))
+        main_window(cx).is_some_and(|(_, v)| {
+            v.read(cx).approvals.read(cx).has_request(cx)
+                || v.read(cx)
+                    .chat_pane
+                    .read(cx)
+                    .prompt_card
+                    .read(cx)
+                    .has_prompt(cx)
+        })
     })
     .await;
     if card {

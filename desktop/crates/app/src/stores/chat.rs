@@ -47,11 +47,14 @@ use std::rc::Rc;
 
 use conduit_daemon::RpcError;
 use conduit_protocol::{
-    ChatAbilities, ChatCurrent, ChatDetail, ChatFileDto, ChatForked, ChatMessageDto, ChatRef,
-    ChatSourceDto, ChatUsageDto, ComposerMentionDto, ContextAttachmentDto, DeleteMessages,
-    EditTurn, Event, ForkChat, KnowledgeSummary, MergeProgress, MergeTurn, MessageBlockDto,
-    MessageBlockKind, QueueAdd, QueueDraftRef, QueueEdit, QueueSendNowResult, QueueState, RateTurn,
-    RegenerateTurn, SendTurn, SendTurnAccepted, SteerResult, SteerTurn, StopTurn, events, methods,
+    AcceptedResult, ChatAbilities, ChatCurrent, ChatDetail, ChatFileDto, ChatForked,
+    ChatMessageDto, ChatPromptAnswer, ChatPromptAnswerItem, ChatPromptDecision, ChatPromptDto,
+    ChatPromptRef, ChatPromptState, ChatRef, ChatSourceDto, ChatTaskDto, ChatUsageDto,
+    ComposerMentionDto, ContextAttachmentDto, DeleteMessages, EditTurn, Event, ForkChat,
+    KnowledgeSummary, McpAppEvent, MergeProgress, MergeTurn, MessageBlockDto, MessageBlockKind,
+    QueueAdd, QueueDraftRef, QueueEdit, QueueSendNowResult, QueueState, QueuedCompletionDto,
+    QueuedTurnRef, RateTurn, RegenerateTurn, SendTurn, SendTurnAccepted, SteerResult, SteerTurn,
+    StopTurn, events, methods,
 };
 use gpui_kit::{App, AppContext as _, AsyncApp, Context, EventEmitter, Task, WeakEntity};
 
@@ -69,6 +72,8 @@ pub const CHAT_EVENTS: &[&str] = &[
     events::CHATS_CHANGED,
     events::QUEUE_CHANGED,
     events::MESSAGES_MERGE,
+    events::CHAT_PROMPTS_CHANGED,
+    events::MCP_APPS_EVENT,
 ];
 
 /// How many of the newest messages show at first, and how many more each
@@ -312,6 +317,8 @@ pub struct RowItem {
     /// The message and its versions, by id, in the server's order (for the
     /// version list); empty without versions.
     pub siblings: Vec<String>,
+    /// An answer waiting to go out (sent while offline, or failed).
+    pub queued: Option<QueuedCompletionDto>,
 }
 
 /// One model's answer in a Compare Models row.
@@ -355,6 +362,10 @@ pub enum ChatAction {
     Merge,
     /// Save Chat (a temporary chat) was refused.
     Save,
+    /// Answering an Open WebUI prompt failed.
+    Prompt,
+    /// Retrying or removing a queued answer failed.
+    Queued,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -368,6 +379,8 @@ pub enum ChatStoreEvent {
     },
     /// The chat no longer exists (deleted elsewhere).
     Missing,
+    /// An MCP App's host has something for its view.
+    McpApp(McpAppEvent),
 }
 
 pub struct ChatStore {
@@ -424,6 +437,24 @@ pub struct ChatStore {
     /// A version chosen while a switch was on its way: made the chat's once
     /// that one has landed (the last choice wins).
     queued_version: Option<String>,
+    /// Open WebUI's question or approval waiting in this chat.
+    pub prompt: Option<ChatPromptDto>,
+    /// Its answer is on its way.
+    pub prompt_busy: bool,
+    /// Its last answer failed.
+    pub prompt_failed: bool,
+    /// Open WebUI's task checklist for this chat.
+    pub tasks: Vec<ChatTaskDto>,
+    /// Queued answers whose Retry or Remove is on its way.
+    pub queued_busy: std::collections::HashSet<String>,
+    /// Bumped by every `chatPrompts.get` asked and every
+    /// `chatPrompts.changed`: a reply asked before the latest is dropped.
+    prompt_round: u64,
+    /// The `chatPrompts.get` on its way.
+    _prompt_fetch: Option<Task<()>>,
+    /// The answer or decision on its way (never dropped by a fetch, which
+    /// would leave the card busy).
+    _prompt: Option<Task<()>>,
     _fetch: Option<Task<()>>,
     _refetch: Option<Task<()>>,
     _queue: Option<Task<()>>,
@@ -463,6 +494,14 @@ impl ChatStore {
             merge: None,
             switching: false,
             queued_version: None,
+            prompt: None,
+            prompt_busy: false,
+            prompt_failed: false,
+            prompt_round: 0,
+            _prompt_fetch: None,
+            tasks: vec![],
+            queued_busy: Default::default(),
+            _prompt: None,
             _fetch: None,
             _refetch: None,
             _queue: None,
@@ -472,6 +511,165 @@ impl ChatStore {
         store.fetch(cx);
         store.refresh_queue(cx);
         store
+    }
+
+    // ── Open WebUI prompts ──────────────────────────────────────────────
+
+    /// `chatPrompts.get`: the question or approval waiting in this chat (a
+    /// saved one is looked up again each time).
+    pub fn refresh_prompt(&mut self, cx: &mut Context<Self>) {
+        if self.temporary {
+            return;
+        }
+        let call = self.rpc.call::<methods::ChatPromptsGet>(&ChatPromptRef {
+            chat_id: self.chat_id.clone(),
+        });
+        self.prompt_round += 1;
+        let round = self.prompt_round;
+        self._prompt_fetch = Some(cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                if let Ok(state) = call.await {
+                    let _ = this.update(cx, |s, cx| {
+                        // A `chatPrompts.changed` came after it was asked.
+                        if s.prompt_round == round {
+                            s.set_prompt(state, cx);
+                        }
+                    });
+                }
+            },
+        ));
+    }
+
+    fn set_prompt(&mut self, state: ChatPromptState, cx: &mut Context<Self>) {
+        if state.chat_id != self.chat_id {
+            return;
+        }
+        let same = self.prompt.as_ref().map(|p| &p.id) == state.prompt.as_ref().map(|p| &p.id);
+        if !same {
+            self.prompt_busy = false;
+            self.prompt_failed = false;
+        }
+        if self.prompt != state.prompt || !same {
+            self.prompt = state.prompt;
+            cx.notify();
+        }
+    }
+
+    /// Answers the waiting `askUser` prompt's questions.
+    pub fn answer_prompt(&mut self, answers: Vec<ChatPromptAnswerItem>, cx: &mut Context<Self>) {
+        let Some(prompt) = &self.prompt else { return };
+        if self.prompt_busy {
+            return;
+        }
+        let call = self
+            .rpc
+            .call::<methods::ChatPromptsAnswer>(&ChatPromptAnswer {
+                chat_id: self.chat_id.clone(),
+                prompt_id: prompt.id.clone(),
+                answers,
+            });
+        self.prompt_call(call, cx);
+    }
+
+    /// Approves or refuses the waiting approval or confirmation, or
+    /// declines the questions.
+    pub fn decide_prompt(&mut self, approved: bool, cx: &mut Context<Self>) {
+        let Some(prompt) = &self.prompt else { return };
+        if self.prompt_busy {
+            return;
+        }
+        let call = self
+            .rpc
+            .call::<methods::ChatPromptsDecide>(&ChatPromptDecision {
+                chat_id: self.chat_id.clone(),
+                prompt_id: prompt.id.clone(),
+                approved,
+            });
+        self.prompt_call(call, cx);
+    }
+
+    fn prompt_call(
+        &mut self,
+        call: impl std::future::Future<Output = Result<AcceptedResult, RpcError>> + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        self.prompt_busy = true;
+        self.prompt_failed = false;
+        cx.notify();
+        self._prompt = Some(
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let result = call.await;
+                let _ = this.update(cx, |s, cx| match result {
+                    // The card goes with `chatPrompts.changed`; until then
+                    // it stays busy.
+                    Ok(AcceptedResult { accepted: true }) => {}
+                    // Already answered (elsewhere, or timed out).
+                    Ok(_) => {
+                        s.prompt_busy = false;
+                        s.refresh_prompt(cx);
+                    }
+                    Err(e) => {
+                        s.prompt_busy = false;
+                        s.prompt_failed = true;
+                        s.failed(ChatAction::Prompt, &e, cx);
+                        cx.notify();
+                    }
+                });
+            }),
+        );
+    }
+
+    // ── Queued answers ──────────────────────────────────────────────────
+
+    /// Sends a queued answer again now (optionally without the reasoning
+    /// effort the provider refused).
+    pub fn retry_queued(
+        &mut self,
+        message_id: &str,
+        without_reasoning_effort: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let call = self.rpc.call::<methods::TurnsRetryQueued>(&QueuedTurnRef {
+            chat_id: self.chat_id.clone(),
+            message_id: message_id.to_string(),
+            without_reasoning_effort,
+        });
+        self.queued_call(message_id, call, cx);
+    }
+
+    /// Removes a queued answer before it goes out.
+    pub fn remove_queued(&mut self, message_id: &str, cx: &mut Context<Self>) {
+        let call = self.rpc.call::<methods::TurnsRemoveQueued>(&QueuedTurnRef {
+            chat_id: self.chat_id.clone(),
+            message_id: message_id.to_string(),
+            without_reasoning_effort: false,
+        });
+        self.queued_call(message_id, call, cx);
+    }
+
+    fn queued_call(
+        &mut self,
+        message_id: &str,
+        call: impl std::future::Future<Output = Result<conduit_protocol::OkResult, RpcError>> + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.queued_busy.insert(message_id.to_string()) {
+            return;
+        }
+        cx.notify();
+        let id = message_id.to_string();
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| {
+                s.queued_busy.remove(&id);
+                if let Err(e) = result {
+                    s.failed(ChatAction::Queued, &e, cx);
+                }
+                s.fetch(cx);
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     // ── Queue ───────────────────────────────────────────────────────────
@@ -623,6 +821,11 @@ impl ChatStore {
         self.rebuild(cx);
     }
 
+    /// The daemon, for what a chat's views call themselves (an MCP App).
+    pub fn rpc(&self) -> Rpc {
+        self.rpc.clone()
+    }
+
     pub fn chat_id(&self) -> &str {
         &self.chat_id
     }
@@ -646,6 +849,8 @@ impl ChatStore {
 
     /// `chats.get`, then settle what the stored copy now has.
     pub fn fetch(&mut self, cx: &mut Context<Self>) {
+        // A saved prompt goes and comes with the stored copy.
+        self.refresh_prompt(cx);
         self.generation += 1;
         let generation = self.generation;
         let call = self.rpc.call::<methods::ChatsGet>(&ChatRef {
@@ -673,6 +878,7 @@ impl ChatStore {
         match result {
             Ok(result) => match result.chat {
                 Some(detail) => {
+                    self.tasks = detail.tasks.clone();
                     self.detail = Some(detail);
                     self.missing = false;
                     if self.settle() {
@@ -818,6 +1024,11 @@ impl ChatStore {
                 cx.notify();
             }
             Event::TurnBlocks(e) if e.chat_id == self.chat_id => {
+                if let Some(tasks) = &e.tasks
+                    && *tasks != self.tasks
+                {
+                    self.tasks = tasks.clone();
+                }
                 let blocks = known_blocks(&e.blocks);
                 let live = self.live_for(&e.message_id);
                 live.blocks = blocks;
@@ -873,6 +1084,11 @@ impl ChatStore {
                 self.fetch(cx);
             }
             Event::QueueChanged(queue) => self.set_queue(queue.clone(), cx),
+            Event::ChatPromptsChanged(state) if state.chat_id == self.chat_id => {
+                self.prompt_round += 1;
+                self.set_prompt(state.clone(), cx);
+            }
+            Event::McpAppsEvent(event) => cx.emit(ChatStoreEvent::McpApp(event.clone())),
             _ => {}
         }
     }
@@ -941,7 +1157,18 @@ impl ChatStore {
         if fresh {
             // A regenerate's reply can arrive after its first events: keep
             // what it replaces when the ids agree later (`expect_answer`).
-            self.live = Some(LiveTurn::new(message_id));
+            let mut live = LiveTurn::new(message_id);
+            // An answer that goes on where it stopped (a prompt answered, a
+            // queued answer sent) starts from what it already says.
+            if let Some(stored) = self
+                .messages()
+                .iter()
+                .find(|m| m.id == message_id && m.role == "assistant")
+            {
+                live.text = stored.content.clone();
+                live.blocks = known_blocks(&stored.blocks);
+            }
+            self.live = Some(live);
         }
         self.live.as_mut().expect("just set")
     }
@@ -1223,6 +1450,7 @@ impl ChatStore {
                     columns,
                     mergeable: m.mergeable_ids.clone(),
                     siblings: m.sibling_ids.clone(),
+                    queued: if assistant { m.queued.clone() } else { None },
                 })
             }
             Row::Pending => {
@@ -1990,18 +2218,20 @@ impl ChatStore {
 
 /// Whether the stored transcript has `message_id`'s answer: the message
 /// with content, an error or blocks and no longer streaming (and not still
-/// the `stale` text a same-id regenerate replaces), or a version of another
-/// message with content.
+/// the `stale` text a same-id regenerate replaces), a version of another
+/// message with content, or the answer queued (its request waits to go
+/// out, which the stored row shows).
 pub fn stored_has_answer(
     messages: &[ChatMessageDto],
     message_id: &str,
     stale: Option<&str>,
 ) -> bool {
     messages.iter().any(|m| {
-        (m.id == message_id
-            && !m.streaming
-            && stale.is_none_or(|old| old != m.content)
-            && (!m.content.trim().is_empty() || m.error_code.is_some() || !m.blocks.is_empty()))
+        (m.id == message_id && m.queued.is_some())
+            || (m.id == message_id
+                && !m.streaming
+                && stale.is_none_or(|old| old != m.content)
+                && (!m.content.trim().is_empty() || m.error_code.is_some() || !m.blocks.is_empty()))
             || m.versions
                 .iter()
                 .any(|v| v.id == message_id && !v.content.trim().is_empty())
@@ -2224,7 +2454,7 @@ mod tests {
                 },
                 messages,
                 system_prompt: None,
-                tasks: Default::default(),
+                tasks: vec![],
             }),
         }
     }
@@ -2289,6 +2519,70 @@ mod tests {
         store.read_with(cx, |s, _| {
             s.rows().iter().map(|r| s.row_key(*r)).collect::<Vec<_>>()
         })
+    }
+
+    fn prompt(id: &str) -> ChatPromptDto {
+        serde_json::from_value(json!({
+            "id": id, "chatId": "c1", "kind": "confirmation", "title": "Proceed?",
+        }))
+        .unwrap()
+    }
+
+    #[gpui_kit::test]
+    fn a_prompt_fetched_before_it_was_answered_never_comes_back(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat("c1", vec![]));
+        daemon.returns::<methods::ChatPromptsGet>(ChatPromptState {
+            chat_id: "c1".into(),
+            prompt: Some(prompt("p1")),
+        });
+        let (store, _) = open(&daemon, "c1", cx);
+        store.read_with(cx, |s, _| assert!(s.prompt.is_some()));
+        // A fetch on its way while the prompt is answered elsewhere.
+        let held = daemon.hold::<methods::ChatPromptsGet>();
+        store.update(cx, |s, cx| {
+            s.refresh_prompt(cx);
+            s.on_event(
+                &Event::ChatPromptsChanged(ChatPromptState {
+                    chat_id: "c1".into(),
+                    prompt: None,
+                }),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        held.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.prompt.is_none(), "the answered card came back")
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_fetch_never_leaves_an_answer_busy(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat("c1", vec![]));
+        daemon.returns::<methods::ChatPromptsGet>(ChatPromptState {
+            chat_id: "c1".into(),
+            prompt: Some(prompt("p1")),
+        });
+        daemon.on::<methods::ChatPromptsDecide>(|_| {
+            Err(conduit_daemon::protocol::error("rpc.timeout", "slow"))
+        });
+        let (store, _) = open(&daemon, "c1", cx);
+        let held = daemon.hold::<methods::ChatPromptsDecide>();
+        store.update(cx, |s, cx| {
+            s.decide_prompt(true, cx);
+            // The chat is read again while the decision is on its way.
+            s.refresh_prompt(cx);
+        });
+        cx.run_until_parked();
+        held.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(!s.prompt_busy, "the card stayed busy");
+            assert!(s.prompt_failed);
+        });
     }
 
     #[gpui_kit::test]
@@ -3240,5 +3534,13 @@ mod tests {
             Some("old")
         ));
         assert!(stored_has_answer(&[old], "a1", Some("older")));
+        // Queued: still a placeholder, but the stored row shows the wait.
+        let mut queued = message("a1", "assistant", "");
+        queued.streaming = true;
+        queued.queued = Some(QueuedCompletionDto {
+            offline: true,
+            ..Default::default()
+        });
+        assert!(stored_has_answer(&[queued], "a1", None));
     }
 }

@@ -15,7 +15,8 @@ use crate::strings::{ActiveStrings as _, fill};
 use crate::theme::{ActiveConduitTheme, MONO_FONT, with_alpha};
 use crate::views::composer::composer_frame;
 use crate::views::focus::{
-    Ring, control_focus_handle, full_keyboard_access, pressed_fill, radio_keys, ring_overlay,
+    Ring, control_focus_handle, full_keyboard_access, pressed_fill, radio_keys, radio_step,
+    ring_overlay,
 };
 use crate::views::kit::{
     Button, ButtonKind, ClickHandler, SelectHandler, bare_input, field_frame, icon_tile, radio_dot,
@@ -63,6 +64,20 @@ pub enum ApprovalKind {
         caption: SharedString,
         code: SharedString,
     },
+    /// A question with choices (Open WebUI's `ask_user`): pick one, or
+    /// answer in your own words in `other`.
+    Question {
+        /// The question itself, over the choices.
+        question: SharedString,
+        options: Vec<SelectOption>,
+        /// The choice picked; none while nothing is, or while the own
+        /// words are.
+        selected: Option<usize>,
+        /// The own-words field, when the question takes one, and its label.
+        other: Option<(Entity<InputState>, SharedString)>,
+        /// The own words are the answer.
+        other_selected: bool,
+    },
 }
 
 /// One button of a card.
@@ -103,6 +118,44 @@ impl ApprovalAction {
     pub fn on_click(mut self, handler: ClickHandler) -> Self {
         self.on_click = Some(handler);
         self
+    }
+}
+
+/// Where a key takes a question's choice from `current` (`None`: nothing
+/// chosen yet): with nothing chosen an arrow or Home chooses the first
+/// answer and End the last, rather than step from one never chosen.
+fn question_step(key: &str, current: Option<usize>, count: usize) -> Option<usize> {
+    match current {
+        Some(at) => radio_step(key, at, count),
+        None if count == 0 => None,
+        None => match key {
+            "left" | "up" | "right" | "down" | "home" => Some(0),
+            "end" => Some(count - 1),
+            _ => None,
+        },
+    }
+}
+
+/// The question's key handler ([`question_step`]): as `radio_keys`, an
+/// arrow at an end stays in the group.
+fn question_keys(
+    current: Option<usize>,
+    count: usize,
+    on_select: Option<crate::views::kit::SelectHandler>,
+) -> impl Fn(&gpui_kit::KeyDownEvent, &mut Window, &mut App) + 'static {
+    move |ev, window, cx| {
+        let k = &ev.keystroke;
+        if k.modifiers.modified() {
+            return;
+        }
+        if let Some(next) = question_step(&k.key, current, count) {
+            if let Some(h) = &on_select {
+                h(next, window, cx);
+            }
+            cx.stop_propagation();
+        } else if matches!(k.key.as_str(), "left" | "right" | "up" | "down") {
+            cx.stop_propagation();
+        }
     }
 }
 
@@ -352,6 +405,172 @@ impl RenderOnce for ApprovalCard {
                     ],
                 )
             }
+            ApprovalKind::Question {
+                question,
+                options,
+                selected,
+                other,
+                other_selected,
+            } => {
+                let count = options.len() + usize::from(other.is_some());
+                let group_id = ElementId::Name(format!("approval-question-{id}").into());
+                let focus = full_keyboard_access(cx)
+                    .then(|| control_focus_handle(&group_id, window, cx).tab_stop(true));
+                let focused = focus.as_ref().is_some_and(|f| f.is_focused(window));
+                // The arrows walk the choices; the own-words field is the
+                // last stop of the group.
+                let current = if *other_selected {
+                    Some(options.len())
+                } else {
+                    *selected
+                };
+                let keys = question_keys(current, count, on_option.clone());
+                let row = |i: usize,
+                           on: bool,
+                           label: SharedString,
+                           detail: Option<SharedString>,
+                           extra: Option<AnyElement>| {
+                    div()
+                        .id(ElementId::Name(format!("approval-choice-{id}-{i}").into()))
+                        .role(Role::RadioButton)
+                        .aria_label(match &detail {
+                            Some(d) => SharedString::from(format!("{label}. {d}")),
+                            None => label.clone(),
+                        })
+                        .aria_selected(on)
+                        .aria_position_in_set(i + 1)
+                        .aria_size_of_set(count)
+                        .when(on && focused, |d| d.aria_active_descendant())
+                        .min_h(px(m.row_height + 10.))
+                        .px(px(10.))
+                        .py(px(6.))
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .rounded(px(8.))
+                        .when(on, |d| d.bg(r.selected))
+                        .when(!on, |d| d.hover(|s| s.bg(r.hover)))
+                        .cursor_pointer()
+                        .relative()
+                        .when(on && focused, |d| {
+                            d.child(ring_overlay(Ring::Inset(8.), &t))
+                        })
+                        .child(radio_dot(on, &t))
+                        .child(match extra {
+                            Some(field) => field,
+                            None => div()
+                                .flex_1()
+                                .flex()
+                                .flex_col()
+                                .child(
+                                    div()
+                                        .text_size(px(m.control))
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(r.text)
+                                        .child(label.clone()),
+                                )
+                                .when_some(detail.clone(), |d, s| {
+                                    d.child(
+                                        div()
+                                            .text_size(px(m.small))
+                                            .text_color(r.text_subtle)
+                                            .child(s),
+                                    )
+                                })
+                                .into_any_element(),
+                        })
+                        .on_click({
+                            let handler = on_option.clone();
+                            move |_, window, cx| {
+                                if let Some(h) = &handler {
+                                    h(i, window, cx)
+                                }
+                            }
+                        })
+                };
+                let mut rows: Vec<AnyElement> = options
+                    .iter()
+                    .enumerate()
+                    .map(|(i, o)| {
+                        row(
+                            i,
+                            !*other_selected && *selected == Some(i),
+                            o.label.clone(),
+                            o.detail.clone(),
+                            None,
+                        )
+                        .on_any_mouse_down(|_, window, _| window.prevent_default())
+                        .into_any_element()
+                    })
+                    .collect();
+                if let Some((state, label)) = other {
+                    let field = field_frame(false, m.control_height + 4., cx)
+                        .flex_1()
+                        .child(
+                            div()
+                                .flex_1()
+                                .child(bare_input(state, label.clone(), m.control)),
+                        )
+                        .into_any_element();
+                    rows.push(
+                        row(
+                            options.len(),
+                            *other_selected,
+                            label.clone(),
+                            None,
+                            Some(field),
+                        )
+                        .into_any_element(),
+                    );
+                }
+                (
+                    IconName::MessageSquare,
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(8.))
+                        .when(!question.is_empty(), |d| {
+                            d.child(
+                                div()
+                                    .text_size(px(m.control))
+                                    .line_height(relative(1.4))
+                                    .text_color(r.text)
+                                    .child(question.clone()),
+                            )
+                        })
+                        .child(
+                            div()
+                                .id(group_id)
+                                .role(Role::RadioGroup)
+                                .aria_label(question.clone())
+                                .when_some(focus, |d, focus| {
+                                    d.track_focus(&focus).on_key_down(keys)
+                                })
+                                .max_h(px(320.))
+                                .overflow_y_scroll()
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.))
+                                .children(rows),
+                        )
+                        .into_any_element(),
+                    vec![
+                        Button::new(
+                            ElementId::Name(format!("cancel-{id}").into()),
+                            st.cancel.clone(),
+                        )
+                        .shortcut(DENY_KEYS)
+                        .into_any_element(),
+                        Button::new(
+                            ElementId::Name(format!("submit-{id}").into()),
+                            st.submit.clone(),
+                        )
+                        .primary()
+                        .shortcut(ALLOW_KEYS)
+                        .into_any_element(),
+                    ],
+                )
+            }
             ApprovalKind::Message => (
                 IconName::ShieldAlert,
                 div().into_any_element(),
@@ -453,7 +672,13 @@ impl RenderOnce for ApprovalCard {
             Some(actions) => render_actions(actions),
             None => buttons,
         };
-        let has_body = !matches!(self.kind, ApprovalKind::Message);
+        // A tool called with no arguments has no input to show: no caption
+        // over an empty box.
+        let has_body = match &self.kind {
+            ApprovalKind::Message => false,
+            ApprovalKind::Code { code, .. } => !code.is_empty(),
+            _ => true,
+        };
         // Docked on the composer, it is drawn as the composer is: the same
         // fill, outline, corner radius and shadow (and, docked, its width),
         // so the two read as one stack. The request's glyph is neutral, as
@@ -499,13 +724,15 @@ impl RenderOnce for ApprovalCard {
                                     .text_color(r.text)
                                     .child(self.title.clone()),
                             )
-                            .child(
-                                div()
-                                    .text_size(px(m.small))
-                                    .line_height(relative(1.4))
-                                    .text_color(r.text_subtle)
-                                    .child(self.detail.clone()),
-                            ),
+                            .when(!self.detail.is_empty(), |d| {
+                                d.child(
+                                    div()
+                                        .text_size(px(m.small))
+                                        .line_height(relative(1.4))
+                                        .text_color(r.text_subtle)
+                                        .child(self.detail.clone()),
+                                )
+                            }),
                     )
                     .child(
                         div()
@@ -541,5 +768,24 @@ impl RenderOnce for ApprovalCard {
                     .gap(px(8.))
                     .children(buttons),
             )
+    }
+}
+
+#[cfg(test)]
+mod question_tests {
+    use super::question_step;
+
+    #[test]
+    fn with_nothing_chosen_the_keys_start_at_the_first_answer() {
+        // Nothing chosen: Down, Right or Home choose the first, End the last.
+        assert_eq!(question_step("down", None, 3), Some(0));
+        assert_eq!(question_step("right", None, 3), Some(0));
+        assert_eq!(question_step("home", None, 3), Some(0));
+        assert_eq!(question_step("end", None, 3), Some(2));
+        assert_eq!(question_step("down", None, 0), None);
+        // Chosen: as any radio group.
+        assert_eq!(question_step("down", Some(0), 3), Some(1));
+        assert_eq!(question_step("home", Some(2), 3), Some(0));
+        assert_eq!(question_step("up", Some(0), 3), None);
     }
 }

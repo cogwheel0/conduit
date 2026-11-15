@@ -243,6 +243,27 @@ impl MainWindow {
 
     /// New Chat (⌘N, File › New Chat, the sidebar's button, the palette):
     /// a new chat, with the composer focused to type into.
+    /// ⌥⌘↩ / ⌥⌘⌫: the approvals card answers first, else the open chat's
+    /// prompt card (its first or second button: Allow or Deny, Submit or
+    /// Skip).
+    pub fn answer_request(&mut self, allow: bool, cx: &mut Context<Self>) {
+        let answered = self
+            .approvals
+            .update(cx, |a, cx| if allow { a.allow(cx) } else { a.deny(cx) });
+        // The chat's prompt card only while its chat is what the window
+        // shows (another area keeps the chat, and its card, out of sight).
+        if !answered && answers_chat_prompt(self.shows_main(cx), self.shows_chat(cx)) {
+            let card = self.chat_pane.read(cx).prompt_card.clone();
+            card.update(cx, |p, cx| {
+                if allow {
+                    p.primary(cx);
+                } else {
+                    p.secondary(cx);
+                }
+            });
+        }
+    }
+
     pub fn new_chat(&mut self, temporary: bool, window: &mut Window, cx: &mut Context<Self>) {
         if !self.shows_main(cx) {
             return;
@@ -565,10 +586,10 @@ impl Render for MainWindow {
             .key_context("ConduitMainWindow")
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &AllowRequest, _, cx| {
-                this.approvals.update(cx, |a, cx| a.allow(cx));
+                this.answer_request(true, cx);
             }))
             .on_action(cx.listener(|this, _: &DenyRequest, _, cx| {
-                this.approvals.update(cx, |a, cx| a.deny(cx));
+                this.answer_request(false, cx);
             }))
             .on_action(
                 cx.listener(|this, _: &NewChat, window, cx| this.new_chat(false, window, cx)),
@@ -730,11 +751,21 @@ impl Render for MainWindow {
             })
             .relative()
             .size_full()
+            // Inline web views drawn this frame (embeds in the transcript)
+            // are counted between these two; the rest hide.
+            .child(crate::views::chat::inline_web::frame_start())
             .child(content)
             .children(approvals)
             .children(toasts)
             .children(banner)
+            .child(crate::views::chat::inline_web::frame_end())
     }
+}
+
+/// Whether ⌥⌘↩ / ⌥⌘⌫ may answer the open chat's prompt card: only while
+/// the chat pane is on screen.
+fn answers_chat_prompt(shows_main: bool, shows_chat: bool) -> bool {
+    shows_main && shows_chat
 }
 
 #[cfg(test)]
@@ -770,5 +801,15 @@ mod approvals_tests {
             "a note hides a chat's request"
         );
         assert!(super::floats_approvals(false, false));
+    }
+
+    #[test]
+    fn a_hidden_chats_prompt_never_takes_the_shortcut() {
+        assert!(super::answers_chat_prompt(true, true));
+        assert!(
+            !super::answers_chat_prompt(true, false),
+            "a note's pane answered the chat"
+        );
+        assert!(!super::answers_chat_prompt(false, false));
     }
 }

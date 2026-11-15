@@ -14,6 +14,7 @@ pub mod direct;
 pub mod folder_settings;
 pub mod forms;
 pub mod hermes;
+pub mod image_viewer;
 pub mod main_window;
 pub mod onboarding;
 pub mod palette;

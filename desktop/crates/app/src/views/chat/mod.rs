@@ -9,16 +9,23 @@ pub mod branches;
 pub mod composer;
 pub mod composer_panels;
 pub mod diagram;
+pub mod embed;
 pub mod export;
+pub mod inline_web;
 pub mod markdown;
 pub mod pace;
 pub mod popovers;
 pub mod preview;
+pub mod prompt;
 pub mod queue;
 pub mod rows;
 pub mod share_sheet;
 pub mod sheets;
+pub mod sources;
+pub mod tasks;
 pub mod transcript;
+pub mod video;
+pub mod web_guard;
 
 use gpui_kit::{Global, WeakEntity};
 
