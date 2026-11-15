@@ -12,17 +12,30 @@ pid_identity() {
   ps -ww -p "$1" -o lstart=,command= 2>/dev/null || true
 }
 
-# Records PID, just started, in FILE. Waits (a few seconds at most) for a
-# `nohup` in front of it to hand over to the program, whose command line is
-# the one to remember. Writes nothing if the process is already gone.
+# Records PID, just started, in FILE. Waits (a few seconds at most) for what
+# runs first to hand over to the program, whose command line is the one to
+# remember: the shell's own copy before it runs the command, a `nohup` in
+# front of it, a launcher script such as Homebrew's `dart`, which runs the
+# Dart VM in its place. The command line counts as settled once three reads
+# a tenth of a second apart agree. Writes nothing if the process is gone.
 pid_record() {
-  local file=$1 pid=$2 command identity
+  local file=$1 pid=$2 command previous= same=0 identity
   for _ in $(seq 1 50); do
     command=$(ps -ww -p "$pid" -o command= 2>/dev/null || true)
+    [ -n "$command" ] || return 0
     case "$command" in
-      nohup\ *) sleep 0.1 ;;
-      *) break ;;
+      nohup\ *) same=0 ;;
+      *)
+        if [ "$command" = "$previous" ]; then
+          same=$((same + 1))
+          [ "$same" -ge 2 ] && break
+        else
+          same=0
+        fi
+        ;;
     esac
+    previous=$command
+    sleep 0.1
   done
   identity=$(pid_identity "$pid")
   [ -n "$identity" ] || return 0

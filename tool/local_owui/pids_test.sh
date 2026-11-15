@@ -10,7 +10,7 @@ set -euo pipefail
 . "$(cd "$(dirname "$0")" && pwd)/pids.sh"
 
 dir=$(mktemp -d)
-trap 'kill -KILL "${a:-}" "${b:-}" "${c:-}" 2>/dev/null || true; rm -rf "${dir:?}"' EXIT
+trap 'kill -KILL "${a:-}" "${b:-}" "${c:-}" "${d:-}" 2>/dev/null || true; rm -rf "${dir:?}"' EXIT
 failures=0
 check() { # NAME EXPECTED(0|1) FILE
   local got=0
@@ -71,5 +71,15 @@ expect 'a process that ignores TERM is killed' killed "$(pid_stop "$dir/c.pid" 2
 wait "$c" 2>/dev/null || true
 check 'the killed process is gone' 1 "$dir/c.pid"
 check 'a missing pid file is not ours' 1 "$dir/none.pid"
+
+# A launcher that runs the program in its place a moment later, as
+# Homebrew's `dart` script runs the Dart VM: the program is what is recorded.
+nohup bash -c 'sleep 0.15; exec sleep 63' > /dev/null 2>&1 &
+d=$!
+pid_record "$dir/d.pid" "$d"
+sleep 0.3 # the launcher has handed over by now
+check 'a program run in its launcher'"'"'s place is ours' 0 "$dir/d.pid"
+expect 'a program run in its launcher'"'"'s place is stopped' stopped "$(pid_stop "$dir/d.pid" 4)"
+wait "$d" 2>/dev/null || true
 
 [ "$failures" = 0 ] && echo 'pids: all ok' || { echo "pids: $failures failed"; exit 1; }
