@@ -42,7 +42,8 @@ if [ "$launch" = 1 ]; then
   mkdir -p "$scratch/user-data" "$scratch/logs" "$scratch/shots"
   log "app launch smoke (profile in $scratch)"
   status=0
-  CONDUIT_USER_DATA="$scratch/user-data" CONDUIT_LOGS="$scratch/logs" \
+  # The bundle's own conduitd, whatever CONDUITD_PATH says.
+  env -u CONDUITD_PATH CONDUIT_USER_DATA="$scratch/user-data" CONDUIT_LOGS="$scratch/logs" \
     "$app/Contents/MacOS/Conduit" --shots "$scratch/shots" >"$scratch/run.log" 2>&1 || status=$?
   grep '^SMOKE' "$scratch/run.log" || true
   if [ "$status" != 0 ] || grep -q 'SMOKE FAILED' "$scratch/run.log" ||

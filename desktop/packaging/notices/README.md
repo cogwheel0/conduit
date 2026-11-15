@@ -21,7 +21,7 @@ licence file, and every directly bundled component's licence is found.
   the Rust crates.
 - `notices.py`: puts the file together, with the components bundled
   directly (vendored gpui-pre, Sparkle, whisper.cpp, SQLite, the Dart
-  runtime, mermaid, Chart.js, noVNC, Lucide, the KaTeX fonts) and the Dart
+  runtime, mermaid, Chart.js, Lucide, the KaTeX fonts) and the Dart
   packages.
 - `texts/`: licence texts that no package manager provides (whisper.cpp,
   SQLite's blessing, Chart.js).

@@ -191,26 +191,39 @@ jobs:
       - name: Smoke-test the signed app
         run: desktop/packaging/macos/smoke.sh "$OUT/Conduit.app" --launch
 
-      # A new feed only for the first release: after that, a feed that cannot
-      # be read stops the release rather than replacing the older items.
+      # Run again after a failure: a DMG already published for this version
+      # is the one the feed describes (its bytes may already be downloaded and
+      # checked against a feed), so it is reused rather than replaced.
+      - name: Reuse the DMG of a release already published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          . desktop/packaging/macos/lib.sh
+          state="$(release_exists "$GITHUB_REF_NAME")"
+          if [ "$state" = yes ]; then
+            mkdir -p "$OUT/published"
+            if gh release download "$GITHUB_REF_NAME" -R "$RELEASE_REPO" -p "Conduit-$VERSION.dmg" -D "$OUT/published"; then
+              mv -f "$OUT/published/Conduit-$VERSION.dmg" "$OUT/Conduit-$VERSION.dmg"
+              echo "DMG_PUBLISHED=1" >> "$GITHUB_ENV"
+              echo "Reusing the published Conduit-$VERSION.dmg"
+            else
+              echo "The release has no DMG yet: this build's goes up."
+            fi
+          fi
+
+      # A new feed only when none was ever published: a lookup that fails,
+      # or a published feed that cannot be read, stops the release.
       - name: Add the release to the appcast
         env:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          # A failed lookup stops the release (set -e): only a history known
-          # to hold no earlier desktop release may start a new feed.
+          . desktop/packaging/macos/lib.sh
+          state="$(feed_exists)"
           allow=()
-          tags="$(gh release list --limit 200 --json tagName --jq '.[].tagName')"
-          earlier=0
-          while IFS= read -r tag; do
-            case "$tag" in
-              desktop-v*) [ "$tag" = "$GITHUB_REF_NAME" ] || earlier=1 ;;
-            esac
-          done <<< "$tags"
-          [ "$earlier" = 1 ] || allow=(--allow-new)
+          if [ "$state" = no ]; then allow=(--allow-new); fi
           desktop/packaging/macos/appcast.sh --dmg "$OUT/Conduit-$VERSION.dmg" \
-            --version "$VERSION" "${allow[@]}"
+            --version "$VERSION" ${allow[@]+"${allow[@]}"}
 
       # The DMG goes up before the appcast that points at it.
       - name: Publish the GitHub release
@@ -222,12 +235,14 @@ jobs:
           [ "$PRERELEASE" = true ] && flags+=(--prerelease)
           notes="Conduit Desktop $VERSION for Apple Silicon Macs (macOS 14 Sonoma or later). Download Conduit-$VERSION.dmg, open it and drag Conduit to Applications. Installed copies update themselves."
           [ "$PRERELEASE" = true ] && notes="$notes This is a beta: installed copies get it only with Settings › About › Receive beta updates turned on."
-          # Run again after a later step failed: the release is there, so
-          # only its DMG is replaced.
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$OUT/Conduit-$VERSION.dmg" --clobber
-          else
+          # Run again after a later step failed: the release is there; its
+          # DMG goes up only if it never did (a published one is reused).
+          . desktop/packaging/macos/lib.sh
+          state="$(release_exists "$GITHUB_REF_NAME")"
+          if [ "$state" = no ]; then
             gh release create "$GITHUB_REF_NAME" "$OUT/Conduit-$VERSION.dmg" "${flags[@]}" --notes "$notes"
+          elif [ "${DMG_PUBLISHED:-0}" != 1 ]; then
+            gh release upload "$GITHUB_REF_NAME" "$OUT/Conduit-$VERSION.dmg" -R "$RELEASE_REPO"
           fi
 
       - name: Publish the appcast

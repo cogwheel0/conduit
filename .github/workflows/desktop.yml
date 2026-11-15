@@ -181,6 +181,8 @@ jobs:
           key: desktop-workspace-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('desktop/Cargo.lock', 'desktop/rust-toolchain.toml') }}
           restore-keys: desktop-workspace-${{ runner.os }}-${{ runner.arch }}-
       - run: cargo fmt --all --check
+      # The release scripts' safeguards, against synthetic feeds and stubs.
+      - run: packaging/macos/release_test.sh
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # Tests build the app with its test harness (`harness`, through the
       # crate's dev-dependency on itself); the release bundle builds it

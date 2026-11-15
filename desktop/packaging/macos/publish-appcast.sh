@@ -40,6 +40,8 @@ commit_to_branch() {
     printf 'would commit %s as %s on branch %s of %s\n' "$xml" "$path" "$branch" "$RELEASE_REPO"
     return
   fi
+  # The checkout keeps no credentials: git pushes with gh's (GH_TOKEN).
+  gh auth setup-git
   local remote="https://github.com/$RELEASE_REPO.git"
   if git ls-remote --exit-code --heads "$remote" "$branch" >/dev/null 2>&1; then
     gh repo clone "$RELEASE_REPO" "$clone" -- --depth 1 --branch "$branch"
@@ -60,16 +62,50 @@ commit_to_branch() {
   git -C "$clone" push origin "HEAD:$branch"
 }
 
+# Replaces appcast.xml on the feed release without ever losing the live
+# one: the current file is first renamed appcast.previous.xml (replacing an
+# older copy), the new one uploaded, and on a failed upload the previous one
+# is renamed back. Every lookup that fails stops.
+replace_feed_asset() {
+  local new="$1" staged assets current previous
+  staged="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed.XXXXXX")"
+  cp "$new" "$staged/appcast.xml"
+  assets="$(gh api "repos/$RELEASE_REPO/releases/tags/$APPCAST_RELEASE_TAG" \
+    --jq '.assets[] | "\(.id) \(.name)"')" || die "could not list the feed release's files"
+  current="$(printf '%s\n' "$assets" | awk '$2 == "appcast.xml" {print $1}')"
+  previous="$(printf '%s\n' "$assets" | awk '$2 == "appcast.previous.xml" {print $1}')"
+  if [ -n "$current" ]; then
+    if [ -n "$previous" ]; then
+      gh api -X DELETE "repos/$RELEASE_REPO/releases/assets/$previous" >/dev/null ||
+        die "could not remove the older appcast.previous.xml"
+    fi
+    gh api -X PATCH "repos/$RELEASE_REPO/releases/assets/$current" -f name=appcast.previous.xml >/dev/null ||
+      die "could not keep the live appcast.xml aside; nothing was changed"
+  fi
+  if ! gh release upload "$APPCAST_RELEASE_TAG" "$staged/appcast.xml" -R "$RELEASE_REPO"; then
+    if [ -n "$current" ]; then
+      gh api -X PATCH "repos/$RELEASE_REPO/releases/assets/$current" -f name=appcast.xml >/dev/null ||
+        die "the upload failed and appcast.previous.xml could not be renamed back: rename it to appcast.xml"
+    fi
+    die "the new appcast did not upload; the live one is unchanged"
+  fi
+  log "appcast.xml replaced (the last one is kept as appcast.previous.xml)"
+}
+
 case "$APPCAST_HOSTING" in
   release-asset)
-    if [ "$push" = 1 ] && ! gh release view "$APPCAST_RELEASE_TAG" -R "$RELEASE_REPO" >/dev/null 2>&1; then
-      gh release create "$APPCAST_RELEASE_TAG" -R "$RELEASE_REPO" --prerelease --latest=false \
-        --title "Conduit Desktop update feed" \
-        --notes "Sparkle's appcast for Conduit Desktop (appcast.xml). Installed copies read it from this fixed address; do not delete this release or its tag."
-    elif [ "$push" = 0 ]; then
+    if [ "$push" = 0 ]; then
       printf 'would create the prerelease %s on %s if it does not exist\n' "$APPCAST_RELEASE_TAG" "$RELEASE_REPO"
+      printf 'would keep the current appcast.xml as appcast.previous.xml, then upload %s\n' "$xml"
+    else
+      state="$(release_exists "$APPCAST_RELEASE_TAG")"
+      if [ "$state" = no ]; then
+        gh release create "$APPCAST_RELEASE_TAG" -R "$RELEASE_REPO" --prerelease --latest=false \
+          --title "Conduit Desktop update feed" \
+          --notes "Sparkle's appcast for Conduit Desktop (appcast.xml). Installed copies read it from this fixed address; do not delete this release or its tag."
+      fi
+      replace_feed_asset "$xml"
     fi
-    run gh release upload "$APPCAST_RELEASE_TAG" "$xml" -R "$RELEASE_REPO" --clobber
     ;;
   pages) commit_to_branch gh-pages desktop/appcast.xml ;;
   branch) commit_to_branch "$APPCAST_BRANCH" appcast.xml ;;

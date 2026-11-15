@@ -87,8 +87,15 @@ else
   esac
 fi
 
+# The feed as it was, to check the new one against (never drop an item).
+old=()
+if [ -f "$work/appcast.xml" ]; then
+  cp "$work/appcast.xml" "$work/previous-appcast.xml"
+  old=(--old "$work/previous-appcast.xml")
+fi
 cp "$dmg" "$work/"
-args=(--ed-key-file - --download-url-prefix "$prefix"
+# -o: generate_appcast reads and writes this file, whatever SUFeedURL names.
+args=(-o "$work/appcast.xml" --ed-key-file - --download-url-prefix "$prefix"
   --link "https://github.com/$RELEASE_REPO/releases"
   --full-release-notes-url "https://github.com/$RELEASE_REPO/releases/tag/desktop-v$version"
   --maximum-versions 0)
@@ -100,6 +107,20 @@ fi
 log "generate_appcast: $(basename "$dmg") on the $channel channel"
 printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | "$sparkle/bin/generate_appcast" "${args[@]}" "$work"
 xmllint --noout "$work/appcast.xml"
+
+# Nothing is published unless the feed keeps every earlier item and the new
+# one is signed, the DMG's length, at its URL and the newest build.
+beta=()
+if is_beta "$version"; then beta=(--beta); fi
+build="$(build_number "$version")"
+python3 -I "$here/check_appcast.py" --new "$work/appcast.xml" ${old[@]+"${old[@]}"} --dmg "$dmg" \
+  --version "$version" --build "$build" --url "$prefix$(basename "$dmg")" ${beta[@]+"${beta[@]}"} ||
+  die "the new appcast is not safe to publish"
+signature="$(python3 -I "$here/check_appcast.py" --signature-of "$build" --new "$work/appcast.xml")"
+printf '%s' "$SPARKLE_ED_PRIVATE_KEY" |
+  "$sparkle/bin/sign_update" --verify --ed-key-file - "$dmg" "$signature" ||
+  die "the DMG's EdDSA signature does not verify"
+log "the new item's signature verifies"
 
 log "items in $work/appcast.xml:"
 python3 -I - "$work/appcast.xml" <<'EOF'

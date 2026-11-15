@@ -86,7 +86,9 @@ build_number() {
 sparkle_dir() {
   local root="$DESKTOP_DIR/target/sparkle/$SPARKLE_VERSION"
   local archive="$root/Sparkle-$SPARKLE_VERSION.tar.xz"
-  if [ ! -f "$root/extracted/bin/generate_appcast" ]; then
+  # `.complete` is written once tar has finished: a half-extracted copy is
+  # never used.
+  if [ ! -f "$root/extracted/.complete" ]; then
     mkdir -p "$root"
     if [ ! -f "$archive" ]; then
       log "downloading Sparkle $SPARKLE_VERSION"
@@ -104,8 +106,44 @@ sparkle_dir() {
     move_aside "$root/extracted"
     mkdir -p "$root/extracted"
     tar -xJf "$archive" -C "$root/extracted"
+    : > "$root/extracted/.complete"
   fi
   printf '%s\n' "$root/extracted"
+}
+
+# Whether the GitHub release TAG exists on RELEASE_REPO: prints yes or no.
+# Any other answer (network, auth, rate limit) stops: a lookup that failed
+# is never read as "none yet".
+release_exists() {
+  local out
+  if out="$(gh api "repos/$RELEASE_REPO/releases/tags/$1" --jq .id 2>&1)"; then
+    printf 'yes\n'
+    return
+  fi
+  case "$out" in
+    *"HTTP 404"*) printf 'no\n' ;;
+    *) die "could not look up the release $1: $out" ;;
+  esac
+}
+
+# Whether the appcast has ever been published where APPCAST_HOSTING keeps
+# it: prints yes or no, and stops when it cannot tell. Only "no" may start a
+# new feed (the first desktop release).
+feed_exists() {
+  case "$APPCAST_HOSTING" in
+    release-asset) release_exists "$APPCAST_RELEASE_TAG" ;;
+    pages | branch)
+      local branch="$APPCAST_BRANCH" rc=0
+      [ "$APPCAST_HOSTING" = pages ] && branch=gh-pages
+      git ls-remote --exit-code --heads "https://github.com/$RELEASE_REPO.git" "$branch" >/dev/null 2>&1 || rc=$?
+      case "$rc" in
+        0) printf 'yes\n' ;;
+        2) printf 'no\n' ;;
+        *) die "could not look up the branch $branch (git exit $rc)" ;;
+      esac
+      ;;
+    *) die "APPCAST_HOSTING must be release-asset, pages or branch" ;;
+  esac
 }
 
 # Every Mach-O file under a folder (symlinks skipped), one per line.
