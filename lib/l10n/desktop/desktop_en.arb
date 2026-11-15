@@ -2550,5 +2550,165 @@
   "desktopTryAgain": "Try Again",
   "@desktopTryAgain": {
     "description": "Button on an error toast whose change can be tried again: sends the same request once more."
+  },
+  "desktopSendOnEnterDescription": "Return sends your message instead of starting a new line.",
+  "@desktopSendOnEnterDescription": {
+    "description": "Settings › Chat, under the Send with Enter switch: what it does on a Mac keyboard."
+  },
+  "desktopMoveUp": "Move Up",
+  "@desktopMoveUp": {
+    "description": "Settings › Chat › Message Actions: button that moves an action up the list (its tooltip and VoiceOver label start with this)."
+  },
+  "desktopMoveDown": "Move Down",
+  "@desktopMoveDown": {
+    "description": "Settings › Chat › Message Actions: button that moves an action down the list."
+  },
+  "desktopMessageActionsFooter": "Choose which actions appear below responses, and in what order. The others stay in More.",
+  "@desktopMessageActionsFooter": {
+    "description": "Settings › Chat, under the Message Actions group: how the list works on the desktop (checkboxes and Move Up/Down instead of dragging)."
+  },
+  "desktopEditEllipsis": "Edit…",
+  "@desktopEditEllipsis": {
+    "description": "Button that opens an editor (a model's system prompt, a memory); the ellipsis says more follows. Title Case."
+  },
+  "desktopLoading": "Loading…",
+  "@desktopLoading": {
+    "description": "Shown while Settings reads a value from the server."
+  },
+  "desktopLatencyMs": "{ms} ms",
+  "@desktopLatencyMs": {
+    "description": "Settings › Connection › Connection Health: the socket's round trip in milliseconds.",
+    "placeholders": {
+      "ms": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopPasswordChangedSignIn": "Sign in again with your new password.",
+  "@desktopPasswordChangedSignIn": {
+    "description": "Toast after the password changed, after the phone's \"Password updated.\": the account was signed out and must sign in again."
+  },
+  "desktopBirthDateInvalid": "Enter the date as year, month and day, like 1990-04-12.",
+  "@desktopBirthDateInvalid": {
+    "description": "Settings › Profile, under Date of Birth when what was typed is not a date."
+  },
+  "desktopPasswordWrong": "The current password is wrong.",
+  "@desktopPasswordWrong": {
+    "description": "Settings › Profile › Change Password, under Current Password when the server says it doesn't match."
+  },
+  "desktopPasswordRefused": "The server didn’t accept the new password.",
+  "@desktopPasswordRefused": {
+    "description": "Settings › Profile › Change Password, under New Password when the server refuses it."
+  },
+  "desktopChoosePhotoEllipsis": "Choose Photo…",
+  "@desktopChoosePhotoEllipsis": {
+    "description": "Settings › Profile: button that opens the file picker to choose a profile photo. Title Case with ellipsis."
+  },
+  "desktopUseInitials": "Use Initials",
+  "@desktopUseInitials": {
+    "description": "Settings › Profile: button that makes the profile photo a picture of the name's initials. Title Case."
+  },
+  "desktopPasswordChangeFooter": "After the password changes, you sign in again with the new one.",
+  "@desktopPasswordChangeFooter": {
+    "description": "Settings › Profile, under the Change Password fields: what happens after a change."
+  },
+  "desktopClearAll": "Clear All",
+  "@desktopClearAll": {
+    "description": "Confirm button of the sheet that clears all saved memories. Title Case."
+  },
+  "desktopClearAllMemoriesEllipsis": "Clear All Memories…",
+  "@desktopClearAllMemoriesEllipsis": {
+    "description": "Settings › Personalization: button that asks before deleting every saved memory. Title Case with ellipsis."
+  },
+  "desktopAddMemoryEllipsis": "Add Memory…",
+  "@desktopAddMemoryEllipsis": {
+    "description": "Settings › Personalization: button that opens the form for a new memory. Title Case with ellipsis."
+  },
+  "desktopOnThisMac": "On This Mac",
+  "@desktopOnThisMac": {
+    "description": "Settings › Audio: the speech engine that runs on this Mac (speech to text and text to speech), the phone's \"On Device\". Title Case."
+  },
+  "desktopSttEngineWhisper": "Whisper on This Mac",
+  "@desktopSttEngineWhisper": {
+    "description": "Settings › Audio › Speech Recognition: the choice that transcribes with a downloaded Whisper model on this Mac. Whisper is a product name."
+  },
+  "desktopSpeechRecognition": "Speech Recognition",
+  "@desktopSpeechRecognition": {
+    "description": "Settings › Audio › Speech to Text: the row with the pop-up that chooses the engine. Title Case."
+  },
+  "desktopSilenceDuration": "Pause Length",
+  "@desktopSilenceDuration": {
+    "description": "Settings › Audio › Speech to Text: the row with the stepper for how long a pause ends dictation. Title Case."
+  },
+  "desktopSilenceDurationDescription": "How long you pause before what you said is sent to be transcribed.",
+  "@desktopSilenceDurationDescription": {
+    "description": "Settings › Audio, under Pause Length."
+  },
+  "desktopSecondsValue": "{seconds} s",
+  "@desktopSecondsValue": {
+    "description": "Settings › Audio: a length in seconds beside a stepper, like 2.0 s.",
+    "placeholders": {
+      "seconds": {
+        "type": "double",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "desktopSpeechEngine": "Speech Engine",
+  "@desktopSpeechEngine": {
+    "description": "Settings › Audio › Text to Speech: the row with the choice between this Mac's voices and the server's. Title Case."
+  },
+  "desktopServerSpeechUnavailable": "This server doesn’t speak text. Choose On This Mac to hear answers.",
+  "@desktopServerSpeechUnavailable": {
+    "description": "Settings › Audio, under Text to Speech when Server is chosen but the server does not speak."
+  },
+  "desktopRealtimeVoice": "Realtime Voice",
+  "@desktopRealtimeVoice": {
+    "description": "Settings › Audio › Voice Provider: the field for the voice the realtime model speaks with. Title Case."
+  },
+  "desktopImportEllipsis": "Import…",
+  "@desktopImportEllipsis": {
+    "description": "Settings › Data Controls: button that picks a backup file to import. Title Case with ellipsis."
+  },
+  "desktopArchiveEllipsis": "Archive…",
+  "@desktopArchiveEllipsis": {
+    "description": "Settings › Data Controls: button that asks before archiving every chat. Title Case with ellipsis."
+  },
+  "desktopUnarchiveEllipsis": "Unarchive…",
+  "@desktopUnarchiveEllipsis": {
+    "description": "Settings › Data Controls: button that asks before unarchiving every chat. Title Case with ellipsis."
+  },
+  "desktopRemoveEllipsis": "Remove…",
+  "@desktopRemoveEllipsis": {
+    "description": "Settings › Data Controls: button that asks before removing every share link. Title Case with ellipsis."
+  },
+  "desktopChatsChanged": "{count, plural, =0{Done. No chats needed changing.} =1{Done. 1 chat changed.} other{Done. {count} chats changed.}}",
+  "@desktopChatsChanged": {
+    "description": "Settings › Data Controls, after Archive, Unarchive, Remove Share Links or Delete for every chat: how many chats on this Mac changed.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopSignOutAllEllipsis": "Sign Out of All Accounts…",
+  "@desktopSignOutAllEllipsis": {
+    "description": "Settings › Accounts: button that asks before signing out of every saved account. Title Case with ellipsis."
+  },
+  "desktopSignOutLastFooter": "Signing out removes the account and the chats it saved on this Mac. Direct and Hermes connections stay.",
+  "@desktopSignOutLastFooter": {
+    "description": "Settings › Accounts, above Sign Out… when there is only one account: what signing out does."
+  },
+  "desktopSignOutAllTitle": "Sign out of every account?",
+  "@desktopSignOutAllTitle": {
+    "description": "Title of the sheet before signing out of every account; a question."
+  },
+  "desktopSignOutAllMessage": "Each account and the chats it saved on this Mac are removed. Direct and Hermes connections stay, and so does everything on your servers.",
+  "@desktopSignOutAllMessage": {
+    "description": "Body of the sheet before signing out of every account."
+  },
+  "desktopReleaseNotesLearnMore": "Learn More",
+  "@desktopReleaseNotesLearnMore": {
+    "description": "Button on the after-update banner in the main window that opens the release notes (the phone's \"Tap to learn more\"). Title Case."
   }
 }

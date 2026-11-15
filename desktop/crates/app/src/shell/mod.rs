@@ -26,6 +26,7 @@ pub mod open_url;
 pub mod placement;
 pub mod reduce_motion;
 pub mod sheet;
+pub mod speech;
 pub mod sso;
 #[cfg(target_os = "macos")]
 pub mod tray;

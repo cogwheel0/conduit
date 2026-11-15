@@ -516,6 +516,8 @@ impl Render for MainWindow {
             _ if shows_main && self.stores.session.read(cx).server_unreachable(cx) => {
                 Some(offline_banner(cx.l10n().desktop_offline().into(), cx))
             }
+            // After an update: What's New, until it is read or closed.
+            _ if shows_main => crate::views::release_notes::banner(window, cx),
             _ => None,
         };
         // On the main frame the chat pane docks the card above its composer;

@@ -40,6 +40,18 @@ fn tab_description(tab: Tab) -> &'static str {
             "Settings › Data: clear local data; Diagnostics (the report, the background service's version, the data and log folders)."
         }
         Tab::About => "Settings › About: the app's icon, name, version and copyright; updates.",
+        Tab::Profile => "Settings › Profile: the account's photo, details and password.",
+        Tab::Personalization => {
+            "Settings › Personalization: default model, system prompt, memories."
+        }
+        Tab::Connection => "Settings › Connection: transport mode and connection health.",
+        Tab::Chats => {
+            "Settings › Chat: composer, quick actions, message actions, prompts, Advanced."
+        }
+        Tab::Audio => "Settings › Audio: calls, speech to text, text to speech, voice provider.",
+        Tab::DataControls => {
+            "Settings › Data Controls: export, import and account-wide chat actions."
+        }
     }
 }
 

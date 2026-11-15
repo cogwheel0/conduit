@@ -124,6 +124,16 @@ impl HttpClient {
             encode_component(server_id),
             encode_component(file_id)
         );
+        self.get_bytes(url).await
+    }
+
+    /// `GET /tts/{jobId}`: the audio of a `voice.speak` job.
+    pub async fn speech(&self, job_id: &str) -> Result<FileBytes, RpcError> {
+        let url = format!("{}/tts/{}", self.base, encode_component(job_id));
+        self.get_bytes(url).await
+    }
+
+    async fn get_bytes(&self, url: String) -> Result<FileBytes, RpcError> {
         let response = self
             .client
             .get(url)

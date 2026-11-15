@@ -37,6 +37,9 @@
 //!   capability, collapse kept per account, the keyboard across sections,
 //!   note and channel links, the Go menu, lists on `*.changed`, and
 //!   Hermes's section coming and going ([`sections`]).
+//! * `settings`: Settings' phone pages (Profile, Personalization, Chat,
+//!   Connection, Audio, Data Controls behind Advanced, Accounts' Sign Out,
+//!   About) and the after-update release notes ([`settings`]).
 //! * `offline-setup`, `offline`: a signed-in account whose server is out of
 //!   reach at launch, with conduitd restarted once while the window opens;
 //!   two launches, run by `crates/app/e2e-offline.sh` ([`offline`]).
@@ -51,6 +54,7 @@ mod chat;
 mod integration;
 mod offline;
 mod sections;
+mod settings;
 pub mod shell;
 
 use std::collections::BTreeMap;
@@ -703,6 +707,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "shell" | "shell-notify" | "shell-close" => shell::run(&inputs, &dir, cx).await,
         "offline-setup" => offline::setup(&inputs, &dir, cx).await,
         "offline" => offline::run(&inputs, &dir, cx).await,
+        "settings" => settings::run(&inputs, &dir, cx).await,
         other => ok(&format!("unknown scenario {other}"), false),
     }
 }

@@ -128,6 +128,52 @@ impl SettingsStore {
         Self::new(prefs::load(&path), path, system_dark, system_languages)
     }
 
+    /// This Mac has its preferences file (written by the first change, and
+    /// again as local data is cleared): its choices win over what the
+    /// daemon has stored.
+    pub fn has_file(&self) -> bool {
+        self.path.is_file()
+    }
+
+    /// Takes the daemon's stored app preferences (`settings.getApp`):
+    /// theme mode, palette, text size and language, then saves them here,
+    /// so the next launch reads this Mac's file.
+    pub fn adopt_app_preferences(
+        &mut self,
+        stored: &conduit_protocol::AppPreferences,
+        cx: &mut Context<Self>,
+    ) {
+        use conduit_protocol::AppThemeMode;
+        let a = &mut self.prefs.appearance;
+        a.mode = match stored.theme_mode {
+            AppThemeMode::Light => ThemeMode::Light,
+            AppThemeMode::Dark => ThemeMode::Dark,
+            _ => ThemeMode::System,
+        };
+        if theme::palettes()
+            .ids()
+            .any(|id| id == stored.theme_palette_id)
+        {
+            a.palette = stored.theme_palette_id.clone();
+        }
+        let size = stored.ui_font_size as f32;
+        a.text_size = (size != crate::prefs::Appearance::default().effective_text_size())
+            .then_some(size.clamp(crate::prefs::TEXT_SIZE_MIN, crate::prefs::TEXT_SIZE_MAX));
+        let locale = stored
+            .locale_code
+            .as_deref()
+            .map(|l| l.replace('-', "_"))
+            .filter(|l| LOCALES.contains(&l.as_str()));
+        let locale_changed = self.prefs.locale != locale;
+        self.prefs.locale = locale;
+        self.save();
+        self.apply(cx);
+        if locale_changed {
+            cx.emit(SettingsEvent::LocaleChanged);
+        }
+        cx.notify();
+    }
+
     pub fn dark(&self) -> bool {
         match self.prefs.appearance.mode {
             ThemeMode::System => self.system_dark,
@@ -598,6 +644,40 @@ mod tests {
         assert!(saved.desktop.close_to_menu_bar);
         assert!(!saved.desktop.notify_answers);
         assert!(saved.desktop.quick_ask);
+    }
+
+    #[gpui_kit::test]
+    fn a_profile_without_its_file_takes_the_daemons_preferences(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let settings = cx.new(|_| store("adopt", false));
+        // A first run: no file yet.
+        let path = settings.read_with(cx, |s, _| s.path.clone());
+        let _ = std::fs::remove_file(&path);
+        assert!(!settings.read_with(cx, |s, _| s.has_file()));
+        let stored = conduit_protocol::AppPreferences {
+            theme_mode: conduit_protocol::AppThemeMode::Dark,
+            theme_palette_id: "catppuccin".into(),
+            ui_font_size: 16,
+            locale_code: Some("zh-Hant".into()),
+        };
+        settings.update(cx, |s, cx| s.adopt_app_preferences(&stored, cx));
+        settings.read_with(cx, |s, _| {
+            assert!(s.has_file());
+            assert_eq!(s.prefs.appearance.mode, ThemeMode::Dark);
+            assert_eq!(s.prefs.appearance.palette, "catppuccin");
+            assert_eq!(s.prefs.appearance.text_size, Some(16.));
+            assert_eq!(s.prefs.locale.as_deref(), Some("zh_Hant"));
+        });
+        // A palette this build doesn't have is not taken.
+        let unknown = conduit_protocol::AppPreferences {
+            theme_palette_id: "retired".into(),
+            ..stored
+        };
+        settings.update(cx, |s, cx| s.adopt_app_preferences(&unknown, cx));
+        assert_eq!(
+            settings.read_with(cx, |s, _| s.prefs.appearance.palette.clone()),
+            "catppuccin"
+        );
     }
 
     #[gpui_kit::test]

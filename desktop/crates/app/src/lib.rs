@@ -327,14 +327,17 @@ pub fn run() {
                 }
                 ConnectionEvent::Connected { .. } => {
                     // The daemon keeps the app preferences mobile shares
-                    // (theme, palette, text size, language): tell it ours.
-                    push_app_preferences(&settings, cx);
+                    // (theme, palette, text size, language): read them, and
+                    // take them when this Mac has no preferences file of
+                    // its own yet; else tell the daemon ours.
+                    read_app_preferences(&settings, cx);
                 }
                 _ => {}
             })
             .detach();
         }
         let stores = Stores::install(connection.clone(), cx);
+        views::release_notes::install(&stores, cx);
         stores.toast_account_notices(
             |notice, cx| {
                 views::words::account_notice(&views::privacy::notice(notice, cx), cx.l10n())
@@ -767,6 +770,45 @@ pub fn activate_main_window(cx: &mut App) {
     if let Some(handle) = cx.try_global::<AppState>().and_then(|s| s.main_window) {
         let _ = handle.update(cx, |_, window, _| window.activate_window());
     }
+}
+
+/// `settings.getApp` at connect: a profile with no preferences file yet (a
+/// first run, or the file was lost) takes the daemon's stored theme,
+/// palette, text size and language; one with a file keeps its own and
+/// sends them (`settings.setApp`), as before.
+fn read_app_preferences(settings: &Entity<SettingsStore>, cx: &mut App) {
+    let Some(state) = cx.try_global::<AppState>() else {
+        return;
+    };
+    let connection = state.connection.read(cx);
+    if !connection.is_connected() {
+        return;
+    }
+    if settings.read(cx).has_file() {
+        push_app_preferences(settings, cx);
+        return;
+    }
+    let call = connection
+        .rpc()
+        .call::<conduit_protocol::methods::SettingsGetApp>(&conduit_protocol::NoParams);
+    let settings = settings.clone();
+    cx.spawn(async move |cx| {
+        match call.await {
+            Ok(stored) => {
+                // A choice made on this Mac while the read was out wins.
+                settings.update(cx, |s, cx| {
+                    if !s.has_file() {
+                        s.adopt_app_preferences(&stored, cx);
+                    }
+                });
+                cx.update(|cx| push_app_preferences(&settings, cx));
+            }
+            // Unread, the account's own stay as they are: this Mac's
+            // defaults never go over them (the next connect asks again).
+            Err(e) => log::debug!("settings.getApp: {e}"),
+        }
+    })
+    .detach();
 }
 
 /// `settings.setApp` with this window's appearance and language.

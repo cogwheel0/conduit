@@ -127,6 +127,15 @@ pub struct RemoveAccount {
     pub account_id: String,
 }
 
+/// A Settings pop-up button's menu item: `value` picked in the pop-up
+/// named `menu` (Settings routes it to the pane that drew the pop-up).
+#[derive(Clone, Debug, PartialEq, Action)]
+#[action(namespace = conduit, no_json)]
+pub struct SettingsChoice {
+    pub menu: String,
+    pub value: String,
+}
+
 /// The GPUI action a shortcut dispatches.
 pub fn for_shortcut(action: ShortcutAction) -> Box<dyn Action> {
     use ShortcutAction as S;
