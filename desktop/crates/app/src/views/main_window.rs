@@ -398,7 +398,7 @@ impl Render for MainWindow {
             }
         }
         #[cfg(not(target_os = "macos"))]
-        let _ = (window, &t);
+        let _ = &t;
         // The list's faded ends are a mask on the window's content: off
         // while the sidebar is not drawn.
         if !shows_sidebar {

@@ -410,6 +410,13 @@ pub fn share_url(server: &str, share_id: &str) -> String {
     format!("{}/s/{share_id}", server.trim_end_matches('/'))
 }
 
+/// What a command does to the chosen chats ([`SidebarView::on_selection`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum OnSelection {
+    Bulk(BulkChatAction, Option<String>),
+    Nothing,
+}
+
 pub struct SidebarView {
     pub stores: Stores,
     /// The search field.
@@ -429,6 +436,8 @@ pub struct SidebarView {
     renaming: Option<Rename>,
     /// The chosen chats (two or more, or any number with checkboxes).
     pub selecting: Option<BTreeSet<String>>,
+    /// The active account the selection belongs to.
+    account: Option<String>,
     /// The chosen chats show checkboxes ("Select Chats…"), rather than
     /// being drawn as selected rows (⌘- and ⇧-click).
     checkboxes: bool,
@@ -476,7 +485,18 @@ impl SidebarView {
             cx.observe(&stores.chat_list, |_, _, cx| cx.notify()),
             cx.observe(&stores.navigation, |_, _, cx| cx.notify()),
             cx.observe(&stores.session, |_, _, cx| cx.notify()),
-            cx.observe(&stores.accounts, |_, _, cx| cx.notify()),
+            cx.observe(&stores.accounts, |this, accounts, cx| {
+                // Another account: nothing chosen carries over.
+                let active = accounts.read(cx).active().map(|a| a.id.clone());
+                if active != this.account {
+                    this.account = active;
+                    this.selecting = None;
+                    this.checkboxes = false;
+                    this.anchor = None;
+                    this.cursor = None;
+                }
+                cx.notify()
+            }),
             cx.subscribe_in(&search, window, |this, input, e: &InputEvent, _, cx| {
                 if let InputEvent::Change = e {
                     let q = input.read(cx).value().to_string();
@@ -510,6 +530,7 @@ impl SidebarView {
                 }
             }
         });
+        let account = stores.accounts.read(cx).active().map(|a| a.id.clone());
         Self {
             stores,
             search,
@@ -523,6 +544,7 @@ impl SidebarView {
             collapsed_gen: 0,
             renaming: None,
             selecting: None,
+            account,
             checkboxes: false,
             anchor: None,
             pending_reveal: None,
@@ -1926,27 +1948,38 @@ impl SidebarView {
         }
     }
 
-    /// Runs a Chat menu command on the multiple selection, if there is one
-    /// and the command applies to several chats (Archive, Move to, Remove
-    /// from Folder, Delete…). False when it is the open chat's alone.
+    /// What a Chat menu command does while chats are chosen, by rows or
+    /// checkboxes: Archive, Move to, Remove from Folder and Delete… act on
+    /// them; the other commands do nothing. `None` with nothing chosen,
+    /// when it is the open chat's. A selection never falls through to the
+    /// open chat.
+    pub fn on_selection(&self, command: &ChatCommand) -> Option<OnSelection> {
+        self.selecting.as_ref()?;
+        Some(match command {
+            ChatCommand::Archive => OnSelection::Bulk(BulkChatAction::Archive, None),
+            ChatCommand::Delete => OnSelection::Bulk(BulkChatAction::Delete, None),
+            ChatCommand::MoveTo(f) => OnSelection::Bulk(BulkChatAction::Move, Some(f.clone())),
+            ChatCommand::RemoveFromFolder => OnSelection::Bulk(BulkChatAction::Move, None),
+            _ => OnSelection::Nothing,
+        })
+    }
+
+    /// Runs a Chat menu command on the chosen chats ([`Self::on_selection`]).
+    /// False when nothing is chosen: the command is the open chat's.
     pub fn run_on_selection(
         &mut self,
         command: &ChatCommand,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if !self.has_multiple_selection() {
-            return false;
+        match self.on_selection(command) {
+            None => false,
+            Some(OnSelection::Nothing) => true,
+            Some(OnSelection::Bulk(action, folder)) => {
+                self.bulk(action, folder, window, cx);
+                true
+            }
         }
-        let (action, folder) = match command {
-            ChatCommand::Archive => (BulkChatAction::Archive, None),
-            ChatCommand::Delete => (BulkChatAction::Delete, None),
-            ChatCommand::MoveTo(f) => (BulkChatAction::Move, Some(f.clone())),
-            ChatCommand::RemoveFromFolder => (BulkChatAction::Move, None),
-            _ => return false,
-        };
-        self.bulk(action, folder, window, cx);
-        true
     }
 
     /// A chat dropped on a folder (or, `None`, on a date section).
@@ -2748,6 +2781,7 @@ fn hint_text(hint: Hint, l: &L10n) -> String {
         Hint::Syncing => l.desktop_syncing(),
         Hint::NoResults => l.desktop_search_no_results(),
         Hint::SearchIncomplete => l.desktop_search_incomplete(),
+        Hint::Failed => l.desktop_action_failed(),
     }
 }
 
@@ -2790,7 +2824,13 @@ fn row_height(item: &SidebarItem, index: usize, t: &ConduitTheme) -> f32 {
 fn build_rows(store: &ChatListStore, has_account: bool, now: &DateTime<Local>) -> Vec<SidebarItem> {
     if store.is_searching() {
         let mut rows = vec![SidebarItem::Header(Section::Results)];
-        match &store.results {
+        // Hits for another query (one still on its way, or one that failed)
+        // are not this query's.
+        let current = store
+            .results
+            .as_ref()
+            .filter(|_| store.searched() == store.query().trim());
+        match current {
             Some(results) => {
                 rows.extend(results.hits.iter().cloned().map(SidebarItem::SearchHit));
                 if results.hits.is_empty() && results.complete {
@@ -2800,12 +2840,19 @@ fn build_rows(store: &ChatListStore, has_account: bool, now: &DateTime<Local>) -
                     rows.push(SidebarItem::Hint(Hint::SearchIncomplete));
                 }
             }
+            None if !store.searching && store.search_error.is_some() => {
+                rows.push(SidebarItem::Hint(Hint::Failed))
+            }
             None => rows.push(SidebarItem::Hint(Hint::Loading)),
         }
         return rows;
     }
     let Some(list) = store.merged() else {
-        return vec![SidebarItem::Hint(Hint::Loading)];
+        return vec![SidebarItem::Hint(if store.load_error.is_some() {
+            Hint::Failed
+        } else {
+            Hint::Loading
+        })];
     };
     let sections = build_sidebar(&list, now);
     let rows = flatten(&sections, &store.expanded(), &list);
@@ -2885,8 +2932,8 @@ impl Render for SidebarView {
             // ⌘⌫ (Chat › Delete…) on the row the keyboard is on: a chat, or
             // the account's own folder (Delete Folder…, which asks first).
             .on_action(cx.listener(|this, _: &DeleteChat, window, cx| {
-                if this.has_multiple_selection() {
-                    return this.bulk(BulkChatAction::Delete, None, window, cx);
+                if this.run_on_selection(&ChatCommand::Delete, window, cx) {
+                    return;
                 }
                 match this.cursor.clone() {
                     Some(KeyRow::Chat(id)) => this.run(&id, ChatCommand::Delete, window, cx),
@@ -2976,6 +3023,132 @@ impl Render for SidebarView {
                 }
             }))
             .child(frame)
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use gpui_kit::{TestAppContext, VisualTestContext};
+
+    use super::*;
+    use crate::stores::accounts::tests::{account, list};
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    fn bench(cx: &mut TestAppContext) -> (Stores, Entity<SidebarView>, &mut VisualTestContext) {
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-sidebar-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            gpui_kit::init(cx);
+            conduit_components::theme::install(
+                conduit_components::theme::ConduitTheme::new(
+                    "conduit",
+                    false,
+                    conduit_components::theme::DesignPrefs::default(),
+                    gpui_kit::black(),
+                ),
+                cx,
+            );
+            cx.set_global(conduit_components::Strings::default());
+            cx.set_global(crate::l10n::L10n::new("en"));
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        let s = stores.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| SidebarView::new(s, window, cx));
+        (stores, view, vcx)
+    }
+
+    #[gpui_kit::test]
+    fn a_checkbox_selection_never_falls_through_to_the_open_chat(cx: &mut TestAppContext) {
+        let (stores, view, vcx) = bench(cx);
+        // Chat A open; "Select Chats…" on B.
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        view.update_in(vcx, |s, window, cx| {
+            s.run("chat-b", ChatCommand::Select, window, cx)
+        });
+        view.read_with(vcx, |s, _| {
+            assert_eq!(
+                s.on_selection(&ChatCommand::Delete),
+                Some(OnSelection::Bulk(BulkChatAction::Delete, None))
+            );
+            assert_eq!(
+                s.selecting
+                    .as_ref()
+                    .map(|c| c.iter().cloned().collect::<Vec<_>>()),
+                Some(vec!["chat-b".to_string()])
+            );
+            // Commands for one chat do nothing while chats are chosen.
+            assert_eq!(
+                s.on_selection(&ChatCommand::Pin),
+                Some(OnSelection::Nothing)
+            );
+            assert_eq!(
+                s.on_selection(&ChatCommand::Rename),
+                Some(OnSelection::Nothing)
+            );
+        });
+        // Every box unticked: still nothing for the open chat.
+        view.update(vcx, |s, cx| s.toggle_selected("chat-b", cx));
+        view.read_with(vcx, |s, _| {
+            assert_eq!(
+                s.on_selection(&ChatCommand::Delete),
+                Some(OnSelection::Bulk(BulkChatAction::Delete, None))
+            );
+        });
+        view.update(vcx, |s, cx| s.end_selection(cx));
+        view.read_with(vcx, |s, _| {
+            assert_eq!(s.on_selection(&ChatCommand::Delete), None)
+        });
+    }
+
+    #[test]
+    fn search_shows_only_this_querys_hits_and_says_when_it_failed() {
+        let now = Local::now();
+        let mut store = ChatListStore::new(FakeDaemon::new().rpc());
+        store.set_query_for_test("bread", "bre");
+        store.results = Some(conduit_protocol::ChatSearchResults {
+            hits: vec![
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "c1", "title": "Bread", "updatedAtMs": 0
+                }))
+                .unwrap(),
+            ],
+            complete: true,
+        });
+        let hint = |store: &ChatListStore| build_rows(store, true, &now)[1..].to_vec();
+        // Typed on: the old hits are not this query's.
+        store.searching = true;
+        assert_eq!(hint(&store), vec![SidebarItem::Hint(Hint::Loading)]);
+        // And that search failed.
+        store.searching = false;
+        store.search_error = Some(conduit_daemon::protocol::error("rpc.timeout", "slow"));
+        assert_eq!(hint(&store), vec![SidebarItem::Hint(Hint::Failed)]);
+        // The first list failed: not "Loading" for ever.
+        store.set_query_for_test("", "");
+        store.load_error = Some(conduit_daemon::protocol::error("rpc.timeout", "slow"));
+        assert_eq!(
+            build_rows(&store, true, &now),
+            vec![SidebarItem::Hint(Hint::Failed)]
+        );
+    }
+
+    #[gpui_kit::test]
+    fn another_account_starts_with_nothing_chosen(cx: &mut TestAppContext) {
+        let (stores, view, vcx) = bench(cx);
+        view.update(vcx, |s, cx| s.toggle_selected("chat-a", cx));
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blake", true, true),
+                ]),
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        view.read_with(vcx, |s, _| assert!(s.selecting.is_none()));
     }
 }
 

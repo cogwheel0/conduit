@@ -296,6 +296,8 @@ pub enum Hint {
     NoResults,
     /// The search index may still be missing chats.
     SearchIncomplete,
+    /// The list or the search could not be had.
+    Failed,
 }
 
 /// One row of the virtualized sidebar.

@@ -436,6 +436,13 @@ impl ChatListStore {
         &self.query
     }
 
+    /// Sets the query and the query answered, without searching.
+    #[cfg(test)]
+    pub fn set_query_for_test(&mut self, searched: &str, query: &str) {
+        self.searched = searched.into();
+        self.query = query.into();
+    }
+
     /// The query whose answer [`Self::results`] holds.
     pub fn searched(&self) -> &str {
         &self.searched

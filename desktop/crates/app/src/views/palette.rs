@@ -33,7 +33,9 @@ use gpui_kit::{
 use super::dates;
 use super::sidebar_model::parse_snippet;
 use crate::AppState;
-use crate::actions::{FocusModelPicker, NewChat, OpenSettings, ShowShortcuts, StopGenerating};
+use crate::actions::{
+    FocusModelPicker, NewChat, NewTemporaryChat, OpenSettings, ShowShortcuts, StopGenerating,
+};
 use crate::keymap::{Keymap, describe};
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::stores::Stores;
@@ -108,7 +110,10 @@ impl PaletteView {
                         this.stores.palette.update(cx, |p, cx| p.set_query(q, cx));
                     }
                     InputEvent::PressEnter { .. } => {
+                        // The row drawn highlighted, though the rows may
+                        // have shrunk since the index was set.
                         let index = this.stores.palette.read(cx).index;
+                        let index = index.min(this.entries.len().saturating_sub(1));
                         this.choose(index, window, cx);
                     }
                     _ => {}
@@ -175,6 +180,10 @@ impl PaletteView {
 
     /// Opens row `index` (a chat, or runs a command) and closes.
     pub fn choose(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        // A click on the rows while they fade out.
+        if !self.is_open(cx) {
+            return;
+        }
         let Some(entry) = self.entries.get(index).cloned() else {
             return;
         };
@@ -187,10 +196,9 @@ impl PaletteView {
             }
             PaletteEntry::Command(c) => match c.command {
                 PaletteCommand::NewChat => window.dispatch_action(Box::new(NewChat), cx),
+                // The main window's, as New Chat: it focuses the composer.
                 PaletteCommand::NewTemporaryChat => {
-                    self.stores
-                        .navigation
-                        .update(cx, |n, cx| n.new_chat(true, cx));
+                    window.dispatch_action(Box::new(NewTemporaryChat), cx)
                 }
                 // The chat view's model picker answers this.
                 PaletteCommand::ChooseModel => {
@@ -215,8 +223,15 @@ impl PaletteView {
         let query = store.query().trim().to_string();
         let searching = store.searching;
         let recent = self.stores.chat_list.read(cx).recent(RECENT_COUNT);
-        self.entries = entries(&query, &commands, &recent, store.results.as_ref());
+        // Hits for another query (a search still on its way, or one that
+        // failed) are not this query's.
+        let results = store.results.as_ref().filter(|_| store.searched() == query);
+        self.entries = entries(&query, &commands, &recent, results);
         let selected = store.index.min(self.entries.len().saturating_sub(1));
+        if selected != store.index {
+            // Enter, the arrows and the highlight all go from the row drawn.
+            self.stores.palette.update(cx, |p, _| p.index = selected);
+        }
 
         let now = Local::now();
         let mut chats = vec![];
@@ -420,5 +435,26 @@ mod tests {
             ShortcutAction::FocusModelPicker.is_live()
         );
         assert_eq!(cmds.len(), PaletteCommand::ALL.len());
+    }
+
+    #[gpui_kit::test]
+    fn enter_opens_the_row_drawn_when_the_rows_shrink(cx: &mut gpui_kit::TestAppContext) {
+        let daemon = crate::stores::rpc::fake::FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-palette-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let s = stores.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| PaletteView::new(s, window, cx));
+        view.update_in(vcx, |v, window, cx| v.open(window, cx));
+        vcx.run_until_parked();
+        let rows = view.read_with(vcx, |v, _| v.entries.len());
+        assert!(rows > 0);
+        // The highlight was on a row a search answer has since taken away.
+        stores.palette.update(vcx, |p, _| p.index = rows + 5);
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        vcx.run_until_parked();
+        assert_eq!(stores.palette.read_with(vcx, |p, _| p.index), rows - 1);
     }
 }

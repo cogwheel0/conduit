@@ -26,3 +26,17 @@ pub mod sign_in;
 pub mod status;
 pub mod toasts;
 pub mod words;
+
+/// The globals a view needs to draw in a test window: GPUI Kit, Conduit's
+/// light theme, the components' strings and English.
+#[cfg(test)]
+pub(crate) fn test_globals(cx: &mut gpui_kit::App) {
+    use conduit_components::theme::{ConduitTheme, DesignPrefs, install};
+    gpui_kit::init(cx);
+    install(
+        ConduitTheme::new("conduit", false, DesignPrefs::default(), gpui_kit::black()),
+        cx,
+    );
+    cx.set_global(conduit_components::Strings::default());
+    cx.set_global(crate::l10n::L10n::new("en"));
+}
