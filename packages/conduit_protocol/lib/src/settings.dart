@@ -98,8 +98,8 @@ abstract class DirectVoiceProviderDto with _$DirectVoiceProviderDto {
 /// The settings core keeps in `AppSettings` that the phone's Settings pages
 /// expose (Chats, Personalization, Data & Connection, Audio, Voice
 /// Provider), named as core names them so a host reads them by the same
-/// names. Reply to `settings.get` and `settings.set`, and the payload of
-/// `settings.changed`.
+/// names. Reply to `settings.get` and `settings.set`. `settings.changed`
+/// carries no payload: read them again with `settings.get`.
 ///
 /// The enumerations are core's enum names as strings: [voiceCallMode] is
 /// `auto` or `standard`, [sttPreference] `deviceOnly` or `serverOnly`,
