@@ -200,7 +200,14 @@ impl ChatComposer {
                 let Some(this) = weak.upgrade() else {
                     return;
                 };
-                let handled = this.update(cx, |c, cx| c.menu_key(key, window, cx));
+                let handled = this.update(cx, |c, cx| {
+                    // The input method's own keys while it composes (Enter
+                    // confirms, arrows pick, Esc cancels), as for PressEnter.
+                    let composing = c
+                        .input
+                        .update(cx, |s, cx| s.marked_text_range(window, cx).is_some());
+                    !composing && c.menu_key(key, window, cx)
+                });
                 if handled {
                     cx.stop_propagation();
                 }
@@ -2256,6 +2263,42 @@ mod tests {
         assert_eq!(
             *seen.borrow(),
             vec![ChatComposerEvent::Submit("explain /nonexistent".into())]
+        );
+    }
+
+    #[gpui_kit::test]
+    fn menu_keys_wait_while_an_input_method_composes(cx: &mut TestAppContext) {
+        let (view, cx, _) = composer(cx);
+        let daemon = FakeDaemon::new();
+        daemon.returns::<conduit_protocol::methods::PromptsList>(
+            serde_json::from_value(serde_json::json!({
+                "prompts": [{"command": "/かな", "title": "Kana"}]
+            }))
+            .unwrap(),
+        );
+        let store = cx.new(|_| ComposerStore::new(daemon.rpc(), None));
+        view.update(cx, |c, _| c.composer = store);
+        cx.simulate_input("/");
+        let input = view.read_with(cx, |c, _| c.input.clone());
+        cx.update(|window, cx| {
+            input.update(cx, |s, cx| {
+                s.replace_and_mark_text_in_range(None, "か", None, window, cx)
+            });
+        });
+        view.update(cx, |c, cx| c.text_changed(cx));
+        cx.run_until_parked();
+        assert!(
+            view.read_with(cx, |c, _| c.menu.is_some()),
+            "the menu is open"
+        );
+        // Enter confirms the composition: the menu's item is not chosen.
+        cx.simulate_keystrokes("enter");
+        cx.run_until_parked();
+        assert!(
+            daemon
+                .calls::<conduit_protocol::methods::PromptsRender>()
+                .is_empty(),
+            "Enter chose the menu item while composing"
         );
     }
 
