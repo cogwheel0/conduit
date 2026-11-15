@@ -57,14 +57,15 @@ pid_refresh() {
   pid=$(sed -n 1p "$file")
   saved=$(sed -n 2p "$file")
   [ -n "$pid" ] && [ -n "$saved" ] || return 0
-  started=$(ps -p "$pid" -o lstart= 2>/dev/null || true)
-  [ -n "$started" ] || return 0
+  # One read, so the start time checked belongs to the identity written
+  # (`lstart`, its first 24 characters, is fixed-width).
+  identity=$(pid_identity "$pid")
+  [ -n "$identity" ] || return 0
+  started=${identity:0:24}
   case "$saved" in
     "$started"*) ;;
     *) return 0 ;;
   esac
-  identity=$(pid_identity "$pid")
-  [ -n "$identity" ] || return 0
   printf '%s\n%s\n' "$pid" "$identity" > "$file"
 }
 

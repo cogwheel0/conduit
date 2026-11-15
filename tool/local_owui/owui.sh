@@ -281,13 +281,26 @@ start() {
   # may hand over after its pid file was written. Once it answers on its
   # port it has, so what this start launched is recorded again then.
   pid_refresh "$STATE/server.pid"
-  if [ -n "$started_model" ] && wait_listening 'fake model' "$MODEL_PORT"; then
-    pid_refresh "$STATE/fake_model.pid"
+  local silent=
+  if [ -n "$started_model" ]; then
+    if wait_listening 'fake model' "$MODEL_PORT"; then
+      pid_refresh "$STATE/fake_model.pid"
+    else
+      silent="fake model on $MODEL_PORT"
+    fi
   fi
-  if [ -n "$started_hermes" ] && wait_listening 'fake Hermes' "$HERMES_PORT"; then
-    pid_refresh "$STATE/fake_hermes.pid"
+  if [ -n "$started_hermes" ]; then
+    if wait_listening 'fake Hermes' "$HERMES_PORT"; then
+      pid_refresh "$STATE/fake_hermes.pid"
+    else
+      silent="${silent:+$silent, }fake Hermes on $HERMES_PORT"
+    fi
   fi
-  echo "running at $URL (fake model on $MODEL_PORT)"
+  if [ -n "$silent" ]; then
+    echo "running at $URL, but not listening: $silent (see $STATE)"
+  else
+    echo "running at $URL (fake model on $MODEL_PORT)"
+  fi
 }
 
 seed() {
