@@ -247,7 +247,7 @@ void main() {
         await add(
           const ServerDraft(
             name: 'Exported',
-            url: 'https://someone:pa55word@exported.example.com:8443/owui?k=v',
+            url: 'https://exported.example.com:8443/owui?k=v',
             mtlsPrivateKeyPem: '$_keyHeader\nabc\n',
             mtlsPrivateKeyPassword: 'made-up-passphrase',
             customHeaders: <String, String>{'X-Proxy-Token': 'bearer-secret'},
