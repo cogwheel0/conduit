@@ -11,7 +11,9 @@
 #   crates/app/run.sh --shots /tmp/shots --e2e chat # an E2E pass on the local
 #                                                  # Open WebUI (tool/local_owui)
 #
-# The bundle lives in target/app/ (ignored) and is reused.
+# The bundle lives in target/app/ (ignored) and is reused. A scripted run
+# (--shots, --e2e, --capture) uses the profile CONDUIT_USER_DATA names, never
+# the app's own; without one it starts on a fresh profile in $TMPDIR.
 set -eu
 cd "$(dirname "$0")/../.."
 cargo build -p conduit-desktop --features harness

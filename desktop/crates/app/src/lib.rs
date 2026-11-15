@@ -100,14 +100,59 @@ fn arg(args: &[String], key: &str) -> Option<String> {
         .cloned()
 }
 
+/// Whether `args` ask for a scripted run (`--shots`, `--e2e`, `--capture`)
+/// that drives, resets and photographs its profile.
+pub fn is_scripted(args: &[String]) -> bool {
+    args.iter()
+        .any(|a| a == "--shots" || a.starts_with("--e2e") || a.starts_with("--capture"))
+}
+
+/// The profile a scripted run uses: the one named by `named`
+/// (`CONDUIT_USER_DATA`), which must not be the app's ordinary profile
+/// (`ordinary`), or else a fresh folder under `scratch`. A scripted run
+/// never touches a profile the caller did not name, or the user's own.
+pub fn harness_profile(
+    named: Option<PathBuf>,
+    ordinary: &std::path::Path,
+    scratch: &std::path::Path,
+) -> Result<PathBuf, String> {
+    match named {
+        Some(named) => {
+            let same = |a: &std::path::Path, b: &std::path::Path| {
+                let canon =
+                    |p: &std::path::Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+                canon(a) == canon(b)
+            };
+            if same(&named, ordinary) {
+                Err(format!(
+                    "{} is the app's own profile; name a test profile in CONDUIT_USER_DATA",
+                    named.display()
+                ))
+            } else {
+                Ok(named)
+            }
+        }
+        None => Ok(scratch.join("user-data")),
+    }
+}
+
+/// The Keychain service of a scripted run's master key: never the app's own.
+fn harness_service(flavor: Flavor) -> String {
+    format!("{}.harness", flavor.keychain_service())
+}
+
 /// The master key from the Keychain (created on first run).
-fn master_key(paths: &AppPaths) -> Result<String, String> {
+fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, String> {
     #[cfg(target_os = "macos")]
     {
         use conduit_daemon::secrets::{
             Keychain, MasterKeyStore, SecurityCli, load_or_create_master_key,
         };
-        let service = paths.flavor.keychain_service();
+        let service = if scripted {
+            harness_service(paths.flavor)
+        } else {
+            paths.flavor.keychain_service()
+        };
         // Dev builds go through /usr/bin/security so a rebuilt (re-hashed)
         // binary never meets a Keychain prompt; see conduit_daemon::secrets.
         let store: Box<dyn MasterKeyStore> = match paths.flavor {
@@ -118,7 +163,7 @@ fn master_key(paths: &AppPaths) -> Result<String, String> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = paths;
+        let _ = (paths, scripted);
         Err("no secret store on this platform yet".into())
     }
 }
@@ -148,7 +193,34 @@ pub fn run() {
         return;
     }
     let flavor = Flavor::detect();
-    let app_paths = AppPaths::for_flavor(flavor);
+    let mut app_paths = AppPaths::for_flavor(flavor);
+    // A scripted run gets its own profile, logs and Keychain item.
+    let scripted_run = is_scripted(&args);
+    if scripted_run {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/tmp"));
+        let ordinary = home
+            .join("Library/Application Support")
+            .join(flavor.app_name());
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-harness-{}-{stamp}", std::process::id()));
+        let named = std::env::var_os("CONDUIT_USER_DATA").map(PathBuf::from);
+        let fresh = named.is_none();
+        match harness_profile(named, &ordinary, &scratch) {
+            Ok(user_data) => app_paths.user_data = user_data,
+            Err(e) => {
+                eprintln!("conduit-desktop: {e}");
+                std::process::exit(64);
+            }
+        }
+        if fresh && std::env::var_os("CONDUIT_LOGS").is_none() {
+            app_paths.logs = scratch.join("logs");
+        }
+    }
     shell::logger::install(&app_paths.logs);
     shell::crash::install(app_paths.logs.clone(), VERSION);
     log::info!(
@@ -221,7 +293,7 @@ pub fn run() {
             ConnectionOptions {
                 paths: app_paths.clone(),
                 binary: paths::locate_daemon(),
-                master_key: master_key(&app_paths),
+                master_key: master_key(&app_paths, scripted_run),
                 locale: locale::bcp47(settings.read(cx).locale()),
                 client_version: VERSION.into(),
             },
@@ -733,5 +805,42 @@ pub fn open_settings(tab: Option<Tab>, cx: &mut App) {
             cx.global_mut::<AppState>().settings_window = Some((handle, view));
         }
         Err(e) => log::error!("could not open Settings: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod harness_profile_tests {
+    use super::*;
+
+    #[test]
+    fn a_scripted_run_never_uses_a_profile_it_was_not_given() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(is_scripted(&args(&[
+            "app", "--shots", "/tmp/s", "--e2e", "chat"
+        ])));
+        assert!(is_scripted(&args(&["app", "--e2e", "chat"])));
+        assert!(is_scripted(&args(&["app", "--capture", "/tmp/c"])));
+        assert!(!is_scripted(&args(&["app", "--hidden"])));
+
+        let ordinary =
+            std::path::Path::new("/Users/example/Library/Application Support/Conduit Dev");
+        let scratch = std::path::Path::new("/tmp/conduit-harness-1");
+        // None named: a fresh one, never the app's own.
+        assert_eq!(
+            harness_profile(None, ordinary, scratch).unwrap(),
+            scratch.join("user-data")
+        );
+        // The app's own profile, named: refused.
+        assert!(harness_profile(Some(ordinary.to_path_buf()), ordinary, scratch).is_err());
+        // Another profile the caller named: that one.
+        let named = std::path::PathBuf::from("/tmp/e2e-profile-7");
+        assert_eq!(
+            harness_profile(Some(named.clone()), ordinary, scratch).unwrap(),
+            named
+        );
+        assert_eq!(
+            harness_service(Flavor::Dev),
+            "app.cogwheel.conduit.desktop.dev.harness"
+        );
     }
 }
