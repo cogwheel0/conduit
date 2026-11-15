@@ -347,7 +347,7 @@ def main():
             continue
         seen.add((rel, s))
         lines.append(f'- `{rel}:{n}`: \u201c{s}\u201d')
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     open(args.out, 'w').write('\n'.join(lines) + '\n')
     print(f'copy notes: {total} strings, {flagged} flagged, {len(seen)} literals')
 
