@@ -273,6 +273,9 @@ async fn refuses_a_daemon_that_echoes_the_token_entry() {
         unreachable!()
     };
     assert!(error.contains("subprotocol"), "{error}");
+    // The error is logged and shown: it never carries the token.
+    assert!(!error.contains(&tk["tk.".len()..]), "{error}");
+    assert!(!error.contains(TOKEN), "{error}");
     assert!(fake.requests("system.handshake").is_empty());
     client.shutdown();
 }

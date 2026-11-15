@@ -15,6 +15,10 @@
 //!   restarted the daemon) reconnects at once with a fresh budget.
 //! * **Core start-up:** calls answered `rpc.daemonUnavailable` are re-sent
 //!   with backoff for up to [`RpcConfig::unavailable_budget`].
+//! * **Never twice:** a call whose frame may have reached the socket is not
+//!   re-sent when the write fails or the session drops; it fails with
+//!   `transport.disconnected`. Only calls never handed to the socket wait for
+//!   the next session.
 //! * **Events:** `event` notifications `{event, seq, scope?, payload}`; a gap in
 //!   a session's `seq` is reported so stores refetch instead of patching.
 //!
@@ -25,7 +29,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
-use futures_util::{SinkExt as _, StreamExt as _};
+use futures_util::{Sink, SinkExt as _, StreamExt as _};
 use rand::Rng as _;
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
@@ -44,7 +48,7 @@ use crate::protocol::{
 };
 use crate::secrets::subprotocol_token;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct RpcConfig {
     pub token: String,
     pub client_name: String,
@@ -64,6 +68,21 @@ pub struct RpcConfig {
     pub reconnect_cap: Duration,
     pub unavailable_budget: Duration,
     pub unavailable_step: Duration,
+}
+
+impl std::fmt::Debug for RpcConfig {
+    /// Everything but the session token.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RpcConfig")
+            .field("token", &"<redacted>")
+            .field("client_name", &self.client_name)
+            .field("client_version", &self.client_version)
+            .field("window_kind", &self.window_kind)
+            .field("locale", &self.locale)
+            .field("protocol_version", &self.protocol_version)
+            .field("host", &self.host)
+            .finish_non_exhaustive()
+    }
 }
 
 impl RpcConfig {
@@ -331,6 +350,17 @@ impl RpcClient {
     }
 }
 
+/// Why a connect failed when the daemon selected `selected`. The error is
+/// logged and shown, so a token entry the daemon echoed is never quoted.
+fn refused_subprotocol(selected: &str) -> String {
+    let shown = if selected.starts_with("tk.") {
+        "tk.<redacted>"
+    } else {
+        selected
+    };
+    format!("the daemon selected subprotocol {shown:?}, not {SUBPROTOCOL}")
+}
+
 fn closed_error() -> RpcError {
     error(codes::CLOSED, "the connection to the daemon is closed")
 }
@@ -564,9 +594,7 @@ impl Connection {
             .and_then(|v| v.to_str().ok())
             .unwrap_or_default();
         if selected != SUBPROTOCOL {
-            return Err(format!(
-                "the daemon selected subprotocol {selected:?}, not {SUBPROTOCOL}"
-            ));
+            return Err(refused_subprotocol(selected));
         }
         Ok(ws)
     }
@@ -673,11 +701,8 @@ impl Connection {
         }
 
         // Everything that waited for a session goes now.
-        let waiting: Vec<PendingCall> = self.queue.drain(..).collect();
-        for call in waiting {
-            if let Err(error) = self.send_call(&mut sink, &mut inflight, call).await {
-                return self.lost(inflight, error);
-            }
+        if let Err(error) = self.flush_queue(&mut sink, &mut inflight).await {
+            return self.lost(inflight, error);
         }
 
         let mut tick = interval(Duration::from_millis(50));
@@ -771,13 +796,8 @@ impl Connection {
                     }
                     self.expire_waiting(now);
                     // `daemonUnavailable` retries that are due.
-                    let (due, later): (Vec<_>, Vec<_>) =
-                        self.delayed.drain(..).partition(|(at, _)| *at <= now);
-                    self.delayed = later;
-                    for (_, call) in due {
-                        if let Err(error) = self.send_call(&mut sink, &mut inflight, call).await {
-                            return self.lost(inflight, error);
-                        }
+                    if let Err(error) = self.send_due(&mut sink, &mut inflight, now).await {
+                        return self.lost(inflight, error);
                     }
                 }
             }
@@ -798,25 +818,82 @@ impl Connection {
         }
     }
 
-    async fn send_call(
+    /// Sends one call. Past its deadline it is answered as timed out and not
+    /// written. If the sink refuses it before taking the frame, it goes back
+    /// to the front of the queue for the next session. Once the frame is
+    /// handed over, a failed write may still have reached the daemon, so the
+    /// call fails (`transport.disconnected`) and is never sent again: the
+    /// protocol marks no method as safe to repeat.
+    async fn send_call<S>(
         &mut self,
-        sink: &mut futures_util::stream::SplitSink<Ws, Message>,
+        sink: &mut S,
         inflight: &mut HashMap<u64, Inflight>,
         call: PendingCall,
-    ) -> Result<(), String> {
+    ) -> Result<(), String>
+    where
+        S: Sink<Message> + Unpin,
+        S::Error: std::fmt::Display,
+    {
+        if call.deadline <= Instant::now() {
+            let e = timeout_error(&call.method);
+            call.finish(Err(e));
+            return Ok(());
+        }
+        if let Err(e) = std::future::poll_fn(|cx| sink.poll_ready_unpin(cx)).await {
+            self.queue.push_front(call);
+            return Err(e.to_string());
+        }
         let id = self.id();
         let frame = Self::request_frame(id, &call.method, &call.params);
-        match sink.send(frame).await {
+        let written = match sink.start_send_unpin(frame) {
+            Ok(()) => std::future::poll_fn(|cx| sink.poll_flush_unpin(cx)).await,
+            Err(e) => Err(e),
+        };
+        match written {
             Ok(()) => {
                 inflight.insert(id, Inflight::User(call));
                 Ok(())
             }
             Err(e) => {
-                // Never sent: it can wait for the next session.
-                self.queue.push_front(call);
+                call.finish(Err(disconnected_error()));
                 Err(e.to_string())
             }
         }
+    }
+
+    /// Sends the calls waiting for a session, oldest first. On a failure the
+    /// ones not yet tried stay queued.
+    async fn flush_queue<S>(
+        &mut self,
+        sink: &mut S,
+        inflight: &mut HashMap<u64, Inflight>,
+    ) -> Result<(), String>
+    where
+        S: Sink<Message> + Unpin,
+        S::Error: std::fmt::Display,
+    {
+        while let Some(call) = self.queue.pop_front() {
+            self.send_call(sink, inflight, call).await?;
+        }
+        Ok(())
+    }
+
+    /// Sends the `daemonUnavailable` retries due by `now`, through the queue,
+    /// so a failure leaves the rest waiting for the next session.
+    async fn send_due<S>(
+        &mut self,
+        sink: &mut S,
+        inflight: &mut HashMap<u64, Inflight>,
+        now: Instant,
+    ) -> Result<(), String>
+    where
+        S: Sink<Message> + Unpin,
+        S::Error: std::fmt::Display,
+    {
+        let (due, later): (Vec<_>, Vec<_>) = self.delayed.drain(..).partition(|(at, _)| *at <= now);
+        self.delayed = later;
+        self.queue.extend(due.into_iter().map(|(_, call)| call));
+        self.flush_queue(sink, inflight).await
     }
 
     /// Handles one inbound frame; returns a frame to send back, if any.
@@ -914,5 +991,203 @@ mod tests {
         assert_eq!(h.needs_onboarding, None);
         let h = Handshake::from_value(json!({"needsOnboarding": true}));
         assert_eq!(h.needs_onboarding, Some(true));
+    }
+
+    /// A sink that records frames and fails where told: `refuse_ready_at`
+    /// refuses to take frame n, `fail_flush_at` fails writing frame n out.
+    #[derive(Default)]
+    struct FakeSink {
+        frames: Vec<String>,
+        refuse_ready_at: Option<usize>,
+        fail_flush_at: Option<usize>,
+    }
+
+    impl futures_util::Sink<Message> for FakeSink {
+        type Error = String;
+
+        fn poll_ready(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), String>> {
+            let refused = self.refuse_ready_at == Some(self.frames.len());
+            std::task::Poll::Ready(if refused {
+                Err("refused".into())
+            } else {
+                Ok(())
+            })
+        }
+
+        fn start_send(mut self: std::pin::Pin<&mut Self>, item: Message) -> Result<(), String> {
+            let text = item.into_text().map_err(|e| e.to_string())?.to_string();
+            self.frames.push(text);
+            Ok(())
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), String>> {
+            let failed = self
+                .fail_flush_at
+                .is_some_and(|n| self.frames.len() == n + 1);
+            std::task::Poll::Ready(if failed {
+                Err("broken pipe".into())
+            } else {
+                Ok(())
+            })
+        }
+
+        fn poll_close(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), String>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    fn connection() -> Connection {
+        let (events, _) = mpsc::unbounded_channel();
+        let (_, cmds) = mpsc::unbounded_channel();
+        let (_, endpoint) = watch::channel(None);
+        Connection {
+            config: RpcConfig::new("a-session-token", "0.0.0"),
+            events,
+            cmds,
+            endpoint,
+            queue: VecDeque::new(),
+            delayed: Vec::new(),
+            subscription: None,
+            next_id: 0,
+            state: None,
+        }
+    }
+
+    fn call(
+        method: &str,
+        deadline: Instant,
+    ) -> (PendingCall, oneshot::Receiver<Result<Value, RpcError>>) {
+        let (reply, rx) = oneshot::channel();
+        let call = PendingCall {
+            method: method.into(),
+            params: Value::Null,
+            reply,
+            created: Instant::now(),
+            deadline,
+            unavailable_retries: 0,
+        };
+        (call, rx)
+    }
+
+    fn live(method: &str) -> (PendingCall, oneshot::Receiver<Result<Value, RpcError>>) {
+        call(method, Instant::now() + Duration::from_secs(3600))
+    }
+
+    fn code(rx: &mut oneshot::Receiver<Result<Value, RpcError>>) -> String {
+        match rx.try_recv() {
+            Ok(Err(e)) => e.code.to_string(),
+            other => panic!("expected an error, got {other:?}"),
+        }
+    }
+
+    fn methods(conn: &Connection) -> Vec<String> {
+        conn.queue.iter().map(|c| c.method.clone()).collect()
+    }
+
+    #[tokio::test]
+    async fn a_failed_write_is_not_replayed_and_the_rest_stay_queued() {
+        let mut conn = connection();
+        let (a, mut ra) = live("notes.save");
+        let (b, mut rb) = live("notes.save");
+        let (c, mut rc) = live("chats.list");
+        conn.queue.extend([a, b, c]);
+        let mut sink = FakeSink {
+            fail_flush_at: Some(1),
+            ..Default::default()
+        };
+        let mut inflight = HashMap::new();
+        assert!(conn.flush_queue(&mut sink, &mut inflight).await.is_err());
+        assert_eq!(sink.frames.len(), 2);
+        // The first went out and waits for its answer.
+        assert_eq!(inflight.len(), 1);
+        assert!(ra.try_recv().is_err());
+        // The second may have reached the daemon: it fails, and is never
+        // sent again.
+        assert_eq!(code(&mut rb), codes::DISCONNECTED);
+        // The third was never tried: it waits for the next session.
+        assert_eq!(methods(&conn), ["chats.list"]);
+        assert!(matches!(
+            rc.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_call_the_sink_refuses_stays_queued() {
+        let mut conn = connection();
+        let (a, mut ra) = live("notes.save");
+        conn.queue.push_back(a);
+        let mut sink = FakeSink {
+            refuse_ready_at: Some(0),
+            ..Default::default()
+        };
+        let mut inflight = HashMap::new();
+        assert!(conn.flush_queue(&mut sink, &mut inflight).await.is_err());
+        assert!(sink.frames.is_empty());
+        assert_eq!(methods(&conn), ["notes.save"]);
+        assert!(matches!(
+            ra.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_call_past_its_deadline_is_answered_without_being_sent() {
+        let mut conn = connection();
+        let (a, mut ra) = call("notes.save", Instant::now());
+        conn.queue.push_back(a);
+        let mut sink = FakeSink::default();
+        let mut inflight = HashMap::new();
+        assert!(conn.flush_queue(&mut sink, &mut inflight).await.is_ok());
+        assert!(sink.frames.is_empty());
+        assert!(inflight.is_empty());
+        assert_eq!(code(&mut ra), codes::TIMEOUT);
+    }
+
+    #[tokio::test]
+    async fn due_retries_keep_the_ones_not_yet_tried() {
+        let mut conn = connection();
+        let now = Instant::now();
+        let (a, mut ra) = live("models.list");
+        let (b, mut rb) = live("chats.list");
+        conn.delayed.extend([(now, a), (now, b)]);
+        let mut sink = FakeSink {
+            fail_flush_at: Some(0),
+            ..Default::default()
+        };
+        let mut inflight = HashMap::new();
+        assert!(conn.send_due(&mut sink, &mut inflight, now).await.is_err());
+        assert_eq!(code(&mut ra), codes::DISCONNECTED);
+        assert_eq!(methods(&conn), ["chats.list"]);
+        assert!(matches!(
+            rb.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+    }
+
+    #[test]
+    fn the_config_does_not_print_its_token() {
+        let config = RpcConfig::new("a-session-token", "0.0.0");
+        let printed = format!("{config:?}");
+        assert!(!printed.contains("a-session-token"), "{printed}");
+        assert!(printed.contains("<redacted>"), "{printed}");
+    }
+
+    #[test]
+    fn an_echoed_token_entry_is_redacted() {
+        let entry = subprotocol_token("a-session-token");
+        let error = refused_subprotocol(&entry);
+        assert!(!error.contains(&entry["tk.".len()..]), "{error}");
+        assert!(error.contains("tk.<redacted>"), "{error}");
+        assert!(refused_subprotocol("chat").contains("\"chat\""));
     }
 }
