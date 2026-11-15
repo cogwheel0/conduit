@@ -50,6 +50,9 @@ final class ChatPromptsService {
 
   final Map<String, _Held> _held = <String, _Held>{};
 
+  /// Counts [clear]s: a stored chat read before one is another account's.
+  int _clears = 0;
+
   /// The prompt [chatId] has now, if any.
   ChatPromptDto? current(String chatId) => _held[chatId]?.dto;
 
@@ -113,6 +116,7 @@ final class ChatPromptsService {
 
   /// Every prompt goes: the account changed.
   void clear() {
+    _clears++;
     final chats = _held.keys.toList();
     _held.clear();
     for (final chatId in chats) {
@@ -132,6 +136,7 @@ final class ChatPromptsService {
     if (held?.resolving ?? false) {
       return ChatPromptState(chatId: chatId, prompt: held!.dto);
     }
+    final clears = _clears;
     OpenWebUiPendingToolPrompt? stored;
     try {
       stored = await storedPrompt?.call(chatId);
@@ -144,6 +149,9 @@ final class ChatPromptsService {
       );
       return ChatPromptState(chatId: chatId, prompt: held?.dto);
     }
+    // The account changed while the stored chat was read: what it found is
+    // the last account's, and is neither shown nor held.
+    if (clears != _clears) return ChatPromptState(chatId: chatId);
     final now = _held[chatId];
     if (now != null && now.stored == null) {
       // A live prompt arrived meanwhile.

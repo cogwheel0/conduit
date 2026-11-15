@@ -1,6 +1,8 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
+
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
@@ -206,6 +208,28 @@ void main() {
       expect(changes().last.prompt, isNull);
     },
   );
+
+  test('a saved prompt found after the account changed is dropped', () async {
+    const pending = OpenWebUiPendingToolPrompt(
+      messageId: 'msg-a',
+      callId: 'call_3',
+      toolName: 'tide_table',
+      prompt: OpenWebUiComposerPrompt(
+        identity: 'saved:msg-a:call_3',
+        kind: OpenWebUiComposerPromptKind.toolApproval,
+        title: 'tide_table',
+        message: '{}',
+      ),
+    );
+    final found = Completer<OpenWebUiPendingToolPrompt?>();
+    prompts.storedPrompt = (_) => found.future;
+    final reading = prompts.get(const ChatPromptRef(chatId: chatId));
+    // The account changes while the stored chat is read.
+    prompts.clear();
+    found.complete(pending);
+    expect((await reading).prompt, isNull);
+    expect(prompts.current(chatId), isNull);
+  });
 
   test('a chat that changes id keeps its prompt', () {
     prompts.offerLive('local:1', askUser, onAnswer: (_) {}, onDecide: (_) {});
