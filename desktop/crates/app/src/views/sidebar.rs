@@ -611,9 +611,16 @@ impl SidebarView {
                 // a new chat): the keyboard starts from there.
                 let NavigationEvent::Changed(selection) = e;
                 this.cursor = KeyRow::of_selection(selection);
+                // Only the newest selection is revealed once its list loads.
+                this.pending_reveal = None;
+                this.pending_reveal_item = None;
                 match selection {
                     Selection::Chat(id) => this.reveal(id.clone(), cx),
-                    Selection::Area(item) => this.reveal_item(item.clone(), cx),
+                    Selection::Area(item) => {
+                        // Chosen chats are no selection for a note or channel.
+                        this.end_selection(cx);
+                        this.reveal_item(item.clone(), cx)
+                    }
                     Selection::New { .. } => {}
                 }
             }),
@@ -3658,6 +3665,30 @@ mod selection_tests {
                 "the opened chat's row is hidden"
             );
         });
+    }
+
+    #[gpui_kit::test]
+    fn opening_a_note_ends_a_chat_selection_and_an_older_reveal(cx: &mut TestAppContext) {
+        let (stores, view, vcx) = bench(cx);
+        view.update(vcx, |s, cx| s.toggle_selected("chat-a", cx));
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n7".into()), cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |s, _| {
+            assert!(s.selecting.is_none(), "chats stay chosen")
+        });
+        // Another item while the note still waits for its list.
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Channel("c9".into()), cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |s, _| {
+            assert_eq!(s.pending_reveal_item, Some(AreaItem::Channel("c9".into())));
+        });
+        stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |s, _| assert_eq!(s.pending_reveal_item, None));
     }
 
     #[gpui_kit::test]
