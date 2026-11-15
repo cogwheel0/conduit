@@ -532,6 +532,7 @@ impl ComposerStore {
         };
         let chat_id = self.chat_id();
         let new_chat = chat_id.is_none();
+        let (scope, round, asked) = (self.scope, self.draft_round, model_id.clone());
         let call = self.rpc.call::<methods::ModelsSetReasoningEffort>(
             &conduit_protocol::SetReasoningEffort {
                 model_id,
@@ -547,17 +548,23 @@ impl ComposerStore {
         self._model_options = Some(cx.spawn(
             async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let result = call.await;
-                let _ = this.update(cx, |s, cx| match result {
-                    Ok(options) => {
-                        if new_chat && let Some(draft) = options.draft.clone() {
-                            s.draft_params = draft;
-                        }
-                        s.model_options = Some(options);
-                        cx.notify();
+                let _ = this.update(cx, |s, cx| {
+                    // Another draft, account or model since: not its answer.
+                    if !s.still_asking(scope, round, &asked) {
+                        return;
                     }
-                    Err(e) => {
-                        log::warn!("models.setReasoningEffort: {e}");
-                        cx.emit(ComposerEvent::ModelNotSelected(e.to_string()));
+                    match result {
+                        Ok(options) => {
+                            if new_chat && let Some(draft) = options.draft.clone() {
+                                s.draft_params = draft;
+                            }
+                            s.model_options = Some(options);
+                            cx.notify();
+                        }
+                        Err(e) => {
+                            log::warn!("models.setReasoningEffort: {e}");
+                            cx.emit(ComposerEvent::ModelNotSelected(e.to_string()));
+                        }
                     }
                 });
             },
@@ -566,23 +573,40 @@ impl ComposerStore {
 
     /// Hermes' Fast tier, on or off.
     pub fn set_fast_tier(&mut self, on: bool, cx: &mut Context<Self>) {
+        let model_id = self.selected_model().map(|m| m.id.clone());
+        let (scope, round) = (self.scope, self.draft_round);
+        let asked = model_id.clone().unwrap_or_default();
         let call = self
             .rpc
-            .call::<methods::ModelsSetFastTier>(&conduit_protocol::SetFastTier {
-                model_id: self.selected_model().map(|m| m.id.clone()),
-                on,
-            });
+            .call::<methods::ModelsSetFastTier>(&conduit_protocol::SetFastTier { model_id, on });
         self._model_options = Some(cx.spawn(
             async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
-                    if let Ok(options) = result {
-                        s.model_options = Some(options);
-                        cx.notify();
+                    if !s.still_asking(scope, round, &asked) {
+                        return;
+                    }
+                    match result {
+                        Ok(options) => {
+                            s.model_options = Some(options);
+                            cx.notify();
+                        }
+                        Err(e) => {
+                            log::warn!("models.setFastTier: {e}");
+                            cx.emit(ComposerEvent::ModelNotSelected(e.to_string()));
+                        }
                     }
                 });
             },
         ));
+    }
+
+    /// Whether an answer asked in `scope` and draft `round` for `model_id`
+    /// is still this composer's: same account, same draft, same model.
+    fn still_asking(&self, scope: u64, round: u64, model_id: &str) -> bool {
+        self.scope == scope
+            && self.draft_round == round
+            && self.selected_model().is_some_and(|m| m.id == model_id)
     }
 
     /// Pins or unpins a model in the account's settings.
@@ -638,8 +662,10 @@ impl ComposerStore {
 
     /// `models.select`: the daemon keeps it with the account.
     pub fn select_model(&mut self, id: &str, cx: &mut Context<Self>) {
-        // A pick wins over a folder's default.
+        // A pick wins over a folder's default, including one still being
+        // looked up.
         self.draft_model = None;
+        self._draft_model = None;
         // Shown at once; the daemon's answer replaces it.
         if let Some(list) = &mut self.models {
             list.selected_id = Some(id.to_string());
@@ -1247,7 +1273,7 @@ impl ComposerStore {
                 .mention
                 .as_ref()
                 .map(|m| m.id.clone())
-                .or_else(|| self.draft_model.clone()),
+                .or_else(|| self.offered_draft_model()),
             folder_id: self
                 .draft
                 .as_ref()
@@ -1265,6 +1291,29 @@ impl ComposerStore {
             code_interpreter: self.code_interpreter,
             file_ids: self.file_ids(),
             compare_models: vec![],
+        }
+    }
+
+    /// The folder's model for a new chat, when this account is offered it
+    /// (as [`Self::selected_model`] shows it); otherwise the turn goes to
+    /// the model the composer shows.
+    fn offered_draft_model(&self) -> Option<String> {
+        let id = self.draft_model.as_ref()?;
+        self.models
+            .as_ref()?
+            .models
+            .iter()
+            .any(|m| &m.id == id)
+            .then(|| id.clone())
+    }
+
+    /// Settings sent with a new chat that was made after the user moved on
+    /// ([`Self::new_chat_sent`] is for the chat that opens): they went with
+    /// it, so the next new chat does not take them too.
+    pub fn forget_sent_params(&mut self, sent: Option<&serde_json::Value>, cx: &mut Context<Self>) {
+        if sent.is_some_and(|p| *p == self.draft_params) {
+            self.draft_params = serde_json::Value::Null;
+            cx.notify();
         }
     }
 
@@ -1784,7 +1833,6 @@ pub fn model_label(model: &ModelSummary) -> String {
     }
 }
 
-/// Models whose name or id matches `query`: those that start with it first.
 /// One row of the model picker's list.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PickerRow {
@@ -1838,6 +1886,7 @@ pub fn picker_rows(list: &ModelList, query: &str, more: bool) -> Vec<PickerRow> 
     rows
 }
 
+/// Models whose name or id matches `query`: those that start with it first.
 pub fn match_models<'a>(
     query: &str,
     models: &'a [ModelSummary],
@@ -2250,6 +2299,79 @@ mod tests {
         cx.run_until_parked();
         store.read_with(cx, |s, _| {
             assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some("b"));
+        });
+    }
+
+    /// A new chat in a folder: the folder's model, the user's pick and the
+    /// settings a reasoning pick gives it belong to that draft alone.
+    #[gpui_kit::test]
+    fn answers_for_a_draft_never_land_on_a_later_choice(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let list = |selected: &str| ModelList {
+            models: vec![model("a", "A"), model("b", "B")],
+            selected_id: Some(selected.into()),
+            ..Default::default()
+        };
+        daemon.returns::<methods::ModelsList>(list("a"));
+        daemon.returns::<methods::ModelsSelect>(list("a"));
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        daemon.returns::<methods::FoldersDraftModel>(
+            serde_json::from_value(serde_json::json!({"folderId": "f", "modelIds": ["b"]}))
+                .unwrap(),
+        );
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| s.refresh_models(cx));
+        cx.run_until_parked();
+        // The folder's model is still being looked up when A is picked.
+        let lookup = daemon.hold::<methods::FoldersDraftModel>();
+        let folder = DraftKey {
+            chat_id: None,
+            folder_id: Some("f".into()),
+        };
+        store.update(cx, |s, cx| {
+            s.switch_draft(Some(folder.clone()), "", cx);
+            s.select_model("a", cx);
+        });
+        drop(lookup);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.draft_model, None,
+                "the folder's model came back over the pick"
+            );
+            assert_eq!(s.turn_options(vec![]).model, None);
+        });
+        // A folder model this account is not offered is not sent either.
+        store.update(cx, |s, _| s.draft_model = Some("gone".into()));
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some("a"));
+            assert_eq!(s.turn_options(vec![]).model, None);
+        });
+        // A reasoning pick answered after another chat opened.
+        daemon.returns::<methods::ModelsSetReasoningEffort>(conduit_protocol::ModelOptionsDto {
+            model_id: Some("a".into()),
+            draft: Some(serde_json::json!({"reasoning_effort": "high"})),
+            ..Default::default()
+        });
+        let pick = daemon.hold::<methods::ModelsSetReasoningEffort>();
+        store.update(cx, |s, cx| {
+            s.set_reasoning_effort("high", cx);
+            s.switch_draft(
+                Some(DraftKey {
+                    chat_id: Some("c1".into()),
+                    folder_id: None,
+                }),
+                "",
+                cx,
+            );
+        });
+        drop(pick);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(
+                s.draft_params.is_null(),
+                "the new chat's settings came back"
+            );
         });
     }
 

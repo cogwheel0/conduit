@@ -2270,8 +2270,6 @@ impl SidebarView {
         cx.notify();
     }
 
-    /// Whether several chats are selected as rows (⌘- or ⇧-click), not by
-    /// checkboxes.
     /// The folder the keyboard is on while the list has focus: what ⌘I
     /// (Get Info) opens the settings of.
     pub fn focused_folder(&self, window: &Window) -> Option<String> {
@@ -2284,6 +2282,8 @@ impl SidebarView {
         }
     }
 
+    /// Whether several chats are selected as rows (⌘- or ⇧-click), not by
+    /// checkboxes.
     pub fn has_multiple_selection(&self) -> bool {
         self.selecting.is_some() && !self.checkboxes
     }

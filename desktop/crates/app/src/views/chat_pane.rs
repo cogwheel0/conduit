@@ -124,6 +124,9 @@ pub struct SettingsOffer {
 /// What the offer depends on: asked again when it changes.
 #[derive(Clone, Debug, PartialEq)]
 struct OfferKey {
+    /// The account (the composer's scope): another one asks again, even
+    /// for the same chat and model ids.
+    scope: u64,
     chat_id: Option<String>,
     model_id: Option<String>,
     tool_ids: Vec<String>,
@@ -669,6 +672,7 @@ impl ChatPane {
             files,
             ..PendingMessage::new(text.clone())
         };
+        let sent_params = options.chat_params.clone();
         if let Some(chat) = &self.chat {
             let turn = options.into_turn(text.clone(), None, false);
             let task = chat.store.update(cx, |s, cx| {
@@ -723,8 +727,11 @@ impl ChatPane {
                 let still_here = *this.stores.navigation.read(cx).selection() == origin;
                 match result {
                     // Made (in its folder, by the daemon), but not opened over
-                    // where the user went since.
-                    Ok(_) if !still_here => {}
+                    // where the user went since. Its settings went with it.
+                    Ok(_) if !still_here => {
+                        this.composer_store
+                            .update(cx, |m, cx| m.forget_sent_params(sent_params.as_ref(), cx));
+                    }
                     Ok(accepted) => {
                         // Its folder's model and its own settings went with it.
                         this.composer_store.update(cx, |m, cx| m.new_chat_sent(cx));
@@ -1060,6 +1067,7 @@ impl ChatPane {
     pub fn sync_settings_offer(&mut self, cx: &mut Context<Self>) {
         let composer = self.composer_store.read(cx);
         let key = OfferKey {
+            scope: composer.scope(),
             chat_id: self.open_chat_id(cx),
             model_id: composer.selected_model().map(|m| m.id.clone()),
             tool_ids: composer.tool_ids.iter().cloned().collect(),
@@ -1078,8 +1086,16 @@ impl ChatPane {
         if self.settings_key.as_ref() == Some(&key) {
             return;
         }
-        // Nothing to ask before the models are known.
+        // Nothing to ask before the models are known, and nothing offered
+        // meanwhile (not the last account's or model's).
         if key.model_id.is_none() {
+            self.settings_key = None;
+            self._offer = None;
+            if self.settings_offer != SettingsOffer::default() {
+                self.settings_offer = SettingsOffer::default();
+                cx.defer(crate::menus::refresh_menus);
+                cx.notify();
+            }
             return;
         }
         self.settings_key = Some(key.clone());
@@ -1105,6 +1121,11 @@ impl ChatPane {
             let _ = this.update(cx, |this, cx| {
                 if this.settings_key.as_ref() != Some(&key) {
                     return;
+                }
+                // A failed question is asked again the next time the
+                // composer changes (a reconnect lists the models again).
+                if settings.is_err() || targets.is_err() {
+                    this.settings_key = None;
                 }
                 let offer = SettingsOffer {
                     chat_settings: settings
@@ -2209,6 +2230,80 @@ mod tests {
             );
             vcx.run_until_parked();
             assert_eq!(attachment_names(&pane, vcx), vec!["plan.pdf".to_string()]);
+        }
+
+        #[gpui_kit::test]
+        fn the_settings_offer_is_asked_again_after_a_failure_and_per_account(
+            cx: &mut TestAppContext,
+        ) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::ModelsList>(
+                serde_json::from_value(serde_json::json!({
+                    "models": [{"id": "m", "name": "M"}], "selectedId": "m"
+                }))
+                .unwrap(),
+            );
+            daemon.returns::<methods::ComposerOptions>(Default::default());
+            daemon.once::<methods::ChatSettingsGet>(Err(conduit_daemon::protocol::error(
+                "rpc.daemonUnavailable",
+                "reconnecting",
+            )));
+            daemon.returns::<methods::ChatSettingsGet>(
+                serde_json::from_value(serde_json::json!({
+                    "entry": "editor",
+                    "systemPrompt": {"key": "system", "kind": "text"}
+                }))
+                .unwrap(),
+            );
+            daemon.returns::<methods::ValvesTargets>(Default::default());
+            pane.update(vcx, |p, cx| {
+                p.composer_store.update(cx, |c, cx| c.refresh_models(cx))
+            });
+            vcx.run_until_parked();
+            assert!(!pane.read_with(vcx, |p, _| p.settings_offer.chat_settings));
+            // The composer changes again (a reconnect lists the models): the
+            // failed question is asked again.
+            pane.update(vcx, |p, cx| {
+                p.composer_store.update(cx, |_, cx| cx.notify())
+            });
+            vcx.run_until_parked();
+            assert!(pane.read_with(vcx, |p, _| p.settings_offer.chat_settings));
+            let asked = daemon.calls::<methods::ChatSettingsGet>().len();
+            // Another account with the same model id: asked again, for it.
+            switch_account(&stores, vcx);
+            vcx.run_until_parked();
+            assert!(daemon.calls::<methods::ChatSettingsGet>().len() > asked);
+        }
+
+        #[gpui_kit::test]
+        fn a_first_send_made_after_moving_on_takes_its_settings_with_it(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "c1", "userMessageId": "m1", "assistantMessageId": "a1"
+                }))
+                .unwrap(),
+            );
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer_store.update(cx, |c, cx| {
+                    c.set_draft_params(serde_json::json!({"temperature": 0.3}), cx)
+                });
+                p.send_text("Plan the trip".into(), vec![], window, cx);
+            });
+            // The user goes to a temporary chat before the chat is made.
+            stores.navigation.update(vcx, |n, cx| n.new_chat(true, cx));
+            vcx.run_until_parked();
+            drop(held);
+            vcx.run_until_parked();
+            assert!(
+                pane.read_with(vcx, |p, cx| p
+                    .composer_store
+                    .read(cx)
+                    .draft_params
+                    .is_null()),
+                "the next new chat takes the made one's settings"
+            );
         }
 
         fn switch_account(stores: &Stores, vcx: &mut VisualTestContext) {

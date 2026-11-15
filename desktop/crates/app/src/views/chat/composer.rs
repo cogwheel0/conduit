@@ -2915,6 +2915,9 @@ impl ChatComposer {
                             .on_click(Rc::new({
                                 let weak = cx.entity().downgrade();
                                 move |_, _, cx| {
+                                    // Pinning leaves the row unchosen (its
+                                    // own click would select the model).
+                                    cx.stop_propagation();
                                     let id = pin_id.clone();
                                     let _ = weak.update(cx, |c, cx| {
                                         c.composer
