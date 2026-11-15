@@ -172,6 +172,10 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
         body: {'code': code, 'code_verifier': verifier},
       );
       final tokens = _parseTokenSet(data);
+      // A sign-in replaces what is stored, even tokens another client wrote
+      // since this one last read them: reading first makes the save expect
+      // those, where a renewal's save would be refused.
+      await _readStoredTokens?.call();
       await _saveTokens(tokens);
       return tokens;
     } finally {

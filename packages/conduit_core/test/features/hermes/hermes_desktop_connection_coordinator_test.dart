@@ -266,6 +266,7 @@ void main() {
       required List<HermesDesktopCredentials> saved,
       BrowserAuthPort? browserAuth,
       HermesDesktopTokensReader? readStoredTokens,
+      HermesDesktopCredentialsWriter? writeCredentials,
     }) {
       final service = HermesDesktopApiService(
         config: HermesConfig(
@@ -284,7 +285,9 @@ void main() {
         dio: Dio()..httpClientAdapter = rest,
         browserAuth: browserAuth,
         readStoredTokens: readStoredTokens,
-        onCredentialsChanged: (credentials) async => saved.add(credentials),
+        onCredentialsChanged:
+            writeCredentials ??
+            (credentials) async => saved.add(credentials),
       );
       addTearDown(service.close);
       return service;
@@ -392,6 +395,37 @@ void main() {
           ]);
         }),
       );
+    }
+
+    // Another client wrote the stored tokens since this one read its own:
+    // rotated them, or cleared them after Hermes refused a renewal. A
+    // renewal's save would be refused; a sign-in replaces them.
+    for (final storedRefresh in [null, 'pushed-refresh']) {
+      test('a sign-in replaces stored tokens another client '
+          '${storedRefresh == null ? 'cleared' : 'rotated'}', () async {
+        final store = _TokenStore(
+          storedRefresh == null
+              ? null
+              : HermesDesktopTokenSet(
+                  accessToken: 'pushed-access',
+                  refreshToken: storedRefresh,
+                  expiresAt: DateTime.utc(2099),
+                ),
+          expected: 'refresh',
+        );
+        final gateway = service(
+          _TokenRest(),
+          expiresAt: DateTime.utc(2099),
+          saved: [],
+          browserAuth: _Sheet(),
+          readStoredTokens: store.read,
+          writeCredentials: store.write,
+        );
+
+        check(await gateway.signInNative()).isNotNull();
+
+        check(store.tokens?.refreshToken).equals('signed-in-refresh');
+      });
     }
 
     // Saving this client's rotation failed, so storage still holds the
@@ -874,6 +908,27 @@ final class _TokenRest implements HttpClientAdapter {
         Headers.contentTypeHeader: [Headers.jsonContentType],
       },
     );
+  }
+}
+
+/// Stored gateway tokens under the controller's rule: a save must expect the
+/// refresh token stored, and a read makes the reader expect it. A refused
+/// save is dropped, as the live client's writer drops it.
+final class _TokenStore {
+  _TokenStore(this.tokens, {required this.expected});
+
+  HermesDesktopTokenSet? tokens;
+  String? expected;
+
+  Future<HermesDesktopTokenSet?> read() async {
+    expected = tokens?.refreshToken;
+    return tokens;
+  }
+
+  Future<void> write(HermesDesktopCredentials credentials) async {
+    if (tokens?.refreshToken != expected) return;
+    tokens = credentials.nativeTokens;
+    expected = tokens?.refreshToken;
   }
 }
 
