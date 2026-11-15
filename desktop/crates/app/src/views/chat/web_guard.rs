@@ -14,9 +14,12 @@
 //! * **A link opens only after a click or key press in that web view.** A
 //!   page asking to open a URL is honoured only within
 //!   [`ACTIVATION_WINDOW`] of a mouse-up or a Return, Enter or Space key
-//!   press the app saw itself in that web view (an `NSEvent` monitor), and
-//!   each one opens at most one link — a page can't open tabs on its own,
-//!   whatever its scripts post.
+//!   press the app saw itself (an `NSEvent` monitor) whose target was that
+//!   web view: the view the click hit (`hitTest:` when it happened) or the
+//!   key's first responder is the web view or inside it ([`landed_in`]).
+//!   Where the web view is now plays no part, so a click on another control
+//!   in the same place never counts. Each one opens at most one link — a
+//!   page can't open tabs on its own, whatever its scripts post.
 
 use std::time::{Duration, Instant};
 
@@ -62,6 +65,22 @@ impl<T> Gate<T> {
     }
 }
 
+/// Whether the view a click or key press went to, `hit`, is `webview` or
+/// inside it, walking up through `parent` (a view's superview).
+pub fn landed_in<V: PartialEq>(hit: &V, webview: &V, parent: impl Fn(&V) -> Option<V>) -> bool {
+    if hit == webview {
+        return true;
+    }
+    let mut up = parent(hit);
+    while let Some(view) = up {
+        if &view == webview {
+            return true;
+        }
+        up = parent(&view);
+    }
+    false
+}
+
 /// The JavaScript that sends `payload` (a string expression) to the app.
 /// Looked up when sent: the handler is added just after the web view is
 /// made, which a script run at document start could come before.
@@ -81,22 +100,21 @@ mod macos {
     use block2::RcBlock;
     use objc2::rc::Retained;
     use objc2::runtime::{AnyObject, ProtocolObject};
-    use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
+    use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
     use objc2_app_kit::{NSEvent, NSEventMask, NSEventType, NSResponder, NSView};
-    use objc2_foundation::{NSArray, NSObject, NSObjectProtocol, NSPoint, NSRect, NSString, NSURL};
+    use objc2_foundation::{NSArray, NSObject, NSObjectProtocol, NSString, NSURL};
     use objc2_web_kit::{
         WKFrameInfo, WKMediaCaptureType, WKOpenPanelParameters, WKPermissionDecision,
         WKScriptMessage, WKScriptMessageHandler, WKSecurityOrigin, WKUIDelegate,
         WKUserContentController, WKWebView,
     };
 
-    use super::{Gate, HOST_HANDLER};
+    use super::{Gate, HOST_HANDLER, landed_in};
 
-    /// Where a click or key press landed.
+    /// The view a click hit, or the responder a key press went to.
     enum Target {
-        /// A mouse-up in window `window` (its number), at `point` in the
-        /// window's coordinates.
-        Click { window: isize, point: NSPoint },
+        /// A mouse-up: the view under it when it happened.
+        Click(Retained<NSView>),
         /// A key press with this responder first.
         Key(Retained<NSResponder>),
     }
@@ -122,10 +140,13 @@ mod macos {
                 return event.as_ptr();
             };
             let target = match e.r#type() {
-                NSEventType::LeftMouseUp => e.window(mtm).map(|w| Target::Click {
-                    window: w.windowNumber(),
-                    point: e.locationInWindow(),
-                }),
+                // The view the click went to, as AppKit hit-tests it now
+                // (the content view's superview uses window coordinates).
+                NSEventType::LeftMouseUp => e
+                    .window(mtm)
+                    .and_then(|w| w.contentView())
+                    .and_then(|content| content.hitTest(e.locationInWindow()))
+                    .map(Target::Click),
                 NSEventType::KeyDown if ACTIVATING_KEYS.contains(&e.keyCode()) => e
                     .window(mtm)
                     .and_then(|w| w.firstResponder())
@@ -147,34 +168,16 @@ mod macos {
         MONITOR.with(|m| *m.borrow_mut() = monitor);
     }
 
-    fn rect_contains(rect: NSRect, p: NSPoint) -> bool {
-        p.x >= rect.origin.x
-            && p.y >= rect.origin.y
-            && p.x < rect.origin.x + rect.size.width
-            && p.y < rect.origin.y + rect.size.height
-    }
-
-    /// Whether `target` was in `webview`, where it shows (its clipping
-    /// container's part of it).
+    /// Whether `target` went to `webview` (or a view inside it).
     fn inside(webview: &WKWebView, target: &Target) -> bool {
         let view: &NSView = webview;
-        match target {
-            Target::Click { window, point } => {
-                if view.isHiddenOrHasHiddenAncestor()
-                    || view.window().is_none_or(|w| w.windowNumber() != *window)
-                {
-                    return false;
-                }
-                let own = view.convertRect_toView(view.bounds(), None);
-                // SAFETY: a main-thread AppKit call on a live view.
-                let shown =
-                    unsafe { view.superview() }.map(|s| s.convertRect_toView(s.bounds(), None));
-                rect_contains(own, *point) && shown.is_none_or(|s| rect_contains(s, *point))
-            }
-            Target::Key(responder) => responder
-                .downcast_ref::<NSView>()
-                .is_some_and(|v| v.isDescendantOf(view)),
-        }
+        let hit: Option<Retained<NSView>> = match target {
+            Target::Click(hit) => Some(hit.clone()),
+            Target::Key(responder) => responder.clone().downcast::<NSView>().ok(),
+        };
+        let Some(hit) = hit else { return false };
+        // SAFETY: main-thread AppKit calls on live views.
+        landed_in(&hit, &view.retain(), |v| unsafe { v.superview() })
     }
 
     /// Whether `webview` may open a link now (and uses up the click or key
@@ -346,6 +349,33 @@ mod tests {
                 *t == "embed"
             })
         );
+    }
+
+    #[test]
+    fn a_click_counts_only_if_it_went_to_the_web_view() {
+        // window ─ content ─┬─ gpui (draws every control, the whole window)
+        //                   └─ clip ─ webview ─ wk-content
+        let parent = |v: &&str| match *v {
+            "content" => Some("window"),
+            "gpui" | "clip" => Some("content"),
+            "webview" => Some("clip"),
+            "wk-content" => Some("webview"),
+            _ => None,
+        };
+        // A button drawn where the web view is (another embed's Open
+        // Preview, under a replacement web view): the hit is GPUI's view.
+        assert!(!landed_in(&"gpui", &"webview", parent));
+        assert!(!landed_in(&"clip", &"webview", parent));
+        // In the page: WebKit's own view inside the web view.
+        assert!(landed_in(&"wk-content", &"webview", parent));
+        assert!(landed_in(&"webview", &"webview", parent));
+        // And the gate only lets a link through for such a click.
+        let t0 = Instant::now();
+        let mut gate = Gate::<&str>::default();
+        gate.record(t0, "gpui");
+        assert!(!gate.take(t0, |hit| landed_in(hit, &"webview", parent)));
+        gate.record(t0, "wk-content");
+        assert!(gate.take(t0, |hit| landed_in(hit, &"webview", parent)));
     }
 
     #[test]
