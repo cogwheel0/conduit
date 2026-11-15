@@ -445,10 +445,12 @@ final class ChatsService {
     final conversation = full ?? summary;
     if (conversation == null) return null;
 
-    // The chat's own prompt: `params.system` when set, else the legacy
-    // `chat.system` (what mobile's request sends ahead of the user's own).
+    // The chat's own prompt: `params.system` when set, an empty one
+    // included (it replaces every other prompt, as a turn sends it), else
+    // the legacy `chat.system` (what mobile's request sends ahead of the
+    // user's own).
     final saved = conversation.chatParams[kChatParamSystem];
-    final prompt = saved is String && saved.trim().isNotEmpty
+    final prompt = saved is String
         ? saved.trim()
         : conversation.systemPrompt?.trim();
     final opened = _summarize(conversation);
@@ -838,7 +840,11 @@ final class ChatsService {
     // The chat's own prompt is `params.system`, as mobile's Chat Settings
     // and Open WebUI's web client save it; the legacy `chat.system` still
     // reads back when no params prompt is set.
-    await settings.setSystemPrompt(request.chatId, request.prompt);
+    if (await settings.setSystemPrompt(request.chatId, request.prompt)) {
+      // The legacy prompt was cleared on the server: this device's copy
+      // follows before the chat is read back.
+      await _afterEnvelopeChange(request.chatId);
+    }
     return get(request.chatId);
   }
 

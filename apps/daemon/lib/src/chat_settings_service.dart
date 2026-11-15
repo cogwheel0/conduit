@@ -96,7 +96,13 @@ final class ChatSettingsService {
 
   /// `chats.setSystemPrompt`: the chat's own prompt (`params.system`), or
   /// with an empty [prompt] the user's default again.
-  Future<void> setSystemPrompt(String chatId, String prompt) async {
+  ///
+  /// Returns whether the legacy `chat.system` was cleared on the server too:
+  /// left there, it would be the chat's prompt again once `params.system`
+  /// is gone.
+  Future<bool> setSystemPrompt(String chatId, String prompt) async {
+    final session = _container.read(openWebUiAuthSessionEpochProvider);
+    final api = _container.read(apiServiceProvider);
     final open = await _open(chatId, null, const <String, dynamic>{});
     final trimmed = prompt.trim();
     await _write(
@@ -106,6 +112,18 @@ final class ChatSettingsService {
           : <String, dynamic>{kChatParamSystem: trimmed},
       remove: trimmed.isEmpty ? const <String>[kChatParamSystem] : const [],
     );
+    final legacy = open.conversation?.systemPrompt?.trim() ?? '';
+    if (trimmed.isNotEmpty || legacy.isEmpty || api == null) return false;
+    // Written by the account that read the chat, or not at all.
+    if (!identical(api, _container.read(apiServiceProvider)) ||
+        !identical(
+          session,
+          _container.read(openWebUiAuthSessionEpochProvider),
+        )) {
+      return false;
+    }
+    await api.updateConversation(chatId, systemPrompt: '');
+    return true;
   }
 
   Future<Map<String, dynamic>> _write(

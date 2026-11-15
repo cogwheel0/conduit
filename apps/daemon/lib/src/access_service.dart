@@ -47,6 +47,7 @@ final class AccessService {
       );
     }
     final audience = edit.audience;
+    _refuseBeyondLimits(edit, base, sharing);
     final rows = <WorkspaceAccessGrantInput>[
       for (final grant in edit.grants)
         if (grant.principalId.isNotEmpty && grant.principalId != '*') ...[
@@ -89,9 +90,60 @@ final class AccessService {
     return _state(edit.kind, edit.id, fresh);
   }
 
+  /// What the account may not give, as the sheet hides it: a person or a
+  /// group not already granted when such grants are off, and an audience
+  /// the item cannot have or the account may not choose. Rows the server
+  /// already holds are carried back as they are.
+  static void _refuseBeyondLimits(
+    AccessEdit edit,
+    ResourceAccessSnapshot base,
+    ResourceSharingCapabilities sharing,
+  ) {
+    Never refuse(String reason, String message) => throw RpcError(
+      code: ConduitErrorCodes.unauthorized,
+      args: <String, String>{'reason': reason},
+      debugMessage: message,
+    );
+    final held = <String>{
+      for (final row in base.editableGrants)
+        '${row.principalType.name}:${row.principalId}',
+    };
+    for (final grant in edit.grants) {
+      if (grant.principalId.isEmpty || grant.principalId == '*') continue;
+      final type = _principalType(grant.principalType);
+      if (held.contains('${type.name}:${grant.principalId}')) continue;
+      final allowed = type == WorkspacePrincipalType.group
+          ? sharing.allowGroupGrants
+          : sharing.allowUserGrants;
+      if (!allowed) {
+        refuse('${type.name}Grants', 'this account may not add ${type.name}s');
+      }
+    }
+    final audience = edit.audience;
+    if (audience == null) return;
+    final current = switch (base.audience) {
+      ResourceAudience.private => AccessAudience.private,
+      ResourceAudience.public => AccessAudience.public,
+      ResourceAudience.open => AccessAudience.open,
+    };
+    if (audience == current) return;
+    final allowed = switch (audience) {
+      AccessAudience.private => edit.kind != AccessResourceKind.folder,
+      AccessAudience.public =>
+        edit.kind != AccessResourceKind.folder && sharing.section.sharePublicly,
+      AccessAudience.open =>
+        edit.kind == AccessResourceKind.chat && sharing.shareOpenly,
+    };
+    if (!allowed) refuse('audience', 'this account may not choose $audience');
+  }
+
   /// Users matching [query] (a user who may not search users still gets the
   /// groups), and the account's groups.
+  ///
+  /// Asked and answered under one account: an answer that arrives after a
+  /// switch is refused, never shown to the next account.
   Future<AccessPrincipals> principals(AccessPrincipalQuery query) async {
+    final session = _container.read(openWebUiAuthSessionEpochProvider);
     final api = _api();
     final text = query.query.trim().toLowerCase();
     final groups = await api.getWorkspaceGroups().catchError(
@@ -103,6 +155,16 @@ final class AccessService {
               .searchWorkspaceUsers(text)
               .then((page) => page.items)
               .catchError((Object _) => <WorkspacePrincipalPreview>[]);
+    if (!identical(
+          session,
+          _container.read(openWebUiAuthSessionEpochProvider),
+        ) ||
+        !identical(api, _container.read(apiServiceProvider))) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed',
+      );
+    }
     final me = _container.read(currentUserProvider2)?.id;
     return AccessPrincipals(
       items: <AccessPrincipal>[

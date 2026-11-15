@@ -264,6 +264,16 @@ final class ModelsService {
       );
     }
     final chatId = request.chatId;
+    // The named chat is read before anything changes: one that cannot be
+    // read is refused, never taken for a new chat's draft.
+    final conversation = chatId == null ? null : await _conversation(chatId);
+    if (chatId != null && conversation == null) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        args: <String, String>{'id': chatId},
+        debugMessage: 'no chat $chatId to save the pick on',
+      );
+    }
     Map<String, dynamic>? draft;
     try {
       if (chatId == null) {
@@ -277,7 +287,6 @@ final class ModelsService {
           };
         }
       } else {
-        final conversation = await _conversation(chatId);
         await selectReasoningEffortForModel(
           _container,
           model,
@@ -303,6 +312,18 @@ final class ModelsService {
   /// takes it when the turn starts.
   Future<ModelOptionsDto> setFastTier(SetFastTier request) async {
     final model = await _model(request.modelId);
+    // One switch for the selected model: another model's request would
+    // change it for the model in use.
+    final selected = (await currentModel(_container))?.id;
+    if (model == null ||
+        model.metadata?['hermesFast'] != true ||
+        model.id != selected) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{'id': ?request.modelId},
+        debugMessage: 'Fast tier belongs to the selected model that offers it',
+      );
+    }
     _container.read(hermesFastTierSelectionProvider.notifier).set(request.on);
     return _options(model);
   }

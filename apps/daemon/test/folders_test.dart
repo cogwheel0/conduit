@@ -1,11 +1,17 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
+
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show openWebUiChatSettingsAccessProvider;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
+import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
@@ -13,6 +19,7 @@ import 'package:conduit_core/sync/primary_sync.dart';
 import 'package:conduit_core/sync/primary_sync_provider.dart';
 import 'package:conduit_core/sync/pull_sync.dart' show PullResult;
 import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:conduit_core/testing.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:riverpod/riverpod.dart';
@@ -22,6 +29,14 @@ const _server = ServerConfig(
   id: 'account',
   name: 'Home',
   url: 'https://owui.example',
+);
+
+const _ava = User(
+  id: 'user-1',
+  username: 'ava',
+  email: 'ava@example.com',
+  name: 'Ava',
+  role: 'user',
 );
 
 /// The folder routes of Open WebUI, recorded rather than sent.
@@ -98,12 +113,18 @@ final class _Sync implements PrimarySync {
 }
 
 final class _Folders extends Folders {
-  _Folders(this.initial);
+  _Folders(this.initial, {this.listed});
 
   final List<Folder> initial;
 
+  /// When given, the list answers once it completes.
+  final Future<void>? listed;
+
   @override
-  Future<List<Folder>> build() async => initial;
+  Future<List<Folder>> build() async {
+    await listed;
+    return initial;
+  }
 }
 
 final class _Conversations extends Conversations {
@@ -326,6 +347,86 @@ void main() {
       expect(
         () => chats.deleteFolder('team'),
         refused(ConduitErrorCodes.unsupported),
+      );
+    });
+  });
+
+  // A saved empty `params.system` replaces every other prompt for the
+  // chat's turns, the legacy `chat.system` included: the detail says so.
+  test("a chat's empty prompt is its prompt, over the legacy one", () async {
+    final chat = _chat('kept').copyWith(
+      systemPrompt: 'An older prompt',
+      chatParams: const <String, dynamic>{'system': ''},
+    );
+    start(conversations: <Conversation>[chat]);
+    final detail = await chats.get('kept');
+    expect(detail?.systemPrompt, isNull);
+
+    start(conversations: <Conversation>[chat.copyWith(chatParams: const {})]);
+    expect((await chats.get('kept'))?.systemPrompt, 'An older prompt');
+  });
+
+  group('folders.update', () {
+    late Object epoch;
+    late Completer<void> listed;
+    var access = OpenWebUiChatSettingsAccess.all;
+
+    FolderSettingsService settings(List<Folder> folders) {
+      api = _FolderApi();
+      epoch = Object();
+      listed = Completer<void>();
+      container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          apiServiceProvider.overrideWith((ref) => api),
+          syncEngineProvider.overrideWith(_Engine.new),
+          foldersProvider.overrideWith(
+            () => _Folders(folders, listed: listed.future),
+          ),
+          conversationsProvider.overrideWith(() => _Conversations(const [])),
+          foldersAvailableProvider.overrideWithValue(true),
+          currentUserProvider2.overrideWith((ref) => _ava),
+          isAuthenticatedProvider2.overrideWithValue(true),
+          authTokenProvider3.overrideWithValue('token'),
+          activeServerProvider.overrideWith((ref) async => _server),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+          openWebUiChatSettingsAccessProvider.overrideWith(
+            (ref) async => access,
+          ),
+        ],
+      );
+      return FolderSettingsService(container);
+    }
+
+    test('a rename asked for one account never reaches the next', () async {
+      final folders = settings(const <Folder>[
+        Folder(id: 'work', name: 'Work'),
+      ]);
+      await container.read(activeServerProvider.future);
+      final renaming = folders.update(
+        const FolderUpdate(id: 'work', name: 'Field work'),
+      );
+      // Another account signs in while the folder is looked up.
+      epoch = Object();
+      container.invalidate(openWebUiAuthSessionEpochProvider);
+      listed.complete();
+      await expectLater(renaming, refused(ConduitErrorCodes.conflict));
+      expect(api.calls, isEmpty);
+    });
+
+    test('a new system prompt needs the right to edit prompts', () async {
+      access = OpenWebUiChatSettingsAccess.denied;
+      addTearDown(() => access = OpenWebUiChatSettingsAccess.all);
+      final folders = settings(const <Folder>[
+        Folder(id: 'work', name: 'Work', permission: 'write'),
+      ]);
+      await container.read(activeServerProvider.future);
+      listed.complete();
+      await expectLater(
+        folders.update(
+          const FolderUpdate(id: 'work', systemPrompt: 'Answer in French.'),
+        ),
+        refused(ConduitErrorCodes.unauthorized),
       );
     });
   });

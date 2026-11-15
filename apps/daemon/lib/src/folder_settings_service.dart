@@ -70,8 +70,23 @@ final class FolderSettingsService {
 
   Future<FolderSettings> update(FolderUpdate request) async {
     final notifier = _container.read(foldersProvider.notifier);
+    // The account the edit is for, before any await: the name and icon go
+    // out through its client, and only while it is still the one in use.
     final owner = _owner();
+    final api = _container.read(apiServiceProvider);
+    void ensureOwner() {
+      if (!notifier.isCurrentProjectOwner(owner) ||
+          !identical(api, _container.read(apiServiceProvider))) {
+        throw _failure(FolderProjectWriteFailure.ownerChanged);
+      }
+    }
+
     final folder = await _listed(request.id);
+    if (request.systemPrompt case final prompt?
+        when prompt.trim() != folder.projectSystemPrompt.trim()) {
+      // As a chat's own prompt: the account's right to edit system prompts.
+      await _requirePromptAccess();
+    }
     final name = request.name?.trim();
     final icon = request.icon == null
         ? null
@@ -92,18 +107,20 @@ final class FolderSettingsService {
       }
       if (name != null) await _refuseTakenName(folder, name);
       final meta = <String, dynamic>{...?folder.meta, 'icon': ?icon};
-      final api = _container.read(apiServiceProvider);
       if (api == null) {
         throw const RpcError(
           code: ConduitErrorCodes.unauthenticated,
           debugMessage: 'no Open WebUI account is signed in',
         );
       }
+      ensureOwner();
       await api.updateFolder(
         folder.id,
         name: name ?? folder.name,
         meta: icon == null ? null : meta,
       );
+      // Answered after a switch: the next account's folders keep theirs.
+      ensureOwner();
       notifier.updateFolderFromRemote(
         folder.id,
         (current) => current.copyWith(
@@ -314,6 +331,26 @@ final class FolderSettingsService {
       throw RpcError(
         code: ConduitErrorCodes.conflict,
         debugMessage: 'a folder named "$name" is already there',
+      );
+    }
+  }
+
+  Future<void> _requirePromptAccess() async {
+    var allowed = false;
+    try {
+      final access = await readSettled(
+        _container,
+        openWebUiChatSettingsAccessProvider.future,
+      );
+      allowed = access.canEditSystemPrompt;
+    } on Object {
+      allowed = false;
+    }
+    if (!allowed) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unauthorized,
+        args: <String, String>{'reason': 'permissionDenied'},
+        debugMessage: 'this account may not change system prompts',
       );
     }
   }

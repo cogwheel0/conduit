@@ -106,7 +106,7 @@ final class ValvesService {
         if (!spec.properties.containsKey(edit.key)) continue;
         draft[edit.key] = edit.isDefault
             ? null
-            : _typed(
+            : typed(
                 WorkspaceValveValues.propertySpec(spec, edit.key),
                 edit.text,
                 draft[edit.key],
@@ -252,9 +252,9 @@ final class ValvesService {
       value is List ? value.join(', ') : value.toString();
 
   /// What the form's [text] means for a valve of [property]'s type: an enum
-  /// entry of its own runtime type, a switch's bool, a number (keeping
-  /// [previous] for one that does not parse), or the text.
-  static Object? _typed(
+  /// entry of its own runtime type, a switch's bool, a number, or the text.
+  /// A switch or a number whose text does not read as one keeps [previous].
+  static Object? typed(
     Map<String, dynamic> property,
     String text,
     Object? previous,
@@ -264,7 +264,13 @@ final class ValvesService {
       return WorkspaceValveValues.enumValueFor(options, text);
     }
     final type = property['type']?.toString();
-    if (type == 'boolean') return text.trim().toLowerCase() == 'true';
+    if (type == 'boolean') {
+      return switch (text.trim().toLowerCase()) {
+        'true' => true,
+        'false' => false,
+        _ => previous ?? WorkspaceValveValues.customValueFor(property),
+      };
+    }
     return WorkspaceValveValues.coerceText(
       type,
       text,
