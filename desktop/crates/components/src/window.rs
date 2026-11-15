@@ -166,6 +166,15 @@ pub mod macos {
         ns_window(window).map(|w| w.windowNumber() as u32)
     }
 
+    /// Orders `window` directly below the window numbered `above`, so a
+    /// material in `above` blurs only `window` (the gallery's synthetic
+    /// backdrop) and never another app's window between them.
+    pub fn order_below(window: &Window, above: u32) {
+        if let Some(w) = ns_window(window) {
+            w.orderWindow_relativeTo(NSWindowOrderingMode::Below, above as isize);
+        }
+    }
+
     /// Raw pointer to the NSWindow, for walking its accessibility tree.
     pub fn ns_window_ptr(window: &Window) -> Option<*mut AnyObject> {
         ns_window(window).map(|w| Retained::as_ptr(&w) as *mut AnyObject)

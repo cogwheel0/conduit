@@ -3,8 +3,12 @@
 //! accessibility activation the a11y checks need. Used by the gallery and by
 //! the app's smoke screenshots.
 //!
-//! `CGWindowListCreateImage` is obsoleted in the macOS 15+ SDK headers, so it
-//! is looked up with dlsym.
+//! Every capture names the windows it takes by id, so nothing else on screen
+//! (another app's window, a notification) can end up in a shot: there is no
+//! capture of a bare screen rect.
+//!
+//! `CGWindowListCreateImage` and `CGWindowListCreateImageFromArray` are
+//! obsoleted in the macOS 15+ SDK headers, so they are looked up with dlsym.
 
 use std::ffi::{CString, c_void};
 
@@ -17,7 +21,18 @@ pub struct CGRect {
     pub h: f64,
 }
 
+impl CGRect {
+    /// CGRectNull: with a window list, the union of the windows' bounds.
+    pub const NULL: CGRect = CGRect {
+        x: f64::INFINITY,
+        y: f64::INFINITY,
+        w: 0.,
+        h: 0.,
+    };
+}
+
 type CreateImageFn = unsafe extern "C" fn(CGRect, u32, u32, u32) -> *mut c_void;
+type CreateImageFromArrayFn = unsafe extern "C" fn(CGRect, *const c_void, u32) -> *mut c_void;
 
 #[link(name = "ImageIO", kind = "framework")]
 unsafe extern "C" {
@@ -45,6 +60,12 @@ unsafe extern "C" {
         encoding: u32,
     ) -> *const c_void;
     fn CFRelease(p: *const c_void);
+    fn CFArrayCreate(
+        alloc: *const c_void,
+        values: *const *const c_void,
+        count: isize,
+        callbacks: *const c_void,
+    ) -> *const c_void;
 }
 
 #[link(name = "CoreGraphics", kind = "framework")]
@@ -60,39 +81,99 @@ unsafe extern "C" {
 
 const RTLD_DEFAULT: *mut c_void = -2isize as *mut c_void;
 
-fn create_image_fn() -> Option<CreateImageFn> {
-    let name = CString::new("CGWindowListCreateImage").ok()?;
+fn lookup(name: &str) -> Option<*mut c_void> {
+    let name = CString::new(name).ok()?;
     // SAFETY: dlsym with RTLD_DEFAULT and a NUL-terminated name.
     let p = unsafe { dlsym(RTLD_DEFAULT, name.as_ptr()) };
-    if p.is_null() {
-        None
-    } else {
-        // SAFETY: the symbol has this C signature.
-        Some(unsafe { std::mem::transmute::<*mut c_void, CreateImageFn>(p) })
+    (!p.is_null()).then_some(p)
+}
+
+fn create_image_fn() -> Option<CreateImageFn> {
+    let p = lookup("CGWindowListCreateImage")?;
+    // SAFETY: the symbol has this C signature.
+    Some(unsafe { std::mem::transmute::<*mut c_void, CreateImageFn>(p) })
+}
+
+fn create_image_from_array_fn() -> Option<CreateImageFromArrayFn> {
+    let p = lookup("CGWindowListCreateImageFromArray")?;
+    // SAFETY: the symbol has this C signature.
+    Some(unsafe { std::mem::transmute::<*mut c_void, CreateImageFromArrayFn>(p) })
+}
+
+/// What [`capture_windows`] asks CoreGraphics for: exactly these windows,
+/// composited in their on-screen order, cut to `bounds`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WindowsCapture {
+    pub windows: Vec<u32>,
+    pub bounds: CGRect,
+}
+
+impl PartialEq for CGRect {
+    fn eq(&self, other: &Self) -> bool {
+        let same = |a: f64, b: f64| a == b || (a.is_infinite() && b.is_infinite());
+        same(self.x, other.x) && same(self.y, other.y) && self.w == other.w && self.h == other.h
     }
 }
 
-/// Captures an on-screen rect (global, top-left origin, points) to a PNG at
-/// the display's native resolution. Returns the pixel size.
-pub fn capture_rect(rect: CGRect, path: &str) -> Result<(usize, usize), String> {
-    // kCGWindowListOptionOnScreenOnly = 1, kCGNullWindowID = 0,
-    // kCGWindowImageBestResolution = 8.
-    capture(rect, 1, 0, 8, path)
+/// Plans a capture of `windows` (CGWindowIDs) within `bounds` (global,
+/// top-left origin, points), or their union with `None`. Refuses an empty
+/// list and the null window id, which CoreGraphics would read as "every
+/// window on screen".
+pub fn plan_windows(windows: &[u32], bounds: Option<CGRect>) -> Result<WindowsCapture, String> {
+    if windows.is_empty() {
+        return Err("no window to capture".into());
+    }
+    if windows.contains(&0) {
+        return Err("a window to capture has no id".into());
+    }
+    Ok(WindowsCapture {
+        windows: windows.to_vec(),
+        bounds: bounds.unwrap_or(CGRect::NULL),
+    })
+}
+
+/// Captures only `windows` (this process's, by CGWindowID) to a PNG at the
+/// display's native resolution, within `bounds` or their union: whatever
+/// else is on screen there is left out. Returns the pixel size.
+pub fn capture_windows(
+    windows: &[u32],
+    bounds: Option<CGRect>,
+    path: &str,
+) -> Result<(usize, usize), String> {
+    let plan = plan_windows(windows, bounds)?;
+    let f = create_image_from_array_fn().ok_or("CGWindowListCreateImageFromArray unavailable")?;
+    let ids: Vec<*const c_void> = plan
+        .windows
+        .iter()
+        .map(|&id| id as usize as *const c_void)
+        .collect();
+    // SAFETY: an array of raw CGWindowIDs with no callbacks, as CoreGraphics
+    // documents for this call; released after it.
+    unsafe {
+        let array = CFArrayCreate(
+            std::ptr::null(),
+            ids.as_ptr(),
+            ids.len() as isize,
+            std::ptr::null(),
+        );
+        if array.is_null() {
+            return Err("cannot list the windows to capture".into());
+        }
+        // kCGWindowImageBestResolution = 8.
+        let img = f(plan.bounds, array, 8);
+        CFRelease(array);
+        write_png(img, path)
+    }
 }
 
 /// Captures one of this process's windows by its window number (CGWindowID)
 /// to a PNG, whatever lies above it (a system alert, another window): only
 /// that window's pixels, at native resolution, without its shadow.
 pub fn capture_window(window_number: u32, path: &str) -> Result<(usize, usize), String> {
+    plan_windows(&[window_number], None)?;
     // CGRectNull: the window's own bounds. kCGWindowListOptionIncludingWindow
     // = 8; kCGWindowImageBoundsIgnoreFraming = 1 | BestResolution = 8.
-    let null = CGRect {
-        x: f64::INFINITY,
-        y: f64::INFINITY,
-        w: 0.,
-        h: 0.,
-    };
-    capture(null, 8, window_number, 1 | 8, path)
+    capture(CGRect::NULL, 8, window_number, 1 | 8, path)
 }
 
 fn capture(
@@ -103,9 +184,18 @@ fn capture(
     path: &str,
 ) -> Result<(usize, usize), String> {
     let f = create_image_fn().ok_or("CGWindowListCreateImage unavailable")?;
+    // SAFETY: a CoreGraphics call whose image write_png releases.
+    unsafe { write_png(f(rect, list, wid, opts), path) }
+}
+
+/// Writes `img` (an owned CGImage, released here; null is an error) to a PNG.
+///
+/// # Safety
+///
+/// `img` must be null or a CGImage the caller owns.
+unsafe fn write_png(img: *mut c_void, path: &str) -> Result<(usize, usize), String> {
     // SAFETY: CoreGraphics/ImageIO calls with owned, released references.
     unsafe {
-        let img = f(rect, list, wid, opts);
         if img.is_null() {
             return Err("capture returned null".into());
         }
@@ -163,5 +253,32 @@ pub unsafe fn activate_accessibility(ns_window: *mut objc2::runtime::AnyObject) 
                 let _: *mut NSArray<AnyObject> = msg_send![child, accessibilityChildren];
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_capture_names_its_windows() {
+        let rect = CGRect {
+            x: 10.,
+            y: 20.,
+            w: 300.,
+            h: 200.,
+        };
+        let plan = plan_windows(&[42, 7], Some(rect)).unwrap();
+        assert_eq!(plan.windows, vec![42, 7]);
+        assert_eq!(plan.bounds, rect);
+        assert_eq!(plan_windows(&[42], None).unwrap().bounds, CGRect::NULL);
+    }
+
+    #[test]
+    fn a_capture_without_a_window_is_refused() {
+        assert!(plan_windows(&[], None).is_err());
+        // The null window id would mean every window on screen.
+        assert!(plan_windows(&[42, 0], None).is_err());
+        assert!(capture_window(0, "/nonexistent/never.png").is_err());
     }
 }
