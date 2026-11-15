@@ -86,6 +86,10 @@ pub struct ChatPane {
     /// The handoff question showing now (its request) and what takes it
     /// away once another window answers it or it runs out of time.
     handoff_ask: Option<(String, crate::shell::sheet::SheetCloser)>,
+    /// Handoff requests already settled (answered here or elsewhere, or out
+    /// of time): a replay of one (another window subscribing, Quick Ask)
+    /// never asks again.
+    handoff_settled: std::collections::VecDeque<String>,
     /// Find in Chat's field, and whether its bar shows.
     find_input: Entity<InputState>,
     find_open: bool,
@@ -361,6 +365,7 @@ impl ChatPane {
             account,
             handoff: None,
             handoff_ask: None,
+            handoff_settled: Default::default(),
             find_input,
             find_open: false,
             dock_focus: cx.focus_handle(),
@@ -439,6 +444,11 @@ impl ChatPane {
     /// window; agreeing opens a new chat on that model with the suggested
     /// message in the field, unsent.
     fn ask_handoff(&mut self, request: conduit_protocol::HandoffRequest, cx: &mut Context<Self>) {
+        // Each request is asked once: a replay of the one on screen, or of
+        // one already settled, presents nothing and keeps the alert it has.
+        if !self.handoff_new(&request.request_id) {
+            return;
+        }
         let Some(window) = cx
             .try_global::<crate::AppState>()
             .and_then(|s| s.main_window)
@@ -491,6 +501,14 @@ impl ChatPane {
         if let Ok(closer) = closer {
             self.handoff_ask = Some((asked_id, closer));
         }
+    }
+
+    /// Whether handoff request `id` is neither on screen nor settled.
+    fn handoff_new(&self, id: &str) -> bool {
+        self.handoff_ask
+            .as_ref()
+            .is_none_or(|(asked, _)| asked != id)
+            && !self.handoff_settled.iter().any(|s| s == id)
     }
 
     /// [`Self::open_handoff`], only while the account it was asked in
@@ -835,6 +853,10 @@ impl ChatPane {
                     // Answered in another window, or out of time: its
                     // question here goes, unanswered.
                     Event::HandoffSettled(settled) => {
+                        if self.handoff_settled.len() >= 32 {
+                            self.handoff_settled.pop_front();
+                        }
+                        self.handoff_settled.push_back(settled.request_id.clone());
                         if let Some((id, closer)) = self.handoff_ask.take() {
                             if id == settled.request_id {
                                 closer.close(cx);
@@ -2863,6 +2885,45 @@ mod tests {
             pane.update(vcx, |p, cx| p.on_connection(&settled("r1"), cx));
             assert!(closer.is_closed(), "the settled question stayed up");
             assert!(pane.read_with(vcx, |p, _| p.handoff_ask.is_none()));
+        }
+
+        #[gpui_kit::test]
+        fn a_replayed_handoff_is_asked_once_and_its_settling_closes_it(cx: &mut TestAppContext) {
+            let (_daemon, _stores, pane, vcx) = bench(cx);
+            let request = conduit_protocol::HandoffRequest {
+                request_id: "r1".into(),
+                chat_id: "chat-a".into(),
+                model_id: "m2".into(),
+                model_name: "Model Two".into(),
+                prompt: String::new(),
+            };
+            let closer = crate::shell::sheet::SheetCloser::default();
+            pane.update(vcx, |p, _| {
+                p.handoff_ask = Some(("r1".into(), closer.clone()))
+            });
+            // Replayed twice (another window subscribed): still the one alert.
+            pane.update(vcx, |p, cx| {
+                assert!(!p.handoff_new("r1"));
+                p.ask_handoff(request.clone(), cx);
+                p.ask_handoff(request.clone(), cx);
+            });
+            let settled = crate::stores::connection::ConnectionEvent::Daemon(Box::new(
+                conduit_protocol::Event::HandoffSettled(conduit_protocol::HandoffSettled {
+                    request_id: "r1".into(),
+                }),
+            ));
+            pane.update(vcx, |p, cx| p.on_connection(&settled, cx));
+            assert!(closer.is_closed(), "settling left the alert up");
+            // Replayed after it settled: never asked again.
+            pane.update(vcx, |p, cx| {
+                assert!(
+                    !p.handoff_new("r1"),
+                    "a settled request would be asked again"
+                );
+                p.ask_handoff(request, cx);
+                assert!(p.handoff_ask.is_none());
+                assert!(p.handoff_new("r2"));
+            });
         }
 
         #[gpui_kit::test]
