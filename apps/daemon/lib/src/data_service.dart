@@ -36,10 +36,16 @@ final class DataService {
   final EventBus? _events;
   StreamSubscription<SocketHealth>? _health;
 
-  /// The chats only on this computer that the last summary counted: a
-  /// delete all refuses to go ahead if one of them reached the server since
-  /// (core's `localWorkChanged`), as the phone's page holds them.
-  Set<String> _shownLocalOnly = const <String>{};
+  /// The chats only on this computer that each window's last summary
+  /// counted, with the account it counted them for: a delete all refuses to
+  /// go ahead if one of them reached the server since (core's
+  /// `localWorkChanged`), as the phone's page holds them, and when the
+  /// window's summary was another account's or it was shown none, since
+  /// what it confirmed is not this account's.
+  final Expando<_Shown> _shown = Expando<_Shown>('data.summary');
+
+  /// The key for a caller that names no window (one window, or a test).
+  static final Object _anyCaller = Object();
 
   void _follow(SocketService? service) {
     unawaited(_health?.cancel());
@@ -73,14 +79,17 @@ final class DataService {
     }
   }
 
-  Future<ChatDataSummary> summary() async {
+  Future<ChatDataSummary> summary({Object? caller}) async {
     final owner = _owner();
     if (owner == null) return const ChatDataSummary();
     final scope = await chatDataControlsServiceForOwner(
       _container,
       owner,
     ).scope();
-    _shownLocalOnly = scope.localOnlyChatIds.toSet();
+    _shown[caller ?? _anyCaller] = (
+      owner: owner,
+      localOnly: scope.localOnlyChatIds.toSet(),
+    );
     return ChatDataSummary(
       available: true,
       serverChats: scope.serverChats,
@@ -94,23 +103,28 @@ final class DataService {
   }
 
   /// Sends what this computer holds for the account and pulls, then counts.
-  Future<ChatDataSummary> sync() async {
+  Future<ChatDataSummary> sync({Object? caller}) async {
     await syncChatDataControlsOwner(_container, _requireOwner());
-    return summary();
+    return summary(caller: caller);
   }
 
   Future<DataActionResult> export(DataExportRequest request) async {
     final owner = _requireOwner();
-    final sink = _FileSink(File(request.path));
+    final sink = BackupFileSink(File(request.path));
     try {
       final result = await chatDataControlsServiceForOwner(
         _container,
         owner,
       ).exportLibrary(sink);
+      // Core's last check passed after the sink committed: only now does the
+      // file take the place of whatever was there.
+      await sink.deliver();
       return DataActionResult(count: result.chats);
     } on ChatBackupException catch (error) {
+      await sink.abort();
       return DataActionResult(failure: error.failure.name, index: error.index);
     } on ChatDataControlsException catch (error) {
+      await sink.abort();
       return DataActionResult(failure: error.failure.name);
     } on Object {
       await sink.abort();
@@ -137,6 +151,9 @@ final class DataService {
       return DataActionResult(count: preview.chats, messages: preview.messages);
     } on ChatBackupException catch (error) {
       return DataActionResult(failure: error.failure.name, index: error.index);
+    } on Object {
+      // A file that cannot be read: as the import itself answers it.
+      return const DataActionResult(failure: 'failed');
     }
   }
 
@@ -174,13 +191,25 @@ final class DataService {
   Future<DataActionResult> unshareAll() =>
       _bulk(ChatBulkChange.unshare, (service) => service.unshareAll());
 
-  Future<DataActionResult> deleteAll(DataDeleteAll request) => _bulk(
-    ChatBulkChange.delete,
-    (service) => service.deleteAll(
-      discardUnsyncedWork: request.discardUnsent,
-      knownLocalOnlyChatIds: _shownLocalOnly,
-    ),
-  );
+  Future<DataActionResult> deleteAll(
+    DataDeleteAll request, {
+    Object? caller,
+  }) async {
+    final shown = _shown[caller ?? _anyCaller];
+    if (shown == null ||
+        !chatDataControlsOwnerIsCurrent(_container, shown.owner)) {
+      return DataActionResult(
+        failure: ChatDataControlsFailure.localWorkChanged.name,
+      );
+    }
+    return _bulk(
+      ChatBulkChange.delete,
+      (service) => service.deleteAll(
+        discardUnsyncedWork: request.discardUnsent,
+        knownLocalOnlyChatIds: shown.localOnly,
+      ),
+    );
+  }
 
   Future<DataActionResult> _bulk(
     ChatBulkChange change,
@@ -227,10 +256,14 @@ final class DataService {
   }
 }
 
-/// A library backup written beside its destination and moved into place on
-/// commit, so a cut-off export never leaves a file that looks complete.
-final class _FileSink implements ChatBackupSink {
-  _FileSink(this._target)
+typedef _Shown = ({ChatDataControlsOwner owner, Set<String> localOnly});
+
+/// A library backup written beside its destination and moved into place by
+/// [deliver], once the export has passed every check, so a cut-off or
+/// stopped export never leaves a file that looks complete, and never
+/// replaces the one that was there.
+final class BackupFileSink implements ChatBackupSink {
+  BackupFileSink(this._target)
     : _partial = File('${_target.path}.partial-${pid}_${_seq++}');
 
   static int _seq = 0;
@@ -243,13 +276,14 @@ final class _FileSink implements ChatBackupSink {
     (_out ??= _partial.openWrite()).write(text);
   }
 
+  /// Finishes writing. Core checks once more after this; the file is
+  /// handed over only by [deliver].
   @override
   Future<void> commit() async {
     final out = _out ??= _partial.openWrite();
     await out.flush();
     await out.close();
     _out = null;
-    await _partial.rename(_target.path);
   }
 
   @override
@@ -264,5 +298,10 @@ final class _FileSink implements ChatBackupSink {
       }
     }
     if (_partial.existsSync()) await _partial.delete();
+  }
+
+  /// Moves the committed backup into place.
+  Future<void> deliver() async {
+    await _partial.rename(_target.path);
   }
 }

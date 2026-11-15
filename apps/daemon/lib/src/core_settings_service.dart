@@ -43,6 +43,8 @@ final class CoreSettingsService {
   AppSettingsNotifier get _notifier =>
       _container.read(appSettingsProvider.notifier);
 
+  AppSettings get _settings => _container.read(appSettingsProvider);
+
   /// The fields of [AppSettingsDto] a patch may `clear`.
   static const Set<String> clearable = <String>{
     'inlineMessageActions',
@@ -198,11 +200,16 @@ final class CoreSettingsService {
       await n.setTtsDeviceVoiceSelection(null, null);
     } else if (patch.ttsVoice case final v?) {
       await n.setTtsDeviceVoiceSelection(v, patch.ttsVoiceName ?? v);
+    } else if (patch.ttsVoiceName case final name?) {
+      // A name alone renames the voice chosen (checked in [_validate]).
+      await n.setTtsDeviceVoiceSelection(_settings.ttsVoice, name);
     }
     if (cleared('ttsServerVoiceId') || cleared('ttsServerVoiceName')) {
       await n.setTtsServerVoiceSelection(null, null);
     } else if (patch.ttsServerVoiceId case final v?) {
       await n.setTtsServerVoiceSelection(v, patch.ttsServerVoiceName ?? v);
+    } else if (patch.ttsServerVoiceName case final name?) {
+      await n.setTtsServerVoiceSelection(_settings.ttsServerVoiceId, name);
     }
     if (patch.ttsSpeed case final v?) {
       await n.setTtsSpeed(nearestTtsSpeed(v));
@@ -247,6 +254,20 @@ final class CoreSettingsService {
     }
     if (patch.ttsSpeed case final speed? when !speed.isFinite || speed <= 0) {
       bad('ttsSpeed must be positive');
+    }
+    // A voice's name is the name of a voice: alone, it names the one chosen.
+    final clear = patch.clear.toSet();
+    if (patch.ttsVoiceName != null &&
+        patch.ttsVoice == null &&
+        !clear.contains('ttsVoice') &&
+        (_settings.ttsVoice?.isEmpty ?? true)) {
+      bad('ttsVoiceName needs a device voice');
+    }
+    if (patch.ttsServerVoiceName != null &&
+        patch.ttsServerVoiceId == null &&
+        !clear.contains('ttsServerVoiceId') &&
+        (_settings.ttsServerVoiceId?.isEmpty ?? true)) {
+      bad('ttsServerVoiceName needs a server voice');
     }
   }
 
@@ -305,8 +326,10 @@ final class CoreSettingsService {
 
   // ---- Models' own prompts (Prompt Overrides) ----
 
-  Future<ModelPrompt> modelPrompt(ModelPromptRef ref) async {
-    final api = _requireApi();
+  Future<ModelPrompt> modelPrompt(ModelPromptRef ref) =>
+      _modelPrompt(_requireApi(), ref);
+
+  Future<ModelPrompt> _modelPrompt(ApiService api, ModelPromptRef ref) async {
     final detail = await api.getModelDetails(ref.modelId);
     if (detail == null) return ModelPrompt(modelId: ref.modelId);
     return ModelPrompt(
@@ -318,8 +341,24 @@ final class CoreSettingsService {
   }
 
   Future<ModelPrompt> setModelPrompt(ModelPromptEdit edit) async {
+    // Checked and written under one account: a switch while the record is
+    // read writes nothing, to either account.
+    final session = _container.read(openWebUiAuthSessionEpochProvider);
     final api = _requireApi();
-    final current = await modelPrompt(ModelPromptRef(modelId: edit.modelId));
+    final current = await _modelPrompt(
+      api,
+      ModelPromptRef(modelId: edit.modelId),
+    );
+    if (!identical(
+          session,
+          _container.read(openWebUiAuthSessionEpochProvider),
+        ) ||
+        !identical(api, _container.read(apiServiceProvider))) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed',
+      );
+    }
     if (!current.editable || !current.writable) {
       throw RpcError(
         code: ConduitErrorCodes.conflict,
@@ -333,7 +372,7 @@ final class CoreSettingsService {
     unawaited(
       _container.read(modelsProvider.notifier).refresh().catchError((_) {}),
     );
-    return modelPrompt(ModelPromptRef(modelId: edit.modelId));
+    return _modelPrompt(api, ModelPromptRef(modelId: edit.modelId));
   }
 
   // ---- What the pages offer ----

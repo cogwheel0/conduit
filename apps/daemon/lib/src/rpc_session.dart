@@ -435,8 +435,12 @@ class RpcSession {
       ConduitMethodSpecs.releaseNotesDismiss,
       (_) => _need(_releaseNotes).dismiss(),
     );
-    _on(ConduitMethodSpecs.dataSummary, (_) => _need(_data).summary());
-    _on(ConduitMethodSpecs.dataSync, (_) => _need(_data).sync());
+    // A window's Delete All answers to the summary that window was shown.
+    _on(
+      ConduitMethodSpecs.dataSummary,
+      (_) => _need(_data).summary(caller: this),
+    );
+    _on(ConduitMethodSpecs.dataSync, (_) => _need(_data).sync(caller: this));
     _on(ConduitMethodSpecs.dataExport, (r) => _need(_data).export(r));
     _on(
       ConduitMethodSpecs.dataPreviewImport,
@@ -449,7 +453,10 @@ class RpcSession {
       (_) => _need(_data).unarchiveAll(),
     );
     _on(ConduitMethodSpecs.dataUnshareAll, (_) => _need(_data).unshareAll());
-    _on(ConduitMethodSpecs.dataDeleteAll, (r) => _need(_data).deleteAll(r));
+    _on(
+      ConduitMethodSpecs.dataDeleteAll,
+      (r) => _need(_data).deleteAll(r, caller: this),
+    );
     _on(ConduitMethodSpecs.dataConnection, (_) => _need(_data).connection());
   }
 

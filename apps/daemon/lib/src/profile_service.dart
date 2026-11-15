@@ -37,6 +37,10 @@ final class ProfileService {
         debugMessage: 'no Open WebUI account is in use',
       ));
 
+  /// The account session a change starts in: read before its first await,
+  /// and checked before anything is written ([_save]).
+  Object _session() => _container.read(openWebUiAuthSessionEpochProvider);
+
   Future<AccountMetadata> _metadata() async {
     _api();
     final metadata = await readSettled(
@@ -82,12 +86,21 @@ final class ProfileService {
 
   /// The photo as a `data:` URL, or null for the initials: no photo, the
   /// server's stock one, or one that will not load.
+  ///
+  /// The URL is the server's to set, and the account's client carries its
+  /// token, headers and client certificate: only a path on the account's
+  /// own server is fetched. Another origin (another host, scheme or port,
+  /// a local address) shows the initials instead.
   Future<String?> _image(String? url) async {
     if (isDefaultProfileImageUrl(url)) return null;
     final value = url!.trim();
     if (value.startsWith('data:')) return value;
+    final api = _api();
+    if (!_onServer(api.serverConfig.url, value)) return null;
     try {
-      final response = await _api().dio.get<List<int>>(
+      // A path is joined to the server's address (and its sub-path) as
+      // every other request is.
+      final response = await api.dio.get<List<int>>(
         value,
         options: Options(responseType: ResponseType.bytes),
       );
@@ -103,7 +116,21 @@ final class ProfileService {
     }
   }
 
+  /// Whether [url] stays on [server]'s origin: a path, or an address with
+  /// the server's own scheme, host and port.
+  static bool _onServer(String server, String url) {
+    final base = Uri.tryParse(server);
+    final ref = Uri.tryParse(url);
+    if (base == null || ref == null) return false;
+    if (!ref.hasScheme && !ref.hasAuthority) return true;
+    return ref.scheme == base.scheme &&
+        ref.host.toLowerCase() == base.host.toLowerCase() &&
+        ref.port == base.port &&
+        ref.userInfo.isEmpty;
+  }
+
   Future<ProfileDto> update(ProfileEdit edit) async {
+    final session = _session();
     final m = await _metadata();
     final clear = edit.clear.toSet();
     for (final field in clear) {
@@ -135,6 +162,7 @@ final class ProfileService {
     }
     return _save(
       m,
+      session,
       name: name,
       keep: false,
       bio: pick('bio', edit.bio, m.bio),
@@ -148,6 +176,7 @@ final class ProfileService {
   }
 
   Future<ProfileDto> setImage(ProfileImageEdit edit) async {
+    final session = _session();
     final m = await _metadata();
     final String image;
     if (edit.initials) {
@@ -175,17 +204,21 @@ final class ProfileService {
             debugMessage: 'not an image this app can read',
           ));
     }
-    return _save(m, image: image);
+    return _save(m, session, image: image);
   }
 
-  Future<ProfileDto> removeImage() async =>
-      _save(await _metadata(), image: kDefaultProfileImagePath);
+  Future<ProfileDto> removeImage() async {
+    final session = _session();
+    return _save(await _metadata(), session, image: kDefaultProfileImagePath);
+  }
 
   /// Saves the profile with [name], [image] and the details given, each
   /// left as it is stored when not given ([keep] details on a photo
-  /// change).
+  /// change). [m] was read in [session]: once another account (or a new
+  /// sign-in) is in use, nothing is written.
   Future<ProfileDto> _save(
-    AccountMetadata m, {
+    AccountMetadata m,
+    Object session, {
     String? name,
     String? image,
     bool keep = true,
@@ -193,6 +226,12 @@ final class ProfileService {
     String? gender,
     String? dateOfBirth,
   }) async {
+    if (!identical(session, _session())) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed',
+      );
+    }
     final updated = await _container
         .read(accountProfileProvider.notifier)
         .save(
