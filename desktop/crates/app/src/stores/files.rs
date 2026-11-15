@@ -199,8 +199,10 @@ pub fn safe_name(name: &str) -> String {
 /// Where `file` is staged: `<staging>/open/<file id>/<name>`, so two files
 /// with one name do not collide.
 pub fn staged_path(staging: &Path, file: &FileRef, name: &str) -> PathBuf {
+    // Keyed by server too: two servers may hand out the same file id.
     staging
         .join("open")
+        .join(safe_name(&file.server_id))
         .join(safe_name(&file.file_id))
         .join(safe_name(name))
 }
@@ -304,5 +306,14 @@ mod tests {
         let long = format!("{}.pdf", "é".repeat(100));
         let s = safe_name(&long);
         assert!(s.len() <= 120 && s.ends_with(".pdf"), "{s}");
+        // Two servers' files with one id and name never share a path.
+        let on = |server: &str| FileRef {
+            server_id: server.into(),
+            file_id: "file-1".into(),
+        };
+        assert_ne!(
+            staged_path(Path::new("/stage"), &on("server-a"), "notes.md"),
+            staged_path(Path::new("/stage"), &on("server-b"), "notes.md")
+        );
     }
 }
