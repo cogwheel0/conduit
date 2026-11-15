@@ -18,6 +18,9 @@ final class FakeOwuiAuthServer {
   /// The email of every user whose session was ended through sign-out.
   final List<String> signedOut = <String>[];
 
+  /// The method and path of every request, in order.
+  final List<String> requests = <String>[];
+
   String get url => 'http://127.0.0.1:${_server.port}';
 
   static Future<FakeOwuiAuthServer> start({
@@ -42,6 +45,7 @@ final class FakeOwuiAuthServer {
     }
 
     final path = request.uri.path;
+    requests.add('${request.method} $path');
     if (path == '/health') return json(<String, dynamic>{'status': true});
     if (path == '/api/version') {
       return json(<String, dynamic>{'version': '0.13.1'});

@@ -10,6 +10,8 @@ import 'chats_service.dart';
 import 'composer_service.dart';
 import 'direct_service.dart';
 import 'mcp_service.dart';
+import 'notes_service.dart';
+import 'channels_service.dart';
 import 'prompts_service.dart';
 import 'event_bus.dart';
 import 'log.dart';
@@ -19,7 +21,10 @@ import 'settings_service.dart';
 import 'system_service.dart';
 import 'turns_service.dart';
 import 'ui_requests_service.dart';
+import 'workspace_service.dart';
+import 'terminals_service.dart';
 import 'hermes_service.dart';
+import 'voice_service.dart';
 
 /// The services that need the core. The daemon swaps in a full set when the
 /// core attaches; until then every one is null.
@@ -37,7 +42,12 @@ final class CoreServices {
     this.prompts,
     this.direct,
     this.mcp,
+    this.notes,
+    this.channels,
+    this.workspace,
+    this.terminals,
     this.hermes,
+    this.voice,
   });
 
   final AccountsService? accounts;
@@ -52,7 +62,12 @@ final class CoreServices {
   final PromptsService? prompts;
   final DirectService? direct;
   final McpService? mcp;
+  final NotesService? notes;
+  final ChannelsService? channels;
+  final WorkspaceService? workspace;
+  final TerminalsService? terminals;
   final HermesService? hermes;
+  final VoiceService? voice;
 }
 
 /// One connected renderer window.
@@ -113,7 +128,12 @@ class RpcSession {
   PromptsService? get _prompts => _services().prompts;
   DirectService? get _direct => _services().direct;
   McpService? get _mcp => _services().mcp;
+  NotesService? get _notes => _services().notes;
+  ChannelsService? get _channels => _services().channels;
+  WorkspaceService? get _workspace => _services().workspace;
+  TerminalsService? get _terminals => _services().terminals;
   HermesService? get _hermes => _services().hermes;
+  VoiceService? get _voice => _services().voice;
 
   /// Where a window's `online`/`offline` events go: the connectivity port,
   /// which then tells every window. Null before the core is up.
@@ -476,6 +496,52 @@ class RpcSession {
       (a) => _requireDirect().ollamaThinking(a),
     );
 
+    // channels.*.
+    const ok = OkResult(ok: true);
+    _on(ConduitMethodSpecs.channelsList, (_) => _requireChannels().list());
+    _on(ConduitMethodSpecs.channelsSave, (e) => _requireChannels().save(e));
+    _on(
+      ConduitMethodSpecs.channelsDelete,
+      (ref) => _requireChannels().delete(ref.id),
+    );
+    _on(
+      ConduitMethodSpecs.channelsLeave,
+      (ref) => _requireChannels().leave(ref.id),
+    );
+    _on(
+      ConduitMethodSpecs.channelsMessages,
+      (q) => _requireChannels().messages(q),
+    );
+    _on(ConduitMethodSpecs.channelsPost, (p) => _requireChannels().post(p));
+    _on(
+      ConduitMethodSpecs.channelsEditMessage,
+      (e) => _requireChannels().editMessage(e),
+    );
+    _on(ConduitMethodSpecs.channelsDeleteMessage, (p) async {
+      await _requireChannels().deleteMessage(p);
+      return ok;
+    });
+    _on(ConduitMethodSpecs.channelsReact, (p) async {
+      await _requireChannels().react(p);
+      return ok;
+    });
+    _on(ConduitMethodSpecs.channelsPin, (p) async {
+      await _requireChannels().pin(p);
+      return ok;
+    });
+    _on(ConduitMethodSpecs.channelsTyping, (p) {
+      _requireChannels().typing(p);
+      return ok;
+    });
+    _on(ConduitMethodSpecs.channelsMarkRead, (ref) async {
+      await _requireChannels().markRead(ref.id);
+      return ok;
+    });
+    _on(
+      ConduitMethodSpecs.channelsMembers,
+      (ref) => _requireChannels().members(ref.id),
+    );
+
     // hermes.*.
     _on(ConduitMethodSpecs.hermesSettings, (_) => _requireHermes().settings());
     _on(
@@ -511,6 +577,164 @@ class RpcSession {
       (p) => _requireHermes().deleteJob(p.id),
     );
     _on(ConduitMethodSpecs.hermesCatalog, (_) => _requireHermes().catalog());
+
+    // voice.*.
+    _on(ConduitMethodSpecs.voiceSettings, (_) => _requireVoice().settings());
+    _on(ConduitMethodSpecs.voiceSaveSettings, (p) => _requireVoice().save(p));
+    _on(ConduitMethodSpecs.voiceVoices, (_) => _requireVoice().voices());
+    _on(ConduitMethodSpecs.voiceSpeak, (p) => _requireVoice().speak(p));
+    _on(ConduitMethodSpecs.voiceModels, (_) => _requireVoice().models());
+    _on(
+      ConduitMethodSpecs.voiceDownloadModel,
+      (p) => _requireVoice().downloadModel(p.id),
+    );
+    _on(
+      ConduitMethodSpecs.voiceDeleteModel,
+      (p) => _requireVoice().deleteModel(p.id),
+    );
+
+    // terminal.*.
+    _on(
+      ConduitMethodSpecs.terminalServers,
+      (p) => _requireTerminals().servers(p.scopeId),
+    );
+    _on(
+      ConduitMethodSpecs.terminalSelect,
+      (p) => _requireTerminals().select(p.serverId),
+    );
+    _on(
+      ConduitMethodSpecs.terminalAttach,
+      (p) => _requireTerminals().attach(p),
+    );
+    _on(ConduitMethodSpecs.terminalList, (p) => _requireTerminals().list(p));
+    _on(ConduitMethodSpecs.terminalRead, (p) => _requireTerminals().read(p));
+    _on(
+      ConduitMethodSpecs.terminalDownload,
+      (p) => _requireTerminals().download(p),
+    );
+    _on(ConduitMethodSpecs.terminalFileAction, (p) async {
+      await _requireTerminals().fileAction(p);
+      return ok;
+    });
+    _on(
+      ConduitMethodSpecs.terminalPorts,
+      (p) => _requireTerminals().ports(p.handle),
+    );
+    _on(
+      ConduitMethodSpecs.terminalPreviewPort,
+      (p) => _requireTerminals().previewPort(p),
+    );
+
+    // workspace.*.
+    _on(
+      ConduitMethodSpecs.workspaceCapabilities,
+      (_) => _requireWorkspace().capabilities(),
+    );
+    _on(
+      ConduitMethodSpecs.workspaceModelOptions,
+      (_) => _requireWorkspace().modelOptions(),
+    );
+    _on(ConduitMethodSpecs.workspaceList, (p) => _requireWorkspace().list(p));
+    _on(ConduitMethodSpecs.workspaceGet, (p) => _requireWorkspace().get(p));
+    _on(ConduitMethodSpecs.workspaceSave, (p) => _requireWorkspace().save(p));
+    _on(ConduitMethodSpecs.workspaceDelete, (p) async {
+      await _requireWorkspace().delete(p);
+      return ok;
+    });
+    _on(
+      ConduitMethodSpecs.workspaceToggle,
+      (p) => _requireWorkspace().toggle(p),
+    );
+    _on(
+      ConduitMethodSpecs.workspaceSetAccess,
+      (p) => _requireWorkspace().setAccess(p),
+    );
+    _on(
+      ConduitMethodSpecs.workspacePrincipals,
+      (p) => _requireWorkspace().principals(p),
+    );
+    _on(
+      ConduitMethodSpecs.workspaceExport,
+      (p) => _requireWorkspace().export(p),
+    );
+    _on(
+      ConduitMethodSpecs.workspaceImport,
+      (p) => _requireWorkspace().import(p),
+    );
+    _on(
+      ConduitMethodSpecs.workspacePromptHistory,
+      (p) => _requireWorkspace().promptHistory(p.id),
+    );
+    _on(
+      ConduitMethodSpecs.workspacePromptDiff,
+      (p) => _requireWorkspace().promptDiff(p),
+    );
+    _on(
+      ConduitMethodSpecs.workspacePromptSetVersion,
+      (p) => _requireWorkspace().promptSetVersion(p),
+    );
+    _on(ConduitMethodSpecs.workspacePromptDeleteVersion, (p) async {
+      await _requireWorkspace().promptDeleteVersion(p);
+      return ok;
+    });
+    _on(
+      ConduitMethodSpecs.workspaceValves,
+      (p) => _requireWorkspace().valves(p),
+    );
+    _on(
+      ConduitMethodSpecs.workspaceSaveValves,
+      (p) => _requireWorkspace().saveValves(p),
+    );
+    _on(
+      ConduitMethodSpecs.workspaceToolFromUrl,
+      (p) => _requireWorkspace().toolFromUrl(p.url),
+    );
+    _on(ConduitMethodSpecs.workspaceFiles, (p) => _requireWorkspace().files(p));
+    _on(
+      ConduitMethodSpecs.workspaceAttachFiles,
+      (p) => _requireWorkspace().attachFiles(p),
+    );
+    _on(
+      ConduitMethodSpecs.workspaceFileAction,
+      (p) => _requireWorkspace().fileAction(p),
+    );
+    _on(
+      ConduitMethodSpecs.workspaceDirectoryAction,
+      (p) => _requireWorkspace().directoryAction(p),
+    );
+    _on(
+      ConduitMethodSpecs.workspaceKnowledgeReset,
+      (p) => _requireWorkspace().knowledgeReset(p.id),
+    );
+    _on(
+      ConduitMethodSpecs.workspaceKnowledgeCleanup,
+      (p) => _requireWorkspace().knowledgeCleanup(p.id),
+    );
+
+    // notes.*.
+    _on(ConduitMethodSpecs.notesList, (r) => _requireNotes().list(r.query));
+    // Wrapped, as `chats.get` is: a note deleted elsewhere is null, not an
+    // error.
+    _on(
+      ConduitMethodSpecs.notesGet,
+      (ref) async => NoteResult(note: await _requireNotes().get(ref.id)),
+    );
+    _on(ConduitMethodSpecs.notesSave, (r) => _requireNotes().save(r));
+    _on(ConduitMethodSpecs.notesDelete, (ref) async {
+      await _requireNotes().delete(ref.id);
+      return const DeletedResult(deleted: true);
+    });
+    _on(
+      ConduitMethodSpecs.notesGenerateTitle,
+      (r) => _requireNotes().generateTitle(r),
+    );
+    _on(ConduitMethodSpecs.notesEnhance, (r) => _requireNotes().enhance(r));
+    _on(ConduitMethodSpecs.notesAttach, (r) => _requireNotes().attach(r));
+    _on(ConduitMethodSpecs.notesDetach, (r) => _requireNotes().detach(r));
+    _on(
+      ConduitMethodSpecs.notesSetPinned,
+      (r) => _requireNotes().setPinned(r.id, pinned: r.pinned),
+    );
 
     // mcp.*.
     _on(ConduitMethodSpecs.mcpList, (_) => _requireMcp().list());
@@ -548,8 +772,43 @@ class RpcSession {
     _on(ConduitMethodSpecs.modelsSelect, (r) => _requireModels().select(r.id));
   }
 
+  ChannelsService _requireChannels() =>
+      _channels ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  VoiceService _requireVoice() =>
+      _voice ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
   HermesService _requireHermes() =>
       _hermes ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  TerminalsService _requireTerminals() =>
+      _terminals ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  WorkspaceService _requireWorkspace() =>
+      _workspace ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  NotesService _requireNotes() =>
+      _notes ??
       (throw const RpcError(
         code: ConduitErrorCodes.daemonUnavailable,
         debugMessage: 'the core is not up yet',
