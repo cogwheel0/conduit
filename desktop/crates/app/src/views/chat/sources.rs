@@ -19,6 +19,7 @@ use std::rc::Rc;
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::{UI_FONT, with_alpha};
+use conduit_components::views::focus::{ControlExt as _, Ring};
 use conduit_components::views::kit::{Button, grouped_tones};
 use conduit_protocol::ChatSourceDto;
 use gpui_kit::prelude::*;
@@ -164,7 +165,7 @@ impl Focusable for SourcesSheet {
 }
 
 impl Render for SourcesSheet {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = cx.conduit().clone();
         let r = t.roles;
         let m = t.metrics;
@@ -298,6 +299,19 @@ impl Render for SourcesSheet {
                     }
                 })
         });
+        // A source with an address is a link: a Tab stop (with Full
+        // Keyboard Access) that Return or Space opens, as a click does.
+        let links: Vec<bool> = self.sources.iter().map(|s| s.url.is_some()).collect();
+        let rows: Vec<_> = rows
+            .zip(links)
+            .map(|(row, link)| {
+                if link {
+                    row.keyboard_control(Ring::Inset(10.), window, cx)
+                } else {
+                    row
+                }
+            })
+            .collect();
         let view = cx.entity().downgrade();
         div()
             .id("sources-sheet")
@@ -313,7 +327,10 @@ impl Render for SourcesSheet {
             .on_key_down(cx.listener(|this, e: &gpui_kit::KeyDownEvent, window, cx| {
                 let k = &e.keystroke;
                 let plain = !(k.modifiers.platform || k.modifiers.alt || k.modifiers.control);
-                if plain && (k.key == "escape" || k.key == "enter") {
+                // Return on a source opens it (its own key); elsewhere, as
+                // Esc, it closes the sheet.
+                let on_sheet = this.focus.is_focused(window);
+                if plain && (k.key == "escape" || (k.key == "enter" && on_sheet)) {
                     this.done(window, cx);
                     cx.stop_propagation();
                 }
@@ -427,6 +444,37 @@ mod tests {
         assert_eq!(
             preview(&named),
             ("Spring tides".into(), Some("example.com".into()), None)
+        );
+    }
+
+    #[gpui_kit::test]
+    fn a_source_opens_from_the_keyboard(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_components::views::focus::KeyboardAccess;
+
+        cx.update(|cx| {
+            crate::views::test_globals(cx);
+            cx.set_global(KeyboardAccess { all_controls: true });
+        });
+        let sources = vec![
+            source("Spring tides", Some("https://www.example.com/a")),
+            source("Field notes", None),
+        ];
+        let (_sheet, vcx) =
+            cx.add_window_view(move |window, cx| SourcesSheet::new(sources, window, cx));
+        vcx.run_until_parked();
+        // Tab reaches the link (the one source with an address), and Space
+        // or Return opens it as a click does.
+        vcx.update(|window, cx| window.focus_next(cx));
+        vcx.run_until_parked();
+        vcx.simulate_keystrokes("space");
+        vcx.simulate_event(gpui_kit::KeyUpEvent {
+            keystroke: gpui_kit::Keystroke::parse("space").unwrap(),
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            vcx.opened_url().as_deref(),
+            Some("https://www.example.com/a"),
+            "the keyboard never reached the source"
         );
     }
 }
