@@ -253,6 +253,16 @@ impl SettingsStore {
     /// which action has it.
     pub fn reset_shortcut(&mut self, action: ShortcutAction, cx: &mut Context<Self>) {
         let mut keymap = self.keymap();
+        // Not onto the Quick Ask chord either.
+        if let Some(stroke) = keymap.defaults_stroke(action)
+            && self.prefs.desktop.quick_ask
+            && stroke == self.prefs.desktop.quick_ask_stroke()
+        {
+            self.record_for(Some(action), cx);
+            self.record_message = Some(RecordMessage::ConflictQuickAsk { stroke });
+            cx.notify();
+            return;
+        }
         match keymap.reset(action) {
             Ok(()) => self.store_keymap(keymap, cx),
             Err(other) => {
@@ -601,6 +611,31 @@ mod tests {
         });
         settings.read_with(cx, |s, _| assert!(!s.recording_quick_ask));
         settings.update(cx, |s, cx| s.set_desktop(|d| d.quick_ask = true, cx));
+        // A reset never puts a shortcut onto the Quick Ask chord.
+        settings.update(cx, |s, cx| {
+            s.set_shortcut(ShortcutAction::NewChat, KeyStroke::new("j").primary(), cx)
+                .unwrap();
+            s.set_desktop(|d| d.quick_ask_shortcut = "mod+n".into(), cx);
+            s.reset_shortcut(ShortcutAction::NewChat, cx);
+        });
+        settings.read_with(cx, |s, _| {
+            assert_eq!(
+                s.keymap().stroke(ShortcutAction::NewChat),
+                KeyStroke::new("j").primary()
+            );
+            assert!(matches!(
+                s.record_message,
+                Some(RecordMessage::ConflictQuickAsk { .. })
+            ));
+        });
+        settings.update(cx, |s, cx| {
+            s.record_for(None, cx);
+            s.set_desktop(
+                |d| d.quick_ask_shortcut = crate::prefs::DEFAULT_QUICK_ASK_SHORTCUT.into(),
+                cx,
+            );
+            s.reset_shortcut(ShortcutAction::NewChat, cx);
+        });
         settings.update(cx, |s, cx| s.record_quick_ask(true, cx));
         // A bare key is refused; an app shortcut's chord conflicts.
         assert!(settings.update(cx, |s, cx| s.record(&key("space"), cx)));
