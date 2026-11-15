@@ -370,6 +370,12 @@ impl SessionStore {
     /// `retry`: asked again while the route is unknown, with nothing changed.
     fn fetch(&mut self, retry: bool, cx: &mut Context<Self>) {
         self.generation += 1;
+        if !retry {
+            // Something changed: an answer to a read asked before it is stale.
+            self.backend_reads += 1;
+            self.backends_pending = 0;
+            self._backends = vec![];
+        }
         let generation = self.generation;
         let rpc = self.rpc.clone();
         let request = self.request.clone();
@@ -1121,6 +1127,37 @@ mod tests {
             assert!(s.direct.is_none());
         });
         drop(held);
+    }
+
+    #[gpui_kit::test]
+    fn a_refresh_drops_a_backend_answer_asked_before_it(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(list(vec![]));
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Unauthenticated, false));
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+        daemon.returns::<methods::HermesSettings>(HermesSettings {
+            usable: true,
+            ..Default::default()
+        });
+        let hermes = daemon.hold::<methods::HermesSettings>();
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| s.on_connected(&handshake(None), request(), cx));
+        cx.run_until_parked();
+        // Hermes stops being usable; the refresh's own read has not started.
+        daemon.returns::<methods::HermesSettings>(HermesSettings::default());
+        let accounts = daemon.hold::<methods::AccountsList>();
+        store.update(cx, |s, cx| s.refresh(cx));
+        hermes.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, cx| {
+            assert_eq!(s.route(cx), Route::Unknown);
+            assert!(s.hermes.is_none(), "the old Hermes answer landed");
+        });
+        accounts.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(!s.hermes.as_ref().is_some_and(|h| h.usable));
+        });
     }
 
     #[gpui_kit::test]
