@@ -231,6 +231,16 @@ impl ServerForm {
         let session = self.stores.session.clone();
         let rpc = self.stores.connection.read(cx).rpc();
         let l10n = cx.l10n().clone();
+        // The accounts there before: only one this Connect made is ever
+        // removed again.
+        let before: Vec<String> = self
+            .stores
+            .accounts
+            .read(cx)
+            .accounts()
+            .iter()
+            .map(|a| a.id.clone())
+            .collect();
         let add = accounts.update(cx, |a, cx| {
             a.change(AccountChange::Add(Box::new(draft.clone())), false, cx)
         });
@@ -293,7 +303,29 @@ impl ServerForm {
                     } else {
                         AccountChange::CancelAdd
                     };
-                    let _undone = accounts.update(cx, |a, cx| a.change(undo, true, cx)).await;
+                    let added_id = added
+                        .accounts
+                        .active_account_id
+                        .clone()
+                        .filter(|id| !before.contains(id));
+                    let undone = accounts.update(cx, |a, cx| a.change(undo, true, cx)).await;
+                    // Cancel leaves the new account when the one it was added
+                    // from cannot take over (it has no session): remove it.
+                    let left = matches!(&undone, Ok(r) if r.outcome == AccountChangeOutcome::Done);
+                    let still_there = |id: &str| match &undone {
+                        Ok(r) => r.accounts.accounts.iter().any(|a| a.id == id),
+                        Err(_) => true,
+                    };
+                    if !left && let Some(id) = added_id.filter(|id| still_there(id)) {
+                        let removed = accounts
+                            .update(cx, |a, cx| {
+                                a.change(AccountChange::Remove { account_id: id }, true, cx)
+                            })
+                            .await;
+                        if let Err(e) = removed {
+                            log::warn!("server form: the failed server stayed added: {e}");
+                        }
+                    }
                     session.update(cx, |s, cx| s.refresh(cx));
                     let _ = this.update_in(cx, |s, window, cx| {
                         s.busy = false;
@@ -680,5 +712,69 @@ impl Render for ServerForm {
                 .flatten()
                 .collect(),
             ))
+    }
+}
+
+#[cfg(test)]
+mod undo_tests {
+    use conduit_protocol::{AccountChangeOutcome, AccountChangeResult, methods};
+    use gpui_kit::TestAppContext;
+    use serde_json::json;
+
+    use super::*;
+    use crate::stores::accounts::tests::{account, list};
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    #[gpui_kit::test]
+    fn a_server_that_fails_its_check_never_stays_added(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        // Avery's account has no session, so the addition cannot be
+        // abandoned back to it: Cancel leaves the new account in place.
+        let mut adding = list(vec![
+            account("a", "Avery", false, false),
+            account("n", "New", true, false),
+        ]);
+        adding.adding_account = true;
+        daemon.returns::<methods::AccountsAdd>(AccountChangeResult {
+            outcome: AccountChangeOutcome::NeedsSignIn,
+            accounts: adding.clone(),
+        });
+        daemon.returns::<methods::AccountsCancelAdd>(AccountChangeResult {
+            outcome: AccountChangeOutcome::Unchanged,
+            accounts: adding,
+        });
+        daemon.returns::<methods::AccountsRemove>(AccountChangeResult {
+            outcome: AccountChangeOutcome::Done,
+            accounts: list(vec![account("a", "Avery", true, false)]),
+        });
+        daemon.on::<methods::ServersStatus>(|_| {
+            Ok(json!({
+                "activeServerId": "n",
+                "reachability": "notOpenWebUi",
+                "maxSupportedVersion": "0.13.3",
+            }))
+        });
+        daemon.returns::<methods::AccountsList>(list(vec![account("a", "Avery", true, false)]));
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-server-form-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, false)]), cx)
+        });
+        let (view, vcx) = cx.add_window_view(move |window, cx| ServerForm::new(stores, window, cx));
+        view.update_in(vcx, |v, window, cx| {
+            v.url
+                .update(cx, |i, cx| i.set_value("http://127.0.0.1:9", window, cx));
+            v.submit(window, cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::AccountsRemove>(),
+            vec![json!({"accountId": "n", "force": true})]
+        );
+        view.read_with(vcx, |v, _| assert!(v.error.is_some() && !v.busy));
     }
 }
