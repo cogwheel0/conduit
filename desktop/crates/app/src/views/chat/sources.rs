@@ -53,11 +53,15 @@ pub fn inline_label(
     if label.is_empty() {
         return None;
     }
-    let more = numbers
+    // The other sources it names, each once (`[1, 1]` is one source).
+    let mut others: Vec<usize> = numbers
         .iter()
-        .skip(1)
-        .filter(|n| **n >= 1 && **n <= sources.len())
-        .count();
+        .copied()
+        .filter(|n| *n != first && *n >= 1 && *n <= sources.len())
+        .collect();
+    others.sort_unstable();
+    others.dedup();
+    let more = others.len();
     Some((label, (more > 0).then_some(more)))
 }
 
@@ -396,6 +400,15 @@ mod tests {
             Some(("example.com".into(), None))
         );
         assert_eq!(inline_label(&sources, &[3], false), None);
+        // A number named twice is one source.
+        assert_eq!(
+            inline_label(&sources, &[1, 1], false).map(|l| l.1),
+            Some(None)
+        );
+        assert_eq!(
+            inline_label(&sources, &[1, 2, 2], false).map(|l| l.1),
+            Some(Some(1))
+        );
     }
 
     #[test]
