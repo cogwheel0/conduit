@@ -259,15 +259,18 @@ impl AccountsStore {
     }
 
     /// Takes a list another store fetched from the daemon (the session's
-    /// refresh), unless a change of this store is in flight.
-    pub fn adopt(&mut self, list: AccountList, cx: &mut Context<Self>) {
-        if self.busy.is_none() {
-            // A read of this store's still on its way is older than this.
-            self.generation += 1;
-            self._fetch = None;
-            self.load_error = None;
-            self.set_list(list, cx);
+    /// refresh), unless a change of this store is in flight. Whether it
+    /// took it.
+    pub fn adopt(&mut self, list: AccountList, cx: &mut Context<Self>) -> bool {
+        if self.busy.is_some() {
+            return false;
         }
+        // A read of this store's still on its way is older than this.
+        self.generation += 1;
+        self._fetch = None;
+        self.load_error = None;
+        self.set_list(list, cx);
+        true
     }
 
     fn set_list(&mut self, list: AccountList, cx: &mut Context<Self>) {

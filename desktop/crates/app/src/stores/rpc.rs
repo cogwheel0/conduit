@@ -74,6 +74,9 @@ pub mod fake {
         calls: Vec<(&'static str, Value)>,
         /// Methods whose calls wait for [`Hold::release`], and their waiters.
         held: HashMap<&'static str, Vec<futures::channel::oneshot::Sender<()>>>,
+        /// Methods with one call held ([`FakeDaemon::hold_one`]): the calls
+        /// still to pass first, then that call's waiter.
+        held_one: HashMap<&'static str, (usize, Option<futures::channel::oneshot::Sender<()>>)>,
     }
 
     /// Keeps a method's calls unanswered until released (or dropped).
@@ -89,8 +92,10 @@ pub mod fake {
 
     impl Drop for Hold {
         fn drop(&mut self) {
-            let waiters = self.daemon.0.lock().unwrap().held.remove(self.method);
-            for w in waiters.into_iter().flatten() {
+            let mut state = self.daemon.0.lock().unwrap();
+            let waiters = state.held.remove(self.method);
+            let one = state.held_one.remove(self.method).and_then(|(_, w)| w);
+            for w in waiters.into_iter().flatten().chain(one) {
                 let _ = w.send(());
             }
         }
@@ -148,6 +153,20 @@ pub mod fake {
             }
         }
 
+        /// Holds only one `method` call, the one after the next `skip`, until
+        /// the returned [`Hold`] is released; the others answer at once.
+        pub fn hold_one<M: RpcMethod>(&self, skip: usize) -> Hold {
+            self.0
+                .lock()
+                .unwrap()
+                .held_one
+                .insert(M::NAME, (skip, None));
+            Hold {
+                daemon: self.clone(),
+                method: M::NAME,
+            }
+        }
+
         /// The params of every `method` call so far.
         pub fn calls<M: RpcMethod>(&self) -> Vec<Value> {
             self.0
@@ -183,11 +202,20 @@ pub mod fake {
                     None => Err(error(codes::METHOD_NOT_FOUND, method)),
                 },
             };
-            let wait = state.held.get_mut(method).map(|waiters| {
+            let mut wait = state.held.get_mut(method).map(|waiters| {
                 let (tx, rx) = futures::channel::oneshot::channel();
                 waiters.push(tx);
                 rx
             });
+            if let Some((skip, waiter)) = state.held_one.get_mut(method) {
+                if *skip > 0 {
+                    *skip -= 1;
+                } else if waiter.is_none() {
+                    let (tx, rx) = futures::channel::oneshot::channel();
+                    *waiter = Some(tx);
+                    wait = Some(rx);
+                }
+            }
             Box::pin(async move {
                 if let Some(wait) = wait {
                     let _ = wait.await;

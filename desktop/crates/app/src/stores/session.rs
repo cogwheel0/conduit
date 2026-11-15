@@ -169,17 +169,19 @@ pub struct SessionStore {
     pub error: Option<RpcError>,
     /// Shows `route` instead of the derived one (the `--shots` pass).
     pub preview: Option<Route>,
+    /// Every read carries the generation it started in, and its answer
+    /// applies only while that is current ([`Self::read`]). A refresh, an
+    /// account change or a new daemon session bumps it; a retry keeps it.
     generation: u64,
     /// The account-list signature the last refresh saw.
     seen_accounts: Option<String>,
     /// Asks made since the route was last known ([`RESOLVE_ATTEMPTS`]).
     resolve_attempts: u32,
-    /// Counts `direct.list`/`hermes.settings` reads apart from
-    /// `generation`: a retry keeps reads still in flight, or a backend
-    /// slower than the retries would never land.
-    backend_reads: u64,
+    /// `direct.list`/`hermes.settings` answers still to come in this
+    /// generation: a retry leaves them in flight rather than asking again.
     backends_pending: u8,
     _refresh: Option<Task<()>>,
+    _auth: Option<Task<()>>,
     _backends: Vec<Task<()>>,
     _status: Option<Task<()>>,
     _resolve: Option<Task<()>>,
@@ -228,9 +230,9 @@ impl SessionStore {
             generation: 0,
             seen_accounts: None,
             resolve_attempts: 0,
-            backend_reads: 0,
             backends_pending: 0,
             _refresh: None,
+            _auth: None,
             _backends: vec![],
             _status: None,
             _resolve: None,
@@ -326,7 +328,6 @@ impl SessionStore {
         request: HandshakeRequest,
         cx: &mut Context<Self>,
     ) {
-        self.generation += 1;
         self.request = Some(request);
         self.auth = None;
         self.server = None;
@@ -334,12 +335,6 @@ impl SessionStore {
         self.hermes = None;
         self.error = None;
         self.seen_accounts = None;
-        self.resolve_attempts = 0;
-        self._refresh = None;
-        self._backends = vec![];
-        self.backends_pending = 0;
-        self._status = None;
-        self._resolve = None;
         self._recheck = None;
         self.handshake = handshake.response.as_deref().cloned();
         self.needs_onboarding = (handshake.needs_onboarding == Some(true)).then_some(true);
@@ -351,11 +346,12 @@ impl SessionStore {
         cx.notify();
     }
 
-    /// Refetches the session: once `accounts.list` has answered (the core is
-    /// up), `auth.status`, `direct.list`, `hermes.settings` and the core's
-    /// onboarding answer; `servers.status` follows on its own, since it
-    /// costs a request to the server. Asks again while the route stays
-    /// unknown (see the module docs), with a fresh count of attempts.
+    /// Refetches the session in a new generation: once `accounts.list` has
+    /// answered (the core is up), `auth.status`, `direct.list`,
+    /// `hermes.settings` and the core's onboarding answer; `servers.status`
+    /// follows on its own, since it costs a request to the server. Asks
+    /// again while the route stays unknown (see the module docs), with a
+    /// fresh count of attempts.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         self.resolve_attempts = 0;
         if self.route(cx) == Route::Unknown {
@@ -364,89 +360,114 @@ impl SessionStore {
             self.error = None;
             cx.notify();
         }
-        self.fetch(false, cx);
+        self.generation += 1;
+        self._refresh = None;
+        self._auth = None;
+        self._backends = vec![];
+        self.backends_pending = 0;
+        self._status = None;
+        self._resolve = None;
+        // A check of an out-of-reach server dropped with the old generation:
+        // keep checking, or it is never seen coming back.
+        if self.server_unreachable_now() {
+            self.recheck_server(cx);
+        }
+        self.fetch(cx);
     }
 
-    /// `retry`: asked again while the route is unknown, with nothing changed.
-    fn fetch(&mut self, retry: bool, cx: &mut Context<Self>) {
-        self.generation += 1;
-        if !retry {
-            // Something changed: an answer to a read asked before it is stale.
-            self.backend_reads += 1;
-            self.backends_pending = 0;
-            self._backends = vec![];
-        }
+    /// Starts `read` in the current generation; `apply` gets its answer only
+    /// if that generation is still current then. Every read of this store
+    /// goes through here.
+    fn read<T: 'static>(
+        &self,
+        read: impl std::future::Future<Output = T> + 'static,
+        apply: impl FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) -> Task<()> {
         let generation = self.generation;
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let answer = read.await;
+            let _ = this.update(cx, |s, cx| {
+                if s.generation == generation {
+                    apply(s, answer, cx);
+                }
+            });
+        })
+    }
+
+    /// One attempt in the current generation (a first ask or a retry).
+    fn fetch(&mut self, cx: &mut Context<Self>) {
+        let accounts = self.rpc.call::<methods::AccountsList>(&NoParams);
+        self._refresh = Some(self.read(
+            accounts,
+            |s, answer, cx| match answer {
+                Ok(list) => s.accounts_listed(list, cx),
+                Err(e) => {
+                    log::warn!("session: core not answering: {e}");
+                    s.keep_resolving(Some(e), cx);
+                }
+            },
+            cx,
+        ));
+    }
+
+    /// The daemon's account list, which the accounts store shows too (its
+    /// own fetch may have failed while the core started). Account-scoped
+    /// reads start only once the store shows this list.
+    fn accounts_listed(&mut self, list: AccountList, cx: &mut Context<Self>) {
+        let active = list.active_account_id.clone();
+        let seen = self.seen_accounts.replace(signature(&list));
+        if !self.accounts.update(cx, |a, cx| a.adopt(list, cx)) {
+            // A change of the accounts store is in flight: the list it shows
+            // afterwards refreshes the session, or the retry asks again.
+            self.seen_accounts = seen;
+            self.keep_resolving(None, cx);
+            return;
+        }
+        self.forget_other_account(active);
+        let auth = self.rpc.call::<methods::AuthStatus>(&NoParams);
+        // Asked again now that the core is up: its own answer.
         let rpc = self.rpc.clone();
         let request = self.request.clone();
-        let accounts = rpc.call::<methods::AccountsList>(&NoParams);
-        self._refresh = Some(
-            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                match accounts.await {
-                    Ok(list) => {
-                        // The daemon's list: the accounts store shows it too
-                        // (its own fetch may have failed while the core
-                        // started).
-                        let _ = this.update(cx, |s, cx| {
-                            if s.generation == generation {
-                                s.seen_accounts = Some(signature(&list));
-                                s.forget_other_account(list.active_account_id.clone());
-                                s.accounts.update(cx, |a, cx| a.adopt(list, cx));
-                            }
-                        });
-                    }
-                    Err(e) => {
-                        let _ = this.update(cx, |s, cx| {
-                            if s.generation == generation {
-                                log::warn!("session: core not answering: {e}");
-                                s.keep_resolving(Some(e), cx);
-                            }
-                        });
-                        return;
-                    }
+        let onboarding = async move {
+            match &request {
+                Some(request) => rpc.call::<OnboardingProbe>(request).await,
+                None => Ok(Value::Null),
+            }
+        };
+        self._auth = Some(self.read(
+            async move { futures::join!(auth, onboarding) },
+            |s, (auth, onboarding), cx| {
+                s.error = None;
+                let mut failed = None;
+                match auth {
+                    Ok(a) => s.auth = Some(a),
+                    Err(e) => failed = Some(e),
                 }
-                let auth = rpc.call::<methods::AuthStatus>(&NoParams);
-                let _ = this.update(cx, |s, cx| {
-                    if s.generation == generation && !(retry && s.backends_pending > 0) {
-                        s.read_backends(cx);
-                    }
-                });
-                // Asked again now that the core is up: its own answer.
-                let onboarding = async {
-                    match &request {
-                        Some(request) => rpc.call::<OnboardingProbe>(request).await,
-                        None => Ok(Value::Null),
-                    }
-                };
-                let (auth, onboarding) = futures::join!(auth, onboarding);
-                let _ = this.update(cx, |s, cx| {
-                    if s.generation != generation {
-                        return;
-                    }
-                    s.error = None;
-                    let mut failed = None;
-                    match auth {
-                        Ok(a) => s.auth = Some(a),
-                        Err(e) => failed = Some(e),
-                    }
-                    match onboarding {
-                        Ok(v) => {
-                            if let Some(needs) = v.get("needsOnboarding").and_then(Value::as_bool) {
-                                s.needs_onboarding = Some(needs);
-                            }
+                match onboarding {
+                    Ok(v) => {
+                        if let Some(needs) = v.get("needsOnboarding").and_then(Value::as_bool) {
+                            s.needs_onboarding = Some(needs);
                         }
-                        Err(e) => failed = failed.or(Some(e)),
                     }
-                    s.refresh_server(cx);
-                    s.keep_resolving(failed, cx);
-                    cx.notify();
-                });
-            }),
-        );
+                    Err(e) => failed = failed.or(Some(e)),
+                }
+                s.refresh_server(cx);
+                s.keep_resolving(failed, cx);
+                cx.notify();
+            },
+            cx,
+        ));
+        // A retry leaves backend reads of this generation in flight: a
+        // backend slower than the retries would otherwise never land.
+        if self.backends_pending == 0 {
+            self.read_backends(cx);
+        }
     }
 
-    /// While the route is unknown, asks again after [`resolve_delay`]; after
-    /// [`RESOLVE_ATTEMPTS`], shows why. A known route ends the asking.
+    /// While the route is unknown, asks again after [`resolve_delay`], in the
+    /// same generation; after [`RESOLVE_ATTEMPTS`], shows why. A known route
+    /// ends the asking.
     fn keep_resolving(&mut self, failed: Option<RpcError>, cx: &mut Context<Self>) {
         if self.preview.is_some() || self.route(cx) != Route::Unknown {
             self.resolve_attempts = 0;
@@ -466,57 +487,44 @@ impl SessionStore {
         }
         let delay = resolve_delay(self.resolve_attempts);
         self.resolve_attempts += 1;
-        let generation = self.generation;
-        self._resolve = Some(
-            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                cx.background_executor().timer(delay).await;
-                let _ = this.update(cx, |s, cx| {
-                    // Another refresh since: that one decides what follows.
-                    if s.generation == generation {
-                        s.fetch(true, cx);
-                    }
-                });
-            }),
-        );
+        let timer = cx.background_executor().timer(delay);
+        self._resolve = Some(self.read(timer, |s, _, cx| s.fetch(cx), cx));
     }
 
     /// Refetches `servers.status` (reachability, version, capabilities).
     pub fn refresh_server(&mut self, cx: &mut Context<Self>) {
-        let generation = self.generation;
         let call = self.rpc.call::<methods::ServersStatus>(&NoParams);
-        self._status = Some(
-            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                let result = call.await;
-                let _ = this.update(cx, |s, cx| {
-                    if s.generation == generation {
-                        match result {
-                            Ok(status) => s.adopt_server(status, cx),
-                            Err(e) => {
-                                log::warn!("servers.status: {e}");
-                                // Out of reach still, as far as we know: keep
-                                // checking, or it is never seen coming back.
-                                let unreachable = s.server.as_ref().is_some_and(|s| {
-                                    s.reachability == ServerReachability::Unreachable
-                                });
-                                if unreachable {
-                                    s.recheck_server(cx);
-                                }
-                            }
+        self._status = Some(self.read(
+            call,
+            |s, result, cx| {
+                match result {
+                    Ok(status) => s.adopt_server(status, cx),
+                    Err(e) => {
+                        log::warn!("servers.status: {e}");
+                        // Out of reach still, as far as we know: keep
+                        // checking, or it is never seen coming back.
+                        if s.server_unreachable_now() {
+                            s.recheck_server(cx);
                         }
-                        cx.notify();
                     }
-                });
-            }),
-        );
+                }
+                cx.notify();
+            },
+            cx,
+        ));
+    }
+
+    /// The last `servers.status` answer said out of reach.
+    fn server_unreachable_now(&self) -> bool {
+        self.server
+            .as_ref()
+            .is_some_and(|s| s.reachability == ServerReachability::Unreachable)
     }
 
     /// Takes a `servers.status` answer. Out of reach: asked again after
     /// [`SERVER_RECHECK`]. Back from that: [`SessionEvent::ServerBack`].
     fn adopt_server(&mut self, status: ServerStatus, cx: &mut Context<Self>) {
-        let was_unreachable = self
-            .server
-            .as_ref()
-            .is_some_and(|s| s.reachability == ServerReachability::Unreachable);
+        let was_unreachable = self.server_unreachable_now();
         let unreachable = status.reachability == ServerReachability::Unreachable;
         let back = was_unreachable && status.reachability == ServerReachability::Reachable;
         self.server = Some(status);
@@ -534,30 +542,26 @@ impl SessionStore {
     /// `direct.list` and `hermes.settings` may wait on a server: each lands
     /// as soon as it answers, and neither holds back the other.
     fn read_backends(&mut self, cx: &mut Context<Self>) {
-        self.backend_reads += 1;
-        let reads = self.backend_reads;
         self.backends_pending = 2;
         let direct = self.rpc.call::<methods::DirectList>(&NoParams);
         let hermes = self.rpc.call::<methods::HermesSettings>(&NoParams);
         self._backends = vec![
-            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                let direct = direct.await;
-                let _ = this.update(cx, |s, cx| {
-                    if s.backend_reads == reads {
-                        s.direct = keep_on_error(s.direct.take(), direct);
-                        s.backend_landed(cx);
-                    }
-                });
-            }),
-            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                let hermes = hermes.await;
-                let _ = this.update(cx, |s, cx| {
-                    if s.backend_reads == reads {
-                        s.hermes = keep_on_error(s.hermes.take(), hermes);
-                        s.backend_landed(cx);
-                    }
-                });
-            }),
+            self.read(
+                direct,
+                |s, direct, cx| {
+                    s.direct = keep_on_error(s.direct.take(), direct);
+                    s.backend_landed(cx);
+                },
+                cx,
+            ),
+            self.read(
+                hermes,
+                |s, hermes, cx| {
+                    s.hermes = keep_on_error(s.hermes.take(), hermes);
+                    s.backend_landed(cx);
+                },
+                cx,
+            ),
         ];
     }
 
@@ -573,7 +577,8 @@ impl SessionStore {
         cx.notify();
     }
 
-    /// Asks `servers.status` again after [`SERVER_RECHECK`].
+    /// Asks `servers.status` again after [`SERVER_RECHECK`]. The timer spans
+    /// generations; the read it starts is the current one's.
     fn recheck_server(&mut self, cx: &mut Context<Self>) {
         self._recheck = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -629,6 +634,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::stores::accounts::AccountChange;
     use crate::stores::accounts::tests::{account, list};
     use crate::stores::rpc::fake::FakeDaemon;
 
@@ -1158,6 +1164,196 @@ mod tests {
         store.read_with(cx, |s, _| {
             assert!(!s.hermes.as_ref().is_some_and(|h| h.usable));
         });
+    }
+
+    /// The kinds of read the session starts, and what each one sets.
+    #[derive(Clone, Copy, Debug)]
+    enum Kind {
+        Accounts,
+        Auth,
+        Direct,
+        Hermes,
+        Server,
+    }
+
+    /// What makes every read started before it stale.
+    #[derive(Clone, Copy, Debug)]
+    enum Change {
+        Refresh,
+        AccountSwitch,
+        Reset,
+    }
+
+    /// The daemon's answer for `kind`: the one before the change, or after.
+    fn answer(daemon: &FakeDaemon, kind: Kind, after: bool) {
+        match kind {
+            Kind::Accounts if after => daemon.returns::<methods::AccountsList>(list(vec![
+                account("a", "Avery", true, true),
+                account("c", "Casey", false, true),
+            ])),
+            Kind::Accounts => daemon.returns::<methods::AccountsList>(signed_in()),
+            Kind::Auth => daemon.returns::<methods::AuthStatus>(if after {
+                auth(AuthPhase::Authenticated, true)
+            } else {
+                auth(AuthPhase::Unauthenticated, false)
+            }),
+            Kind::Direct => daemon.returns::<methods::DirectList>(DirectConnectionList {
+                preferred: !after,
+                ..Default::default()
+            }),
+            Kind::Hermes => daemon.returns::<methods::HermesSettings>(HermesSettings {
+                usable: !after,
+                ..Default::default()
+            }),
+            Kind::Server => daemon.returns::<methods::ServersStatus>(server(if after {
+                ServerReachability::Reachable
+            } else {
+                ServerReachability::Unreachable
+            })),
+        };
+    }
+
+    /// Whether the session holds the answer from after the change.
+    fn holds_the_later_answer(s: &SessionStore, kind: Kind, cx: &gpui_kit::App) -> bool {
+        match kind {
+            Kind::Accounts => {
+                s.accounts.read(cx).list.as_ref().map(|l| l.accounts.len()) == Some(2)
+            }
+            Kind::Auth => s.auth.as_ref().is_some_and(|a| a.is_authenticated),
+            Kind::Direct => s.direct.as_ref().is_some_and(|d| !d.preferred),
+            Kind::Hermes => s.hermes.as_ref().is_some_and(|h| !h.usable),
+            Kind::Server => s
+                .server
+                .as_ref()
+                .is_some_and(|s| s.reachability == ServerReachability::Reachable),
+        }
+    }
+
+    #[gpui_kit::test]
+    fn a_read_started_before_a_change_never_applies_after_it(cx: &mut TestAppContext) {
+        let switched = list(vec![
+            account("a", "Avery", false, true),
+            account("b", "Blake", true, true),
+        ]);
+        for change in [Change::Refresh, Change::AccountSwitch, Change::Reset] {
+            for kind in [
+                Kind::Accounts,
+                Kind::Auth,
+                Kind::Direct,
+                Kind::Hermes,
+                Kind::Server,
+            ] {
+                let daemon = FakeDaemon::new();
+                daemon.returns::<methods::AccountsList>(signed_in());
+                daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Authenticated, true));
+                daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+                daemon.returns::<methods::ServersStatus>(server(ServerReachability::Reachable));
+                answer(&daemon, kind, false);
+                // The session's first read of its kind (the accounts store
+                // lists the accounts first, on its own).
+                let held = match kind {
+                    Kind::Accounts => daemon.hold_one::<methods::AccountsList>(1),
+                    Kind::Auth => daemon.hold_one::<methods::AuthStatus>(0),
+                    Kind::Direct => daemon.hold_one::<methods::DirectList>(0),
+                    Kind::Hermes => daemon.hold_one::<methods::HermesSettings>(0),
+                    Kind::Server => daemon.hold_one::<methods::ServersStatus>(0),
+                };
+                let store = session(cx, &daemon);
+                store.update(cx, |s, cx| {
+                    s.on_connected(&handshake(Some(false)), request(), cx)
+                });
+                cx.run_until_parked();
+                answer(&daemon, kind, true);
+                match change {
+                    Change::Refresh => store.update(cx, |s, cx| s.refresh(cx)),
+                    Change::AccountSwitch => {
+                        daemon.returns::<methods::AccountsList>(switched.clone());
+                        let accounts = store.read_with(cx, |s, _| s.accounts().clone());
+                        accounts.update(cx, |a, cx| a.adopt(switched.clone(), cx));
+                    }
+                    Change::Reset => store.update(cx, |s, cx| {
+                        s.on_connected(&handshake(Some(false)), request(), cx)
+                    }),
+                }
+                cx.run_until_parked();
+                held.release();
+                cx.run_until_parked();
+                store.read_with(cx, |s, cx| {
+                    assert!(
+                        holds_the_later_answer(s, kind, cx),
+                        "{kind:?} asked before a {change:?} applied after it"
+                    );
+                });
+            }
+        }
+    }
+
+    #[gpui_kit::test]
+    fn a_list_the_accounts_store_refuses_starts_no_account_read(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(signed_in());
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Authenticated, true));
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| {
+            s.on_connected(&handshake(Some(false)), request(), cx)
+        });
+        cx.run_until_parked();
+        // A switch to B in flight; the daemon already lists B.
+        let switching = daemon.hold::<methods::AccountsSwitch>();
+        let accounts = store.read_with(cx, |s, _| s.accounts().clone());
+        let _switch = accounts.update(cx, |a, cx| {
+            a.change(
+                AccountChange::Switch {
+                    account_id: "b".into(),
+                },
+                false,
+                cx,
+            )
+        });
+        daemon.returns::<methods::AccountsList>(list(vec![
+            account("a", "Avery", false, true),
+            account("b", "Blake", true, true),
+        ]));
+        let auth_reads = daemon.calls::<methods::AuthStatus>().len();
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::AuthStatus>().len(), auth_reads);
+        store.read_with(cx, |s, _| assert_eq!(s.facts_for.as_deref(), Some("a")));
+        drop(switching);
+    }
+
+    #[gpui_kit::test]
+    fn a_refresh_keeps_checking_a_server_out_of_reach(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(signed_in());
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Authenticated, true));
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+        daemon.returns::<methods::ServersStatus>(server(ServerReachability::Unreachable));
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| {
+            s.on_connected(&handshake(Some(false)), request(), cx)
+        });
+        cx.run_until_parked();
+        // A check in flight when a refresh starts, whose own reads fail.
+        let check = daemon.hold::<methods::ServersStatus>();
+        cx.executor().advance_clock(SERVER_RECHECK);
+        cx.run_until_parked();
+        daemon.on::<methods::AccountsList>(|_| {
+            Err(conduit_daemon::protocol::error(
+                "rpc.daemonUnavailable",
+                "x",
+            ))
+        });
+        store.update(cx, |s, cx| s.refresh(cx));
+        drop(check);
+        cx.run_until_parked();
+        daemon.returns::<methods::ServersStatus>(server(ServerReachability::Reachable));
+        let before = daemon.calls::<methods::ServersStatus>().len();
+        cx.executor().advance_clock(SERVER_RECHECK);
+        cx.run_until_parked();
+        assert!(daemon.calls::<methods::ServersStatus>().len() > before);
+        assert!(!store.read_with(cx, |s, cx| s.server_unreachable(cx)));
     }
 
     #[gpui_kit::test]
