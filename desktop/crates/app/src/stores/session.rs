@@ -174,6 +174,11 @@ pub struct SessionStore {
     seen_accounts: Option<String>,
     /// Asks made since the route was last known ([`RESOLVE_ATTEMPTS`]).
     resolve_attempts: u32,
+    /// Counts `direct.list`/`hermes.settings` reads apart from
+    /// `generation`: a retry keeps reads still in flight, or a backend
+    /// slower than the retries would never land.
+    backend_reads: u64,
+    backends_pending: u8,
     _refresh: Option<Task<()>>,
     _backends: Vec<Task<()>>,
     _status: Option<Task<()>>,
@@ -223,6 +228,8 @@ impl SessionStore {
             generation: 0,
             seen_accounts: None,
             resolve_attempts: 0,
+            backend_reads: 0,
+            backends_pending: 0,
             _refresh: None,
             _backends: vec![],
             _status: None,
@@ -330,6 +337,7 @@ impl SessionStore {
         self.resolve_attempts = 0;
         self._refresh = None;
         self._backends = vec![];
+        self.backends_pending = 0;
         self._status = None;
         self._resolve = None;
         self._recheck = None;
@@ -356,10 +364,11 @@ impl SessionStore {
             self.error = None;
             cx.notify();
         }
-        self.fetch(cx);
+        self.fetch(false, cx);
     }
 
-    fn fetch(&mut self, cx: &mut Context<Self>) {
+    /// `retry`: asked again while the route is unknown, with nothing changed.
+    fn fetch(&mut self, retry: bool, cx: &mut Context<Self>) {
         self.generation += 1;
         let generation = self.generation;
         let rpc = self.rpc.clone();
@@ -391,33 +400,10 @@ impl SessionStore {
                     }
                 }
                 let auth = rpc.call::<methods::AuthStatus>(&NoParams);
-                // `direct.list` and `hermes.settings` may wait on a server:
-                // they land on their own and never hold back the route.
-                let direct = rpc.call::<methods::DirectList>(&NoParams);
-                let hermes = rpc.call::<methods::HermesSettings>(&NoParams);
                 let _ = this.update(cx, |s, cx| {
-                    // Each lands as soon as it answers (a slow one never
-                    // holds the other back).
-                    s._backends = vec![
-                        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                            let direct = direct.await;
-                            let _ = this.update(cx, |s, cx| {
-                                if s.generation == generation {
-                                    s.direct = keep_on_error(s.direct.take(), direct);
-                                    s.backend_landed(cx);
-                                }
-                            });
-                        }),
-                        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                            let hermes = hermes.await;
-                            let _ = this.update(cx, |s, cx| {
-                                if s.generation == generation {
-                                    s.hermes = keep_on_error(s.hermes.take(), hermes);
-                                    s.backend_landed(cx);
-                                }
-                            });
-                        }),
-                    ];
+                    if s.generation == generation && !(retry && s.backends_pending > 0) {
+                        s.read_backends(cx);
+                    }
                 });
                 // Asked again now that the core is up: its own answer.
                 let onboarding = async {
@@ -481,7 +467,7 @@ impl SessionStore {
                 let _ = this.update(cx, |s, cx| {
                     // Another refresh since: that one decides what follows.
                     if s.generation == generation {
-                        s.fetch(cx);
+                        s.fetch(true, cx);
                     }
                 });
             }),
@@ -539,10 +525,41 @@ impl SessionStore {
         }
     }
 
+    /// `direct.list` and `hermes.settings` may wait on a server: each lands
+    /// as soon as it answers, and neither holds back the other.
+    fn read_backends(&mut self, cx: &mut Context<Self>) {
+        self.backend_reads += 1;
+        let reads = self.backend_reads;
+        self.backends_pending = 2;
+        let direct = self.rpc.call::<methods::DirectList>(&NoParams);
+        let hermes = self.rpc.call::<methods::HermesSettings>(&NoParams);
+        self._backends = vec![
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let direct = direct.await;
+                let _ = this.update(cx, |s, cx| {
+                    if s.backend_reads == reads {
+                        s.direct = keep_on_error(s.direct.take(), direct);
+                        s.backend_landed(cx);
+                    }
+                });
+            }),
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let hermes = hermes.await;
+                let _ = this.update(cx, |s, cx| {
+                    if s.backend_reads == reads {
+                        s.hermes = keep_on_error(s.hermes.take(), hermes);
+                        s.backend_landed(cx);
+                    }
+                });
+            }),
+        ];
+    }
+
     /// A Direct or Hermes answer came (a daemon without one answers as
     /// none; a failed read keeps the last answer): it may have been what
     /// the route waited for.
     fn backend_landed(&mut self, cx: &mut Context<Self>) {
+        self.backends_pending = self.backends_pending.saturating_sub(1);
         if self.route(cx) != Route::Unknown {
             self.resolve_attempts = 0;
             self._resolve = None;
@@ -1067,11 +1084,16 @@ mod tests {
         cx.run_until_parked();
         // Main without a backend would be a window that chats through nothing.
         assert_eq!(route_of(&store, cx), Route::Unknown);
+        // A read slower than the retries is kept, not asked again.
+        cx.executor().advance_clock(Duration::from_secs(10));
+        cx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::DirectList>().len(), 1);
         held.release();
         cx.run_until_parked();
         store.read_with(cx, |s, cx| {
             assert_eq!(s.route(cx), Route::Main);
             assert_eq!(s.backend(cx), Some(Backend::Direct));
+            assert!(s.error.is_none());
         });
     }
 
