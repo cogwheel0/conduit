@@ -1163,7 +1163,13 @@ impl ChatPane {
         if !self.settings_offer.chat_settings {
             return;
         }
+        // A new chat whose first message is on its way: its settings went
+        // with it, and the chat it makes is not open yet.
+        if self.starting && self.open_chat_id(cx).is_none() {
+            return;
+        }
         let composer = self.composer_store.read(cx);
+        let mark = composer.draft_mark();
         let target = crate::views::chat_settings::ChatSettingsTarget {
             chat_id: self.open_chat_id(cx),
             model_id: composer.selected_model().map(|m| m.id.clone()),
@@ -1174,8 +1180,10 @@ impl ChatPane {
             },
         };
         let store = self.composer_store.downgrade();
+        // Saved to the draft it was opened for only: once that draft's chat
+        // is made (or another opens), nothing lands on the next new chat.
         let sink: crate::views::chat_settings::DraftSink = Rc::new(move |params, cx| {
-            let _ = store.update(cx, |s, cx| s.set_draft_params(params, cx));
+            let _ = store.update(cx, |s, cx| s.set_draft_params_for(&mark, params, cx));
         });
         let stores = self.stores.clone();
         crate::views::sheet::open(
@@ -2313,6 +2321,89 @@ mod tests {
                     .is_null()),
                 "the next new chat takes the made one's settings"
             );
+        }
+
+        #[gpui_kit::test]
+        fn chat_settings_saved_after_the_chat_was_made_land_on_no_other_draft(
+            cx: &mut TestAppContext,
+        ) {
+            use crate::views::chat_settings::ChatSettingsSheet;
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::ModelsList>(
+                serde_json::from_value(serde_json::json!({
+                    "models": [{"id": "m", "name": "M"}], "selectedId": "m"
+                }))
+                .unwrap(),
+            );
+            daemon.returns::<methods::ComposerOptions>(Default::default());
+            daemon.returns::<methods::ValvesTargets>(Default::default());
+            let state: conduit_protocol::ChatSettingsState =
+                serde_json::from_value(serde_json::json!({
+                    "entry": "editor", "advanced": true,
+                    "canEditSystemPrompt": true, "canEditParameters": true,
+                    "systemPrompt": {"key": "system", "kind": "text", "mode": "inherit"},
+                    "parameters": [{"key": "temperature", "kind": "decimal", "mode": "custom",
+                                    "text": "0.3", "min": 0.0, "max": 2.0}],
+                    "saved": true, "params": {"top_k": 5}
+                }))
+                .unwrap();
+            daemon.returns::<methods::ChatSettingsGet>(state.clone());
+            daemon.returns::<methods::ChatSettingsCheck>(state.clone());
+            daemon.returns::<methods::ChatSettingsSave>(state);
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "c1", "userMessageId": "m1", "assistantMessageId": "a1"
+                }))
+                .unwrap(),
+            );
+            pane.update(vcx, |p, cx| {
+                p.composer_store.update(cx, |c, cx| c.refresh_models(cx))
+            });
+            vcx.run_until_parked();
+            let open_sheet = |vcx: &mut VisualTestContext| {
+                pane.update_in(vcx, |p, window, cx| p.open_chat_settings(window, cx));
+                vcx.run_until_parked();
+                vcx.update(|_, cx| crate::views::sheet::current::<ChatSettingsSheet>(cx))
+            };
+            // Chat Settings on the new chat, with an edit to save.
+            let sheet = open_sheet(vcx).expect("Chat Settings opens on a new chat");
+            vcx.update(|window, cx| sheet.update(cx, |s, cx| s.inherit("temperature", window, cx)));
+            vcx.executor()
+                .advance_clock(std::time::Duration::from_millis(200));
+            vcx.run_until_parked();
+            // The first message goes and its chat is made and opened.
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Plan the trip".into(), vec![], window, cx)
+            });
+            drop(held);
+            vcx.run_until_parked();
+            // Saved now: the draft it was opened for is gone.
+            vcx.update(|window, cx| sheet.update(cx, |s, cx| s.save(window, cx)));
+            vcx.run_until_parked();
+            vcx.update(|_, cx| crate::views::sheet::dismiss(cx));
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+            assert!(
+                pane.read_with(vcx, |p, cx| p
+                    .composer_store
+                    .read(cx)
+                    .draft_params
+                    .is_null()),
+                "the settings went out with the next, unrelated new chat"
+            );
+            // While a first send is starting, Chat Settings does not open on
+            // its draft.
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Pack the bags".into(), vec![], window, cx)
+            });
+            assert!(
+                open_sheet(vcx).is_none(),
+                "opened while the first send was starting"
+            );
+            drop(held);
+            vcx.run_until_parked();
         }
 
         #[gpui_kit::test]

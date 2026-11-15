@@ -1359,6 +1359,28 @@ impl ComposerStore {
         self.draft_params = params;
     }
 
+    /// The draft open now and its round: what a Chat Settings sheet on a
+    /// new chat saves to ([`Self::set_draft_params_for`]).
+    pub fn draft_mark(&self) -> (Option<DraftKey>, u64) {
+        (self.draft.clone(), self.draft_round)
+    }
+
+    /// [`Self::set_draft_params`], only while `mark`'s draft is still the
+    /// one open (a first send since made its chat, or another chat opened:
+    /// the settings belong to no draft here). False when refused.
+    pub fn set_draft_params_for(
+        &mut self,
+        mark: &(Option<DraftKey>, u64),
+        params: serde_json::Value,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.draft_mark() != *mark {
+            return false;
+        }
+        self.set_draft_params(params, cx);
+        true
+    }
+
     /// Keeps a new chat's settings for its first message.
     pub fn set_draft_params(&mut self, params: serde_json::Value, cx: &mut Context<Self>) {
         self.set_params(params);
