@@ -114,3 +114,70 @@ jobs:
             ~/.cargo/git/db
             desktop/target
           key: desktop-protocol-${{ runner.os }}-${{ hashFiles('desktop/Cargo.lock', 'desktop/rust-toolchain.toml') }}
+
+  # macOS is the first desktop platform: the whole workspace, GPUI included.
+  macos:
+    name: Workspace (macOS)
+    # Apple silicon with Xcode 26 or later: the app links FoundationModels
+    # (macOS 26 SDK) weakly. The same image as the bundle job and the
+    # release; DESKTOP_MACOS_RUNNER overrides it for all three.
+    runs-on: ${{ vars.DESKTOP_MACOS_RUNNER || 'macos-26' }}
+    timeout-minutes: 90
+    env:
+      # The gallery's accessibility test opens real windows.
+      CONDUIT_SKIP_UI_TESTS: '1'
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Pick Xcode 26 or later
+        shell: bash
+        run: |
+          major="$(xcodebuild -version | awk 'NR == 1 {split($2, v, "."); print v[1]}')"
+          if [ "$major" -lt 26 ]; then
+            newest="$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -1)"
+            [ -n "$newest" ] || { echo "::error::Xcode 26 or later is needed"; exit 1; }
+            sudo xcode-select -s "$newest"
+          fi
+          xcodebuild -version
+          df -h / | tail -1
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install && rustup show active-toolchain
+      # GPUI compiles its Metal shaders at build time. Xcode 26 ships the
+      # Metal compiler as a separate component.
+      - name: Make sure the Metal compiler is installed
+        run: xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
+      - name: Restore the Cargo cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            desktop/target
+          key: desktop-workspace-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('desktop/Cargo.lock', 'desktop/rust-toolchain.toml') }}
+          restore-keys: desktop-workspace-${{ runner.os }}-${{ runner.arch }}-
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - name: Disk left
+        if: always()
+        run: df -h / | tail -1 && du -sh target 2>/dev/null || true
+      - name: Leave only dependencies in the target folder
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          cargo clean -p conduit-components -p conduit-protocol
+          du -sh target
+      - name: Save the Cargo cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            desktop/target
+          key: desktop-workspace-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('desktop/Cargo.lock', 'desktop/rust-toolchain.toml') }}
