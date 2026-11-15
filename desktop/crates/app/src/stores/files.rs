@@ -223,14 +223,32 @@ pub fn stage_file(file: FileRef, name: &str, cx: &mut App) -> Task<Result<PathBu
         let (bytes, _) = fetch(http, file).await?;
         let target = path.clone();
         cx.background_executor()
-            .spawn(async move {
-                if let Some(dir) = target.parent() {
-                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-                }
-                std::fs::write(&target, bytes).map_err(|e| e.to_string())
-            })
+            .spawn(async move { write_whole(&target, &bytes) })
             .await?;
         Ok(path)
+    })
+}
+
+/// Writes `bytes` beside `target`, then moves them into place: a file is
+/// at `target` only once it is whole (a staged file found there is taken
+/// as done, and a video player may already be reading it).
+fn write_whole(target: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(dir) = target.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let part = target.with_file_name(format!(
+        ".{}.staging.{n}.part",
+        target
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or("file")
+    ));
+    std::fs::write(&part, bytes).map_err(|e| e.to_string())?;
+    std::fs::rename(&part, target).map_err(|e| {
+        let _ = std::fs::remove_file(&part);
+        e.to_string()
     })
 }
 
@@ -334,6 +352,20 @@ mod tests {
             Some(ImageFormat::Svg)
         );
         assert_eq!(image_format("application/pdf", b"%PDF-1.7"), None);
+    }
+
+    #[test]
+    fn a_staged_file_is_in_place_only_once_whole() {
+        let dir = std::env::temp_dir().join(format!("conduit-stage-{}", std::process::id()));
+        let target = dir.join("open").join("clip.mp4");
+        write_whole(&target, b"synthetic movie bytes").unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"synthetic movie bytes");
+        let left: Vec<_> = std::fs::read_dir(target.parent().unwrap())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(left, vec!["clip.mp4".to_string()], "a part file was left");
     }
 
     #[test]
