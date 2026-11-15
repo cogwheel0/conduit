@@ -92,6 +92,21 @@ pid_refresh "$dir/d.pid"
 check 'a refreshed record names the program' 0 "$dir/d.pid"
 expect 'the program is stopped' stopped "$(pid_stop "$dir/d.pid" 4)"
 wait "$d" 2>/dev/null || true
+# A stale record whose pid another process has taken since: its start time
+# is not the recorded one (`lstart` counts seconds, so the record is made
+# to name another start). Refreshing it must not adopt that process, which a
+# later stop would then end.
+{ echo "$b"; sed -n 2p "$dir/b.pid" | sed 's/^[A-Z][a-z][a-z] /Xxx /'; } > "$dir/taken.pid"
+pid_refresh "$dir/taken.pid"
+check 'refreshing a reused pid does not adopt its process' 1 "$dir/taken.pid"
+kill -0 "$b" 2>/dev/null && got=alive || got=gone
+expect 'the process under a refreshed reused pid keeps running' alive "$got"
+
+# pid_record leaves no earlier record behind for a process already gone.
+{ echo "$b"; sed -n 2p "$dir/b.pid"; } > "$dir/stale.pid"
+pid_record "$dir/stale.pid" 999999
+[ ! -e "$dir/stale.pid" ] && echo 'ok    recording a gone process clears the old record' || { echo 'FAIL  recording a gone process clears the old record'; failures=$((failures + 1)); }
+
 pid_refresh "$dir/gone.pid"
 [ ! -e "$dir/gone.pid" ] && echo 'ok    refreshing a missing pid file writes nothing' || { echo 'FAIL  refreshing a missing pid file writes nothing'; failures=$((failures + 1)); }
 

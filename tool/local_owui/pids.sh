@@ -21,6 +21,8 @@ pid_identity() {
 # launcher slower than that is caught by pid_refresh once the program serves.
 pid_record() {
   local file=$1 pid=$2 command previous= same=0 identity
+  # Whatever an earlier run left is not this process.
+  rm -f "$file"
   for _ in $(seq 1 50); do
     command=$(ps -ww -p "$pid" -o command= 2>/dev/null || true)
     [ -n "$command" ] || return 0
@@ -45,13 +47,22 @@ pid_record() {
 
 # Records again, from what `ps` says now, the process FILE names, for a
 # program that may have been started through a launcher: once it answers on
-# its port, the launcher has handed over, however slow it was. Only for a pid
-# file written moments ago by this same start, never a stale one, whose pid
-# another process may have taken.
+# its port, the launcher has handed over, however slow it was. A hand-over
+# keeps the pid and its start time and changes only the command line, so the
+# record is rewritten only while the start time is still the recorded one: a
+# pid that another process has taken since is never adopted.
 pid_refresh() {
-  local file=$1 pid identity
+  local file=$1 pid saved started identity
   [ -f "$file" ] || return 0
-  pid=$(pid_of "$file")
+  pid=$(sed -n 1p "$file")
+  saved=$(sed -n 2p "$file")
+  [ -n "$pid" ] && [ -n "$saved" ] || return 0
+  started=$(ps -p "$pid" -o lstart= 2>/dev/null || true)
+  [ -n "$started" ] || return 0
+  case "$saved" in
+    "$started"*) ;;
+    *) return 0 ;;
+  esac
   identity=$(pid_identity "$pid")
   [ -n "$identity" ] || return 0
   printf '%s\n%s\n' "$pid" "$identity" > "$file"
