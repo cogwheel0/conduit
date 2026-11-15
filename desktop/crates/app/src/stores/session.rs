@@ -171,6 +171,10 @@ pub struct SessionStore {
     pub needs_onboarding: Option<bool>,
     /// The connect handshake: daemon paths and capabilities.
     pub handshake: Option<HandshakeResponse>,
+    /// The account the handshake's capabilities describe: the first one
+    /// listed after connecting (`None` until then). Another account never
+    /// falls back on them.
+    handshake_for: Option<Option<String>>,
     /// What this window handshakes with, to ask the core's onboarding
     /// answer again.
     request: Option<HandshakeRequest>,
@@ -234,6 +238,7 @@ impl SessionStore {
             system_capabilities: None,
             needs_onboarding: None,
             handshake: None,
+            handshake_for: None,
             request: None,
             error: None,
             preview: None,
@@ -316,7 +321,12 @@ impl SessionStore {
         self.system_capabilities
             .clone()
             .or_else(|| self.server.as_ref().map(|s| s.capabilities.clone()))
-            .or_else(|| self.handshake.as_ref().map(|h| h.capabilities.clone()))
+            .or_else(|| {
+                self.handshake
+                    .as_ref()
+                    .filter(|_| self.handshake_for.as_ref() == Some(&self.facts_for))
+                    .map(|h| h.capabilities.clone())
+            })
             .unwrap_or_default()
     }
 
@@ -324,6 +334,9 @@ impl SessionStore {
     /// another account than `active`: the route waits for the new account's
     /// own answers rather than pairing it with the last one's.
     fn forget_other_account(&mut self, active: Option<String>) {
+        if self.handshake_for.is_none() {
+            self.handshake_for = Some(active.clone());
+        }
         if self.facts_for != active {
             self.facts_for = active;
             self.auth = None;
@@ -372,6 +385,7 @@ impl SessionStore {
         self._recheck = None;
         self._capabilities = None;
         self.handshake = handshake.response.as_deref().cloned();
+        self.handshake_for = None;
         self.needs_onboarding = (handshake.needs_onboarding == Some(true)).then_some(true);
         self.accounts.update(cx, |a, cx| {
             a.reset(cx);
@@ -1522,6 +1536,37 @@ mod tests {
             assert!(!s.direct_only(cx));
             assert!(s.hermes_only(cx));
             assert_eq!(s.backend(cx), Some(Backend::Hermes));
+        });
+    }
+
+    #[gpui_kit::test]
+    fn another_account_never_takes_the_handshakes_capabilities(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(list(vec![account("a", "Avery", true, true)]));
+        let _held = daemon.hold::<methods::SystemCapabilities>();
+        let store = session(cx, &daemon);
+        let connected = Handshake::from_value(json!({
+            "protocolVersion": conduit_protocol::PROTOCOL_VERSION,
+            "daemonVersion": "0.1.0",
+            "sessionId": "s",
+            "platform": "macos",
+            "capabilities": {"notes": true},
+            "paths": {"userData": "/u", "database": "/d", "cache": "/c", "logs": "/l", "staging": "/s"},
+        }));
+        store.update(cx, |s, cx| s.on_connected(&connected, request(), cx));
+        cx.run_until_parked();
+        // The account it was made for: its areas until system.capabilities.
+        store.read_with(cx, |s, _| assert!(s.capabilities().notes));
+        let switched = list(vec![
+            account("a", "Avery", false, true),
+            account("b", "Blake", true, true),
+        ]);
+        daemon.returns::<methods::AccountsList>(switched.clone());
+        let accounts = store.read_with(cx, |s, _| s.accounts.clone());
+        accounts.update(cx, |a, cx| a.adopt(switched, cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(!s.capabilities().notes, "B shows A's areas");
         });
     }
 }
