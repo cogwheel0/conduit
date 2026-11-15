@@ -157,7 +157,11 @@ class Server:
             f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{name}"\r\n'
             f'Content-Type: {content_type}\r\n\r\n'
         ).encode() + data + f'\r\n--{boundary}--\r\n'.encode()
-        req = urllib.request.Request(self.base + '/api/v1/files/', data=payload, method='POST')
+        # Processed before the answer (not in the background), so a knowledge
+        # base can take the file at once: added while still being extracted,
+        # it is refused and the seed stops.
+        req = urllib.request.Request(self.base + '/api/v1/files/?process_in_background=false',
+                                     data=payload, method='POST')
         req.add_header('Content-Type', f'multipart/form-data; boundary={boundary}')
         req.add_header('Authorization', f'Bearer {token}')
         req.add_header('User-Agent', 'conduit-local-owui-seed')
