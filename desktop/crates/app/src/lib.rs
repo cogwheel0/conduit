@@ -118,12 +118,7 @@ pub fn harness_profile(
 ) -> Result<PathBuf, String> {
     match named {
         Some(named) => {
-            let same = |a: &std::path::Path, b: &std::path::Path| {
-                let canon =
-                    |p: &std::path::Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
-                canon(a) == canon(b)
-            };
-            if same(&named, ordinary) {
+            if same_folder(&named, ordinary) {
                 Err(format!(
                     "{} is the app's own profile; name a test profile in CONDUIT_USER_DATA",
                     named.display()
@@ -134,6 +129,29 @@ pub fn harness_profile(
         }
         None => Ok(scratch.join("user-data")),
     }
+}
+
+/// Whether `a` and `b` name one folder.
+fn same_folder(a: &std::path::Path, b: &std::path::Path) -> bool {
+    let canon = |p: &std::path::Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    canon(a) == canon(b)
+}
+
+/// The app's own profile for `flavor` (`~/Library/Application Support/
+/// Conduit Dev`, or `Conduit`), which no scripted run may use.
+pub fn app_profile(flavor: Flavor) -> PathBuf {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    home.join("Library/Application Support")
+        .join(flavor.app_name())
+}
+
+/// Whether a scripted pass (E2E, capture) may reset the profile at
+/// `paths`: never the app's own. The passes check it before every reset,
+/// on top of `run()` never giving them that profile.
+pub fn may_reset_profile(paths: &AppPaths) -> bool {
+    !same_folder(&paths.user_data, &app_profile(paths.flavor))
 }
 
 /// The Keychain service of a scripted run's master key: never the app's own.
@@ -197,12 +215,7 @@ pub fn run() {
     // A scripted run gets its own profile, logs and Keychain item.
     let scripted_run = is_scripted(&args);
     if scripted_run {
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/tmp"));
-        let ordinary = home
-            .join("Library/Application Support")
-            .join(flavor.app_name());
+        let ordinary = app_profile(flavor);
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
@@ -842,5 +855,13 @@ mod harness_profile_tests {
             harness_service(Flavor::Dev),
             "app.cogwheel.conduit.desktop.dev.harness"
         );
+        // The passes' own check before a reset.
+        let paths = |user_data: PathBuf| AppPaths {
+            flavor: Flavor::Dev,
+            user_data,
+            logs: PathBuf::from("/tmp/logs"),
+        };
+        assert!(!may_reset_profile(&paths(app_profile(Flavor::Dev))));
+        assert!(may_reset_profile(&paths(scratch.join("user-data"))));
     }
 }
