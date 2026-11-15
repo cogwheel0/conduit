@@ -209,8 +209,18 @@ unsafe fn write_png(img: *mut c_void, path: &str) -> Result<(usize, usize), Stri
             path.len() as isize,
             false,
         );
+        // No URL for this path (an empty one): CFRelease must never see null.
+        if url.is_null() {
+            CGImageRelease(img);
+            return Err(format!("cannot write {path:?}"));
+        }
         let ty = CString::new("public.png").unwrap_or_default();
         let ty = CFStringCreateWithCString(std::ptr::null(), ty.as_ptr(), 0x0800_0100);
+        if ty.is_null() {
+            CGImageRelease(img);
+            CFRelease(url);
+            return Err("cannot name the PNG type".into());
+        }
         let dest = CGImageDestinationCreateWithURL(url, ty, 1, std::ptr::null());
         if dest.is_null() {
             CGImageRelease(img);
@@ -276,6 +286,45 @@ mod tests {
         assert_eq!(plan.windows, vec![42, 7]);
         assert_eq!(plan.bounds, rect);
         assert_eq!(plan_windows(&[42], None).unwrap().bounds, CGRect::NULL);
+    }
+
+    /// A 1×1 image, as a capture would return.
+    fn tiny_image() -> *mut c_void {
+        #[link(name = "CoreGraphics", kind = "framework")]
+        unsafe extern "C" {
+            fn CGColorSpaceCreateDeviceRGB() -> *mut c_void;
+            fn CGColorSpaceRelease(cs: *mut c_void);
+            fn CGBitmapContextCreate(
+                data: *mut c_void,
+                width: usize,
+                height: usize,
+                bits: usize,
+                row: usize,
+                cs: *mut c_void,
+                info: u32,
+            ) -> *mut c_void;
+            fn CGBitmapContextCreateImage(ctx: *mut c_void) -> *mut c_void;
+            fn CGContextRelease(ctx: *mut c_void);
+        }
+        // SAFETY: a fresh bitmap context, released once its image is made.
+        unsafe {
+            let cs = CGColorSpaceCreateDeviceRGB();
+            // kCGImageAlphaPremultipliedLast = 1.
+            let ctx = CGBitmapContextCreate(std::ptr::null_mut(), 1, 1, 8, 0, cs, 1);
+            let img = CGBitmapContextCreateImage(ctx);
+            CGContextRelease(ctx);
+            CGColorSpaceRelease(cs);
+            img
+        }
+    }
+
+    #[test]
+    fn a_path_that_names_no_file_is_an_error() {
+        let img = tiny_image();
+        assert!(!img.is_null());
+        // SAFETY: write_png takes ownership of the image and releases it.
+        let written = unsafe { write_png(img, "") };
+        assert!(written.is_err());
     }
 
     #[test]
