@@ -271,6 +271,7 @@ final class TurnsService {
   // ---------------------------------------------------------------------------
 
   Future<SendTurnAccepted> send(SendTurn request) async {
+    _refuseDeleted(request.chatId);
     final text = request.text.trim();
     if (text.isEmpty) {
       throw const RpcError(
@@ -1161,6 +1162,16 @@ final class TurnsService {
   }
 
   /// [chatId]'s scope, opened with the chat in it; a new one for a new chat.
+  /// A temporary chat the user deleted is answered no more.
+  void _refuseDeleted(String? chatId) {
+    if (chatId != null && temporary.isDeleted(chatId)) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: 'chat $chatId was deleted',
+      );
+    }
+  }
+
   Future<_ChatSession> _sessionFor(String? chatId) async {
     if (_disposed) {
       throw const RpcError(
@@ -1168,12 +1179,7 @@ final class TurnsService {
         debugMessage: 'the daemon is stopping',
       );
     }
-    if (chatId != null && temporary.isDeleted(chatId)) {
-      throw RpcError(
-        code: ConduitErrorCodes.notFound,
-        debugMessage: 'chat $chatId was deleted',
-      );
-    }
+    _refuseDeleted(chatId);
     if (chatId != null) {
       final existing = _sessionOf(chatId);
       if (existing != null) {
@@ -1183,7 +1189,19 @@ final class TurnsService {
         return existing;
       }
     }
+    // Loaded under one account, a chat is not opened under the next: an
+    // account change while it loads closes only the sessions already open.
+    final account = _container.read(openWebUiAuthSessionEpochProvider);
     final conversation = chatId == null ? null : await _conversation(chatId);
+    if (!identical(
+      account,
+      _container.read(openWebUiAuthSessionEpochProvider),
+    )) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed while the chat loaded',
+      );
+    }
     final scope = ChatSessionScope.open(_container);
     final session = _ChatSession(scope, requestedChatId: chatId)..holds = 1;
     _sessions.add(session);
