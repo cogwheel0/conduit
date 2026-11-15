@@ -484,30 +484,26 @@ pub async fn reconnect(run: &mut Run, cx: &mut AsyncApp) {
     let main = run.main;
     run.mode(ThemeMode::Light, cx).await;
     new_chat(run, cx).await;
-    let user_data = cx.update(|cx| cx.global::<AppState>().paths.user_data.clone());
-    let pids = std::process::Command::new("/usr/bin/pgrep")
-        .arg("-f")
-        .arg("--")
-        .arg(format!("--user-data {}", user_data.display()))
-        .output()
-        .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-        .unwrap_or_default();
-    let pids: Vec<i32> = pids.lines().filter_map(|l| l.trim().parse().ok()).collect();
-    if pids.is_empty() {
+    // The pid this run's supervisor started and still owns: never a process
+    // found by its command line, which could be another run's.
+    let pid = cx.update(
+        |cx| match cx.global::<AppState>().connection.read(cx).daemon {
+            crate::stores::connection::DaemonPhase::Running { pid, .. } if pid > 0 => Some(pid),
+            _ => None,
+        },
+    );
+    let Some(pid) = pid else {
         run.missing(
             "banner · reconnecting",
-            "this run's daemon was not found to stop",
+            "this run's daemon was not running to stop",
         );
         return;
-    }
-    for pid in &pids {
-        log(format!("stopping this run's daemon {pid}"));
-        let _ = std::process::Command::new("/bin/kill")
-            .arg("-KILL")
-            .arg(pid.to_string())
-            .status();
-    }
+    };
+    log(format!("stopping this run's daemon {pid}"));
+    let _ = std::process::Command::new("/bin/kill")
+        .arg("-KILL")
+        .arg(pid.to_string())
+        .status();
     let seen = wait_until(cx, Duration::from_secs(10), |cx| {
         matches!(
             crate::smoke::current_status(cx),

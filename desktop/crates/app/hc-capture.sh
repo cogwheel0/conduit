@@ -95,9 +95,9 @@ mkdir -p "$out"
 
 # One GUI app at a time: another Conduit window (a capture, an E2E or smoke
 # run from any worktree) would steal activation and gray the shots' chrome.
-# The app bundle's executable only: a shell whose command line merely names
-# the path (another worker's lock loop, say) is not an app.
-other_gui() { pgrep -f '\.app/Contents/MacOS/conduit-desktop' >/dev/null 2>&1; }
+# The app bundle's executable only, by each process's executable path (not
+# its command line): a shell whose arguments name the path is not an app.
+other_gui() { ps -axo comm= | grep -q '\.app/Contents/MacOS/conduit-desktop$'; }
 # Waits until no other Conduit app has run for 90 s in a row (E2E suites
 # start one app after another), for at most an hour.
 wait_for_quiet() {
@@ -106,7 +106,7 @@ wait_for_quiet() {
   while [ "$quiet" -lt 90 ]; do
     if other_gui; then
       if [ "$waited" = 0 ]; then
-        echo "another Conduit app is running (pgrep -fl /Contents/MacOS/conduit-desktop); waiting until none has run for 90 s" >&2
+        echo "another Conduit app is running (an .app/Contents/MacOS/conduit-desktop); waiting until none has run for 90 s" >&2
       fi
       quiet=0
     else

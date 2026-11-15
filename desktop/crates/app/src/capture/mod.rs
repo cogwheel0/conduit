@@ -1112,7 +1112,10 @@ pub fn run(options: CaptureOptions, cx: &mut App) {
             only: options.only.clone(),
         };
         run.mode(ThemeMode::Light, cx).await;
-        let passed = phases(&mut run, cx).await;
+        // A state that could not be captured, or any problem, fails the run.
+        let passed = phases(&mut run, cx).await
+            && run.notes.missing.is_empty()
+            && run.notes.problems.is_empty();
         notes::write(&mut run, cx).await;
         log(format!(
             "{} after {:?}: {} static, {} interaction files, {} motion strips, {} missing, {} problems",

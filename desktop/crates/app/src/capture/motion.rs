@@ -111,10 +111,11 @@ fn start(rect: CGRect, trigger: Arc<std::sync::Mutex<Option<Instant>>>, max: Dur
     let (flag, prog) = (stop.clone(), progress.clone());
     // Two threads: one only captures (as fast as the window server gives
     // frames), the other compares each with the last kept one.
-    let (tx, rx) = std::sync::mpsc::channel::<(f64, Instant, Frame)>();
+    let (tx, rx) = std::sync::mpsc::channel::<(Instant, Frame)>();
+    let trigger_seen = trigger.clone();
     let capture = std::thread::spawn(move || {
         let began = Instant::now();
-        let mut times = vec![];
+        let mut times: Vec<Instant> = vec![];
         let mut next = Instant::now();
         while !flag.load(Ordering::SeqCst) && began.elapsed() < max {
             let wait = next.saturating_duration_since(Instant::now());
@@ -125,26 +126,30 @@ fn start(rect: CGRect, trigger: Arc<std::sync::Mutex<Option<Instant>>>, max: Dur
             let Some(frame) = Frame::of_rect(rect, false) else {
                 continue;
             };
+            // Capture times stay instants until the trigger is known:
+            // frames before it get their real (negative) offsets.
             let now = Instant::now();
-            let ms = match trigger.lock().ok().and_then(|t| *t) {
-                Some(t0) if now >= t0 => (now - t0).as_secs_f64() * 1000.,
-                Some(t0) => -((t0 - now).as_secs_f64() * 1000.),
-                None => -(began.elapsed().as_secs_f64() * 1000.) - 1000.,
-            };
-            times.push(ms);
-            if tx.send((ms, now, frame)).is_err() {
+            times.push(now);
+            if tx.send((now, frame)).is_err() {
                 break;
             }
         }
         times
     });
     let thread = std::thread::spawn(move || {
-        let mut frames: Vec<(f64, Frame)> = vec![];
+        let after_trigger = |at: Instant| {
+            trigger_seen
+                .lock()
+                .ok()
+                .and_then(|t| *t)
+                .is_some_and(|t0| at >= t0)
+        };
+        let mut frames: Vec<(Instant, Frame)> = vec![];
         let mut last: Option<Vec<u8>> = None;
         // The whole-window rule alone, against its own last kept frame.
         let mut last_share: Option<Vec<u8>> = None;
         let mut window_share_changes = vec![];
-        for (ms, at, frame) in rx {
+        for (at, frame) in rx {
             let (w, h) = frame.size();
             let Some((px, stride)) = frame.pixels() else {
                 continue;
@@ -152,8 +157,8 @@ fn start(rect: CGRect, trigger: Arc<std::sync::Mutex<Option<Instant>>>, max: Dur
             match &last_share {
                 None => last_share = Some(px.clone()),
                 Some(prev) if changed(prev, &px, stride, w, h).0 > CHANGE => {
-                    if ms >= 0. {
-                        window_share_changes.push(ms);
+                    if after_trigger(at) {
+                        window_share_changes.push(at);
                     }
                     last_share = Some(px.clone());
                 }
@@ -165,21 +170,32 @@ fn start(rect: CGRect, trigger: Arc<std::sync::Mutex<Option<Instant>>>, max: Dur
             };
             if new {
                 last = Some(px);
-                if ms >= 0.
+                if after_trigger(at)
                     && !frames.is_empty()
                     && let Ok(mut p) = prog.lock()
                 {
                     p.changes += 1;
                     p.last_change = Some(at);
                 }
-                frames.push((ms, frame));
+                frames.push((at, frame));
+            }
+            // Stillness is measured up to the newest frame looked at.
+            if let Ok(mut p) = prog.lock() {
+                p.compared_until = Some(at);
             }
         }
         let times = capture.join().unwrap_or_default();
+        // Milliseconds from the trigger (before it: negative).
+        let t0 = trigger_seen.lock().ok().and_then(|t| *t);
+        let ms = |at: Instant| match t0 {
+            Some(t0) if at >= t0 => (at - t0).as_secs_f64() * 1000.,
+            Some(t0) => -((t0 - at).as_secs_f64() * 1000.),
+            None => 0.,
+        };
         Grabbed {
-            times,
-            frames,
-            window_share_changes,
+            times: times.into_iter().map(ms).collect(),
+            frames: frames.into_iter().map(|(at, f)| (ms(at), f)).collect(),
+            window_share_changes: window_share_changes.into_iter().map(ms).collect(),
         }
     });
     Grabber {
@@ -288,7 +304,10 @@ async fn strip_waiting(
     let n = run.notes.motion.len() + 1;
     let folder = format!("{n:02}-{name}");
     let dir = run.dir.join("motion/frames").join(&folder);
-    std::fs::create_dir_all(&dir).ok();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        run.problem(format!("motion {name}: {}: {e}", dir.display()));
+        return;
+    }
 
     let times = &grabbed.times;
     let duration = times.last().copied().unwrap_or(0.) - times.first().copied().unwrap_or(0.);
@@ -324,8 +343,9 @@ async fn strip_waiting(
             .or_else(|| grabbed.frames.first());
         if let Some((t, frame)) = pick {
             let file = format!("f{i:02}.png");
-            if frame.write_png(&dir.join(&file)).is_ok() {
-                tiles.push(json!({"file": file, "ms": at, "frame_ms": t}));
+            match frame.write_png(&dir.join(&file)) {
+                Ok(_) => tiles.push(json!({"file": file, "ms": at, "frame_ms": t})),
+                Err(e) => run.problem(format!("motion {name}: {file}: {e}")),
             }
         }
     }
@@ -362,11 +382,15 @@ async fn strip_waiting(
         "changes_ms": changes,
         "changes_ms_window_share": share_changes,
     });
-    std::fs::write(
+    // A strip without its manifest is not composed: say so, and leave it
+    // out of the notes.
+    if let Err(e) = std::fs::write(
         dir.join("manifest.json"),
         serde_json::to_vec_pretty(&manifest).unwrap_or_default(),
-    )
-    .ok();
+    ) {
+        run.problem(format!("motion {name}: manifest.json: {e}"));
+        return;
+    }
     log(format!("motion {folder}: {stats}"));
     let mut row: Value = stats;
     row["name"] = json!(folder);
