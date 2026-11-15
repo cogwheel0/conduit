@@ -15,7 +15,8 @@ use crate::strings::{ActiveStrings as _, fill};
 use crate::theme::{ActiveConduitTheme, MONO_FONT, with_alpha};
 use crate::views::composer::composer_frame;
 use crate::views::focus::{
-    Ring, control_focus_handle, full_keyboard_access, pressed_fill, radio_keys, ring_overlay,
+    Ring, control_focus_handle, full_keyboard_access, pressed_fill, radio_keys, radio_step,
+    ring_overlay,
 };
 use crate::views::kit::{
     Button, ButtonKind, ClickHandler, SelectHandler, bare_input, field_frame, icon_tile, radio_dot,
@@ -117,6 +118,44 @@ impl ApprovalAction {
     pub fn on_click(mut self, handler: ClickHandler) -> Self {
         self.on_click = Some(handler);
         self
+    }
+}
+
+/// Where a key takes a question's choice from `current` (`None`: nothing
+/// chosen yet): with nothing chosen an arrow or Home chooses the first
+/// answer and End the last, rather than step from one never chosen.
+fn question_step(key: &str, current: Option<usize>, count: usize) -> Option<usize> {
+    match current {
+        Some(at) => radio_step(key, at, count),
+        None if count == 0 => None,
+        None => match key {
+            "left" | "up" | "right" | "down" | "home" => Some(0),
+            "end" => Some(count - 1),
+            _ => None,
+        },
+    }
+}
+
+/// The question's key handler ([`question_step`]): as `radio_keys`, an
+/// arrow at an end stays in the group.
+fn question_keys(
+    current: Option<usize>,
+    count: usize,
+    on_select: Option<crate::views::kit::SelectHandler>,
+) -> impl Fn(&gpui_kit::KeyDownEvent, &mut Window, &mut App) + 'static {
+    move |ev, window, cx| {
+        let k = &ev.keystroke;
+        if k.modifiers.modified() {
+            return;
+        }
+        if let Some(next) = question_step(&k.key, current, count) {
+            if let Some(h) = &on_select {
+                h(next, window, cx);
+            }
+            cx.stop_propagation();
+        } else if matches!(k.key.as_str(), "left" | "right" | "up" | "down") {
+            cx.stop_propagation();
+        }
     }
 }
 
@@ -381,11 +420,11 @@ impl RenderOnce for ApprovalCard {
                 // The arrows walk the choices; the own-words field is the
                 // last stop of the group.
                 let current = if *other_selected {
-                    options.len()
+                    Some(options.len())
                 } else {
-                    selected.unwrap_or(0)
+                    *selected
                 };
-                let keys = radio_keys(current, count, on_option.clone());
+                let keys = question_keys(current, count, on_option.clone());
                 let row = |i: usize,
                            on: bool,
                            label: SharedString,
@@ -729,5 +768,24 @@ impl RenderOnce for ApprovalCard {
                     .gap(px(8.))
                     .children(buttons),
             )
+    }
+}
+
+#[cfg(test)]
+mod question_tests {
+    use super::question_step;
+
+    #[test]
+    fn with_nothing_chosen_the_keys_start_at_the_first_answer() {
+        // Nothing chosen: Down, Right or Home choose the first, End the last.
+        assert_eq!(question_step("down", None, 3), Some(0));
+        assert_eq!(question_step("right", None, 3), Some(0));
+        assert_eq!(question_step("home", None, 3), Some(0));
+        assert_eq!(question_step("end", None, 3), Some(2));
+        assert_eq!(question_step("down", None, 0), None);
+        // Chosen: as any radio group.
+        assert_eq!(question_step("down", Some(0), 3), Some(1));
+        assert_eq!(question_step("home", Some(2), 3), Some(0));
+        assert_eq!(question_step("up", Some(0), 3), None);
     }
 }
