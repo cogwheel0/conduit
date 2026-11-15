@@ -30,7 +30,7 @@ use gpui_kit::{
     ObjectFit, RenderImage, Role, SharedString, Window, WindowBounds, div, img, px, size,
 };
 
-use crate::actions::CloseWindow;
+use crate::actions::{ActualSize, CloseWindow, ZoomIn, ZoomOut};
 use crate::l10n::ActiveL10n as _;
 use crate::stores::files::{FileRef, file_image_state, stage_bytes, stage_file};
 
@@ -152,16 +152,37 @@ impl ImageViewer {
 
     /// The picture as GPUI draws it, once loaded.
     fn picture(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<Arc<RenderImage>> {
+        self.load(window, cx).ok().flatten()
+    }
+
+    /// The picture: `Ok(None)` while it loads, `Err` when it could not be
+    /// read or decoded (the viewer says so, not "loading" for ever).
+    fn load(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<Option<Arc<RenderImage>>, ()> {
         match self.current().clone() {
-            ViewerImage::File { file, .. } => file_image_state(&file, window, cx)?.ok(),
+            ViewerImage::File { file, .. } => match file_image_state(&file, window, cx) {
+                None => Ok(None),
+                Some(result) => result.map(Some).map_err(|_| ()),
+            },
             ViewerImage::Data { image, .. } => {
                 if let Some(done) = self.decoded.get(&self.index) {
-                    return Some(done.clone());
+                    return Ok(Some(done.clone()));
                 }
-                let decoded = image.to_image_data(cx.svg_renderer()).ok()?;
+                let decoded = image.to_image_data(cx.svg_renderer()).map_err(|_| ())?;
                 self.decoded.insert(self.index, decoded.clone());
-                Some(decoded)
+                Ok(Some(decoded))
             }
+        }
+    }
+
+    /// Try Again on a server picture that failed.
+    fn retry(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        if let ViewerImage::File { file, .. } = self.current().clone() {
+            crate::stores::files::retry_file_image(&file, cx);
+            cx.notify();
         }
     }
 
@@ -313,7 +334,9 @@ impl Render for ImageViewer {
         } else {
             name.clone()
         };
-        let picture = self.picture(window, cx);
+        let loaded = self.load(window, cx);
+        let failed = loaded.is_err();
+        let picture = loaded.ok().flatten();
         let this = cx.entity().downgrade();
         let act = |f: fn(&mut ImageViewer, &mut Window, &mut Context<ImageViewer>)| {
             let this = this.clone();
@@ -451,7 +474,34 @@ impl Render for ImageViewer {
         )
         .absolute()
         .size_full();
+        let retryable = matches!(self.current(), ViewerImage::File { .. });
         let body: gpui_kit::AnyElement = match (&picture, self.zoom) {
+            (None, _) if failed => div()
+                .id("viewer-failed")
+                .size_full()
+                .flex()
+                .flex_col()
+                .gap(px(10.))
+                .items_center()
+                .justify_center()
+                .child(
+                    div()
+                        .id("viewer-failed-text")
+                        .role(Role::Status)
+                        .text_size(px(m.small))
+                        .text_color(r.text_subtle)
+                        .child(SharedString::from(l10n.desktop_image_load_failed())),
+                )
+                .when(retryable, |d| {
+                    d.child(
+                        conduit_components::views::kit::Button::new(
+                            "viewer-retry",
+                            l10n.desktop_try_again(),
+                        )
+                        .on_click(act(Self::retry)),
+                    )
+                })
+                .into_any_element(),
             (None, _) => div()
                 .size_full()
                 .flex()
@@ -497,6 +547,14 @@ impl Render for ImageViewer {
             .flex_col()
             .bg(r.content)
             .on_action(cx.listener(|_, _: &CloseWindow, window, _| window.remove_window()))
+            // ⌘+, ⌘− and ⌘0 are the app's text-size shortcuts elsewhere:
+            // here they zoom the picture (the key handler below never sees
+            // them, the actions come first).
+            .on_action(cx.listener(|this, _: &ZoomIn, window, cx| this.step(true, window, cx)))
+            .on_action(cx.listener(|this, _: &ZoomOut, window, cx| this.step(false, window, cx)))
+            .on_action(
+                cx.listener(|this, _: &ActualSize, _, cx| this.set_zoom(Zoom::Scale(1.), cx)),
+            )
             .on_key_down(cx.listener(|this, e: &gpui_kit::KeyDownEvent, window, cx| {
                 let k = &e.keystroke;
                 let cmd = k.modifiers.platform;
@@ -572,6 +630,48 @@ impl Render for ImageViewer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui_kit::test]
+    fn a_picture_that_cannot_be_decoded_says_so(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(crate::views::test_globals);
+        let broken = ViewerImage::Data {
+            image: Arc::new(gpui_kit::Image::from_bytes(
+                gpui_kit::ImageFormat::Png,
+                b"not a picture".to_vec(),
+            )),
+            name: "chart.png".into(),
+        };
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| ImageViewer::new(vec![broken], 0, window, cx));
+        view.update_in(vcx, |v, window, cx| {
+            assert_eq!(
+                v.load(window, cx).map(|p| p.is_some()),
+                Err(()),
+                "loading for ever"
+            );
+        });
+    }
+
+    #[gpui_kit::test]
+    fn the_zoom_shortcuts_zoom_the_picture(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(crate::views::test_globals);
+        let none: Vec<ViewerImage> = vec![ViewerImage::Data {
+            image: Arc::new(gpui_kit::Image::from_bytes(
+                gpui_kit::ImageFormat::Png,
+                vec![],
+            )),
+            name: String::new(),
+        }];
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| ImageViewer::new(none, 0, window, cx));
+        vcx.run_until_parked();
+        vcx.dispatch_action(ActualSize);
+        view.read_with(vcx, |v, _| assert_eq!(v.zoom(), Zoom::Scale(1.)));
+        vcx.dispatch_action(ZoomOut);
+        view.read_with(vcx, |v, _| {
+            assert!(matches!(v.zoom(), Zoom::Scale(s) if s < 1.))
+        });
+    }
 
     #[test]
     fn zoom_steps_from_the_fit_or_the_scale() {
