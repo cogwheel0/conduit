@@ -199,17 +199,19 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     callback.future.ignore();
     final listening = server.listen((request) async {
       final response = request.response;
-      if (callback.isCompleted || request.uri.path != '/callback') {
+      // Anything on the loopback port can call it: only this sign-in's state
+      // ends the sheet, and nothing else learns that state.
+      if (callback.isCompleted ||
+          request.uri.path != '/callback' ||
+          request.uri.queryParameters['state'] != state) {
         response.statusCode = HttpStatus.notFound;
       } else {
         final code = request.uri.queryParameters['code'];
-        if (request.uri.queryParameters['state'] == state &&
-            code != null &&
-            code.isNotEmpty) {
+        if (code != null && code.isNotEmpty) {
           callback.complete(code);
         } else {
           callback.completeError(
-            StateError('Hermes sign-in state did not match.'),
+            StateError('Hermes sign-in returned no code.'),
           );
         }
         response

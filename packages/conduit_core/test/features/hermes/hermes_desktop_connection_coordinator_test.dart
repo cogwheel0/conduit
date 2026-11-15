@@ -222,8 +222,21 @@ void main() {
       ).throws<SocketException>();
     });
 
-    test('a callback with another state fails, and closes the sheet', () async {
-      final sheet = _Sheet(state: 'forged');
+    test('a callback with another state is refused, and the sign-in waits '
+        'for its own', () async {
+      final sheet = _Sheet(strayFirst: true);
+
+      check(await signIn(sheet)).isTrue();
+
+      final (stray, own) = (sheet.answers.first, sheet.answers.last);
+      check(stray.status).equals(HttpStatus.notFound);
+      check(stray.location).isNull();
+      check(own.status).equals(HttpStatus.found);
+      check(gateway.exchangedCodes).deepEquals(['one-time-code']);
+    });
+
+    test('a callback with no code fails, and closes the sheet', () async {
+      final sheet = _Sheet(code: null);
 
       await check(signIn(sheet)).throws<StateError>();
 
@@ -560,15 +573,24 @@ final class _CallbackBrowser implements OpenExternalUrlPort {
 /// redirect Hermes sends it to, and ends where the listener sends it next:
 /// on the app's redirect, it returns that, as the platform does.
 final class _Sheet implements BrowserAuthPort {
-  _Sheet({this.supported = true, this.closedByUser = false, this.state});
+  _Sheet({
+    this.supported = true,
+    this.closedByUser = false,
+    this.strayFirst = false,
+    this.code = 'one-time-code',
+  });
 
   final bool supported;
 
   /// Closed before Hermes redirects, so the listener is never reached.
   final bool closedByUser;
 
-  /// The state Hermes' redirect carries; the page's own when null.
-  final String? state;
+  /// Something else on the device calls the listener, with another state,
+  /// before Hermes redirects.
+  final bool strayFirst;
+
+  /// The code Hermes' redirect carries; none when null.
+  final String? code;
 
   final opened = <Uri>[];
   final redirects = <Uri>[];
@@ -586,20 +608,26 @@ final class _Sheet implements BrowserAuthPort {
     opened.add(url);
     redirects.add(redirectUri);
     if (closedByUser) return const BrowserAuthResult.cancelled();
-    final callback = Uri.parse(url.queryParameters['redirect_uri']!).replace(
-      queryParameters: {
-        'code': 'one-time-code',
-        'state': state ?? url.queryParameters['state']!,
-      },
-    );
+    final listener = Uri.parse(url.queryParameters['redirect_uri']!);
     final client = HttpClient();
-    try {
-      final request = await client.getUrl(callback);
+    Future<String?> call(Map<String, String> query) async {
+      final request = await client.getUrl(
+        listener.replace(queryParameters: query),
+      );
       request.followRedirects = false;
       final response = await request.close();
       await response.drain<void>();
       final location = response.headers.value(HttpHeaders.locationHeader);
       answers.add((status: response.statusCode, location: location));
+      return location;
+    }
+
+    try {
+      if (strayFirst) await call({'code': 'stray-code', 'state': 'forged'});
+      final location = await call({
+        'code': ?code,
+        'state': url.queryParameters['state']!,
+      });
       final landed = Uri.tryParse(location ?? '');
       if (landed == null ||
           landed.scheme != redirectUri.scheme ||

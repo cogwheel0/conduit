@@ -64,6 +64,14 @@ typedef HermesDesktopCredentialsWriter = Future<void> Function(
   HermesDesktopCredentials credentials,
 );
 
+/// A [HermesDesktopCredentialsWriter] refused a token rotation because
+/// another client of the same gateway tokens stored its own first. The
+/// stored tokens are the newer ones; nobody signed out.
+final class HermesTokenRotationSuperseded extends StateError {
+  HermesTokenRotationSuperseded()
+    : super('Another client stored a newer Hermes token rotation.');
+}
+
 ({String? model, String? provider}) hermesDesktopSessionModelSelection(
   String? model,
   String? provider,

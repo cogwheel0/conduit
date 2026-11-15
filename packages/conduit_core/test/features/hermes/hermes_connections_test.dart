@@ -1361,6 +1361,11 @@ void main() {
       // The second client's refresh token is spent; its sign-out after the
       // resulting 401 must not erase the rotated tokens.
       await check(second(HermesDesktopCredentials())).throws<StateError>();
+      // Its own rotation is refused too, as one another client superseded:
+      // nobody signed out.
+      await check(
+        second(_nativeCredentials('refresh-x')),
+      ).throws<HermesTokenRotationSuperseded>();
       check(await storedRefreshToken()).equals('refresh-1');
 
       // The client that rotated keeps persisting its own rotations.

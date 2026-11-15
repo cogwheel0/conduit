@@ -8,6 +8,7 @@ import 'package:conduit_core/auth/auth_state_manager.dart'
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
 import 'package:conduit_core/features/push/services/push_backend.dart';
@@ -24,6 +25,17 @@ import 'package:test/test.dart';
 /// The saved connection's settings, as the Hermes controller hands them out.
 final class _Configs extends HermesConfigController {
   HermesConfig saved = _home;
+
+  /// What a token write throws; none stores it.
+  Object? refusal;
+
+  @override
+  HermesDesktopCredentialsWriter credentialsWriterFor(
+    HermesConfig connection, {
+    bool live = false,
+  }) => (credentials) async {
+    if (refusal case final error?) throw error;
+  };
 
   @override
   HermesConfig build() => const HermesConfig();
@@ -154,54 +166,66 @@ void main() {
 
   // The live client renews the same tokens as the app resumes, and stores
   // its rotation first: this client's is refused, which is no sign-out, and
-  // the tokens it holds still work.
-  test('a Hermes client works on when its rotation is not stored', () async {
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    addTearDown(() => server.close(force: true));
-    final authorizations = <String?>[];
-    server.listen((request) async {
-      request.response.headers.contentType = ContentType.json;
-      switch (request.uri.path) {
-        case '/api/status':
-          request.response.write('{"auth_required":true}');
-        case '/auth/native/refresh':
-          request.response.write(
-            jsonEncode({
-              'access_token': 'fresh-access',
-              'refresh_token': 'fresh-refresh',
-              'expires_at': DateTime.utc(2030).millisecondsSinceEpoch ~/ 1000,
-            }),
-          );
-        case '/api/cron/jobs':
-          authorizations.add(
-            request.headers.value(HttpHeaders.authorizationHeader),
-          );
-          request.response.write('[]');
-        default:
-          request.response.statusCode = HttpStatus.notFound;
-      }
-      await request.response.close();
-    });
-    configs.saved = HermesConfig(
-      enabled: true,
-      connectionId: 'conn-1',
-      baseUrl: 'http://127.0.0.1:${server.port}',
-      mode: HermesBackendMode.desktopGateway,
-      desktopAuthKind: HermesDesktopAuthKind.nativePkce,
-      desktopCredentials: HermesDesktopCredentials(
-        nativeTokens: HermesDesktopTokenSet(
-          accessToken: 'old-access',
-          refreshToken: 'old-refresh',
-          expiresAt: DateTime.utc(2020),
+  // the tokens it holds still work. A sign-out ends the pass.
+  for (final (refusal, worksOn) in [
+    (HermesTokenRotationSuperseded(), true),
+    (StateError('Hermes connection changed before sign-in completed.'), false),
+  ]) {
+    test('a Hermes client whose rotation is refused by '
+        '${refusal.runtimeType} ${worksOn ? 'works on' : 'stops'}', () async {
+      configs.refusal = refusal;
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final authorizations = <String?>[];
+      server.listen((request) async {
+        request.response.headers.contentType = ContentType.json;
+        switch (request.uri.path) {
+          case '/api/status':
+            request.response.write('{"auth_required":true}');
+          case '/auth/native/refresh':
+            request.response.write(
+              jsonEncode({
+                'access_token': 'fresh-access',
+                'refresh_token': 'fresh-refresh',
+                'expires_at': DateTime.utc(2030).millisecondsSinceEpoch ~/ 1000,
+              }),
+            );
+          case '/api/cron/jobs':
+            authorizations.add(
+              request.headers.value(HttpHeaders.authorizationHeader),
+            );
+            request.response.write('[]');
+          default:
+            request.response.statusCode = HttpStatus.notFound;
+        }
+        await request.response.close();
+      });
+      configs.saved = HermesConfig(
+        enabled: true,
+        connectionId: 'conn-1',
+        baseUrl: 'http://127.0.0.1:${server.port}',
+        mode: HermesBackendMode.desktopGateway,
+        desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+        desktopCredentials: HermesDesktopCredentials(
+          nativeTokens: HermesDesktopTokenSet(
+            accessToken: 'old-access',
+            refreshToken: 'old-refresh',
+            expiresAt: DateTime.utc(2020),
+          ),
         ),
-      ),
-    );
+      );
 
-    final service = await factory().openHermesService('conn-1');
-    addTearDown(service.close);
-    check(await service.listJobs()).isEmpty();
-    check(authorizations).deepEquals(['Bearer fresh-access']);
-  });
+      final service = await factory().openHermesService('conn-1');
+      addTearDown(service.close);
+      if (worksOn) {
+        check(await service.listJobs()).isEmpty();
+        check(authorizations).deepEquals(['Bearer fresh-access']);
+      } else {
+        await check(service.listJobs()).throws<Object>();
+        check(authorizations).isEmpty();
+      }
+    });
+  }
 
   test('without the old settings, the old target is refused', () async {
     await edit();

@@ -573,9 +573,13 @@ class HermesConfigController extends Notifier<HermesConfig> {
           ) ||
           stored.mode != connection.mode ||
           stored.allowSelfSignedCertificates !=
-              connection.allowSelfSignedCertificates ||
-          stored.desktopCredentials?.nativeTokens?.refreshToken !=
-              expectedRefreshToken) {
+              connection.allowSelfSignedCertificates) {
+        throw StateError('Hermes connection changed before sign-in completed.');
+      }
+      final storedRefreshToken =
+          stored.desktopCredentials?.nativeTokens?.refreshToken;
+      if (storedRefreshToken != expectedRefreshToken) {
+        if (storedRefreshToken != null) throw HermesTokenRotationSuperseded();
         throw StateError('Hermes connection changed before sign-in completed.');
       }
       final previous = stored.desktopCredentials;

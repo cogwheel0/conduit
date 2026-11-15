@@ -222,18 +222,17 @@ final class AppPushBackendFactory implements PushBackendFactory {
       dashboardBridgeFactory: _ref.read(
         hostHermesDashboardBridgeFactoryProvider,
       ),
-      // A refused write means another client stored its rotation first, as
-      // the live one does renewing the same tokens on resume, or a sign-out
-      // came first: the stored tokens stay theirs, and the ones this client
-      // holds still serve its one pass. Not a sign-out of its own.
+      // Another client storing its rotation first, as the live one does
+      // renewing the same tokens on resume, is no sign-out: the stored tokens
+      // stay theirs, and the ones this client holds still serve its one pass.
+      // A sign-out, or a write that failed, ends the pass.
       onCredentialsChanged: (credentials) async {
         try {
           await writeCredentials(credentials);
-        } catch (error) {
+        } on HermesTokenRotationSuperseded {
           DebugLogger.warning(
-            'hermes-token-rotation-not-stored',
+            'hermes-token-rotation-superseded',
             scope: 'push/backend',
-            data: {'errorType': error.runtimeType.toString()},
           );
         }
       },
