@@ -323,21 +323,27 @@ async fn launch(config: &SupervisorConfig, log: &SharedLog) -> std::io::Result<R
             }
         });
     }
-    if let Some(stderr) = child.stderr.take() {
+    let stderr_reader = child.stderr.take().map(|stderr| {
         let log = log.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 log_line(&log, &line);
             }
-        });
-    }
+        })
+    });
     let (exit_tx, exit) = oneshot::channel();
     tokio::spawn(async move {
         let info = match child.wait().await {
             Ok(status) => ExitInfo::from_status(status),
             Err(_) => ExitInfo::Unknown,
         };
+        // The daemon's last stderr lines (why it stopped) reach the log before
+        // its exit is reported. The pipe closes with the process, so this is
+        // quick; the bound covers a grandchild that kept the pipe open.
+        if let Some(reader) = stderr_reader {
+            let _ = timeout(Duration::from_millis(500), reader).await;
+        }
         let _ = exit_tx.send(info);
     });
     Ok(Running {

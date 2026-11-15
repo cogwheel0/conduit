@@ -27,6 +27,9 @@ case "$FAKE_MODE" in
     echo "hello from stderr" >&2
     # Stops when stdin closes, like conduitd.
     while IFS= read -r rest; do :; done
+    # A burst on the way out: the last line must still reach the log
+    # before the exit is reported.
+    i=0; while [ $i -lt 2000 ]; do echo "closing $i" >&2; i=$((i+1)); done
     echo "stdin closed" >&2
     exit 0 ;;
   term)
@@ -37,7 +40,7 @@ case "$FAKE_MODE" in
     trap '' TERM
     echo '{"ready":true,"port":4242}'
     while :; do sleep 0.05; done ;;
-  silent) sleep 30 ;;
+  silent) exec sleep 30 ;;
 esac
 "#;
 
@@ -243,7 +246,10 @@ async fn stop_escalates_to_sigkill() {
 
 #[tokio::test]
 async fn no_ready_line_in_time_counts_as_a_failed_start() {
-    let (config, dir) = setup("silent", "silent");
+    let (mut config, dir) = setup("silent", "silent");
+    // The restart waits until stop(), so the count can't move before it is read.
+    config.policy.base_delay = Duration::from_secs(3600);
+    config.policy.max_delay = Duration::from_secs(3600);
     let (sup, mut rx) = Supervisor::spawn(config, &tokio::runtime::Handle::current());
     let seen = until(&mut rx, |e| matches!(e, SupervisorEvent::Restarting { .. })).await;
     assert!(seen.iter().any(|e| matches!(

@@ -350,6 +350,19 @@ impl RpcClient {
     }
 }
 
+/// A write the daemon does not take within `limit` counts as a dead socket,
+/// as an unanswered ping does: the session's deadlines, pings and shutdown
+/// must not wait on a daemon that stopped reading.
+async fn bounded<T, E: std::fmt::Display>(
+    limit: Duration,
+    write: impl std::future::Future<Output = Result<T, E>>,
+) -> Result<T, String> {
+    match timeout(limit, write).await {
+        Ok(result) => result.map_err(|e| e.to_string()),
+        Err(_) => Err(format!("the daemon took no data for {limit:?}")),
+    }
+}
+
 /// Why a connect failed when the daemon selected `selected`. The error is
 /// logged and shown, so a token entry the daemon echoed is never quoted.
 fn refused_subprotocol(selected: &str) -> String {
@@ -622,9 +635,11 @@ impl Connection {
         // Handshake: the first frame of every session.
         let hs_id = self.id();
         let params = self.config.handshake_params();
-        if let Err(e) = sink
-            .send(Self::request_frame(hs_id, "system.handshake", &params))
-            .await
+        if let Err(e) = bounded(
+            self.config.ping_timeout,
+            sink.send(Self::request_frame(hs_id, "system.handshake", &params)),
+        )
+        .await
         {
             return End::Lost {
                 error: e.to_string(),
@@ -682,10 +697,12 @@ impl Connection {
         let mut inflight: HashMap<u64, Inflight> = HashMap::new();
         if let Some(sub) = self.subscription.clone() {
             let id = self.id();
-            if sink
-                .send(Self::request_frame(id, "events.subscribe", &sub))
-                .await
-                .is_err()
+            if bounded(
+                self.config.ping_timeout,
+                sink.send(Self::request_frame(id, "events.subscribe", &sub)),
+            )
+            .await
+            .is_err()
             {
                 return End::Lost {
                     error: "closed while subscribing".into(),
@@ -715,7 +732,7 @@ impl Connection {
                         if let Ok(v) = serde_json::from_str::<Value>(text.as_str())
                             && let Some(reply) =
                                 self.on_message(v, &mut inflight, &mut last_seq, &mut unanswered_since)
-                            && sink.send(reply).await.is_err()
+                            && bounded(self.config.ping_timeout, sink.send(reply)).await.is_err()
                         {
                             return self.lost(inflight, "closed".into());
                         }
@@ -735,14 +752,14 @@ impl Connection {
                     Some(Cmd::Subscribe(sub)) => {
                         self.subscription = Some(sub.clone());
                         let id = self.id();
-                        if sink.send(Self::request_frame(id, "events.subscribe", &sub)).await.is_err() {
+                        if bounded(self.config.ping_timeout, sink.send(Self::request_frame(id, "events.subscribe", &sub))).await.is_err() {
                             return self.lost(inflight, "closed while subscribing".into());
                         }
                         inflight.insert(id, Inflight::Internal("events.subscribe"));
                     }
                     Some(Cmd::Retry) => {}
                     Some(Cmd::Shutdown) | None => {
-                        let _ = sink.send(Message::Close(None)).await;
+                        let _ = timeout(self.config.ping_timeout, sink.send(Message::Close(None))).await;
                         for (_, f) in inflight.drain() {
                             if let Inflight::User(call) = f {
                                 call.finish(Err(closed_error()));
@@ -756,7 +773,7 @@ impl Connection {
                         return End::Shutdown;
                     }
                     if *self.endpoint.borrow() != Some(port) {
-                        let _ = sink.send(Message::Close(None)).await;
+                        let _ = timeout(self.config.ping_timeout, sink.send(Message::Close(None))).await;
                         self.lost(inflight, "the daemon restarted".into());
                         return End::EndpointChanged;
                     }
@@ -774,7 +791,7 @@ impl Connection {
                     if now.duration_since(last_ping) >= self.config.ping_interval {
                         last_ping = now;
                         let id = self.id();
-                        if sink.send(Self::request_frame(id, "system.ping", &Value::Null)).await.is_err() {
+                        if bounded(self.config.ping_timeout, sink.send(Self::request_frame(id, "system.ping", &Value::Null))).await.is_err() {
                             return self.lost(inflight, "closed".into());
                         }
                         inflight.insert(id, Inflight::Ping);
@@ -819,7 +836,7 @@ impl Connection {
     }
 
     /// Sends one call. Past its deadline it is answered as timed out and not
-    /// written. If the sink refuses it before taking the frame, it goes back
+    /// written. Each step of the write is bounded by the ping timeout. If the sink refuses it before taking the frame, it goes back
     /// to the front of the queue for the next session. Once the frame is
     /// handed over, a failed write may still have reached the daemon, so the
     /// call fails (`transport.disconnected`) and is never sent again: the
@@ -839,15 +856,16 @@ impl Connection {
             call.finish(Err(e));
             return Ok(());
         }
-        if let Err(e) = std::future::poll_fn(|cx| sink.poll_ready_unpin(cx)).await {
+        let limit = self.config.ping_timeout;
+        if let Err(e) = bounded(limit, std::future::poll_fn(|cx| sink.poll_ready_unpin(cx))).await {
             self.queue.push_front(call);
-            return Err(e.to_string());
+            return Err(e);
         }
         let id = self.id();
         let frame = Self::request_frame(id, &call.method, &call.params);
         let written = match sink.start_send_unpin(frame) {
-            Ok(()) => std::future::poll_fn(|cx| sink.poll_flush_unpin(cx)).await,
-            Err(e) => Err(e),
+            Ok(()) => bounded(limit, std::future::poll_fn(|cx| sink.poll_flush_unpin(cx))).await,
+            Err(e) => Err(e.to_string()),
         };
         match written {
             Ok(()) => {
@@ -856,7 +874,7 @@ impl Connection {
             }
             Err(e) => {
                 call.finish(Err(disconnected_error()));
-                Err(e.to_string())
+                Err(e)
             }
         }
     }
@@ -1000,6 +1018,8 @@ mod tests {
         frames: Vec<String>,
         refuse_ready_at: Option<usize>,
         fail_flush_at: Option<usize>,
+        /// Never finishes writing frame n out (a daemon that stopped reading).
+        stall_flush_at: Option<usize>,
     }
 
     impl futures_util::Sink<Message> for FakeSink {
@@ -1027,6 +1047,12 @@ mod tests {
             self: std::pin::Pin<&mut Self>,
             _: &mut std::task::Context<'_>,
         ) -> std::task::Poll<Result<(), String>> {
+            if self
+                .stall_flush_at
+                .is_some_and(|n| self.frames.len() == n + 1)
+            {
+                return std::task::Poll::Pending;
+            }
             let failed = self
                 .fail_flush_at
                 .is_some_and(|n| self.frames.len() == n + 1);
@@ -1172,6 +1198,28 @@ mod tests {
             rb.try_recv(),
             Err(oneshot::error::TryRecvError::Empty)
         ));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_write_the_daemon_never_takes_fails_the_call_after_the_ping_timeout() {
+        let mut conn = connection();
+        let (a, mut ra) = live("notes.save");
+        conn.queue.push_back(a);
+        let mut sink = FakeSink {
+            stall_flush_at: Some(0),
+            ..Default::default()
+        };
+        let mut inflight = HashMap::new();
+        // Paused time: the runtime jumps to the next timer once idle. Without
+        // the bound the hour runs out first.
+        let flushed = tokio::time::timeout(
+            Duration::from_secs(3600),
+            conn.flush_queue(&mut sink, &mut inflight),
+        )
+        .await;
+        assert!(matches!(flushed, Ok(Err(_))), "{flushed:?}");
+        assert_eq!(code(&mut ra), codes::DISCONNECTED);
+        assert!(conn.queue.is_empty());
     }
 
     #[test]

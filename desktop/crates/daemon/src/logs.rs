@@ -55,6 +55,11 @@ impl RotatingLog {
 
     fn rotate(&mut self) -> io::Result<()> {
         self.file = None;
+        // An earlier rotation renamed the file but could not reopen it: start
+        // a new one instead of shifting the old ones again.
+        if !self.path().exists() {
+            return self.reopen();
+        }
         // Oldest first, so each rename lands on a free (or the oldest) name.
         for n in (1..self.keep).rev() {
             let from = self.rolled(n);
@@ -116,5 +121,24 @@ mod tests {
         assert!(dir.join("t.2.log").exists());
         assert!(!dir.join("t.3.log").exists());
         assert!(std::fs::metadata(log.path()).unwrap().len() <= 1024 + 301);
+    }
+
+    #[test]
+    fn a_rotation_that_could_not_reopen_starts_a_new_file() {
+        let dir = std::env::temp_dir().join(format!("conduit-logs-reopen-{}", std::process::id()));
+        let mut log = RotatingLog::open(&dir, "t", 1024, 2).unwrap();
+        for _ in 0..4 {
+            log.write_line(&[b'x'; 300]).unwrap();
+        }
+        // As after a rotation that renamed the file but could not reopen it.
+        std::fs::remove_file(log.path()).unwrap();
+        log.write_line(b"after").unwrap();
+        log.flush().unwrap();
+        assert!(
+            std::fs::read_to_string(log.path())
+                .unwrap()
+                .contains("after")
+        );
+        assert!(!dir.join("t.1.log").exists(), "nothing shifted");
     }
 }

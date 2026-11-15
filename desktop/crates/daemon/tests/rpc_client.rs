@@ -336,9 +336,11 @@ async fn an_unanswered_ping_means_dead() {
     )
     .await;
     let (client, mut rx) = RpcClient::start(fast_config(), &tokio::runtime::Handle::current());
+    // Started before the session, so the time measured can only be longer
+    // than the client's own: the lower bound holds whatever the scheduling.
+    let started = std::time::Instant::now();
     client.set_endpoint(Some(fake.port));
     wait_state(&mut rx, connected).await;
-    let started = std::time::Instant::now();
     let s = wait_state(&mut rx, |s| {
         matches!(s, ConnectionState::Reconnecting { .. })
     })
