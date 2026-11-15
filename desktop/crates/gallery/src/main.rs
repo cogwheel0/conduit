@@ -188,7 +188,10 @@ fn main() {
     }
     let mode = if let Some(dir) = arg(&args, "--all") {
         let dir = PathBuf::from(dir);
-        std::fs::create_dir_all(&dir).expect("create output dir");
+        if let Err(e) = output_dir(&dir) {
+            eprintln!("FAILED: {e}");
+            std::process::exit(1);
+        }
         // Iteration filters: --only a,b  --palettes conduit  --modes light  --no-variants
         let list =
             |k: &str| arg(&args, k).map(|v| v.split(',').map(str::to_string).collect::<Vec<_>>());
@@ -362,6 +365,12 @@ impl Render for Backdrop {
                     .bg(gpui_kit::Hsla::from(rgb(c)).opacity(0.55)),
             )
     }
+}
+
+/// Creates `--all`'s output folder (an existing file there, or no write
+/// access, is an error the run reports).
+fn output_dir(dir: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))
 }
 
 /// Writes the run's index of images, as pretty JSON.
@@ -618,6 +627,16 @@ async fn a11y_job(job: &Job, accent: gpui_kit::Hsla, cx: &mut AsyncApp) -> a11y:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_output_folder_that_cannot_be_made_is_an_error() {
+        // A folder inside a file cannot be created.
+        let under_a_file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("Cargo.toml")
+            .join("shots");
+        let error = output_dir(&under_a_file).unwrap_err();
+        assert!(error.contains("shots"), "{error}");
+    }
 
     #[test]
     fn an_index_that_cannot_be_written_is_an_error() {
