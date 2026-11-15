@@ -32,6 +32,9 @@
 #                    default 8150)
 #   --model-port N   the fake model's port (CONDUIT_OWUI_MODEL_PORT)
 #   --hermes-port N  the fake Hermes server's port (CONDUIT_OWUI_HERMES_PORT)
+#   --terminal-port N  the fake Open Terminal's port, the server's port + 3
+#                    by default (CONDUIT_OWUI_TERMINAL_PORT); Open WebUI
+#                    offers it as the "Build box" terminal
 #
 #   CONDUIT_DEV_CACHE    the cache root (~/Library/Caches/conduit-dev on
 #                        macOS, ${XDG_CACHE_HOME:-~/.cache}/conduit-dev elsewhere)
@@ -59,6 +62,7 @@ DIR=${CONDUIT_OWUI_DIR:-$CACHE/local-owui}
 PORT=${CONDUIT_OWUI_PORT:-}
 MODEL_PORT=${CONDUIT_OWUI_MODEL_PORT:-}
 HERMES_PORT=${CONDUIT_OWUI_HERMES_PORT:-}
+TERMINAL_PORT=${CONDUIT_OWUI_TERMINAL_PORT:-}
 
 command=${1:-}
 [ $# -gt 0 ] && shift
@@ -76,6 +80,7 @@ while [ $# -gt 0 ]; do
     --port) PORT=$2; shift 2 ;;
     --model-port) MODEL_PORT=$2; shift 2 ;;
     --hermes-port) HERMES_PORT=$2; shift 2 ;;
+    --terminal-port) TERMINAL_PORT=$2; shift 2 ;;
     -*) echo "unknown option: $1" >&2; exit 64 ;;
     *)
       if { [ "$command" != chat ] && [ "$command" != showcase ] && [ "$command" != tool-permissions ]; } || [ -n "$ARG2" ]; then
@@ -99,24 +104,29 @@ if [ -z "$MODEL_PORT" ] && [ -f "$STATE/model_port" ]; then MODEL_PORT=$(cat "$S
 MODEL_PORT=${MODEL_PORT:-$((PORT + 1))}
 if [ -z "$HERMES_PORT" ] && [ -f "$STATE/hermes_port" ]; then HERMES_PORT=$(cat "$STATE/hermes_port"); fi
 HERMES_PORT=${HERMES_PORT:-$((PORT + 2))}
+if [ -z "$TERMINAL_PORT" ] && [ -f "$STATE/terminal_port" ]; then TERMINAL_PORT=$(cat "$STATE/terminal_port"); fi
+TERMINAL_PORT=${TERMINAL_PORT:-$((PORT + 3))}
 URL=http://127.0.0.1:$PORT
 
 # Pid files and the identity of what they name: tool/local_owui/pids.sh.
 . "$TOOL_DIR/pids.sh"
 
-# Whether NAME (server, fake_model or fake_hermes) is running: the process
-# its pid file names, and no other one that took its pid since.
+# Whether NAME (server, fake_model, fake_hermes or fake_terminal) is
+# running: the process its pid file names, and no other one that took its pid
+# since.
 alive() { pid_alive "$STATE/$1.pid"; }
 
 # A running instance keeps the ports it was started on: a different --port,
-# --model-port or --hermes-port would point seed and chat at whatever
-# listens there instead. Only stopping (reset stops first) may change them.
+# --model-port, --hermes-port or --terminal-port would point seed and chat at
+# whatever listens there instead. Only stopping (reset stops first) may
+# change them.
 if alive server; then
-  for kind in port model_port hermes_port; do
+  for kind in port model_port hermes_port terminal_port; do
     case $kind in
       port) wanted=$PORT ;;
       model_port) wanted=$MODEL_PORT ;;
       hermes_port) wanted=$HERMES_PORT ;;
+      terminal_port) wanted=$TERMINAL_PORT ;;
     esac
     [ -f "$STATE/$kind" ] || continue
     running=$(cat "$STATE/$kind")
@@ -202,11 +212,12 @@ start() {
     echo "already running at $(cat "$STATE/url")"
     return
   fi
-  local started_model= started_hermes=
+  local started_model= started_hermes= started_terminal=
   need_free_port server "$PORT"
   alive fake_model || need_free_port 'fake model' "$MODEL_PORT"
   if command -v dart >/dev/null 2>&1; then
     alive fake_hermes || need_free_port 'fake Hermes' "$HERMES_PORT"
+    alive fake_terminal || need_free_port 'fake terminal' "$TERMINAL_PORT"
   fi
   mkdir -p "$DATA" "$STATE"
   chmod 700 "$STATE"
@@ -216,9 +227,13 @@ start() {
   echo "$PORT" > "$STATE/port"
   echo "$MODEL_PORT" > "$STATE/model_port"
   echo "$HERMES_PORT" > "$STATE/hermes_port"
+  echo "$TERMINAL_PORT" > "$STATE/terminal_port"
   echo "$URL" > "$STATE/url"
   if [ ! -s "$STATE/hermes_key" ]; then
     (umask 077 && "$VENV/bin/python" -I -c 'import secrets; print(secrets.token_urlsafe(24))' > "$STATE/hermes_key")
+  fi
+  if [ ! -s "$STATE/terminal_key" ]; then
+    (umask 077 && "$VENV/bin/python" -I -c 'import secrets; print(secrets.token_urlsafe(24))' > "$STATE/terminal_key")
   fi
 
   if ! alive fake_model; then
@@ -245,6 +260,22 @@ start() {
     fi
   fi
 
+  # The daemon tests' fake Open Terminal in its interactive mode: a shell,
+  # files, a dev server on port 5173, live events, a display_file tool and a
+  # Computer desktop. Open WebUI offers it as a system terminal.
+  if ! alive fake_terminal; then
+    if command -v dart >/dev/null 2>&1; then
+      echo '{"configVersion":2,"packages":[]}' > "$STATE/no_packages.json"
+      nohup dart --packages="$STATE/no_packages.json" "$TOOL_DIR/fake_terminal.dart" \
+        --port "$TERMINAL_PORT" --key "$(cat "$STATE/terminal_key")" \
+        > "$STATE/fake_terminal.log" 2>&1 &
+      pid_record "$STATE/fake_terminal.pid" $!
+      started_terminal=1
+    else
+      echo "no dart on PATH: the fake terminal is not started" >&2
+    fi
+  fi
+
   # The server writes a few files into its working directory.
   (
     cd "$STATE"
@@ -268,6 +299,8 @@ start() {
       ENABLE_TOOL_CALL_LABELS=true \
       ENABLE_DIRECT_CONNECTIONS=true \
       TOOL_SERVER_CONNECTIONS="[{\"type\":\"mcp\",\"url\":\"http://127.0.0.1:$MODEL_PORT/mcp\",\"path\":\"\",\"auth_type\":\"none\",\"key\":\"\",\"config\":{\"enable\":true},\"info\":{\"id\":\"harbour\",\"name\":\"Harbour\",\"description\":\"A synthetic MCP server with one app.\"}}]" \
+      ENABLE_TOOL_SERVERS=true \
+      TERMINAL_SERVER_CONNECTIONS="[{\"id\":\"buildbox\",\"name\":\"Build box\",\"url\":\"http://127.0.0.1:$TERMINAL_PORT\",\"auth_type\":\"bearer\",\"key\":\"$(cat "$STATE/terminal_key")\",\"enabled\":true,\"config\":{}}]" \
       ENABLE_CHANNELS=true \
       ENABLE_APPS=true \
       ENABLE_LOCAL_WEB_FETCH=true \
@@ -324,6 +357,13 @@ start() {
       silent="${silent:+$silent, }fake Hermes on $HERMES_PORT"
     fi
   fi
+  if [ -n "$started_terminal" ]; then
+    if wait_listening 'fake terminal' "$TERMINAL_PORT"; then
+      pid_refresh "$STATE/fake_terminal.pid"
+    else
+      silent="${silent:+$silent, }fake terminal on $TERMINAL_PORT"
+    fi
+  fi
   if [ -n "$silent" ]; then
     echo "running at $URL, but not listening: $silent (see $STATE)"
   else
@@ -352,7 +392,7 @@ seed() {
 }
 
 stop() {
-  for name in server fake_model fake_hermes; do
+  for name in server fake_model fake_hermes fake_terminal; do
     case $(pid_stop "$STATE/$name.pid") in
       stopped) echo "stopped $name" ;;
       killed) echo "stopped $name (killed)" ;;
@@ -425,7 +465,7 @@ set_aside() {
 }
 
 status() {
-  for name in server fake_model fake_hermes; do
+  for name in server fake_model fake_hermes fake_terminal; do
     if alive "$name"; then
       echo "$name: running (pid $(pid_of "$STATE/$name.pid"))"
     else
@@ -435,6 +475,7 @@ status() {
   echo "url: $URL"
   echo "fake model: http://127.0.0.1:$MODEL_PORT/v1"
   echo "fake Hermes: http://127.0.0.1:$HERMES_PORT/v1"
+  echo "fake terminal: http://127.0.0.1:$TERMINAL_PORT (Build box)"
   if [ -f "$STATE/seeded" ]; then echo "seeded: $(cat "$STATE/seeded")"; else echo "seeded: no"; fi
   echo "env file: $ENV_FILE"
 }

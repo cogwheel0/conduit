@@ -34,7 +34,11 @@ void main() {
     upstream.listen((request) async {
       asked.add(request.uri.path);
       await request.drain<void>();
-      if (request.uri.path.endsWith('/moved')) {
+      if (request.uri.path.endsWith('/inside')) {
+        request.response
+          ..statusCode = HttpStatus.found
+          ..headers.set(HttpHeaders.locationHeader, '$prefix/next?a=1');
+      } else if (request.uri.path.endsWith('/moved')) {
         request.response
           ..statusCode = HttpStatus.found
           ..headers.set(
@@ -91,7 +95,35 @@ void main() {
   test('a redirect goes to the browser, not on with the credential', () async {
     final response = await visit('/moved');
     expect(response.statusCode, HttpStatus.found);
+    expect(
+      response.headers.value(HttpHeaders.locationHeader),
+      'http://127.0.0.1:${elsewhere.port}/api/v1/auths/',
+    );
     expect(elsewhereGot, isEmpty);
+  });
+
+  test('a redirect into the port stays on the preview', () async {
+    final response = await visit('/inside');
+    expect(response.statusCode, HttpStatus.found);
+    expect(response.headers.value(HttpHeaders.locationHeader), '/next?a=1');
+    expect(asked, <String>['$prefix/inside']);
+  });
+
+  test('a first visit lands where it asks, and still not out of the port',
+      () async {
+    Future<String?> land(String to) async {
+      final entry = await (await browser.getUrl(
+        Uri.parse(preview.entryUrl).replace(queryParameters: {'to': to}),
+      )..followRedirects = false).close();
+      await entry.drain<void>();
+      return entry.headers.value(HttpHeaders.locationHeader);
+    }
+
+    expect(await land('/docs?page=2'), '/docs?page=2');
+    expect(await land('//elsewhere.test/x'), '/');
+    final climb = await land('/..%252F..%252Ffiles/read');
+    expect((await visit(climb!)).statusCode, HttpStatus.badRequest);
+    expect(asked, isEmpty);
   });
 
   test('a path that would climb out of the port is refused', () async {
@@ -147,5 +179,54 @@ void main() {
       previewPathAllowed(Uri.parse('http://127.0.0.1/assets/app%20v2.js')),
       isTrue,
     );
+  });
+
+  group('the preview helpers', () {
+    final upstream = Uri.parse(
+      'https://chat.example.test/api/v1/terminals/box/proxy/5173/',
+    );
+    const boxPrefix = '/api/v1/terminals/box/proxy/5173';
+
+    test('land where the first visit asks, on its own host only', () {
+      expect(previewLanding(null), '/');
+      expect(previewLanding('/docs?page=2'), '/docs?page=2');
+      expect(previewLanding('https://elsewhere.test/'), '/');
+      expect(previewLanding('//elsewhere.test/x'), '/');
+      expect(previewLanding(r'/\elsewhere.test'), '/');
+      expect(previewLanding('docs'), '/');
+    });
+
+    test('drop the proxy prefix Open WebUI wrote into a page', () {
+      expect(previewUpstreamPath('/about', boxPrefix), '/about');
+      expect(
+        previewUpstreamPath('$boxPrefix/style.css', boxPrefix),
+        '/style.css',
+      );
+      expect(previewUpstreamPath(boxPrefix, boxPrefix), '/');
+      expect(
+        previewUpstreamPath('${boxPrefix}0/x', boxPrefix),
+        '${boxPrefix}0/x',
+      );
+    });
+
+    test('keep a redirect into the port on the preview', () {
+      expect(
+        previewLocation('$boxPrefix/next?a=1#b', upstream, boxPrefix),
+        '/next?a=1#b',
+      );
+      expect(previewLocation('/login', upstream, boxPrefix), '/login');
+      expect(
+        previewLocation(
+          'https://chat.example.test$boxPrefix/',
+          upstream,
+          boxPrefix,
+        ),
+        '/',
+      );
+      expect(
+        previewLocation('https://id.example.test/sign-in', upstream, boxPrefix),
+        'https://id.example.test/sign-in',
+      );
+    });
   });
 }

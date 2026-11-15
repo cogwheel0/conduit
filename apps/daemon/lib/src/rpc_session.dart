@@ -28,6 +28,7 @@ import 'valves_service.dart';
 import 'ui_requests_service.dart';
 import 'workspace_service.dart';
 import 'terminals_service.dart';
+import 'computer_rpc_service.dart';
 import 'handoff_service.dart';
 import 'automations_service.dart';
 import 'calendar_service.dart';
@@ -73,6 +74,7 @@ final class CoreServices {
     this.channels,
     this.workspace,
     this.terminals,
+    this.computer,
     this.hermes,
     this.voice,
     this.dictation,
@@ -115,6 +117,7 @@ final class CoreServices {
   final ChannelsService? channels;
   final WorkspaceService? workspace;
   final TerminalsService? terminals;
+  final ComputerRpcService? computer;
   final HermesService? hermes;
   final VoiceService? voice;
 
@@ -215,6 +218,7 @@ class RpcSession {
   ChannelsService? get _channels => _services().channels;
   WorkspaceService? get _workspace => _services().workspace;
   TerminalsService? get _terminals => _services().terminals;
+  ComputerRpcService? get _computer => _services().computer;
   HermesService? get _hermes => _services().hermes;
   VoiceService? get _voice => _services().voice;
   DictationService? get _dictation => _services().dictation;
@@ -1198,6 +1202,37 @@ class RpcSession {
       ConduitMethodSpecs.terminalPreviewPort,
       (p) => _requireTerminals().previewPort(p),
     );
+    _on(
+      ConduitMethodSpecs.terminalWatch,
+      (p) async => _requireTerminals().watch(p),
+    );
+    _on(ConduitMethodSpecs.terminalDetach, (p) async {
+      await _requireTerminals().detach(p.handle);
+      return ok;
+    });
+
+    // computer.*.
+    _on(
+      ConduitMethodSpecs.computerStatus,
+      (p) => _requireComputer().status(p.chatId),
+    );
+    _on(ConduitMethodSpecs.computerOpen, (p) => _requireComputer().open(p));
+    _on(
+      ConduitMethodSpecs.computerTabs,
+      (p) => _requireComputer().tabs(p.chatId),
+    );
+    _on(ConduitMethodSpecs.computerCloseTab, (p) async {
+      await _requireComputer().closeTab(p);
+      return ok;
+    });
+    _on(ConduitMethodSpecs.computerShortcut, (p) async {
+      await _requireComputer().shortcut(p);
+      return ok;
+    });
+    _on(ConduitMethodSpecs.computerClose, (p) async {
+      await _requireComputer().close(p.handle);
+      return ok;
+    });
 
     // workspace.*.
     _on(
@@ -1447,6 +1482,13 @@ class RpcSession {
 
   TerminalsService _requireTerminals() =>
       _terminals ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  ComputerRpcService _requireComputer() =>
+      _computer ??
       (throw const RpcError(
         code: ConduitErrorCodes.daemonUnavailable,
         debugMessage: 'the core is not up yet',

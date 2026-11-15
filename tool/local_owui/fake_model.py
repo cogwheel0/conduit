@@ -17,6 +17,9 @@ offers three models:
     tool permissions ask for any call that does not say);
   - "tool" (direct mode): a call to `web_fetch` for a URL not in the
     message, which the app must refuse;
+  - "display" with a terminal selected: a call to the terminal's
+    `display_file` for `/home/demo/notes.txt` (which Open WebUI turns into
+    a `terminal:display_file` event), then a short answer;
   - "ask me": a call to Open WebUI's `ask_user` with two questions, then,
     answered, "You chose X and Y.";
   - "plan the tasks": a call to `create_tasks` with three tasks, then a
@@ -922,6 +925,7 @@ class Handler(BaseHTTPRequestHandler):
         planned = called(after_user, 'create_tasks')
         ferry = fake_direct.ferry_tool(tool_names)
         ferried = tool_result(after_user, ferry) if ferry else None
+        displayed = called(after_user, 'display_file')
 
         reasoning = None
         call = None
@@ -953,6 +957,8 @@ class Handler(BaseHTTPRequestHandler):
             text = f'The ferry tool says: {ferried}'
         elif planned:
             text = 'The plan is ready: one task done, one under way.'
+        elif displayed:
+            text = 'The notes are open beside the chat.'
         elif fetch_answered:
             text = 'The page was not fetched, as expected: it was not in your message.'
         elif clock_answered:
@@ -971,6 +977,10 @@ class Handler(BaseHTTPRequestHandler):
             text = ''
         elif 'plan the tasks' in lower and 'create_tasks' in tool_names:
             call = tool_call('create_tasks', server_fields(tools, 'create_tasks', {'tasks': TASKS}))
+            text = ''
+        elif 'display' in lower and 'display_file' in tool_names:
+            call = tool_call('display_file', server_fields(
+                tools, 'display_file', {'path': '/home/demo/notes.txt'}))
             text = ''
         elif 'alerts' in lower:
             text = ALERTS

@@ -3498,6 +3498,12 @@ final class TurnsService implements ChatTurns {
     scope
         .read(hermesFastTierSelectionProvider.notifier)
         .set(_container.read(hermesFastTierSelectionProvider));
+    // The terminal chats use (`terminal.select`, the composer's Terminal
+    // section) is the account's, as on mobile: the chat's scope starts
+    // with none of its own.
+    scope
+        .read(selectedTerminalIdProvider.notifier)
+        .set(_container.read(selectedTerminalIdProvider));
   }
 
   /// The Hermes agent cards (`hermes.*` work and decisions), told about

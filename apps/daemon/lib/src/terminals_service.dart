@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:conduit_core/features/terminal/controllers/terminal_events_watcher.dart';
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit_core/features/terminal/services/terminal_port_preview.dart';
@@ -10,11 +11,13 @@ import 'package:conduit_core/features/terminal/services/terminal_service.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/network/conduit_user_agent.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import 'event_bus.dart';
 import 'log.dart';
 
 /// The chat scope the terminal page uses when no chat is open, as mobile's
@@ -23,13 +26,29 @@ const String _pageScope = 'sidebar-terminal';
 
 /// One terminal server in one scope, as a window refers to it.
 final class _Handle {
-  _Handle(this.server, this.scopeId);
+  _Handle(this.server, this.scopeId, this.features);
 
   final TerminalServerInfo server;
   final String scopeId;
+  final TerminalServerFeatures features;
 
   /// Port previews already serving, by port.
   final Map<int, PortPreview> previews = <int, PortPreview>{};
+
+  /// The events sockets keeping the watched directory and the ports live
+  /// (`terminal.watch`): files first, then ports. Empty until watched.
+  final List<TerminalEventsWatcher> watchers = <TerminalEventsWatcher>[];
+
+  Future<void> close() async {
+    for (final watcher in watchers) {
+      watcher.stop();
+    }
+    watchers.clear();
+    for (final preview in previews.values) {
+      await preview.close();
+    }
+    previews.clear();
+  }
 }
 
 /// Implements `terminal.*`, `WS /terminal/{handle}` and
@@ -41,12 +60,14 @@ final class _Handle {
 /// shell's socket -- whose first frame is the credential -- and port
 /// previews.
 final class TerminalsService {
-  TerminalsService(this._container, {DaemonLog? log}) : _log = log {
-    // A handle, and every preview it opened, belongs to the account it was
-    // attached under: a system terminal's base and its token are that
-    // account's. When the account changes they go, so an old handle cannot
-    // pair one account's server with another's token, and no preview goes
-    // on sending a credential after its sign-out.
+  TerminalsService(this._container, {DaemonLog? log, EventBus? events})
+    : _log = log,
+      _events = events {
+    // A handle, and every preview and watch it opened, belongs to the
+    // account it was attached under: a system terminal's base and its token
+    // are that account's. When the account changes they go, so an old handle
+    // cannot pair one account's server with another's token, and no preview
+    // goes on sending a credential after its sign-out.
     _accountWatch = _container.listen<Object?>(
       openWebUiAuthSessionEpochProvider,
       (previous, next) => unawaited(_closeHandles()),
@@ -55,6 +76,7 @@ final class TerminalsService {
 
   final ProviderContainer _container;
   final DaemonLog? _log;
+  final EventBus? _events;
   late final ProviderSubscription<Object?> _accountWatch;
   final Map<String, _Handle> _handles = <String, _Handle>{};
   final Random _random = Random.secure();
@@ -144,10 +166,8 @@ final class TerminalsService {
       );
     }
     final service = _service();
-    final supported = (await service.getFeatures(
-      server,
-      sessionScopeId: scope,
-    )).terminal;
+    final features = await service.getFeatures(server, sessionScopeId: scope);
+    final supported = features.terminal;
     final cwd = supported
         ? await _guard(() => service.getCwd(server, sessionScopeId: scope))
         : null;
@@ -155,7 +175,7 @@ final class TerminalsService {
     // for that change has run, so this handle would outlive it.
     _requireSession(session);
     final handle = _newKey();
-    _handles[handle] = _Handle(server, scope);
+    _handles[handle] = _Handle(server, scope, features);
     return TerminalAttached(
       handle: handle,
       cwd: ensureTerminalDirectoryPath(cwd ?? '/'),
@@ -286,6 +306,74 @@ final class TerminalsService {
     );
   }
 
+  /// Keeps [TerminalWatch.path] and the ports live through the terminal's
+  /// events sockets, as mobile's terminal does, publishing
+  /// `terminal.changed`. A server without the `events` feature is never
+  /// asked; the window then refreshes on demand.
+  TerminalWatching watch(TerminalWatch request) {
+    final h = _handle(request.handle);
+    final path = ensureTerminalDirectoryPath(request.path);
+    if (!h.features.events) return const TerminalWatching();
+    if (h.watchers.isNotEmpty) {
+      h.watchers.first.watchPath(path);
+      return TerminalWatching(live: h.watchers.any((w) => w.active));
+    }
+    final service = _service();
+    final token = _token(h.server);
+    if (token == null && h.server.isSystem) return const TerminalWatching();
+    final auth = buildTerminalWebSocketAuthPayload(
+      h.server,
+      token: token ?? '',
+      sessionScopeId: h.scopeId,
+    );
+    final uri = service.buildEventsWebSocketUri(h.server);
+    final open = _container.read(terminalChannelConnectorProvider);
+    TerminalEventsWatcher watcher({String? path, bool ports = false}) =>
+        TerminalEventsWatcher(
+          openChannel: open,
+          uri: uri,
+          kind: h.server.kind,
+          authPayload: auth,
+          path: path,
+          ports: ports,
+          onEvent: (event) => _changed(request.handle, event),
+        );
+    h.watchers
+      ..add(watcher(path: path))
+      ..add(watcher(ports: true));
+    for (final w in h.watchers) {
+      w.start();
+    }
+    return TerminalWatching(live: h.watchers.any((w) => w.active));
+  }
+
+  void _changed(String handle, TerminalEvent event) {
+    if (!_handles.containsKey(handle)) return;
+    final payload = switch (event) {
+      TerminalFilesChanged() => TerminalChanged(handle: handle, files: true),
+      TerminalPortsChanged(:final ports) => TerminalChanged(
+        handle: handle,
+        ports: <TerminalPort>[
+          for (final port in ports)
+            TerminalPort(port: port.port, pid: port.pid, process: port.process),
+        ],
+      ),
+    };
+    _events?.emit(ConduitEventSpecs.terminalChanged, payload);
+  }
+
+  /// Lets [handle] go: its watch stops and its previews close. Unknown
+  /// handles are fine (a window may detach twice).
+  Future<void> detach(String handle) async {
+    await _handles.remove(handle)?.close();
+  }
+
+  /// The credential the daemon adds for [server]: Open WebUI's token for
+  /// its own terminals, a direct terminal's key.
+  String? _token(TerminalServerInfo server) => server.isSystem
+      ? _container.read(apiServiceProvider)?.authToken
+      : server.apiKey;
+
   /// Puts [bytes] into [directory] on the terminal's machine.
   Future<void> upload({
     required String handle,
@@ -329,9 +417,7 @@ final class TerminalsService {
     // The credential is the account's in use now, read before any await:
     // after a switch it is another account's, for another server.
     final account = _session();
-    final token = h.server.isSystem
-        ? _container.read(apiServiceProvider)?.authToken
-        : h.server.apiKey;
+    final token = _token(h.server);
     WebSocketChannel? upstream;
     try {
       final service = _service();
@@ -408,22 +494,35 @@ final class TerminalsService {
   /// origin with the routes that honour the daemon's token. The address
   /// carries a key; the first visit swaps it for a cookie and every later
   /// request must bring it back.
+  ///
+  /// Behind a sign-in proxy in front of Open WebUI, its own terminals'
+  /// previews carry the proxy's cookies and headers as every other request
+  /// to the server does (never Open WebUI's own cookies), and use the
+  /// server's TLS settings.
   Future<TerminalPreview> previewPort(TerminalPortRef request) async {
     final session = _session();
     final h = _handle(request.handle);
+    const scripts = <String>[terminalPreviewNavigationScript];
     final existing = h.previews[request.port];
-    if (existing != null) return TerminalPreview(url: existing.entryUrl);
+    if (existing != null) {
+      return TerminalPreview(url: existing.entryUrl, scripts: scripts);
+    }
     // The port proxy's root for this port: `{terminal}/proxy/{port}/`.
     final base = TerminalPreviewNavigator.proxy(
       terminalBaseUri: h.server.baseUrl,
     ).pageUri(Uri(scheme: 'http', host: 'localhost', port: request.port));
-    final token = h.server.isSystem
-        ? _container.read(apiServiceProvider)?.authToken
-        : h.server.apiKey;
+    final service = _service();
     final preview = await PortPreview.start(
       upstream: base,
-      token: token,
+      token: _token(h.server),
       key: _newKey(),
+      cookies: service.proxyCookiesForServer(h.server),
+      headers: service.computerProxyHeadersForServer(h.server),
+      client: h.server.isSystem
+          ? ServerTlsHttpClientFactory.createHttpClient(
+              service.api.serverConfig,
+            )
+          : null,
       log: _log,
     );
     if (!identical(session, _session()) ||
@@ -436,7 +535,7 @@ final class TerminalsService {
       );
     }
     h.previews[request.port] = preview;
-    return TerminalPreview(url: preview.entryUrl);
+    return TerminalPreview(url: preview.entryUrl, scripts: scripts);
   }
 
   Future<void> dispose() async {
@@ -460,9 +559,7 @@ final class TerminalsService {
     final handles = _handles.values.toList();
     _handles.clear();
     for (final h in handles) {
-      for (final preview in h.previews.values) {
-        await preview.close();
-      }
+      await h.close();
     }
   }
 
@@ -508,8 +605,13 @@ final class PortPreview {
     this._key,
     this._upstream,
     this._token,
+    this._cookies,
+    this._headers,
+    HttpClient? client,
     this._log,
-  );
+  ) : _client = (client ?? HttpClient())
+        ..userAgent = ConduitUserAgent.value
+        ..autoUncompress = false;
 
   /// Named for this listener: cookies are kept per host, not per port,
   /// so two previews must not share a name.
@@ -519,10 +621,17 @@ final class PortPreview {
   final String _key;
   final Uri _upstream;
   final String? _token;
+
+  /// A sign-in proxy's cookies (by name) and headers, for Open WebUI's own
+  /// terminals behind one; empty otherwise.
+  final Map<String, String> _cookies;
+  final Map<String, String> _headers;
   final DaemonLog? _log;
-  final HttpClient _client = HttpClient()
-    ..userAgent = ConduitUserAgent.value
-    ..autoUncompress = false;
+  final HttpClient _client;
+
+  /// The upstream's path prefix (`/api/v1/terminals/{id}/proxy/{port}`),
+  /// without its trailing slash.
+  String get _prefix => _upstream.path.replaceFirst(RegExp(r'/+$'), '');
 
   String get entryUrl =>
       'http://127.0.0.1:${_server.port}/.conduit-preview/$_key';
@@ -531,10 +640,22 @@ final class PortPreview {
     required Uri upstream,
     required String? token,
     required String key,
+    Map<String, String> cookies = const <String, String>{},
+    Map<String, String> headers = const <String, String>{},
+    HttpClient? client,
     DaemonLog? log,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    final preview = PortPreview._(server, key, upstream, token, log);
+    final preview = PortPreview._(
+      server,
+      key,
+      upstream,
+      token,
+      cookies,
+      headers,
+      client,
+      log,
+    );
     server.listen((request) => unawaited(preview._handle(request)));
     return preview;
   }
@@ -543,7 +664,8 @@ final class PortPreview {
     final response = request.response;
     try {
       if (request.uri.path == '/.conduit-preview/$_key') {
-        // The key, once, for a cookie the rest of the visit carries.
+        // The key, once per visit, for a cookie the rest of the visit
+        // carries; `to` (a path on the port) is where the visit lands.
         response.cookies.add(
           Cookie(_cookie, _key)
             ..httpOnly = true
@@ -552,7 +674,10 @@ final class PortPreview {
         );
         response
           ..statusCode = HttpStatus.found
-          ..headers.set(HttpHeaders.locationHeader, '/');
+          ..headers.set(
+            HttpHeaders.locationHeader,
+            previewLanding(request.uri.queryParameters['to']),
+          );
         await response.close();
         return;
       }
@@ -578,9 +703,8 @@ final class PortPreview {
           return;
         }
       }
-      final prefix = _upstream.path.replaceFirst(RegExp(r'/+$'), '');
       final target = _upstream.replace(
-        path: '$prefix${previewUpstreamPath(request.uri.path, prefix)}',
+        path: '$_prefix${previewUpstreamPath(request.uri.path, _prefix)}',
         query: request.uri.hasQuery ? request.uri.query : null,
       );
       final forward = await _client.openUrl(request.method, target);
@@ -599,6 +723,13 @@ final class PortPreview {
           forward.headers.add(name, value, preserveHeaderCase: true);
         }
       });
+      _headers.forEach(forward.headers.set);
+      if (_cookies.isNotEmpty) {
+        forward.headers.set(
+          HttpHeaders.cookieHeader,
+          [for (final e in _cookies.entries) '${e.key}=${e.value}'].join('; '),
+        );
+      }
       final token = _token;
       if (token != null && token.isNotEmpty) {
         forward.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
@@ -609,7 +740,13 @@ final class PortPreview {
       answer.headers.forEach((name, values) {
         if (_hopByHop.contains(name) || name == 'set-cookie') return;
         for (final value in values) {
-          response.headers.add(name, value, preserveHeaderCase: true);
+          response.headers.add(
+            name,
+            name == 'location'
+                ? previewLocation(value, _upstream, _prefix)
+                : value,
+            preserveHeaderCase: true,
+          );
         }
       });
       await response.addStream(answer);
@@ -675,6 +812,16 @@ bool previewPathAllowed(Uri uri) {
   return false;
 }
 
+/// Where a preview's first visit lands: [to] when it is a path on the
+/// port (`/docs?page=2`), else the port's root. Never another host.
+String previewLanding(String? to) {
+  final path = to?.trim() ?? '';
+  if (!path.startsWith('/') || path.startsWith('//') || path.contains('\\')) {
+    return '/';
+  }
+  return path;
+}
+
 /// The path to ask the terminal's proxy for, given the [path] the preview
 /// was asked for. Open WebUI rewrites a port page's root-relative links to
 /// its own proxy path (`/api/v1/terminals/{id}/proxy/{port}/...`, [prefix]),
@@ -686,4 +833,24 @@ String previewUpstreamPath(String path, String prefix) {
     return rest.isEmpty ? '/' : rest;
   }
   return path;
+}
+
+/// A redirect's [location] as the preview serves it: one into the port's
+/// proxy ([upstream], [prefix]) becomes a path on the preview, anything
+/// else stays as it is.
+String previewLocation(String location, Uri upstream, String prefix) {
+  final target = upstream.resolve(location);
+  final sameOrigin =
+      target.scheme == upstream.scheme &&
+      target.host == upstream.host &&
+      target.port == upstream.port;
+  if (!sameOrigin ||
+      prefix.isEmpty ||
+      !(target.path == prefix || target.path.startsWith('$prefix/'))) {
+    return location;
+  }
+  final rest = target.path.substring(prefix.length);
+  return '${rest.isEmpty ? '/' : rest}'
+      '${target.hasQuery ? '?${target.query}' : ''}'
+      '${target.hasFragment ? '#${target.fragment}' : ''}';
 }
