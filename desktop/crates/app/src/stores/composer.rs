@@ -338,6 +338,11 @@ impl ComposerStore {
     }
 
     /// `prompts.render`: the text, or the fields to ask for.
+    /// The account scope: [`Self::reset`] moves it on.
+    pub fn scope(&self) -> u64 {
+        self.scope
+    }
+
     pub fn render_prompt(
         &self,
         request: RenderPrompt,

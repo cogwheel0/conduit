@@ -539,6 +539,7 @@ impl ChatComposer {
         }
         self.prompt_request += 1;
         let request_id = self.prompt_request;
+        let scope = self.composer.read(cx).scope();
         // The draft as it was: the text goes where the trigger was only if
         // the draft has not changed since, else at its end.
         let draft = self.text(cx);
@@ -548,8 +549,9 @@ impl ChatComposer {
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
             let _ = this.update_in(cx, |this, window, cx| match result {
-                // Cancelled, or another prompt chosen since.
-                _ if this.prompt_request != request_id => {}
+                // Cancelled, another prompt chosen since, or another account's.
+                _ if this.prompt_request != request_id
+                    || this.composer.read(cx).scope() != scope => {}
                 Ok(rendered) => {
                     let at = if this.text(cx) == draft {
                         at
@@ -2195,6 +2197,32 @@ mod tests {
         held.release();
         cx.run_until_parked();
         assert_eq!(value(&view, cx), "");
+    }
+
+    #[gpui_kit::test]
+    fn a_prompt_rendered_for_the_last_account_is_dropped(cx: &mut TestAppContext) {
+        let (view, cx, _) = composer(cx);
+        let daemon = FakeDaemon::new();
+        daemon.returns::<conduit_protocol::methods::PromptsRender>(
+            serde_json::from_value(serde_json::json!({"content": "LATE", "inputs": []})).unwrap(),
+        );
+        let held = daemon.hold::<conduit_protocol::methods::PromptsRender>();
+        let store = cx.new(|_| ComposerStore::new(daemon.rpc(), None));
+        view.update(cx, |c, _| c.composer = store.clone());
+        cx.simulate_input("Hello");
+        view.update_in(cx, |c, window, cx| {
+            let prompt = serde_json::from_value(serde_json::json!({
+                "command": "/greet", "title": "Greet"
+            }))
+            .unwrap();
+            c.render_prompt(prompt, 5, BTreeMap::new(), window, cx);
+        });
+        // The account changes while the prompt renders.
+        store.update(cx, |s, cx| s.reset(cx));
+        held.release();
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "Hello");
+        view.read_with(cx, |c, _| assert!(c.form.is_none()));
     }
 
     #[gpui_kit::test]
