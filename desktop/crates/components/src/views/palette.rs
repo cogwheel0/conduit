@@ -93,7 +93,17 @@ pub fn find_words(text: &str, query: &str) -> Vec<Range<usize>> {
         }
     }
     out.sort_by_key(|r| r.start);
-    out
+    // Words can overlap ("a ab", or one typed twice); styled text needs
+    // disjoint runs, or its runs outgrow the text and a cut can land inside
+    // a character.
+    let mut merged: Vec<Range<usize>> = Vec::with_capacity(out.len());
+    for r in out {
+        match merged.last_mut() {
+            Some(last) if r.start <= last.end => last.end = last.end.max(r.end),
+            _ => merged.push(r),
+        }
+    }
+    merged
 }
 
 /// A labelled group of rows.
@@ -389,5 +399,13 @@ mod tests {
         );
         assert_eq!(find_words("abcabc", "bc"), vec![1..3, 4..6]);
         assert!(find_words("abc", "").is_empty());
+    }
+
+    #[test]
+    fn overlapping_words_give_one_range() {
+        assert_eq!(find_words("abé", "a ab"), vec![0..2]);
+        assert_eq!(find_words("ab ab", "ab ab"), vec![0..2, 3..5]);
+        assert_eq!(find_words("abcd", "ab bc"), vec![0..3]);
+        assert_eq!(find_words("abcd", "ab cd"), vec![0..4]);
     }
 }

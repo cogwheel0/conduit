@@ -99,9 +99,20 @@ fn render_math(latex: &str, font_size: f32, scale: f32, color: Hsla) -> Option<M
         )
     });
     if let Ok(mut cache) = math_cache().lock() {
-        cache.insert(key, rendered.clone());
+        bounded_insert(&mut cache, key, rendered.clone());
     }
     rendered
+}
+
+/// Formulas kept rendered. A streamed formula passes through many partial
+/// strings, so the cache starts over once it holds this many.
+const MATH_CACHE_MAX: usize = 256;
+
+fn bounded_insert<K: std::hash::Hash + Eq, V>(cache: &mut HashMap<K, V>, key: K, value: V) {
+    if cache.len() >= MATH_CACHE_MAX {
+        cache.clear();
+    }
+    cache.insert(key, value);
 }
 
 /// `$…$`, through ratex-gpui.
@@ -339,8 +350,14 @@ pub fn language_name(lang: &str) -> String {
     }
 }
 
+/// Whether a code block shows Preview: a previewable language, and
+/// something to open it.
+fn shows_preview(lang: Option<&str>, has_handler: bool) -> bool {
+    has_handler && lang.is_some_and(previewable)
+}
+
 /// A fenced code block: header with the language and Copy (plus Preview for
-/// previewable languages), then the highlighted code.
+/// previewable languages, when it has a handler), then the highlighted code.
 #[derive(IntoElement)]
 pub struct CodeBlock {
     code: SharedString,
@@ -378,7 +395,7 @@ impl RenderOnce for CodeBlock {
             .unwrap_or_default();
         let code = self.code.clone();
         let header_fg = r.text_subtle;
-        let preview = self.lang.as_deref().is_some_and(previewable);
+        let preview = shows_preview(self.lang.as_deref(), self.on_preview.is_some());
         let id = format!("code-{}-{}", lang, self.code.len());
         let small = t.metrics.small;
         let hover = r.hover;
@@ -649,5 +666,28 @@ mod code_tests {
         let tail = at + long.len() + 1;
         assert_eq!(segments[2], CodeSegment::Lines(tail..tail + 3));
         assert_eq!(code_segments("a\nb"), vec![CodeSegment::Lines(0..3)]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preview_shows_only_with_something_to_open() {
+        assert!(!shows_preview(Some("html"), false));
+        assert!(shows_preview(Some("html"), true));
+        assert!(!shows_preview(Some("rust"), true));
+        assert!(!shows_preview(None, true));
+    }
+
+    #[test]
+    fn the_math_cache_stays_bounded() {
+        let mut cache = HashMap::new();
+        for n in 0..MATH_CACHE_MAX * 3 {
+            bounded_insert(&mut cache, n, ());
+            assert!(cache.len() <= MATH_CACHE_MAX);
+        }
+        assert!(cache.contains_key(&(MATH_CACHE_MAX * 3 - 1)));
     }
 }

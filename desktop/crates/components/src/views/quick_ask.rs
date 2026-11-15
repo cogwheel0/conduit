@@ -46,6 +46,7 @@ impl QuickAsk {
     pub fn set_answer(&mut self, markdown: &str, cx: &mut Context<Self>) {
         let md = markdown.to_string();
         self.answer = Some(cx.new(|cx| TextViewState::markdown(&md, cx)));
+        cx.notify();
     }
 }
 
