@@ -1,6 +1,7 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -136,11 +137,25 @@ void main() {
       final seen = <EventEnvelope>[];
       events.attach('window', seen.add);
       final reported = <Capabilities>[];
+      final waiting = <(bool Function(Capabilities), Completer<void>)>[];
       final service = CapabilitiesService(
         runtime.container,
         events: events,
-        onChange: reported.add,
+        onChange: (next) {
+          reported.add(next);
+          for (final (done, change) in waiting.toList()) {
+            if (done(next) && !change.isCompleted) change.complete();
+          }
+        },
       );
+      // The change [done] describes, as the service announces it.
+      Future<void> announced(bool Function(Capabilities) done) {
+        if (done(service.current)) return Future<void>.value();
+        final change = Completer<void>();
+        waiting.add((done, change));
+        return change.future;
+      }
+
       addTearDown(service.dispose);
       final hermes = HermesService(runtime.container, events: events);
 
@@ -154,24 +169,24 @@ void main() {
           onboarding: true,
         ),
       );
-      await _until(() => service.current.hermes);
+      await announced((c) => c.hermes);
       expect(service.current.hermesOnly, isTrue);
       // Hermes alone: Open WebUI's sections stay hidden.
       expect(service.current.notes, isFalse);
       expect(service.current.workspace, isFalse);
       expect(reported.last, service.current);
-      final announced = seen
+      final told = seen
           .where((e) => e.event == ConduitEvents.capabilitiesChanged)
           .length;
-      expect(announced, greaterThan(0));
+      expect(told, greaterThan(0));
 
       await hermes.saveSettings(
         HermesSettingsEdit(baseUrl: hermesServer.baseUrl, enabled: false),
       );
-      await _until(() => !service.current.hermes);
+      await announced((c) => !c.hermes);
       expect(
         seen.where((e) => e.event == ConduitEvents.capabilitiesChanged).length,
-        greaterThan(announced),
+        greaterThan(told),
       );
     });
   });
@@ -185,15 +200,4 @@ final class _Config extends BackendConfigNotifier {
 
   @override
   Future<BackendConfig?> build() async => config;
-}
-
-/// Waits (up to 5 s) for [done].
-Future<void> _until(bool Function() done) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 5));
-  while (!done()) {
-    if (DateTime.now().isAfter(deadline)) {
-      fail('timed out waiting for the capabilities to change');
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 20));
-  }
 }

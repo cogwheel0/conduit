@@ -291,12 +291,16 @@ final class HermesService {
     } on Object {
       archived = const <HermesSessionSummary>[];
     }
+    // Read one after the other, a session archived in between is in both:
+    // the later read, the archive, has it.
+    final archivedIds = <String>{for (final session in archived) session.id};
+    final active = sessions.where((s) => !archivedIds.contains(s.id));
     return HermesSessions(
       sessions: <HermesSessionDto>[
         // Pinned first, as the phone's list sections them.
-        for (final session in sessions)
+        for (final session in active)
           if (session.pinned) _sessionDto(session),
-        for (final session in sessions)
+        for (final session in active)
           if (!session.pinned) _sessionDto(session),
       ],
       archived: <HermesSessionDto>[
