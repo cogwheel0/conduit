@@ -1,0 +1,545 @@
+//! Approval cards for the daemon's `ui.request`: docked above the composer,
+//! answered from the keyboard with ⌥⌘↩ (confirm) and ⌥⌘⌫ (decline).
+//!
+//! The body is one of [`ApprovalKind`]; the buttons are the kind's defaults
+//! (for the gallery) or the app's own [`ApprovalAction`]s.
+
+use gpui_kit::component::input::InputState;
+use gpui_kit::prelude::*;
+use gpui_kit::{
+    AnyElement, App, ElementId, Entity, FontWeight, Role, SharedString, Window, div, px, relative,
+};
+
+use crate::assets::IconName;
+use crate::strings::{ActiveStrings as _, fill};
+use crate::theme::{ActiveConduitTheme, MONO_FONT, with_alpha};
+use crate::views::composer::composer_frame;
+use crate::views::focus::{
+    Ring, control_focus_handle, full_keyboard_access, pressed_fill, radio_keys, ring_overlay,
+};
+use crate::views::kit::{
+    Button, ButtonKind, ClickHandler, SelectHandler, bare_input, field_frame, icon_tile, radio_dot,
+};
+
+/// A code box inside the card: the code blocks' fill in light; in dark the
+/// card is itself raised, so the box is one step above it.
+fn inset_fill(t: &crate::ConduitTheme) -> gpui_kit::Hsla {
+    if t.dark {
+        t.roles.raised_hover
+    } else {
+        crate::theme::composite(t.roles.raised, t.surfaces.panel)
+    }
+}
+
+/// One choice of a select prompt.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SelectOption {
+    pub label: SharedString,
+    pub detail: Option<SharedString>,
+}
+
+/// What the request asks for.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ApprovalKind {
+    /// Run a tool with these arguments (a command, a file write…).
+    Tool {
+        tool: SharedString,
+        preview: SharedString,
+    },
+    /// Pick one option.
+    Select {
+        options: Vec<SelectOption>,
+        selected: usize,
+    },
+    /// Only the title and detail: a confirmation, or a notice.
+    Message,
+    /// A value to type: a Kit input the app owns (masked for a password).
+    Input {
+        state: Entity<InputState>,
+        label: SharedString,
+    },
+    /// What a tool would run with, in a code box under a caption.
+    Code {
+        caption: SharedString,
+        code: SharedString,
+    },
+}
+
+/// One button of a card.
+#[derive(Clone)]
+pub struct ApprovalAction {
+    pub id: SharedString,
+    pub label: SharedString,
+    pub kind: ButtonKind,
+    /// Shown after the label (`⌥⌘↩`), and announced.
+    pub shortcut: Option<SharedString>,
+    pub disabled: bool,
+    pub on_click: Option<ClickHandler>,
+}
+
+impl ApprovalAction {
+    pub fn new(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            kind: ButtonKind::Secondary,
+            shortcut: None,
+            disabled: false,
+            on_click: None,
+        }
+    }
+    pub fn primary(mut self) -> Self {
+        self.kind = ButtonKind::Primary;
+        self
+    }
+    pub fn shortcut(mut self, keys: impl Into<SharedString>) -> Self {
+        self.shortcut = Some(keys.into());
+        self
+    }
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+    pub fn on_click(mut self, handler: ClickHandler) -> Self {
+        self.on_click = Some(handler);
+        self
+    }
+}
+
+/// `⌥⌘↩` and `⌥⌘⌫`, as the cards show them.
+pub const ALLOW_KEYS: &str = "\u{2325}\u{2318}\u{21a9}";
+pub const DENY_KEYS: &str = "\u{2325}\u{2318}\u{232b}";
+
+/// The docked card.
+#[derive(IntoElement)]
+pub struct ApprovalCard {
+    id: SharedString,
+    title: SharedString,
+    detail: SharedString,
+    /// Who asks ("Hermes · tool call").
+    source: SharedString,
+    kind: ApprovalKind,
+    /// "1 of 2" when more requests are queued.
+    queue: Option<(usize, usize)>,
+    actions: Option<Vec<ApprovalAction>>,
+    on_option: Option<SelectHandler>,
+    tile: Option<IconName>,
+    note: Option<SharedString>,
+}
+
+impl ApprovalCard {
+    pub fn new(
+        id: impl Into<SharedString>,
+        title: impl Into<SharedString>,
+        detail: impl Into<SharedString>,
+        source: impl Into<SharedString>,
+        kind: ApprovalKind,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+            detail: detail.into(),
+            source: source.into(),
+            kind,
+            queue: None,
+            actions: None,
+            on_option: None,
+            tile: None,
+            note: None,
+        }
+    }
+    pub fn queue(mut self, current: usize, total: usize) -> Self {
+        self.queue = Some((current, total));
+        self
+    }
+    /// The buttons, replacing the kind's defaults.
+    pub fn actions(mut self, actions: Vec<ApprovalAction>) -> Self {
+        self.actions = Some(actions);
+        self
+    }
+    /// Called with the index of the option picked in a select card.
+    pub fn on_option(mut self, handler: SelectHandler) -> Self {
+        self.on_option = Some(handler);
+        self
+    }
+    /// The icon on the card's tile (default per kind).
+    pub fn tile(mut self, icon: IconName) -> Self {
+        self.tile = Some(icon);
+        self
+    }
+    /// A line under the body (an error, "Answered").
+    pub fn note(mut self, note: impl Into<SharedString>) -> Self {
+        self.note = Some(note.into());
+        self
+    }
+}
+
+fn render_actions(actions: Vec<ApprovalAction>) -> Vec<AnyElement> {
+    actions
+        .into_iter()
+        .map(|a| {
+            let mut b = Button::new(ElementId::Name(a.id), a.label)
+                .kind(a.kind)
+                .disabled(a.disabled);
+            if let Some(k) = a.shortcut {
+                b = b.shortcut(k);
+            }
+            if let Some(h) = a.on_click
+                && !a.disabled
+            {
+                b = b.on_click(h);
+            }
+            b.into_any_element()
+        })
+        .collect()
+}
+
+impl RenderOnce for ApprovalCard {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let t = cx.conduit().clone();
+        let st = cx.strings().clone();
+        let r = t.roles;
+        let m = t.metrics;
+        let id = self.id.to_string();
+        let on_option = self.on_option.clone();
+        let (tile, body, buttons): (IconName, AnyElement, Vec<AnyElement>) = match &self.kind {
+            ApprovalKind::Tool { tool, preview } => (
+                IconName::ShieldAlert,
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .child(
+                        div()
+                            .text_size(px(m.caption))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(r.text_subtle)
+                            .child(tool.clone()),
+                    )
+                    .child(
+                        div()
+                            .id(ElementId::Name(format!("approval-preview-{id}").into()))
+                            .role(Role::Code)
+                            .aria_label(preview.clone())
+                            .px(px(12.))
+                            .py(px(9.))
+                            .rounded(px(8.))
+                            .border_1()
+                            .border_color(r.border)
+                            .bg(inset_fill(&t))
+                            .font_family(MONO_FONT)
+                            .text_size(px(m.code))
+                            .line_height(relative(1.5))
+                            .text_color(r.text)
+                            .child(preview.clone()),
+                    )
+                    .into_any_element(),
+                vec![
+                    Button::new(
+                        ElementId::Name(format!("deny-{id}").into()),
+                        st.deny.clone(),
+                    )
+                    .shortcut(DENY_KEYS)
+                    .into_any_element(),
+                    Button::new(
+                        ElementId::Name(format!("always-{id}").into()),
+                        st.always_allow.clone(),
+                    )
+                    .into_any_element(),
+                    Button::new(
+                        ElementId::Name(format!("allow-{id}").into()),
+                        st.allow_once.clone(),
+                    )
+                    .primary()
+                    .shortcut(ALLOW_KEYS)
+                    .into_any_element(),
+                ],
+            ),
+            ApprovalKind::Select { options, selected } => {
+                let count = options.len();
+                // One key-view stop, as a radio group: Tab reaches it, the
+                // arrows choose, and the chosen option rings.
+                let group_id = ElementId::Name(format!("approval-options-{id}").into());
+                let focus = full_keyboard_access(cx)
+                    .then(|| control_focus_handle(&group_id, window, cx).tab_stop(true));
+                let focused = focus.as_ref().is_some_and(|f| f.is_focused(window));
+                let keys = radio_keys(*selected, count, on_option.clone());
+                (
+                    IconName::ListChecks,
+                    div()
+                        .id(group_id)
+                        .role(Role::RadioGroup)
+                        .aria_label(self.title.clone())
+                        .when_some(focus, |d, focus| {
+                            d.track_focus(&focus)
+                                .on_any_mouse_down(|_, window, _| window.prevent_default())
+                                .on_key_down(keys)
+                        })
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .children(options.iter().enumerate().map(|(i, o)| {
+                            let on = i == *selected;
+                            div()
+                                .id(ElementId::Name(format!("approval-option-{id}-{i}").into()))
+                                .role(Role::RadioButton)
+                                .aria_label(o.label.clone())
+                                .aria_selected(on)
+                                .aria_position_in_set(i + 1)
+                                .aria_size_of_set(count)
+                                .when(on && focused, |d| d.aria_active_descendant())
+                                .min_h(px(m.row_height + 10.))
+                                .px(px(10.))
+                                .py(px(6.))
+                                .flex()
+                                .items_center()
+                                .gap(px(10.))
+                                .rounded(px(8.))
+                                .when(on, |d| d.bg(r.selected))
+                                .when(!on, |d| d.hover(|s| s.bg(r.hover)))
+                                .active(|s| s.bg(pressed_fill(r.hover, &t)))
+                                .cursor_pointer()
+                                .relative()
+                                .when(on && focused, |d| {
+                                    d.child(ring_overlay(Ring::Inset(8.), &t))
+                                })
+                                .on_any_mouse_down(|_, window, _| window.prevent_default())
+                                .child(radio_dot(on, &t))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .flex()
+                                        .flex_col()
+                                        .child(
+                                            div()
+                                                .text_size(px(m.control))
+                                                .text_color(r.text)
+                                                .child(o.label.clone()),
+                                        )
+                                        .when_some(o.detail.clone(), |d, s| {
+                                            d.child(
+                                                div()
+                                                    .text_size(px(m.small))
+                                                    .text_color(r.text_subtle)
+                                                    .child(s),
+                                            )
+                                        }),
+                                )
+                                .on_click({
+                                    let handler = on_option.clone();
+                                    move |_, window, cx| {
+                                        if let Some(h) = &handler {
+                                            h(i, window, cx)
+                                        }
+                                    }
+                                })
+                        }))
+                        .into_any_element(),
+                    vec![
+                        Button::new(
+                            ElementId::Name(format!("cancel-{id}").into()),
+                            st.cancel.clone(),
+                        )
+                        .shortcut(DENY_KEYS)
+                        .into_any_element(),
+                        Button::new(
+                            ElementId::Name(format!("submit-{id}").into()),
+                            st.submit.clone(),
+                        )
+                        .primary()
+                        .shortcut(ALLOW_KEYS)
+                        .into_any_element(),
+                    ],
+                )
+            }
+            ApprovalKind::Message => (
+                IconName::ShieldAlert,
+                div().into_any_element(),
+                vec![
+                    Button::new(
+                        ElementId::Name(format!("deny-{id}").into()),
+                        st.deny.clone(),
+                    )
+                    .shortcut(DENY_KEYS)
+                    .into_any_element(),
+                    Button::new(
+                        ElementId::Name(format!("allow-{id}").into()),
+                        st.allow.clone(),
+                    )
+                    .primary()
+                    .shortcut(ALLOW_KEYS)
+                    .into_any_element(),
+                ],
+            ),
+            ApprovalKind::Input { state, label } => (
+                IconName::MessageSquare,
+                field_frame(false, m.control_height + 4., cx)
+                    .child(
+                        div()
+                            .flex_1()
+                            .child(bare_input(state, label.clone(), m.control)),
+                    )
+                    .into_any_element(),
+                vec![
+                    Button::new(
+                        ElementId::Name(format!("cancel-{id}").into()),
+                        st.cancel.clone(),
+                    )
+                    .shortcut(DENY_KEYS)
+                    .into_any_element(),
+                    Button::new(
+                        ElementId::Name(format!("submit-{id}").into()),
+                        st.submit.clone(),
+                    )
+                    .primary()
+                    .shortcut(ALLOW_KEYS)
+                    .into_any_element(),
+                ],
+            ),
+            ApprovalKind::Code { caption, code } => (
+                IconName::ShieldAlert,
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .child(
+                        div()
+                            .text_size(px(m.caption))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(r.text_subtle)
+                            .child(caption.clone()),
+                    )
+                    .when(!code.is_empty(), |d| {
+                        d.child(
+                            div()
+                                .id(ElementId::Name(format!("approval-code-{id}").into()))
+                                .role(Role::Code)
+                                .aria_label(code.clone())
+                                .max_h(px(160.))
+                                .overflow_y_scroll()
+                                .px(px(12.))
+                                .py(px(9.))
+                                .rounded(px(8.))
+                                .border_1()
+                                .border_color(r.border)
+                                .bg(inset_fill(&t))
+                                .font_family(MONO_FONT)
+                                .text_size(px(m.code))
+                                .line_height(relative(1.5))
+                                .text_color(r.text)
+                                .child(code.clone()),
+                        )
+                    })
+                    .into_any_element(),
+                vec![
+                    Button::new(
+                        ElementId::Name(format!("deny-{id}").into()),
+                        st.deny.clone(),
+                    )
+                    .shortcut(DENY_KEYS)
+                    .into_any_element(),
+                    Button::new(
+                        ElementId::Name(format!("allow-{id}").into()),
+                        st.allow_once.clone(),
+                    )
+                    .primary()
+                    .shortcut(ALLOW_KEYS)
+                    .into_any_element(),
+                ],
+            ),
+        };
+        let tile = self.tile.unwrap_or(tile);
+        let buttons = match self.actions {
+            Some(actions) => render_actions(actions),
+            None => buttons,
+        };
+        let has_body = !matches!(self.kind, ApprovalKind::Message);
+        // Docked on the composer, it is drawn as the composer is: the same
+        // fill, outline, corner radius and shadow (and, docked, its width),
+        // so the two read as one stack. The request's glyph is neutral, as
+        // the answer header's: tint is kept for what is destructive or done.
+        let frame = composer_frame(&t);
+        div()
+            .id(ElementId::Name(format!("approval-{id}").into()))
+            .role(Role::AlertDialog)
+            .aria_label(format!("{}: {}", self.title, self.detail))
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .p(px(16.))
+            .rounded(px(frame.radius))
+            .border_1()
+            .border_color(frame.border)
+            .bg(frame.fill)
+            .shadow(frame.shadow)
+            .child(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(px(10.))
+                    .child(icon_tile(
+                        tile,
+                        30.,
+                        with_alpha(r.text, if t.dark { 0.14 } else { 0.07 }),
+                        r.text_subtle,
+                        8.,
+                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.))
+                            .child(
+                                div()
+                                    .text_size(px(m.control + 1.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(r.text)
+                                    .child(self.title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(m.small))
+                                    .line_height(relative(1.4))
+                                    .text_color(r.text_subtle)
+                                    .child(self.detail.clone()),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .text_size(px(m.caption))
+                            .text_color(r.text_subtle)
+                            .when_some(self.queue, |d, (c, n)| {
+                                d.child(SharedString::from(fill(
+                                    &st.position,
+                                    &[("index", &c.to_string()), ("count", &n.to_string())],
+                                )))
+                            })
+                            .child(self.source.clone()),
+                    ),
+            )
+            .when(has_body, |d| d.child(div().pl(px(40.)).child(body)))
+            .when_some(self.note, |d, note| {
+                d.child(
+                    div()
+                        .pl(px(40.))
+                        .text_size(px(m.small))
+                        .text_color(r.text_subtle)
+                        .child(note),
+                )
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .justify_end()
+                    .gap(px(8.))
+                    .children(buttons),
+            )
+    }
+}
