@@ -227,6 +227,7 @@ impl QuickAskView {
     fn forget(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.clear(window, cx);
         self.composer_store.update(cx, |c, cx| c.reset(cx));
+        self.composer.update(cx, |c, cx| c.forget_account(cx));
     }
 
     fn clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
