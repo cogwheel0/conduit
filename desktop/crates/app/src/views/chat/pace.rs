@@ -130,6 +130,11 @@ impl Pace {
         if done {
             return md.len();
         }
+        // Replaced text: the last text's chunk start means nothing in it
+        // (and may fall inside a character).
+        if !self.extends(md) {
+            self.base = 0;
+        }
         let base = self.chunk_base(md, md.len());
         (base + streaming_cut(&md[base..])).max(self.shown.min(md.len()))
     }
@@ -142,6 +147,9 @@ impl Pace {
     /// The start of a stable chunk of `md` at or before `upto`, moved on
     /// from the last one found (chunks only grow at the end).
     fn chunk_base(&mut self, md: &str, upto: usize) -> usize {
+        if !md.is_char_boundary(self.base) {
+            self.base = 0;
+        }
         if upto < self.base {
             return chunk_start(&md[..upto]);
         }
@@ -597,6 +605,26 @@ mod tests {
         assert!(pace.base > 0, "read from a chunk, not the top");
         assert!(pace.extends(&format!("{md} words** done")));
         assert!(!pace.extends("Something else entirely."));
+    }
+
+    #[test]
+    fn replaced_text_is_never_cut_at_the_last_texts_chunk() {
+        let t0 = Instant::now();
+        let md: String = (0..120)
+            .map(|i| format!("Paragraph {i} has a few plain words in it.\n\n"))
+            .collect();
+        let mut pace = Pace::new(&md, streaming_cut(&md), t0);
+        pace.target(&md, false);
+        let base = pace.base;
+        assert!(base > 1);
+        // Replaced mid-pace: a two-byte letter straddles the old chunk start.
+        let replaced = format!("{}é and more words", "a".repeat(base - 1));
+        assert!(!replaced.is_char_boundary(base));
+        assert!(!pace.extends(&replaced));
+        let target = pace.target(&replaced, false);
+        assert!(replaced.is_char_boundary(target));
+        pace.reset(&replaced, target);
+        assert_eq!(pace.target(&replaced, false), target);
     }
 
     #[test]
