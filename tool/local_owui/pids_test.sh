@@ -59,9 +59,13 @@ wait "$a" 2>/dev/null || true
 check 'a stale pid is not ours' 1 "$dir/a.pid"
 expect 'a stale pid is not stopped again' '' "$(pid_stop "$dir/a.pid" 2)"
 
-# A process that ignores TERM is killed once the wait is over.
-nohup bash -c 'trap "" TERM; exec sleep 62' > /dev/null 2>&1 &
+# A process that ignores TERM is killed once the wait is over. It inherits
+# the ignored signal from this shell, and starts through nohup as owui.sh's
+# processes do, so pid_record waits for the hand-over to `sleep`.
+trap '' TERM
+nohup sleep 62 > /dev/null 2>&1 &
 c=$!
+trap - TERM
 pid_record "$dir/c.pid" "$c"
 expect 'a process that ignores TERM is killed' killed "$(pid_stop "$dir/c.pid" 2)"
 wait "$c" 2>/dev/null || true

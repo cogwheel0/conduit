@@ -94,12 +94,13 @@ URL=http://127.0.0.1:$PORT
 # its pid file names, and no other one that took its pid since.
 alive() { pid_alive "$STATE/$1.pid"; }
 
-# Whether nothing listens on 127.0.0.1:PORT (curl: 7 = could not connect).
+# Whether nothing listens on 127.0.0.1:PORT (curl: 7 = could not connect),
+# asked directly rather than through any proxy the shell exports.
 # Checked before each launch, so that a health answer can only come from
 # this instance's server and the seed never reaches another instance.
 port_free() {
   local rc=0
-  curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$1/" || rc=$?
+  curl -s --noproxy '*' -o /dev/null --max-time 2 "http://127.0.0.1:$1/" || rc=$?
   [ "$rc" = 7 ]
 }
 
@@ -230,7 +231,7 @@ start() {
 
   code=000
   for _ in $(seq 1 120); do
-    code=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "$URL/health" || true)
+    code=$(curl -s --noproxy '*' --max-time 5 -o /dev/null -w '%{http_code}' "$URL/health" || true)
     [ "$code" = 200 ] && break
     if ! alive server; then break; fi
     sleep 2
