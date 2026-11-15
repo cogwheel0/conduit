@@ -33,8 +33,15 @@ final class McpAppsService {
     UiRequestsService? uiRequests,
     this.startTimeout = const Duration(seconds: 30),
   }) : _uiRequests = uiRequests {
-    // Another account's apps are not this one's to run.
+    // Another account's apps are not this one's to run: a new client, or
+    // a new sign-in on the same one.
     _session = _container.listen<ApiService?>(apiServiceProvider, (
+      previous,
+      next,
+    ) {
+      if (!identical(previous, next)) closeAll();
+    });
+    _epoch = _container.listen<Object>(openWebUiAuthSessionEpochProvider, (
       previous,
       next,
     ) {
@@ -50,6 +57,7 @@ final class McpAppsService {
   final Duration startTimeout;
 
   late final ProviderSubscription<ApiService?> _session;
+  late final ProviderSubscription<Object> _epoch;
   final Map<String, _Running> _running = <String, _Running>{};
 
   static const Uuid _uuid = Uuid();
@@ -240,6 +248,7 @@ final class McpAppsService {
 
   void dispose() {
     _session.close();
+    _epoch.close();
     for (final appId in _running.keys.toList()) {
       _stop(appId);
     }

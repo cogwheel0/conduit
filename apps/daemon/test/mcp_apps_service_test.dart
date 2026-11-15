@@ -246,6 +246,18 @@ void main() {
       );
     });
 
+    test('a new sign-in on the same server closes the apps', () async {
+      final appId = await started();
+      // The same client, a new session: the old one's apps are not its.
+      epoch = Object();
+      container.invalidate(openWebUiAuthSessionEpochProvider);
+      container.read(openWebUiAuthSessionEpochProvider);
+      expect(
+        apps.context(McpAppContext(appId: appId, theme: 'dark')).ok,
+        isFalse,
+      );
+    });
+
     test('a closed app hears that it is going', () async {
       final appId = await started();
       seen.clear();
