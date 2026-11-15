@@ -100,6 +100,10 @@ pub async fn run(run: &mut Run, cx: &mut AsyncApp) -> bool {
         return false;
     }
     if cx.update(current_route) != Route::Onboarding {
+        if !cx.update(|cx| crate::may_reset_profile(&cx.global::<AppState>().paths)) {
+            run.missing("everything", "refusing to reset the app's own profile");
+            return false;
+        }
         // A used profile: start over (Settings › Data › Clear local data).
         cx.update(|cx| {
             let c = cx.global::<AppState>().connection.clone();
