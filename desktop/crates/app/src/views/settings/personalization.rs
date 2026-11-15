@@ -270,8 +270,15 @@ impl PersonalizationPane {
                             // did not have before it): what a kept editor
                             // updates from now on, rather than adding another.
                             // Not exactly one new id: none, so nothing else
-                            // is ever overwritten.
-                            let made = s.editor_known.take().and_then(|known| {
+                            // is ever overwritten. Only the editor's own save
+                            // takes it: a switch or delete answered meanwhile
+                            // leaves it for the add.
+                            let known = if closes_editor {
+                                s.editor_known.take()
+                            } else {
+                                None
+                            };
+                            let made = known.and_then(|known| {
                                 let mut new = list.items.iter().filter(|m| !known.contains(&m.id));
                                 match (new.next(), new.next()) {
                                     (Some(m), None) => Some(m.id.clone()),
@@ -983,6 +990,62 @@ mod tests {
         assert_eq!(updates[0]["id"], "m1");
         assert_eq!(updates[0]["content"], "Prefers green tea");
         view.read_with(vcx, |p, _| assert!(p.editor.is_none()));
+    }
+
+    #[gpui_kit::test]
+    fn a_memory_switch_during_an_add_leaves_the_kept_editor_its_memory(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let empty = serde_json::json!({"available": true, "enabled": true, "items": []});
+        let e = empty.clone();
+        daemon.on::<methods::MemoriesList>(move |_| Ok(e.clone()));
+        daemon.on::<methods::MemoriesSetEnabled>(move |_| Ok(empty.clone()));
+        daemon.on::<methods::MemoriesAdd>(|p| {
+            Ok(
+                serde_json::json!({"available": true, "enabled": true, "items": [
+                    {"id": "m1", "content": p["content"], "updatedAt": 1}
+                ]}),
+            )
+        });
+        daemon.on::<methods::MemoriesUpdate>(|p| {
+            Ok(
+                serde_json::json!({"available": true, "enabled": true, "items": [
+                    {"id": p["id"], "content": p["content"], "updatedAt": 2}
+                ]}),
+            )
+        });
+        let held = daemon.hold::<methods::MemoriesAdd>();
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-memory-switch-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| PersonalizationPane::new(stores, window, cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |p, window, cx| {
+            p.open_editor(None, window, cx);
+            p.memory_input
+                .update(cx, |i, cx| i.set_value("Prefers tea", window, cx));
+            p.save_memory(window, cx);
+            p.memory_input
+                .update(cx, |i, cx| i.set_value("Prefers green tea", window, cx));
+            // Memory switched while the add is out: its answer comes first.
+            p.set_memory_enabled(true, window, cx);
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        view.update_in(vcx, |p, window, cx| p.save_memory(window, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::MemoriesAdd>().len(),
+            1,
+            "the kept editor added its memory again"
+        );
+        let updates = daemon.calls::<methods::MemoriesUpdate>();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0]["id"], "m1");
     }
 
     #[gpui_kit::test]
