@@ -265,7 +265,7 @@ pub fn preview_document(kind: PreviewKind, code: &str, theme: &PreviewTheme) -> 
             } else {
                 script_safe(code)
             };
-            page(
+            let inner = page(
                 theme,
                 &format!("<script>{}</script>", script_safe(CHART_JS)),
                 &format!(
@@ -275,6 +275,17 @@ pub fn preview_document(kind: PreviewKind, code: &str, theme: &PreviewTheme) -> 
                      try{{{run}}}catch(e){{var p=document.createElement('p');\
                      p.className='error';p.textContent=String(e);\
                      document.body.appendChild(p);}}}})();</script>"
+                ),
+            );
+            // The model's code runs in the sandboxed frame, as HTML's does:
+            // it cannot navigate the page, open windows or reach the
+            // network, in the window or in a browser (Open in Browser).
+            page(
+                theme,
+                "",
+                &format!(
+                    "<iframe sandbox=\"allow-scripts\" srcdoc=\"{}\"></iframe>",
+                    escape_html(&inner)
                 ),
             )
         }
@@ -471,9 +482,13 @@ mod macos {
         /// Open in Browser: the same sandboxed, network-less page, written
         /// to a temporary file the default browser opens.
         fn open_in_browser(&mut self, cx: &mut Context<Self>) {
+            // One file per export: two windows with the same title never
+            // write over each other's page.
+            static EXPORTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let n = EXPORTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let dir = std::env::temp_dir().join("conduit-previews");
             let name = format!(
-                "{}-{}",
+                "{}-{n}-{}",
                 std::process::id(),
                 save_name(PreviewKind::Html, &self.opened.title)
             );
@@ -753,17 +768,38 @@ mod tests {
             "{\"type\":\"bar\",\"data\":{}}",
             &PreviewTheme::plain(false),
         );
-        assert!(c.contains("new Chart(document.getElementById('chart'),{\"type\":\"bar\""));
+        assert!(c.contains(
+            "new Chart(document.getElementById(&#39;chart&#39;),{&quot;type&quot;:&quot;bar&quot;"
+        ));
         let script = preview_document(
             PreviewKind::Chart,
             "draw('</SCRIPT>')",
             &PreviewTheme::plain(false),
         );
-        assert!(script.contains("draw('<\\/SCRIPT>')"));
+        assert!(script.contains("draw(&#39;&lt;\\/SCRIPT&gt;&#39;)"));
         assert!(!script.contains("draw('</SCRIPT>')"));
         // Other `</` stay as they are (regex literals in the bundles).
         assert_eq!(script_safe("a=/^</,b=\"</div>\""), "a=/^</,b=\"</div>\"");
         assert!(m.contains("startAngleBracket:/^</,"));
+    }
+
+    #[test]
+    fn chart_code_runs_sandboxed_and_cannot_navigate() {
+        let code = "location.replace('https://preview-collector.example/?v=1')";
+        let doc = preview_document(PreviewKind::Chart, code, &PreviewTheme::plain(false));
+        // Only the sandboxed frame holds the model's code: the page itself
+        // (all Open in Browser has) runs none of it.
+        let (page, frame) = doc
+            .split_once("<iframe sandbox=\"allow-scripts\" srcdoc=\"")
+            .unwrap();
+        assert!(!page.contains("location.replace"));
+        assert!(frame.contains("location.replace(&#39;https://preview-collector.example"));
+        assert!(!doc.contains("allow-top-navigation") && !doc.contains("allow-same-origin"));
+        assert!(page.contains("default-src 'none'") && page.contains("connect-src 'none'"));
+        assert!(
+            !frame.contains("<script"),
+            "the frame's markup is one attribute value"
+        );
     }
 
     #[test]
