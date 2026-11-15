@@ -221,13 +221,16 @@ impl ChatsPane {
             .connection
             .read(cx)
             .rpc()
-            .call::<methods::SettingsModelPrompt>(&ModelPromptRef { model_id });
+            .call::<methods::SettingsModelPrompt>(&ModelPromptRef {
+                model_id: model_id.clone(),
+            });
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
                 let result = call.await;
                 let _ = this.update_in(cx, |s, window, cx| {
-                    let Some(editor) = s.editor.as_mut() else {
+                    // Another model's editor opened meanwhile: not its prompt.
+                    let Some(editor) = s.editor.as_mut().filter(|e| e.model_id == model_id) else {
                         return;
                     };
                     match result {
@@ -259,6 +262,7 @@ impl ChatsPane {
             model_id: editor.model_id.clone(),
             prompt: self.prompt_input.read(cx).value().to_string(),
         };
+        let model_id = edit.model_id.clone();
         let call = self
             .stores
             .connection
@@ -271,6 +275,10 @@ impl ChatsPane {
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
+                    // Only the editor this save came from closes or says so.
+                    if s.editor.as_ref().is_none_or(|e| e.model_id != model_id) {
+                        return;
+                    }
                     match result {
                         Ok(_) => s.editor = None,
                         Err(e) => {
@@ -693,5 +701,48 @@ impl Render for ChatsPane {
             .into_any_element(),
         );
         div().flex().flex_col().gap(px(22.)).children(sections)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui_kit::TestAppContext;
+
+    use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    #[gpui_kit::test]
+    fn a_late_prompt_never_lands_in_another_models_editor(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.on::<methods::SettingsModelPrompt>(|p| {
+            let id = p["modelId"].as_str().unwrap_or_default().to_string();
+            Ok(serde_json::json!({
+                "modelId": id, "editable": true, "writable": true,
+                "prompt": format!("Prompt of {id}"),
+            }))
+        });
+        let held = daemon.hold_one::<methods::SettingsModelPrompt>(0);
+        let scratch = std::env::temp_dir().join(format!("conduit-chats-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let (view, vcx) = cx.add_window_view(move |window, cx| ChatsPane::new(stores, window, cx));
+        view.update_in(vcx, |p, window, cx| {
+            p.edit_prompt("alpha".into(), "Alpha".into(), window, cx);
+            p.edit_prompt("beta".into(), "Beta".into(), window, cx);
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        view.read_with(vcx, |p, cx| {
+            let editor = p.editor.as_ref().unwrap();
+            assert_eq!(editor.model_id, "beta");
+            assert_eq!(
+                editor.prompt.as_ref().map(|p| p.model_id.as_str()),
+                Some("beta")
+            );
+            assert_eq!(p.prompt_input.read(cx).value(), "Prompt of beta");
+        });
     }
 }

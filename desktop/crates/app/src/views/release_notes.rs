@@ -128,7 +128,11 @@ pub fn check(version: &str, stores: &Stores, cx: &mut App) {
         entity.update(cx, |n, cx| {
             match result {
                 Ok(state) => n.banner = state.banner.then_some(state),
-                Err(e) => log::warn!("releaseNotes.check: {e}"),
+                Err(e) => {
+                    // Asked again when the session changes next.
+                    log::warn!("releaseNotes.check: {e}");
+                    n.checked = false;
+                }
             }
             cx.notify();
         });
@@ -593,5 +597,26 @@ mod tests {
         for (locale, text) in CATALOGS {
             assert_eq!(versions(text), english, "{locale}");
         }
+    }
+
+    #[gpui_kit::test]
+    fn a_check_that_failed_is_asked_again(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        daemon.once::<methods::ReleaseNotesCheck>(Err(conduit_daemon::protocol::error(
+            "rpc.timeout",
+            "slow",
+        )));
+        let scratch = std::env::temp_dir().join(format!("conduit-notes-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            let stores = Stores::for_test(daemon.rpc(), &scratch, cx);
+            install(&stores, cx);
+            stores
+        });
+        cx.update(|cx| check("1.0.0", &stores, cx));
+        cx.run_until_parked();
+        let checked = cx.update(|cx| notes(cx).map(|n| n.read(cx).checked));
+        assert_eq!(checked, Some(false), "a failed check is never asked again");
     }
 }

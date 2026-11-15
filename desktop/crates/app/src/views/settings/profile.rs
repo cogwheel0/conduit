@@ -813,3 +813,73 @@ impl Render for ProfilePane {
             .child(password)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use gpui_kit::TestAppContext;
+
+    use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    #[gpui_kit::test]
+    fn change_password_checks_its_fields_and_says_why_the_server_refused(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-password-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| ProfilePane::new(stores, window, cx));
+        let fill =
+            |vcx: &mut gpui_kit::VisualTestContext, current: &str, new: &str, again: &str| {
+                view.update_in(vcx, |p, window, cx| {
+                    for (input, text) in [
+                        (&p.current_password, current),
+                        (&p.new_password, new),
+                        (&p.confirm_password, again),
+                    ] {
+                        input.update(cx, |i, cx| i.set_value(text, window, cx));
+                    }
+                    p.change_password(window, cx);
+                });
+                vcx.run_until_parked();
+                view.read_with(vcx, |p, _| p.password_note.clone())
+            };
+        assert_eq!(
+            fill(vcx, "", "new-secret", "new-secret"),
+            Some(ProfileNote::PasswordFieldsRequired)
+        );
+        assert_eq!(
+            fill(vcx, "old-secret", "new-secret", "other"),
+            Some(ProfileNote::PasswordsDiffer)
+        );
+        assert!(daemon.calls::<methods::ProfileChangePassword>().is_empty());
+        daemon.once::<methods::ProfileChangePassword>(Ok(PasswordChangeResult {
+            failure: Some("wrongPassword".into()),
+        }));
+        assert_eq!(
+            fill(vcx, "old-secret", "new-secret", "new-secret"),
+            Some(ProfileNote::PasswordWrong)
+        );
+        daemon.once::<methods::ProfileChangePassword>(Ok(PasswordChangeResult {
+            failure: Some("refused".into()),
+        }));
+        assert_eq!(
+            fill(vcx, "old-secret", "new-secret", "new-secret"),
+            Some(ProfileNote::PasswordRefused)
+        );
+        daemon.once::<methods::ProfileChangePassword>(Ok(PasswordChangeResult { failure: None }));
+        assert_eq!(fill(vcx, "old-secret", "new-secret", "new-secret"), None);
+        view.read_with(vcx, |p, cx| {
+            assert!(
+                p.new_password.read(cx).value().is_empty(),
+                "a changed password stays typed"
+            );
+        });
+        let sent = daemon.calls::<methods::ProfileChangePassword>();
+        assert_eq!(sent.len(), 3);
+        assert_eq!(sent[0]["currentPassword"], "old-secret");
+        assert_eq!(sent[0]["newPassword"], "new-secret");
+    }
+}

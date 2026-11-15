@@ -367,6 +367,13 @@ pub struct SettingsView {
     pub data_controls: Option<Entity<data_controls::DataControlsPane>>,
     /// About's server rows and links (`settings.about`).
     pub about_info: Option<conduit_protocol::AboutInfo>,
+    /// The account the panes above were made for: another one starts them
+    /// over, so nothing of the last account's is shown or saved to it.
+    account: Option<String>,
+    /// About's last fetch failed: asked again when About shows next.
+    about_failed: bool,
+    /// Bumped per account: an About answer for the last one is dropped.
+    about_round: u64,
     pub tab: Tab,
     /// When the pane last changed by a click or key in the window (the new
     /// one fades in); `None` while it shows the pane it opened with.
@@ -393,7 +400,14 @@ impl SettingsView {
         let mut subscriptions = vec![
             cx.observe(&settings, |_, _, cx| cx.notify()),
             cx.observe(&connection, |_, _, cx| cx.notify()),
-            cx.observe(&stores.accounts, |_, _, cx| cx.notify()),
+            cx.observe(&stores.accounts, |this: &mut Self, accounts, cx| {
+                let active = accounts.read(cx).active().map(|a| a.id.clone());
+                if active != this.account {
+                    this.account = active;
+                    this.forget_account(cx);
+                }
+                cx.notify()
+            }),
             cx.observe(&stores.session, |_, _, cx| cx.notify()),
             cx.observe(&stores.app_settings, |_, _, cx| cx.notify()),
         ];
@@ -408,7 +422,11 @@ impl SettingsView {
             // A chord being recorded is the window's: keys go back to the
             // app once it closes.
             this.settings.update(cx, |s, cx| s.stop_recording(cx));
+            if let Some(audio) = this.audio.clone() {
+                audio.update(cx, |a, cx| a.stop_preview(cx));
+            }
         }));
+        let account = stores.accounts.read(cx).active().map(|a| a.id.clone());
         // The system's answers may have changed since (System Settings).
         crate::desktop::refresh_statuses(cx);
         let focus = cx.focus_handle();
@@ -425,6 +443,9 @@ impl SettingsView {
             audio: None,
             data_controls: None,
             about_info: None,
+            account,
+            about_failed: false,
+            about_round: 0,
             tab,
             switched: None,
             focus,
@@ -434,6 +455,22 @@ impl SettingsView {
             material: Default::default(),
             _subscriptions: subscriptions,
         }
+    }
+
+    /// Another account is active: the panes holding the last one's profile,
+    /// prompt, memories, chats, voices and data counts start over, and
+    /// About asks its server again.
+    fn forget_account(&mut self, cx: &mut Context<Self>) {
+        if let Some(audio) = self.audio.take() {
+            audio.update(cx, |a, cx| a.stop_preview(cx));
+        }
+        self.profile = None;
+        self.personalization = None;
+        self.chats = None;
+        self.data_controls = None;
+        self.about_info = None;
+        self.about_failed = false;
+        self.about_round += 1;
     }
 
     /// Gives focus back to the window itself (nothing ringed), as it opens.
@@ -446,8 +483,15 @@ impl SettingsView {
     /// change comes through here, so a recording never outlives its pane.
     pub fn show_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
         if tab != self.tab {
-            // Recording belongs to the pane it started in.
+            // Recording belongs to the pane it started in, and so does
+            // Preview Voice.
             self.settings.update(cx, |s, cx| s.stop_recording(cx));
+            if let Some(audio) = self.audio.clone() {
+                audio.update(cx, |a, cx| a.stop_preview(cx));
+            }
+            if tab == Tab::About && std::mem::take(&mut self.about_failed) {
+                self.about_info = None;
+            }
             self.tab = tab;
             self.switched = Some(cx.background_executor().now());
             cx.notify();
@@ -1052,6 +1096,7 @@ impl SettingsView {
     fn fetch_about(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // One fetch per window; a placeholder stops a second.
         self.about_info = Some(conduit_protocol::AboutInfo::default());
+        let round = self.about_round;
         let call = self
             .connection
             .read(cx)
@@ -1062,9 +1107,15 @@ impl SettingsView {
             async move |this, cx: &mut gpui_kit::AsyncWindowContext| {
                 let result = call.await;
                 let _ = this.update(cx, |s: &mut Self, cx| {
+                    if s.about_round != round {
+                        return;
+                    }
                     match result {
                         Ok(info) => s.about_info = Some(info),
-                        Err(e) => log::warn!("settings.about: {e}"),
+                        Err(e) => {
+                            log::warn!("settings.about: {e}");
+                            s.about_failed = true;
+                        }
                     }
                     cx.notify();
                 });
@@ -2130,6 +2181,47 @@ mod language_tests {
 
     use super::*;
     use crate::stores::rpc::fake::FakeDaemon;
+
+    #[gpui_kit::test]
+    fn another_account_starts_the_account_panes_over(cx: &mut TestAppContext) {
+        use crate::stores::accounts::tests::{account, list};
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-panes-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        let settings =
+            cx.new(|_| SettingsStore::load(scratch.join("prefs.json"), false, vec!["en".into()]));
+        let s = stores.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| {
+            SettingsView::new(settings, s, Tab::Language, window, cx)
+        });
+        view.update_in(vcx, |v, window, cx| {
+            v.profile_pane(window, cx);
+            v.personalization_pane(window, cx);
+            v.data_controls_pane(window, cx);
+            v.about_info = Some(conduit_protocol::AboutInfo::default());
+        });
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blake", true, true),
+                ]),
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, _| {
+            assert!(v.profile.is_none(), "B's Profile shows A's details");
+            assert!(v.personalization.is_none() && v.data_controls.is_none());
+            assert!(v.about_info.is_none(), "About shows A's server");
+        });
+    }
 
     #[gpui_kit::test]
     fn the_languages_are_one_keyboard_stop_whose_arrows_choose(cx: &mut TestAppContext) {

@@ -796,10 +796,12 @@ fn read_app_preferences(settings: &Entity<SettingsStore>, cx: &mut App) {
         match call.await {
             Ok(stored) => {
                 settings.update(cx, |s, cx| s.adopt_app_preferences(&stored, cx));
+                cx.update(|cx| push_app_preferences(&settings, cx));
             }
+            // Unread, the account's own stay as they are: this Mac's
+            // defaults never go over them (the next connect asks again).
             Err(e) => log::debug!("settings.getApp: {e}"),
         }
-        cx.update(|cx| push_app_preferences(&settings, cx));
     })
     .detach();
 }

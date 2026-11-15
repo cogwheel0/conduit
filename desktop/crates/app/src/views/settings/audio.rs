@@ -66,6 +66,9 @@ pub struct AudioPane {
     pub provider: Option<String>,
     pub provider_saved: Option<bool>,
     pub previewing: bool,
+    /// Bumped when the pane is left: a preview still on its way stays
+    /// silent.
+    preview_round: u64,
 }
 
 impl AudioPane {
@@ -100,6 +103,7 @@ impl AudioPane {
             instructions,
             provider: None,
             provider_saved: None,
+            preview_round: 0,
             previewing: false,
         };
         this.refresh(window, cx);
@@ -320,12 +324,19 @@ impl AudioPane {
         });
         let http = self.stores.connection.read(cx).http().cloned();
         self.previewing = true;
+        let round = self.preview_round;
         cx.notify();
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
                 let audio = match (call.await, http) {
-                    (Ok(job), Some(http)) => http.speech(&job.job_id).await.ok(),
+                    (Ok(job), Some(http)) => match http.speech(&job.job_id).await {
+                        Ok(audio) => Some(audio),
+                        Err(e) => {
+                            log::warn!("the server's speech for a preview: {e}");
+                            None
+                        }
+                    },
                     (Err(e), _) => {
                         log::warn!("voice.speak: {e}");
                         None
@@ -334,6 +345,10 @@ impl AudioPane {
                 };
                 let _ = this.update(cx, |s, cx| {
                     s.previewing = false;
+                    if s.preview_round != round {
+                        cx.notify();
+                        return;
+                    }
                     if let Some(audio) = audio
                         && !speech::play(&audio.bytes)
                     {
@@ -347,6 +362,15 @@ impl AudioPane {
             },
         )
         .detach();
+    }
+
+    /// Stops Preview Voice (the pane was left, or Settings closed).
+    pub fn stop_preview(&mut self, cx: &mut Context<Self>) {
+        self.preview_round += 1;
+        if std::mem::take(&mut self.previewing) {
+            cx.notify();
+        }
+        speech::stop();
     }
 
     pub fn save_provider(&mut self, cx: &mut Context<Self>) {
@@ -376,8 +400,20 @@ impl AudioPane {
                 }
             }
         };
-        self.set(patch, cx);
-        self.provider_saved = Some(true);
+        // "Saved" once the daemon took it; a refusal says so.
+        self.provider_saved = None;
+        let answer = self.store().update(cx, |s, cx| s.save(patch, cx));
+        cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut gpui_kit::AsyncApp| {
+                if let Ok(ok) = answer.await {
+                    let _ = this.update(cx, |s, cx| {
+                        s.provider_saved = Some(ok);
+                        cx.notify();
+                    });
+                }
+            },
+        )
+        .detach();
         cx.notify();
     }
 
@@ -749,9 +785,14 @@ impl AudioPane {
         } else {
             l10n.voice_provider_description()
         };
-        let note = self
-            .provider_saved
-            .map(|ok| forms::form_note(l10n.desktop_saved(), ok, cx).into_any_element());
+        let note = self.provider_saved.map(|ok| {
+            let note = if ok {
+                l10n.desktop_saved()
+            } else {
+                l10n.desktop_action_failed()
+            };
+            forms::form_note(note, ok, cx).into_any_element()
+        });
         div()
             .flex()
             .flex_col()
@@ -799,5 +840,29 @@ mod tests {
         voice.stt_engine = "local".into();
         assert_eq!(stt_engine(&s, Some(&voice)), "local");
         assert_eq!(stt_engine(&s, None), "server");
+    }
+
+    #[gpui_kit::test]
+    fn a_provider_the_daemon_refused_never_says_saved(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        daemon.once::<methods::SettingsSet>(Err(conduit_daemon::protocol::error(
+            "rpc.invalidParams",
+            "no such connection",
+        )));
+        let scratch = std::env::temp_dir().join(format!("conduit-audio-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let (view, vcx) = cx.add_window_view(move |window, cx| AudioPane::new(stores, window, cx));
+        vcx.run_until_parked();
+        view.update(vcx, |p, cx| {
+            p.provider = None;
+            p.save_provider(cx);
+            assert_eq!(p.provider_saved, None, "Saved before the daemon answered");
+        });
+        vcx.run_until_parked();
+        view.read_with(vcx, |p, _| assert_eq!(p.provider_saved, Some(false)));
     }
 }

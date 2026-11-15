@@ -128,6 +128,17 @@ impl AppSettingsStore {
 
     /// Sends `patch`; the store shows the daemon's answer.
     pub fn set(&mut self, patch: AppSettingsPatch, cx: &mut Context<Self>) {
+        drop(self.save(patch, cx));
+    }
+
+    /// [`Self::set`], answering whether the daemon took `patch` (dropped
+    /// unanswered when a later change replaces it).
+    pub fn save(
+        &mut self,
+        patch: AppSettingsPatch,
+        cx: &mut Context<Self>,
+    ) -> futures::channel::oneshot::Receiver<bool> {
+        let (done, answer) = futures::channel::oneshot::channel();
         // A later reply wins over an earlier fetch.
         self.generation += 1;
         let generation = self.generation;
@@ -141,15 +152,18 @@ impl AppSettingsStore {
                         if s.generation == generation {
                             s.adopt(settings, cx);
                         }
+                        let _ = done.send(true);
                     }
                     Err(e) => {
                         log::warn!("settings.set: {e}");
                         s.error = Some(e);
                         cx.notify();
+                        let _ = done.send(false);
                     }
                 });
             }),
         );
+        answer
     }
 
     pub fn refresh_health(&mut self, cx: &mut Context<Self>) {
