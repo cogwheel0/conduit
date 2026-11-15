@@ -33,7 +33,23 @@ final class ValvesService {
 
   /// What the chat's model, tools and filters offer personal valves for.
   Future<ValveTargets> targets(ValveTargetsQuery query) async {
+    // Read for the account in use now: once another is, the targets (its
+    // model's pipe among them) are not shown to it.
+    final session = _container.read(openWebUiAuthSessionEpochProvider);
+    void sameAccount() {
+      if (!identical(
+        session,
+        _container.read(openWebUiAuthSessionEpochProvider),
+      )) {
+        throw const RpcError(
+          code: ConduitErrorCodes.sessionExpired,
+          debugMessage: 'the account changed',
+        );
+      }
+    }
+
     final model = await _model(query.modelId);
+    sameAccount();
     Map<String, dynamic>? permissions;
     try {
       permissions = await readSettled(
@@ -55,6 +71,7 @@ final class ValvesService {
     } on Object {
       tools = _container.read(toolsListProvider).value ?? const <Tool>[];
     }
+    sameAccount();
     final found = personalValvesTargetsFor(
       model: model,
       user: _container.read(currentUserProvider2),
