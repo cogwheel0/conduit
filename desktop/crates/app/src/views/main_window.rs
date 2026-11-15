@@ -250,7 +250,9 @@ impl MainWindow {
         let answered = self
             .approvals
             .update(cx, |a, cx| if allow { a.allow(cx) } else { a.deny(cx) });
-        if !answered {
+        // The chat's prompt card only while its chat is what the window
+        // shows (another area keeps the chat, and its card, out of sight).
+        if !answered && answers_chat_prompt(self.shows_main(cx), self.shows_chat(cx)) {
             let card = self.chat_pane.read(cx).prompt_card.clone();
             card.update(cx, |p, cx| {
                 if allow {
@@ -760,6 +762,12 @@ impl Render for MainWindow {
     }
 }
 
+/// Whether ⌥⌘↩ / ⌥⌘⌫ may answer the open chat's prompt card: only while
+/// the chat pane is on screen.
+fn answers_chat_prompt(shows_main: bool, shows_chat: bool) -> bool {
+    shows_main && shows_chat
+}
+
 #[cfg(test)]
 mod material_tests {
     use super::{MaterialHold, MaterialStep};
@@ -793,5 +801,15 @@ mod approvals_tests {
             "a note hides a chat's request"
         );
         assert!(super::floats_approvals(false, false));
+    }
+
+    #[test]
+    fn a_hidden_chats_prompt_never_takes_the_shortcut() {
+        assert!(super::answers_chat_prompt(true, true));
+        assert!(
+            !super::answers_chat_prompt(true, false),
+            "a note's pane answered the chat"
+        );
+        assert!(!super::answers_chat_prompt(false, false));
     }
 }
