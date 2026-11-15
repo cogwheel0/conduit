@@ -27,18 +27,33 @@ import 'settled.dart';
 /// setter does (choosing the server engine forgets the device voice) are
 /// the phone's. `settings.changed` follows the notifier, whoever changed it.
 final class CoreSettingsService {
-  CoreSettingsService(this._container, {EventBus? events}) {
+  CoreSettingsService(this._container, {EventBus? events}) : _events = events {
     if (events != null) {
-      _container.listen<AppSettings>(appSettingsProvider, (previous, next) {
-        if (previous != null && settingsDto(previous) == settingsDto(next)) {
-          return;
-        }
-        events.emit(ConduitEventSpecs.settingsChanged, null);
-      });
+      _announced = settingsDto(_container.read(appSettingsProvider));
+      _container.listen<AppSettings>(
+        appSettingsProvider,
+        (_, _) => _announceIfChanged(),
+      );
     }
   }
 
   final ProviderContainer _container;
+  final EventBus? _events;
+
+  /// What the windows were last told the settings are.
+  AppSettingsDto? _announced;
+
+  /// `settings.changed`, once per change the windows can see. Called by
+  /// [set] too: core's settings compare equal across a transport change
+  /// alone, so the provider does not notify for it.
+  void _announceIfChanged() {
+    final events = _events;
+    if (events == null) return;
+    final now = settingsDto(_container.read(appSettingsProvider));
+    if (now == _announced) return;
+    _announced = now;
+    events.emit(ConduitEventSpecs.settingsChanged, null);
+  }
 
   AppSettingsNotifier get _notifier =>
       _container.read(appSettingsProvider.notifier);
@@ -196,18 +211,29 @@ final class CoreSettingsService {
     if (patch.ttsEngine case final v?) {
       await n.setTtsEngineSelection(TtsEngine.values.byName(v));
     }
-    if (cleared('ttsVoice') || cleared('ttsVoiceName')) {
+    // A voice given wins over clearing its name; a name alone renames the
+    // voice chosen (checked in [_validate]).
+    if (patch.ttsVoice case final v?) {
+      await n.setTtsDeviceVoiceSelection(
+        v,
+        cleared('ttsVoiceName') ? null : (patch.ttsVoiceName ?? v),
+      );
+    } else if (cleared('ttsVoice')) {
       await n.setTtsDeviceVoiceSelection(null, null);
-    } else if (patch.ttsVoice case final v?) {
-      await n.setTtsDeviceVoiceSelection(v, patch.ttsVoiceName ?? v);
+    } else if (cleared('ttsVoiceName')) {
+      await n.setTtsDeviceVoiceSelection(_settings.ttsVoice, null);
     } else if (patch.ttsVoiceName case final name?) {
-      // A name alone renames the voice chosen (checked in [_validate]).
       await n.setTtsDeviceVoiceSelection(_settings.ttsVoice, name);
     }
-    if (cleared('ttsServerVoiceId') || cleared('ttsServerVoiceName')) {
+    if (patch.ttsServerVoiceId case final v?) {
+      await n.setTtsServerVoiceSelection(
+        v,
+        cleared('ttsServerVoiceName') ? null : (patch.ttsServerVoiceName ?? v),
+      );
+    } else if (cleared('ttsServerVoiceId')) {
       await n.setTtsServerVoiceSelection(null, null);
-    } else if (patch.ttsServerVoiceId case final v?) {
-      await n.setTtsServerVoiceSelection(v, patch.ttsServerVoiceName ?? v);
+    } else if (cleared('ttsServerVoiceName')) {
+      await n.setTtsServerVoiceSelection(_settings.ttsServerVoiceId, null);
     } else if (patch.ttsServerVoiceName case final name?) {
       await n.setTtsServerVoiceSelection(_settings.ttsServerVoiceId, name);
     }
@@ -219,6 +245,7 @@ final class CoreSettingsService {
     } else if (patch.directVoiceProvider case final p?) {
       await n.setDirectVoiceProvider(_voiceProvider(p));
     }
+    _announceIfChanged();
     return get();
   }
 

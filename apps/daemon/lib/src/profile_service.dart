@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -129,8 +130,25 @@ final class ProfileService {
         ref.userInfo.isEmpty;
   }
 
-  Future<ProfileDto> update(ProfileEdit edit) async {
+  /// The last profile change: each waits for the one before, so a photo
+  /// change never puts back details another change just saved.
+  Future<void> _changes = Future<void>.value();
+
+  Future<T> _oneAtATime<T>(Future<T> Function() change) {
+    final done = Completer<void>();
+    final previous = _changes;
+    _changes = done.future;
+    return previous.then((_) => change()).whenComplete(done.complete);
+  }
+
+  // Each change captures the account session when asked, before it waits
+  // its turn: one asked under another account writes nothing.
+  Future<ProfileDto> update(ProfileEdit edit) {
     final session = _session();
+    return _oneAtATime(() => _update(edit, session));
+  }
+
+  Future<ProfileDto> _update(ProfileEdit edit, Object session) async {
     final m = await _metadata();
     final clear = edit.clear.toSet();
     for (final field in clear) {
@@ -153,7 +171,10 @@ final class ProfileService {
     final birth = pick('dateOfBirth', edit.dateOfBirth, m.dateOfBirth);
     if (birth != null && birth.trim().isNotEmpty) {
       final parsed = parseProfileBirthDate(birth);
-      if (parsed == null) {
+      // A day or month past its end ("2020-01-42") parses as another date:
+      // refused rather than saved as that one.
+      if (parsed == null ||
+          !birth.trim().startsWith(formatProfileBirthDate(parsed))) {
         throw RpcError(
           code: ConduitErrorCodes.invalidParams,
           debugMessage: 'not a date: $birth',
@@ -175,8 +196,12 @@ final class ProfileService {
     );
   }
 
-  Future<ProfileDto> setImage(ProfileImageEdit edit) async {
+  Future<ProfileDto> setImage(ProfileImageEdit edit) {
     final session = _session();
+    return _oneAtATime(() => _setImage(edit, session));
+  }
+
+  Future<ProfileDto> _setImage(ProfileImageEdit edit, Object session) async {
     final m = await _metadata();
     final String image;
     if (edit.initials) {
@@ -207,9 +232,12 @@ final class ProfileService {
     return _save(m, session, image: image);
   }
 
-  Future<ProfileDto> removeImage() async {
+  Future<ProfileDto> removeImage() {
     final session = _session();
-    return _save(await _metadata(), session, image: kDefaultProfileImagePath);
+    return _oneAtATime(
+      () async =>
+          _save(await _metadata(), session, image: kDefaultProfileImagePath),
+    );
   }
 
   /// Saves the profile with [name], [image] and the details given, each

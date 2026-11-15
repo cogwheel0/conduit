@@ -44,10 +44,12 @@ final class MemoriesService {
     );
   }
 
-  /// Newest change first, as the phone lists them.
+  /// Newest change first, as the phone lists them. A server may give the
+  /// time in seconds or milliseconds; [ServerMemory.updatedAt] reads both,
+  /// and the window gets seconds.
   static List<MemoryDto> _sorted(List<ServerMemory> items) {
     final sorted = List<ServerMemory>.of(items)
-      ..sort((a, b) => b.updatedAtEpoch.compareTo(a.updatedAtEpoch));
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return <MemoryDto>[
       for (final m in sorted)
         MemoryDto(
@@ -55,7 +57,7 @@ final class MemoriesService {
           content: m.content,
           type: m.type,
           path: m.path,
-          updatedAt: m.updatedAtEpoch,
+          updatedAt: m.updatedAt.millisecondsSinceEpoch ~/ 1000,
         ),
     ];
   }

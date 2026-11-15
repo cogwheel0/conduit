@@ -1912,7 +1912,11 @@ void main() {
           expect(deleted.items.any((m) => m.id == memory.id), isFalse);
           expect(deleted.items.length, start.items.length);
 
-          // The Memory setting round-trips.
+          // The Memory setting round-trips, and is put back however the
+          // test ends.
+          addTearDown(
+            () => memories.setEnabled(MemoryToggle(enabled: start.enabled)),
+          );
           final toggled = await memories.setEnabled(
             MemoryToggle(enabled: !start.enabled),
           );

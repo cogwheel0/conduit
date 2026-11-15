@@ -41,6 +41,14 @@ void main() {
   late DaemonServer server;
   late json_rpc.Peer peer;
   final events = <EventEnvelope>[];
+  final waiting = <(String, Completer<void>)>[];
+
+  /// The next [event] this window is sent.
+  Future<void> next(String event) {
+    final arrived = Completer<void>();
+    waiting.add((event, arrived));
+    return arrived.future;
+  }
 
   setUpAll(() async {
     tempDir = await Directory.systemTemp.createTemp('conduitd_settings');
@@ -72,7 +80,18 @@ void main() {
     );
     await socket.ready;
     peer = json_rpc.Peer(socket.cast<String>());
-    registerEventSink(peer, onEvent: events.add);
+    registerEventSink(
+      peer,
+      onEvent: (envelope) {
+        events.add(envelope);
+        for (final entry in waiting.toList()) {
+          if (entry.$1 == envelope.event) {
+            waiting.remove(entry);
+            entry.$2.complete();
+          }
+        }
+      },
+    );
     unawaited(peer.listen());
     await callTyped<HandshakeResponse>(
       peer,
@@ -141,7 +160,7 @@ void main() {
     });
 
     test('a patch writes what it names, persists, and announces it', () async {
-      events.clear();
+      final announced = next(ConduitEvents.settingsChanged);
       final after = await patch(
         const AppSettingsPatch(
           sendOnEnter: true,
@@ -163,11 +182,19 @@ void main() {
       // Untouched.
       expect(after.computerEnabled, isTrue);
       expect(await read(), after);
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      expect(
-        events.map((e) => e.event),
-        contains(ConduitEvents.settingsChanged),
+      await announced;
+    });
+
+    test('a transport change alone is announced', () async {
+      final before = (await read()).socketTransportMode;
+      final announced = next(ConduitEvents.settingsChanged);
+      final after = await patch(
+        AppSettingsPatch(
+          socketTransportMode: before == 'polling' ? 'ws' : 'polling',
+        ),
       );
+      expect(after.socketTransportMode, isNot(before));
+      await announced;
     });
 
     test('values are held to what core offers', () async {
@@ -266,6 +293,20 @@ void main() {
       s = await patch(const AppSettingsPatch(ttsServerVoiceName: 'Server A2'));
       expect(s.ttsServerVoiceId, 'server-a');
       expect(s.ttsServerVoiceName, 'Server A2');
+    });
+
+    test('a voice given with its name cleared is kept', () async {
+      final s = await patch(
+        const AppSettingsPatch(
+          ttsVoice: 'voice-b',
+          ttsServerVoiceId: 'server-b',
+          clear: <String>['ttsVoiceName', 'ttsServerVoiceName'],
+        ),
+      );
+      expect(s.ttsVoice, 'voice-b');
+      expect(s.ttsVoiceName, isNull);
+      expect(s.ttsServerVoiceId, 'server-b');
+      expect(s.ttsServerVoiceName, isNull);
     });
 
     test('a name with no voice chosen is refused', () async {
@@ -528,6 +569,7 @@ void _withAnAccount() {
             (ref) async => const <String, dynamic>{},
           ),
           serverAboutInfoProvider.overrideWith((ref) async => null),
+          authActionsProvider.overrideWith(_QuietAuth.new),
         ],
       );
       addTearDown(container.dispose);
@@ -560,6 +602,28 @@ void _withAnAccount() {
         expect(api.saved, isEmpty);
       },
     );
+
+    test('a birth date past its month is refused', () async {
+      final profiles = ProfileService(containerWith());
+      await expectLater(
+        profiles.update(const ProfileEdit(dateOfBirth: '2020-01-42')),
+        refused(ConduitErrorCodes.invalidParams),
+      );
+      expect(api.saved, isEmpty);
+    });
+
+    test('a photo change waits for a details change before it', () async {
+      final container = containerWith();
+      final profiles = ProfileService(container);
+      api.saves = true;
+      api.metadata = () async => _avaMetadata(bio: 'An older bio');
+      await profiles.get();
+      final details = profiles.update(const ProfileEdit(bio: 'A newer bio'));
+      final photo = profiles.setImage(const ProfileImageEdit(initials: true));
+      await details;
+      await photo;
+      expect(api.savedBios, <String?>['A newer bio', 'A newer bio']);
+    });
 
     test("a photo only comes from the account's own server", () async {
       final container = containerWith();
@@ -667,18 +731,28 @@ void _withAnAccount() {
   });
 }
 
-AccountMetadata _avaMetadata({String? image}) => AccountMetadata(
+AccountMetadata _avaMetadata({String? image, String? bio}) => AccountMetadata(
   id: 'user-1',
   email: 'ava@example.com',
   name: 'Ava',
   role: 'user',
   isActive: true,
   profileImageUrl: image,
+  bio: bio,
 );
 
 final class _ActiveConversation extends ActiveConversationNotifier {
   @override
   Conversation? build() => null;
+}
+
+/// Signed in already: a profile save's refresh of the session asks
+/// nothing.
+final class _QuietAuth extends AuthActions {
+  _QuietAuth(super.ref);
+
+  @override
+  Future<void> refresh() async {}
 }
 
 final class _QuietSyncEngine extends SyncEngine {
@@ -706,6 +780,10 @@ final class _Api extends ApiService {
 
   final asked = <Uri>[];
   final saved = <String>[];
+
+  /// Saves go through and are what the profile reads next.
+  var saves = false;
+  final savedBios = <String?>[];
   final prompts = <String>[];
   var deletedAll = 0;
   Future<AccountMetadata> Function() metadata = () async => _avaMetadata();
@@ -724,7 +802,19 @@ final class _Api extends ApiService {
     String? timezone,
   }) async {
     saved.add(name);
-    throw StateError('saved under the account in use now');
+    if (!saves) throw StateError('saved under the account in use now');
+    savedBios.add(bio);
+    final updated = AccountMetadata(
+      id: 'user-1',
+      email: 'ava@example.com',
+      name: name,
+      role: 'user',
+      isActive: true,
+      profileImageUrl: profileImageUrl,
+      bio: bio,
+    );
+    metadata = () async => updated;
+    return updated;
   }
 
   @override
