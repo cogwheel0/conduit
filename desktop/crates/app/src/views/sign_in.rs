@@ -340,6 +340,14 @@ impl SignInView {
                         return;
                     }
                 };
+                // The browser flow can take minutes: what it captured is never
+                // sent once the form has moved on to another account.
+                let moved_on = this
+                    .update(cx, |s, cx| s.drop_if_moved_on(&scope, cx))
+                    .unwrap_or(true);
+                if moved_on {
+                    return;
+                }
                 let result = rpc.call::<methods::AuthCompleteExternal>(&completion).await;
                 let _ = this.update_in(cx, |s, window, cx| {
                     if s.drop_if_moved_on(&scope, cx) {
