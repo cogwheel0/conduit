@@ -369,7 +369,10 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     if (read == null) return _refreshNative(held);
     final stored = await read();
     if (!identical(_nativeTokens, held)) return _nativeTokens;
-    if (stored?.refreshToken == held.refreshToken) return _refreshNative(held);
+    if (stored?.refreshToken == held.refreshToken ||
+        _spentRefreshTokens.contains(stored?.refreshToken)) {
+      return _refreshNative(held);
+    }
     // Another client rotated the tokens, or signed out: the held refresh
     // token is spent, and sending it back would end the session.
     _nativeTokens = stored;
@@ -387,6 +390,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
         authenticated: false,
         body: {'refresh_token': current.refreshToken},
       );
+      _spend(current.refreshToken);
       final next = _parseTokenSet(data);
       // A sign-in that finished meanwhile is newer than this renewal.
       if (!identical(_nativeTokens, current)) return _nativeTokens;
@@ -395,11 +399,19 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     } on DioException catch (error) {
       if (error.response?.statusCode == 503) return current;
       if (error.response?.statusCode == 401) {
+        _spend(current.refreshToken);
         if (!identical(_nativeTokens, current)) return _nativeTokens;
         await _saveTokens(null);
         return null;
       }
       rethrow;
+    }
+  }
+
+  void _spend(String refreshToken) {
+    _spentRefreshTokens.add(refreshToken);
+    if (_spentRefreshTokens.length > 8) {
+      _spentRefreshTokens.remove(_spentRefreshTokens.first);
     }
   }
 

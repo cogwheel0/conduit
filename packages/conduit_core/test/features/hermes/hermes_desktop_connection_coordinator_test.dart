@@ -394,6 +394,38 @@ void main() {
       );
     }
 
+    // Saving this client's rotation failed, so storage still holds the
+    // refresh token it spent. That one is older, not newer: the client
+    // renews its own rotation, and never sends the spent token again.
+    test('a rotation that failed to save is renewed over the spent token '
+        'storage kept', () async {
+      var time = now;
+      await withClock(Clock(() => time), () async {
+        final rest = _TokenRest();
+        final lifecycle = _Lifecycle();
+        final gateway = service(
+          rest,
+          expiresAt: now.add(const Duration(minutes: 2)),
+          saved: [],
+          readStoredTokens: () async => HermesDesktopTokenSet(
+            accessToken: 'access',
+            refreshToken: 'refresh',
+            expiresAt: now.add(const Duration(minutes: 2)),
+          ),
+        )..startLifecycleObservation(lifecycle);
+
+        lifecycle.emit(AppLifecyclePhase.resumed);
+        await gateway.resumeRenewal;
+        time = DateTime.utc(2099).subtract(const Duration(minutes: 2));
+        lifecycle.emit(AppLifecyclePhase.resumed);
+        await gateway.resumeRenewal;
+
+        check(
+          rest.refreshTokensSent,
+        ).deepEquals(['refresh', 'renewed-refresh']);
+      });
+    });
+
     // Hermes answers `session_expired`: the refresh token is dead, so the
     // tokens go, and every request after says sign-in is needed.
     test('a refused renewal asks to sign in again', () async {

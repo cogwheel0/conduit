@@ -417,6 +417,11 @@ final class HermesDesktopApiService
   Map<String, dynamic>? _status;
   Future<void>? _connecting;
   Future<HermesDesktopTokenSet?>? _refreshing;
+
+  /// The last refresh tokens this client sent in a renewal Hermes answered.
+  /// They are spent: storage still holds one when saving the rotation that
+  /// replaced it failed, and sending it again would end the session.
+  final Set<String> _spentRefreshTokens = {};
   Future<void>? _foregroundReconciliation;
 
   /// The token renewal the last return to the foreground started.
