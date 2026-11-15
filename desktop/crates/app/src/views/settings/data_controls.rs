@@ -45,6 +45,8 @@ pub struct Outcome {
 pub struct DataControlsPane {
     stores: Stores,
     pub summary: Option<ChatDataSummary>,
+    /// The first summary could not be read: Try Again, not "Loading".
+    pub load_failed: bool,
     pub busy: bool,
     pub outcome: Option<Outcome>,
 }
@@ -54,6 +56,7 @@ impl DataControlsPane {
         let mut this = Self {
             stores,
             summary: None,
+            load_failed: false,
             busy: false,
             outcome: None,
         };
@@ -63,6 +66,12 @@ impl DataControlsPane {
 
     fn rpc(&self, cx: &App) -> crate::stores::rpc::Rpc {
         self.stores.connection.read(cx).rpc()
+    }
+
+    /// The active account: a confirmed action goes ahead only while it is
+    /// still the one the confirmation named.
+    fn account(&self, cx: &App) -> Option<String> {
+        self.stores.accounts.read(cx).active().map(|a| a.id.clone())
     }
 
     /// The account and server the confirmations name.
@@ -100,8 +109,21 @@ impl DataControlsPane {
                 let _ = this.update(cx, |s, cx| {
                     s.busy = false;
                     match result {
-                        Ok(summary) => s.summary = Some(summary),
-                        Err(e) => log::warn!("data.summary: {e}"),
+                        Ok(summary) => {
+                            s.summary = Some(summary);
+                            s.load_failed = false;
+                        }
+                        Err(e) => {
+                            log::warn!("data.summary: {e}");
+                            s.load_failed = true;
+                            // Sync Now (or a refresh) failed with the page up.
+                            if s.summary.is_some() {
+                                s.outcome = Some(Outcome {
+                                    ok: false,
+                                    text: cx.l10n().desktop_action_failed(),
+                                });
+                            }
+                        }
                     }
                     cx.notify();
                 });
@@ -161,6 +183,7 @@ impl DataControlsPane {
         );
         let ask = present_sheet(window, spec, cx);
         let name = format!("chat-export-{}.json", chrono::Utc::now().timestamp_millis());
+        let confirmed_for = self.account(cx);
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
@@ -172,7 +195,11 @@ impl DataControlsPane {
                 let Ok(Ok(Some(path))) = asked.await else {
                     return;
                 };
-                let _ = this.update_in(cx, |s, window, cx| s.export_to(path, window, cx));
+                let _ = this.update_in(cx, |s, window, cx| {
+                    if s.account(cx) == confirmed_for {
+                        s.export_to(path, window, cx);
+                    }
+                });
             },
         )
         .detach();
@@ -249,6 +276,7 @@ impl DataControlsPane {
         };
         let rpc = self.rpc(cx);
         let preview = rpc.call::<methods::DataPreviewImport>(&request);
+        let confirmed_for = self.account(cx);
         self.busy = true;
         self.outcome = None;
         cx.notify();
@@ -293,11 +321,19 @@ impl DataControlsPane {
                     }
                 });
                 let Ok(Some(ask)) = ask else { return };
-                if !ask.await {
-                    let _ = this.update(cx, |s, cx| {
-                        s.busy = false;
-                        cx.notify();
-                    });
+                let confirmed = ask.await;
+                // Another account by now: nothing goes into it.
+                let same = this
+                    .update(cx, |s, cx| {
+                        let same = s.account(cx) == confirmed_for;
+                        if !confirmed || !same {
+                            s.busy = false;
+                            cx.notify();
+                        }
+                        same
+                    })
+                    .unwrap_or(false);
+                if !confirmed || !same {
                     return;
                 }
                 let result = rpc.call::<methods::DataImport>(&request).await;
@@ -381,17 +417,28 @@ impl DataControlsPane {
         };
         let ask = present_sheet(window, spec, cx);
         let rpc = self.rpc(cx);
+        let confirmed_for = self.account(cx);
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
                 if !ask.await {
                     return;
                 }
-                let _ = this.update(cx, |s, cx| {
-                    s.busy = true;
-                    s.outcome = None;
-                    cx.notify();
-                });
+                // Confirmed for one account, never run on another.
+                let same = this
+                    .update(cx, |s, cx| {
+                        let same = s.account(cx) == confirmed_for;
+                        if same {
+                            s.busy = true;
+                            s.outcome = None;
+                            cx.notify();
+                        }
+                        same
+                    })
+                    .unwrap_or(false);
+                if !same {
+                    return;
+                }
                 let result = match action {
                     Bulk::Archive => rpc.call::<methods::DataArchiveAll>(&NoParams).await,
                     Bulk::Unarchive => rpc.call::<methods::DataUnarchiveAll>(&NoParams).await,
@@ -467,6 +514,25 @@ impl Render for DataControlsPane {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let l10n = cx.l10n().clone();
         let Some(summary) = self.summary.clone() else {
+            if self.load_failed {
+                let retry = Button::new("data-retry", l10n.desktop_try_again())
+                    .disabled(self.busy)
+                    .on_click(Rc::new({
+                        let this = cx.entity().downgrade();
+                        move |_, window, cx| {
+                            let _ = this.update(cx, |s, cx| {
+                                s.busy = true;
+                                s.refresh(window, cx);
+                            });
+                        }
+                    }));
+                return div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(10.))
+                    .child(controls::lead(l10n.desktop_action_failed(), cx))
+                    .child(div().child(retry));
+            }
             return div().child(controls::lead(l10n.desktop_loading(), cx));
         };
         if !summary.available {
@@ -611,5 +677,70 @@ impl Render for DataControlsPane {
                 .push(forms::form_note(outcome.text.clone(), outcome.ok, cx).into_any_element());
         }
         div().flex().flex_col().gap(px(22.)).children(sections)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui_kit::TestAppContext;
+
+    use super::*;
+    use crate::shell::sheet::AutoAnswer;
+    use crate::stores::accounts::tests::{account, list};
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    fn summary() -> ChatDataSummary {
+        serde_json::from_value(serde_json::json!({
+            "available": true, "canExport": true, "canImport": true, "canDelete": true,
+        }))
+        .unwrap()
+    }
+
+    #[gpui_kit::test]
+    fn delete_all_confirmed_for_one_account_never_runs_on_another(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.once::<methods::DataSummary>(Err(conduit_daemon::protocol::error(
+            "rpc.timeout",
+            "slow",
+        )));
+        daemon.returns::<methods::DataSummary>(summary());
+        let scratch = std::env::temp_dir().join(format!("conduit-data-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            cx.set_global(AutoAnswer(Some(true)));
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        let s = stores.clone();
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| DataControlsPane::new(s, window, cx));
+        vcx.run_until_parked();
+        // The first summary failed: Try Again, never "Loading" for ever.
+        view.read_with(vcx, |p, _| assert!(p.summary.is_none() && p.load_failed));
+        view.update_in(vcx, |p, window, cx| p.refresh(window, cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |p, _| assert!(p.summary.is_some() && !p.load_failed));
+        // Confirmed for Avery; Blake is active before it runs.
+        view.update_in(vcx, |p, window, cx| p.bulk(Bulk::Delete, window, cx));
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blake", true, true),
+                ]),
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::DataDeleteAll>().is_empty(),
+            "Avery's Delete All ran on Blake"
+        );
+        // Confirmed and still the same account: it runs.
+        view.update_in(vcx, |p, window, cx| p.bulk(Bulk::Delete, window, cx));
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::DataDeleteAll>().len(), 1);
     }
 }
