@@ -517,6 +517,27 @@ void main() {
     await expectLater(first, throwsA(isA<RpcError>()));
   });
 
+  test('a temporary chat being saved takes no other turn meanwhile', () async {
+    open('saving-send');
+    final chat = await turns.send(
+      SendTurn(model: model, text: 'keep me', temporary: true),
+    );
+    subscribeWindow(events, turns, 'saving-send', <String>[chat.chatId]);
+    await until(() => ended('saving-send', chat.assistantMessageId));
+    final saving = turns.saveTemporary(chat.chatId);
+    final sending = turns.send(
+      SendTurn(model: model, chatId: chat.chatId, text: 'and this'),
+    );
+    await expectLater(
+      sending,
+      throwsA(
+        isA<RpcError>().having((e) => e.code, 'code', ConduitErrorCodes.conflict),
+      ),
+    );
+    // This account has no Open WebUI server to save to.
+    await expectLater(saving, throwsA(isA<RpcError>()));
+  });
+
   test('a merge naming one answer twice is refused', () async {
     await expectLater(
       turns.merge(

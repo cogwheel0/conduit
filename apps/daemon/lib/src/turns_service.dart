@@ -1029,7 +1029,7 @@ final class TurnsService implements ChatTurns {
     session.saving = true;
     var closing = false;
     try {
-      await _requireIdle(session);
+      await _requireIdle(session, saving: true);
       final messages = session.scope.messages;
       if (messages.isEmpty) {
         throw const RpcError(
@@ -2745,11 +2745,28 @@ final class TurnsService implements ChatTurns {
   /// waits for the transcript to be quiet and not streaming, for at most
   /// [_settleBudget], and only a chat still generating after that is
   /// refused.
-  Future<void> _requireIdle(_ChatSession session, {_Merge? admitting}) async {
+  Future<void> _requireIdle(
+    _ChatSession session, {
+    _Merge? admitting,
+    bool saving = false,
+  }) async {
     void refuse() => throw const RpcError(
       code: ConduitErrorCodes.conflict,
       debugMessage: 'that chat is already generating',
     );
+    // A temporary chat being saved takes nothing else meanwhile: the saved
+    // chat would miss it, and the temporary one goes once it is saved.
+    void refuseWhileSaving() {
+      if (session.saving && !saving) {
+        throw const RpcError(
+          code: ConduitErrorCodes.conflict,
+          args: <String, String>{'reason': 'saving'},
+          debugMessage: 'that chat is being saved',
+        );
+      }
+    }
+
+    refuseWhileSaving();
     // A merge writes into the transcript too: nothing else starts meanwhile.
     bool merging() =>
         session.merge != null && !identical(session.merge, admitting);
@@ -2768,6 +2785,7 @@ final class TurnsService implements ChatTurns {
     if (session.requestedChatId != null || session.scope.conversation != null) {
       await _settleBeforeTurn(session);
     }
+    refuseWhileSaving();
     if ((!session.scope.isDisposed && session.scope.isStreaming) ||
         merging()) {
       refuse();
