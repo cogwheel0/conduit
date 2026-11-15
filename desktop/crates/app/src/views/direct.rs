@@ -394,6 +394,12 @@ impl DirectView {
                 session.update(cx, |s, cx| s.refresh(cx));
                 let _ = this.update(cx, |s, cx| {
                     if let Ok(list) = result {
+                        // An open form saves the switch as it is now.
+                        if let Some(saved) = s.saved.as_mut()
+                            && let Some(c) = list.connections.iter().find(|c| c.id == saved.id)
+                        {
+                            saved.enabled = c.enabled;
+                        }
                         s.list = Some(list);
                     }
                     cx.notify();
@@ -774,6 +780,23 @@ mod tests {
         let (view, vcx) =
             cx.add_window_view(move |window, cx| DirectView::new(stores, onboarding, window, cx));
         (daemon, view, vcx)
+    }
+
+    #[gpui_kit::test]
+    fn a_switch_flipped_while_the_form_is_open_is_kept(cx: &mut TestAppContext) {
+        let (daemon, view, vcx) = bench(false, cx);
+        let mut on = connection("c1");
+        on.enabled = true;
+        daemon.returns::<methods::DirectSetEnabled>(list(vec![on.clone()]));
+        daemon.returns::<methods::DirectSave>(list(vec![on]));
+        view.update_in(vcx, |v, window, cx| {
+            v.open_edit(&connection("c1"), window, cx);
+            v.set_enabled("c1".into(), true, window, cx);
+        });
+        vcx.run_until_parked();
+        view.update_in(vcx, |v, window, cx| v.save(window, cx));
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::DirectSave>()[0]["enabled"], true);
     }
 
     #[gpui_kit::test]
