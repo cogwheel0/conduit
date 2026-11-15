@@ -89,6 +89,22 @@ final class _These extends Models {
   Future<List<core.Model>> build() async => models;
 }
 
+/// A server offering two models once [listed] completes.
+final class _Held extends Models {
+  _Held(this.listed);
+
+  final Future<void> listed;
+
+  @override
+  Future<List<core.Model>> build() async {
+    await listed;
+    return const [
+      core.Model(id: 'first-model', name: 'First model'),
+      core.Model(id: 'preferred-model', name: 'Preferred'),
+    ];
+  }
+}
+
 /// Signed out, or never signed in: there is no list to fall back on.
 final class _Failing extends Models {
   @override
@@ -155,6 +171,28 @@ void main() {
 
   Matcher refused(String code) =>
       throwsA(isA<RpcError>().having((e) => e.code, 'code', code));
+
+  test('a reasoning pick asked under one account is not made under the next',
+      () async {
+    var account = Object();
+    final listed = Completer<void>();
+    final container = ProviderContainer(
+      overrides: [
+        modelsProvider.overrideWith(() => _Held(listed.future)),
+        openWebUiAuthSessionEpochProvider.overrideWith((ref) => account),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    final picking = ModelsService(container).setReasoningEffort(
+      const SetReasoningEffort(modelId: 'first-model', effort: 'high'),
+    );
+    // Another account signs in while the model is looked up.
+    account = Object();
+    container.invalidate(openWebUiAuthSessionEpochProvider);
+    listed.complete();
+    await expectLater(picking, refused(ConduitErrorCodes.sessionExpired));
+  });
 
   test('a pick for a chat that cannot be read is refused', () async {
     final container = ProviderContainer(

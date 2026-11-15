@@ -16,6 +16,8 @@ import 'package:conduit_core/features/librechat/models/librechat_model.dart'
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart' as core;
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
+import 'package:conduit_core/persistence/account_scoped_preferences.dart'
+    show currentPreferenceAccountId;
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart'
     show appSettingsProvider;
@@ -274,7 +276,25 @@ final class ModelsService {
   /// override; a new chat's lands in the window's draft instead, as mobile's
   /// lands in its pending settings.
   Future<ModelOptionsDto> setReasoningEffort(SetReasoningEffort request) async {
+    // Picked for the account in use now: the pick's key is that account's,
+    // so nothing is written once another one, or another server, is.
+    final session = _container.read(openWebUiAuthSessionEpochProvider);
+    final accountId = currentPreferenceAccountId();
+    void sameAccount() {
+      if (!identical(
+            session,
+            _container.read(openWebUiAuthSessionEpochProvider),
+          ) ||
+          accountId != currentPreferenceAccountId()) {
+        throw const RpcError(
+          code: ConduitErrorCodes.sessionExpired,
+          debugMessage: 'the account changed',
+        );
+      }
+    }
+
     final model = await _model(request.modelId);
+    sameAccount();
     if (model == null) {
       throw RpcError(
         code: ConduitErrorCodes.notFound,
@@ -303,6 +323,7 @@ final class ModelsService {
         debugMessage: 'no chat $chatId to save the pick on',
       );
     }
+    sameAccount();
     Map<String, dynamic>? draft;
     try {
       if (chatId == null) {
