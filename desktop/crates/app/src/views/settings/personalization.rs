@@ -42,6 +42,8 @@ pub struct PersonalizationPane {
     pub memories: Option<MemoryList>,
     pub system_prompt: Entity<TextareaState>,
     pub image_model: Entity<InputState>,
+    /// The image model field holds the loaded settings' value.
+    image_filled: bool,
     pub memory_input: Entity<TextareaState>,
     pub memory_path: Entity<InputState>,
     pub editor: Option<MemoryEditor>,
@@ -66,8 +68,29 @@ impl PersonalizationPane {
         });
         let image_model = forms::input("openai/gpt-5-image", false, window, cx);
         let memory_path = forms::input(l10n.memory_path_hint(), false, window, cx);
-        cx.observe(&stores.app_settings, |_, _, cx| cx.notify())
-            .detach();
+        // Opened before settings.get answered: the saved image model goes in
+        // the field once it is in (not over what was typed since).
+        cx.observe_in(
+            &stores.app_settings,
+            window,
+            |this: &mut Self, store, window, cx| {
+                if !this.image_filled && store.read(cx).loaded {
+                    this.image_filled = true;
+                    if this.image_model.read(cx).value().is_empty() {
+                        let image = store
+                            .read(cx)
+                            .settings()
+                            .open_router_image_generation_model
+                            .clone()
+                            .unwrap_or_default();
+                        this.image_model
+                            .update(cx, |s, cx| s.set_value(image, window, cx));
+                    }
+                }
+                cx.notify()
+            },
+        )
+        .detach();
         let mut this = Self {
             stores,
             models: None,
@@ -78,6 +101,7 @@ impl PersonalizationPane {
             memory_input,
             memory_path,
             editor: None,
+            image_filled: false,
             busy: false,
             prompt_note: None,
             memory_failed: false,
@@ -95,10 +119,9 @@ impl PersonalizationPane {
         let models = rpc.call::<methods::ModelsList>(&NoParams);
         let account = rpc.call::<methods::SettingsGetAccount>(&NoParams);
         let memories = rpc.call::<methods::MemoriesList>(&NoParams);
-        let image = self
-            .stores
-            .app_settings
-            .read(cx)
+        let store = self.stores.app_settings.read(cx);
+        self.image_filled = store.loaded;
+        let image = store
             .settings()
             .open_router_image_generation_model
             .clone()
@@ -156,6 +179,11 @@ impl PersonalizationPane {
 
     pub fn save_image_model(&mut self, cx: &mut Context<Self>) {
         let model = forms::text(&self.image_model, cx);
+        // Before the settings are in, an empty field is no choice: nothing
+        // is cleared.
+        if model.is_empty() && !self.stores.app_settings.read(cx).loaded {
+            return;
+        }
         let patch = if model.is_empty() {
             AppSettingsPatch {
                 clear: vec!["openRouterImageGenerationModel".into()],
@@ -760,6 +788,38 @@ mod tests {
 
     use super::*;
     use crate::stores::rpc::fake::FakeDaemon;
+
+    #[gpui_kit::test]
+    fn the_image_model_shows_once_settings_load_and_is_never_cleared_before(
+        cx: &mut TestAppContext,
+    ) {
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-image-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let s = stores.clone();
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| PersonalizationPane::new(s, window, cx));
+        vcx.run_until_parked();
+        // Saved before the settings are in: nothing is cleared.
+        view.update(vcx, |p, cx| p.save_image_model(cx));
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::SettingsSet>().is_empty(),
+            "the saved model was cleared"
+        );
+        let mut loaded = stores
+            .app_settings
+            .read_with(vcx, |s, _| s.settings().clone());
+        loaded.open_router_image_generation_model = Some("vendor/image-model".into());
+        stores.app_settings.update(vcx, |s, cx| s.adopt(loaded, cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |p, cx| {
+            assert_eq!(p.image_model.read(cx).value(), "vendor/image-model");
+        });
+    }
 
     #[gpui_kit::test]
     fn the_memory_switch_never_reopens_a_pending_save(cx: &mut TestAppContext) {

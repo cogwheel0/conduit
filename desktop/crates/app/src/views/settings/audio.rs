@@ -96,7 +96,12 @@ impl AudioPane {
             window,
             |this: &mut Self, store, window, cx| {
                 if !this.provider_filled && store.read(cx).loaded {
-                    this.fill_provider(window, cx);
+                    // What was chosen or typed meanwhile stays.
+                    if this.provider_untouched(cx) {
+                        this.fill_provider(window, cx);
+                    } else {
+                        this.provider_filled = true;
+                    }
                 }
                 cx.notify()
             },
@@ -161,6 +166,21 @@ impl AudioPane {
     }
 
     /// Puts the saved Voice Provider in the fields.
+    /// Nothing chosen or typed in the Voice Provider group yet.
+    fn provider_untouched(&self, cx: &App) -> bool {
+        self.provider.is_none()
+            && [
+                &self.transcription_model,
+                &self.speech_model,
+                &self.speech_voice,
+                &self.realtime_model,
+                &self.realtime_voice,
+            ]
+            .into_iter()
+            .all(|i| i.read(cx).value().is_empty())
+            && self.instructions.read(cx).value().is_empty()
+    }
+
     fn fill_provider(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let store = self.store().read(cx);
         self.provider_filled = store.loaded;
@@ -876,5 +896,46 @@ mod tests {
         });
         vcx.run_until_parked();
         view.read_with(vcx, |p, _| assert_eq!(p.provider_saved, Some(false)));
+    }
+
+    #[gpui_kit::test]
+    fn a_provider_chosen_before_settings_load_is_kept(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-provider-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let s = stores.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| AudioPane::new(s, window, cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |p, window, cx| {
+            p.choose("audio-voice-provider", "dc-mine", window, cx);
+            p.speech_model
+                .update(cx, |i, cx| i.set_value("my-speech-model", window, cx));
+        });
+        let mut loaded = stores
+            .app_settings
+            .read_with(vcx, |s, _| s.settings().clone());
+        loaded.direct_voice_provider = Some(DirectVoiceProviderDto {
+            profile_id: "dc-stored".into(),
+            transcription_model: None,
+            speech_model: Some("stored-speech-model".into()),
+            speech_voice: None,
+            realtime_model: None,
+            realtime_voice: None,
+            realtime_instructions: None,
+        });
+        stores.app_settings.update(vcx, |s, cx| s.adopt(loaded, cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |p, cx| {
+            assert_eq!(
+                p.provider.as_deref(),
+                Some("dc-mine"),
+                "the choice was replaced"
+            );
+            assert_eq!(p.speech_model.read(cx).value(), "my-speech-model");
+        });
     }
 }
