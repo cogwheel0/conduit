@@ -634,6 +634,10 @@ void _withAnAccount() {
         'https://home.invalid:8443/me.png',
         '//elsewhere.invalid/me.png',
         'http://127.0.0.1:9/me.png',
+        '@elsewhere.invalid/me.png',
+        'https://home.invalid@elsewhere.invalid/me.png',
+        r'\\elsewhere.invalid\me.png',
+        '%2F%2Felsewhere.invalid/me.png',
       ]) {
         api.metadata = () async => _avaMetadata(image: url);
         container.invalidate(accountProfileProvider);
@@ -655,6 +659,51 @@ void _withAnAccount() {
           'https://home.invalid/static/me.png',
         ]),
       );
+    });
+
+    test("a photo's address is resolved on the server's, or refused", () {
+      const server = 'https://home.invalid/owui';
+      final cases = <String, String?>{
+        // On the server: resolved under its sub-path, as other requests.
+        '/api/v1/users/user-1/profile/image':
+            'https://home.invalid/owui/api/v1/users/user-1/profile/image',
+        'static/me.png': 'https://home.invalid/owui/static/me.png',
+        'https://home.invalid/owui/static/me.png':
+            'https://home.invalid/owui/static/me.png',
+        'https://HOME.invalid:443/static/me.png':
+            'https://home.invalid/static/me.png',
+        // Another origin.
+        'https://elsewhere.invalid/me.png': null,
+        'http://home.invalid/me.png': null,
+        'https://home.invalid:8443/me.png': null,
+        'http://127.0.0.1:9/me.png': null,
+        'file:///etc/hosts': null,
+        // User info, as a reference or in an address.
+        '@elsewhere.invalid/me.png': null,
+        'me@elsewhere.invalid': null,
+        'https://home.invalid@elsewhere.invalid/me.png': null,
+        'https://user:pass@home.invalid/me.png': null,
+        '%40elsewhere.invalid/me.png': null,
+        // Scheme-relative.
+        '//elsewhere.invalid/me.png': null,
+        '%2F%2Felsewhere.invalid/me.png': null,
+        '/%2Felsewhere.invalid/me.png': null,
+        '%2f/elsewhere.invalid/me.png': null,
+        // Backslashes, raw or encoded.
+        r'\\elsewhere.invalid\me.png': null,
+        r'/\elsewhere.invalid/me.png': null,
+        '%5C%5Celsewhere.invalid/me.png': null,
+        // Spaces and control characters.
+        ' //elsewhere.invalid/me.png': null,
+        '/static/me.png\n//elsewhere.invalid': null,
+      };
+      cases.forEach((url, expected) {
+        expect(
+          ProfileService.avatarUri(server, url)?.toString(),
+          expected,
+          reason: url,
+        );
+      });
     });
 
     test("a model's prompt read under one account is never written under "

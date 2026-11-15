@@ -97,12 +97,13 @@ final class ProfileService {
     final value = url!.trim();
     if (value.startsWith('data:')) return value;
     final api = _api();
-    if (!_onServer(api.serverConfig.url, value)) return null;
+    final uri = avatarUri(api.serverConfig.url, value);
+    if (uri == null) return null;
     try {
-      // A path is joined to the server's address (and its sub-path) as
-      // every other request is.
-      final response = await api.dio.get<List<int>>(
-        value,
+      // The absolute address checked above, never the reference itself:
+      // Dio would join that to the server's address on its own terms.
+      final response = await api.dio.getUri<List<int>>(
+        uri,
         options: Options(responseType: ResponseType.bytes),
       );
       final bytes = response.data;
@@ -117,17 +118,44 @@ final class ProfileService {
     }
   }
 
-  /// Whether [url] stays on [server]'s origin: a path, or an address with
-  /// the server's own scheme, host and port.
-  static bool _onServer(String server, String url) {
-    final base = Uri.tryParse(server);
+  /// The absolute address of the photo [url] names, resolved against
+  /// [server]'s address (its sub-path kept, as for every other request),
+  /// or null unless it is on the server's own scheme, host and port.
+  ///
+  /// Anything that could name another host on the way is refused before
+  /// resolving: user info (`@`), backslashes, a scheme-relative `//`, their
+  /// percent-encoded forms, and spaces or control characters.
+  static Uri? avatarUri(String server, String url) {
+    final lower = url.toLowerCase();
+    const refused = <String>['@', r'\', '%40', '%5c', '%2f%2f', '/%2f', '%2f/'];
+    if (refused.any(lower.contains) ||
+        lower.startsWith('//') ||
+        url.runes.any((r) => r <= 0x20 || r == 0x7f)) {
+      return null;
+    }
+    final base = Uri.tryParse(server.trim());
     final ref = Uri.tryParse(url);
-    if (base == null || ref == null) return false;
-    if (!ref.hasScheme && !ref.hasAuthority) return true;
-    return ref.scheme == base.scheme &&
-        ref.host.toLowerCase() == base.host.toLowerCase() &&
-        ref.port == base.port &&
-        ref.userInfo.isEmpty;
+    if (base == null ||
+        ref == null ||
+        !(base.isScheme('http') || base.isScheme('https')) ||
+        base.host.isEmpty) {
+      return null;
+    }
+    // A trailing slash keeps the server's sub-path for a path reference.
+    final root = base.path.endsWith('/')
+        ? base
+        : base.replace(path: '${base.path}/');
+    final relative = !ref.hasScheme && !ref.hasAuthority && url.startsWith('/')
+        ? Uri.tryParse(url.substring(1))
+        : ref;
+    if (relative == null) return null;
+    final resolved = root.resolveUri(relative);
+    final same =
+        resolved.scheme == base.scheme &&
+        resolved.host.toLowerCase() == base.host.toLowerCase() &&
+        resolved.port == base.port &&
+        resolved.userInfo.isEmpty;
+    return same ? resolved.removeFragment() : null;
   }
 
   /// The last profile change: each waits for the one before, so a photo
