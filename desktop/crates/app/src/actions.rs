@@ -1,0 +1,133 @@
+//! GPUI actions: the app menu's and the rebindable shortcuts'.
+
+use gpui_kit::{Action, actions};
+
+use crate::keymap::ShortcutAction;
+
+actions!(
+    conduit,
+    [
+        About,
+        Quit,
+        Hide,
+        HideOthers,
+        ShowAll,
+        CloseWindow,
+        Minimize,
+        Zoom,
+        ToggleFullScreen,
+        BringAllToFront,
+        OpenHelp,
+        // The rebindable shortcuts (keymap.rs).
+        NewChat,
+        OpenPalette,
+        FocusComposer,
+        FocusModelPicker,
+        StopGenerating,
+        OpenSettings,
+        ShowShortcuts,
+        CopyLastResponse,
+        CopyLastCodeBlock,
+        AllowRequest,
+        DenyRequest,
+        Dictate,
+        ToggleSidebar,
+    ]
+);
+
+// The ⌘K palette's "Choose model" command: opens the composer's model
+// picker.
+actions!(conduit, [ChooseModel]);
+
+// Window › Quick Ask (also the global shortcut and the menu-bar item).
+actions!(conduit, [ToggleQuickAsk]);
+
+// Conduit › Check for Updates… (Sparkle; handled only when the build has
+// an updater, so the item is disabled otherwise).
+actions!(conduit, [CheckForUpdates]);
+
+// Edit › Find › Search Chats (⌥⌘F, as Mail's Mailbox Search): the
+// sidebar's search field, the sidebar shown first.
+actions!(conduit, [FindChats]);
+
+// Edit › Find: Find… (⌘F) opens the find bar over the open chat's
+// transcript; Find Next (⌘G) and Find Previous (⇧⌘G) step through its
+// matches.
+actions!(conduit, [FindInChat, FindNext, FindPrevious]);
+
+// File › New Temporary Chat (⇧⌘N, as Safari's New Private Window).
+actions!(conduit, [NewTemporaryChat]);
+
+// Tab and Shift-Tab in the chat pane: the messages' order, rows off screen
+// included (`Transcript::tab`); elsewhere the window's own.
+actions!(conduit, [FocusNextControl, FocusPreviousControl]);
+
+// File › New Folder: a folder at the top of the sidebar's Folders, named in
+// place (also the list's own right-click menu).
+actions!(conduit, [NewFolder]);
+
+// Chat › Previous Chat (⌃⇧⇥) and Next Chat (⌃⇥): the chat before or after
+// the open one in the sidebar's order (wrapping), as ⌃⇥ steps through
+// Safari's tabs.
+actions!(conduit, [PreviousChat, NextChat]);
+
+// View › Actual Size (⌘0), Zoom In (⌘+) and Zoom Out (⌘−): Settings ›
+// Appearance › Text Size, a point at a time.
+actions!(conduit, [ActualSize, ZoomIn, ZoomOut]);
+
+// The Chat menu, on the open chat (disabled with none open): pin, rename,
+// share, archive, delete (⌘⌫ in the sidebar list) and regenerate the last
+// answer (⌘R).
+actions!(
+    conduit,
+    [
+        RenameChat,
+        TogglePinChat,
+        ShareChat,
+        ArchiveChat,
+        DeleteChat,
+        RegenerateLastAnswer
+    ]
+);
+
+/// Chat › Move To: files the open chat in `folder_id` (`None`: out of any
+/// folder).
+#[derive(Clone, Debug, PartialEq, Action)]
+#[action(namespace = conduit, no_json)]
+pub struct MoveChatTo {
+    pub folder_id: Option<String>,
+}
+
+/// Settings › Language: `None` follows the system.
+#[derive(Clone, Debug, PartialEq, Action)]
+#[action(namespace = conduit, no_json)]
+pub struct SetLocale {
+    pub locale: Option<String>,
+}
+
+/// Settings › Accounts row menu: sign out of the account and remove it.
+#[derive(Clone, Debug, PartialEq, Action)]
+#[action(namespace = conduit, no_json)]
+pub struct RemoveAccount {
+    pub account_id: String,
+}
+
+/// The GPUI action a shortcut dispatches.
+pub fn for_shortcut(action: ShortcutAction) -> Box<dyn Action> {
+    use ShortcutAction as S;
+    match action {
+        S::NewChat => Box::new(NewChat),
+        S::OpenPalette => Box::new(OpenPalette),
+        S::FocusComposer => Box::new(FocusComposer),
+        S::FocusModelPicker => Box::new(FocusModelPicker),
+        S::StopGenerating => Box::new(StopGenerating),
+        S::OpenSettings => Box::new(OpenSettings),
+        S::ShowShortcuts => Box::new(ShowShortcuts),
+        S::CopyLastResponse => Box::new(CopyLastResponse),
+        S::CopyLastCodeBlock => Box::new(CopyLastCodeBlock),
+        S::AllowRequest => Box::new(AllowRequest),
+        S::DenyRequest => Box::new(DenyRequest),
+        S::Dictate => Box::new(Dictate),
+        S::ToggleSidebar => Box::new(ToggleSidebar),
+    }
+}
