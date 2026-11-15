@@ -1,0 +1,2398 @@
+//! One open chat: its stored transcript, the answer streaming into it, the
+//! message this window just sent, and this window's own choices about it.
+//!
+//! * **Stored copy:** `chats.get`, whose assistant messages carry typed
+//!   `blocks`. Refetched on `chats.changed` for this chat (or a general
+//!   one), on a reconnect or an event gap, and after a turn ends. Every
+//!   fetch has a generation, so a slow answer never overwrites a newer one.
+//! * **Live overlay:** the turn streaming into this chat, from the scoped
+//!   `turn.*` events. Each `turn.blocks` *replaces* the blocks wholesale
+//!   (they are full snapshots), and kinds this build does not know are
+//!   skipped. The overlay takes the place of the stored row with its id
+//!   (the empty placeholder the server made), or of the answer a
+//!   regenerate replaces; otherwise it goes at the end. Once the turn has
+//!   ended and the stored copy has the answer, the overlay *settles* and
+//!   the stored row shows. `turn.failed` keeps the partial answer and adds
+//!   the error block when the daemon's blocks have none.
+//! * **Pending message:** what this window sent, until the stored copy has
+//!   it. An edit hides the question it replaces and everything after it.
+//!   While `turns.send` (or `turns.edit`) is on its way the answer's header
+//!   and "Waiting for the answer…" show under it ([`Row::Waiting`]) and the
+//!   chat counts as streaming (Stop shows), until the turn's own overlay
+//!   takes over; a Stop pressed meanwhile is sent once the turn exists.
+//! * **Subscription:** `turn.*` events are scoped to the chat id, so the
+//!   store asks for its scope through the `subscribe` hook (the app passes
+//!   [`super::connection::ConnectionStore::subscribe`]). Subscribing again
+//!   makes the daemon replay a running turn (and one that ended while this
+//!   window was not listening), which is how reopening a chat mid-answer,
+//!   or a reconnect, catches up.
+//! * **Remaps:** `route.remap` moves the store to the chat's new id; it
+//!   resubscribes and refetches.
+//! * **This window only:** which answer version each message shows,
+//!   ratings given here that the stored copy may not show yet (rolled back
+//!   if refused), and how many of the newest messages the transcript shows
+//!   (older ones load a page at a time as the user scrolls up).
+
+use std::collections::HashMap;
+use std::rc::Rc;
+
+use conduit_daemon::RpcError;
+use conduit_protocol::{
+    ChatDetail, ChatFileDto, ChatMessageDto, ChatRef, ChatSourceDto, EditTurn, Event,
+    KnowledgeSummary, MessageBlockDto, MessageBlockKind, RateTurn, RegenerateTurn, SendTurn,
+    SendTurnAccepted, StopTurn, events, methods,
+};
+use gpui_kit::{App, AsyncApp, Context, EventEmitter, Task, WeakEntity};
+
+use super::rpc::Rpc;
+
+/// The events an open chat follows (`turn.*` scoped to its id;
+/// `chats.changed` and `turn.finished` are unscoped).
+pub const CHAT_EVENTS: &[&str] = &[
+    events::TURN_STARTED,
+    events::TURN_DELTA,
+    events::TURN_BLOCKS,
+    events::TURN_COMPLETED,
+    events::TURN_FAILED,
+    events::TURN_FINISHED,
+    events::CHATS_CHANGED,
+];
+
+/// How many of the newest messages show at first, and how many more each
+/// "load older" adds.
+pub const PAGE: usize = 100;
+
+/// How often, and how far apart, a finished answer is fetched again while
+/// the stored copy is still behind it, before the stored copy wins anyway.
+const BEHIND_TRIES: u8 = 8;
+const BEHIND_RETRY: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Asks the connection for `Some(chat id)`'s scope (or none).
+pub type Subscribe = Rc<dyn Fn(Option<&str>, &mut App)>;
+
+/// Where a live turn is.
+#[derive(Clone, Debug, PartialEq)]
+pub enum LivePhase {
+    Streaming,
+    Completed,
+    Failed {
+        code: String,
+        /// The server's own words, when it gave any.
+        detail: Option<String>,
+    },
+}
+
+/// The answer streaming into this chat (or just finished, until the
+/// stored copy has it).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LiveTurn {
+    pub message_id: String,
+    pub model: Option<String>,
+    /// The raw text so far (for copying).
+    pub text: String,
+    /// The last `turn.blocks` snapshot, unknown kinds removed.
+    pub blocks: Vec<MessageBlockDto>,
+    pub phase: LivePhase,
+    /// A regenerate answered under a new id: the answer it replaces, whose
+    /// row the overlay takes over until it settles.
+    pub replaces: Option<String>,
+    /// A regenerate that keeps the answer's id (Direct does): the old text,
+    /// which the stored copy still has until the new answer is synced.
+    pub stale_text: Option<String>,
+    /// A regenerate made before the daemon named its answer: the overlay
+    /// stands under the old answer's id until `turns.regenerate` replies or
+    /// the turn's first event names the new one, whichever comes first.
+    pub awaiting_id: bool,
+    /// Fetches since the turn ended that found the stored copy behind the
+    /// answer (see [`stored_behind`]).
+    pub behind: u8,
+}
+
+impl LiveTurn {
+    fn new(message_id: impl Into<String>) -> Self {
+        Self {
+            message_id: message_id.into(),
+            model: None,
+            text: String::new(),
+            blocks: vec![],
+            phase: LivePhase::Streaming,
+            replaces: None,
+            stale_text: None,
+            awaiting_id: false,
+            behind: 0,
+        }
+    }
+
+    pub fn streaming(&self) -> bool {
+        self.phase == LivePhase::Streaming
+    }
+
+    /// The blocks to draw: the snapshot, plus the error when the turn
+    /// failed and the snapshot does not say so.
+    pub fn display_blocks(&self) -> Vec<MessageBlockDto> {
+        let mut blocks = self.blocks.clone();
+        if let LivePhase::Failed { detail, .. } = &self.phase
+            && !blocks.iter().any(|b| b.kind == MessageBlockKind::Error)
+        {
+            let mut error = empty_block(MessageBlockKind::Error);
+            error.error = Some(detail.clone().unwrap_or_default());
+            // Before sources and follow-ups, after the content.
+            let at = blocks
+                .iter()
+                .position(|b| {
+                    matches!(
+                        b.kind,
+                        MessageBlockKind::CodeExecution
+                            | MessageBlockKind::Sources
+                            | MessageBlockKind::FollowUps
+                    )
+                })
+                .unwrap_or(blocks.len());
+            blocks.insert(at, error);
+        }
+        blocks
+    }
+}
+
+/// A block with only its kind set.
+pub fn empty_block(kind: MessageBlockKind) -> MessageBlockDto {
+    MessageBlockDto {
+        kind,
+        markdown: None,
+        summary: None,
+        title: None,
+        duration_seconds: None,
+        done: None,
+        pending: None,
+        body: None,
+        calls: None,
+        code: None,
+        language: None,
+        output: None,
+        id: None,
+        name: None,
+        error: None,
+        is_error: None,
+        r#type: None,
+        statuses: None,
+        files: None,
+        sources: None,
+        follow_ups: None,
+    }
+}
+
+/// Whether `blocks` draw anything in the answer's body: a text with more
+/// than white space, a status with a line to show, files, or any other
+/// section. Sources and suggestions are drawn under the answer, not in it.
+pub fn shows_anything(blocks: &[MessageBlockDto]) -> bool {
+    blocks.iter().any(shows)
+}
+
+/// Whether `block` draws anything in the answer's body (see
+/// [`shows_anything`]).
+pub fn shows(block: &MessageBlockDto) -> bool {
+    let words = |s: Option<&str>| s.is_some_and(|s| !s.trim().is_empty());
+    match block.kind {
+        MessageBlockKind::Text => words(block.markdown.as_deref()),
+        MessageBlockKind::Sources | MessageBlockKind::FollowUps | MessageBlockKind::Unknown => {
+            false
+        }
+        MessageBlockKind::Files => block.files.as_ref().is_some_and(|f| !f.is_empty()),
+        MessageBlockKind::Status => {
+            words(block.summary.as_deref())
+                || words(
+                    block
+                        .statuses
+                        .as_ref()
+                        .and_then(|s| s.last())
+                        .map(|s| s.description.as_str()),
+                )
+        }
+        _ => true,
+    }
+}
+
+/// `blocks` without the kinds this build cannot draw.
+pub fn known_blocks(blocks: &[MessageBlockDto]) -> Vec<MessageBlockDto> {
+    blocks
+        .iter()
+        .filter(|b| b.kind != MessageBlockKind::Unknown)
+        .cloned()
+        .collect()
+}
+
+/// What this window sent, until the stored copy has it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PendingMessage {
+    /// Known once `turns.send` (or `turns.edit`) answers.
+    pub message_id: Option<String>,
+    pub text: String,
+    pub files: Vec<ChatFileDto>,
+    /// The question an edit replaces.
+    pub replaces: Option<String>,
+}
+
+impl PendingMessage {
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            message_id: None,
+            text: text.into(),
+            files: vec![],
+            replaces: None,
+        }
+    }
+}
+
+/// One row of the transcript.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Row {
+    /// `messages[i]` of the stored copy.
+    Stored(usize),
+    Pending,
+    /// The answer to a message still on its way to the daemon: its header
+    /// and a waiting line, until the turn's own overlay shows.
+    Waiting,
+    Live,
+}
+
+/// A row as the views draw it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RowItem {
+    /// Stable across frames: the message id, or `pending`.
+    pub key: String,
+    pub role: Role,
+    /// The message's text (the shown version's, for answers).
+    pub text: String,
+    /// Answers: the shown version's blocks.
+    pub blocks: Vec<MessageBlockDto>,
+    pub files: Vec<ChatFileDto>,
+    pub sources: Vec<ChatSourceDto>,
+    pub model: Option<String>,
+    pub timestamp_ms: Option<i64>,
+    pub streaming: bool,
+    /// The thumb shown (this window's override first).
+    pub rating: Option<i64>,
+    /// `(shown, total)`, 1-based, when an answer has other versions.
+    pub version: Option<(usize, usize)>,
+    /// Shown as the stored copy has it (not a pending or live row).
+    pub stored: bool,
+    /// The newest answer of the transcript, with nothing sent after it
+    /// (follow-ups show only here).
+    pub last_answer: bool,
+    /// A regenerate's old answer, shown dimmed until the new one starts.
+    pub stale: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    User,
+    Assistant,
+}
+
+/// What a failed action was, for the window's notice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChatAction {
+    Load,
+    Send,
+    Stop,
+    Regenerate,
+    Edit,
+    Rate,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ChatStoreEvent {
+    /// An action the daemon refused (the store already rolled back).
+    Failed { action: ChatAction, error: String },
+    /// The chat no longer exists (deleted elsewhere).
+    Missing,
+}
+
+pub struct ChatStore {
+    rpc: Rpc,
+    subscribe: Subscribe,
+    chat_id: String,
+    /// A temporary chat: never stored, no history to branch.
+    pub temporary: bool,
+    /// The model the next answer is from, for the live row's name until
+    /// `turn.started` says (a new chat subscribes after it went out).
+    pub model_hint: Option<String>,
+    pub detail: Option<ChatDetail>,
+    pub loading: bool,
+    pub missing: bool,
+    pub live: Option<LiveTurn>,
+    pub pending: Option<PendingMessage>,
+    /// `turns.send` or `turns.edit` is on its way: an answer is coming.
+    awaiting: bool,
+    /// Stop was pressed before the daemon took the turn: sent once it has.
+    stop_requested: bool,
+    /// Shown answer version per message (index into `versions`, or
+    /// `versions.len()` for the message's own content).
+    versions: HashMap<String, usize>,
+    /// Ratings given here, until the stored copy agrees.
+    ratings: HashMap<String, i64>,
+    /// A regenerate's answer (by its new id) and the row key it keeps: the
+    /// key of the answer it replaced, so the transcript's row (and what it
+    /// is fading) stays one row from the first event to the stored copy.
+    row_keys: HashMap<String, String>,
+    /// Each such key's newest answer: the one its row shows.
+    newest_for_key: HashMap<String, String>,
+    /// How many of the newest messages show.
+    window: usize,
+    rows: Vec<Row>,
+    hidden: usize,
+    generation: u64,
+    /// Bumped when anything but the live answer changes (rows, the stored
+    /// copy, versions, ratings), and when the live answer does.
+    stored_rev: u64,
+    live_rev: u64,
+    _fetch: Option<Task<()>>,
+    _refetch: Option<Task<()>>,
+}
+
+impl EventEmitter<ChatStoreEvent> for ChatStore {}
+
+impl ChatStore {
+    /// Opens `chat_id`: subscribes to its scope and fetches it.
+    pub fn new(rpc: Rpc, subscribe: Subscribe, chat_id: String, cx: &mut Context<Self>) -> Self {
+        let mut store = Self {
+            rpc,
+            subscribe,
+            chat_id,
+            temporary: false,
+            model_hint: None,
+            detail: None,
+            loading: true,
+            missing: false,
+            live: None,
+            pending: None,
+            awaiting: false,
+            stop_requested: false,
+            versions: HashMap::new(),
+            ratings: HashMap::new(),
+            row_keys: HashMap::new(),
+            newest_for_key: HashMap::new(),
+            window: PAGE,
+            rows: vec![],
+            hidden: 0,
+            generation: 0,
+            stored_rev: 0,
+            live_rev: 0,
+            _fetch: None,
+            _refetch: None,
+        };
+        store.resubscribe(cx);
+        store.fetch(cx);
+        store
+    }
+
+    /// A chat this window just started with `turns.send`: the message sent
+    /// and the answer it waits for show at once.
+    pub fn started(
+        &mut self,
+        pending: PendingMessage,
+        accepted: &SendTurnAccepted,
+        temporary: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.temporary = temporary;
+        self.pending = Some(PendingMessage {
+            message_id: Some(accepted.user_message_id.clone()),
+            ..pending
+        });
+        self.expect_answer(&accepted.assistant_message_id, None);
+        self.rebuild(cx);
+    }
+
+    pub fn chat_id(&self) -> &str {
+        &self.chat_id
+    }
+
+    pub fn title(&self) -> Option<&str> {
+        self.detail.as_ref().map(|d| d.summary.title.as_str())
+    }
+
+    pub fn messages(&self) -> &[ChatMessageDto] {
+        self.detail
+            .as_ref()
+            .map(|d| d.messages.as_slice())
+            .unwrap_or_default()
+    }
+
+    fn resubscribe(&self, cx: &mut App) {
+        (self.subscribe)(Some(&self.chat_id), cx);
+    }
+
+    // ── Fetching ────────────────────────────────────────────────────────
+
+    /// `chats.get`, then settle what the stored copy now has.
+    pub fn fetch(&mut self, cx: &mut Context<Self>) {
+        self.generation += 1;
+        let generation = self.generation;
+        let call = self.rpc.call::<methods::ChatsGet>(&ChatRef {
+            id: self.chat_id.clone(),
+        });
+        self.loading = self.detail.is_none();
+        self._fetch = Some(
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let result = call.await;
+                let _ = this.update(cx, |s, cx| s.fetched(generation, result, cx));
+            }),
+        );
+    }
+
+    fn fetched(
+        &mut self,
+        generation: u64,
+        result: Result<conduit_protocol::ChatResult, RpcError>,
+        cx: &mut Context<Self>,
+    ) {
+        if generation != self.generation {
+            return;
+        }
+        self.loading = false;
+        match result {
+            Ok(result) => match result.chat {
+                Some(detail) => {
+                    self.detail = Some(detail);
+                    self.missing = false;
+                    if self.settle() {
+                        self.fetch_again(cx);
+                    }
+                }
+                // A temporary chat is not stored until the daemon has it in
+                // memory; only a chat that is neither pending nor live is
+                // gone.
+                None if self.pending.is_none() && self.live.is_none() => {
+                    self.missing = true;
+                    cx.emit(ChatStoreEvent::Missing);
+                }
+                None => {}
+            },
+            Err(e) => {
+                log::warn!("chats.get: {e}");
+                cx.emit(ChatStoreEvent::Failed {
+                    action: ChatAction::Load,
+                    error: e.to_string(),
+                });
+            }
+        }
+        self.rebuild(cx);
+    }
+
+    /// Drops the pending message and a finished overlay once the stored
+    /// copy has them, and ratings the stored copy now agrees with. Returns
+    /// whether the overlay stays because the stored copy is behind it.
+    ///
+    /// The answer finishes in place: right after a turn ends the server
+    /// can still hold the copy it saved mid-stream, the answer's opening
+    /// words. Swapping that in would collapse the answer for a moment, so
+    /// the overlay stays until the stored copy has caught up (or a few
+    /// fetches later, when the stored copy wins).
+    fn settle(&mut self) -> bool {
+        let Some(detail) = &self.detail else {
+            return false;
+        };
+        let messages = &detail.messages;
+        if let Some(pending) = &self.pending
+            && let Some(id) = &pending.message_id
+            && messages.iter().any(|m| &m.id == id)
+        {
+            self.pending = None;
+        }
+        let mut behind = false;
+        if let Some(live) = &self.live
+            && !live.streaming()
+            && stored_has_answer(messages, &live.message_id, live.stale_text.as_deref())
+        {
+            if live.behind < BEHIND_TRIES && stored_behind(messages, &live.message_id, &live.text) {
+                behind = true;
+            } else {
+                self.live = None;
+            }
+        }
+        self.ratings.retain(|id, rating| {
+            !messages
+                .iter()
+                .any(|m| &m.id == id && m.rating == Some(*rating))
+        });
+        behind
+    }
+
+    /// The stored copy is behind the finished answer: fetch again shortly.
+    fn fetch_again(&mut self, cx: &mut Context<Self>) {
+        let Some(live) = &mut self.live else {
+            return;
+        };
+        live.behind += 1;
+        self._refetch = Some(
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                cx.background_executor().timer(BEHIND_RETRY).await;
+                let _ = this.update(cx, |s, cx| s.fetch(cx));
+            }),
+        );
+    }
+
+    // ── Events ──────────────────────────────────────────────────────────
+
+    /// A daemon event (the window forwards every one; the store picks its
+    /// own).
+    pub fn on_event(&mut self, event: &Event, cx: &mut Context<Self>) {
+        match event {
+            Event::TurnStarted(e) if e.chat_id == self.chat_id => {
+                let live = self.live_for(&e.message_id);
+                live.model = Some(e.model.clone());
+                live.phase = LivePhase::Streaming;
+                self.rebuild(cx);
+            }
+            Event::TurnDelta(e) if e.chat_id == self.chat_id => {
+                let live = self.live_for(&e.message_id);
+                if live.streaming() {
+                    live.text = e.text.clone();
+                }
+                self.live_rev += 1;
+                cx.notify();
+            }
+            Event::TurnBlocks(e) if e.chat_id == self.chat_id => {
+                let blocks = known_blocks(&e.blocks);
+                let live = self.live_for(&e.message_id);
+                live.blocks = blocks;
+                self.live_rev += 1;
+                // The overlay is new or it changed size: rows are rebuilt
+                // only when it first appears.
+                if !self.rows.contains(&Row::Live) {
+                    self.rebuild(cx);
+                } else {
+                    cx.notify();
+                }
+            }
+            Event::TurnCompleted(e) if e.chat_id == self.chat_id => {
+                let live = self.live_for(&e.message_id);
+                live.text = e.text.clone();
+                live.phase = LivePhase::Completed;
+                self.fetch(cx);
+                self.rebuild(cx);
+            }
+            Event::TurnFailed(e) if e.chat_id == self.chat_id => {
+                let live = self.live_for(&e.message_id);
+                if live.text.is_empty() {
+                    live.text = e.partial_text.clone();
+                }
+                live.phase = LivePhase::Failed {
+                    code: e.code.clone(),
+                    detail: e.args.get("detail").cloned().filter(|d| !d.is_empty()),
+                };
+                self.fetch(cx);
+                self.rebuild(cx);
+            }
+            // Unscoped; a fallback for a lost `turn.completed`/`turn.failed`.
+            Event::TurnFinished(e) if e.chat_id == self.chat_id => {
+                if let Some(live) = &mut self.live
+                    && live.message_id == e.message_id
+                    && live.streaming()
+                {
+                    live.phase = if e.ok {
+                        LivePhase::Completed
+                    } else {
+                        LivePhase::Failed {
+                            code: e.code.clone().unwrap_or_default(),
+                            detail: None,
+                        }
+                    };
+                    self.fetch(cx);
+                    self.rebuild(cx);
+                }
+            }
+            Event::ChatsChanged(e)
+                if e.chat_id.is_none() || e.chat_id.as_deref() == Some(&self.chat_id) =>
+            {
+                self.fetch(cx);
+            }
+            _ => {}
+        }
+    }
+
+    /// The overlay for `message_id`, made if it is a new turn. A regenerate
+    /// still waiting for its answer's id takes the first one named: the
+    /// daemon runs one turn per chat, so it is that answer (its events can
+    /// come before `turns.regenerate` replies).
+    fn live_for(&mut self, message_id: &str) -> &mut LiveTurn {
+        if let Some(live) = &mut self.live
+            && live.awaiting_id
+            && live.message_id != message_id
+        {
+            let old = std::mem::replace(&mut live.message_id, message_id.to_string());
+            live.awaiting_id = false;
+            // A new id never holds the old text.
+            live.stale_text = None;
+            self.keep_row_key(message_id, &old);
+            return self.live.as_mut().expect("just checked");
+        }
+        let fresh = self
+            .live
+            .as_ref()
+            .is_none_or(|l| l.message_id != message_id);
+        if fresh {
+            // A regenerate's reply can arrive after its first events: keep
+            // what it replaces when the ids agree later (`expect_answer`).
+            self.live = Some(LiveTurn::new(message_id));
+        }
+        self.live.as_mut().expect("just set")
+    }
+
+    /// An answer is on its way under `message_id` (a send, edit or
+    /// regenerate was accepted); `replaces` is the answer it takes over.
+    fn expect_answer(&mut self, message_id: &str, replaces: Option<String>) {
+        let live = self.live_for(message_id);
+        if replaces.as_deref() != Some(message_id) {
+            live.replaces = replaces.or(live.replaces.take());
+        }
+    }
+
+    /// `new` (a regenerate's answer) keeps the row key of `old`, the answer
+    /// it replaces.
+    fn keep_row_key(&mut self, new: &str, old: &str) {
+        if new == old {
+            return;
+        }
+        let key = self
+            .row_keys
+            .get(old)
+            .cloned()
+            .unwrap_or_else(|| old.to_string());
+        self.row_keys.insert(new.to_string(), key.clone());
+        self.newest_for_key.insert(key, new.to_string());
+    }
+
+    /// A new daemon session or lost events: subscribe again (the daemon
+    /// replays a running turn) and refetch.
+    pub fn on_reconnected(&mut self, cx: &mut Context<Self>) {
+        self.resubscribe(cx);
+        self.fetch(cx);
+    }
+
+    /// `route.remap`: the chat is now `to`.
+    pub fn remap(&mut self, from: &str, to: &str, cx: &mut Context<Self>) {
+        if self.chat_id != from || from == to {
+            return;
+        }
+        self.chat_id = to.to_string();
+        self.resubscribe(cx);
+        self.fetch(cx);
+        cx.notify();
+    }
+
+    // ── Rows ────────────────────────────────────────────────────────────
+
+    /// Recomputes which rows show, in order.
+    fn rebuild(&mut self, cx: &mut Context<Self>) {
+        let messages = self.messages();
+        let pending_shown = self.pending.as_ref().filter(|p| {
+            p.message_id
+                .as_ref()
+                .is_none_or(|id| !messages.iter().any(|m| &m.id == id))
+        });
+        // An edit in flight hides the question it replaces and what follows.
+        let cut = pending_shown
+            .and_then(|p| p.replaces.as_ref())
+            .and_then(|id| messages.iter().position(|m| &m.id == id))
+            .unwrap_or(messages.len());
+        let hidden = cut.saturating_sub(self.window);
+        let mut rows = Vec::with_capacity(cut - hidden + 2);
+        // The overlay takes the place of the stored row with its own id (the
+        // empty placeholder the server made), else of the answer a
+        // regenerate replaces, else goes at the end.
+        let live_at = self.live.as_ref().and_then(|live| {
+            messages
+                .iter()
+                .position(|m| m.id == live.message_id)
+                .or_else(|| {
+                    live.replaces
+                        .as_deref()
+                        .and_then(|old| messages.iter().position(|m| m.id == old))
+                })
+        });
+        // Never a row of its own: an answer another message carries as one
+        // of its versions (a sibling branch, which a copy saved mid-regenerate
+        // can list beside the new answer), or one a regenerate here replaced
+        // once the stored copy has the new answer.
+        let versions: std::collections::HashSet<&str> = messages
+            .iter()
+            .flat_map(|m| m.versions.iter().map(|v| v.id.as_str()))
+            .collect();
+        let present: std::collections::HashSet<&str> =
+            messages.iter().map(|m| m.id.as_str()).collect();
+        let replaced = |id: &str| {
+            let key = self.row_keys.get(id).map_or(id, String::as_str);
+            self.newest_for_key
+                .get(key)
+                .is_some_and(|newest| newest != id && present.contains(newest.as_str()))
+        };
+        let mut live_placed = false;
+        for (i, m) in messages.iter().enumerate().take(cut).skip(hidden) {
+            if live_at == Some(i) {
+                rows.push(Row::Live);
+                live_placed = true;
+                continue;
+            }
+            if let Some(live) = &self.live
+                && (live.message_id == m.id || live.replaces.as_deref() == Some(&m.id))
+            {
+                continue;
+            }
+            if m.role == "assistant" && (versions.contains(m.id.as_str()) || replaced(&m.id)) {
+                continue;
+            }
+            rows.push(Row::Stored(i));
+        }
+        if pending_shown.is_some() {
+            rows.push(Row::Pending);
+        }
+        if self.live.is_some() && !live_placed {
+            rows.push(Row::Live);
+        }
+        if self.waits() {
+            rows.push(Row::Waiting);
+        }
+        self.rows = rows;
+        self.hidden = hidden;
+        self.stored_rev += 1;
+        self.live_rev += 1;
+        cx.notify();
+    }
+
+    /// `(stored, live)` change counters: the transcript remeasures every
+    /// row when the first moves, and only the live one when the second
+    /// does.
+    pub fn revisions(&self) -> (u64, u64) {
+        (self.stored_rev, self.live_rev)
+    }
+
+    pub fn rows(&self) -> &[Row] {
+        &self.rows
+    }
+
+    /// Stored messages older than the shown window.
+    pub fn hidden(&self) -> usize {
+        self.hidden
+    }
+
+    /// Shows another page of older messages. Returns how many rows came in
+    /// at the top.
+    pub fn load_older(&mut self, cx: &mut Context<Self>) -> usize {
+        if self.hidden == 0 {
+            return 0;
+        }
+        let before = self.rows.len();
+        self.window += PAGE;
+        self.rebuild(cx);
+        self.rows.len() - before
+    }
+
+    /// The row showing `key` (its row key or its message's id), if one
+    /// does.
+    pub fn row_for_key(&self, key: &str) -> Option<Row> {
+        self.rows
+            .iter()
+            .copied()
+            .find(|r| self.row_key(*r) == key || self.message_key(*r) == key)
+    }
+
+    /// The key a row keeps across frames: its message's id, or for a
+    /// regenerate's answer the key of the answer it replaced (the row is
+    /// the same row from the regenerate to the stored copy).
+    pub fn row_key(&self, row: Row) -> String {
+        let id = self.message_key(row);
+        self.row_keys.get(&id).cloned().unwrap_or(id)
+    }
+
+    /// The id of the message a row shows (`pending`, `waiting` for those).
+    fn message_key(&self, row: Row) -> String {
+        match row {
+            Row::Stored(i) => self.messages()[i].id.clone(),
+            Row::Pending => "pending".into(),
+            Row::Waiting => "waiting".into(),
+            Row::Live => self
+                .live
+                .as_ref()
+                .map(|l| l.message_id.clone())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// The row's view model.
+    pub fn item(&self, row: Row) -> Option<RowItem> {
+        let last_answer = self.last_answer_row() == Some(row);
+        match row {
+            Row::Stored(i) => {
+                let m = self.messages().get(i)?;
+                let assistant = m.role == "assistant";
+                let (text, blocks, sources, model, version) = if assistant {
+                    let shown = self
+                        .versions
+                        .get(&m.id)
+                        .copied()
+                        .unwrap_or(m.versions.len())
+                        .min(m.versions.len());
+                    let version =
+                        (!m.versions.is_empty()).then_some((shown + 1, m.versions.len() + 1));
+                    match m.versions.get(shown) {
+                        Some(v) => (
+                            v.content.clone(),
+                            known_blocks(&v.blocks),
+                            v.sources.clone(),
+                            v.model.clone().or(m.model.clone()),
+                            version,
+                        ),
+                        None => (
+                            m.content.clone(),
+                            known_blocks(&m.blocks),
+                            m.sources.clone(),
+                            m.model.clone(),
+                            version,
+                        ),
+                    }
+                } else {
+                    (m.content.clone(), vec![], vec![], m.model.clone(), None)
+                };
+                // An older version's rating is not stored: no thumb.
+                let current = version.is_none_or(|(shown, total)| shown == total);
+                Some(RowItem {
+                    key: m.id.clone(),
+                    role: if assistant {
+                        Role::Assistant
+                    } else {
+                        Role::User
+                    },
+                    text,
+                    blocks,
+                    files: m.files.clone(),
+                    sources,
+                    model,
+                    timestamp_ms: Some(m.timestamp_ms),
+                    streaming: m.streaming,
+                    rating: current
+                        .then(|| self.ratings.get(&m.id).copied().or(m.rating))
+                        .flatten(),
+                    version,
+                    stored: true,
+                    last_answer,
+                    stale: false,
+                })
+            }
+            Row::Pending => {
+                let p = self.pending.as_ref()?;
+                Some(RowItem {
+                    key: "pending".into(),
+                    role: Role::User,
+                    text: p.text.clone(),
+                    blocks: vec![],
+                    files: p.files.clone(),
+                    sources: vec![],
+                    model: None,
+                    timestamp_ms: None,
+                    streaming: false,
+                    rating: None,
+                    version: None,
+                    stored: false,
+                    last_answer: false,
+                    stale: false,
+                })
+            }
+            Row::Waiting => Some(RowItem {
+                key: "waiting".into(),
+                role: Role::Assistant,
+                text: String::new(),
+                blocks: vec![],
+                files: vec![],
+                sources: vec![],
+                model: self.model_hint.clone(),
+                timestamp_ms: None,
+                streaming: true,
+                rating: None,
+                version: None,
+                stored: false,
+                last_answer,
+                stale: false,
+            }),
+            Row::Live => {
+                let l = self.live.as_ref()?;
+                // A regenerate: the answer will be the newest of one more
+                // version than the one it replaces had, so the pager keeps
+                // its place in the action row from the start.
+                let version = l
+                    .replaces
+                    .as_deref()
+                    .or(l.stale_text.is_some().then_some(l.message_id.as_str()))
+                    .and_then(|id| self.messages().iter().find(|m| m.id == id))
+                    .map(|m| (m.versions.len() + 2, m.versions.len() + 2));
+                // A regenerate with nothing new to show yet (no blocks, or
+                // only an empty text): the answer it replaces, dimmed
+                // (rather than a "waiting" line for a moment).
+                if l.streaming()
+                    && !shows_anything(&l.blocks)
+                    && let Some(old) = self.messages().iter().find(|m| {
+                        m.id == l.replaces.as_deref().unwrap_or(&l.message_id)
+                            && m.role == "assistant"
+                            && !m.blocks.is_empty()
+                    })
+                {
+                    return Some(RowItem {
+                        key: l.message_id.clone(),
+                        role: Role::Assistant,
+                        text: old.content.clone(),
+                        blocks: known_blocks(&old.blocks)
+                            .into_iter()
+                            .filter(|b| b.kind != MessageBlockKind::FollowUps)
+                            .collect(),
+                        files: vec![],
+                        sources: vec![],
+                        model: l.model.clone().or_else(|| old.model.clone()),
+                        timestamp_ms: None,
+                        streaming: true,
+                        rating: None,
+                        version,
+                        stored: false,
+                        last_answer,
+                        stale: true,
+                    });
+                }
+                let blocks = l.display_blocks();
+                let sources = blocks
+                    .iter()
+                    .find(|b| b.kind == MessageBlockKind::Sources)
+                    .and_then(|b| b.sources.clone())
+                    .unwrap_or_default();
+                Some(RowItem {
+                    key: l.message_id.clone(),
+                    role: Role::Assistant,
+                    text: l.text.clone(),
+                    blocks,
+                    files: vec![],
+                    sources,
+                    model: l.model.clone().or_else(|| self.model_hint.clone()),
+                    timestamp_ms: None,
+                    streaming: l.streaming(),
+                    rating: self.ratings.get(&l.message_id).copied(),
+                    version,
+                    stored: false,
+                    last_answer,
+                    stale: false,
+                })
+            }
+        }
+    }
+
+    fn last_answer_row(&self) -> Option<Row> {
+        self.rows.iter().rev().copied().find(|row| match row {
+            Row::Live | Row::Waiting => true,
+            // A message sent and not answered yet: no answer is the last
+            // (its suggestions go at once).
+            Row::Pending => true,
+            Row::Stored(i) => self
+                .messages()
+                .get(*i)
+                .is_some_and(|m| m.role == "assistant"),
+        })
+    }
+
+    // ── State ───────────────────────────────────────────────────────────
+
+    /// An answer is being written, or one is on its way (Stop shows
+    /// instead of Send).
+    pub fn is_streaming(&self) -> bool {
+        self.awaiting
+            || self.live.as_ref().is_some_and(LiveTurn::streaming)
+            || self.messages().last().is_some_and(|m| m.streaming)
+    }
+
+    /// The waiting row shows: a turn is on its way and its overlay has not
+    /// started streaming yet.
+    fn waits(&self) -> bool {
+        self.awaiting && !self.live.as_ref().is_some_and(LiveTurn::streaming)
+    }
+
+    /// `turns.send` or `turns.edit` came back: the waiting row gives way to
+    /// the turn's overlay (or to nothing, if it was refused). A Stop
+    /// pressed while it was on its way goes out now.
+    fn answered(&mut self, accepted: bool, cx: &mut Context<Self>) {
+        self.awaiting = false;
+        if std::mem::take(&mut self.stop_requested) && accepted {
+            self.stop(cx);
+        }
+    }
+
+    /// Another user's chat, reached through a folder shared with this
+    /// account: it can be read but not answered, branched or rated.
+    pub fn read_only(&self) -> bool {
+        self.detail
+            .as_ref()
+            .is_some_and(|d| d.read_only || d.summary.read_only)
+    }
+
+    /// Edit, regenerate and rate apply: a stored chat of this account with
+    /// nothing streaming.
+    pub fn can_branch(&self) -> bool {
+        !self.temporary && !self.read_only() && !self.is_streaming()
+    }
+
+    /// The newest stored answer's id (Chat › Regenerate).
+    pub fn last_answer_id(&self) -> Option<String> {
+        self.messages()
+            .iter()
+            .rev()
+            .find(|m| m.role == "assistant")
+            .map(|m| m.id.clone())
+    }
+
+    /// The newest answer's text (the live one while it streams).
+    pub fn last_reply(&self) -> Option<String> {
+        if let Some(live) = &self.live
+            && !live.text.is_empty()
+        {
+            return Some(live.text.clone());
+        }
+        self.messages()
+            .iter()
+            .rev()
+            .find(|m| m.role == "assistant" && !m.content.trim().is_empty())
+            .map(|m| m.content.clone())
+    }
+
+    /// Shows `index` of `message_id`'s versions (`versions.len()` is the
+    /// message's own content).
+    pub fn show_version(&mut self, message_id: &str, index: usize, cx: &mut Context<Self>) {
+        self.versions.insert(message_id.to_string(), index);
+        self.stored_rev += 1;
+        cx.notify();
+    }
+
+    /// Steps the shown version by `delta`, within bounds.
+    pub fn step_version(&mut self, message_id: &str, delta: isize, cx: &mut Context<Self>) {
+        let Some(m) = self.messages().iter().find(|m| m.id == message_id) else {
+            return;
+        };
+        let total = m.versions.len();
+        let shown = self
+            .versions
+            .get(message_id)
+            .copied()
+            .unwrap_or(total)
+            .min(total);
+        let next = (shown as isize + delta).clamp(0, total as isize) as usize;
+        if next != shown {
+            self.show_version(message_id, next, cx);
+        }
+    }
+
+    // ── Actions ─────────────────────────────────────────────────────────
+
+    fn failed(&mut self, action: ChatAction, e: &RpcError, cx: &mut Context<Self>) {
+        log::warn!("{action:?} failed: {e}");
+        cx.emit(ChatStoreEvent::Failed {
+            action,
+            error: e.to_string(),
+        });
+    }
+
+    /// Sends a message in this chat. The message shows at once; the task
+    /// resolves with the daemon's answer (the composer restores its text
+    /// on an error).
+    pub fn send(
+        &mut self,
+        mut turn: SendTurn,
+        pending: PendingMessage,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<SendTurnAccepted, RpcError>> {
+        turn.chat_id = Some(self.chat_id.clone());
+        self.pending = Some(pending.clone());
+        self.awaiting = true;
+        self.rebuild(cx);
+        let call = self.rpc.call::<methods::TurnsSend>(&turn);
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| match &result {
+                Ok(accepted) => {
+                    s.pending = Some(PendingMessage {
+                        message_id: Some(accepted.user_message_id.clone()),
+                        ..pending
+                    });
+                    s.expect_answer(&accepted.assistant_message_id, None);
+                    s.answered(true, cx);
+                    s.rebuild(cx);
+                }
+                Err(e) => {
+                    s.pending = None;
+                    s.answered(false, cx);
+                    s.failed(ChatAction::Send, e, cx);
+                    s.rebuild(cx);
+                }
+            });
+            result
+        })
+    }
+
+    /// `turns.stop`. Before the daemon has taken the turn there is nothing
+    /// to stop yet: it goes out once it has ([`Self::answered`]).
+    pub fn stop(&mut self, cx: &mut Context<Self>) {
+        // A regenerate's placeholder streams at once, before the daemon has
+        // taken the turn: its Stop waits for that too.
+        let regenerate_pending = self.live.as_ref().is_some_and(|l| l.awaiting_id);
+        if self.waits() || regenerate_pending {
+            self.stop_requested = true;
+            return;
+        }
+        let call = self.rpc.call::<methods::TurnsStop>(&StopTurn {
+            chat_id: self.chat_id.clone(),
+        });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            if let Err(e) = call.await {
+                let _ = this.update(cx, |s, cx| s.failed(ChatAction::Stop, &e, cx));
+            }
+        })
+        .detach();
+    }
+
+    /// Runs `message_id` (an answer) again, optionally with `model`.
+    pub fn regenerate(&mut self, message_id: &str, model: Option<String>, cx: &mut Context<Self>) {
+        if !self.can_branch() {
+            return;
+        }
+        let call = self.rpc.call::<methods::TurnsRegenerate>(&RegenerateTurn {
+            chat_id: self.chat_id.clone(),
+            message_id: message_id.to_string(),
+            model,
+        });
+        // Shown as an answer on its way straight away, over the old one.
+        let old = message_id.to_string();
+        let stale_text = self
+            .messages()
+            .iter()
+            .find(|m| m.id == old)
+            .map(|m| m.content.clone());
+        self.live = Some(LiveTurn {
+            replaces: Some(old.clone()),
+            stale_text,
+            awaiting_id: true,
+            ..LiveTurn::new(old.clone())
+        });
+        self.versions.remove(&old);
+        self.rebuild(cx);
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| match result {
+                Ok(accepted) => {
+                    // The placeholder made above stands for the new answer
+                    // (unless its first event named it already).
+                    if let Some(live) = &mut s.live
+                        && live.message_id == old
+                    {
+                        live.awaiting_id = false;
+                        if accepted.assistant_message_id != old {
+                            live.message_id = accepted.assistant_message_id.clone();
+                            // A new id never holds the old text.
+                            live.stale_text = None;
+                        }
+                    }
+                    s.keep_row_key(&accepted.assistant_message_id, &old);
+                    s.expect_answer(&accepted.assistant_message_id, Some(old));
+                    s.rebuild(cx);
+                    // A Stop pressed while it was on its way goes out now.
+                    if std::mem::take(&mut s.stop_requested) {
+                        s.stop(cx);
+                    }
+                }
+                Err(e) => {
+                    s.stop_requested = false;
+                    if s.live.as_ref().is_some_and(|l| l.message_id == old) {
+                        s.live = None;
+                    }
+                    s.failed(ChatAction::Regenerate, &e, cx);
+                    s.rebuild(cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Replaces the question `message_id` with `text` and answers it (a new
+    /// branch on the server).
+    pub fn edit(&mut self, message_id: &str, text: String, cx: &mut Context<Self>) {
+        if !self.can_branch() || text.trim().is_empty() {
+            return;
+        }
+        let call = self.rpc.call::<methods::TurnsEdit>(&EditTurn {
+            chat_id: self.chat_id.clone(),
+            message_id: message_id.to_string(),
+            text: text.clone(),
+            model: None,
+        });
+        let pending = PendingMessage {
+            replaces: Some(message_id.to_string()),
+            ..PendingMessage::new(text)
+        };
+        self.pending = Some(pending.clone());
+        self.awaiting = true;
+        self.rebuild(cx);
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| {
+                match result {
+                    Ok(accepted) => {
+                        s.pending = Some(PendingMessage {
+                            message_id: Some(accepted.user_message_id.clone()),
+                            ..pending
+                        });
+                        s.expect_answer(&accepted.assistant_message_id, None);
+                        s.answered(true, cx);
+                    }
+                    Err(e) => {
+                        s.pending = None;
+                        s.answered(false, cx);
+                        s.failed(ChatAction::Edit, &e, cx);
+                    }
+                }
+                s.rebuild(cx);
+            });
+        })
+        .detach();
+    }
+
+    /// Rates an answer: shown at once, taken back if the daemon refuses.
+    pub fn rate(&mut self, message_id: &str, rating: i64, cx: &mut Context<Self>) {
+        if self.temporary {
+            return;
+        }
+        let previous = self.ratings.insert(message_id.to_string(), rating);
+        self.stored_rev += 1;
+        cx.notify();
+        let call = self.rpc.call::<methods::TurnsRate>(&RateTurn {
+            chat_id: self.chat_id.clone(),
+            message_id: message_id.to_string(),
+            rating,
+        });
+        let id = message_id.to_string();
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let refused = match call.await {
+                Ok(r) if r.rated => None,
+                Ok(_) => Some(conduit_daemon::protocol::error(
+                    "rating.refused",
+                    "the server did not take the rating",
+                )),
+                Err(e) => Some(e),
+            };
+            if let Some(e) = refused {
+                let _ = this.update(cx, |s, cx| {
+                    // Only if nothing newer replaced it meanwhile.
+                    if s.ratings.get(&id) == Some(&rating) {
+                        match previous {
+                            Some(p) => s.ratings.insert(id.clone(), p),
+                            None => s.ratings.remove(&id),
+                        };
+                    }
+                    s.stored_rev += 1;
+                    s.failed(ChatAction::Rate, &e, cx);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+}
+
+/// Whether the stored transcript has `message_id`'s answer: the message
+/// with content, an error or blocks and no longer streaming (and not still
+/// the `stale` text a same-id regenerate replaces), or a version of another
+/// message with content.
+pub fn stored_has_answer(
+    messages: &[ChatMessageDto],
+    message_id: &str,
+    stale: Option<&str>,
+) -> bool {
+    messages.iter().any(|m| {
+        (m.id == message_id
+            && !m.streaming
+            && stale.is_none_or(|old| old != m.content)
+            && (!m.content.trim().is_empty() || m.error_code.is_some() || !m.blocks.is_empty()))
+            || m.versions
+                .iter()
+                .any(|v| v.id == message_id && !v.content.trim().is_empty())
+    })
+}
+
+/// Whether the stored `message_id` is a strict beginning of the answer
+/// `live` (the copy the server saved mid-stream, not the finished one).
+pub fn stored_behind(messages: &[ChatMessageDto], message_id: &str, live: &str) -> bool {
+    let live = live.trim_end();
+    messages.iter().any(|m| {
+        let stored = m.content.trim_end();
+        m.id == message_id && stored.len() < live.len() && live.starts_with(stored)
+    })
+}
+
+/// The parameters of a new turn, from the composer.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TurnOptions {
+    pub model: Option<String>,
+    pub tool_ids: Vec<String>,
+    pub knowledge: Vec<KnowledgeSummary>,
+    pub web_search: bool,
+    pub image_generation: bool,
+    pub code_interpreter: bool,
+    pub file_ids: Vec<String>,
+}
+
+impl TurnOptions {
+    pub fn into_turn(self, text: String, chat_id: Option<String>, temporary: bool) -> SendTurn {
+        SendTurn {
+            chat_id,
+            model: self.model,
+            text,
+            tool_ids: self.tool_ids,
+            knowledge: self.knowledge,
+            web_search: self.web_search,
+            image_generation: self.image_generation,
+            code_interpreter: self.code_interpreter,
+            file_ids: self.file_ids,
+            temporary,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+
+    use conduit_protocol::{
+        ChatMessageVersionDto, ChatResult, ChatSummary, ChatsChanged, RatedResult, StoppedResult,
+        TurnBlocks, TurnCompleted, TurnDelta, TurnFailed, TurnFinished, TurnStarted,
+    };
+    use futures::FutureExt as _;
+    use gpui_kit::{AppContext as _, Entity, TestAppContext};
+    use serde_json::json;
+
+    use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    fn message(id: &str, role: &str, content: &str) -> ChatMessageDto {
+        ChatMessageDto {
+            id: id.into(),
+            role: role.into(),
+            content: content.into(),
+            timestamp_ms: 1,
+            model: (role == "assistant").then(|| "m".into()),
+            streaming: false,
+            error_code: None,
+            versions: vec![],
+            sources: vec![],
+            usage: None,
+            rating: None,
+            files: vec![],
+            blocks: if role == "assistant" && !content.is_empty() {
+                vec![text_block(content)]
+            } else {
+                vec![]
+            },
+        }
+    }
+
+    fn text_block(md: &str) -> MessageBlockDto {
+        MessageBlockDto {
+            markdown: Some(md.into()),
+            ..empty_block(MessageBlockKind::Text)
+        }
+    }
+
+    fn chat(id: &str, messages: Vec<ChatMessageDto>) -> ChatResult {
+        ChatResult {
+            chat: Some(ChatDetail {
+                read_only: false,
+                summary: ChatSummary {
+                    read_only: false,
+                    id: id.into(),
+                    title: "A chat".into(),
+                    updated_at_ms: 1,
+                    pinned: false,
+                    archived: false,
+                    folder_id: None,
+                    model: None,
+                    tags: vec![],
+                    shared: false,
+                },
+                messages,
+                system_prompt: None,
+            }),
+        }
+    }
+
+    fn blocks(chat: &str, message: &str, blocks: Vec<MessageBlockDto>) -> Event {
+        Event::TurnBlocks(TurnBlocks {
+            chat_id: chat.into(),
+            message_id: message.into(),
+            blocks,
+        })
+    }
+
+    type Subscribed = Rc<RefCell<Vec<Option<String>>>>;
+
+    fn open(
+        daemon: &FakeDaemon,
+        id: &str,
+        cx: &mut TestAppContext,
+    ) -> (Entity<ChatStore>, Subscribed) {
+        let seen: Subscribed = Rc::default();
+        let subscribe: Subscribe = {
+            let seen = seen.clone();
+            Rc::new(move |id, _| seen.borrow_mut().push(id.map(String::from)))
+        };
+        let rpc = daemon.rpc();
+        let id = id.to_string();
+        let store = cx.new(|cx| ChatStore::new(rpc, subscribe, id, cx));
+        cx.run_until_parked();
+        (store, seen)
+    }
+
+    fn keys(store: &Entity<ChatStore>, cx: &mut TestAppContext) -> Vec<String> {
+        store.read_with(cx, |s, _| {
+            s.rows().iter().map(|r| s.row_key(*r)).collect::<Vec<_>>()
+        })
+    }
+
+    #[gpui_kit::test]
+    fn opening_subscribes_to_the_chat_and_loads_it(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "hi"),
+                message("a1", "assistant", "hello"),
+            ],
+        ));
+        let (store, seen) = open(&daemon, "c1", cx);
+        assert_eq!(*seen.borrow(), vec![Some("c1".to_string())]);
+        assert_eq!(
+            daemon.calls::<methods::ChatsGet>(),
+            vec![json!({"id": "c1"})]
+        );
+        assert_eq!(keys(&store, cx), vec!["u1", "a1"]);
+        store.read_with(cx, |s, _| {
+            let item = s.item(s.rows()[1]).unwrap();
+            assert_eq!(item.role, Role::Assistant);
+            assert!(item.last_answer && item.stored);
+            assert_eq!(s.title(), Some("A chat"));
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_chat_shared_by_another_user_is_read_only(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let mut shared = chat(
+            "c1",
+            vec![
+                message("u1", "user", "hi"),
+                message("a1", "assistant", "hello"),
+            ],
+        );
+        if let Some(detail) = shared.chat.as_mut() {
+            detail.read_only = true;
+            detail.summary.read_only = true;
+        }
+        daemon.returns::<methods::ChatsGet>(shared);
+        let (store, _) = open(&daemon, "c1", cx);
+        store.read_with(cx, |s, _| {
+            assert!(s.read_only());
+            // No edit, regenerate or rating on a stored chat that isn't ours.
+            assert!(!s.can_branch());
+        });
+
+        // The account's own chat branches as before.
+        let own = FakeDaemon::new();
+        own.returns::<methods::ChatsGet>(chat("c2", vec![message("u1", "user", "hi")]));
+        let (store, _) = open(&own, "c2", cx);
+        store.read_with(cx, |s, _| {
+            assert!(!s.read_only());
+            assert!(s.can_branch());
+        });
+    }
+
+    #[gpui_kit::test]
+    fn each_blocks_snapshot_replaces_the_overlay_and_skips_unknown_kinds(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![message("u1", "user", "hi"), message("a1", "assistant", "")],
+        ));
+        let (store, _) = open(&daemon, "c1", cx);
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &blocks(
+                    "c1",
+                    "a1",
+                    vec![text_block("Hel"), empty_block(MessageBlockKind::Unknown)],
+                ),
+                cx,
+            );
+            // Another chat's turn paints nothing here.
+            s.on_event(&blocks("other", "x", vec![text_block("no")]), cx);
+        });
+        // The overlay takes the empty placeholder's place.
+        assert_eq!(keys(&store, cx), vec!["u1", "a1"]);
+        store.update(cx, |s, cx| {
+            s.on_event(&blocks("c1", "a1", vec![text_block("Hello there")]), cx);
+        });
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.rows()[1], Row::Live);
+            let item = s.item(Row::Live).unwrap();
+            assert_eq!(item.blocks, vec![text_block("Hello there")]);
+            assert!(item.streaming);
+            assert!(s.is_streaming());
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_finished_overlay_settles_once_the_stored_copy_has_the_answer(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.once::<methods::ChatsGet>(Ok(chat("c1", vec![])));
+        let (store, _) = open(&daemon, "c1", cx);
+        let accepted = SendTurnAccepted {
+            chat_id: "c1".into(),
+            user_message_id: "u1".into(),
+            assistant_message_id: "a1".into(),
+        };
+        store.update(cx, |s, cx| {
+            s.started(PendingMessage::new("hi"), &accepted, false, cx)
+        });
+        assert_eq!(keys(&store, cx), vec!["pending", "a1"]);
+
+        // Finished, but the stored copy is still the empty placeholder.
+        daemon.once::<methods::ChatsGet>(Ok(chat(
+            "c1",
+            vec![message("u1", "user", "hi"), message("a1", "assistant", "")],
+        )));
+        store.update(cx, |s, cx| {
+            s.on_event(&blocks("c1", "a1", vec![text_block("Hello")]), cx);
+            s.on_event(
+                &Event::TurnCompleted(TurnCompleted {
+                    chat_id: "c1".into(),
+                    message_id: "a1".into(),
+                    text: "Hello".into(),
+                    reasoning: None,
+                    usage: None,
+                }),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.pending.is_none(), "the stored copy has the question");
+            assert_eq!(s.rows(), &[Row::Stored(0), Row::Live]);
+            assert!(!s.is_streaming());
+        });
+
+        // `chats.changed` after the sync: the stored answer takes over.
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "hi"),
+                message("a1", "assistant", "Hello"),
+            ],
+        ));
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::ChatsChanged(ChatsChanged {
+                    chat_id: Some("c1".into()),
+                }),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.live.is_none());
+            assert_eq!(s.rows(), &[Row::Stored(0), Row::Stored(1)]);
+            assert_eq!(s.last_reply().as_deref(), Some("Hello"));
+        });
+        // Another chat's change does not refetch.
+        let before = daemon.calls::<methods::ChatsGet>().len();
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::ChatsChanged(ChatsChanged {
+                    chat_id: Some("c2".into()),
+                }),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::ChatsGet>().len(), before);
+    }
+
+    #[gpui_kit::test]
+    fn a_finished_answer_stays_whole_while_the_stored_copy_is_behind(cx: &mut TestAppContext) {
+        let full = "The orbital speed is $v = \\sqrt{GM/r}$ for a circular orbit.\n\n$$T = 2\\pi$$";
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "math"),
+                message("a1", "assistant", ""),
+            ],
+        ));
+        let (store, _) = open(&daemon, "c1", cx);
+        let shown = |store: &Entity<ChatStore>, cx: &mut TestAppContext| {
+            store.read_with(cx, |s, _| {
+                let row = *s.rows().last().unwrap();
+                s.item(row).unwrap().blocks[0].markdown.clone().unwrap()
+            })
+        };
+        store.update(cx, |s, cx| {
+            s.on_event(&blocks("c1", "a1", vec![text_block(full)]), cx);
+        });
+        // The turn ends while the server still has the copy it saved
+        // mid-stream: only the answer's opening words.
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "math"),
+                ChatMessageDto {
+                    blocks: vec![text_block("The orbital speed is $v = \\sqrt{GM/r}$")],
+                    ..message("a1", "assistant", "The orbital speed is $v = \\sqrt{GM/r}$")
+                },
+            ],
+        ));
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::TurnCompleted(TurnCompleted {
+                    chat_id: "c1".into(),
+                    message_id: "a1".into(),
+                    text: full.into(),
+                    reasoning: None,
+                    usage: None,
+                }),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        // No frame shows less than the answer: the overlay stays, finished.
+        assert_eq!(shown(&store, cx), full);
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.rows().last(), Some(&Row::Live));
+            assert!(!s.item(Row::Live).unwrap().streaming);
+        });
+        let before = daemon.calls::<methods::ChatsGet>().len();
+
+        // A moment later the stored copy has caught up and takes over.
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "math"),
+                ChatMessageDto {
+                    blocks: vec![text_block(full)],
+                    ..message("a1", "assistant", full)
+                },
+            ],
+        ));
+        cx.executor().advance_clock(BEHIND_RETRY);
+        cx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::ChatsGet>().len() > before,
+            "it asked again"
+        );
+        store.read_with(cx, |s, _| {
+            assert!(s.live.is_none());
+            assert_eq!(s.rows(), &[Row::Stored(0), Row::Stored(1)]);
+        });
+        assert_eq!(shown(&store, cx), full);
+    }
+
+    #[gpui_kit::test]
+    fn a_stored_copy_that_stays_behind_wins_after_a_few_tries(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "hi"),
+                message("a1", "assistant", "Hel"),
+            ],
+        ));
+        let (store, _) = open(&daemon, "c1", cx);
+        store.update(cx, |s, cx| {
+            s.on_event(&blocks("c1", "a1", vec![text_block("Hello there")]), cx);
+            s.on_event(
+                &Event::TurnCompleted(TurnCompleted {
+                    chat_id: "c1".into(),
+                    message_id: "a1".into(),
+                    text: "Hello there".into(),
+                    reasoning: None,
+                    usage: None,
+                }),
+                cx,
+            );
+        });
+        for _ in 0..=BEHIND_TRIES {
+            cx.executor().advance_clock(BEHIND_RETRY);
+            cx.run_until_parked();
+        }
+        store.read_with(cx, |s, _| assert!(s.live.is_none(), "the stored copy won"));
+    }
+
+    #[gpui_kit::test]
+    fn a_failed_turn_keeps_its_partial_answer_with_the_error(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat("c1", vec![message("u1", "user", "hi")]));
+        let (store, _) = open(&daemon, "c1", cx);
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::TurnStarted(TurnStarted {
+                    chat_id: "c1".into(),
+                    message_id: "a1".into(),
+                    model: "m".into(),
+                }),
+                cx,
+            );
+            s.on_event(
+                &Event::TurnDelta(TurnDelta {
+                    chat_id: "c1".into(),
+                    message_id: "a1".into(),
+                    text: "Partial".into(),
+                    reasoning: None,
+                }),
+                cx,
+            );
+            s.on_event(&blocks("c1", "a1", vec![text_block("Partial")]), cx);
+            s.on_event(
+                &Event::TurnFailed(TurnFailed {
+                    chat_id: "c1".into(),
+                    message_id: "a1".into(),
+                    code: "server.error".into(),
+                    args: BTreeMap::from([("detail".into(), "Model is overloaded".into())]),
+                    partial_text: "Partial".into(),
+                }),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            // The stored copy has no answer: the overlay stays.
+            assert_eq!(s.rows(), &[Row::Stored(0), Row::Live]);
+            let item = s.item(Row::Live).unwrap();
+            assert!(!item.streaming);
+            let kinds: Vec<_> = item.blocks.iter().map(|b| b.kind).collect();
+            assert_eq!(kinds, vec![MessageBlockKind::Text, MessageBlockKind::Error]);
+            assert_eq!(item.blocks[1].error.as_deref(), Some("Model is overloaded"));
+            assert_eq!(s.last_reply().as_deref(), Some("Partial"));
+        });
+    }
+
+    #[gpui_kit::test]
+    fn finished_falls_back_when_completed_was_missed(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat("c1", vec![message("u1", "user", "hi")]));
+        let (store, _) = open(&daemon, "c1", cx);
+        store.update(cx, |s, cx| {
+            s.on_event(&blocks("c1", "a1", vec![text_block("Done")]), cx);
+            s.on_event(
+                &Event::TurnFinished(TurnFinished {
+                    chat_id: "c1".into(),
+                    message_id: "a1".into(),
+                    ok: true,
+                    code: None,
+                }),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.live.as_ref().unwrap().phase, LivePhase::Completed);
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_remap_moves_the_store_resubscribes_and_refetches(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat("x", vec![message("u1", "user", "hi")]));
+        let (store, seen) = open(&daemon, "local:1", cx);
+        store.update(cx, |s, cx| {
+            s.remap("other", "y", cx);
+            s.remap("local:1", "c42", cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            *seen.borrow(),
+            vec![Some("local:1".to_string()), Some("c42".to_string())]
+        );
+        assert_eq!(
+            daemon.calls::<methods::ChatsGet>(),
+            vec![json!({"id": "local:1"}), json!({"id": "c42"})]
+        );
+        store.update(cx, |s, cx| {
+            // Events now come under the new id.
+            s.on_event(&blocks("c42", "a1", vec![text_block("ok")]), cx);
+        });
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.chat_id(), "c42");
+            assert!(s.live.is_some());
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_reconnect_resubscribes_so_the_daemon_replays_the_turn(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let mut streaming = message("a1", "assistant", "Hal");
+        streaming.streaming = true;
+        daemon
+            .returns::<methods::ChatsGet>(chat("c1", vec![message("u1", "user", "hi"), streaming]));
+        let (store, seen) = open(&daemon, "c1", cx);
+        // Opened mid-answer: the stored copy says it is streaming.
+        assert!(store.read_with(cx, |s, _| s.is_streaming()));
+        store.update(cx, |s, cx| s.on_reconnected(cx));
+        cx.run_until_parked();
+        assert_eq!(seen.borrow().len(), 2);
+        assert_eq!(daemon.calls::<methods::ChatsGet>().len(), 2);
+        // The replayed snapshot (`turn.delta` + `turn.blocks`) takes the
+        // stored row's place.
+        store.update(cx, |s, cx| {
+            s.on_event(&blocks("c1", "a1", vec![text_block("Hallo, Welt")]), cx);
+        });
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.rows(), &[Row::Stored(0), Row::Live]);
+            assert_eq!(
+                s.item(Row::Live).unwrap().blocks,
+                vec![text_block("Hallo, Welt")]
+            );
+        });
+    }
+
+    #[gpui_kit::test]
+    fn send_shows_the_message_at_once_and_drops_it_on_refusal(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat("c1", vec![]));
+        daemon.once::<methods::TurnsSend>(Err(conduit_daemon::protocol::error(
+            "server.error",
+            "nope",
+        )));
+        let (store, _) = open(&daemon, "c1", cx);
+        let events: Rc<RefCell<Vec<ChatStoreEvent>>> = Rc::default();
+        cx.update(|cx| {
+            let events = events.clone();
+            cx.subscribe(&store, move |_, e: &ChatStoreEvent, _| {
+                events.borrow_mut().push(e.clone())
+            })
+            .detach();
+        });
+        let task = store.update(cx, |s, cx| {
+            let turn = TurnOptions::default().into_turn("hi".into(), None, false);
+            let task = s.send(turn, PendingMessage::new("hi"), cx);
+            // The question and, under it, the answer's waiting line; Stop
+            // shows from the same frame.
+            assert_eq!(s.rows(), &[Row::Pending, Row::Waiting]);
+            assert!(s.is_streaming());
+            let waiting = s.item(Row::Waiting).unwrap();
+            assert!(waiting.streaming && waiting.last_answer && waiting.blocks.is_empty());
+            task
+        });
+        cx.run_until_parked();
+        assert!(matches!(task.now_or_never(), Some(Err(_))));
+        assert_eq!(
+            daemon.calls::<methods::TurnsSend>()[0]["chatId"],
+            json!("c1")
+        );
+        store.read_with(cx, |s, _| {
+            assert!(s.rows().is_empty());
+            assert!(!s.is_streaming());
+        });
+        assert!(matches!(
+            events.borrow()[0],
+            ChatStoreEvent::Failed {
+                action: ChatAction::Send,
+                ..
+            }
+        ));
+
+        daemon.returns::<methods::TurnsSend>(SendTurnAccepted {
+            chat_id: "c1".into(),
+            user_message_id: "u9".into(),
+            assistant_message_id: "a9".into(),
+        });
+        store.update(cx, |s, cx| {
+            let turn = TurnOptions::default().into_turn("again".into(), None, false);
+            s.send(turn, PendingMessage::new("again"), cx).detach();
+        });
+        cx.run_until_parked();
+        // The turn's own overlay takes the waiting row's place.
+        assert_eq!(keys(&store, cx), vec!["pending", "a9"]);
+        assert!(store.read_with(cx, |s, _| s.is_streaming()));
+    }
+
+    #[gpui_kit::test]
+    fn a_stop_pressed_before_the_turn_starts_goes_out_once_it_has(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat("c1", vec![]));
+        daemon.returns::<methods::TurnsStop>(StoppedResult { stopped: true });
+        daemon.returns::<methods::TurnsSend>(SendTurnAccepted {
+            chat_id: "c1".into(),
+            user_message_id: "u9".into(),
+            assistant_message_id: "a9".into(),
+        });
+        let (store, _) = open(&daemon, "c1", cx);
+        store.update(cx, |s, cx| {
+            let turn = TurnOptions::default().into_turn("hi".into(), None, false);
+            s.send(turn, PendingMessage::new("hi"), cx).detach();
+            // Stop, while `turns.send` is still on its way: nothing to stop
+            // yet on the daemon.
+            s.stop(cx);
+        });
+        assert!(daemon.calls::<methods::TurnsStop>().is_empty());
+        cx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::TurnsStop>(),
+            vec![json!({"chatId": "c1"})]
+        );
+    }
+
+    #[gpui_kit::test]
+    fn a_stop_pressed_while_a_regenerate_starts_goes_out_once_it_has(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "q"),
+                message("a1", "assistant", "old"),
+            ],
+        ));
+        daemon.returns::<methods::TurnsStop>(StoppedResult { stopped: true });
+        daemon.returns::<methods::TurnsRegenerate>(SendTurnAccepted {
+            chat_id: "c1".into(),
+            user_message_id: "u1".into(),
+            assistant_message_id: "a2".into(),
+        });
+        let (store, _) = open(&daemon, "c1", cx);
+        let held = daemon.hold::<methods::TurnsRegenerate>();
+        store.update(cx, |s, cx| {
+            s.regenerate("a1", None, cx);
+            assert!(s.is_streaming());
+            s.stop(cx);
+        });
+        cx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::TurnsStop>().is_empty(),
+            "nothing to stop before the daemon takes the regenerate"
+        );
+        held.release();
+        cx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::TurnsStop>(),
+            vec![json!({"chatId": "c1"})]
+        );
+    }
+
+    #[gpui_kit::test]
+    fn an_edit_hides_the_old_branch_until_the_new_one_is_stored(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "first"),
+                message("a1", "assistant", "one"),
+                message("u2", "user", "second"),
+                message("a2", "assistant", "two"),
+            ],
+        ));
+        daemon.returns::<methods::TurnsEdit>(SendTurnAccepted {
+            chat_id: "c1".into(),
+            user_message_id: "u3".into(),
+            assistant_message_id: "a3".into(),
+        });
+        let (store, _) = open(&daemon, "c1", cx);
+        store.update(cx, |s, cx| s.edit("u2", "second, better".into(), cx));
+        assert_eq!(keys(&store, cx), vec!["u1", "a1", "pending", "waiting"]);
+        cx.run_until_parked();
+        assert_eq!(keys(&store, cx), vec!["u1", "a1", "pending", "a3"]);
+        assert_eq!(
+            daemon.calls::<methods::TurnsEdit>(),
+            vec![json!({"chatId": "c1", "messageId": "u2", "text": "second, better"})]
+        );
+    }
+
+    #[gpui_kit::test]
+    fn a_regenerate_dims_the_old_answer_until_the_new_one_starts(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "q"),
+                ChatMessageDto {
+                    blocks: vec![text_block("old")],
+                    ..message("a1", "assistant", "old")
+                },
+            ],
+        ));
+        daemon.returns::<methods::TurnsRegenerate>(SendTurnAccepted {
+            chat_id: "c1".into(),
+            user_message_id: "u1".into(),
+            assistant_message_id: "a2".into(),
+        });
+        let (store, _) = open(&daemon, "c1", cx);
+        store.update(cx, |s, cx| s.regenerate("a1", None, cx));
+        cx.run_until_parked();
+        // The old answer, marked stale, streaming; the pager it will have
+        // (this answer and the one before) is known already.
+        store.read_with(cx, |s, _| {
+            let item = s.item(Row::Live).unwrap();
+            assert!(item.stale && item.streaming);
+            assert_eq!(item.blocks, vec![text_block("old")]);
+            assert_eq!(item.version, Some((2, 2)));
+        });
+        // A first snapshot with nothing in it yet (an empty text) leaves the
+        // old answer showing: its height is kept until there are words.
+        store.update(cx, |s, cx| {
+            s.on_event(&blocks("c1", "a2", vec![text_block("  ")]), cx);
+        });
+        store.read_with(cx, |s, _| {
+            let item = s.item(Row::Live).unwrap();
+            assert!(item.stale, "an empty snapshot is not the new answer yet");
+            assert_eq!(item.blocks, vec![text_block("old")]);
+        });
+        // The first words of the new answer take its place.
+        store.update(cx, |s, cx| {
+            s.on_event(&blocks("c1", "a2", vec![text_block("new")]), cx);
+        });
+        store.read_with(cx, |s, _| {
+            let item = s.item(Row::Live).unwrap();
+            assert!(!item.stale);
+            assert_eq!(item.blocks, vec![text_block("new")]);
+            assert_eq!(item.version, Some((2, 2)), "the pager keeps its place");
+        });
+    }
+
+    #[test]
+    fn only_what_draws_in_the_body_counts_as_the_answer_started() {
+        let text = |md: &str| MessageBlockDto {
+            markdown: Some(md.into()),
+            ..empty_block(MessageBlockKind::Text)
+        };
+        assert!(!shows_anything(&[]));
+        assert!(!shows_anything(&[text(" \n")]));
+        assert!(shows_anything(&[text("Here")]));
+        // Drawn under the answer, or nothing yet to say.
+        assert!(!shows_anything(&[
+            empty_block(MessageBlockKind::Sources),
+            empty_block(MessageBlockKind::FollowUps),
+            empty_block(MessageBlockKind::Status),
+            empty_block(MessageBlockKind::Files),
+            text(""),
+        ]));
+        let status = MessageBlockDto {
+            summary: Some("Searching the web".into()),
+            ..empty_block(MessageBlockKind::Status)
+        };
+        assert!(shows_anything(&[status]));
+        assert!(shows_anything(&[empty_block(MessageBlockKind::Reasoning)]));
+    }
+
+    #[gpui_kit::test]
+    fn sending_ends_the_last_answer_so_its_suggestions_go_at_once(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "q"),
+                message("a1", "assistant", "answer"),
+            ],
+        ));
+        let (store, _) = open(&daemon, "c1", cx);
+        store.read_with(cx, |s, _| {
+            assert!(s.item(Row::Stored(1)).unwrap().last_answer);
+        });
+        store.update(cx, |s, cx| {
+            let turn = TurnOptions::default().into_turn("next".into(), None, false);
+            s.send(turn, PendingMessage::new("next"), cx).detach();
+        });
+        store.read_with(cx, |s, _| {
+            assert!(s.rows().contains(&Row::Pending));
+            assert!(!s.item(Row::Stored(1)).unwrap().last_answer);
+        });
+    }
+
+    #[gpui_kit::test]
+    fn regenerate_takes_over_the_old_answer_until_it_settles(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "q"),
+                message("a1", "assistant", "old"),
+            ],
+        ));
+        daemon.returns::<methods::TurnsRegenerate>(SendTurnAccepted {
+            chat_id: "c1".into(),
+            user_message_id: "u1".into(),
+            assistant_message_id: "a2".into(),
+        });
+        let (store, _) = open(&daemon, "c1", cx);
+        store.update(cx, |s, cx| s.regenerate("a1", None, cx));
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.rows(), &[Row::Stored(0), Row::Live]);
+            assert!(s.is_streaming() && !s.can_branch());
+        });
+        cx.run_until_parked();
+        store.update(cx, |s, cx| {
+            s.on_event(&blocks("c1", "a2", vec![text_block("new")]), cx);
+            // A second regenerate while streaming is refused.
+            s.regenerate("a1", None, cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::TurnsRegenerate>().len(), 1);
+        // The new answer keeps the old one's row key: one row throughout.
+        assert_eq!(keys(&store, cx), vec!["u1", "a1"]);
+
+        // Stored: the new answer carries the old one as a version.
+        let mut answer = message("a2", "assistant", "new");
+        answer.versions = vec![ChatMessageVersionDto {
+            id: "a1".into(),
+            content: "old".into(),
+            timestamp_ms: 1,
+            model: Some("m".into()),
+            sources: vec![],
+            usage: None,
+            blocks: vec![text_block("old")],
+        }];
+        daemon.returns::<methods::ChatsGet>(chat("c1", vec![message("u1", "user", "q"), answer]));
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::TurnCompleted(TurnCompleted {
+                    chat_id: "c1".into(),
+                    message_id: "a2".into(),
+                    text: "new".into(),
+                    reasoning: None,
+                    usage: None,
+                }),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        store.update(cx, |s, cx| {
+            assert!(s.live.is_none());
+            let item = s.item(s.rows()[1]).unwrap();
+            assert_eq!(item.version, Some((2, 2)));
+            assert_eq!(item.text, "new");
+            s.step_version("a2", -1, cx);
+            let item = s.item(s.rows()[1]).unwrap();
+            assert_eq!(item.version, Some((1, 2)));
+            assert_eq!(item.blocks, vec![text_block("old")]);
+            // No thumb on an older version.
+            assert_eq!(item.rating, None);
+            s.step_version("a2", -1, cx);
+            assert_eq!(s.item(s.rows()[1]).unwrap().version, Some((1, 2)));
+        });
+        assert_eq!(keys(&store, cx), vec!["u1", "a1"], "settled, the same row");
+    }
+
+    /// A regenerate whose first events come before `turns.regenerate`
+    /// replies, then a copy saved mid-regenerate that lists the old answer
+    /// on its own (ahead of the question): the transcript keeps one row for
+    /// the answer, in its place, from the first event to the stored copy.
+    #[gpui_kit::test]
+    fn a_regenerate_stays_one_row_in_place_whatever_order_things_arrive(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let old = ChatMessageDto {
+            blocks: vec![text_block("old")],
+            ..message("a1", "assistant", "old")
+        };
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![message("u1", "user", "q"), old.clone()],
+        ));
+        daemon.returns::<methods::TurnsRegenerate>(SendTurnAccepted {
+            chat_id: "c1".into(),
+            user_message_id: "u1".into(),
+            assistant_message_id: "a2".into(),
+        });
+        let (store, _) = open(&daemon, "c1", cx);
+        let seen = std::rc::Rc::new(RefCell::new(vec![]));
+        let _watch = cx.update({
+            let seen = seen.clone();
+            |cx| {
+                cx.observe(&store, move |s, cx| {
+                    let s = s.read(cx);
+                    let keys: Vec<String> = s.rows().iter().map(|r| s.row_key(*r)).collect();
+                    seen.borrow_mut().push(keys);
+                })
+            }
+        });
+        store.update(cx, |s, cx| {
+            s.regenerate("a1", None, cx);
+            // The turn's first events, before the reply is read.
+            s.on_event(
+                &Event::TurnStarted(TurnStarted {
+                    chat_id: "c1".into(),
+                    message_id: "a2".into(),
+                    model: "m".into(),
+                }),
+                cx,
+            );
+            s.on_event(&blocks("c1", "a2", vec![text_block("new")]), cx);
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            let live = s.live.as_ref().unwrap();
+            assert_eq!(live.message_id, "a2");
+            assert_eq!(live.replaces.as_deref(), Some("a1"));
+            assert_eq!(s.item(Row::Live).unwrap().key, "a2", "actions use the id");
+        });
+        // Done; the copy saved mid-regenerate has the old answer on its own
+        // ahead of the question, emptied, and the new one carrying it.
+        let mut new = ChatMessageDto {
+            blocks: vec![text_block("new")],
+            ..message("a2", "assistant", "new")
+        };
+        new.versions = vec![ChatMessageVersionDto {
+            id: "a1".into(),
+            content: "old".into(),
+            timestamp_ms: 1,
+            model: Some("m".into()),
+            sources: vec![],
+            usage: None,
+            blocks: vec![text_block("old")],
+        }];
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("a1", "assistant", ""),
+                message("u1", "user", "q"),
+                new.clone(),
+            ],
+        ));
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::TurnCompleted(TurnCompleted {
+                    chat_id: "c1".into(),
+                    message_id: "a2".into(),
+                    text: "new".into(),
+                    reasoning: None,
+                    usage: None,
+                }),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        // Then the copy as it settles: the old answer gone from the list.
+        daemon.returns::<methods::ChatsGet>(chat("c1", vec![message("u1", "user", "q"), new]));
+        store.update(cx, |s, cx| s.fetch(cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| assert!(s.live.is_none()));
+        let seen = seen.borrow();
+        assert!(seen.len() > 3, "{seen:?}");
+        for keys in seen.iter() {
+            assert_eq!(keys, &vec!["u1".to_string(), "a1".to_string()], "{seen:?}");
+        }
+    }
+
+    #[gpui_kit::test]
+    fn a_rating_shows_at_once_and_rolls_back_when_refused(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![message("u1", "user", "q"), message("a1", "assistant", "a")],
+        ));
+        daemon.once::<methods::TurnsRate>(Ok(RatedResult { rated: true }));
+        daemon.once::<methods::TurnsRate>(Err(conduit_daemon::protocol::error(
+            "transport.disconnected",
+            "dropped",
+        )));
+        let (store, _) = open(&daemon, "c1", cx);
+        let rating = |store: &Entity<ChatStore>, cx: &mut TestAppContext| {
+            store.read_with(cx, |s, _| s.item(Row::Stored(1)).unwrap().rating)
+        };
+        store.update(cx, |s, cx| s.rate("a1", 1, cx));
+        assert_eq!(rating(&store, cx), Some(1));
+        cx.run_until_parked();
+        assert_eq!(rating(&store, cx), Some(1));
+        store.update(cx, |s, cx| s.rate("a1", -1, cx));
+        assert_eq!(rating(&store, cx), Some(-1), "optimistic");
+        cx.run_until_parked();
+        assert_eq!(rating(&store, cx), Some(1), "rolled back to the last one");
+        assert_eq!(
+            daemon.calls::<methods::TurnsRate>()[1],
+            json!({"chatId": "c1", "messageId": "a1", "rating": -1})
+        );
+    }
+
+    #[gpui_kit::test]
+    fn older_messages_load_a_page_at_a_time(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let messages: Vec<_> = (0..250)
+            .map(|i| {
+                if i % 2 == 0 {
+                    message(&format!("m{i}"), "user", "q")
+                } else {
+                    message(&format!("m{i}"), "assistant", "a")
+                }
+            })
+            .collect();
+        daemon.returns::<methods::ChatsGet>(chat("c1", messages));
+        let (store, _) = open(&daemon, "c1", cx);
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.rows().len(), PAGE);
+            assert_eq!(s.hidden(), 150);
+            assert_eq!(s.row_key(s.rows()[0]), "m150");
+        });
+        assert_eq!(store.update(cx, |s, cx| s.load_older(cx)), PAGE);
+        assert_eq!(store.update(cx, |s, cx| s.load_older(cx)), 50);
+        assert_eq!(store.update(cx, |s, cx| s.load_older(cx)), 0);
+        store.read_with(cx, |s, _| assert_eq!(s.row_key(s.rows()[0]), "m0"));
+    }
+
+    #[gpui_kit::test]
+    fn stop_names_the_chat_and_a_deleted_chat_says_so(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(ChatResult { chat: None });
+        daemon.returns::<methods::TurnsStop>(StoppedResult { stopped: true });
+        let (store, _) = open(&daemon, "gone", cx);
+        assert!(store.read_with(cx, |s, _| s.missing));
+        store.update(cx, |s, cx| s.stop(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::TurnsStop>(),
+            vec![json!({"chatId": "gone"})]
+        );
+    }
+
+    #[test]
+    fn an_answer_counts_as_stored_once_it_has_content_or_is_a_version() {
+        let mut streaming = message("a1", "assistant", "partial");
+        streaming.streaming = true;
+        assert!(!stored_has_answer(&[streaming], "a1", None));
+        assert!(!stored_has_answer(
+            &[message("a1", "assistant", "")],
+            "a1",
+            None
+        ));
+        assert!(stored_has_answer(
+            &[message("a1", "assistant", "x")],
+            "a1",
+            None
+        ));
+        let mut failed = message("a1", "assistant", "");
+        failed.error_code = Some("server.error".into());
+        assert!(stored_has_answer(&[failed], "a1", None));
+        let mut newer = message("a2", "assistant", "new");
+        newer.versions = vec![ChatMessageVersionDto {
+            id: "a1".into(),
+            content: "old".into(),
+            timestamp_ms: 1,
+            model: None,
+            sources: vec![],
+            usage: None,
+            blocks: vec![],
+        }];
+        assert!(stored_has_answer(&[newer], "a1", None));
+        // A same-id regenerate: the old text is not the answer yet.
+        let old = message("a1", "assistant", "old");
+        assert!(!stored_has_answer(
+            std::slice::from_ref(&old),
+            "a1",
+            Some("old")
+        ));
+        assert!(stored_has_answer(&[old], "a1", Some("older")));
+    }
+}
