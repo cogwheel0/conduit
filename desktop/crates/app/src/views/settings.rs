@@ -30,7 +30,9 @@ use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::IconName;
 use conduit_components::motion::specs;
 use conduit_components::theme::{self, SidebarStyle};
-use conduit_components::views::focus::ControlExt as _;
+use conduit_components::views::focus::{
+    ControlExt as _, RadioGroupExt as _, Ring, radio_option_id,
+};
 use conduit_components::views::kit::{
     Button, IconButton, Segment, Segmented, SelectHandler, Switch, setting_row, warning_row,
 };
@@ -550,7 +552,7 @@ impl SettingsView {
 
     /// The phone's App Language page: the system's language, then each
     /// language the app speaks in its own name, the chosen one checked.
-    fn language(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn language(&self, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let l10n = cx.l10n().clone();
         let t = cx.conduit().clone();
         let r = t.roles;
@@ -565,16 +567,31 @@ impl SettingsView {
                 .map(|l| (Some(l.to_string()), locale::native_name(l).to_string())),
         );
         let count = choices.len();
+        let selected = choices
+            .iter()
+            .position(|(code, _)| *code == current)
+            .unwrap_or(0);
+        // One key-view stop, as AppKit's radio groups: the chosen language,
+        // whose arrows choose the next or the last.
+        let codes: Vec<Option<String>> = choices.iter().map(|(code, _)| code.clone()).collect();
+        let choose: SelectHandler = Rc::new(move |i, window, cx| {
+            if let Some(code) = codes.get(i) {
+                window.dispatch_action(
+                    Box::new(SetLocale {
+                        locale: code.clone(),
+                    }),
+                    cx,
+                );
+            }
+        });
         let rows = choices
             .into_iter()
             .enumerate()
             .map(|(i, (code, label))| {
-                let on = code == current;
+                let on = i == selected;
                 div()
-                    .id(gpui_kit::ElementId::NamedInteger(
-                        "language".into(),
-                        i as u64,
-                    ))
+                    .id(radio_option_id("language", i, on))
+                    .when(on, |d| d.keyboard_control(Ring::Inset(0.), window, cx))
                     .role(gpui_kit::Role::RadioButton)
                     .aria_label(SharedString::from(label.clone()))
                     .aria_selected(on)
@@ -614,7 +631,15 @@ impl SettingsView {
                     .into_any_element()
             })
             .collect();
-        vec![settings_section(SharedString::default(), None, rows, cx).into_any_element()]
+        vec![
+            div()
+                .id("language-group")
+                .role(Role::RadioGroup)
+                .aria_label(SharedString::from(l10n.app_language()))
+                .radio_group(selected, count, Some(choose), cx)
+                .child(settings_section(SharedString::default(), None, rows, cx))
+                .into_any_element(),
+        ]
     }
 
     /// Settings › Keyboard: every shortcut the app has, in the menus'
@@ -1490,7 +1515,7 @@ impl Render for SettingsView {
             }));
         let sections = match self.tab {
             Tab::Appearance => self.appearance(window, cx),
-            Tab::Language => self.language(cx),
+            Tab::Language => self.language(window, cx),
             Tab::Accounts => self.accounts(cx),
             Tab::Direct => self.direct(window, cx),
             Tab::Hermes => self.hermes(window, cx),
@@ -1578,5 +1603,44 @@ mod tests {
         assert!(short.ends_with("profiles/run-0042/userdata"), "{short}");
         assert!(short.contains('\u{2026}'));
         assert_eq!(middle_truncate("~/Logs", 44), "~/Logs");
+    }
+}
+
+#[cfg(test)]
+mod language_tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use conduit_components::views::focus::KeyboardAccess;
+    use gpui_kit::TestAppContext;
+
+    use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    #[gpui_kit::test]
+    fn the_languages_are_one_keyboard_stop_whose_arrows_choose(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-language-{}", std::process::id()));
+        let chosen: Rc<RefCell<Vec<Option<String>>>> = Rc::default();
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            cx.set_global(KeyboardAccess { all_controls: true });
+            let seen = chosen.clone();
+            cx.on_action(move |a: &SetLocale, _| seen.borrow_mut().push(a.locale.clone()));
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let settings =
+            cx.new(|_| SettingsStore::load(scratch.join("prefs.json"), false, vec!["en".into()]));
+        let (_view, vcx) = cx.add_window_view(move |window, cx| {
+            SettingsView::new(settings, stores, Tab::Language, window, cx)
+        });
+        vcx.run_until_parked();
+        // The system's language is chosen: its row is the group's one stop,
+        // the pane's last, so Shift-Tab from the window reaches it.
+        vcx.update(|window, cx| window.focus_prev(cx));
+        vcx.run_until_parked();
+        vcx.simulate_keystrokes("down");
+        vcx.run_until_parked();
+        assert_eq!(*chosen.borrow(), vec![Some(LOCALES[0].to_string())]);
     }
 }
