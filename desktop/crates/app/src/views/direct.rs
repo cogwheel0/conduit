@@ -87,7 +87,11 @@ impl DirectView {
                 window,
                 |this: &mut Self, _, e: &InputEvent, window, cx| match e {
                     InputEvent::PressEnter { .. } if this.can_save(cx) => this.save(window, cx),
-                    InputEvent::Change => cx.notify(),
+                    // A Test's result was for the draft as it was.
+                    InputEvent::Change => {
+                        this.note = None;
+                        cx.notify()
+                    }
                     _ => {}
                 },
             )
@@ -246,6 +250,7 @@ impl DirectView {
             return;
         }
         self.error = None;
+        self.note = None;
         let Some(edit) = self.edit(cx) else {
             self.focus_invalid(None, window, cx);
             return;

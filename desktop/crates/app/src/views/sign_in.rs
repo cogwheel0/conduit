@@ -214,15 +214,33 @@ impl SignInView {
             }
         };
         self.busy = true;
+        let scope = self.scope.clone();
         cx.notify();
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
                 let result = call.await;
-                let _ = this.update_in(cx, |s, window, cx| s.finish(result, window, cx));
+                let _ = this.update_in(cx, |s, window, cx| {
+                    if s.drop_if_moved_on(&scope, cx) {
+                        return;
+                    }
+                    s.finish(result, window, cx)
+                });
             },
         )
         .detach();
+    }
+
+    /// A sign-in answered after the form moved on to another account:
+    /// nothing of it is shown or adopted here (true).
+    fn drop_if_moved_on(&mut self, scope: &(Option<String>, bool), cx: &mut Context<Self>) -> bool {
+        if &self.scope == scope {
+            return false;
+        }
+        self.busy = false;
+        self.sso = false;
+        cx.notify();
+        true
     }
 
     fn finish(
@@ -288,6 +306,7 @@ impl SignInView {
         self.sso = true;
         cx.notify();
         let rpc = self.stores.connection.read(cx).rpc();
+        let scope = self.scope.clone();
         let outcome = run_sso(&url, l10n.desktop_sso_window_title(&name), cx);
         cx.spawn_in(
             window,
@@ -323,6 +342,9 @@ impl SignInView {
                 };
                 let result = rpc.call::<methods::AuthCompleteExternal>(&completion).await;
                 let _ = this.update_in(cx, |s, window, cx| {
+                    if s.drop_if_moved_on(&scope, cx) {
+                        return;
+                    }
                     if let Ok(snapshot) = &result
                         && !snapshot.is_authenticated
                         && snapshot.error_code.is_none()
@@ -614,5 +636,48 @@ mod scope_tests {
                 assert_eq!(input.read(cx).value().as_ref(), "");
             }
         });
+    }
+
+    #[gpui_kit::test]
+    fn a_sign_in_answered_after_another_account_is_dropped(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let mut signed_in: AuthSnapshot = serde_json::from_value(serde_json::json!({
+            "phase": "authenticated", "isAuthenticated": true, "hasToken": true
+        }))
+        .unwrap();
+        signed_in.is_loading = false;
+        daemon.returns::<methods::AuthLoginWithPassword>(signed_in);
+        let held = daemon.hold::<methods::AuthLoginWithPassword>();
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-sign-in-late-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let two = |active_a: bool| {
+            list(vec![
+                account("a", "Avery", active_a, false),
+                account("b", "Blake", !active_a, false),
+            ])
+        };
+        stores.accounts.update(cx, |a, cx| a.adopt(two(true), cx));
+        let s = stores.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| SignInView::new(s, window, cx));
+        view.update_in(vcx, |v, window, cx| {
+            v.email
+                .update(cx, |i, cx| i.set_value("avery@example.org", window, cx));
+            v.password
+                .update(cx, |i, cx| i.set_value("synthetic-secret", window, cx));
+            v.submit(window, cx);
+        });
+        stores.accounts.update(vcx, |a, cx| a.adopt(two(false), cx));
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, _| assert!(!v.busy && v.error.is_none()));
+        assert!(
+            stores.session.read_with(vcx, |s, _| s.auth.is_none()),
+            "A's answer was adopted for B"
+        );
     }
 }

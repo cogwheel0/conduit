@@ -289,6 +289,12 @@ impl SettingsStore {
         if self.prefs.desktop == before {
             return;
         }
+        // Quick Ask off: its chord is no longer being recorded (the keys go
+        // back to the app).
+        if !self.prefs.desktop.quick_ask && self.recording_quick_ask {
+            self.recording_quick_ask = false;
+            self.quick_ask_message = None;
+        }
         self.save();
         cx.emit(SettingsEvent::DesktopChanged);
         cx.notify();
@@ -574,6 +580,13 @@ mod tests {
     fn recording_the_quick_ask_shortcut(cx: &mut TestAppContext) {
         let settings = cx.new(|_| store("quick-ask", false));
         let key = |s: &'static str| gpui_kit::Keystroke::parse(s).unwrap();
+        // Turning Quick Ask off ends its recording: keys go back to the app.
+        settings.update(cx, |s, cx| {
+            s.record_quick_ask(true, cx);
+            s.set_desktop(|d| d.quick_ask = false, cx);
+        });
+        settings.read_with(cx, |s, _| assert!(!s.recording_quick_ask));
+        settings.update(cx, |s, cx| s.set_desktop(|d| d.quick_ask = true, cx));
         settings.update(cx, |s, cx| s.record_quick_ask(true, cx));
         // A bare key is refused; an app shortcut's chord conflicts.
         assert!(settings.update(cx, |s, cx| s.record(&key("space"), cx)));
