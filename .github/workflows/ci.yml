@@ -142,7 +142,9 @@ jobs:
             run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
           # `basic` is the action's MIT-licensed cache provider; the default
           # one is a proprietary component under separate terms of use.
-          # Caches are written from main only, and read everywhere.
+          # Caches are written from main only, and read everywhere. They
+          # carry the Gradle build cache, so the builds below (--build-cache)
+          # reuse the plugin and Kotlin compiles, R8 and lint from main.
           - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6
             with:
               cache-provider: basic
@@ -169,7 +171,7 @@ jobs:
         run: |
           flutter build apk --config-only
           cd android
-          ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm64
+          ./gradlew --build-cache :app:testDebugUnitTest -Ptarget-platform=android-arm64
       # The foss build (F-Droid, IzzyOnDroid) must compile without, and
       # never pull in, Firebase or Google Play services. Its release APK, the
       # one those stores ship, is built too, so R8 shrinks it with
@@ -177,14 +179,14 @@ jobs:
       - name: Android foss build
         run: |
           cd android
-          ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm64 -PconduitPushVariant=foss
+          ./gradlew --build-cache :app:testDebugUnitTest -Ptarget-platform=android-arm64 -PconduitPushVariant=foss
           ./gradlew -q :app:dependencies --configuration releaseRuntimeClasspath \
             -PconduitPushVariant=foss > "$RUNNER_TEMP/foss-dependencies.txt"
           if grep -E 'com\.google\.(firebase|android\.gms|mlkit)' "$RUNNER_TEMP/foss-dependencies.txt"; then
             echo "::error::The foss build depends on Firebase, Play services or ML Kit"
             exit 1
           fi
-          ./gradlew :app:assembleRelease -Ptarget-platform=android-arm64 -PconduitPushVariant=foss
+          ./gradlew --build-cache :app:assembleRelease -Ptarget-platform=android-arm64 -PconduitPushVariant=foss
 
   # Each workspace member analyzes and tests from its own directory, which
   # is what proves the pub workspace actually works per package. They share
