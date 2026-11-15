@@ -175,7 +175,7 @@ pub struct SessionStore {
     /// Asks made since the route was last known ([`RESOLVE_ATTEMPTS`]).
     resolve_attempts: u32,
     _refresh: Option<Task<()>>,
-    _backends: Option<Task<()>>,
+    _backends: Vec<Task<()>>,
     _status: Option<Task<()>>,
     _resolve: Option<Task<()>>,
     _recheck: Option<Task<()>>,
@@ -224,7 +224,7 @@ impl SessionStore {
             seen_accounts: None,
             resolve_attempts: 0,
             _refresh: None,
-            _backends: None,
+            _backends: vec![],
             _status: None,
             _resolve: None,
             _recheck: None,
@@ -329,7 +329,7 @@ impl SessionStore {
         self.seen_accounts = None;
         self.resolve_attempts = 0;
         self._refresh = None;
-        self._backends = None;
+        self._backends = vec![];
         self._status = None;
         self._resolve = None;
         self._recheck = None;
@@ -396,27 +396,28 @@ impl SessionStore {
                 let direct = rpc.call::<methods::DirectList>(&NoParams);
                 let hermes = rpc.call::<methods::HermesSettings>(&NoParams);
                 let _ = this.update(cx, |s, cx| {
-                    s._backends = Some(cx.spawn(
-                        async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                            let (direct, hermes) = futures::join!(direct, hermes);
+                    // Each lands as soon as it answers (a slow one never
+                    // holds the other back).
+                    s._backends = vec![
+                        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                            let direct = direct.await;
                             let _ = this.update(cx, |s, cx| {
                                 if s.generation == generation {
-                                    // A daemon without Direct or Hermes
-                                    // answers as none; a failed read keeps
-                                    // the last answer.
                                     s.direct = keep_on_error(s.direct.take(), direct);
-                                    s.hermes = keep_on_error(s.hermes.take(), hermes);
-                                    // They may have been what the route
-                                    // waited for.
-                                    if s.route(cx) != Route::Unknown {
-                                        s.resolve_attempts = 0;
-                                        s._resolve = None;
-                                    }
-                                    cx.notify();
+                                    s.backend_landed(cx);
                                 }
                             });
-                        },
-                    ));
+                        }),
+                        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                            let hermes = hermes.await;
+                            let _ = this.update(cx, |s, cx| {
+                                if s.generation == generation {
+                                    s.hermes = keep_on_error(s.hermes.take(), hermes);
+                                    s.backend_landed(cx);
+                                }
+                            });
+                        }),
+                    ];
                 });
                 // Asked again now that the core is up: its own answer.
                 let onboarding = async {
@@ -536,6 +537,17 @@ impl SessionStore {
             log::info!("session: the server answers again");
             cx.emit(SessionEvent::ServerBack);
         }
+    }
+
+    /// A Direct or Hermes answer came (a daemon without one answers as
+    /// none; a failed read keeps the last answer): it may have been what
+    /// the route waited for.
+    fn backend_landed(&mut self, cx: &mut Context<Self>) {
+        if self.route(cx) != Route::Unknown {
+            self.resolve_attempts = 0;
+            self._resolve = None;
+        }
+        cx.notify();
     }
 
     /// Asks `servers.status` again after [`SERVER_RECHECK`].
@@ -1061,6 +1073,32 @@ mod tests {
             assert_eq!(s.route(cx), Route::Main);
             assert_eq!(s.backend(cx), Some(Backend::Direct));
         });
+    }
+
+    #[gpui_kit::test]
+    fn each_backend_answer_lands_on_its_own(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(signed_in());
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Authenticated, true));
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+        daemon.returns::<methods::HermesSettings>(HermesSettings {
+            usable: true,
+            ..Default::default()
+        });
+        let held = daemon.hold::<methods::DirectList>();
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| {
+            s.on_connected(&handshake(Some(false)), request(), cx)
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(
+                s.hermes.as_ref().is_some_and(|h| h.usable),
+                "Hermes waited for Direct"
+            );
+            assert!(s.direct.is_none());
+        });
+        drop(held);
     }
 
     #[gpui_kit::test]
