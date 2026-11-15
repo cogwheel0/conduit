@@ -142,12 +142,27 @@ jobs:
             run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
           # `basic` is the action's MIT-licensed cache provider; the default
           # one is a proprietary component under separate terms of use.
-          # Caches are written from main only, and read everywhere. They
-          # carry the Gradle build cache, so the builds below (--build-cache)
-          # reuse the plugin and Kotlin compiles, R8 and lint from main.
+          # Caches are written from main only, and read everywhere.
           - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6
             with:
               cache-provider: basic
+      # Gradle's build cache lets the builds below (--build-cache) reuse the
+      # plugin and Kotlin compiles, R8 and lint from main. The basic provider
+      # never replaces a saved entry, so the copy it restores would stay as
+      # it was when the build files last changed; this entry carries the
+      # build cache instead. It is keyed on what those tasks read, hashed
+      # before pub get writes local.properties, and saved from main only.
+      - name: Gradle build cache key
+        id: build-cache-key
+        run: |
+          flutter_version=$(flutter --version --machine | jq -r .frameworkVersion)
+          echo "key=gradle-build-cache-$flutter_version-${{ hashFiles('android/**', 'pubspec.lock', 'third_party/**/android/**') }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: build-cache
+        with:
+          path: ~/.gradle/caches/build-cache-1
+          key: ${{ steps.build-cache-key.outputs.key }}
+          restore-keys: gradle-build-cache-
       - run: flutter pub get
       # The app compiles against its own generated code and that of the
       # packages it imports, so both generate, side by side as in the mobile
@@ -187,6 +202,11 @@ jobs:
             exit 1
           fi
           ./gradlew --build-cache :app:assembleRelease -Ptarget-platform=android-arm64 -PconduitPushVariant=foss
+      - if: github.event_name == 'push' && steps.build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.gradle/caches/build-cache-1
+          key: ${{ steps.build-cache.outputs.cache-primary-key }}
 
   # Each workspace member analyzes and tests from its own directory, which
   # is what proves the pub workspace actually works per package. They share
