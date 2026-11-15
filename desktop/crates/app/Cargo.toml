@@ -44,6 +44,9 @@ objc2-app-kit = { workspace = true, features = ["NSAlert", "NSButton", "NSContro
 # versions it was checked against).
 gpui-webview = "=0.9.0"
 wry = { package = "lb-wry", version = "=0.53.3" }
+# The app's own script handler and UI delegate on wry's web views (the
+# version and features wry already uses).
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKFrameInfo", "WKOpenPanelParameters", "WKScriptMessage", "WKScriptMessageHandler", "WKSecurityOrigin", "WKUIDelegate", "WKUserContentController", "WKWebView", "WKWebViewConfiguration"] }
 block2 = "0.6"
 raw-window-handle.workspace = true
 # The Mac extras: the menu-bar item and the Quick Ask hotkey (exact pins:

@@ -95,7 +95,7 @@ pub fn app_bridge_script(deliver: &str) -> String {
         "(()=>{{'use strict';\
 const native=window.postMessage.bind(window);\
 window.postMessage=(m,...rest)=>{{if(m&&typeof m==='object'&&m.jsonrpc==='2.0'){{\
-let p;try{{p=JSON.stringify(m);}}catch(_){{return;}}window.ipc.postMessage(p);}}\
+let p;try{{p=JSON.stringify(m);}}catch(_){{return;}}{post};}}\
 else{{native(m,...rest);}}}};\
 Object.defineProperty(window,{deliver},{{value:(payload)=>{{let data;\
 try{{data=JSON.parse(payload);}}catch(_){{return;}}\
@@ -111,6 +111,7 @@ if(navigator.mediaDevices)replace(navigator.mediaDevices,'getUserMedia',denied);
 if(navigator.geolocation){{replace(navigator.geolocation,'getCurrentPosition',(_,e)=>e&&e({{code:1}}));\
 replace(navigator.geolocation,'watchPosition',(_,e)=>{{e&&e({{code:1}});return 0;}});}}}})();",
         deliver = preview::js_string(deliver),
+        post = super::web_guard::post_script("p"),
     )
 }
 
@@ -126,6 +127,9 @@ pub struct EmbedView {
     state: State,
     height: f32,
     view: Option<Rc<InlineWebView>>,
+    /// The app's own message handler and UI delegate on `view`.
+    #[cfg(target_os = "macos")]
+    guard: Option<super::web_guard::Guard>,
     /// The app's run, once the daemon started it.
     app_id: Option<String>,
     /// The app finished its handshake.
@@ -161,6 +165,8 @@ impl EmbedView {
             state: State::Closed,
             height: EMBED_DEFAULT_HEIGHT,
             view: None,
+            #[cfg(target_os = "macos")]
+            guard: None,
             app_id: None,
             started: false,
             deliver: format!("__conduitDeliver{}", uuid_like()),
@@ -178,9 +184,18 @@ impl EmbedView {
         }
     }
 
+    /// Takes the web view out, with its guard.
+    fn drop_view(&mut self) {
+        #[cfg(target_os = "macos")]
+        {
+            self.guard = None;
+        }
+        self.view = None;
+    }
+
     fn close(&mut self, cx: &mut Context<Self>) {
         self.stop_app(cx);
-        self.view = None;
+        self.drop_view();
         self._page = None;
         self.state = State::Closed;
         self.started = false;
@@ -265,7 +280,6 @@ impl EmbedView {
                 false,
             ),
         };
-        let (tx, rx) = futures::channel::mpsc::unbounded::<String>();
         let mut builder = self
             .builder(cx)
             .with_html(document)
@@ -275,9 +289,6 @@ impl EmbedView {
                 url.starts_with("about:")
                     || url.starts_with("data:")
                     || (remote && (url.starts_with("https://") || url.starts_with("http://")))
-            })
-            .with_ipc_handler(move |request| {
-                let _ = tx.unbounded_send(request.into_body());
             });
         if remote {
             // The height and link reports in the remote frame too.
@@ -287,18 +298,29 @@ impl EmbedView {
             );
         }
         self.height = EMBED_DEFAULT_HEIGHT;
-        self.show(builder, rx, window, cx);
+        self.show(builder, window, cx);
     }
 
+    /// Shows the web view `builder` makes, its top document's messages
+    /// going to [`Self::on_page`] through the app's own handler (see
+    /// [`super::web_guard`]); no wry IPC handler, which takes every frame's.
     fn show(
         &mut self,
         builder: wry::WebViewBuilder<'static>,
-        mut rx: futures::channel::mpsc::UnboundedReceiver<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let (tx, mut rx) = futures::channel::mpsc::unbounded::<String>();
         match InlineWebView::new(builder, window) {
             Some(view) => {
+                #[cfg(target_os = "macos")]
+                {
+                    self.guard = super::web_guard::guard(view.webview(), move |body| {
+                        let _ = tx.unbounded_send(body);
+                    });
+                }
+                #[cfg(not(target_os = "macos"))]
+                drop(tx);
                 self.view = Some(view);
                 self.state = State::Open;
                 self._page = Some(cx.spawn_in(
@@ -312,7 +334,12 @@ impl EmbedView {
                     },
                 ));
             }
-            None => self.state = State::Failed(cx.l10n().desktop_embed_load_failed()),
+            None => {
+                // An app the daemon started for a view that never showed
+                // ends with it (Try Again starts another).
+                self.stop_app(cx);
+                self.state = State::Failed(cx.l10n().desktop_embed_load_failed());
+            }
         }
         cx.notify();
     }
@@ -337,11 +364,31 @@ impl EmbedView {
                 }
             }
             // A link the user clicked opens in the browser, as on the
-            // phone.
-            // Only http(s) or mailto, as any link in a chat.
-            Some(PageMessage::Open(url)) => super::markdown::open_web_link(&url, cx),
+            // phone: only right after a click or key press in this web
+            // view, which the app saw itself (a page posting on its own
+            // opens nothing). Only http(s) or mailto, as any link in a chat.
+            Some(PageMessage::Open(url)) => {
+                if self.user_activated() {
+                    super::markdown::open_web_link(&url, cx);
+                } else {
+                    log::warn!("an embed asked to open a link without a click: refused");
+                }
+            }
             None => {}
         }
+    }
+
+    /// Whether the user just clicked or pressed a key in this embed's web
+    /// view (used up by the one link it lets open).
+    fn user_activated(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            self.view
+                .as_ref()
+                .is_some_and(|v| super::web_guard::take_activation(v.webview()))
+        }
+        #[cfg(not(target_os = "macos"))]
+        false
     }
 
     /// An MCP App: the daemon loads its page and starts its host.
@@ -396,7 +443,6 @@ impl EmbedView {
         cx: &mut Context<Self>,
     ) {
         self.app_id = Some(session.app_id.clone());
-        let (tx, rx) = futures::channel::mpsc::unbounded::<String>();
         let builder = self
             .builder(cx)
             .with_html(session.document)
@@ -405,11 +451,8 @@ impl EmbedView {
             // through the bridge (confirmed first).
             .with_navigation_handler(|url: String| {
                 url.starts_with("about:") || url.starts_with("data:")
-            })
-            .with_ipc_handler(move |request| {
-                let _ = tx.unbounded_send(request.into_body());
             });
-        self.show(builder, rx, window, cx);
+        self.show(builder, window, cx);
     }
 
     fn app_event(&mut self, event: &McpAppEvent, cx: &mut Context<Self>) {
@@ -443,7 +486,7 @@ impl EmbedView {
             }
             McpAppEventKind::Closed => {
                 self.app_id = None;
-                self.view = None;
+                self.drop_view();
                 self._page = None;
                 self.state = State::Failed(if self.started {
                     cx.l10n().desktop_embed_load_failed()
@@ -667,8 +710,45 @@ mod tests {
     fn the_app_bridge_hands_json_rpc_to_the_host_only() {
         let script = app_bridge_script("__conduitDeliverab12");
         assert!(script.contains("m.jsonrpc==='2.0'"));
-        assert!(script.contains("window.ipc.postMessage(p)"));
+        assert!(script.contains("messageHandlers.conduitHost.postMessage(p)"));
         assert!(script.contains("\"__conduitDeliverab12\""));
         assert!(script.contains("window.open=()=>null"));
+    }
+
+    #[gpui_kit::test]
+    fn an_app_whose_view_never_showed_is_closed(cx: &mut gpui_kit::TestAppContext) {
+        use std::rc::Rc;
+
+        use gpui_kit::AppContext as _;
+
+        use crate::stores::chat::{ChatStore, Subscribe};
+        use crate::stores::rpc::fake::FakeDaemon;
+
+        cx.update(crate::views::test_globals);
+        let daemon = FakeDaemon::new();
+        daemon.on::<methods::McpAppsOpen>(|_| {
+            Ok(serde_json::json!({"appId": "app-1", "document": "<p>Synthetic app</p>"}))
+        });
+        daemon.on::<methods::McpAppsClose>(|_| Ok(serde_json::json!({"accepted": true})));
+        let subscribe: Subscribe = Rc::new(|_, _| {});
+        let rpc = daemon.rpc();
+        let store = cx.new(|cx| ChatStore::new(rpc, subscribe, "c1".into(), cx));
+        let embed: EmbedDto = serde_json::from_value(serde_json::json!({
+            "kind": "mcpApp",
+            "app": {"serverId": "s1", "toolName": "board", "binding": "ui://board"},
+        }))
+        .unwrap();
+        let weak = store.downgrade();
+        let (view, vcx) =
+            cx.add_window_view(move |_, cx| EmbedView::new("e0.0".into(), embed, true, weak, cx));
+        // A test window has no native view: the web view can't be made.
+        view.update_in(vcx, |v, window, cx| v.open(window, cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, _| assert!(v.failure().is_some()));
+        assert_eq!(
+            daemon.calls::<methods::McpAppsClose>(),
+            vec![serde_json::json!({"appId": "app-1"})],
+            "the daemon's app stayed open"
+        );
     }
 }

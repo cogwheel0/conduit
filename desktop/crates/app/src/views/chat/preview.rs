@@ -332,15 +332,17 @@ const url=a.href;if(!/^https?:/i.test(url))return;e.preventDefault();\
 parent.postMessage({type:'conduit-open-link',url},'*');},true);})();";
 
 /// The host page's half: what the embed's frame posts goes on to the app
-/// over wry's IPC, as `{"type":"height","height":N}` or
-/// `{"type":"open","url":"…"}`.
+/// through its own handler (the top document's only: see `web_guard`), as
+/// `{"type":"height","height":N}` or `{"type":"open","url":"…"}`. The app
+/// opens a link only after a click or key press it saw in the web view.
 const EMBED_HOST_SCRIPT: &str = "<script>window.addEventListener('message',(e)=>{\
 const f=document.getElementById('embed-frame');if(!f||e.source!==f.contentWindow)return;\
 const d=e.data||{};\
+const host=(m)=>window.webkit.messageHandlers.conduitHost.postMessage(JSON.stringify(m));\
 if(d.type==='conduit-embed-height'){const h=Number(d.height);\
-if(Number.isFinite(h)&&h>0)window.ipc.postMessage(JSON.stringify({type:'height',height:h}));}\
+if(Number.isFinite(h)&&h>0)host({type:'height',height:h});}\
 else if(d.type==='conduit-open-link'&&typeof d.url==='string'){\
-window.ipc.postMessage(JSON.stringify({type:'open',url:d.url}));}});</script>";
+host({type:'open',url:d.url});}});</script>";
 
 /// The page for HTML or SVG a tool returned, shown inline in an answer:
 /// the Preview window's page and policy (no network: inline scripts and
@@ -889,7 +891,9 @@ mod tests {
         );
         assert!(doc.contains("window.args = "));
         assert!(!doc.contains("</script>\"}"));
-        assert!(doc.contains("conduit-embed-height") && doc.contains("window.ipc.postMessage"));
+        assert!(
+            doc.contains("conduit-embed-height") && doc.contains("messageHandlers.conduitHost")
+        );
         let remote = remote_embed_document(
             &url::Url::parse("https://example.com/harbour?cam=1").unwrap(),
             &PreviewTheme::plain(true),

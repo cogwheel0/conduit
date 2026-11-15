@@ -25,6 +25,7 @@ pub mod sources;
 pub mod tasks;
 pub mod transcript;
 pub mod video;
+pub mod web_guard;
 
 use gpui_kit::{Global, WeakEntity};
 
