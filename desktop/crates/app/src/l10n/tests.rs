@@ -116,6 +116,16 @@ fn placeholders_and_fallback() {
         en.desktop_shortcut_conflict("⌘K", "Search"),
         "⌘K is already used by Search."
     );
+    // Arguments go in the order the ARB declares its placeholders.
+    assert_eq!(en.desktop_position_of("1", "3"), "1 of 3");
+    // Decimals keep their digits.
+    assert_eq!(
+        en.prompt_variable_number_min(0.001),
+        "Minimum value is 0.001"
+    );
+    assert_eq!(en.tts_speed_value(1.234), "1.234×");
+    assert_eq!(en.tts_speed_value(0.1 + 0.2), "0.3×");
+    assert_eq!(en.tts_speed_value(2.), "2×");
     // Unknown locales fall back to English.
     assert_eq!(L10n::new("xx").locale(), "en");
 }

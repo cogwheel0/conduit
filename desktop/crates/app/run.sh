@@ -43,15 +43,15 @@ fi
 log=target/app/last-run.log
 : > "$log"
 # `open` does not pass the environment through; forward the overrides the
-# app reads.
-env_args=""
+# app reads. Each `--env NAME=value` goes in front of the arguments as its
+# own words, so a value with spaces stays whole.
+set -- --stdout "$log" --stderr "$log" --args --cwd "$PWD" "$@"
 for var in CONDUITD_PATH CONDUIT_USER_DATA CONDUIT_LOGS CONDUIT_FLAVOR CONDUIT_SHOT_WINDOW \
   CONDUIT_OWUI_ENV CONDUIT_OWUI_DIR CONDUIT_DEV_CACHE; do
   eval "val=\${$var:-}"
-  if [ -n "$val" ]; then env_args="$env_args --env $var=$val"; fi
+  if [ -n "$val" ]; then set -- --env "$var=$val" "$@"; fi
 done
-# shellcheck disable=SC2086
-open -W -n "$app" $env_args --stdout "$log" --stderr "$log" --args --cwd "$PWD" "$@"
+open -W -n "$app" "$@"
 cat "$log"
 grep -q "SMOKE FAILED" "$log" && exit 1
 exit 0

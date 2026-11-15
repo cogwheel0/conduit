@@ -240,15 +240,61 @@ pub struct Preferences {
     pub desktop: DesktopPrefs,
 }
 
-/// Reads `path`, or the default when it is missing or unreadable.
+/// Reads `path`, or the default when it is missing.
+///
+/// A value this build cannot read (a setting a newer build added a choice
+/// to, or a wrong type) costs only that value: it takes its default, and
+/// every other setting is kept. A file that does not parse at all gives the
+/// defaults. Either way the file is first copied to `<name>.bad`, so the
+/// next save never destroys the only copy.
 pub fn load<T: DeserializeOwned + Default>(path: &Path) -> T {
-    match std::fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
-            log::warn!("{} is unreadable ({e}); using defaults", path.display());
-            T::default()
-        }),
-        Err(_) => T::default(),
+    let Ok(bytes) = std::fs::read(path) else {
+        return T::default();
+    };
+    let e = match serde_json::from_slice(&bytes) {
+        Ok(value) => return value,
+        Err(e) => e,
+    };
+    log::warn!(
+        "{} is partly unreadable ({e}); keeping what reads",
+        path.display()
+    );
+    let backup = path.with_extension("json.bad");
+    if let Err(e) = std::fs::write(&backup, &bytes) {
+        log::warn!("{}: {e}", backup.display());
     }
+    serde_json::from_slice::<serde_json::Value>(&bytes)
+        .ok()
+        .and_then(|value| serde_json::from_value(salvage::<T>(&[], &value)?).ok())
+        .unwrap_or_default()
+}
+
+/// The part of `value` (found at `path` in the file) that reads as `T`:
+/// the whole of it when it does, else, for an object, each of its entries
+/// that does. Every struct here defaults its missing fields, so a value is
+/// tried on its own, nested at its path.
+fn salvage<T: DeserializeOwned>(
+    path: &[&str],
+    value: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    let nested = path.iter().rev().fold(value.clone(), |inner, key| {
+        serde_json::Value::Object([(key.to_string(), inner)].into_iter().collect())
+    });
+    if serde_json::from_value::<T>(nested).is_ok() {
+        return Some(value.clone());
+    }
+    let serde_json::Value::Object(map) = value else {
+        return None;
+    };
+    let kept = map
+        .iter()
+        .filter_map(|(key, inner)| {
+            let mut at = path.to_vec();
+            at.push(key);
+            salvage::<T>(&at, inner).map(|v| (key.clone(), v))
+        })
+        .collect();
+    Some(serde_json::Value::Object(kept))
 }
 
 /// Writes `value` to `path` atomically (temp file, then rename).
@@ -340,6 +386,38 @@ mod tests {
         assert_eq!(s.width, 900.);
         assert_eq!(s.height, 860.);
         assert!(s.sidebar_visible);
+    }
+
+    #[test]
+    fn a_value_this_build_cannot_read_costs_only_that_value() {
+        // A newer build's choices and a wrong type, among good settings.
+        let path = dir("salvage").join("desktop-preferences.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let text = br#"{
+            "appearance": {"palette": "claude", "mode": "sepia", "density": "comfortable"},
+            "locale": "de",
+            "shortcuts": {"newChat": "mod+n", "search": 7},
+            "desktop": {"quickAsk": "yes", "notifyAnswers": false, "betaUpdates": true}
+        }"#;
+        std::fs::write(&path, text).unwrap();
+        let prefs = load::<Preferences>(&path);
+        assert_eq!(prefs.appearance.palette, "claude");
+        assert_eq!(prefs.appearance.mode, ThemeMode::System);
+        assert_eq!(prefs.appearance.density, DensityChoice::Comfortable);
+        assert_eq!(prefs.locale.as_deref(), Some("de"));
+        assert_eq!(
+            prefs.shortcuts,
+            BTreeMap::from([("newChat".to_string(), "mod+n".to_string())])
+        );
+        // The struct's own default, not the type's.
+        assert!(prefs.desktop.quick_ask);
+        assert!(!prefs.desktop.notify_answers);
+        assert!(prefs.desktop.beta_updates);
+        // The file as it was, kept beside it.
+        assert_eq!(
+            std::fs::read(path.with_extension("json.bad")).unwrap(),
+            text.to_vec()
+        );
     }
 
     #[test]

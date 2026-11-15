@@ -46,11 +46,14 @@ impl Arg<'_> {
     }
 }
 
+/// Whole numbers without a fraction; others with up to six decimals, so a
+/// value like `0.001` keeps its digits and float noise (`1.2500000000000002`)
+/// does not show.
 fn format_num(n: f64) -> String {
     if n.fract() == 0. && n.abs() < 1e15 {
         format!("{}", n as i64)
     } else {
-        let s = format!("{n:.2}");
+        let s = format!("{n:.6}");
         s.trim_end_matches('0').trim_end_matches('.').to_string()
     }
 }
