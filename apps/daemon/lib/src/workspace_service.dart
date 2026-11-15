@@ -662,7 +662,19 @@ final class WorkspaceService {
             };
         var imported = 0;
         final failed = <WorkspaceImportFailure>[];
+        // The file is imported into the account it was chosen under: once
+        // the account changes, the rest are not imported into the next one.
+        final session = _container.read(openWebUiAuthSessionEpochProvider);
         for (final (index, item) in items.indexed) {
+          if (!identical(
+            session,
+            _container.read(openWebUiAuthSessionEpochProvider),
+          )) {
+            throw const RpcError(
+              code: ConduitErrorCodes.sessionExpired,
+              debugMessage: 'the account changed during the import',
+            );
+          }
           try {
             await one(item);
             imported++;
