@@ -343,11 +343,14 @@ impl ApprovalsView {
                     },
                 };
                 let pick = {
-                    let this = this.clone();
+                    let (this, id) = (this.clone(), id.clone());
                     Rc::new(move |i: usize, _: &mut Window, cx: &mut App| {
                         let _ = this.update(cx, |s, cx| {
-                            s.selected = i;
-                            cx.notify();
+                            // Only while this request's card is the one shown.
+                            if s.for_request.as_deref() == Some(id.as_str()) {
+                                s.selected = i;
+                                cx.notify();
+                            }
                         });
                     })
                 };

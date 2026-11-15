@@ -283,6 +283,8 @@ impl ChatComposer {
             return;
         }
         let text = self.text(cx).trim().to_string();
+        // A prompt still being rendered belongs to the draft that just went.
+        self.prompt_request += 1;
         self.input.update(cx, |s, cx| s.set_value("", window, cx));
         self.menu = None;
         cx.emit(ChatComposerEvent::Submit(text));
@@ -455,7 +457,13 @@ impl ChatComposer {
         let state = self.input.read(cx);
         let value = state.value().to_string();
         let cursor = state.cursor().min(value.len());
-        let start = menu.trigger.start.min(cursor);
+        // The caret may have moved since the menu opened (a move is no text
+        // change): only the trigger still before it is removed, never other
+        // text.
+        if trigger_at(&value, cursor).as_ref() != Some(&menu.trigger) {
+            return None;
+        }
+        let start = menu.trigger.start;
         let new = format!("{}{}", &value[..start], &value[cursor..]);
         self.input.update(cx, |s, cx| {
             s.set_value(new, window, cx);
@@ -479,7 +487,9 @@ impl ChatComposer {
                 let Some(prompt) = prompt else {
                     return;
                 };
-                let at = self.take_trigger(window, cx).unwrap_or(0);
+                let Some(at) = self.take_trigger(window, cx) else {
+                    return;
+                };
                 self.render_prompt(prompt, at, BTreeMap::new(), window, cx);
             }
             TriggerKind::Model => {
@@ -2161,6 +2171,45 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(value(&view, cx), "");
         assert!(view.read_with(cx, |c, _| c.form.is_none()));
+    }
+
+    #[gpui_kit::test]
+    fn a_prompt_rendered_after_send_stays_out_of_the_next_draft(cx: &mut TestAppContext) {
+        let (view, cx, _) = composer(cx);
+        let daemon = FakeDaemon::new();
+        daemon.returns::<conduit_protocol::methods::PromptsRender>(
+            serde_json::from_value(serde_json::json!({"content": "LATE", "inputs": []})).unwrap(),
+        );
+        let held = daemon.hold::<conduit_protocol::methods::PromptsRender>();
+        let store = cx.new(|_| ComposerStore::new(daemon.rpc(), None));
+        view.update(cx, |c, _| c.composer = store);
+        cx.simulate_input("Hello");
+        view.update_in(cx, |c, window, cx| {
+            let prompt = serde_json::from_value(serde_json::json!({
+                "command": "/greet", "title": "Greet"
+            }))
+            .unwrap();
+            c.render_prompt(prompt, 5, BTreeMap::new(), window, cx);
+            c.submit(window, cx);
+        });
+        held.release();
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "");
+    }
+
+    #[gpui_kit::test]
+    fn a_trigger_left_behind_the_caret_is_not_cut(cx: &mut TestAppContext) {
+        let (view, cx, _) = composer(cx);
+        cx.simulate_input("#k and more");
+        view.update_in(cx, |c, window, cx| {
+            // The menu for `#k`, then the caret moves to the end without an
+            // edit.
+            c.input.update(cx, |s, cx| s.set_selected_range(2..2, cx));
+            c.text_changed(cx);
+            c.input.update(cx, |s, cx| s.set_selected_range(11..11, cx));
+            assert_eq!(c.take_trigger(window, cx), None);
+        });
+        assert_eq!(value(&view, cx), "#k and more");
     }
 
     #[gpui_kit::test]
