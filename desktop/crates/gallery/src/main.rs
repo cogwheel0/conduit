@@ -72,7 +72,10 @@ struct IndexEntry {
     height: usize,
 }
 
+/// `render.sh` cannot see the gallery's exit status through `open`, so
+/// every failure prints a FAILED line, which it looks for.
 fn usage() -> ! {
+    eprintln!("FAILED: bad arguments");
     eprintln!(
         "usage:\n  conduit-gallery --screen <name> [--mode light|dark] [--palette <id>] \
          [--variant k=v,...] --out <png>\n  conduit-gallery --all <dir>\n  conduit-gallery --a11y <screen> [--mode ..] [--palette ..]\n  conduit-gallery --list"
@@ -218,7 +221,7 @@ fn main() {
     } else {
         let name = arg(&args, "--screen").unwrap_or_else(|| usage());
         let screen = Screen::by_name(&name).unwrap_or_else(|| {
-            eprintln!("unknown screen {name}; --list shows them");
+            eprintln!("FAILED: unknown screen {name}; --list shows them");
             std::process::exit(64)
         });
         let out = arg(&args, "--out").unwrap_or_else(|| usage());
@@ -293,6 +296,9 @@ fn main() {
                             serde_json::to_string_pretty(&report).unwrap_or_default()
                         );
                         let ok = report.passed();
+                        if !ok {
+                            eprintln!("FAILED: accessibility check");
+                        }
                         cx.update(|cx| cx.quit());
                         std::process::exit(if ok { 0 } else { 1 });
                     })
@@ -513,6 +519,10 @@ async fn render_job(
         })
         .ok_or("the backdrop window has no number")?;
     cx.background_executor().timer(SETTLE).await;
+    // Where the window is now: it may have moved while it settled.
+    let bounds = cx
+        .update(|cx| handle.update(cx, |_, w, _| w.bounds()).ok())
+        .unwrap_or(bounds);
     let frame = job.screen.frame(&job.prefs);
     let x = f32::from(bounds.origin.x) as f64;
     let y = f32::from(bounds.origin.y) as f64;

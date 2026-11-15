@@ -283,6 +283,8 @@ impl MainScreen {
             }
             _ => {}
         }
+        // The composer shows the scenario's model too (in the Title layout).
+        composer.update(cx, |c, _| c.model = model.clone());
         Self {
             sidebar,
             model,
