@@ -1,0 +1,13 @@
+{
+  "id": "draft-1",
+  "text": "And the north side?",
+  "files": [
+    {
+      "id": "file-2",
+      "name": "budget.csv",
+      "image": false
+    }
+  ],
+  "context": [],
+  "frozen": true
+}

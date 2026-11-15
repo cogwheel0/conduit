@@ -1,0 +1,17 @@
+{
+  "text": "Which is faster?",
+  "toolIds": [],
+  "knowledge": [],
+  "webSearch": false,
+  "imageGeneration": false,
+  "codeInterpreter": false,
+  "fileIds": [],
+  "context": [],
+  "mentions": [],
+  "filterIds": [],
+  "compareModels": [
+    "gpt-4o",
+    "llama3.2:1b"
+  ],
+  "temporary": false
+}

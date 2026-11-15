@@ -442,6 +442,204 @@ void main() {
         expect((finished.chatId, finished.ok), (accepted.chatId, true));
       }, timeout: const Timeout(Duration(minutes: 3)));
 
+      test(
+        'the composer finds the seed\'s people, skills, context and files',
+        () async {
+          final composer = ComposerService(runtime.container);
+          final options = await composer.options();
+          printOnFailure('options: $options');
+          // The server runs code itself (Jupyter), so the switch is offered.
+          expect(options.codeInterpreter, isTrue);
+          expect(options.codeInterpreterBlock, isNull);
+          expect(options.attachments.serverFiles, isTrue);
+          expect(options.attachments.webPage, isTrue);
+          expect(options.skills && options.context && options.mentions, isTrue);
+
+          final mentions = await composer.mentions('');
+          expect(mentions.users.map((u) => u.name), contains('Riley Example'));
+          expect(mentions.channels.map((c) => c.name), contains('garden-club'));
+          expect((await composer.mentions('gard')).users, isEmpty);
+
+          final skills = await composer.skills('plain');
+          expect(skills.items.map((s) => s.id), contains('plain-english'));
+
+          final context = await composer.context('');
+          final kinds = {for (final s in context.items) s.kind};
+          expect(kinds, containsAll(ContextSuggestionKind.values));
+          // Four of each kind come back, and notes made by earlier runs may
+          // be newer than the seed's: look the note up by name.
+          expect(
+            (await composer.context('garden')).items
+                .where((s) => s.kind == ContextSuggestionKind.note)
+                .map((s) => s.name),
+            contains('Garden plan for spring'),
+          );
+          expect(
+            context.items
+                .where((s) => s.kind == ContextSuggestionKind.knowledgeFile)
+                .map((s) => s.name),
+            contains('soil-guide.md'),
+          );
+
+          final files = await composer.serverFiles('');
+          expect(files.items.map((f) => f.name), contains('field-notes.txt'));
+          expect(
+            (await composer.serverFiles('soil')).items.single.name,
+            'soil-guide.md',
+          );
+
+          final page = credentials!.values['FAKE_PAGE_URL'];
+          if (page != null) {
+            final fetched = await composer.fetchUrl(page);
+            expect(fetched.error, isNull, reason: '$fetched');
+            expect(fetched.attachment!.kind, ContextAttachmentKind.web);
+            expect(fetched.attachment!.content, contains('raised bed'));
+          }
+          expect((await composer.fetchUrl('not a url')).error, 'invalidUrl');
+        },
+        timeout: const Timeout(Duration(minutes: 2)),
+      );
+
+      test(
+        'queues messages behind an answer: one sent now, the rest after',
+        () async {
+          final events = EventBus();
+          final turns = TurnsService(runtime.container, events);
+          addTearDown(turns.dispose);
+          final completed = <String>[];
+          final queues = <QueueState>[];
+          events.attach('probe', (envelope) {
+            if (envelope.event == ConduitEvents.turnCompleted) {
+              completed.add(TurnCompleted.fromJson(envelope.payload).messageId);
+            } else if (envelope.event == ConduitEvents.queueChanged) {
+              queues.add(QueueState.fromJson(envelope.payload));
+            }
+          });
+          // A stored chat: a queue drains only once a chat has its server id.
+          final first = await turns.send(
+            SendTurn(
+              model: turnModel,
+              text: 'Reply with exactly the word: pong',
+            ),
+          );
+          created.add(first.chatId);
+          subscribeWindow(events, turns, 'probe', <String>[first.chatId]);
+          await _waitFor(() => completed.isNotEmpty, seconds: 60);
+          expect(completed, isNotEmpty);
+
+          // A slow answer, and two messages queued behind it.
+          final slow = await turns.send(
+            SendTurn(
+              chatId: first.chatId,
+              model: turnModel,
+              text: 'Answer slow please',
+            ),
+          );
+          await _waitFor(() => turns.queueGet(first.chatId).offer, seconds: 30);
+          expect(turns.queueGet(first.chatId).offer, isTrue);
+          turns.queueAdd(
+            QueueAdd(chatId: first.chatId, text: 'And the north side?'),
+          );
+          final two = turns.queueAdd(
+            QueueAdd(chatId: first.chatId, text: 'And the south side?'),
+          );
+          expect(two.drafts.map((d) => d.text), [
+            'And the north side?',
+            'And the south side?',
+          ]);
+          expect(queues.last.drafts, hasLength(2));
+          // Edited, then sent at once: the slow answer stops for it.
+          turns.queueEdit(
+            QueueEdit(
+              chatId: first.chatId,
+              draftId: two.drafts.first.id,
+              text: 'And the east side?',
+            ),
+          );
+          final now = await turns.queueSendNow(
+            QueueDraftRef(chatId: first.chatId, draftId: two.drafts.first.id),
+          );
+          expect(now.outcome, 'admitted');
+          // The one left goes out once that answer is done.
+          await _waitFor(
+            () =>
+                completed.length >= 4 &&
+                turns.queueGet(first.chatId).drafts.isEmpty,
+            seconds: 120,
+          );
+          expect(completed, contains(slow.assistantMessageId));
+          expect(turns.queueGet(first.chatId).drafts, isEmpty);
+          final detail = await ChatsService(
+            runtime.container,
+            events: events,
+          ).get(first.chatId);
+          final asked = detail!.messages
+              .where((m) => m.role == 'user')
+              .map((m) => m.content)
+              .toList();
+          expect(asked, <String>[
+            'Reply with exactly the word: pong',
+            'Answer slow please',
+            'And the east side?',
+            'And the south side?',
+          ]);
+        },
+        timeout: const Timeout(Duration(minutes: 4)),
+      );
+
+      test('compares two models: one message, two answers', () async {
+        final events = EventBus();
+        final turns = TurnsService(runtime.container, events);
+        addTearDown(turns.dispose);
+        final finished = <TurnFinished>[];
+        events.attach('probe', (envelope) {
+          if (envelope.event == ConduitEvents.turnFinished) {
+            finished.add(TurnFinished.fromJson(envelope.payload));
+          }
+        });
+        final accepted = await turns.send(
+          SendTurn(
+            text: 'Reply with exactly the word: twins',
+            compareModels: <String>[turnModel, turnModel],
+          ),
+        );
+        created.add(accepted.chatId);
+        await _waitFor(() => finished.isNotEmpty, seconds: 90);
+        expect(finished, isNotEmpty);
+        expect(finished.first.ok, isTrue, reason: '${finished.first.code}');
+        // Both answers are kept, under the one question.
+        late ChatDetail detail;
+        await _waitFor(() async {
+          final got = await ChatsService(
+            runtime.container,
+            events: events,
+          ).get(accepted.chatId);
+          if (got == null) return false;
+          detail = got;
+          final answer = got.messages.where((m) => m.role == 'assistant');
+          // Both written: an empty placeholder is not an answer yet.
+          return answer.isNotEmpty &&
+              <String>[
+                for (final a in answer) a.content,
+                for (final v in answer.first.versions) v.content,
+              ].where((text) => text.trim().isNotEmpty).length >= 2;
+        }, seconds: 60);
+        final answers = detail.messages.where((m) => m.role == 'assistant');
+        printOnFailure('messages: ${detail.messages}');
+        expect(answers.length + answers.first.versions.length, 2);
+        expect(
+          <String>[
+            for (final a in answers) a.content,
+            for (final v in answers.first.versions) v.content,
+          ].where((text) => text.trim().isNotEmpty),
+          hasLength(2),
+        );
+        expect(
+          detail.messages.where((m) => m.role == 'user').single.content,
+          'Reply with exactly the word: twins',
+        );
+      }, timeout: const Timeout(Duration(minutes: 3)));
+
       test('opens a conversation from past the list it has loaded', () async {
         // A search hit, a link or a notification can name a conversation
         // the sidebar has not paged to; opening it must not need the list.

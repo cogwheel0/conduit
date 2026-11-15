@@ -69,10 +69,10 @@ impl RowSink {
     pub fn send(&self, text: String, window: &mut Window, cx: &mut App) {
         match self {
             Self::Pane(p) => {
-                let _ = p.update(cx, |p, cx| p.send_text(text, window, cx));
+                let _ = p.update(cx, |p, cx| p.send_text(text, vec![], window, cx));
             }
             Self::QuickAsk(q) => {
-                let _ = q.update(cx, |q, cx| q.send_text(text, window, cx));
+                let _ = q.update(cx, |q, cx| q.send_text(text, vec![], window, cx));
             }
             Self::None => {}
         }
@@ -236,6 +236,44 @@ impl AnswerActions {
 fn copy_text(text: &str, pane: &RowSink, cx: &mut App) {
     cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
     pane.copied(cx);
+}
+
+/// A question as it reads: Open WebUI's mention tokens (`<@U:id|Riley>`,
+/// `<$id|Plain English>`) shown as their names (`@Riley`, `$Plain English`),
+/// as conduit_markdown's `MentionInlineSyntax` shows the `@` ones on the
+/// phone.
+pub fn shown_mentions(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('<') {
+        out.push_str(&rest[..at]);
+        let tail = &rest[at..];
+        let token = tail.find('>').and_then(|end| {
+            let inner = &tail[1..end];
+            let (head, label) = inner.split_once('|')?;
+            let sigil = if let Some(id) = head.strip_prefix('$') {
+                (!id.is_empty()).then_some('$')
+            } else {
+                let kind = head.strip_prefix('@')?;
+                let (t, id) = kind.split_once(':')?;
+                (t.len() == 1 && t.chars().all(|c| c.is_ascii_uppercase()) && !id.is_empty())
+                    .then_some('@')
+            }?;
+            (!label.is_empty() && !label.contains('<')).then(|| (format!("{sigil}{label}"), end))
+        });
+        match token {
+            Some((shown, end)) => {
+                out.push_str(&shown);
+                rest = &tail[end + 1..];
+            }
+            None => {
+                out.push('<');
+                rest = &tail[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 // ── Answers ────────────────────────────────────────────────────────────────
@@ -476,6 +514,16 @@ impl AssistantRow {
                 state
             }
         }
+    }
+
+    /// The text selected in this answer, unless the selection is blank
+    /// (the core's `askConduitInsertionText`: offered for a non-blank
+    /// selection, inserted as selected).
+    pub fn selected_text(&self, cx: &App) -> Option<String> {
+        self.texts
+            .values()
+            .map(|(_, state)| state.read(cx).selected_text())
+            .find(|text| !text.trim().is_empty())
     }
 
     /// What VoiceOver reads for the answer: the text blocks as drawn (as
@@ -1190,6 +1238,24 @@ impl Render for AssistantRow {
             .flex()
             .flex_col()
             .gap(px(6.))
+            // A right-click on selected text: Ask Conduit, and Copy.
+            .on_mouse_down(
+                gpui_kit::MouseButton::Right,
+                cx.listener(|this, e: &gpui_kit::MouseDownEvent, window, cx| {
+                    if this.selected_text(cx).is_some() {
+                        let l10n = cx.l10n().clone();
+                        gpui_kit::component::native_menu::NativeMenu::new()
+                            .menu(
+                                l10n.ask_conduit_action(),
+                                Box::new(crate::actions::AskConduit),
+                            )
+                            .separator()
+                            .menu(l10n.copy(), Box::new(crate::actions::CopySelection))
+                            .show(e.position, window, cx);
+                        cx.stop_propagation();
+                    }
+                }),
+            )
             .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
                 if this.hovered != *hovered {
                     this.hovered = *hovered;
@@ -1376,9 +1442,10 @@ impl UserRow {
         cx.notify();
     }
 
-    /// The question's text, as the bubble shows it.
-    pub fn item_text(&self) -> &str {
-        &self.item.text
+    /// The question's text, as the bubble shows it (mentions by name), so
+    /// Find's ranges fall on what is drawn.
+    pub fn item_text(&self) -> String {
+        shown_mentions(&self.item.text)
     }
 
     /// Find in Chat's matches in the text (byte ranges), painted behind it.
@@ -1468,7 +1535,7 @@ impl Render for UserRow {
         let m = t.metrics;
         let item = self.item.clone();
         let key = item.key.clone();
-        let label = format!("{}: {}", l10n.you(), item.text);
+        let label = format!("{}: {}", l10n.you(), shown_mentions(&item.text));
         let files = (!item.files.is_empty()).then(|| {
             file_list(
                 &format!("user-{key}"),
@@ -1568,7 +1635,7 @@ impl Render for UserRow {
         self.actions_focus = Some(actions_focus.clone());
         let visible = self.hovered || actions_focus.contains_focused(window, cx);
         let pane = self.host.pane.clone();
-        let copy_value = item.text.clone();
+        let copy_value = shown_mentions(&item.text);
         let this = cx.entity().downgrade();
         // Copy and Edit show beside the bubble, at its leading edge, on
         // hover (and while Tab has one): they take no height, so a question
@@ -1622,7 +1689,7 @@ impl Render for UserRow {
                 .line_height(relative(m.leading - 0.05))
                 .text_color(r.text)
                 .child(
-                    gpui_kit::StyledText::new(SharedString::from(item.text.clone()))
+                    gpui_kit::StyledText::new(SharedString::from(shown_mentions(&item.text)))
                         .with_highlights(self.find.iter().map(|(range, fill)| {
                             (
                                 range.clone(),
@@ -1850,6 +1917,21 @@ mod activity_tests {
             last_answer: true,
             stale: false,
         }
+    }
+
+    #[test]
+    fn find_reads_a_question_as_its_bubble_shows_it() {
+        let mut item = answer(vec![], "Ask <@U:u-1|Riley> about bread");
+        item.role = MessageRole::User;
+        let host = RowHost {
+            store: WeakEntity::new_invalid(),
+            pane: RowSink::None,
+            server_id: None,
+            composer: None,
+        };
+        let row = UserRow::new(host, item, RowFlags::default());
+        // "bread" is found where it is drawn, after "@Riley".
+        assert_eq!(row.item_text(), "Ask @Riley about bread");
     }
 
     #[test]

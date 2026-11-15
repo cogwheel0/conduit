@@ -308,6 +308,10 @@ abstract class QuickPillOption with _$QuickPillOption {
     /// The tool's or filter's name (empty for `web` and `image`, which the
     /// window names itself).
     @Default('') String name,
+
+    /// The tool's or filter's own id, which its switch turns on (a filter's
+    /// without the `filter:` prefix); empty for `web` and `image`.
+    @Default('') String targetId,
   }) = _QuickPillOption;
 
   factory QuickPillOption.fromJson(Map<String, dynamic> json) =>

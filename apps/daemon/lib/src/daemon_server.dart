@@ -20,6 +20,7 @@ import 'auth_service.dart';
 import 'bootstrap.dart';
 import 'chats_service.dart';
 import 'composer_service.dart';
+import 'drafts_service.dart';
 import 'direct_service.dart';
 import 'mcp_service.dart';
 import 'notes_service.dart';
@@ -100,6 +101,7 @@ class DaemonServer {
   FilesService? _files;
   UiRequestsService? _uiRequests;
   ComposerService? _composer;
+  DraftsService? _drafts;
   PromptsService? _prompts;
   DirectService? _direct;
   McpService? _mcp;
@@ -188,7 +190,9 @@ class DaemonServer {
       temporary: temporary,
       uiRequests: _uiRequests,
       hermes: _hermes,
+      files: _files,
     );
+    _drafts = DraftsService(core.container, temporary: temporary);
     _accounts = AccountsService(core.container, events: events, turns: _turns);
     _models = ModelsService(core.container, events: events);
     _composer = ComposerService(core.container);
@@ -236,6 +240,7 @@ class DaemonServer {
       memories: _memories,
       releaseNotes: _releaseNotes,
       data: _data,
+      drafts: _drafts,
     );
     // What the active account can use: answered by `system.capabilities`
     // and the handshake, announced on change.
@@ -516,6 +521,9 @@ class DaemonServer {
       );
     }
 
+    // Which try this is, for the core's retry rules (1 for the first).
+    final attempt =
+        int.tryParse(request.headers['x-conduit-attempt'] ?? '') ?? 1;
     try {
       final bytes = await _collect(request.read());
       final uploaded = await files.upload(
@@ -539,7 +547,12 @@ class DaemonServer {
       return _problem(status, error.code, error.debugMessage);
     } on Object catch (error, stack) {
       _log.error('upload failed', error, stack);
-      return _problem(502, ConduitErrorCodes.serverError, 'upload failed');
+      return _problem(
+        502,
+        ConduitErrorCodes.serverError,
+        'upload failed',
+        args: uploadRetryArgs(error, attempt),
+      );
     }
   }
 
@@ -673,20 +686,25 @@ class DaemonServer {
   };
 
   /// The same error shape RPC uses, so the renderer has one thing to read.
-  shelf.Response _problem(int status, String code, String? message) =>
-      shelf.Response(
-        status,
-        body: jsonEncode(<String, Object?>{
-          'code': code,
-          'debugMessage': ?message,
-        }),
-        headers: <String, String>{
-          'content-type': 'application/json',
-          // On the error path too, or the renderer sees an opaque CORS
-          // failure instead of the reason the upload was refused.
-          ..._corsHeaders,
-        },
-      );
+  shelf.Response _problem(
+    int status,
+    String code,
+    String? message, {
+    Map<String, String>? args,
+  }) => shelf.Response(
+    status,
+    body: jsonEncode(<String, Object?>{
+      'code': code,
+      'args': ?args,
+      'debugMessage': ?message,
+    }),
+    headers: <String, String>{
+      'content-type': 'application/json',
+      // On the error path too, or the renderer sees an opaque CORS
+      // failure instead of the reason the upload was refused.
+      ..._corsHeaders,
+    },
+  );
 
   static Future<Uint8List> _collect(Stream<List<int>> body) async {
     final builder = BytesBuilder(copy: false);

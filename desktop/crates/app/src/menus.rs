@@ -198,6 +198,9 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
         KeyBinding::new("shift-cmd-n", NewTemporaryChat, None),
         // Chat › Regenerate.
         KeyBinding::new("cmd-r", RegenerateLastAnswer, None),
+        // Chat › Expand Editor and Ask Conduit, from the message field too.
+        KeyBinding::new("shift-cmd-e", crate::actions::ExpandEditor, None),
+        KeyBinding::new("shift-cmd-a", crate::actions::AskConduit, None),
         // Chat › Previous Chat and Next Chat, as ⌃⇥ steps through Safari's
         // tabs (from a text field too).
         KeyBinding::new("ctrl-shift-tab", PreviousChat, None),
@@ -698,6 +701,8 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
         MenuItem::separator(),
         MenuItem::action(l10n.desktop_menu_choose_model(), FocusModelPicker),
         MenuItem::action(l10n.desktop_shortcut_focus_composer(), FocusComposer),
+        MenuItem::action(l10n.desktop_expand_editor(), crate::actions::ExpandEditor),
+        MenuItem::action(l10n.ask_conduit_action(), crate::actions::AskConduit).disabled(no_chat),
         MenuItem::separator(),
         MenuItem::action(l10n.regenerate(), RegenerateLastAnswer).disabled(no_chat),
         MenuItem::action(l10n.desktop_stop_generating(), StopGenerating),
@@ -863,7 +868,14 @@ mod tests {
         let none = build_menus(&l, &MenuState::default());
         let chat_menu = menu(&none, "Chat");
         // Every item that changes the chat is off without one.
-        for name in ["Rename…", "Delete…", "Regenerate", "Share Chat", "Pin"] {
+        for name in [
+            "Rename…",
+            "Delete…",
+            "Regenerate",
+            "Share Chat",
+            "Pin",
+            "Ask Conduit",
+        ] {
             assert!(disabled(chat_menu, name), "{name}");
         }
         // Move to too (AppKit is told again after the bar is installed,
@@ -899,6 +911,8 @@ mod tests {
                 "—",
                 "Choose a Model…",
                 "Go to Message Field",
+                "Expand Editor",
+                "Ask Conduit",
                 "—",
                 "Regenerate",
                 "Stop Generating",
@@ -1081,6 +1095,8 @@ mod tests {
             F::NextChat => Box::new(NextChat),
             F::PreviousChat => Box::new(PreviousChat),
             F::Regenerate => Box::new(RegenerateLastAnswer),
+            F::ExpandEditor => Box::new(crate::actions::ExpandEditor),
+            F::AskConduit => Box::new(crate::actions::AskConduit),
             F::FindInChat => Box::new(FindInChat),
             F::FindNext => Box::new(FindNext),
             F::FindPrevious => Box::new(FindPrevious),

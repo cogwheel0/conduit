@@ -498,6 +498,27 @@ void main() {
     await until(() => ended('linger', next.assistantMessageId));
   });
 
+  test('a comparison is judged by its own models, not `model`', () async {
+    // The models compared are what count; this direct chat cannot compare,
+    // and says so, rather than refusing a `model` it never runs.
+    await expectLater(
+      turns.send(
+        SendTurn(
+          model: DirectModelId.encode('missing', 'model'),
+          compareModels: <String>[model, model],
+          text: 'compare these',
+        ),
+      ),
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.unsupported,
+        ),
+      ),
+    );
+  });
+
   test('an unknown model is refused rather than guessed', () async {
     await expectLater(
       turns.send(

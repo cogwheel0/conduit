@@ -315,7 +315,7 @@ pub async fn run(run: &mut Run, cx: &mut AsyncApp) {
             run.focus_walk(handle, "quick-ask", "tab", 6, cx).await;
             let _ = handle.update(cx, |_, window, cx| {
                 view.update(cx, |v, cx| {
-                    v.send_text("A long answer, please".into(), window, cx)
+                    v.send_text("A long answer, please".into(), vec![], window, cx)
                 })
             });
             let started = wait_until(cx, Duration::from_secs(30), |cx| {

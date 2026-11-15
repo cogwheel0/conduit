@@ -4,20 +4,28 @@
 //!   `models.select`, which the daemon keeps per account. `@` picks a model
 //!   for the next message only ([`ComposerStore::mention`]).
 //! * **Features:** `composer.options` says which switches the server and
-//!   model allow (web search, image generation, tools); switches it does
-//!   not offer are turned off.
-//! * **`/` prompts:** `prompts.list` (fetched when the menu first opens) and
-//!   `prompts.render`, which answers either the final text or the fields to
-//!   fill in first. **`#` knowledge:** `composer.knowledge`, a moment after
-//!   typing stops.
+//!   model allow (web search, image generation, the code interpreter, tools
+//!   and filters); switches it does not offer are turned off. Quick pills
+//!   ([`ComposerPrefs::quick_pills`]) put chosen ones one click away.
+//! * **Triggers:** [`trigger_at`] finds the `/`, `@`, `#` or `$` word being
+//!   typed at the caret. `/` lists saved prompts (`prompts.list`, then
+//!   `prompts.render` with its fill-in fields); `@` models, and the server's
+//!   users and channels (`mentions.search`); `#` notes, knowledge bases and
+//!   their files (`context.search`); `$` Open WebUI skills
+//!   (`skills.search`). Each search goes a moment after typing stops.
 //! * **Attachments:** each file uploads through the daemon's `/upload` as
 //!   soon as it is added, with its own progress; Send waits until all are
-//!   done ([`ComposerStore::uploading`]).
-//! * **Triggers:** [`trigger_at`] finds the `/`, `@` or `#` word being typed
-//!   at the caret.
+//!   done ([`ComposerStore::uploading`]). HEIC, RAW and BMP pictures are
+//!   turned into JPEG first, as mobile does, and a failed upload is tried
+//!   again by the core's rules (or, when the server may hold it already, by
+//!   the user). Files already on the server come from `files.list`; a web
+//!   page's text or a YouTube transcript from `context.fetchUrl`.
+//! * **Drafts:** what is typed is kept per chat (`drafts.get` /
+//!   `drafts.save`) a moment after typing stops, and at once when another
+//!   chat opens.
 //!
 //! [`ComposerStore::take_turn`] collects the turn's options and clears what
-//! applies to one message only (the `@` model, `#` knowledge, attachments).
+//! applies to one message only (the `@` model, `#` context, attachments).
 
 use std::collections::BTreeSet;
 use std::future::Future;
@@ -28,8 +36,10 @@ use std::time::Duration;
 
 use conduit_daemon::RpcError;
 use conduit_protocol::{
-    ChatFileDto, ComposerOptions, KnowledgeQuery, KnowledgeSummary, ModelList, ModelSummary,
-    NoParams, PromptSummary, RenderPrompt, RenderedPrompt, SelectModel, UploadedFile, methods,
+    AppSettingsDto, ChatFileDto, ComposerMentionDto, ComposerOptions, ComposerSearch,
+    ContextAttachmentDto, ContextSuggestion, Draft, DraftRef, DraftSave, FetchUrl, FetchedUrl,
+    KnowledgeSummary, MentionList, ModelList, ModelSummary, NoParams, PromptSummary, RenderPrompt,
+    RenderedPrompt, SelectModel, ServerFile, ServerFileList, SkillSummary, UploadedFile, methods,
 };
 use gpui_kit::{
     AppContext as _, AsyncApp, Context, EventEmitter, Image, ImageFormat, Task, WeakEntity,
@@ -50,9 +60,122 @@ pub struct UploadRequest {
     pub content_type: Option<String>,
     pub bytes: Vec<u8>,
     pub progress: Progress,
+    /// Which try this is (1 for the first), for the core's retry rules.
+    pub attempt: u32,
 }
 
-pub type UploadFuture = Pin<Box<dyn Future<Output = Result<UploadedFile, String>> + Send>>;
+/// What a failed upload says about trying again: the daemon answers with
+/// the core's verdict (`classifyUploadFailure`) and its wait.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Retry {
+    /// No connection was made: tried again after [`UploadError::wait`],
+    /// without spending a try.
+    Offline,
+    /// The server answered and refused, or something else failed: tried
+    /// again after the wait, a few times.
+    Retryable,
+    /// The server may hold the file already, or the tries are used up: only
+    /// the user tries again (Try Again).
+    Manual,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct UploadError {
+    pub message: String,
+    pub retry: Retry,
+    pub wait: Duration,
+}
+
+impl UploadError {
+    /// A failure with nothing to retry automatically.
+    pub fn manual(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            retry: Retry::Manual,
+            wait: Duration::ZERO,
+        }
+    }
+
+    /// The daemon's answer to a refused `/upload`: its error's `retry` and
+    /// `retryAfterMs` args.
+    pub fn from_rpc(e: &RpcError) -> Self {
+        let retry = match e.args.get("retry").map(String::as_str) {
+            Some("offline") => Retry::Offline,
+            Some("retryable") => Retry::Retryable,
+            _ => Retry::Manual,
+        };
+        let wait = e
+            .args
+            .get("retryAfterMs")
+            .and_then(|ms| ms.parse::<u64>().ok())
+            .map(Duration::from_millis)
+            .unwrap_or(Duration::from_secs(5));
+        Self {
+            message: e.to_string(),
+            retry,
+            wait,
+        }
+    }
+}
+
+pub type UploadFuture = Pin<Box<dyn Future<Output = Result<UploadedFile, UploadError>> + Send>>;
+
+/// Turns a picture into JPEG bytes (macOS ImageIO in the app, a fake in
+/// tests): HEIC, RAW and BMP go up as JPEG, as from mobile.
+pub type Converter = Arc<dyn Fn(&Path) -> Result<Vec<u8>, String> + Send + Sync>;
+
+/// The Chats settings the composer follows: core's `AppSettings`, as
+/// Settings › Chat changes them ([`ComposerPrefs::from_settings`]; the
+/// chat pane and Quick Ask follow `stores.app_settings`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComposerPrefs {
+    /// `sendOnEnter`: Enter sends and Shift+Enter breaks the line; off, Enter
+    /// breaks the line and ⌘↩ sends. ⌘↩ always sends.
+    ///
+    /// Mobile's default is off, for its software keyboard; on a Mac the
+    /// keyboard is always a hardware one, so the daemon's host default turns
+    /// it on until the user turns it off (core `AppSettingsHostDefaults`).
+    pub send_on_enter: bool,
+    /// `quickPills`: the ids chosen in Settings. The daemon says which of
+    /// them this model can turn on ([`ComposerOptions::quick_pills`], by the
+    /// core's rules); the composer draws those. None by default.
+    pub quick_pills: Vec<String>,
+    /// `showComposerNotesButton`: the + menu offers Save as Note.
+    pub show_notes_button: bool,
+    /// `temporaryChatByDefault`: a new chat starts temporary.
+    pub temporary_by_default: bool,
+}
+
+impl Default for ComposerPrefs {
+    fn default() -> Self {
+        Self {
+            send_on_enter: true,
+            quick_pills: vec![],
+            show_notes_button: true,
+            temporary_by_default: false,
+        }
+    }
+}
+
+impl ComposerPrefs {
+    /// The composer's share of the daemon's app settings.
+    pub fn from_settings(settings: &AppSettingsDto) -> Self {
+        Self {
+            send_on_enter: settings.send_on_enter,
+            quick_pills: settings.quick_pills.clone(),
+            show_notes_button: settings.show_composer_notes_button,
+            temporary_by_default: settings.temporary_chat_by_default,
+        }
+    }
+}
+
+/// Which draft the composer holds: a stored chat's, or a new chat's (in a
+/// folder, or none).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DraftKey {
+    pub chat_id: Option<String>,
+    pub folder_id: Option<String>,
+}
 
 /// Uploads a file through the daemon (the app passes the HTTP client's
 /// `/upload`; tests a fake).
@@ -61,9 +184,22 @@ pub type Uploader = Arc<dyn Fn(UploadRequest) -> UploadFuture + Send + Sync>;
 #[derive(Clone, Debug, PartialEq)]
 pub enum UploadState {
     Reading,
-    Uploading { sent: u64, total: u64 },
-    Done { file_id: String },
-    Failed(String),
+    /// Being turned into a JPEG first.
+    Converting,
+    Uploading {
+        sent: u64,
+        total: u64,
+    },
+    /// Failed, and tried again after a wait.
+    Waiting,
+    Done {
+        file_id: String,
+    },
+    /// Failed. `retry`: the user may try again (Try Again).
+    Failed {
+        error: String,
+        retry: bool,
+    },
 }
 
 /// What one message uses up ([`ComposerStore::one_shot`]).
@@ -75,7 +211,19 @@ pub struct OneShot {
     draft: u64,
     pub attachments: Vec<Attachment>,
     pub knowledge: Vec<KnowledgeSummary>,
+    pub context: Vec<ContextAttachmentDto>,
     pub mention: Option<ModelSummary>,
+    /// The message's `@`/`$` mentions, so its text comes back with them
+    /// ([`OneShot::with_mentions`]).
+    pub mentions: Vec<ComposerMentionDto>,
+}
+
+impl OneShot {
+    /// The same, with the mentions the message carried.
+    pub fn with_mentions(mut self, mentions: Vec<ComposerMentionDto>) -> Self {
+        self.mentions = mentions;
+        self
+    }
 }
 
 #[derive(Clone)]
@@ -88,6 +236,12 @@ pub struct Attachment {
     /// A thumbnail, for images.
     pub image: Option<Arc<Image>>,
     pub state: UploadState,
+    /// What is uploaded, kept until it is done, to try again.
+    bytes: Option<Arc<Vec<u8>>>,
+    /// The try now running or next (1 for the first).
+    attempt: u32,
+    /// Already on the server (picked from its files): never uploaded.
+    pub server_file: bool,
 }
 
 impl std::fmt::Debug for Attachment {
@@ -101,6 +255,24 @@ impl std::fmt::Debug for Attachment {
 }
 
 impl Attachment {
+    /// An attachment already uploaded as `file_id` (view tests).
+    #[cfg(test)]
+    pub fn uploaded_for_test(local_id: u64, name: &str, file_id: &str) -> Self {
+        Self {
+            local_id,
+            name: name.into(),
+            size: 3,
+            content_type: None,
+            image: None,
+            state: UploadState::Done {
+                file_id: file_id.into(),
+            },
+            bytes: None,
+            attempt: 1,
+            server_file: false,
+        }
+    }
+
     /// 0–1 while uploading.
     pub fn progress(&self) -> Option<f32> {
         match self.state {
@@ -108,9 +280,20 @@ impl Attachment {
             UploadState::Uploading { sent, total } if total > 0 => {
                 Some((sent as f32 / total as f32).min(1.))
             }
-            UploadState::Uploading { .. } => Some(0.),
+            UploadState::Uploading { .. } | UploadState::Converting | UploadState::Waiting => {
+                Some(0.)
+            }
             _ => None,
         }
+    }
+
+    pub fn failed(&self) -> bool {
+        matches!(self.state, UploadState::Failed { .. })
+    }
+
+    /// The user may try this one again.
+    pub fn can_retry(&self) -> bool {
+        matches!(self.state, UploadState::Failed { retry: true, .. })
     }
 }
 
@@ -120,34 +303,66 @@ pub enum ComposerEvent {
     AttachmentFailed { name: String },
     /// `models.select` was refused.
     ModelNotSelected(String),
+    /// Another chat's draft is now the composer's: what it showed goes.
+    DraftSwitched,
+    /// The draft for [`DraftKey`] was read: the composer shows it.
+    DraftLoaded { key: DraftKey, text: String },
 }
 
 pub struct ComposerStore {
     rpc: Rpc,
     uploader: Option<Uploader>,
+    converter: Option<Converter>,
+    pub prefs: ComposerPrefs,
     pub models: Option<ModelList>,
     pub options: ComposerOptions,
     pub prompts: Option<Vec<PromptSummary>>,
-    pub knowledge_results: Vec<KnowledgeSummary>,
-    knowledge_query: Option<String>,
+    /// `@`: the server's users and channels for the query typed.
+    pub mention_results: MentionList,
+    /// `#`: notes, knowledge bases and files for the query typed.
+    pub context_results: Vec<ContextSuggestion>,
+    /// `$`: skills for the query typed.
+    pub skill_results: Vec<SkillSummary>,
+    /// The query each list answers, once it has answered.
+    searched: [Option<String>; 3],
     pub attachments: Vec<Attachment>,
     pub web_search: bool,
     pub image_generation: bool,
     pub code_interpreter: bool,
     pub tool_ids: BTreeSet<String>,
+    /// The model's toggle filters that are on.
+    pub filter_ids: BTreeSet<String>,
+    /// The user turned a filter on or off: a new model's defaults no longer
+    /// replace the choice.
+    filters_touched: bool,
     /// `@`: the model for the next message only.
     pub mention: Option<ModelSummary>,
-    /// `#`: knowledge for the next message.
+    /// `#`: knowledge bases for the next message.
     pub knowledge: Vec<KnowledgeSummary>,
+    /// `#` notes and knowledge files, and web pages: context for the next
+    /// message.
+    pub context: Vec<ContextAttachmentDto>,
+    /// The draft the composer holds, and what was last kept of it.
+    draft: Option<DraftKey>,
+    draft_saved: String,
     next_id: u64,
     /// Bumped by [`Self::reset`]: answers to an older account are dropped.
     scope: u64,
     /// Bumped whenever the draft starts over ([`Self::start_over`], or
     /// another account): a failed send's message is not given back to it.
-    draft: u64,
+    draft_round: u64,
     _models: Option<Task<()>>,
     _options: Option<Task<()>>,
-    _knowledge: Option<Task<()>>,
+    _searches: [Option<Task<()>>; 3],
+    _draft: Option<Task<()>>,
+}
+
+/// Which list a search fills.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Search {
+    Mentions = 0,
+    Context = 1,
+    Skills = 2,
 }
 
 impl EventEmitter<ComposerEvent> for ComposerStore {}
@@ -157,25 +372,60 @@ impl ComposerStore {
         Self {
             rpc,
             uploader,
+            converter: default_converter(),
+            prefs: ComposerPrefs::default(),
             models: None,
             options: ComposerOptions::default(),
             prompts: None,
-            knowledge_results: vec![],
-            knowledge_query: None,
+            mention_results: MentionList::default(),
+            context_results: vec![],
+            skill_results: vec![],
+            searched: [None, None, None],
             attachments: vec![],
             web_search: false,
             image_generation: false,
             code_interpreter: false,
             tool_ids: BTreeSet::new(),
+            filter_ids: BTreeSet::new(),
+            filters_touched: false,
             mention: None,
             knowledge: vec![],
+            context: vec![],
+            draft: None,
+            draft_saved: String::new(),
             next_id: 0,
             scope: 0,
-            draft: 0,
+            draft_round: 0,
             _models: None,
             _options: None,
-            _knowledge: None,
+            _searches: [None, None, None],
+            _draft: None,
         }
+    }
+
+    /// The daemon, for a panel that asks it directly (MCP Content).
+    pub fn rpc(&self) -> Rpc {
+        self.rpc.clone()
+    }
+
+    /// Replaces how pictures are turned into JPEG (tests).
+    pub fn with_converter(mut self, converter: Option<Converter>) -> Self {
+        self.converter = converter;
+        self
+    }
+
+    pub fn set_prefs(&mut self, prefs: ComposerPrefs, cx: &mut Context<Self>) {
+        if self.prefs == prefs {
+            return;
+        }
+        // The daemon resolves the chosen pills against the model
+        // (`composer.options`), so new choices are asked for again.
+        let pills_moved = self.prefs.quick_pills != prefs.quick_pills;
+        self.prefs = prefs;
+        if pills_moved && self.models.is_some() {
+            self.refresh_options(cx);
+        }
+        cx.notify();
     }
 
     // ── Models and options ──────────────────────────────────────────────
@@ -274,6 +524,12 @@ impl ComposerStore {
     fn set_options(&mut self, options: ComposerOptions, cx: &mut Context<Self>) {
         self.web_search &= options.web_search;
         self.image_generation &= options.image_generation;
+        // A choice made stays visible to be turned off, with why it will not
+        // run ([`Self::code_interpreter_block`]), as mobile's pill does; it
+        // goes only where no Open WebUI turn will take it.
+        if !options.code_interpreter && options.code_interpreter_block.is_none() {
+            self.code_interpreter = false;
+        }
         let offered: BTreeSet<&str> = options
             .tools
             .iter()
@@ -281,6 +537,18 @@ impl ComposerStore {
             .map(|t| t.id.as_str())
             .collect();
         self.tool_ids.retain(|id| offered.contains(id.as_str()));
+        // Filters start from the model's own defaults, until the user picks.
+        let filters: BTreeSet<&str> = options.filters.iter().map(|f| f.id.as_str()).collect();
+        if self.filters_touched {
+            self.filter_ids.retain(|id| filters.contains(id.as_str()));
+        } else {
+            self.filter_ids = options
+                .filter_defaults
+                .iter()
+                .filter(|id| filters.contains(id.as_str()))
+                .cloned()
+                .collect();
+        }
         self.options = options;
         cx.notify();
     }
@@ -300,6 +568,29 @@ impl ComposerStore {
             self.tool_ids.insert(id.to_string());
         }
         cx.notify();
+    }
+
+    pub fn toggle_filter(&mut self, id: &str, cx: &mut Context<Self>) {
+        if !self.filter_ids.remove(id) {
+            self.filter_ids.insert(id.to_string());
+        }
+        self.filters_touched = true;
+        cx.notify();
+    }
+
+    /// The code interpreter, on or off. Turning it on needs the server's
+    /// offer; turning it off always works.
+    pub fn toggle_code_interpreter(&mut self, cx: &mut Context<Self>) {
+        self.code_interpreter = !self.code_interpreter
+            && self.options.code_interpreter
+            && self.options.code_interpreter_block.is_none();
+        cx.notify();
+    }
+
+    /// Why the chosen code interpreter will not run for this model (the
+    /// core's `CodeInterpreterBlock` name), when it will not.
+    pub fn code_interpreter_block(&self) -> Option<&str> {
+        self.options.code_interpreter_block.as_deref()
     }
 
     pub fn set_mention(&mut self, model: Option<ModelSummary>, cx: &mut Context<Self>) {
@@ -352,41 +643,116 @@ impl ComposerStore {
         cx.background_spawn(call)
     }
 
-    /// `composer.knowledge` for `query`, 150 ms after it last changed.
-    pub fn search_knowledge(&mut self, query: &str, cx: &mut Context<Self>) {
-        if self.knowledge_query.as_deref() == Some(query) {
+    /// `mentions.search` for what follows an `@`.
+    pub fn search_mentions(&mut self, query: &str, cx: &mut Context<Self>) {
+        if !self.options.mentions {
             return;
         }
-        self.knowledge_query = Some(query.to_string());
+        self.search::<methods::MentionsSearch>(Search::Mentions, query, cx, |s, list| {
+            s.mention_results = list
+        });
+    }
+
+    /// `context.search` for what follows a `#`.
+    pub fn search_context(&mut self, query: &str, cx: &mut Context<Self>) {
+        self.search::<methods::ContextSearch>(Search::Context, query, cx, |s, list| {
+            s.context_results = list.items
+        });
+    }
+
+    /// `skills.search` for what follows a `$`.
+    pub fn search_skills(&mut self, query: &str, cx: &mut Context<Self>) {
+        self.search::<methods::SkillsSearch>(Search::Skills, query, cx, |s, list| {
+            s.skill_results = list.items
+        });
+    }
+
+    /// Asks `M` 150 ms after `query` last changed, and keeps its answer.
+    /// Replacing the task drops a search still waiting: only the query
+    /// typed last is asked, once its pause is over. A failed one empties
+    /// its list and may be asked again; an older account's answer is
+    /// dropped.
+    fn search<M>(
+        &mut self,
+        kind: Search,
+        query: &str,
+        cx: &mut Context<Self>,
+        keep: fn(&mut Self, M::Result),
+    ) where
+        M: conduit_protocol::RpcMethod<Params = ComposerSearch>,
+        M::Result: Default + Send + 'static,
+    {
+        let slot = kind as usize;
+        if self.searched[slot].as_deref() == Some(query) {
+            return;
+        }
+        self.searched[slot] = Some(query.to_string());
         let rpc = self.rpc.clone();
-        let (query, scope) = (query.to_string(), self.scope);
-        // Replacing the task drops a search still waiting: only the query
-        // typed last is asked, once its pause is over.
-        self._knowledge = Some(
-            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+        let (params, scope) = (search(query), self.scope);
+        self._searches[slot] = Some(cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 cx.background_executor()
                     .timer(Duration::from_millis(150))
                     .await;
-                let result = rpc
-                    .call::<methods::ComposerKnowledge>(&KnowledgeQuery { query })
-                    .await;
+                let result = rpc.call::<M>(&params).await;
                 let _ = this.update(cx, |s, cx| {
                     if s.scope != scope {
                         return;
                     }
                     match result {
-                        Ok(list) => s.knowledge_results = list.items,
+                        Ok(r) => keep(s, r),
                         Err(e) => {
-                            log::info!("composer.knowledge: {e}");
-                            s.knowledge_results.clear();
+                            log::info!("composer search: {e}");
+                            keep(s, M::Result::default());
                             // The same query may be asked again.
-                            s.knowledge_query = None;
+                            s.searched[slot] = None;
                         }
                     }
                     cx.notify();
                 });
-            }),
-        );
+            },
+        ));
+    }
+
+    /// `files.list`: the account's files on the server, for the picker.
+    pub fn server_files(
+        &self,
+        query: &str,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<ServerFileList, RpcError>> {
+        let call = self.rpc.call::<methods::FilesList>(&search(query));
+        cx.background_spawn(call)
+    }
+
+    /// `context.fetchUrl`: a web page's text or a YouTube transcript.
+    pub fn fetch_url(
+        &self,
+        url: &str,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<FetchedUrl, RpcError>> {
+        let call = self.rpc.call::<methods::ContextFetchUrl>(&FetchUrl {
+            url: url.to_string(),
+        });
+        cx.background_spawn(call)
+    }
+
+    pub fn add_context(&mut self, item: ContextAttachmentDto, cx: &mut Context<Self>) {
+        let same = |c: &ContextAttachmentDto| {
+            c.kind == item.kind
+                && match (&c.file_id, &item.file_id) {
+                    (Some(a), Some(b)) => a == b,
+                    _ => c.id == item.id || (c.url.is_some() && c.url == item.url),
+                }
+        };
+        if !self.context.iter().any(same) {
+            self.context.push(item);
+        }
+        cx.notify();
+    }
+
+    pub fn remove_context(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.context.retain(|c| c.id != id);
+        cx.notify();
     }
 
     pub fn add_knowledge(&mut self, item: KnowledgeSummary, cx: &mut Context<Self>) {
@@ -403,37 +769,58 @@ impl ComposerStore {
 
     // ── Attachments ─────────────────────────────────────────────────────
 
-    /// Adds files by path: each is read and uploaded on its own.
+    /// Adds files by path: each is read (a HEIC, RAW or BMP picture turned
+    /// into a JPEG) and uploaded on its own.
     pub fn add_paths(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
         for path in paths {
-            let name = path
+            let mut name = path
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "file".into());
             let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+            let convert = self.converts(&name) && self.converter.is_some();
+            if convert {
+                name = jpeg_name(&name);
+            }
             let id = self.push(name.clone(), size, content_type_for(&name));
             if path.is_dir() {
-                self.fail(id, "a folder cannot be attached".into(), cx);
+                self.fail(id, "a folder cannot be attached".into(), false, cx);
                 continue;
             }
             if size > MAX_ATTACHMENT_BYTES {
-                self.fail(id, "larger than 256 MB".into(), cx);
+                self.fail(id, "larger than 256 MB".into(), false, cx);
                 continue;
             }
             let path = path.clone();
-            let read = cx
-                .background_executor()
-                .spawn(async move { std::fs::read(&path).map_err(|e| e.to_string()) });
+            let converter = self.converter.clone().filter(|_| convert);
+            if converter.is_some()
+                && let Some(a) = self.get(id)
+            {
+                a.state = UploadState::Converting;
+            }
+            let read = cx.background_executor().spawn(async move {
+                match converter {
+                    Some(convert) => convert(&path),
+                    None => std::fs::read(&path).map_err(|e| e.to_string()),
+                }
+            });
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let bytes = read.await;
                 let _ = this.update(cx, |s, cx| match bytes {
-                    Ok(bytes) => s.upload(id, bytes, cx),
-                    Err(e) => s.fail(id, e, cx),
+                    Ok(bytes) => s.upload(id, Arc::new(bytes), cx),
+                    Err(e) => s.fail(id, e, false, cx),
                 });
             })
             .detach();
         }
         cx.notify();
+    }
+
+    /// A picture the server would not read as it is (HEIC, RAW, BMP): sent
+    /// as a JPEG, by the daemon's list.
+    pub fn converts(&self, name: &str) -> bool {
+        let ext = format!(".{}", extension(name));
+        self.options.image_conversions.contains(&ext)
     }
 
     /// Adds an image from the clipboard.
@@ -443,7 +830,7 @@ impl ComposerStore {
         let bytes = image.bytes.clone();
         if bytes.len() as u64 > MAX_ATTACHMENT_BYTES {
             let id = self.push(name, bytes.len() as u64, None);
-            self.fail(id, "larger than 256 MB".into(), cx);
+            self.fail(id, "larger than 256 MB".into(), false, cx);
             return;
         }
         let id = self.push(
@@ -451,7 +838,34 @@ impl ComposerStore {
             bytes.len() as u64,
             Some(mime_for(image.format).into()),
         );
-        self.upload(id, bytes, cx);
+        self.upload(id, Arc::new(bytes), cx);
+    }
+
+    /// A file already on the server: attached as it is.
+    pub fn add_server_file(&mut self, file: &ServerFile, cx: &mut Context<Self>) {
+        let already = self
+            .attachments
+            .iter()
+            .any(|a| matches!(&a.state, UploadState::Done { file_id } if *file_id == file.id));
+        if already {
+            return;
+        }
+        let content_type = file
+            .content_type
+            .clone()
+            .or_else(|| content_type_for(&file.name));
+        let id = self.push(
+            file.name.clone(),
+            file.size.unwrap_or(0).max(0) as u64,
+            content_type,
+        );
+        if let Some(a) = self.get(id) {
+            a.server_file = true;
+            a.state = UploadState::Done {
+                file_id: file.id.clone(),
+            };
+        }
+        cx.notify();
     }
 
     fn push(&mut self, name: String, size: u64, content_type: Option<String>) -> u64 {
@@ -464,6 +878,9 @@ impl ComposerStore {
             content_type,
             image: None,
             state: UploadState::Reading,
+            bytes: None,
+            attempt: 1,
+            server_file: false,
         });
         id
     }
@@ -472,25 +889,28 @@ impl ComposerStore {
         self.attachments.iter_mut().find(|a| a.local_id == id)
     }
 
-    fn fail(&mut self, id: u64, error: String, cx: &mut Context<Self>) {
+    fn fail(&mut self, id: u64, error: String, retry: bool, cx: &mut Context<Self>) {
         if let Some(a) = self.get(id) {
             log::warn!("attachment {}: {error}", a.name);
             let name = a.name.clone();
-            a.state = UploadState::Failed(error);
+            if !retry {
+                a.bytes = None;
+            }
+            a.state = UploadState::Failed { error, retry };
             cx.emit(ComposerEvent::AttachmentFailed { name });
         }
         cx.notify();
     }
 
-    fn upload(&mut self, id: u64, bytes: Vec<u8>, cx: &mut Context<Self>) {
+    fn upload(&mut self, id: u64, bytes: Arc<Vec<u8>>, cx: &mut Context<Self>) {
         let Some(uploader) = self.uploader.clone() else {
-            self.fail(id, "the daemon is not running".into(), cx);
+            self.fail(id, "the daemon is not running".into(), false, cx);
             return;
         };
         // The bytes read, not the size first seen: a file that grew since
         // is held to the same limit.
         if bytes.len() as u64 > MAX_ATTACHMENT_BYTES {
-            self.fail(id, "larger than 256 MB".into(), cx);
+            self.fail(id, "larger than 256 MB".into(), false, cx);
             return;
         }
         let Some(a) = self.get(id) else {
@@ -499,13 +919,13 @@ impl ComposerStore {
         let total = bytes.len() as u64;
         a.size = total;
         a.state = UploadState::Uploading { sent: 0, total };
-        if a.content_type
-            .as_deref()
-            .is_some_and(|t| t.starts_with("image/"))
+        if a.image.is_none()
             && let Some(format) = a.content_type.as_deref().and_then(format_for_mime)
         {
-            a.image = Some(Arc::new(Image::from_bytes(format, bytes.clone())));
+            a.image = Some(Arc::new(Image::from_bytes(format, bytes.to_vec())));
         }
+        a.bytes = Some(bytes.clone());
+        let attempt = a.attempt;
         let request_name = a.name.clone();
         let content_type = a.content_type.clone();
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<(u64, u64)>();
@@ -515,8 +935,9 @@ impl ComposerStore {
         let future = uploader(UploadRequest {
             name: request_name,
             content_type,
-            bytes,
+            bytes: bytes.to_vec(),
             progress,
+            attempt,
         });
         // Progress, as it comes.
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -541,15 +962,64 @@ impl ComposerStore {
             let _ = this.update(cx, |s, cx| match result {
                 Ok(file) => {
                     if let Some(a) = s.get(id) {
+                        a.bytes = None;
                         a.state = UploadState::Done { file_id: file.id };
                     }
                     cx.notify();
                 }
-                Err(e) => s.fail(id, e, cx),
+                Err(e) => s.upload_failed(id, e, cx),
             });
         })
         .detach();
         cx.notify();
+    }
+
+    /// An upload failed: tried again after the core's wait when it may be
+    /// (no connection, or a refusal with tries left), else left for the
+    /// user to retry.
+    fn upload_failed(&mut self, id: u64, e: UploadError, cx: &mut Context<Self>) {
+        let Some(a) = self.get(id) else {
+            return;
+        };
+        let bytes = a.bytes.clone();
+        match (e.retry, bytes) {
+            (Retry::Offline | Retry::Retryable, Some(bytes)) => {
+                if e.retry == Retry::Retryable {
+                    a.attempt += 1;
+                }
+                a.state = UploadState::Waiting;
+                log::info!(
+                    "attachment {}: {}; again in {:?}",
+                    a.name,
+                    e.message,
+                    e.wait
+                );
+                cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                    cx.background_executor().timer(e.wait).await;
+                    let _ = this.update(cx, |s, cx| {
+                        // Still waiting (not removed, not retried by hand).
+                        if s.get(id).is_some_and(|a| a.state == UploadState::Waiting) {
+                            s.upload(id, bytes, cx);
+                        }
+                    });
+                })
+                .detach();
+                cx.notify();
+            }
+            (_, bytes) => self.fail(id, e.message, bytes.is_some(), cx),
+        }
+    }
+
+    /// Try Again on a failed upload: from the first try.
+    pub fn retry_attachment(&mut self, local_id: u64, cx: &mut Context<Self>) {
+        let Some(a) = self.get(local_id) else {
+            return;
+        };
+        let Some(bytes) = a.bytes.clone().filter(|_| a.can_retry()) else {
+            return;
+        };
+        a.attempt = 1;
+        self.upload(local_id, bytes, cx);
     }
 
     pub fn remove_attachment(&mut self, local_id: u64, cx: &mut Context<Self>) {
@@ -562,7 +1032,10 @@ impl ComposerStore {
         self.attachments.iter().any(|a| {
             matches!(
                 a.state,
-                UploadState::Reading | UploadState::Uploading { .. }
+                UploadState::Reading
+                    | UploadState::Converting
+                    | UploadState::Uploading { .. }
+                    | UploadState::Waiting
             )
         })
     }
@@ -572,6 +1045,7 @@ impl ComposerStore {
         self.attachments
             .iter()
             .any(|a| matches!(a.state, UploadState::Done { .. }))
+            || !self.context.is_empty()
     }
 
     /// The uploaded files, as the sent message shows them until it is
@@ -592,27 +1066,179 @@ impl ComposerStore {
             .collect()
     }
 
-    /// The options for the next turn. Clears what applies to one message.
-    pub fn take_turn(&mut self, cx: &mut Context<Self>) -> TurnOptions {
-        let options = TurnOptions {
-            model: self.mention.take().map(|m| m.id),
+    fn file_ids(&self) -> Vec<String> {
+        self.attachments
+            .iter()
+            .filter_map(|a| match &a.state {
+                UploadState::Done { file_id } => Some(file_id.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The options the next turn would take, with `mentions` from the text,
+    /// leaving the composer as it is.
+    pub fn turn_options(&self, mentions: Vec<ComposerMentionDto>) -> TurnOptions {
+        TurnOptions {
+            model: self.mention.as_ref().map(|m| m.id.clone()),
             tool_ids: self.tool_ids.iter().cloned().collect(),
-            knowledge: std::mem::take(&mut self.knowledge),
+            filter_ids: self.filter_ids.iter().cloned().collect(),
+            knowledge: self.knowledge.clone(),
+            context: self.context.clone(),
+            mentions,
             web_search: self.web_search,
             image_generation: self.image_generation,
             code_interpreter: self.code_interpreter,
-            file_ids: self
-                .attachments
-                .iter()
-                .filter_map(|a| match &a.state {
-                    UploadState::Done { file_id } => Some(file_id.clone()),
-                    _ => None,
-                })
-                .collect(),
-        };
+            file_ids: self.file_ids(),
+            compare_models: vec![],
+        }
+    }
+
+    /// Clears what applies to one message: the `@` model, `#` context,
+    /// attachments.
+    pub fn clear_message(&mut self, cx: &mut Context<Self>) {
+        self.mention = None;
+        self.knowledge.clear();
+        self.context.clear();
         self.attachments.clear();
         cx.notify();
+    }
+
+    /// The options for the next turn, with `mentions` from the text. Clears
+    /// what applies to one message.
+    pub fn take_turn(
+        &mut self,
+        mentions: Vec<ComposerMentionDto>,
+        cx: &mut Context<Self>,
+    ) -> TurnOptions {
+        let options = self.turn_options(mentions);
+        self.clear_message(cx);
         options
+    }
+
+    /// A chat's `local:` id became the server's: its draft follows, with
+    /// nothing re-read.
+    /// A first send made a new chat: what the composer holds (`text`, typed
+    /// while the send waited) becomes that chat's draft. A save still
+    /// pending goes under the new key, and one already made under the New
+    /// Chat key is taken back from there.
+    pub fn adopt_draft(&mut self, key: DraftKey, text: &str, cx: &mut Context<Self>) {
+        let _ = cx;
+        let Some(old) = self.draft.take() else {
+            return;
+        };
+        self._draft = None;
+        if !self.draft_saved.is_empty() {
+            self.save_now(&old, "");
+        }
+        if !text.is_empty() {
+            self.save_now(&key, text);
+        }
+        self.draft_saved = text.to_string();
+        self.draft = Some(key);
+    }
+
+    pub fn rekey_draft(&mut self, key: DraftKey) {
+        if self.draft.is_some() {
+            self.draft = Some(key);
+        }
+    }
+
+    // ── Drafts ──────────────────────────────────────────────────────────
+
+    /// The draft this composer holds now.
+    pub fn draft_key(&self) -> Option<&DraftKey> {
+        self.draft.as_ref()
+    }
+
+    /// Another chat opened: `text` (what the composer held) is kept for the
+    /// chat it held it for, and the new chat's draft is read (it arrives as
+    /// [`ComposerEvent::DraftLoaded`]). `None`: a chat that keeps none (a
+    /// temporary one).
+    pub fn switch_draft(&mut self, key: Option<DraftKey>, text: &str, cx: &mut Context<Self>) {
+        if self.draft == key {
+            return;
+        }
+        if let Some(old) = self.draft.take()
+            && text != self.draft_saved
+        {
+            self.save_now(&old, text);
+        }
+        self._draft = None;
+        self.draft_saved = String::new();
+        self.draft = key.clone();
+        // Another chat's draft: a send still on its way from the last one
+        // gives nothing back to this one.
+        self.draft_round += 1;
+        cx.emit(ComposerEvent::DraftSwitched);
+        let Some(key) = key else {
+            return;
+        };
+        let call = self.rpc.call::<methods::DraftsGet>(&DraftRef {
+            chat_id: key.chat_id.clone(),
+            folder_id: key.folder_id.clone(),
+        });
+        self._draft = Some(
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let draft = call.await;
+                let _ = this.update(cx, |s, cx| {
+                    if s.draft.as_ref() != Some(&key) {
+                        return;
+                    }
+                    let text = draft.map(|d: Draft| d.text).unwrap_or_default();
+                    s.draft_saved = text.clone();
+                    cx.emit(ComposerEvent::DraftLoaded { key, text });
+                });
+            }),
+        );
+    }
+
+    /// The text changed: kept 400 ms after it last did.
+    pub fn draft_changed(&mut self, text: &str, cx: &mut Context<Self>) {
+        let Some(key) = self.draft.clone() else {
+            return;
+        };
+        if text == self.draft_saved {
+            self._draft = None;
+            return;
+        }
+        let text = text.to_string();
+        self._draft = Some(
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                cx.background_executor()
+                    .timer(Duration::from_millis(400))
+                    .await;
+                let _ = this.update(cx, |s, _| {
+                    if s.draft.as_ref() == Some(&key) {
+                        s.save_now(&key, &text);
+                        s.draft_saved = text;
+                    }
+                });
+            }),
+        );
+    }
+
+    /// The message went out: its draft goes at once.
+    pub fn clear_draft(&mut self, cx: &mut Context<Self>) {
+        let _ = cx;
+        self._draft = None;
+        if let Some(key) = self.draft.clone()
+            && !self.draft_saved.is_empty()
+        {
+            self.save_now(&key, "");
+        }
+        self.draft_saved = String::new();
+    }
+
+    fn save_now(&self, key: &DraftKey, text: &str) {
+        let call = self.rpc.call::<methods::DraftsSave>(&DraftSave {
+            chat_id: key.chat_id.clone(),
+            folder_id: key.folder_id.clone(),
+            text: text.to_string(),
+        });
+        // A call goes out when it is made; its answer is not needed (a lost
+        // save costs one draft, never a message).
+        drop(call);
     }
 
     /// Takes attachments another window's composer hands over (Quick Ask's
@@ -637,11 +1263,12 @@ impl ComposerStore {
     }
 
     /// What [`Self::take_turn`] is about to use up for one message: the
-    /// uploaded attachments, the chosen knowledge and the `@` model.
+    /// uploaded attachments, the chosen knowledge and context, and the `@`
+    /// model.
     pub fn one_shot(&self) -> OneShot {
         OneShot {
             scope: self.scope,
-            draft: self.draft,
+            draft: self.draft_round,
             attachments: self
                 .attachments
                 .iter()
@@ -649,16 +1276,30 @@ impl ComposerStore {
                 .cloned()
                 .collect(),
             knowledge: self.knowledge.clone(),
+            context: self.context.clone(),
             mention: self.mention.clone(),
+            mentions: vec![],
+        }
+    }
+
+    /// What a send that uses only its text (a steer, Save as Note) gives
+    /// back ([`Self::give_back`]): nothing but the text, to the same account
+    /// and draft.
+    pub fn text_only(&self) -> OneShot {
+        OneShot {
+            scope: self.scope,
+            draft: self.draft_round,
+            ..OneShot::default()
         }
     }
 
     /// Puts back what a message that was not sent used up: its attachments
-    /// before any added since, its knowledge and model unless chosen anew.
+    /// before any added since, its knowledge, context and model unless
+    /// chosen anew.
     /// Only to the account and draft it was taken from: after another
     /// account or a new draft it is dropped (false).
     pub fn give_back(&mut self, used: OneShot, cx: &mut Context<Self>) -> bool {
-        if used.scope != self.scope || used.draft != self.draft {
+        if used.scope != self.scope || used.draft != self.draft_round {
             return false;
         }
         let mut attachments = used.attachments;
@@ -668,6 +1309,9 @@ impl ComposerStore {
         if self.knowledge.is_empty() {
             self.knowledge = used.knowledge;
         }
+        if self.context.is_empty() {
+            self.context = used.context;
+        }
         if self.mention.is_none() {
             self.mention = used.mention;
         }
@@ -676,12 +1320,13 @@ impl ComposerStore {
     }
 
     /// A new draft: what one message would use goes (attachments,
-    /// knowledge, the `@` model), and a send still on its way gives nothing
-    /// back to it.
+    /// knowledge, context, the `@` model), and a send still on its way gives
+    /// nothing back to it.
     pub fn start_over(&mut self, cx: &mut Context<Self>) {
-        self.draft += 1;
+        self.draft_round += 1;
         self.attachments.clear();
         self.knowledge.clear();
+        self.context.clear();
         self.mention = None;
         cx.notify();
     }
@@ -690,23 +1335,60 @@ impl ComposerStore {
     /// asked are dropped when they arrive.
     pub fn reset(&mut self, cx: &mut Context<Self>) {
         self.scope += 1;
-        self.draft += 1;
-        self._knowledge = None;
+        self.draft_round += 1;
+        self._searches = [None, None, None];
         self._options = None;
-        self.code_interpreter = false;
         self.models = None;
         self.options = ComposerOptions::default();
         self.prompts = None;
-        self.knowledge_results.clear();
-        self.knowledge_query = None;
+        self.mention_results = MentionList::default();
+        self.context_results.clear();
+        self.skill_results.clear();
+        self.searched = [None, None, None];
         self.attachments.clear();
         self.mention = None;
         self.knowledge.clear();
+        self.context.clear();
         self.tool_ids.clear();
+        self.filter_ids.clear();
+        self.filters_touched = false;
         self.web_search = false;
         self.image_generation = false;
+        self.code_interpreter = false;
+        self.draft = None;
+        self.draft_saved = String::new();
+        self._draft = None;
         self.refresh_models(cx);
+        // The last account's text, panel and prompt leave the field.
+        cx.emit(ComposerEvent::DraftSwitched);
     }
+}
+
+fn search(query: &str) -> ComposerSearch {
+    ComposerSearch {
+        query: query.to_string(),
+    }
+}
+
+/// `photo.heic` → `photo.jpg`.
+fn jpeg_name(name: &str) -> String {
+    let stem = Path::new(name)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "image".into());
+    format!("{stem}.jpg")
+}
+
+#[cfg(target_os = "macos")]
+fn default_converter() -> Option<Converter> {
+    Some(Arc::new(|path: &Path| {
+        crate::shell::macos::jpeg_from_image(path, 0.9)
+    }))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn default_converter() -> Option<Converter> {
+    None
 }
 
 // ── Triggers ───────────────────────────────────────────────────────────────
@@ -717,11 +1399,13 @@ pub enum TriggerKind {
     Prompt,
     /// `@model`
     Model,
-    /// `#knowledge`
+    /// `#knowledge`: notes, knowledge bases and their files.
     Knowledge,
+    /// `$skill`: an Open WebUI skill.
+    Skill,
 }
 
-/// A `/`, `@` or `#` word being typed at the caret.
+/// A `/`, `@`, `#` or `$` word being typed at the caret.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Trigger {
     pub kind: TriggerKind,
@@ -754,6 +1438,7 @@ pub fn trigger_at(text: &str, cursor: usize) -> Option<Trigger> {
         '/' => TriggerKind::Prompt,
         '@' => TriggerKind::Model,
         '#' => TriggerKind::Knowledge,
+        '$' => TriggerKind::Skill,
         _ => return None,
     };
     let rest = chars.as_str();
@@ -761,11 +1446,90 @@ pub fn trigger_at(text: &str, cursor: usize) -> Option<Trigger> {
     if rest.contains(sigil) {
         return None;
     }
+    // `$5` is a price, not a skill.
+    if kind == TriggerKind::Skill && rest.starts_with(|c: char| c.is_ascii_digit()) {
+        return None;
+    }
     Some(Trigger {
         kind,
         start,
         query: rest.to_lowercase(),
     })
+}
+
+// ── Mentions ───────────────────────────────────────────────────────────────
+
+/// What an inline mention in the field stands for, kept in its token's id:
+/// `U:<user id>`, `C:<channel id>` or `S:<skill id>`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MentionTarget {
+    User(String),
+    Channel(String),
+    Skill(String),
+}
+
+impl MentionTarget {
+    pub fn token_id(&self) -> String {
+        match self {
+            Self::User(id) => format!("U:{id}"),
+            Self::Channel(id) => format!("C:{id}"),
+            Self::Skill(id) => format!("S:{id}"),
+        }
+    }
+
+    pub fn from_token_id(token: &str) -> Option<Self> {
+        let (kind, id) = token.split_once(':')?;
+        match kind {
+            "U" => Some(Self::User(id.to_string())),
+            "C" => Some(Self::Channel(id.to_string())),
+            "S" => Some(Self::Skill(id.to_string())),
+            _ => None,
+        }
+    }
+
+    /// The sigil the field shows before its name.
+    pub fn sigil(&self) -> char {
+        match self {
+            Self::Skill(_) => '$',
+            _ => '@',
+        }
+    }
+}
+
+/// The mentions in `text` (`(byte range, token id, label)` from the field's
+/// inline tokens) as the daemon takes them: UTF-16 offsets, as the core's
+/// tracker counts.
+pub fn mentions_in(
+    text: &str,
+    tokens: impl IntoIterator<Item = (std::ops::Range<usize>, String, String)>,
+) -> Vec<ComposerMentionDto> {
+    tokens
+        .into_iter()
+        .filter_map(|(range, id, label)| {
+            let target = MentionTarget::from_token_id(&id)?;
+            if range.end > text.len()
+                || !text.is_char_boundary(range.start)
+                || !text.is_char_boundary(range.end)
+            {
+                return None;
+            }
+            let start = text[..range.start].encode_utf16().count() as i64;
+            let end = start + text[range.clone()].encode_utf16().count() as i64;
+            let (id_type, kind, id) = match target {
+                MentionTarget::User(id) => ("U", conduit_protocol::MentionKind::Entity, id),
+                MentionTarget::Channel(id) => ("C", conduit_protocol::MentionKind::Entity, id),
+                MentionTarget::Skill(id) => ("M", conduit_protocol::MentionKind::Skill, id),
+            };
+            Some(ComposerMentionDto {
+                start,
+                end,
+                id,
+                label,
+                id_type: id_type.into(),
+                kind,
+            })
+        })
+        .collect()
 }
 
 /// How a model is named on screen: with its direct connection, when it
@@ -838,6 +1602,8 @@ pub fn content_type_for(name: &str) -> Option<String> {
         "gif" => "image/gif",
         "webp" => "image/webp",
         "bmp" => "image/bmp",
+        "heic" => "image/heic",
+        "heif" => "image/heif",
         "tif" | "tiff" => "image/tiff",
         "svg" => "image/svg+xml",
         "pdf" => "application/pdf",
@@ -897,7 +1663,7 @@ fn extension_for(format: ImageFormat) -> &'static str {
 mod tests {
     use std::sync::Mutex;
 
-    use conduit_protocol::{ToolSummary, UploadedFile};
+    use conduit_protocol::{ContextSuggestions, ToolSummary, UploadedFile};
     use gpui_kit::{Entity, TestAppContext};
     use serde_json::json;
 
@@ -988,7 +1754,7 @@ mod tests {
     }
 
     /// Reports progress halfway, then answers from `outcome`.
-    fn uploader(outcome: Arc<Mutex<Vec<Result<UploadedFile, String>>>>) -> Uploader {
+    fn uploader(outcome: Arc<Mutex<Vec<Result<UploadedFile, UploadError>>>>) -> Uploader {
         Arc::new(move |req: UploadRequest| {
             let total = req.bytes.len() as u64;
             (req.progress)(total / 2, total);
@@ -998,7 +1764,9 @@ mod tests {
     }
 
     /// Answers each file by its name, whichever is read first.
-    fn uploader_by_name(outcome: Vec<(&'static str, Result<UploadedFile, String>)>) -> Uploader {
+    fn uploader_by_name(
+        outcome: Vec<(&'static str, Result<UploadedFile, UploadError>)>,
+    ) -> Uploader {
         let outcome = Arc::new(Mutex::new(outcome));
         Arc::new(move |req: UploadRequest| {
             let mut outcome = outcome.lock().unwrap();
@@ -1008,7 +1776,7 @@ mod tests {
         })
     }
 
-    fn uploaded(id: &str) -> Result<UploadedFile, String> {
+    fn uploaded(id: &str) -> Result<UploadedFile, UploadError> {
         Ok(UploadedFile {
             id: id.into(),
             name: "x".into(),
@@ -1019,7 +1787,7 @@ mod tests {
 
     fn store(
         daemon: &FakeDaemon,
-        outcome: Arc<Mutex<Vec<Result<UploadedFile, String>>>>,
+        outcome: Arc<Mutex<Vec<Result<UploadedFile, UploadError>>>>,
         cx: &mut TestAppContext,
     ) -> Entity<ComposerStore> {
         let rpc = daemon.rpc();
@@ -1032,7 +1800,10 @@ mod tests {
         let rpc = daemon.rpc();
         let uploader = uploader_by_name(vec![
             ("notes.md", uploaded("f1")),
-            ("big.pdf", Err("too big for the server".into())),
+            (
+                "big.pdf",
+                Err(UploadError::manual("too big for the server")),
+            ),
         ]);
         let store = cx.new(|_| ComposerStore::new(rpc, Some(uploader)));
         let dir = std::env::temp_dir().join(format!("p7-attach-{}", std::process::id()));
@@ -1058,12 +1829,12 @@ mod tests {
                     file_id: "f1".into()
                 }
             );
-            assert!(matches!(s.attachments[1].state, UploadState::Failed(_)));
+            assert!(matches!(s.attachments[1].state, UploadState::Failed { .. }));
             assert_eq!(s.pending_files().len(), 1);
             // The failed one is removed by the user; the turn takes the rest.
             let failed = s.attachments[1].local_id;
             s.remove_attachment(failed, cx);
-            let turn = s.take_turn(cx);
+            let turn = s.take_turn(vec![], cx);
             assert_eq!(turn.file_ids, vec!["f1".to_string()]);
             assert!(s.attachments.is_empty());
         });
@@ -1115,6 +1886,53 @@ mod tests {
     }
 
     #[gpui_kit::test]
+    fn new_quick_pill_choices_ask_for_the_options_again(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ModelsList>(ModelList {
+            models: vec![model("a", "A")],
+            selected_id: Some("a".into()),
+        });
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        let store = store(&daemon, Arc::default(), cx);
+        // Before the models are read, nothing is asked: they ask for the
+        // options themselves.
+        store.update(cx, |s, cx| {
+            s.set_prefs(
+                ComposerPrefs {
+                    quick_pills: vec!["web".into()],
+                    ..ComposerPrefs::default()
+                },
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        assert!(daemon.calls::<methods::ComposerOptions>().is_empty());
+        store.update(cx, |s, cx| s.refresh_models(cx));
+        cx.run_until_parked();
+        let asked = daemon.calls::<methods::ComposerOptions>().len();
+        assert!(asked >= 1);
+        // Another setting leaves the options alone; new pills ask again.
+        store.update(cx, |s, cx| {
+            let prefs = ComposerPrefs {
+                send_on_enter: false,
+                ..s.prefs.clone()
+            };
+            s.set_prefs(prefs, cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::ComposerOptions>().len(), asked);
+        store.update(cx, |s, cx| {
+            let prefs = ComposerPrefs {
+                quick_pills: vec!["image".into()],
+                ..s.prefs.clone()
+            };
+            s.set_prefs(prefs, cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::ComposerOptions>().len(), asked + 1);
+    }
+
+    #[gpui_kit::test]
     fn one_message_choices_clear_and_switches_follow_the_options(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
         daemon.returns::<methods::ModelsList>(ModelList {
@@ -1129,7 +1947,7 @@ mod tests {
                 name: "Calculator".into(),
                 description: None,
             }],
-            mcp_tools: vec![],
+            ..Default::default()
         });
         daemon.returns::<methods::ModelsSelect>(ModelList {
             models: vec![model("a", "A"), model("b", "B")],
@@ -1153,13 +1971,13 @@ mod tests {
                 cx,
             );
             assert_eq!(s.next_model().map(|m| m.id.as_str()), Some("b"));
-            let turn = s.take_turn(cx);
+            let turn = s.take_turn(vec![], cx);
             assert_eq!(turn.model.as_deref(), Some("b"));
             assert!(turn.web_search && !turn.image_generation);
             assert_eq!(turn.tool_ids, vec!["calc".to_string()]);
             assert_eq!(turn.knowledge.len(), 1);
             // The `@` model and `#` knowledge were for that message only.
-            let again = s.take_turn(cx);
+            let again = s.take_turn(vec![], cx);
             assert_eq!(again.model, None);
             assert!(again.knowledge.is_empty() && again.web_search);
             s.select_model("b", cx);
@@ -1203,21 +2021,326 @@ mod tests {
     }
 
     #[gpui_kit::test]
-    fn knowledge_is_asked_once_typing_pauses(cx: &mut TestAppContext) {
+    fn a_search_is_asked_once_typing_pauses(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
-        daemon.returns::<methods::ComposerKnowledge>(
-            serde_json::from_value(json!({"items": []})).unwrap(),
-        );
+        daemon.returns::<methods::ContextSearch>(ContextSuggestions::default());
         let store = store(&daemon, Arc::default(), cx);
         store.update(cx, |s, cx| {
             for q in ["c", "ca", "cat"] {
-                s.search_knowledge(q, cx);
+                s.search_context(q, cx);
             }
         });
         cx.executor().advance_clock(Duration::from_millis(200));
         cx.run_until_parked();
-        let calls = daemon.calls::<methods::ComposerKnowledge>();
+        let calls = daemon.calls::<methods::ContextSearch>();
         assert_eq!(calls.len(), 1, "{calls:?}");
         assert_eq!(calls[0]["query"], "cat");
+    }
+
+    #[test]
+    fn a_price_is_not_a_skill_and_mentions_go_out_in_utf16() {
+        let end = |s: &str| trigger_at(s, s.len());
+        assert_eq!(end("$pla"), t(TriggerKind::Skill, 0, "pla"));
+        assert_eq!(end("costs $5"), None);
+        assert_eq!(end("$"), t(TriggerKind::Skill, 0, ""));
+        // `ç` is two bytes and one UTF-16 unit: the core counts units.
+        let text = "ça @Riley ok";
+        let mentions = mentions_in(text, [(4..10, "U:u-1".to_string(), "Riley".to_string())]);
+        assert_eq!(mentions.len(), 1);
+        assert_eq!((mentions[0].start, mentions[0].end), (3, 9));
+        assert_eq!(mentions[0].id_type, "U");
+        let skill = mentions_in(
+            "$Plain",
+            [(0..6, "S:plain".to_string(), "Plain".to_string())],
+        );
+        assert_eq!(skill[0].kind, conduit_protocol::MentionKind::Skill);
+        // A token id that is not a mention, or a range off the text, is left out.
+        assert!(mentions_in("hi", [(0..2, "other".to_string(), "x".to_string())]).is_empty());
+        assert!(mentions_in("hi", [(0..9, "U:u".to_string(), "x".to_string())]).is_empty());
+        assert_eq!(
+            MentionTarget::from_token_id("C:ch-1"),
+            Some(MentionTarget::Channel("ch-1".into()))
+        );
+    }
+
+    fn filter(id: &str) -> ToolSummary {
+        ToolSummary {
+            id: id.into(),
+            name: id.to_uppercase(),
+            description: None,
+        }
+    }
+
+    #[gpui_kit::test]
+    fn filters_start_from_the_models_defaults_until_one_is_picked(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| {
+            s.set_options(
+                ComposerOptions {
+                    filters: vec![filter("tidy"), filter("short")],
+                    filter_defaults: vec!["tidy".into()],
+                    ..Default::default()
+                },
+                cx,
+            );
+            assert_eq!(s.filter_ids.iter().collect::<Vec<_>>(), ["tidy"]);
+            // Another model, another default, until the user picks.
+            s.set_options(
+                ComposerOptions {
+                    filters: vec![filter("tidy"), filter("short")],
+                    filter_defaults: vec!["short".into()],
+                    ..Default::default()
+                },
+                cx,
+            );
+            assert_eq!(s.filter_ids.iter().collect::<Vec<_>>(), ["short"]);
+            s.toggle_filter("tidy", cx);
+            s.set_options(
+                ComposerOptions {
+                    filters: vec![filter("tidy")],
+                    filter_defaults: vec![],
+                    ..Default::default()
+                },
+                cx,
+            );
+            // Picked ones stay while offered; the rest go.
+            assert_eq!(s.filter_ids.iter().collect::<Vec<_>>(), ["tidy"]);
+            assert_eq!(s.take_turn(vec![], cx).filter_ids, vec!["tidy".to_string()]);
+            // The interpreter: on only where offered, off always.
+            s.toggle_code_interpreter(cx);
+            assert!(!s.code_interpreter);
+            s.set_options(
+                ComposerOptions {
+                    code_interpreter: true,
+                    ..Default::default()
+                },
+                cx,
+            );
+            s.toggle_code_interpreter(cx);
+            assert!(s.code_interpreter);
+            // It stays chosen, with why, where it will not run.
+            s.set_options(
+                ComposerOptions {
+                    code_interpreter: false,
+                    code_interpreter_block: Some("unsupportedEngine".into()),
+                    ..Default::default()
+                },
+                cx,
+            );
+            assert!(s.code_interpreter);
+            assert_eq!(s.code_interpreter_block(), Some("unsupportedEngine"));
+            s.toggle_code_interpreter(cx);
+            assert!(!s.code_interpreter);
+        });
+    }
+
+    fn key(chat: Option<&str>) -> DraftKey {
+        DraftKey {
+            chat_id: chat.map(String::from),
+            folder_id: None,
+        }
+    }
+
+    #[gpui_kit::test]
+    fn a_draft_is_read_for_its_chat_and_kept_when_typing_stops(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::DraftsGet>(Draft {
+            text: "kept".into(),
+            stored: true,
+        });
+        daemon.returns::<methods::DraftsSave>(Draft::default());
+        let store = store(&daemon, Arc::default(), cx);
+        let seen: Arc<Mutex<Vec<ComposerEvent>>> = Arc::default();
+        let log = seen.clone();
+        cx.update(|cx| {
+            cx.subscribe(&store, move |_, e: &ComposerEvent, _| {
+                log.lock().unwrap().push(e.clone())
+            })
+            .detach()
+        });
+        store.update(cx, |s, cx| s.switch_draft(Some(key(Some("a"))), "", cx));
+        cx.run_until_parked();
+        assert_eq!(
+            seen.lock().unwrap().last(),
+            Some(&ComposerEvent::DraftLoaded {
+                key: key(Some("a")),
+                text: "kept".into()
+            })
+        );
+        // Typed: kept 400 ms after the last change, once.
+        store.update(cx, |s, cx| {
+            s.draft_changed("ne", cx);
+            s.draft_changed("new", cx);
+        });
+        cx.executor().advance_clock(Duration::from_millis(500));
+        cx.run_until_parked();
+        let saves = daemon.calls::<methods::DraftsSave>();
+        assert_eq!(saves, vec![json!({"chatId": "a", "text": "new"})]);
+        // Another chat: what was typed since is kept for the chat it was
+        // typed in, at once.
+        store.update(cx, |s, cx| {
+            s.draft_changed("newer", cx);
+            s.switch_draft(Some(key(None)), "newer", cx);
+        });
+        let saves = daemon.calls::<methods::DraftsSave>();
+        assert_eq!(saves.last(), Some(&json!({"chatId": "a", "text": "newer"})));
+        cx.run_until_parked();
+        // Sent: its draft goes.
+        store.update(cx, |s, cx| s.clear_draft(cx));
+        assert_eq!(
+            daemon.calls::<methods::DraftsSave>().last(),
+            Some(&json!({"text": ""}))
+        );
+        // A temporary chat keeps none: nothing is read or saved.
+        let before = daemon.calls::<methods::DraftsGet>().len();
+        store.update(cx, |s, cx| {
+            s.switch_draft(None, "", cx);
+            s.draft_changed("private", cx);
+        });
+        cx.executor().advance_clock(Duration::from_millis(500));
+        cx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::DraftsGet>().len(), before);
+    }
+
+    #[gpui_kit::test]
+    fn a_refused_upload_is_tried_again_and_an_uncertain_one_waits_for_the_user(
+        cx: &mut TestAppContext,
+    ) {
+        let daemon = FakeDaemon::new();
+        let attempts: Arc<Mutex<Vec<u32>>> = Arc::default();
+        let outcome = Arc::new(Mutex::new(vec![
+            Err(UploadError {
+                message: "busy".into(),
+                retry: Retry::Retryable,
+                wait: Duration::from_secs(5),
+            }),
+            uploaded("f1"),
+            Err(UploadError::manual("the server may have it")),
+            uploaded("f2"),
+        ]));
+        let seen = attempts.clone();
+        let upload: Uploader = Arc::new(move |req: UploadRequest| {
+            seen.lock().unwrap().push(req.attempt);
+            let answer = outcome.lock().unwrap().remove(0);
+            Box::pin(async move { answer })
+        });
+        let rpc = daemon.rpc();
+        let store = cx.new(|_| ComposerStore::new(rpc, Some(upload)).with_converter(None));
+        let png = Image::from_bytes(ImageFormat::Png, b"\x89PNG".to_vec());
+        store.update(cx, |s, cx| s.add_image(&png, cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.attachments[0].state, UploadState::Waiting);
+            assert!(s.uploading(), "Send waits while it waits");
+        });
+        cx.executor().advance_clock(Duration::from_secs(6));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.attachments[0].state,
+                UploadState::Done {
+                    file_id: "f1".into()
+                }
+            )
+        });
+        assert_eq!(*attempts.lock().unwrap(), vec![1, 2]);
+        // The server may hold it already: only Try Again sends it again.
+        store.update(cx, |s, cx| s.add_image(&png, cx));
+        cx.run_until_parked();
+        let id = store.read_with(cx, |s, _| {
+            let a = &s.attachments[1];
+            assert!(a.can_retry());
+            a.local_id
+        });
+        store.update(cx, |s, cx| s.retry_attachment(id, cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.attachments[1].state,
+                UploadState::Done {
+                    file_id: "f2".into()
+                }
+            )
+        });
+        assert_eq!(*attempts.lock().unwrap(), vec![1, 2, 1, 1]);
+    }
+
+    #[gpui_kit::test]
+    fn a_heic_goes_up_as_a_jpeg_and_a_server_file_as_it_is(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        type Sent = Vec<(String, Option<String>, Vec<u8>)>;
+        let sent: Arc<Mutex<Sent>> = Arc::default();
+        let log = sent.clone();
+        let upload: Uploader = Arc::new(move |req: UploadRequest| {
+            log.lock().unwrap().push((
+                req.name.clone(),
+                req.content_type.clone(),
+                req.bytes.clone(),
+            ));
+            Box::pin(async move { uploaded("img") })
+        });
+        let convert: Converter = Arc::new(|_: &Path| Ok(b"JPEG".to_vec()));
+        let rpc = daemon.rpc();
+        let store = cx.new(|_| ComposerStore::new(rpc, Some(upload)).with_converter(Some(convert)));
+        let dir = std::env::temp_dir().join(format!("c1-heic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let heic = dir.join("Garden.HEIC");
+        std::fs::write(&heic, b"heic bytes").unwrap();
+        store.update(cx, |s, cx| {
+            s.set_options(
+                ComposerOptions {
+                    image_conversions: vec![".heic".into(), ".bmp".into()],
+                    ..Default::default()
+                },
+                cx,
+            );
+            s.add_paths(std::slice::from_ref(&heic), cx);
+            assert_eq!(s.attachments[0].name, "Garden.jpg");
+            assert_eq!(s.attachments[0].state, UploadState::Converting);
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            *sent.lock().unwrap(),
+            vec![(
+                "Garden.jpg".to_string(),
+                Some("image/jpeg".to_string()),
+                b"JPEG".to_vec()
+            )]
+        );
+        store.update(cx, |s, cx| {
+            s.add_server_file(
+                &ServerFile {
+                    id: "f9".into(),
+                    name: "budget.csv".into(),
+                    size: Some(2048),
+                    content_type: None,
+                    updated_at_ms: None,
+                },
+                cx,
+            );
+            // Twice is once.
+            s.add_server_file(
+                &ServerFile {
+                    id: "f9".into(),
+                    name: "budget.csv".into(),
+                    size: None,
+                    content_type: None,
+                    updated_at_ms: None,
+                },
+                cx,
+            );
+            assert_eq!(s.attachments.len(), 2);
+            assert!(s.attachments[1].server_file);
+            assert_eq!(
+                s.take_turn(vec![], cx).file_ids,
+                vec!["img".to_string(), "f9".to_string()]
+            );
+        });
+        assert_eq!(
+            sent.lock().unwrap().len(),
+            1,
+            "a server file is not uploaded"
+        );
     }
 }

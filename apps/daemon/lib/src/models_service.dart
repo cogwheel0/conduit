@@ -52,12 +52,21 @@ final class ModelsService {
 
   final ProviderContainer _container;
 
-  /// Publishes `models.changed` when the ids on offer change.
+  /// Publishes `models.changed` when the ids on offer change, or the model
+  /// the next turn runs with.
   ///
   /// A direct connection's models are discovered after it is saved, over
   /// the network, so the list a window fetched straight after saving did
-  /// not have them yet -- and nothing told it to look again.
+  /// not have them yet -- and nothing told it to look again. A new Default
+  /// Model in Settings changes the selection a moment after it is saved
+  /// (the core's `defaultModelSettingSelectionProvider`, kept alive here as
+  /// mobile keeps it), and the composers show it.
   void _announceChanges(EventBus events) {
+    _container.listen<void>(defaultModelSettingSelectionProvider, (_, _) {});
+    _container.listen<core.Model?>(selectedModelProvider, (previous, next) {
+      if (previous?.id == next?.id) return;
+      events.emit(ConduitEventSpecs.modelsChanged, null);
+    });
     List<String>? last;
     _container.listen<AsyncValue<List<core.Model>>>(modelsProvider, (_, next) {
       final models = next.value;

@@ -575,7 +575,63 @@ const Map<String, String> protocolGoldens = <String, String>{
   "imageGeneration": false,
   "codeInterpreter": false,
   "fileIds": [],
+  "context": [
+    {
+      "id": "ctx-1",
+      "kind": "web",
+      "name": "Outbox notes",
+      "url": "https://docs.example.test/outbox",
+      "content": "Writes drain in order."
+    }
+  ],
+  "mentions": [
+    {
+      "start": 0,
+      "end": 6,
+      "id": "user-1",
+      "label": "Riley",
+      "idType": "U",
+      "kind": "entity"
+    }
+  ],
+  "filterIds": [
+    "tidy"
+  ],
+  "compareModels": [],
   "temporary": false
+}''',
+
+  'sendTurnCompare': r'''
+{
+  "text": "Which is faster?",
+  "toolIds": [],
+  "knowledge": [],
+  "webSearch": false,
+  "imageGeneration": false,
+  "codeInterpreter": false,
+  "fileIds": [],
+  "context": [],
+  "mentions": [],
+  "filterIds": [],
+  "compareModels": [
+    "gpt-4o",
+    "llama3.2:1b"
+  ],
+  "temporary": false
+}''',
+
+  'steerTurn': r'''
+{
+  "chatId": "local:hermes_7c1f",
+  "text": "Use the smaller dataset",
+  "mentions": [],
+  "steer": false
+}''',
+
+  'steerResult': r'''
+{
+  "accepted": false,
+  "uncertain": true
 }''',
 
   'sendTurnAccepted': r'''
@@ -2357,7 +2413,275 @@ const Map<String, String> protocolGoldens = <String, String>{
       "id": "local_mcp:mcp-1",
       "name": "Docs"
     }
+  ],
+  "filters": [
+    {
+      "id": "tidy",
+      "name": "Tidy Up",
+      "description": "Fix spacing"
+    }
+  ],
+  "filterDefaults": [
+    "tidy"
+  ],
+  "codeInterpreter": true,
+  "codeInterpreterBlock": "unsupportedEngine",
+  "attachments": {
+    "files": true,
+    "serverFiles": true,
+    "images": true,
+    "webPage": true,
+    "mcpContent": false
+  },
+  "skills": true,
+  "context": true,
+  "notes": true,
+  "mentions": true,
+  "steer": false,
+  "imageConversions": [
+    ".heic",
+    ".bmp"
+  ],
+  "compareModels": true,
+  "quickPills": [
+    {
+      "id": "web",
+      "kind": "web",
+      "name": "",
+      "targetId": ""
+    },
+    {
+      "id": "filter:tidy",
+      "kind": "filter",
+      "name": "Tidy Up",
+      "targetId": "tidy"
+    }
   ]
+}''',
+
+  'attachmentAvailability': r'''
+{
+  "files": true,
+  "serverFiles": false,
+  "images": false,
+  "webPage": false,
+  "mcpContent": true
+}''',
+
+  'composerSearch': r'''
+{
+  "query": "ril"
+}''',
+
+  'mentionTarget': r'''
+{
+  "id": "user-1",
+  "name": "Riley Example",
+  "detail": "riley@example.test"
+}''',
+
+  'mentionList': r'''
+{
+  "users": [
+    {
+      "id": "user-1",
+      "name": "Riley"
+    }
+  ],
+  "channels": [
+    {
+      "id": "ch-1",
+      "name": "garden",
+      "detail": "Raised beds"
+    }
+  ]
+}''',
+
+  'skillSummary': r'''
+{
+  "id": "skill-1",
+  "name": "Plain English",
+  "description": "Short sentences"
+}''',
+
+  'skillList': r'''
+{
+  "items": [
+    {
+      "id": "skill-1",
+      "name": "Plain English"
+    }
+  ]
+}''',
+
+  'contextSuggestion': r'''
+{
+  "kind": "knowledgeFile",
+  "id": "file-1",
+  "name": "pricing.md",
+  "subtitle": "Handbook",
+  "collectionName": "Handbook"
+}''',
+
+  'contextSuggestions': r'''
+{
+  "items": [
+    {
+      "kind": "note",
+      "id": "note-1",
+      "name": "Garden plan"
+    }
+  ]
+}''',
+
+  'contextAttachmentDto': r'''
+{
+  "id": "ctx-2",
+  "kind": "knowledge",
+  "name": "pricing.md",
+  "collectionName": "Handbook",
+  "fileId": "file-1"
+}''',
+
+  'fetchUrl': r'''
+{
+  "url": "https://youtu.be/example"
+}''',
+
+  'fetchedUrl': r'''
+{
+  "attachment": {
+    "id": "ctx-3",
+    "kind": "youtube",
+    "name": "Potting soil basics",
+    "url": "https://youtu.be/example",
+    "content": "Mix compost with grit."
+  }
+}''',
+
+  'fetchedUrlError': r'''
+{
+  "error": "noContent"
+}''',
+
+  'serverFile': r'''
+{
+  "id": "file-2",
+  "name": "budget.csv",
+  "size": 2048,
+  "contentType": "text/csv",
+  "updatedAtMs": 1758412800000
+}''',
+
+  'serverFileList': r'''
+{
+  "items": [
+    {
+      "id": "file-2",
+      "name": "budget.csv"
+    }
+  ]
+}''',
+
+  'composerMentionDto': r'''
+{
+  "start": 4,
+  "end": 17,
+  "id": "skill-1",
+  "label": "Plain English",
+  "idType": "M",
+  "kind": "skill"
+}''',
+
+  'draftRef': r'''
+{
+  "folderId": "folder-1"
+}''',
+
+  'draftSave': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "text": "Half a thought"
+}''',
+
+  'draft': r'''
+{
+  "text": "Half a thought",
+  "stored": true
+}''',
+
+  'draftUnstored': r'''
+{
+  "text": "",
+  "stored": false
+}''',
+
+  'queuedDraftDto': r'''
+{
+  "id": "draft-1",
+  "text": "And the north side?",
+  "files": [
+    {
+      "id": "file-2",
+      "name": "budget.csv",
+      "image": false
+    }
+  ],
+  "context": [],
+  "frozen": true
+}''',
+
+  'queueState': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "drafts": [
+    {
+      "id": "draft-1",
+      "text": "And the north side?",
+      "files": [],
+      "context": [],
+      "frozen": false
+    }
+  ],
+  "phase": "admitting",
+  "admissionFailed": true,
+  "offer": true
+}''',
+
+  'queueAdd': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "text": "And the north side?",
+  "mentions": [],
+  "fileIds": [
+    "file-2"
+  ],
+  "context": []
+}''',
+
+  'queueDraftRef': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "draftId": "draft-1"
+}''',
+
+  'queueEdit': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "draftId": "draft-1",
+  "text": "And the south side?"
+}''',
+
+  'queueSendNowResult': r'''
+{
+  "outcome": "admitted",
+  "queue": {
+    "chatId": "chat-7c1f0b2a",
+    "drafts": [],
+    "phase": "idle",
+    "admissionFailed": false,
+    "offer": false
+  }
 }''',
 
   'syncState': r'''
@@ -3369,7 +3693,8 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "id": "filter:translate",
   "kind": "filter",
-  "name": "Translate"
+  "name": "Translate",
+  "targetId": "translate"
 }''',
 
   'quickPillOptions': r'''
@@ -3378,12 +3703,14 @@ const Map<String, String> protocolGoldens = <String, String>{
     {
       "id": "web",
       "kind": "web",
-      "name": ""
+      "name": "",
+      "targetId": ""
     },
     {
       "id": "weather",
       "kind": "tool",
-      "name": "Weather"
+      "name": "Weather",
+      "targetId": "weather"
     }
   ]
 }''',

@@ -1204,6 +1204,36 @@ pub fn fade_stops(
     stops
 }
 
+/// `path` (a HEIC, RAW or BMP picture) as JPEG bytes at `quality` (0–1),
+/// as mobile sends such pictures: through the system's own image tool,
+/// which reads every format the Photos app does.
+pub fn jpeg_from_image(path: &std::path::Path, quality: f32) -> Result<Vec<u8>, String> {
+    let dir = std::env::temp_dir().join(format!("conduit-jpeg-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let out = dir.join(format!("{n}.jpg"));
+    let percent = ((quality.clamp(0., 1.) * 100.).round() as u32).max(1);
+    let status = std::process::Command::new("/usr/bin/sips")
+        .args(["-s", "format", "jpeg", "-s", "formatOptions"])
+        .arg(percent.to_string())
+        .arg(path)
+        .arg("--out")
+        .arg(&out)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(|e| e.to_string())?;
+    let bytes = if status.success() {
+        std::fs::read(&out).map_err(|e| e.to_string())
+    } else {
+        Err(format!("could not read the picture ({status})"))
+    };
+    // The app's own scratch copy.
+    let _ = std::fs::remove_file(&out);
+    bytes
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

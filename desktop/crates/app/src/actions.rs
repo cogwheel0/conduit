@@ -39,6 +39,10 @@ actions!(
 // picker.
 actions!(conduit, [ChooseModel]);
 
+// The composer's larger editor (⇧⌘E), and Ask Conduit: the text selected in
+// an answer, into the composer (⇧⌘A).
+actions!(conduit, [ExpandEditor, AskConduit, CopySelection]);
+
 // Window › Quick Ask (also the global shortcut and the menu-bar item).
 actions!(conduit, [ToggleQuickAsk]);
 

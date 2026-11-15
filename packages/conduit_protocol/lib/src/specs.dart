@@ -17,6 +17,7 @@ import 'notes.dart';
 import 'profile.dart';
 import 'prompts.dart';
 import 'release_notes.dart';
+import 'queue.dart';
 import 'servers.dart';
 import 'settings.dart';
 import 'system.dart';
@@ -555,6 +556,76 @@ abstract final class ConduitMethodSpecs {
         params: KnowledgeQuery.fromJson,
         result: KnowledgeList.fromJson,
       );
+  // drafts.*, queue.*, mentions.*, skills.*, context.*, files.*
+
+  static const draftsGet = ConduitMethodSpec<DraftRef, Draft>(
+    ConduitMethods.draftsGet,
+    params: DraftRef.fromJson,
+    result: Draft.fromJson,
+  );
+  static const draftsSave = ConduitMethodSpec<DraftSave, Draft>(
+    ConduitMethods.draftsSave,
+    params: DraftSave.fromJson,
+    result: Draft.fromJson,
+  );
+  static const queueGet = ConduitMethodSpec<ChatRef, QueueState>(
+    ConduitMethods.queueGet,
+    params: ChatRef.fromJson,
+    result: QueueState.fromJson,
+  );
+  static const queueAdd = ConduitMethodSpec<QueueAdd, QueueState>(
+    ConduitMethods.queueAdd,
+    params: QueueAdd.fromJson,
+    result: QueueState.fromJson,
+  );
+  static const queueEdit = ConduitMethodSpec<QueueEdit, QueueState>(
+    ConduitMethods.queueEdit,
+    params: QueueEdit.fromJson,
+    result: QueueState.fromJson,
+  );
+  static const queueRemove = ConduitMethodSpec<QueueDraftRef, QueueState>(
+    ConduitMethods.queueRemove,
+    params: QueueDraftRef.fromJson,
+    result: QueueState.fromJson,
+  );
+  static const queueSendNow =
+      ConduitMethodSpec<QueueDraftRef, QueueSendNowResult>(
+        ConduitMethods.queueSendNow,
+        params: QueueDraftRef.fromJson,
+        result: QueueSendNowResult.fromJson,
+      );
+  static const queueRetry = ConduitMethodSpec<ChatRef, QueueState>(
+    ConduitMethods.queueRetry,
+    params: ChatRef.fromJson,
+    result: QueueState.fromJson,
+  );
+  static const mentionsSearch = ConduitMethodSpec<ComposerSearch, MentionList>(
+    ConduitMethods.mentionsSearch,
+    params: ComposerSearch.fromJson,
+    result: MentionList.fromJson,
+  );
+  static const skillsSearch = ConduitMethodSpec<ComposerSearch, SkillList>(
+    ConduitMethods.skillsSearch,
+    params: ComposerSearch.fromJson,
+    result: SkillList.fromJson,
+  );
+  static const contextSearch =
+      ConduitMethodSpec<ComposerSearch, ContextSuggestions>(
+        ConduitMethods.contextSearch,
+        params: ComposerSearch.fromJson,
+        result: ContextSuggestions.fromJson,
+      );
+  static const contextFetchUrl = ConduitMethodSpec<FetchUrl, FetchedUrl>(
+    ConduitMethods.contextFetchUrl,
+    params: FetchUrl.fromJson,
+    result: FetchedUrl.fromJson,
+  );
+  static const filesList = ConduitMethodSpec<ComposerSearch, ServerFileList>(
+    ConduitMethods.filesList,
+    params: ComposerSearch.fromJson,
+    result: ServerFileList.fromJson,
+  );
+
   static const promptsList = ConduitMethodSpec<void, PromptList>(
     ConduitMethods.promptsList,
     result: PromptList.fromJson,
@@ -725,6 +796,11 @@ abstract final class ConduitMethodSpecs {
     ConduitMethods.turnsEdit,
     params: EditTurn.fromJson,
     result: SendTurnAccepted.fromJson,
+  );
+  static const turnsSteer = ConduitMethodSpec<SteerTurn, SteerResult>(
+    ConduitMethods.turnsSteer,
+    params: SteerTurn.fromJson,
+    result: SteerResult.fromJson,
   );
   static const turnsRate = ConduitMethodSpec<RateTurn, RatedResult>(
     ConduitMethods.turnsRate,
@@ -1256,6 +1332,19 @@ abstract final class ConduitMethodSpecs {
         modelsSelect,
         composerOptions,
         composerKnowledge,
+        draftsGet,
+        draftsSave,
+        queueGet,
+        queueAdd,
+        queueEdit,
+        queueRemove,
+        queueSendNow,
+        queueRetry,
+        mentionsSearch,
+        skillsSearch,
+        contextSearch,
+        contextFetchUrl,
+        filesList,
         promptsList,
         promptsRender,
         directList,
@@ -1286,6 +1375,7 @@ abstract final class ConduitMethodSpecs {
         turnsStop,
         turnsRegenerate,
         turnsEdit,
+        turnsSteer,
         turnsRate,
         notesList,
         notesGet,
@@ -1514,6 +1604,12 @@ abstract final class ConduitEventSpecs {
     scoped: false,
   );
 
+  static const queueChanged = ConduitEventSpec<QueueState>(
+    ConduitEvents.queueChanged,
+    payload: QueueState.fromJson,
+    scoped: true,
+  );
+
   /// Every event, once.
   static const List<ConduitEventSpec<Object?>> all =
       <ConduitEventSpec<Object?>>[
@@ -1543,6 +1639,7 @@ abstract final class ConduitEventSpecs {
         voiceChanged,
         terminalDisplayFile,
         settingsChanged,
+        queueChanged,
       ];
 
   static final Map<String, ConduitEventSpec<Object?>> _byName =

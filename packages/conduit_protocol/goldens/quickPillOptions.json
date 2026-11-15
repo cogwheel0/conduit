@@ -3,12 +3,14 @@
     {
       "id": "web",
       "kind": "web",
-      "name": ""
+      "name": "",
+      "targetId": ""
     },
     {
       "id": "weather",
       "kind": "tool",
-      "name": "Weather"
+      "name": "Weather",
+      "targetId": "weather"
     }
   ]
 }

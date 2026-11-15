@@ -5,10 +5,12 @@
 
 pub mod blocks;
 pub mod composer;
+pub mod composer_panels;
 pub mod diagram;
 pub mod markdown;
 pub mod pace;
 pub mod preview;
+pub mod queue;
 pub mod rows;
 pub mod transcript;
 
@@ -55,6 +57,25 @@ pub fn last_code_block(markdown: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn mention_tokens_read_as_their_names() {
+        use super::rows::shown_mentions;
+        assert_eq!(
+            shown_mentions("Say hi <$plain-english|Plain English> to <@U:u-1|Riley>"),
+            "Say hi $Plain English to @Riley"
+        );
+        assert_eq!(
+            shown_mentions("<@M:gpt-4|GPT-4> and a < b > c"),
+            "@GPT-4 and a < b > c"
+        );
+        assert_eq!(
+            shown_mentions("<b>bold</b> <@x:y|z>"),
+            "<b>bold</b> <@x:y|z>"
+        );
+        assert_eq!(shown_mentions("ends with <"), "ends with <");
+    }
+
     use super::*;
 
     #[test]

@@ -33,6 +33,21 @@ abstract class SendTurn with _$SendTurn {
     /// Ids of files already uploaded through `/upload`.
     @Default(<String>[]) List<String> fileIds,
 
+    /// Web pages, YouTube transcripts, notes and knowledge files (`#`, the
+    /// + menu's Web Page): the core's context attachments.
+    @Default(<ContextAttachmentDto>[]) List<ContextAttachmentDto> context,
+
+    /// `@` users and channels and `$` skills in [text], which the daemon
+    /// writes in Open WebUI's wire format.
+    @Default(<ComposerMentionDto>[]) List<ComposerMentionDto> mentions,
+
+    /// Open WebUI toggle filters chosen in the + menu.
+    @Default(<String>[]) List<String> filterIds,
+
+    /// "Compare Models": the two models to answer side by side. Empty for an
+    /// ordinary turn; [model] is then ignored.
+    @Default(<String>[]) List<String> compareModels,
+
     /// Start a conversation the server never stores.
     ///
     /// Only meaningful with no [chatId]. The daemon assigns a `local:` id,
@@ -269,4 +284,37 @@ abstract class StoppedResult with _$StoppedResult {
 
   factory StoppedResult.fromJson(Map<String, dynamic> json) =>
       _$StoppedResultFromJson(json);
+}
+
+/// Params for `turns.steer`: a message typed while Hermes is working.
+@freezed
+abstract class SteerTurn with _$SteerTurn {
+  const factory SteerTurn({
+    required String chatId,
+    required String text,
+    @Default(<ComposerMentionDto>[]) List<ComposerMentionDto> mentions,
+
+    /// True steers the running turn; false sends the text as the next
+    /// message, after it (the core's `HermesBusyTurnAction`).
+    @Default(true) bool steer,
+  }) = _SteerTurn;
+
+  factory SteerTurn.fromJson(Map<String, dynamic> json) =>
+      _$SteerTurnFromJson(json);
+}
+
+/// Reply to `turns.steer`.
+@freezed
+abstract class SteerResult with _$SteerResult {
+  const factory SteerResult({
+    /// Hermes took the message.
+    required bool accepted,
+
+    /// Hermes did not say whether the turn saw the steer: the composer keeps
+    /// the text and says so, without sending it again.
+    @Default(false) bool uncertain,
+  }) = _SteerResult;
+
+  factory SteerResult.fromJson(Map<String, dynamic> json) =>
+      _$SteerResultFromJson(json);
 }

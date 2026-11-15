@@ -72,7 +72,8 @@ abstract final class ConduitEvents {
   static const String capabilitiesChanged = 'capabilities.changed';
 
   /// The models on offer changed: a direct connection was added and its
-  /// models discovered, or the server's list was refreshed. No
+  /// models discovered, or the server's list was refreshed. Also when the
+  /// model the next turn runs with changed (a new Default Model, say). No
   /// payload; `models.list` says what they are.
   static const String modelsChanged = 'models.changed';
 
@@ -94,6 +95,10 @@ abstract final class ConduitEvents {
   /// A model's tool asked to show a file from the chat's terminal. Payload
   /// [TerminalDisplayFile], scoped to the chat.
   static const String terminalDisplayFile = 'terminal.displayFile';
+
+  /// A chat's queued messages changed. Payload [QueueState], scoped to the
+  /// chat.
+  static const String queueChanged = 'queue.changed';
 
   /// Every event name, for subscription validation and tests.
   static const Set<String> all = {
@@ -123,6 +128,7 @@ abstract final class ConduitEvents {
     voiceChanged,
     terminalDisplayFile,
     settingsChanged,
+    queueChanged,
   };
 }
 

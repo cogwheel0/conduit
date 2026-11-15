@@ -315,6 +315,10 @@ pub enum FixedCommand {
     NextChat,
     PreviousChat,
     Regenerate,
+    /// The composer's larger editor, and back.
+    ExpandEditor,
+    /// Puts the text selected in an answer into the composer.
+    AskConduit,
     FindInChat,
     FindNext,
     FindPrevious,
@@ -375,6 +379,8 @@ pub fn fixed_shortcuts() -> Vec<(FixedCommand, KeyStroke)> {
         (F::NextChat, k("tab").ctrl()),
         (F::PreviousChat, k("tab").ctrl().shift()),
         (F::Regenerate, k("r").primary()),
+        (F::ExpandEditor, k("e").primary().shift()),
+        (F::AskConduit, k("a").primary().shift()),
         (F::FindInChat, k("f").primary()),
         (F::FindNext, k("g").primary()),
         (F::FindPrevious, k("g").primary().shift()),
@@ -468,6 +474,8 @@ pub fn keyboard_groups() -> Vec<(KeyGroup, Vec<KeyRow>)> {
                 R(A::FocusModelPicker),
                 R(A::StopGenerating),
                 Fixed(F::Regenerate),
+                Fixed(F::ExpandEditor),
+                Fixed(F::AskConduit),
                 R(A::CopyLastResponse),
                 R(A::CopyLastCodeBlock),
                 R(A::AllowRequest),
@@ -920,14 +928,23 @@ mod tests {
             assert_eq!(n, 1, "{c:?}");
         }
         assert_eq!(rows.iter().filter(|r| **r == KeyRow::QuickAsk).count(), 1);
-        // 12 rebindable, 15 fixed (⌘1…⌘8 as one row), Quick Ask.
-        assert_eq!(rows.len(), 28);
+        // 12 rebindable, 17 fixed (⌘1…⌘8 as one row), Quick Ask.
+        assert_eq!(rows.len(), 30);
         // Go › Back and Forward are Finder's ⌘[ and ⌘].
         assert_eq!(describe(&fixed_stroke(FixedCommand::Back), true), "⌘[");
         assert_eq!(describe(&fixed_stroke(FixedCommand::Forward), true), "⌘]");
         assert_eq!(
             describe(&fixed_stroke(FixedCommand::GoToSection(3)), true),
             "⌘3"
+        );
+        // The composer's larger editor and Ask Conduit.
+        assert_eq!(
+            describe(&fixed_stroke(FixedCommand::ExpandEditor), true),
+            "⇧⌘E"
+        );
+        assert_eq!(
+            describe(&fixed_stroke(FixedCommand::AskConduit), true),
+            "⇧⌘A"
         );
         // Next and Previous Chat are ⌃⇥ and ⌃⇧⇥, as Safari's tabs.
         assert_eq!(describe(&fixed_stroke(FixedCommand::NextChat), true), "⌃⇥");

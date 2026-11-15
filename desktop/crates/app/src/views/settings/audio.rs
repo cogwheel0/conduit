@@ -861,11 +861,11 @@ impl Render for AudioPane {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stores::app_settings::core_defaults;
+    use crate::stores::app_settings::desktop_defaults;
 
     #[test]
     fn the_engine_follows_core_then_the_desktop_engine() {
-        let mut s = core_defaults();
+        let mut s = desktop_defaults();
         let mut voice = VoiceSettings::default();
         assert_eq!(stt_engine(&s, Some(&voice)), "device");
         s.stt_preference = "serverOnly".into();

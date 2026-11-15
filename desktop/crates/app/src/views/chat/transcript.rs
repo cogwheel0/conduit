@@ -195,6 +195,42 @@ const TOP_INSET: f32 = 12.;
 const BOTTOM_INSET: f32 = TOP_FADE + 12.;
 
 impl Transcript {
+    /// Selects the newest answer's first text block whole, as a drag across
+    /// it would (the E2E pass's selection for Ask Conduit).
+    pub fn select_newest_answer(&mut self, cx: &mut Context<Self>) -> bool {
+        let store = self.store.read(cx);
+        let newest = store
+            .rows()
+            .iter()
+            .rev()
+            .find(|r| {
+                store
+                    .item(**r)
+                    .is_some_and(|i| i.role == crate::stores::chat::Role::Assistant)
+            })
+            .map(|r| store.row_key(*r));
+        let Some(RowView::Assistant(row)) = newest.and_then(|k| self.rows.get(&k)) else {
+            return false;
+        };
+        let state = row.read(cx).texts.values().next().map(|(_, s)| s.clone());
+        match state {
+            Some(state) => {
+                state.update(cx, |s, cx| s.select_all(cx));
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The text selected in an answer, if any (as selected: not trimmed),
+    /// for Ask Conduit and Copy.
+    pub fn selected_reply_text(&self, cx: &App) -> Option<String> {
+        self.rows.values().find_map(|row| match row {
+            RowView::Assistant(a) => a.read(cx).selected_text(cx),
+            RowView::User(_) => None,
+        })
+    }
+
     pub fn new(store: Entity<ChatStore>, host: RowHost, cx: &mut Context<Self>) -> Self {
         // Top-aligned, so a short chat starts under the toolbar; following
         // the tail keeps a tall one's end at the bottom (see the module doc).

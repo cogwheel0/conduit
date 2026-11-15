@@ -29,6 +29,10 @@
 //!   Chat, and comfortable density.
 //! * `chat`, `chat-direct`, `chat-smoke`: the chat view ([`chat`]).
 //! * `integration`: the sidebar and the chat view together ([`integration`]).
+//! * `composer`: the composer's mobile parity: drafts, the queue, the `$`,
+//!   `@` and `#` triggers, server files, a web page, the code interpreter,
+//!   quick pills, the larger editor, Save as Note and Ask Conduit
+//!   ([`composer`]).
 //! * `shell`: the macOS shell extras: links, Open with, Settings ›
 //!   Desktop, Quick Ask, notifications, close to the menu bar, open at
 //!   login, the model the composer names after a send and Show Sidebar
@@ -51,6 +55,7 @@
 //! typed.
 
 mod chat;
+mod composer;
 mod integration;
 mod offline;
 mod sections;
@@ -704,6 +709,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         }
         "integration" => integration::run(&inputs, &dir, cx).await,
         "sections" => sections::run(&inputs, &dir, cx).await,
+        "composer" => composer::run(&inputs, &dir, cx).await,
         "shell" | "shell-notify" | "shell-close" => shell::run(&inputs, &dir, cx).await,
         "offline-setup" => offline::setup(&inputs, &dir, cx).await,
         "offline" => offline::run(&inputs, &dir, cx).await,
