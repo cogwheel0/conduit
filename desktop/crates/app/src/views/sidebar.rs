@@ -494,6 +494,9 @@ impl SidebarView {
                     this.checkboxes = false;
                     this.anchor = None;
                     this.cursor = None;
+                    // A name being typed is the last account's: dropped
+                    // unsaved, with the field that would save it.
+                    this.renaming = None;
                 }
                 cx.notify()
             }),
@@ -3146,6 +3149,12 @@ mod selection_tests {
     fn another_account_starts_with_nothing_chosen(cx: &mut TestAppContext) {
         let (stores, view, vcx) = bench(cx);
         view.update(vcx, |s, cx| s.toggle_selected("chat-a", cx));
+        // A new folder's name being typed, which a later Enter would make.
+        view.update_in(vcx, |s, window, cx| {
+            let target = NameTarget::NewFolder { parent: None };
+            s.edit_name(target, "Plans".into(), window, cx);
+            assert!(s.renaming.is_some());
+        });
         stores.accounts.update(vcx, |a, cx| {
             a.adopt(
                 list(vec![
@@ -3156,7 +3165,13 @@ mod selection_tests {
             )
         });
         vcx.run_until_parked();
-        view.read_with(vcx, |s, _| assert!(s.selecting.is_none()));
+        view.read_with(vcx, |s, _| {
+            assert!(s.selecting.is_none());
+            assert!(
+                s.renaming.is_none(),
+                "the last account's name edit stayed open"
+            );
+        });
     }
 }
 
