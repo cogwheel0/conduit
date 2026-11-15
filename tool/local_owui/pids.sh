@@ -17,7 +17,8 @@ pid_identity() {
 # remember: the shell's own copy before it runs the command, a `nohup` in
 # front of it, a launcher script such as Homebrew's `dart`, which runs the
 # Dart VM in its place. The command line counts as settled once three reads
-# a tenth of a second apart agree. Writes nothing if the process is gone.
+# a tenth of a second apart agree. Writes nothing if the process is gone. A
+# launcher slower than that is caught by pid_refresh once the program serves.
 pid_record() {
   local file=$1 pid=$2 command previous= same=0 identity
   for _ in $(seq 1 50); do
@@ -37,6 +38,20 @@ pid_record() {
     previous=$command
     sleep 0.1
   done
+  identity=$(pid_identity "$pid")
+  [ -n "$identity" ] || return 0
+  printf '%s\n%s\n' "$pid" "$identity" > "$file"
+}
+
+# Records again, from what `ps` says now, the process FILE names, for a
+# program that may have been started through a launcher: once it answers on
+# its port, the launcher has handed over, however slow it was. Only for a pid
+# file written moments ago by this same start, never a stale one, whose pid
+# another process may have taken.
+pid_refresh() {
+  local file=$1 pid identity
+  [ -f "$file" ] || return 0
+  pid=$(pid_of "$file")
   identity=$(pid_identity "$pid")
   [ -n "$identity" ] || return 0
   printf '%s\n%s\n' "$pid" "$identity" > "$file"

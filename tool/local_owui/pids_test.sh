@@ -72,14 +72,27 @@ wait "$c" 2>/dev/null || true
 check 'the killed process is gone' 1 "$dir/c.pid"
 check 'a missing pid file is not ours' 1 "$dir/none.pid"
 
-# A launcher that runs the program in its place a moment later, as
-# Homebrew's `dart` script runs the Dart VM: the program is what is recorded.
-nohup bash -c 'sleep 0.15; exec sleep 63' > /dev/null 2>&1 &
+# A launcher that runs the program in its place only later, as Homebrew's
+# `dart` script runs the Dart VM: pid_record records the launcher, and
+# pid_refresh, called once the program serves, records the program. The
+# hand-over happens when the test says so, through a fifo.
+mkfifo "$dir/go"
+nohup bash -c 'read -r _ < "$1"; exec sleep 63' _ "$dir/go" > /dev/null 2>&1 &
 d=$!
 pid_record "$dir/d.pid" "$d"
-sleep 0.3 # the launcher has handed over by now
-check 'a program run in its launcher'"'"'s place is ours' 0 "$dir/d.pid"
-expect 'a program run in its launcher'"'"'s place is stopped' stopped "$(pid_stop "$dir/d.pid" 4)"
+check 'a launcher not yet handed over is ours' 0 "$dir/d.pid"
+echo go > "$dir/go"
+# Waits (5 s at most) for the hand-over, as owui.sh waits for the port.
+for _ in $(seq 1 100); do
+  case $(ps -ww -p "$d" -o command= 2>/dev/null) in sleep\ 63*) break ;; esac
+  sleep 0.05
+done
+check 'after the hand-over the launcher'"'"'s record no longer matches' 1 "$dir/d.pid"
+pid_refresh "$dir/d.pid"
+check 'a refreshed record names the program' 0 "$dir/d.pid"
+expect 'the program is stopped' stopped "$(pid_stop "$dir/d.pid" 4)"
 wait "$d" 2>/dev/null || true
+pid_refresh "$dir/gone.pid"
+[ ! -e "$dir/gone.pid" ] && echo 'ok    refreshing a missing pid file writes nothing' || { echo 'FAIL  refreshing a missing pid file writes nothing'; failures=$((failures + 1)); }
 
 [ "$failures" = 0 ] && echo 'pids: all ok' || { echo "pids: $failures failed"; exit 1; }
