@@ -289,6 +289,22 @@ impl ChatComposer {
         cx.notify();
     }
 
+    /// A refused send: its text and what it used (`used`, from
+    /// [`ComposerStore::one_shot`]) come back, but only to the account and
+    /// draft it was sent from; after another account or a new draft they are
+    /// dropped. Every send path goes through here.
+    pub fn give_back(
+        &mut self,
+        text: &str,
+        used: crate::stores::composer::OneShot,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.composer.update(cx, |c, cx| c.give_back(used, cx)) {
+            self.restore(text, window, cx);
+        }
+    }
+
     /// Puts text back after a refused send.
     pub fn restore(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         if self.text(cx).trim().is_empty() {

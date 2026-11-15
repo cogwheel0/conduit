@@ -505,8 +505,8 @@ impl ChatPane {
             let models = self.composer_store.downgrade();
             cx.spawn_in(window, async move |_, cx| {
                 if task.await.is_err() {
-                    let _ = composer.update_in(cx, |c, window, cx| c.restore(&text, window, cx));
-                    let _ = models.update(cx, |m, cx| m.give_back(used, cx));
+                    let _ = composer
+                        .update_in(cx, |c, window, cx| c.give_back(&text, used, window, cx));
                 }
                 // `turns.send` with no model lets the daemon pick (and keep)
                 // one: the label shows it without opening the picker.
@@ -579,9 +579,7 @@ impl ChatPane {
                     Err(e) => {
                         log::warn!("turns.send (new chat): {e}");
                         this.composer
-                            .update(cx, |c, cx| c.restore(&text, window, cx));
-                        this.composer_store
-                            .update(cx, |c, cx| c.give_back(used, cx));
+                            .update(cx, |c, cx| c.give_back(&text, used, window, cx));
                         let msg = cx.l10n().desktop_action_failed();
                         this.toast(NoticeLevel::Warning, msg, cx);
                     }
@@ -1534,6 +1532,78 @@ mod tests {
             );
             vcx.run_until_parked();
             assert_eq!(attachment_names(&pane, vcx), vec!["plan.pdf".to_string()]);
+        }
+
+        fn switch_account(stores: &Stores, vcx: &mut VisualTestContext) {
+            stores.accounts.update(vcx, |a, cx| {
+                a.adopt(
+                    list(vec![
+                        account("a", "Avery", false, true),
+                        account("b", "Blake", true, true),
+                    ]),
+                    cx,
+                )
+            });
+        }
+
+        fn composer_text(pane: &Entity<ChatPane>, vcx: &mut VisualTestContext) -> String {
+            pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx))
+        }
+
+        #[gpui_kit::test]
+        fn a_first_send_failing_after_an_account_switch_gives_nothing_back(
+            cx: &mut TestAppContext,
+        ) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.on::<methods::TurnsSend>(|_| {
+                Err(conduit_daemon::protocol::error("rpc.timeout", "slow"))
+            });
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer_store
+                    .update(cx, |c, _| c.attachments.push(uploaded("a-plan.pdf")));
+                p.send_text("For account A".into(), window, cx);
+            });
+            switch_account(&stores, vcx);
+            vcx.run_until_parked();
+            held.release();
+            vcx.run_until_parked();
+            assert!(attachment_names(&pane, vcx).is_empty());
+            assert_eq!(composer_text(&pane, vcx), "");
+        }
+
+        #[gpui_kit::test]
+        fn a_send_in_a_chat_failing_after_an_account_switch_gives_nothing_back(
+            cx: &mut TestAppContext,
+        ) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::ChatsGet>(
+                serde_json::from_value(serde_json::json!({"chat": {
+                    "summary": {"id": "chat-a", "title": "A chat", "updatedAtMs": 1,
+                        "pinned": false, "archived": false, "tags": [], "shared": false,
+                        "readOnly": false},
+                    "messages": [], "readOnly": false
+                }}))
+                .unwrap(),
+            );
+            daemon.on::<methods::TurnsSend>(|_| {
+                Err(conduit_daemon::protocol::error("rpc.timeout", "slow"))
+            });
+            stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+            vcx.run_until_parked();
+            assert!(pane.read_with(vcx, |p, _| p.chat.is_some()));
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer_store
+                    .update(cx, |c, _| c.attachments.push(uploaded("a-notes.md")));
+                p.send_text("Also for A".into(), window, cx);
+            });
+            switch_account(&stores, vcx);
+            vcx.run_until_parked();
+            held.release();
+            vcx.run_until_parked();
+            assert!(attachment_names(&pane, vcx).is_empty());
+            assert_eq!(composer_text(&pane, vcx), "");
         }
 
         #[gpui_kit::test]
