@@ -11,6 +11,7 @@ use super::main_pass::{ax_dump, new_chat};
 use super::{Run, Shot, drive, log, pause, place, wait_until};
 use crate::AppState;
 use crate::prefs::ThemeMode;
+use crate::stores::connection::DaemonPhase;
 use crate::views::server_form::ServerFormEvent;
 use crate::views::settings::{SETTINGS_SIZE, Tab};
 
@@ -484,14 +485,7 @@ pub async fn reconnect(run: &mut Run, cx: &mut AsyncApp) {
     let main = run.main;
     run.mode(ThemeMode::Light, cx).await;
     new_chat(run, cx).await;
-    // The pid this run's supervisor started and still owns: never a process
-    // found by its command line, which could be another run's.
-    let pid = cx.update(
-        |cx| match cx.global::<AppState>().connection.read(cx).daemon {
-            crate::stores::connection::DaemonPhase::Running { pid, .. } if pid > 0 => Some(pid),
-            _ => None,
-        },
-    );
+    let pid = cx.update(|cx| owned_daemon_pid(&cx.global::<AppState>().connection.read(cx).daemon));
     let Some(pid) = pid else {
         run.missing(
             "banner · reconnecting",
@@ -539,5 +533,34 @@ pub async fn reconnect(run: &mut Run, cx: &mut AsyncApp) {
     .await;
     if !back {
         run.problem("the daemon did not come back within a minute");
+    }
+}
+
+/// The pid this run's supervisor started and still owns: never a process
+/// found by its command line, which could be another run's, and never 0,
+/// which `kill` takes as the whole process group.
+fn owned_daemon_pid(phase: &DaemonPhase) -> Option<u32> {
+    match phase {
+        DaemonPhase::Running { pid, .. } if *pid > 0 => Some(*pid),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_daemon_this_run_owns_is_signalled() {
+        let running = |pid| DaemonPhase::Running { pid, port: 4000 };
+        assert_eq!(owned_daemon_pid(&running(4242)), Some(4242));
+        assert_eq!(owned_daemon_pid(&running(0)), None);
+        for phase in [
+            DaemonPhase::Starting,
+            DaemonPhase::Restarting,
+            DaemonPhase::Stopped,
+        ] {
+            assert_eq!(owned_daemon_pid(&phase), None, "{phase:?}");
+        }
     }
 }
