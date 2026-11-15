@@ -305,10 +305,13 @@ final class CoreSettingsService {
     }
     // A voice's name is the name of a voice: alone, it names the one chosen.
     final clear = patch.clear.toSet();
+    // Choosing the server engine forgets the device voice first, so a name
+    // in the same patch would name no voice.
+    final keepsDeviceVoice = patch.ttsEngine != TtsEngine.server.name;
     if (patch.ttsVoiceName != null &&
         patch.ttsVoice == null &&
         !clear.contains('ttsVoice') &&
-        (_settings.ttsVoice?.isEmpty ?? true)) {
+        (!keepsDeviceVoice || (_settings.ttsVoice?.isEmpty ?? true))) {
       bad('ttsVoiceName needs a device voice');
     }
     if (patch.ttsServerVoiceName != null &&

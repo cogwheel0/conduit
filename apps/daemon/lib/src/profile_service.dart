@@ -55,9 +55,30 @@ final class ProfileService {
         ));
   }
 
-  Future<ProfileDto> get() async => _dto(await _metadata());
+  Future<ProfileDto> get() async {
+    // The account the profile is read for: its client fetches the photo,
+    // and another account in use by then gets nothing of it.
+    final session = _session();
+    final api = _api();
+    return _dto(await _metadata(), session, api);
+  }
 
-  Future<ProfileDto> _dto(AccountMetadata m) async {
+  /// Still the account [session] and [api] were read in.
+  void _stillIn(Object session, ApiService api) {
+    if (!identical(session, _session()) ||
+        !identical(api, _container.read(apiServiceProvider))) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed while the profile was read',
+      );
+    }
+  }
+
+  Future<ProfileDto> _dto(
+    AccountMetadata m,
+    Object session,
+    ApiService api,
+  ) async {
     var passwordChange = true;
     try {
       final about = await readSettled(
@@ -68,13 +89,16 @@ final class ProfileService {
     } on Object {
       // As the phone: the form shows unless the server says otherwise.
     }
+    _stillIn(session, api);
+    final image = await _image(m.profileImageUrl, api);
+    _stillIn(session, api);
     return ProfileDto(
       id: m.id,
       name: m.name,
       email: m.email,
       role: m.role,
       username: m.username,
-      image: await _image(m.profileImageUrl),
+      image: image,
       bio: m.bio,
       gender: m.gender,
       dateOfBirth: m.dateOfBirth,
@@ -92,11 +116,10 @@ final class ProfileService {
   /// token, headers and client certificate: only a path on the account's
   /// own server is fetched. Another origin (another host, scheme or port,
   /// a local address) shows the initials instead.
-  Future<String?> _image(String? url) async {
+  Future<String?> _image(String? url, ApiService api) async {
     if (isDefaultProfileImageUrl(url)) return null;
     final value = url!.trim();
     if (value.startsWith('data:')) return value;
-    final api = _api();
     final uri = avatarUri(api.serverConfig.url, value);
     if (uri == null) return null;
     try {
@@ -297,7 +320,7 @@ final class ProfileService {
           gender: keep ? m.gender : gender,
           dateOfBirth: keep ? m.dateOfBirth : dateOfBirth,
         );
-    return _dto(updated);
+    return _dto(updated, session, _api());
   }
 
   /// As the phone: on success the account is signed out, to sign in again

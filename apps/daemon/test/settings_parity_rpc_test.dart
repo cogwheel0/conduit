@@ -324,6 +324,16 @@ void main() {
         patch(const AppSettingsPatch(ttsServerVoiceName: 'Nobody')),
         rpcCode(ConduitErrorCodes.invalidParams),
       );
+      // The server engine forgets the device voice: a name with it names
+      // nothing.
+      await patch(const AppSettingsPatch(ttsVoice: 'voice-a'));
+      await expectLater(
+        patch(
+          const AppSettingsPatch(ttsEngine: 'server', ttsVoiceName: 'Renamed'),
+        ),
+        rpcCode(ConduitErrorCodes.invalidParams),
+      );
+      await patch(const AppSettingsPatch(clear: <String>['ttsVoice']));
       final s = await read();
       expect(s.ttsVoiceName, isNull);
       expect(s.ttsServerVoiceName, isNull);
@@ -553,6 +563,10 @@ void _withAnAccount() {
       await db.close();
     });
 
+    /// Set to hold `serverAboutInfo`: completes [aboutAsked] when asked.
+    Completer<void>? aboutHeld;
+    Completer<void>? aboutAsked;
+
     ProviderContainer containerWith() {
       final container = ProviderContainer(
         overrides: [
@@ -571,7 +585,11 @@ void _withAnAccount() {
           userPermissionsProvider.overrideWith(
             (ref) async => const <String, dynamic>{},
           ),
-          serverAboutInfoProvider.overrideWith((ref) async => null),
+          serverAboutInfoProvider.overrideWith((ref) async {
+            aboutAsked?.complete();
+            await aboutHeld?.future;
+            return null;
+          }),
           authActionsProvider.overrideWith(_QuietAuth.new),
         ],
       );
@@ -605,6 +623,25 @@ void _withAnAccount() {
         expect(api.saved, isEmpty);
       },
     );
+
+    test("a profile read under one account never fetches the next one's "
+        'photo', () async {
+      aboutHeld = Completer<void>();
+      aboutAsked = Completer<void>();
+      addTearDown(() {
+        aboutHeld = null;
+        aboutAsked = null;
+      });
+      final container = containerWith();
+      api.metadata = () async => _avaMetadata(image: '/static/me.png');
+      final reading = ProfileService(container).get();
+      await aboutAsked!.future;
+      // Another account signs in while the server's About is read.
+      switchAccount(container);
+      aboutHeld!.complete();
+      await expectLater(reading, refused(ConduitErrorCodes.sessionExpired));
+      expect(api.asked.where((uri) => uri.path.endsWith('/me.png')), isEmpty);
+    });
 
     test('a settings patch stops once another account signs in', () async {
       final settings = _Settings();
