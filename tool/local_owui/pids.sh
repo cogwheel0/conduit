@@ -43,3 +43,27 @@ pid_alive() {
   [ -n "$pid" ] && [ -n "$saved" ] || return 1
   [ "$(pid_identity "$pid")" = "$saved" ]
 }
+
+# Stops the process FILE names if it is still the one recorded there: TERM
+# to it and its children (some `dart` launchers run the program in a child
+# VM), then KILL if it has not ended after TRIES half-seconds (default 20).
+# Each check is against the recorded identity, not just the pid, so a pid
+# that another process takes meanwhile is never signalled. Prints "stopped"
+# or "killed", or nothing when nothing of ours was running.
+pid_stop() {
+  local file=$1 tries=${2:-20} pid
+  pid_alive "$file" || return 0
+  pid=$(pid_of "$file")
+  pkill -TERM -P "$pid" 2>/dev/null || true
+  kill "$pid" 2>/dev/null || true
+  for _ in $(seq 1 "$tries"); do
+    pid_alive "$file" || { echo stopped; return 0; }
+    sleep 0.5
+  done
+  if pid_alive "$file"; then
+    kill -KILL "$pid" 2>/dev/null || true
+    echo killed
+  else
+    echo stopped
+  fi
+}

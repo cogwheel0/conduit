@@ -94,6 +94,23 @@ URL=http://127.0.0.1:$PORT
 # its pid file names, and no other one that took its pid since.
 alive() { pid_alive "$STATE/$1.pid"; }
 
+# Whether nothing listens on 127.0.0.1:PORT (curl: 7 = could not connect).
+# Checked before each launch, so that a health answer can only come from
+# this instance's server and the seed never reaches another instance.
+port_free() {
+  local rc=0
+  curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$1/" || rc=$?
+  [ "$rc" = 7 ]
+}
+
+# Refuses to start NAME on PORT when something else already listens there.
+need_free_port() {
+  if ! port_free "$2"; then
+    echo "port $2 is in use by something else, not this instance's $1: stop it or pick another --port" >&2
+    exit 1
+  fi
+}
+
 find_python() {
   if [ -n "${CONDUIT_OWUI_PYTHON:-}" ]; then echo "$CONDUIT_OWUI_PYTHON"; return; fi
   if command -v uv >/dev/null 2>&1; then
@@ -136,6 +153,11 @@ start() {
     echo "already running at $(cat "$STATE/url")"
     return
   fi
+  need_free_port server "$PORT"
+  alive fake_model || need_free_port 'fake model' "$MODEL_PORT"
+  if command -v dart >/dev/null 2>&1; then
+    alive fake_hermes || need_free_port 'fake Hermes' "$HERMES_PORT"
+  fi
   mkdir -p "$DATA" "$STATE"
   chmod 700 "$STATE"
   if [ ! -s "$STATE/secret" ]; then
@@ -174,11 +196,12 @@ start() {
   # The server writes a few files into its working directory.
   (
     cd "$STATE"
-    # Its own SQLite file and the fake model only, whatever the caller's
-    # shell exports: an inherited DATABASE_URL (or DATABASE_TYPE and its
-    # parts) or OPENAI_API_BASE_URLS/KEYS would point this throwaway server
-    # at real data or a real provider.
-    DATA_DIR="$DATA" \
+    # Its own SQLite file, local file storage and the fake model only,
+    # whatever the caller's shell exports: an inherited DATABASE_URL (or
+    # DATABASE_TYPE and its parts), STORAGE_PROVIDER (s3, gcs, azure) or
+    # OPENAI_API_BASE_URLS/KEYS would point this throwaway server at real
+    # data, a real bucket or a real provider.
+    DATA_DIR="$DATA" STORAGE_PROVIDER=local \
       DATABASE_URL="sqlite:///$DATA/webui.db" DATABASE_TYPE= DATABASE_SCHEMA= \
       OPENAI_API_BASE_URLS="http://127.0.0.1:$MODEL_PORT/v1" OPENAI_API_KEYS=sk-local-fake \
       WEBUI_SECRET_KEY="$(cat "$STATE/secret")" \
@@ -212,7 +235,7 @@ start() {
     if ! alive server; then break; fi
     sleep 2
   done
-  if [ "$code" != 200 ]; then
+  if [ "$code" != 200 ] || ! alive server; then
     echo "the server did not come up (health $code); see $STATE/server.log" >&2
     exit 1
   fi
@@ -241,23 +264,10 @@ seed() {
 
 stop() {
   for name in server fake_model fake_hermes; do
-    pidfile=$STATE/$name.pid
-    if alive "$name"; then
-      pid=$(pid_of "$pidfile")
-      # Some `dart` launchers run the program in a child VM.
-      pkill -TERM -P "$pid" 2>/dev/null || true
-      kill "$pid" 2>/dev/null || true
-      for _ in $(seq 1 20); do
-        kill -0 "$pid" 2>/dev/null || break
-        sleep 0.5
-      done
-      if kill -0 "$pid" 2>/dev/null; then
-        kill -KILL "$pid" 2>/dev/null || true
-        echo "stopped $name (killed)"
-      else
-        echo "stopped $name"
-      fi
-    fi
+    case $(pid_stop "$STATE/$name.pid") in
+      stopped) echo "stopped $name" ;;
+      killed) echo "stopped $name (killed)" ;;
+    esac
     rm -f "$STATE/$name.pid"
   done
 }
