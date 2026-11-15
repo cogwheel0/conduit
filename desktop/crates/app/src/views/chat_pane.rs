@@ -232,6 +232,9 @@ impl ChatPane {
                 let active = accounts.read(cx).active().map(|a| a.id.clone());
                 if active != this.account {
                     this.account = active;
+                    // A first send of the last account's no longer holds
+                    // this one's composer back.
+                    this.starting = false;
                     this.composer_store.update(cx, |c, cx| c.reset(cx));
                     this.composer.update(cx, |c, cx| c.forget_account(cx));
                     // The new account's draft for what is shown.
@@ -674,10 +677,17 @@ impl ChatPane {
         // The new chat this send came from: if the user has gone elsewhere
         // by the reply, the chat is made but not opened over their choice.
         let origin = self.stores.navigation.read(cx).selection().clone();
+        let account = self.account.clone();
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             let result = call.await;
             let _ = this.update_in(cx, |this, window, cx| {
+                // Another account since: this send is the last one's. It
+                // opens, rekeys and clears nothing here (the account change
+                // already ended its wait).
+                if this.account != account {
+                    return;
+                }
                 this.starting = false;
                 let still_here = *this.stores.navigation.read(cx).selection() == origin;
                 match result {
@@ -900,18 +910,40 @@ impl ChatPane {
         cx.notify();
     }
 
+    /// Saves the inline edit. The editor, with what was typed, stays until
+    /// `queue.edit` takes it; a refusal (a message already going out) is
+    /// said by the chat's failure notice and leaves the text to try again.
     pub fn save_queue_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(edit), Some(chat)) = (self.queue_edit.take(), &self.chat) else {
+        let (Some(edit), Some(chat)) = (&self.queue_edit, &self.chat) else {
             return;
         };
         let text = edit.input.read(cx).value().trim().to_string();
-        if !text.is_empty() {
-            chat.store
-                .update(cx, |s, cx| s.queue_edit(&edit.draft_id, &text, cx))
-                .detach();
+        if text.is_empty() {
+            self.queue_edit = None;
+            self.focus_composer(window, cx);
+            cx.notify();
+            return;
         }
-        self.focus_composer(window, cx);
-        cx.notify();
+        let draft_id = edit.draft_id.clone();
+        let input = edit.input.entity_id();
+        let task = chat
+            .store
+            .update(cx, |s, cx| s.queue_edit(&draft_id, &text, cx));
+        cx.spawn_in(window, async move |this, cx| {
+            let saved = task.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                let same = this
+                    .queue_edit
+                    .as_ref()
+                    .is_some_and(|e| e.draft_id == draft_id && e.input.entity_id() == input);
+                if saved && same {
+                    this.queue_edit = None;
+                    this.focus_composer(window, cx);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     pub fn cancel_queue_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -2162,6 +2194,96 @@ mod tests {
                     "saved first: {saved_first}"
                 );
             }
+        }
+
+        #[gpui_kit::test]
+        fn a_first_send_from_the_last_account_opens_nothing_in_this_one(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "chat-of-a",
+                    "userMessageId": "m",
+                    "assistantMessageId": "a",
+                }))
+                .unwrap(),
+            );
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("For Avery".into(), vec![], window, cx)
+            });
+            switch_account(&stores, vcx);
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer
+                    .update(cx, |c, cx| c.set_text("Blake's own words", window, cx))
+            });
+            let key = pane.read_with(vcx, |p, cx| p.composer_store.read(cx).draft_key().cloned());
+            held.release();
+            vcx.run_until_parked();
+            assert_eq!(
+                stores
+                    .navigation
+                    .read_with(vcx, |n, _| n.selected_chat().map(String::from)),
+                None,
+                "A's chat opened in B"
+            );
+            assert!(pane.read_with(vcx, |p, _| p.chat.is_none()));
+            assert_eq!(composer_text(&pane, vcx), "Blake's own words");
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer_store.read(cx).draft_key().cloned()),
+                key,
+                "B's draft was rekeyed to A's chat"
+            );
+        }
+
+        #[gpui_kit::test]
+        fn a_refused_queue_edit_keeps_its_editor_and_text(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::ChatsGet>(
+                serde_json::from_value(serde_json::json!({"chat": {
+                    "summary": {"id": "chat-q", "title": "Queued", "updatedAtMs": 1,
+                        "pinned": false, "archived": false, "tags": [], "shared": false,
+                        "readOnly": false},
+                    "messages": [], "readOnly": false
+                }}))
+                .unwrap(),
+            );
+            stores.navigation.update(vcx, |n, cx| n.open("chat-q", cx));
+            vcx.run_until_parked();
+            daemon.once::<methods::QueueEdit>(Err(conduit_daemon::protocol::error(
+                "rpc.invalidParams",
+                "frozen",
+            )));
+            pane.update_in(vcx, |p, window, cx| {
+                p.edit_queued("q1", "Then this", window, cx);
+                if let Some(edit) = &p.queue_edit {
+                    edit.input
+                        .update(cx, |i, cx| i.set_value("Then this instead", window, cx));
+                }
+                p.save_queue_edit(window, cx);
+            });
+            vcx.run_until_parked();
+            let editing = |pane: &Entity<ChatPane>, vcx: &mut VisualTestContext| {
+                pane.read_with(vcx, |p, cx| {
+                    p.queue_edit
+                        .as_ref()
+                        .map(|e| e.input.read(cx).value().to_string())
+                })
+            };
+            assert_eq!(
+                editing(&pane, vcx),
+                Some("Then this instead".to_string()),
+                "a refused edit lost what was typed"
+            );
+            daemon.returns::<methods::QueueEdit>(
+                serde_json::from_value(serde_json::json!({"chatId": "chat-q"})).unwrap(),
+            );
+            pane.update_in(vcx, |p, window, cx| p.save_queue_edit(window, cx));
+            vcx.run_until_parked();
+            assert_eq!(editing(&pane, vcx), None);
+            let sent = daemon.calls::<methods::QueueEdit>();
+            assert_eq!(sent.len(), 2);
+            assert_eq!(sent[1]["text"], "Then this instead");
         }
 
         #[gpui_kit::test]
