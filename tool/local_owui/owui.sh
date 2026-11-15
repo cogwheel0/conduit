@@ -87,28 +87,12 @@ if [ -z "$HERMES_PORT" ] && [ -f "$STATE/hermes_port" ]; then HERMES_PORT=$(cat 
 HERMES_PORT=${HERMES_PORT:-$((PORT + 2))}
 URL=http://127.0.0.1:$PORT
 
-# Whether NAME (server, fake_model or fake_hermes) is running: its pid
-# file names a process whose command line is still that program's, started
-# for this instance. A pid
-# left behind by a crash may belong to an unrelated process by now, which
-# must be neither reported as ours nor stopped.
-alive() {
-  pidfile=$STATE/$1.pid
-  [ -f "$pidfile" ] || return 1
-  # The program, and an argument only this instance passes it: another
-  # instance's fake model is not ours either.
-  case $1 in
-    server) program=open-webui instance="--port $PORT" ;;
-    fake_model) program=fake_model.py instance="$STATE/requests.jsonl" ;;
-    fake_hermes) program=fake_hermes.dart instance="$STATE/no_packages.json" ;;
-    *) return 1 ;;
-  esac
-  # Padded with spaces, so `--port 8150` does not match `--port 81500`.
-  case " $(ps -o command= -p "$(cat "$pidfile")" 2>/dev/null) " in
-    *"$program"*" $instance "* | *" $instance "*"$program"*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
+# Pid files and the identity of what they name: tool/local_owui/pids.sh.
+. "$TOOL_DIR/pids.sh"
+
+# Whether NAME (server, fake_model or fake_hermes) is running: the process
+# its pid file names, and no other one that took its pid since.
+alive() { pid_alive "$STATE/$1.pid"; }
 
 find_python() {
   if [ -n "${CONDUIT_OWUI_PYTHON:-}" ]; then echo "$CONDUIT_OWUI_PYTHON"; return; fi
@@ -169,7 +153,7 @@ start() {
     nohup "$VENV/bin/python" -I "$TOOL_DIR/fake_model.py" \
       --port "$MODEL_PORT" --log "$STATE/requests.jsonl" \
       > "$STATE/fake_model.log" 2>&1 &
-    echo $! > "$STATE/fake_model.pid"
+    pid_record "$STATE/fake_model.pid" $!
   fi
 
   # The daemon tests' fake Hermes API server, for the desktop app's Hermes
@@ -181,7 +165,7 @@ start() {
       nohup dart --packages="$STATE/no_packages.json" "$TOOL_DIR/fake_hermes.dart" \
         --port "$HERMES_PORT" --key "$(cat "$STATE/hermes_key")" \
         > "$STATE/fake_hermes.log" 2>&1 &
-      echo $! > "$STATE/fake_hermes.pid"
+      pid_record "$STATE/fake_hermes.pid" $!
     else
       echo "no dart on PATH: the fake Hermes server is not started" >&2
     fi
@@ -190,7 +174,13 @@ start() {
   # The server writes a few files into its working directory.
   (
     cd "$STATE"
+    # Its own SQLite file and the fake model only, whatever the caller's
+    # shell exports: an inherited DATABASE_URL (or DATABASE_TYPE and its
+    # parts) or OPENAI_API_BASE_URLS/KEYS would point this throwaway server
+    # at real data or a real provider.
     DATA_DIR="$DATA" \
+      DATABASE_URL="sqlite:///$DATA/webui.db" DATABASE_TYPE= DATABASE_SCHEMA= \
+      OPENAI_API_BASE_URLS="http://127.0.0.1:$MODEL_PORT/v1" OPENAI_API_KEYS=sk-local-fake \
       WEBUI_SECRET_KEY="$(cat "$STATE/secret")" \
       ENABLE_PERSISTENT_CONFIG=false \
       OFFLINE_MODE=true HF_HUB_OFFLINE=1 \
@@ -212,12 +202,12 @@ start() {
       AUDIO_TTS_OPENAI_API_KEY=sk-local-fake \
       nohup "$VENV/bin/open-webui" serve --host 127.0.0.1 --port "$PORT" \
       > "$STATE/server.log" 2>&1 &
-    echo $! > "$STATE/server.pid"
+    pid_record "$STATE/server.pid" $!
   )
 
   code=000
   for _ in $(seq 1 120); do
-    code=$(curl -s -o /dev/null -w '%{http_code}' "$URL/health" || true)
+    code=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "$URL/health" || true)
     [ "$code" = 200 ] && break
     if ! alive server; then break; fi
     sleep 2
@@ -253,7 +243,7 @@ stop() {
   for name in server fake_model fake_hermes; do
     pidfile=$STATE/$name.pid
     if alive "$name"; then
-      pid=$(cat "$pidfile")
+      pid=$(pid_of "$pidfile")
       # Some `dart` launchers run the program in a child VM.
       pkill -TERM -P "$pid" 2>/dev/null || true
       kill "$pid" 2>/dev/null || true
@@ -301,7 +291,7 @@ set_aside() {
 status() {
   for name in server fake_model fake_hermes; do
     if alive "$name"; then
-      echo "$name: running (pid $(cat "$STATE/$name.pid"))"
+      echo "$name: running (pid $(pid_of "$STATE/$name.pid"))"
     else
       echo "$name: stopped"
     fi

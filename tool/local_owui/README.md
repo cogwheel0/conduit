@@ -28,6 +28,12 @@ On Linux the cache root is `${XDG_CACHE_HOME:-~/.cache}/conduit-dev`;
 Agent API server on 8152 (the next ports). Nothing is deleted: `reset`
 moves the old data into `local-owui/old/`.
 
+Each process's pid file also holds what `ps` said about it at start (its
+start time and command line); `owui.sh` takes a process for its own, and
+stops it, only while `ps` still says exactly that, so a pid reused after a
+crash, or another instance's process, is left alone.
+`tool/local_owui/pids_test.sh` checks that with `sleep` processes of its own.
+
 ## What it holds
 
 `owui.sh start` runs Open WebUI with `ENABLE_PERSISTENT_CONFIG=false`,
