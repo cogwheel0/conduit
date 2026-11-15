@@ -9,6 +9,7 @@ reviews:
     - "!hermes-src/**"
     - "!librechat-src/**"
     - "!third_party/**"
+    - "!desktop/vendor/**"
     # Generated: Riverpod, Freezed, JSON, Drift, Pigeon, and localization
     # output.
     - "!**/*.g.dart"
