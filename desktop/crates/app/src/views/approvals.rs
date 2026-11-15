@@ -8,8 +8,9 @@
 //! approvals (once / session / always, "always" asked twice as on mobile),
 //! and Hermes decisions with the agent's own choices. A kind this window
 //! cannot answer says to answer it on another device and only dismisses.
-//! ⌥⌘↩ and ⌥⌘⌫ answer the top card ([`ApprovalsView::allow`],
-//! [`ApprovalsView::deny`]).
+//! ⌥⌘↩ and ⌥⌘⌫ answer the card on screen ([`ApprovalsView::allow`],
+//! [`ApprovalsView::deny`]). Every button and shortcut answers the request
+//! its card was drawn for, and only while that request still waits.
 //!
 //! The card docks over 200 ms, rising from the composer as its height opens
 //! and it fades in. Once answered it leaves over 150 ms where it stands
@@ -92,7 +93,18 @@ impl ApprovalsView {
             return;
         }
         self.for_request = Some(top.request_id.clone());
-        self.selected = 0;
+        // A select starts on the value the server offered, if it names one.
+        self.selected = match card(top) {
+            Card::Input {
+                input: InputKind::Select(options),
+                initial,
+                ..
+            } => options
+                .iter()
+                .position(|o| !initial.is_empty() && o.value == initial)
+                .unwrap_or(0),
+            _ => 0,
+        };
         self.confirming_always = false;
         if let Card::Input {
             initial,
@@ -126,6 +138,17 @@ impl ApprovalsView {
         self.stores.ui_requests.read(cx).top().cloned()
     }
 
+    /// `request_id` while it is still waiting.
+    fn waiting(&self, request_id: &str, cx: &App) -> Option<UiRequest> {
+        self.stores
+            .ui_requests
+            .read(cx)
+            .queue
+            .iter()
+            .find(|r| r.request_id == request_id)
+            .cloned()
+    }
+
     fn typed(&self, top: &UiRequest, cx: &App) -> Option<String> {
         match card(top) {
             Card::Input {
@@ -141,70 +164,107 @@ impl ApprovalsView {
         }
     }
 
-    fn answer(&mut self, answer: Answer, remember: bool, cx: &mut Context<Self>) {
-        let Some(top) = self.top(cx) else { return };
-        let id = top.request_id.clone();
+    /// Answers `request_id`, the request a card was drawn for, and only
+    /// while it waits: a request settled meanwhile (between a button's
+    /// press and its release, say) is never answered for the next one.
+    fn answer(&mut self, request_id: &str, answer: Answer, remember: bool, cx: &mut Context<Self>) {
+        if self.waiting(request_id, cx).is_none() {
+            return;
+        }
         self.stores
             .ui_requests
-            .update(cx, |u, cx| u.respond(&id, answer, remember, cx));
+            .update(cx, |u, cx| u.respond(request_id, answer, remember, cx));
         cx.notify();
     }
 
-    /// ⌥⌘↩: the card's primary answer.
+    /// ⌥⌘↩: the primary answer of the card on screen.
     pub fn allow(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(top) = self.top(cx) else {
+        match self.for_request.clone() {
+            Some(id) => self.allow_request(&id, cx),
+            None => false,
+        }
+    }
+
+    /// ⌥⌘⌫: deny, cancel, or dismiss the card on screen.
+    pub fn deny(&mut self, cx: &mut Context<Self>) -> bool {
+        match self.for_request.clone() {
+            Some(id) => self.deny_request(&id, cx),
+            None => false,
+        }
+    }
+
+    fn allow_request(&mut self, request_id: &str, cx: &mut Context<Self>) -> bool {
+        let Some(request) = self.waiting(request_id, cx) else {
             return false;
         };
-        let text = self.typed(&top, cx);
-        match allow(&top, text) {
+        // The fields hold the text of the card drawn last.
+        let text = if self.for_request.as_deref() == Some(request_id) {
+            self.typed(&request, cx)
+        } else {
+            None
+        };
+        match allow(&request, text) {
             Some(answer) => {
-                self.answer(answer, false, cx);
+                self.answer(request_id, answer, false, cx);
                 true
             }
             None => false,
         }
     }
 
-    /// ⌥⌘⌫: deny, cancel, or dismiss.
-    pub fn deny(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(top) = self.top(cx) else {
+    fn deny_request(&mut self, request_id: &str, cx: &mut Context<Self>) -> bool {
+        let Some(request) = self.waiting(request_id, cx) else {
             return false;
         };
-        self.answer(deny(&top), false, cx);
+        self.answer(request_id, deny(&request), false, cx);
         true
     }
 
+    /// A button that answers `choice` to `request_id`.
     fn button(
         &self,
         id: &str,
         label: String,
-        choice: &'static str,
+        request_id: &str,
+        choice: &str,
         cx: &mut Context<Self>,
     ) -> ApprovalAction {
         let this = cx.entity().downgrade();
-        let choice = choice.to_string();
+        let (request_id, choice) = (request_id.to_string(), choice.to_string());
         ApprovalAction::new(SharedString::from(id.to_string()), label).on_click(Rc::new(
             move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
-                let choice = choice.clone();
-                let _ = this.update(cx, |s, cx| s.answer(Answer::new(&choice), false, cx));
+                let _ = this.update(cx, |s, cx| {
+                    s.answer(&request_id, Answer::new(&choice), false, cx)
+                });
             },
         ))
     }
 
     fn card_for(&mut self, top: &UiRequest, l10n: &L10n, cx: &mut Context<Self>) -> ApprovalCard {
+        let (card, actions) = self.card_parts(top, l10n, cx);
+        card.actions(actions)
+    }
+
+    /// The card for `top` and its buttons, each bound to `top`.
+    fn card_parts(
+        &mut self,
+        top: &UiRequest,
+        l10n: &L10n,
+        cx: &mut Context<Self>,
+    ) -> (ApprovalCard, Vec<ApprovalAction>) {
         let id = top.request_id.clone();
         let this = cx.entity().downgrade();
         let answering = self.stores.ui_requests.read(cx).answering.contains(&id);
         let allow_cb = {
-            let this = this.clone();
+            let (this, id) = (this.clone(), id.clone());
             Rc::new(move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
-                let _ = this.update(cx, |s, cx| s.allow(cx));
+                let _ = this.update(cx, |s, cx| s.allow_request(&id, cx));
             })
         };
         let deny_cb = {
-            let this = this.clone();
+            let (this, id) = (this.clone(), id.clone());
             Rc::new(move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
-                let _ = this.update(cx, |s, cx| s.deny(cx));
+                let _ = this.update(cx, |s, cx| s.deny_request(&id, cx));
             })
         };
         let primary = |label: String| {
@@ -227,28 +287,32 @@ impl ApprovalsView {
                 message,
                 confirm_label,
                 cancel_label,
-            } => ApprovalCard::new(
-                id.clone(),
-                or(title, l10n.desktop_server_asks()),
-                message,
-                source,
-                ApprovalKind::Message,
-            )
-            .actions(vec![
-                secondary(cancel_label.unwrap_or_else(|| l10n.desktop_deny())),
-                primary(confirm_label.unwrap_or_else(|| l10n.desktop_allow())),
-            ]),
-            Card::Tool { title, message } => ApprovalCard::new(
-                id.clone(),
-                tool_question(&title, l10n),
-                message,
-                source,
-                ApprovalKind::Message,
-            )
-            .actions(vec![
-                secondary(l10n.desktop_deny()),
-                primary(l10n.desktop_allow()),
-            ]),
+            } => (
+                ApprovalCard::new(
+                    id.clone(),
+                    or(title, l10n.desktop_server_asks()),
+                    message,
+                    source,
+                    ApprovalKind::Message,
+                ),
+                vec![
+                    secondary(cancel_label.unwrap_or_else(|| l10n.desktop_deny())),
+                    primary(confirm_label.unwrap_or_else(|| l10n.desktop_allow())),
+                ],
+            ),
+            Card::Tool { title, message } => (
+                ApprovalCard::new(
+                    id.clone(),
+                    tool_question(&title, l10n),
+                    message,
+                    source,
+                    ApprovalKind::Message,
+                ),
+                vec![
+                    secondary(l10n.desktop_deny()),
+                    primary(l10n.desktop_allow()),
+                ],
+            ),
             Card::Input {
                 title,
                 message,
@@ -287,15 +351,16 @@ impl ApprovalsView {
                         });
                     })
                 };
-                ApprovalCard::new(id.clone(), label, message, source, kind)
-                    .on_option(pick)
-                    .actions(vec![
+                (
+                    ApprovalCard::new(id.clone(), label, message, source, kind).on_option(pick),
+                    vec![
                         // Answering a server's question: Skip answers nothing,
                         // Send sends the choice (Deny and Allow stay the tool
                         // cards' words).
                         secondary(cancel_label.unwrap_or_else(|| l10n.desktop_skip())),
                         primary(confirm_label.unwrap_or_else(|| l10n.send())),
-                    ])
+                    ],
+                )
             }
             Card::Mcp {
                 server,
@@ -324,6 +389,7 @@ impl ApprovalsView {
                         self.button(
                             &format!("always-{id}"),
                             l10n.desktop_always_allow(),
+                            &id,
                             "allowAlways",
                             cx,
                         )
@@ -350,6 +416,7 @@ impl ApprovalsView {
                         self.button(
                             &format!("session-{id}"),
                             l10n.desktop_allow_for_session(),
+                            &id,
                             "allowSession",
                             cx,
                         )
@@ -367,13 +434,13 @@ impl ApprovalsView {
                         caption: l10n.desktop_tool_input().into(),
                         code,
                     },
-                )
-                .actions(actions);
-                if self.confirming_always {
+                );
+                let card = if self.confirming_always {
                     card.note(l10n.desktop_mcp_always_allow_note(&server, &top_tool(top)))
                 } else {
                     card
-                }
+                };
+                (card, actions)
             }
             Card::Hermes { summary, choices } => {
                 let label = |c: &str| match c {
@@ -392,12 +459,8 @@ impl ApprovalsView {
                         if c == "deny" {
                             secondary(label(c))
                         } else {
-                            let leaked: &'static str = match c.as_str() {
-                                "session" => "session",
-                                "always" => "always",
-                                _ => "once",
-                            };
-                            self.button(&format!("{c}-{id}"), label(c), leaked, cx)
+                            // The agent's own choice, as it offered it.
+                            self.button(&format!("{c}-{id}"), label(c), &id, c, cx)
                                 .disabled(answering)
                         }
                     })
@@ -405,30 +468,34 @@ impl ApprovalsView {
                 if choices.iter().any(|c| c == "once") {
                     actions.push(primary(label("once")));
                 }
+                (
+                    ApprovalCard::new(
+                        id.clone(),
+                        l10n.desktop_approval_required(),
+                        or(summary, l10n.hermes_approval_fallback()),
+                        l10n.desktop_hermes_agent(),
+                        ApprovalKind::Message,
+                    )
+                    .tile(IconName::Bot),
+                    actions,
+                )
+            }
+            Card::Unsupported => (
                 ApprovalCard::new(
                     id.clone(),
-                    l10n.desktop_approval_required(),
-                    or(summary, l10n.hermes_approval_fallback()),
-                    l10n.desktop_hermes_agent(),
+                    l10n.desktop_approval_unsupported_title(),
+                    l10n.desktop_approval_unsupported_body(),
+                    source,
                     ApprovalKind::Message,
                 )
-                .tile(IconName::Bot)
-                .actions(actions)
-            }
-            Card::Unsupported => ApprovalCard::new(
-                id.clone(),
-                l10n.desktop_approval_unsupported_title(),
-                l10n.desktop_approval_unsupported_body(),
-                source,
-                ApprovalKind::Message,
-            )
-            .tile(IconName::Smartphone)
-            .actions(vec![
-                ApprovalAction::new(format!("dismiss-{id}"), l10n.desktop_release_dismiss())
-                    .shortcut(DENY_KEYS)
-                    .disabled(answering)
-                    .on_click(deny_cb.clone()),
-            ]),
+                .tile(IconName::Smartphone),
+                vec![
+                    ApprovalAction::new(format!("dismiss-{id}"), l10n.desktop_release_dismiss())
+                        .shortcut(DENY_KEYS)
+                        .disabled(answering)
+                        .on_click(deny_cb.clone()),
+                ],
+            ),
         }
     }
 }
@@ -656,5 +723,157 @@ mod tests {
         assert_eq!(tool_question(" ", &l10n), "Tool Approval");
         let de = L10n::new("de");
         assert!(tool_question("tide_table", &de).contains("Tide Table"));
+    }
+}
+
+#[cfg(test)]
+mod answer_tests {
+    use std::collections::BTreeMap;
+
+    use conduit_protocol::{AcceptedResult, UiRequestKind, methods};
+    use gpui_kit::{TestAppContext, VisualTestContext};
+
+    use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    fn request(id: &str, kind: UiRequestKind, detail: serde_json::Value) -> UiRequest {
+        UiRequest {
+            request_id: id.into(),
+            kind,
+            message_code: if kind == UiRequestKind::HermesDecision {
+                "hermes.approval".into()
+            } else {
+                "server.confirm".into()
+            },
+            message_args: BTreeMap::new(),
+            detail,
+            timeout_ms: None,
+            default_choice: "deny".into(),
+            input_type: None,
+            options: None,
+        }
+    }
+
+    struct Bench {
+        daemon: FakeDaemon,
+        stores: Stores,
+        view: Entity<ApprovalsView>,
+    }
+
+    fn bench(cx: &mut TestAppContext) -> (Bench, &mut VisualTestContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::UiRespond>(AcceptedResult { accepted: true });
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-approvals-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            gpui_kit::init(cx);
+            conduit_components::theme::install(
+                conduit_components::theme::ConduitTheme::new(
+                    "conduit",
+                    false,
+                    conduit_components::theme::DesignPrefs::default(),
+                    gpui_kit::black(),
+                ),
+                cx,
+            );
+            cx.set_global(conduit_components::Strings::default());
+            cx.set_global(crate::l10n::L10n::new("en"));
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let s = stores.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| ApprovalsView::new(s, window, cx));
+        (
+            Bench {
+                daemon,
+                stores,
+                view,
+            },
+            vcx,
+        )
+    }
+
+    #[gpui_kit::test]
+    fn a_button_answers_only_the_request_it_was_drawn_for(cx: &mut TestAppContext) {
+        let (b, vcx) = bench(cx);
+        b.stores.ui_requests.update(vcx, |u, cx| {
+            u.on_request(
+                request("a", UiRequestKind::Confirm, serde_json::json!({})),
+                cx,
+            );
+            u.on_request(
+                request("b", UiRequestKind::Confirm, serde_json::json!({})),
+                cx,
+            );
+        });
+        // A's card, as drawn; A's Allow pressed.
+        let actions = vcx.update(|_, cx| {
+            b.view.update(cx, |v, cx| {
+                let top = v.top(cx).unwrap();
+                v.for_request = Some(top.request_id.clone());
+                let l10n = cx.l10n().clone();
+                v.card_parts(&top, &l10n, cx).1
+            })
+        });
+        let allow_a = actions
+            .iter()
+            .find(|a| a.id.as_ref() == "allow-a")
+            .and_then(|a| a.on_click.clone())
+            .expect("A's Allow");
+        // A settles before the release, and no frame is drawn between.
+        b.stores
+            .ui_requests
+            .update(vcx, |u, cx| u.on_settled("a", cx));
+        vcx.update(|window, cx| allow_a(&ClickEvent::default(), window, cx));
+        // So does a shortcut pressed while A's card is still the one on
+        // screen.
+        vcx.update(|_, cx| {
+            b.view.update(cx, |v, cx| {
+                v.for_request = Some("a".into());
+                assert!(!v.allow(cx));
+                assert!(!v.deny(cx));
+            })
+        });
+        vcx.run_until_parked();
+        assert!(
+            b.daemon.calls::<methods::UiRespond>().is_empty(),
+            "B was answered for A"
+        );
+        b.stores.ui_requests.read_with(vcx, |u, _| {
+            assert!(u.answering.is_empty());
+            assert_eq!(u.top().map(|r| r.request_id.as_str()), Some("b"));
+        });
+    }
+
+    #[gpui_kit::test]
+    fn an_agents_own_choice_is_answered_as_offered(cx: &mut TestAppContext) {
+        let (b, vcx) = bench(cx);
+        b.stores.ui_requests.update(vcx, |u, cx| {
+            u.on_request(
+                request(
+                    "h",
+                    UiRequestKind::HermesDecision,
+                    serde_json::json!({"choices": ["retry", "deny"]}),
+                ),
+                cx,
+            );
+        });
+        let actions = vcx.update(|_, cx| {
+            b.view.update(cx, |v, cx| {
+                let top = v.top(cx).unwrap();
+                v.for_request = Some(top.request_id.clone());
+                let l10n = cx.l10n().clone();
+                v.card_parts(&top, &l10n, cx).1
+            })
+        });
+        let retry = actions
+            .iter()
+            .find(|a| a.id.as_ref() == "retry-h")
+            .and_then(|a| a.on_click.clone())
+            .expect("the agent's Retry");
+        vcx.update(|window, cx| retry(&ClickEvent::default(), window, cx));
+        vcx.run_until_parked();
+        let calls = b.daemon.calls::<methods::UiRespond>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["choice"], "retry");
     }
 }
