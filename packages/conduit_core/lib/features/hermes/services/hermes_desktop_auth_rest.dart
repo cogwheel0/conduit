@@ -369,8 +369,12 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     if (read == null) return _refreshNative(held);
     final stored = await read();
     if (!identical(_nativeTokens, held)) return _nativeTokens;
-    if (stored?.refreshToken == held.refreshToken ||
-        _spentRefreshTokens.contains(stored?.refreshToken)) {
+    final storedToken = stored?.refreshToken;
+    // Storage moves on only by a save, and a spent token never comes back:
+    // the one storage still holds is the only one worth remembering.
+    _spentRefreshTokens.retainWhere((token) => token == storedToken);
+    if (storedToken == held.refreshToken ||
+        _spentRefreshTokens.contains(storedToken)) {
       return _refreshNative(held);
     }
     // Another client rotated the tokens, or signed out: the held refresh
@@ -409,10 +413,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
   }
 
   void _spend(String refreshToken) {
-    _spentRefreshTokens.add(refreshToken);
-    if (_spentRefreshTokens.length > 8) {
-      _spentRefreshTokens.remove(_spentRefreshTokens.first);
-    }
+    if (_readStoredTokens != null) _spentRefreshTokens.add(refreshToken);
   }
 
   Future<Map<String, String>> _headers({required bool authenticated}) async {

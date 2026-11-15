@@ -397,11 +397,11 @@ void main() {
     // Saving this client's rotation failed, so storage still holds the
     // refresh token it spent. That one is older, not newer: the client
     // renews its own rotation, and never sends the spent token again.
-    test('a rotation that failed to save is renewed over the spent token '
+    test('rotations that failed to save are renewed over the spent token '
         'storage kept', () async {
       var time = now;
       await withClock(Clock(() => time), () async {
-        final rest = _TokenRest();
+        final rest = _TokenRest(rotates: true);
         final lifecycle = _Lifecycle();
         final gateway = service(
           rest,
@@ -416,13 +416,20 @@ void main() {
 
         lifecycle.emit(AppLifecyclePhase.resumed);
         await gateway.resumeRenewal;
-        time = DateTime.utc(2099).subtract(const Duration(minutes: 2));
-        lifecycle.emit(AppLifecyclePhase.resumed);
-        await gateway.resumeRenewal;
+        // Each later rotation fails to save too, so storage stays put.
+        for (var renewal = 1; renewal <= 11; renewal++) {
+          time = _TokenRest.expiryOf(renewal).subtract(
+            const Duration(minutes: 2),
+          );
+          lifecycle.emit(AppLifecyclePhase.resumed);
+          await gateway.resumeRenewal;
+        }
 
-        check(
-          rest.refreshTokensSent,
-        ).deepEquals(['refresh', 'renewed-refresh']);
+        check(rest.refreshTokensSent).deepEquals([
+          'refresh',
+          for (var renewal = 1; renewal <= 11; renewal++)
+            'renewed-refresh-$renewal',
+        ]);
       });
     });
 
@@ -771,10 +778,19 @@ final class _TokenRest implements HttpClientAdapter {
     this.refreshStatus = HttpStatus.ok,
     this.requestStatus = HttpStatus.ok,
     this.refreshGate,
+    this.rotates = false,
   });
 
   final int refreshStatus;
   final int requestStatus;
+
+  /// Each renewal issues new tokens, `renewed-refresh-1` onwards, expiring at
+  /// [expiryOf] their number; otherwise always `renewed-refresh`.
+  final bool rotates;
+  var _renewals = 0;
+
+  static DateTime expiryOf(int renewal) =>
+      DateTime.utc(2030).add(Duration(hours: renewal));
 
   /// Holds the refresh's answer until it completes.
   final Future<void>? refreshGate;
@@ -830,6 +846,16 @@ final class _TokenRest implements HttpClientAdapter {
         HttpStatus.ok,
         const <Object?>[],
       ),
+      '/auth/native/refresh' when refreshStatus == HttpStatus.ok && rotates =>
+        (
+          HttpStatus.ok,
+          {
+            'access_token': 'renewed-access-${++_renewals}',
+            'refresh_token': 'renewed-refresh-$_renewals',
+            'expires_at':
+                expiryOf(_renewals).millisecondsSinceEpoch ~/ 1000,
+          },
+        ),
       '/auth/native/refresh' when refreshStatus == HttpStatus.ok => (
         HttpStatus.ok,
         {
