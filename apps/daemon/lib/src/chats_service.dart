@@ -634,7 +634,7 @@ final class ChatsService {
   Future<ChatList> delete(String id) async {
     // Never on the server: forgetting it here is the whole delete.
     if (_temporary.contains(id)) {
-      _temporary.forget(id);
+      _temporary.delete(id);
       _events?.emit(ConduitEventSpecs.chatsChanged, ChatsChanged(chatId: id));
       return _refresh();
     }

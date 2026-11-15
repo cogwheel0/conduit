@@ -144,6 +144,27 @@ void main() {
     await chats.delete('local:scratch');
     expect(temporary.contains('local:scratch'), isFalse);
     expect(await chats.get('local:scratch'), isNull);
+
+    // An answer that was still running, or a scope still lingering, does
+    // not write it back; and it cannot be sent to again.
+    temporary.replace('local:scratch', const []);
+    expect(temporary.contains('local:scratch'), isFalse);
+    final turns = TurnsService(
+      runtime.container,
+      EventBus(),
+      temporary: temporary,
+    );
+    addTearDown(turns.dispose);
+    await expectLater(
+      turns.send(const SendTurn(chatId: 'local:scratch', text: 'again')),
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.notFound,
+        ),
+      ),
+    );
   });
 
   // The id goes into the server's path, with the account's credential: an

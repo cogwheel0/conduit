@@ -1168,6 +1168,12 @@ final class TurnsService {
         debugMessage: 'the daemon is stopping',
       );
     }
+    if (chatId != null && temporary.isDeleted(chatId)) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: 'chat $chatId was deleted',
+      );
+    }
     if (chatId != null) {
       final existing = _sessionOf(chatId);
       if (existing != null) {

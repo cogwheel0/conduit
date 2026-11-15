@@ -12,6 +12,10 @@ final class TemporaryChats {
   final Map<String, List<ChatMessage>> _transcripts =
       <String, List<ChatMessage>>{};
 
+  /// Ids deleted in this process. An answer still running, or a chat scope
+  /// still lingering, would otherwise write a deleted chat back.
+  final Set<String> _deleted = <String>{};
+
   static bool isTemporary(String? chatId) => isTemporaryChat(chatId);
 
   bool contains(String chatId) => _transcripts.containsKey(chatId);
@@ -20,19 +24,35 @@ final class TemporaryChats {
   List<ChatMessage> transcript(String chatId) =>
       List<ChatMessage>.unmodifiable(_transcripts[chatId] ?? const []);
 
-  void start(String chatId) => _transcripts.putIfAbsent(chatId, () => []);
+  /// Whether [chatId] was deleted: it is not written or answered again.
+  bool isDeleted(String chatId) => _deleted.contains(chatId);
 
-  void append(String chatId, ChatMessage message) =>
-      _transcripts.putIfAbsent(chatId, () => []).add(message);
+  void start(String chatId) {
+    if (isDeleted(chatId)) return;
+    _transcripts.putIfAbsent(chatId, () => []);
+  }
+
+  void append(String chatId, ChatMessage message) {
+    if (isDeleted(chatId)) return;
+    _transcripts.putIfAbsent(chatId, () => []).add(message);
+  }
 
   /// Replaces the transcript with [messages]: the chat's scope held the
   /// conversation while it answered, and this is what remains of it after.
-  void replace(String chatId, List<ChatMessage> messages) =>
-      _transcripts[chatId] = <ChatMessage>[
-        for (final message in messages) message.copyWith(isStreaming: false),
-      ];
+  void replace(String chatId, List<ChatMessage> messages) {
+    if (isDeleted(chatId)) return;
+    _transcripts[chatId] = <ChatMessage>[
+      for (final message in messages) message.copyWith(isStreaming: false),
+    ];
+  }
 
   void forget(String chatId) => _transcripts.remove(chatId);
+
+  /// Forgets [chatId] for good: the user deleted it.
+  void delete(String chatId) {
+    _transcripts.remove(chatId);
+    _deleted.add(chatId);
+  }
 
   /// Forgets them all: the account they were had under is no longer the
   /// one in use, and the next must not read or continue them.
