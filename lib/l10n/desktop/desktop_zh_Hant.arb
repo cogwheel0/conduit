@@ -899,8 +899,23 @@
       }
     }
   },
-  "desktopChannelsNotAvailable": "桌面版尚不支援頻道。",
-  "desktopNotesNotAvailable": "桌面版尚不支援筆記。",
+  "desktopChannelsUnavailable": "此帳號無法使用頻道。",
+  "desktopNotesUnavailable": "此帳號無法使用筆記。",
+  "desktopShowAll": "顯示全部",
+  "desktopCalendarUpcoming": "即將到來",
+  "desktopScheduledTasksAll": "所有工作",
+  "desktopUnreadCount": "{count} 則未讀",
+  "@desktopUnreadCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopMenuGo": "前往",
+  "desktopMenuBack": "上一頁",
+  "desktopMenuForward": "下一頁",
+  "desktopKeyboardGoToSection": "前往側邊欄區段",
   "desktopNotificationAnswerReady": "回答已就緒。",
   "desktopNotificationAnswerFailed": "回答未能完成。",
   "desktopTrayOpen": "開啟 Conduit",

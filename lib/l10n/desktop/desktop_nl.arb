@@ -899,8 +899,23 @@
       }
     }
   },
-  "desktopChannelsNotAvailable": "Kanalen zijn nog niet beschikbaar op de desktop.",
-  "desktopNotesNotAvailable": "Notities zijn nog niet beschikbaar op de desktop.",
+  "desktopChannelsUnavailable": "Kanalen zijn niet beschikbaar voor dit account.",
+  "desktopNotesUnavailable": "Notities zijn niet beschikbaar voor dit account.",
+  "desktopShowAll": "Alles tonen",
+  "desktopCalendarUpcoming": "Binnenkort",
+  "desktopScheduledTasksAll": "Alle taken",
+  "desktopUnreadCount": "{count, plural, =1{1 ongelezen} other{{count} ongelezen}}",
+  "@desktopUnreadCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopMenuGo": "Ga",
+  "desktopMenuBack": "Vorige",
+  "desktopMenuForward": "Volgende",
+  "desktopKeyboardGoToSection": "Ga naar zijbalksectie",
   "desktopNotificationAnswerReady": "Het antwoord is klaar.",
   "desktopNotificationAnswerFailed": "Het antwoord is niet afgemaakt.",
   "desktopTrayOpen": "Open Conduit",

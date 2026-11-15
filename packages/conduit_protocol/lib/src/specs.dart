@@ -1255,7 +1255,9 @@ abstract final class ConduitEventSpecs {
     scoped: false,
   );
 
-  /// Reserved; not published yet. A window refetches `system.capabilities`.
+  /// What the active account can use changed: another account, a server
+  /// whose features or permissions changed, Hermes switched on or off. A
+  /// window refetches `system.capabilities`.
   static const capabilitiesChanged = ConduitEventSpec<void>(
     ConduitEvents.capabilitiesChanged,
     scoped: false,

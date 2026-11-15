@@ -899,8 +899,23 @@
       }
     }
   },
-  "desktopChannelsNotAvailable": "Kanały nie są jeszcze dostępne na komputerze.",
-  "desktopNotesNotAvailable": "Notatki nie są jeszcze dostępne na komputerze.",
+  "desktopChannelsUnavailable": "Kanały nie są dostępne dla tego konta.",
+  "desktopNotesUnavailable": "Notatki nie są dostępne dla tego konta.",
+  "desktopShowAll": "Pokaż wszystko",
+  "desktopCalendarUpcoming": "Nadchodzące",
+  "desktopScheduledTasksAll": "Wszystkie zadania",
+  "desktopUnreadCount": "{count, plural, one{{count} nieprzeczytana} few{{count} nieprzeczytane} many{{count} nieprzeczytanych} other{{count} nieprzeczytanej}}",
+  "@desktopUnreadCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopMenuGo": "Idź",
+  "desktopMenuBack": "Wstecz",
+  "desktopMenuForward": "Naprzód",
+  "desktopKeyboardGoToSection": "Przejdź do sekcji paska bocznego",
   "desktopNotificationAnswerReady": "Odpowiedź jest gotowa.",
   "desktopNotificationAnswerFailed": "Odpowiedź nie została dokończona.",
   "desktopTrayOpen": "Otwórz Conduit",

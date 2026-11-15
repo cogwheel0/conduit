@@ -17,12 +17,43 @@ part 'capabilities.g.dart';
 @freezed
 abstract class Capabilities with _$Capabilities {
   const factory Capabilities({
-    // Sidebar sections. Each gates a whole navigation entry.
+    // Sidebar sections. Each gates a whole navigation entry, by the rule
+    // the phone's tab bar follows (`isSidebarTabVisible` in the core).
+    /// Some workspace section can be managed: the Workspace section. Which
+    /// ones are the `workspace*` flags below.
     @Default(false) bool workspace,
     @Default(false) bool notes,
     @Default(false) bool channels,
+
+    /// Hermes's sessions: Hermes is on (or the only backend).
     @Default(false) bool hermes,
     @Default(false) bool terminal,
+    @Default(false) bool calendar,
+
+    /// Scheduled tasks.
+    @Default(false) bool automations,
+
+    /// Hermes is the only backend: its sessions take the chats' place, and
+    /// Open WebUI's own sections are hidden.
+    @Default(false) bool hermesOnly,
+
+    // The workspace sections the account may manage.
+    @Default(false) bool workspaceModels,
+    @Default(false) bool workspaceKnowledge,
+    @Default(false) bool workspacePrompts,
+    @Default(false) bool workspaceTools,
+    @Default(false) bool workspaceSkills,
+
+    // Open WebUI account features, for any model.
+    /// Folders can be listed and made.
+    @Default(false) bool folders,
+
+    /// Webhook destinations for notifications.
+    @Default(false) bool webhooks,
+    @Default(false) bool memories,
+    @Default(false) bool codeInterpreter,
+    @Default(false) bool imageGeneration,
+    @Default(false) bool webSearch,
 
     // Connection kinds.
     @Default(false) bool directConnections,

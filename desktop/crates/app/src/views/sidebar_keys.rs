@@ -2,16 +2,19 @@
 //! selected.
 //!
 //! With the list focused (Tab reaches it, as AppKit's lists), ↑/↓ move the
-//! selection itself through the chats and folders (a chat it lands on
-//! opens; a folder is selected without opening), ← closes a folder or goes
-//! up to the one holding the row, → opens a folder or steps into it,
-//! Home/End go to the ends. Headers and hints are passed over. The list has
-//! one selection: the arrows' row while it has focus, else the open chat.
-//! Pure functions over the flat rows, so they test without a window.
+//! selection itself through the chats, folders and every area's items, and
+//! across the areas' headings (a chat or item it lands on opens; a folder
+//! or heading is selected without opening), ← closes a folder or an area,
+//! or goes up to the folder or heading holding the row, → opens a folder or
+//! an area or steps into it, Home/End go to the ends. The Chats area's own
+//! headers and hints are passed over. The list has one selection: the
+//! arrows' row while it has focus, else what the main window shows. Pure
+//! functions over the flat rows, so they test without a window.
 
 use std::collections::BTreeSet;
 
 use super::sidebar_model::SidebarItem;
+use crate::stores::navigation::{Area, AreaItem, Selection};
 
 /// A row the keyboard can stand on.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -22,6 +25,14 @@ pub enum KeyRow {
     LoadMore,
     /// The Archived toggle.
     Archived,
+    /// An area's heading.
+    Area(Area),
+    /// An item of an area other than Chats.
+    Item(AreaItem),
+    /// An area's Show All (or Show Less) row.
+    ShowAll(Area),
+    /// Hermes's Archived toggle.
+    HermesArchived,
 }
 
 impl KeyRow {
@@ -32,7 +43,23 @@ impl KeyRow {
             SidebarItem::Folder { folder, .. } => Some(Self::Folder(folder.id.clone())),
             SidebarItem::LoadMore => Some(Self::LoadMore),
             SidebarItem::Archived { .. } => Some(Self::Archived),
-            SidebarItem::Header(_) | SidebarItem::Hint(_) | SidebarItem::NewFolder { .. } => None,
+            SidebarItem::AreaHeader { area, .. } => Some(Self::Area(*area)),
+            SidebarItem::AreaRow(row) => Some(Self::Item(row.item.clone())),
+            SidebarItem::ShowAll { area, .. } => Some(Self::ShowAll(*area)),
+            SidebarItem::HermesArchived { .. } => Some(Self::HermesArchived),
+            SidebarItem::Header(_)
+            | SidebarItem::Hint(_)
+            | SidebarItem::AreaHint { .. }
+            | SidebarItem::NewFolder { .. } => None,
+        }
+    }
+
+    /// The row standing for what the main window shows, when it is one.
+    pub fn of_selection(selection: &Selection) -> Option<Self> {
+        match selection {
+            Selection::Chat(id) => Some(Self::Chat(id.clone())),
+            Selection::Area(item) => Some(Self::Item(item.clone())),
+            Selection::New { .. } => None,
         }
     }
 
@@ -51,6 +78,10 @@ impl KeyRow {
             (Self::Folder(id), SidebarItem::Folder { folder, .. }) => folder.id == *id,
             (Self::LoadMore, SidebarItem::LoadMore) => true,
             (Self::Archived, SidebarItem::Archived { .. }) => true,
+            (Self::Area(a), SidebarItem::AreaHeader { area, .. }) => a == area,
+            (Self::Item(i), SidebarItem::AreaRow(row)) => *i == row.item,
+            (Self::ShowAll(a), SidebarItem::ShowAll { area, .. }) => a == area,
+            (Self::HermesArchived, SidebarItem::HermesArchived { .. }) => true,
             _ => false,
         }
     }
@@ -89,6 +120,8 @@ pub enum ListMove {
     Cursor(usize),
     /// The folder opens or closes, the cursor staying on it.
     Toggle(String),
+    /// The area opens or closes, the cursor staying on its heading.
+    ToggleArea(Area),
     /// Nothing to do (the edge of the list).
     Stay,
 }
@@ -105,35 +138,41 @@ pub fn index_of(rows: &[SidebarItem], cursor: &KeyRow) -> Option<usize> {
     rows.iter().position(|r| cursor.is(r))
 }
 
-/// The row the cursor starts on when the list takes focus: the open chat
-/// when it is listed, else the first row.
-pub fn initial_cursor(rows: &[SidebarItem], open_chat: Option<&str>) -> Option<KeyRow> {
-    open_chat
-        .and_then(|id| {
-            rows.iter()
-                .filter_map(KeyRow::of)
-                .find(|k| k.chat_id() == Some(id))
-        })
+/// The row the cursor starts on when the list takes focus: what the main
+/// window shows when it is listed, else the first row.
+pub fn initial_cursor(rows: &[SidebarItem], open: Option<&KeyRow>) -> Option<KeyRow> {
+    open.filter(|o| index_of(rows, o).is_some())
+        .cloned()
         .or_else(|| {
-            rows.iter()
-                .filter_map(KeyRow::of)
-                .find(|k| matches!(k, KeyRow::Chat(_) | KeyRow::Folder(_)))
+            rows.iter().filter_map(KeyRow::of).find(|k| {
+                matches!(
+                    k,
+                    KeyRow::Chat(_) | KeyRow::Folder(_) | KeyRow::Area(_) | KeyRow::Item(_)
+                )
+            })
         })
 }
 
 /// The list's one selection: while the list has focus, the cursor's row
-/// when it is still listed (a folder or footer row too); otherwise the open
-/// chat.
+/// when it is still listed (a folder, heading or footer row too); otherwise
+/// what the main window shows.
 pub fn selection_row(
     rows: &[SidebarItem],
     list_focused: bool,
     cursor: Option<&KeyRow>,
-    open_chat: Option<&str>,
+    open: Option<&KeyRow>,
 ) -> Option<KeyRow> {
     if list_focused && let Some(c) = cursor.filter(|c| index_of(rows, c).is_some()) {
         return Some(c.clone());
     }
-    open_chat.map(|id| KeyRow::Chat(id.to_string()))
+    open.cloned()
+}
+
+/// The heading of the area row `at` is in, when areas have headings.
+fn heading_of(rows: &[SidebarItem], at: usize) -> Option<usize> {
+    rows[..at]
+        .iter()
+        .rposition(|r| matches!(r, SidebarItem::AreaHeader { .. }))
 }
 
 /// Where `key` takes the cursor from row `at` (none yet: from outside the
@@ -172,6 +211,14 @@ pub fn navigate(rows: &[SidebarItem], at: Option<usize>, key: ListKey) -> ListMo
             SidebarItem::Folder { depth: d, .. } => next
                 .filter(|&n| depth(&rows[n]) > *d)
                 .map_or(ListMove::Stay, ListMove::Cursor),
+            SidebarItem::AreaHeader {
+                area,
+                expanded: false,
+            } => ListMove::ToggleArea(*area),
+            // Into an open area: its first row.
+            SidebarItem::AreaHeader { .. } => next
+                .filter(|&n| !matches!(rows[n], SidebarItem::AreaHeader { .. }))
+                .map_or(ListMove::Stay, ListMove::Cursor),
             _ => ListMove::Stay,
         },
         ListKey::Left => match &rows[at] {
@@ -180,6 +227,11 @@ pub fn navigate(rows: &[SidebarItem], at: Option<usize>, key: ListKey) -> ListMo
                 expanded: true,
                 ..
             } => ListMove::Toggle(folder.id.clone()),
+            SidebarItem::AreaHeader {
+                area,
+                expanded: true,
+            } => ListMove::ToggleArea(*area),
+            SidebarItem::AreaHeader { .. } => ListMove::Stay,
             row if depth(row) > 0 => {
                 let want = depth(row) - 1;
                 rows[..at]
@@ -187,7 +239,8 @@ pub fn navigate(rows: &[SidebarItem], at: Option<usize>, key: ListKey) -> ListMo
                     .rposition(|r| matches!(r, SidebarItem::Folder { depth, .. } if *depth == want))
                     .map_or(ListMove::Stay, ListMove::Cursor)
             }
-            _ => ListMove::Stay,
+            // A row at an area's top level: up to the area's heading.
+            _ => heading_of(rows, at).map_or(ListMove::Stay, ListMove::Cursor),
         },
     }
 }
@@ -431,8 +484,9 @@ mod tests {
         assert_eq!(navigate(&r, Some(1), ListKey::Down), ListMove::Cursor(3));
         assert_eq!(navigate(&r, Some(3), ListKey::Down), ListMove::Cursor(4));
         let seeds = KeyRow::Folder("seeds".into());
+        let t1 = KeyRow::Chat("t1".into());
         assert_eq!(
-            selection_row(&r, true, Some(&seeds), Some("t1")),
+            selection_row(&r, true, Some(&seeds), Some(&t1)),
             Some(seeds.clone()),
             "the folder is the one selection while the list has focus"
         );
@@ -442,15 +496,16 @@ mod tests {
     fn the_open_chat_is_selected_while_the_list_is_not_focused() {
         let r = rows();
         let seeds = KeyRow::Folder("seeds".into());
+        let (t1, t2) = (KeyRow::Chat("t1".into()), KeyRow::Chat("t2".into()));
         assert_eq!(
-            selection_row(&r, false, Some(&seeds), Some("t1")),
-            Some(KeyRow::Chat("t1".into()))
+            selection_row(&r, false, Some(&seeds), Some(&t1)),
+            Some(t1.clone())
         );
         // A cursor no longer listed (its folder closed) gives way too.
         let gone = KeyRow::Chat("gone".into());
         assert_eq!(
-            selection_row(&r, true, Some(&gone), Some("t2")),
-            Some(KeyRow::Chat("t2".into()))
+            selection_row(&r, true, Some(&gone), Some(&t2)),
+            Some(t2.clone())
         );
         assert_eq!(selection_row(&r, false, None, None), None);
     }
@@ -584,15 +639,96 @@ mod tests {
     fn focus_starts_on_the_open_chat() {
         let r = rows();
         assert_eq!(
-            initial_cursor(&r, Some("t1")),
+            initial_cursor(&r, Some(&KeyRow::Chat("t1".into()))),
             Some(KeyRow::Chat("t1".into()))
         );
         assert_eq!(
-            initial_cursor(&r, Some("gone")),
+            initial_cursor(&r, Some(&KeyRow::Chat("gone".into()))),
             Some(KeyRow::Chat("p1".into()))
         );
         assert_eq!(index_of(&r, &KeyRow::Folder("seeds".into())), Some(4));
         assert_eq!(ListKey::from_key("down"), Some(ListKey::Down));
         assert_eq!(ListKey::from_key("j"), None);
+    }
+
+    /// [Chats] c1 / [Notes] n1, Show All / [Calendar] (closed)
+    fn area_rows() -> Vec<SidebarItem> {
+        use crate::views::sidebar_model::AreaRow;
+        let row = |item: AreaItem| {
+            SidebarItem::AreaRow(AreaRow {
+                item,
+                title: String::new(),
+                updated_at_ms: None,
+                unread: 0,
+                pinned: false,
+            })
+        };
+        vec![
+            SidebarItem::AreaHeader {
+                area: Area::Chats,
+                expanded: true,
+            },
+            SidebarItem::Header(Section::Date(DateBucket::Today)),
+            chat("c1", 0),
+            SidebarItem::AreaHeader {
+                area: Area::Notes,
+                expanded: true,
+            },
+            row(AreaItem::Note("n1".into())),
+            SidebarItem::ShowAll {
+                area: Area::Notes,
+                all: false,
+            },
+            SidebarItem::AreaHeader {
+                area: Area::Calendar,
+                expanded: false,
+            },
+        ]
+    }
+
+    #[test]
+    fn arrows_cross_areas_and_their_headings() {
+        let r = area_rows();
+        // ↓ from the last chat: the next area's heading, then its item.
+        assert_eq!(navigate(&r, Some(2), ListKey::Down), ListMove::Cursor(3));
+        assert_eq!(navigate(&r, Some(3), ListKey::Down), ListMove::Cursor(4));
+        assert_eq!(navigate(&r, Some(5), ListKey::Down), ListMove::Cursor(6));
+        // ↑ from the first chat: the Chats heading (the date header is not
+        // a stop).
+        assert_eq!(navigate(&r, Some(2), ListKey::Up), ListMove::Cursor(0));
+        // ← on an item goes up to its heading; ← there closes it; → on a
+        // closed one opens it, and on an open one steps in.
+        assert_eq!(navigate(&r, Some(4), ListKey::Left), ListMove::Cursor(3));
+        assert_eq!(navigate(&r, Some(2), ListKey::Left), ListMove::Cursor(0));
+        assert_eq!(
+            navigate(&r, Some(3), ListKey::Left),
+            ListMove::ToggleArea(Area::Notes)
+        );
+        assert_eq!(
+            navigate(&r, Some(6), ListKey::Right),
+            ListMove::ToggleArea(Area::Calendar)
+        );
+        assert_eq!(navigate(&r, Some(6), ListKey::Left), ListMove::Stay);
+        assert_eq!(navigate(&r, Some(3), ListKey::Right), ListMove::Cursor(4));
+        assert_eq!(navigate(&r, Some(0), ListKey::Right), ListMove::Cursor(2));
+    }
+
+    #[test]
+    fn an_open_item_is_the_selection_and_where_focus_starts() {
+        let r = area_rows();
+        let note = KeyRow::Item(AreaItem::Note("n1".into()));
+        let open = KeyRow::of_selection(&Selection::Area(AreaItem::Note("n1".into())));
+        assert_eq!(open.as_ref(), Some(&note));
+        assert_eq!(
+            selection_row(&r, false, None, open.as_ref()),
+            Some(note.clone())
+        );
+        assert_eq!(initial_cursor(&r, open.as_ref()), Some(note));
+        assert_eq!(
+            KeyRow::of_selection(&Selection::New { temporary: false }),
+            None
+        );
+        // Nothing open: the first heading.
+        assert_eq!(initial_cursor(&r, None), Some(KeyRow::Area(Area::Chats)));
     }
 }

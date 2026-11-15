@@ -117,6 +117,12 @@ abstract class HermesSessionDto with _$HermesSessionDto {
     @Default('') String title,
     String? preview,
     int? updatedAtMs,
+
+    /// Kept at the top of the list, however old.
+    @Default(false) bool pinned,
+
+    /// Set aside in the list's Archived row.
+    @Default(false) bool archived,
   }) = _HermesSessionDto;
 
   factory HermesSessionDto.fromJson(Map<String, dynamic> json) =>
@@ -127,7 +133,11 @@ abstract class HermesSessionDto with _$HermesSessionDto {
 @freezed
 abstract class HermesSessions with _$HermesSessions {
   const factory HermesSessions({
+    /// Pinned first, then the rest, newest first.
     @Default(<HermesSessionDto>[]) List<HermesSessionDto> sessions,
+
+    /// The archived sessions, newest first.
+    @Default(<HermesSessionDto>[]) List<HermesSessionDto> archived,
   }) = _HermesSessions;
 
   factory HermesSessions.fromJson(Map<String, dynamic> json) =>

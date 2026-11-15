@@ -212,6 +212,9 @@ pub fn fixed_label(command: FixedCommand, l10n: &L10n) -> String {
         F::CloseWindow => l10n.desktop_menu_close_window(),
         F::Minimize => l10n.desktop_minimize_window(),
         F::FullScreen => l10n.desktop_menu_enter_full_screen(),
+        F::Back => l10n.desktop_menu_back(),
+        F::Forward => l10n.desktop_menu_forward(),
+        F::GoToSection(_) => l10n.desktop_keyboard_go_to_section(),
     }
 }
 
@@ -684,7 +687,23 @@ impl SettingsView {
                     }
                     KeyRow::Fixed(command) => {
                         let label = fixed_label(command, &l10n);
-                        let keys = describe(&keymap::fixed_stroke(command), mac);
+                        let keys = match command {
+                            // One row for the eight: ⌘1–⌘8.
+                            keymap::FixedCommand::GoToSection(_) => format!(
+                                "{}\u{2013}{}",
+                                describe(
+                                    &keymap::fixed_stroke(keymap::FixedCommand::GoToSection(1)),
+                                    mac
+                                ),
+                                describe(
+                                    &keymap::fixed_stroke(keymap::FixedCommand::GoToSection(
+                                        crate::actions::GO_SECTIONS as u8
+                                    )),
+                                    mac
+                                ),
+                            ),
+                            _ => describe(&keymap::fixed_stroke(command), mac),
+                        };
                         rows.push(
                             setting_row(label.clone(), None, fixed_keys(command, keys, label), cx)
                                 .into_any_element(),
@@ -708,6 +727,7 @@ impl SettingsView {
                 KeyGroup::Chats => l10n.desktop_keyboard_chats(),
                 KeyGroup::Messages => l10n.desktop_keyboard_messages(),
                 KeyGroup::FindAndView => l10n.desktop_keyboard_find_and_view(),
+                KeyGroup::Go => l10n.desktop_menu_go(),
                 KeyGroup::Window => l10n.desktop_menu_window(),
             };
             sections.push(settings_section(title, footer, rows, cx).into_any_element());

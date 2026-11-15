@@ -90,6 +90,21 @@ actions!(
     ]
 );
 
+// Go › Back (⌘[) and Forward (⌘]): what the main window showed before,
+// across the sidebar's areas, as Finder's.
+actions!(conduit, [GoBack, GoForward]);
+
+/// Go › a sidebar section (⌘1, ⌘2…): the `index`th area the sidebar shows
+/// (from 1), in its order, as the phone's ⌘1–⌘5 pick its tabs.
+#[derive(Clone, Debug, PartialEq, Action)]
+#[action(namespace = conduit, no_json)]
+pub struct GoToSection {
+    pub index: usize,
+}
+
+/// How many sections ⌘1… reach (one per area).
+pub const GO_SECTIONS: usize = 8;
+
 /// Chat › Move To: files the open chat in `folder_id` (`None`: out of any
 /// folder).
 #[derive(Clone, Debug, PartialEq, Action)]

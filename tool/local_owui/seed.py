@@ -13,6 +13,9 @@ Usage (owui.sh seed runs it):
 - A saved settings record for the fake model, as an admin makes by
   editing a model, so it counts as a base model for workspace models.
 - Two prompts, one with a select variable, and an uploaded text file.
+- Seven notes of the admin's, two pinned, and three channels: a standard
+  one, an empty one, and a group with the second user, who posts three
+  messages there so the admin has unread ones.
 
 Writes the env file (mode 600) the daemon's live tests and the desktop
 E2E read. Every name, address, password and text is invented. Prints only
@@ -71,6 +74,29 @@ SHARED_CHATS = [
      'Water, a light jacket and a small first-aid kit.', 'What about food?'),
     ('Trail snack ideas', 'Name two trail snacks that keep well.',
      'Trail mix and dried apricots.', 'Any without nuts?'),
+]
+
+NOTES = [
+    ('Garden plan for spring', 'Beans along the fence, squash in the far bed.'),
+    ('Reading list', 'Three novels and a field guide to mosses.'),
+    ('Bread ratios', 'Flour 100, water 72, salt 2, starter 20.'),
+    ('Trip packing', 'Rain shell, wool socks, the small stove.'),
+    ('Quilt colours', 'Indigo, rust and an off-white backing.'),
+    ('Bike service log', 'New chain at 3,000 km; brake pads next.'),
+    ('Moth sightings', 'Two hawk moths by the porch light in June.'),
+]
+PINNED_NOTES = ('Garden plan for spring', 'Bread ratios')
+
+CHANNELS = [
+    # (name, description, type): None is a standard channel.
+    ('garden-club', 'Seeds, beds and swaps.', None),
+    ('quiet-corner', 'Nothing posted yet.', None),
+    ('trail-crew', 'Planning the next hike.', 'group'),
+]
+TRAIL_MESSAGES = [
+    'Saturday at eight by the north trailhead?',
+    'I can bring the map and a spare headlamp.',
+    'Forecast says dry until the afternoon.',
 ]
 
 FILE_NAME = 'field-notes.txt'
@@ -263,6 +289,39 @@ def main():
     uploaded = server.upload(token, FILE_NAME, FILE_TEXT.encode(), 'text/plain')
     print('file', uploaded['id'])
 
+    # Notes, oldest first, so the newest is listed first; two pinned.
+    notes = {}
+    for title, text in NOTES:
+        created = server.ok('POST', '/api/v1/notes/create', {
+            'title': title,
+            'data': {'content': {'json': None, 'html': f'<p>{text}</p>', 'md': text}},
+        }, token)
+        notes[title] = created['id']
+    for title in PINNED_NOTES:
+        server.ok('POST', f'/api/v1/notes/{notes[title]}/pin', None, token)
+    print('notes', len(notes), 'pinned', len(PINNED_NOTES))
+
+    # Channels: two standard ones and a group with the second user, whose
+    # messages the admin has not read.
+    second_id = second['id']
+    channels = {}
+    for name, description, kind in CHANNELS:
+        form = {'name': name, 'description': description}
+        if kind == 'group':
+            form.update({'type': 'group', 'user_ids': [second_id]})
+        else:
+            form['access_grants'] = [
+                {'principal_type': 'user', 'principal_id': '*', 'permission': 'read'},
+                {'principal_type': 'user', 'principal_id': '*', 'permission': 'write'},
+            ]
+        channels[name] = server.ok('POST', '/api/v1/channels/create', form, token)['id']
+    for text in TRAIL_MESSAGES:
+        server.ok('POST', f"/api/v1/channels/{channels['trail-crew']}/messages/post",
+                  {'content': text}, second_token)
+    listed = server.ok('GET', '/api/v1/channels/', token=token) or []
+    unread = {c['name']: c.get('unread_count', 0) for c in listed}
+    print('channels', len(channels), 'unread', unread.get('trail-crew'))
+
     private_file(args.env_file, '\n'.join([
         '# A throwaway local Open WebUI, made by tool/local_owui/owui.sh.',
         '# Every account and password here is synthetic and local to this machine.',
@@ -276,6 +335,10 @@ def main():
         f'OWUI_SHARED_FOLDER={shared}',
         f'OWUI_SHARED_CHAT={shared_chats[0]}',
         f'OWUI_FILE={uploaded["id"]}',
+        f"OWUI_NOTE={notes['Garden plan for spring']}",
+        f'OWUI_NOTE_COUNT={len(notes)}',
+        f"OWUI_CHANNEL={channels['trail-crew']}",
+        f'OWUI_CHANNEL_UNREAD={len(TRAIL_MESSAGES)}',
         f'FAKE_OPENAI_URL={args.fake_model_url}',
         f'FAKE_HERMES_URL={args.fake_hermes_url}',
         f'FAKE_HERMES_KEY={open(args.fake_hermes_key_file).read().strip()}',

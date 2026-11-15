@@ -24,6 +24,12 @@
 //! `accounts.changed` (through the accounts store), on `hermes.changed` and
 //! `capabilities.changed`, and after the window changes something.
 //!
+//! **Capabilities.** What the active account can use comes from
+//! `system.capabilities`, the daemon's reading of the core's rules (the
+//! phone's tabs and feature gates), asked again on `capabilities.changed`
+//! and with every refresh; the handshake's copy stands in until it
+//! answers.
+//!
 //! **Asked again until it routes.** A daemon that restarted while starting,
 //! or a core still restoring the session, answers `loading` or nothing at
 //! first, and no event follows when that settles. So while the route is
@@ -159,10 +165,16 @@ pub struct SessionStore {
     facts_for: Option<String>,
     pub direct: Option<DirectConnectionList>,
     pub hermes: Option<HermesSettings>,
+    /// `system.capabilities`, once it has answered for this session.
+    pub system_capabilities: Option<Capabilities>,
     /// The core's onboarding answer, once confirmed (see the module docs).
     pub needs_onboarding: Option<bool>,
     /// The connect handshake: daemon paths and capabilities.
     pub handshake: Option<HandshakeResponse>,
+    /// The account the handshake's capabilities describe: the first one
+    /// listed after connecting (`None` until then). Another account never
+    /// falls back on them.
+    handshake_for: Option<Option<String>>,
     /// What this window handshakes with, to ask the core's onboarding
     /// answer again.
     request: Option<HandshakeRequest>,
@@ -186,6 +198,7 @@ pub struct SessionStore {
     _status: Option<Task<()>>,
     _resolve: Option<Task<()>>,
     _recheck: Option<Task<()>>,
+    _capabilities: Option<Task<()>>,
     _accounts: Subscription,
 }
 
@@ -222,8 +235,10 @@ impl SessionStore {
             facts_for: None,
             direct: None,
             hermes: None,
+            system_capabilities: None,
             needs_onboarding: None,
             handshake: None,
+            handshake_for: None,
             request: None,
             error: None,
             preview: None,
@@ -237,6 +252,7 @@ impl SessionStore {
             _status: None,
             _resolve: None,
             _recheck: None,
+            _capabilities: None,
             _accounts: subscription,
         }
     }
@@ -299,11 +315,18 @@ impl SessionStore {
                 .is_some_and(|s| s.reachability == ServerReachability::Unreachable)
     }
 
+    /// What the active account can use: `system.capabilities`, else the
+    /// server status's or the handshake's copy until it answers.
     pub fn capabilities(&self) -> Capabilities {
-        self.server
-            .as_ref()
-            .map(|s| s.capabilities.clone())
-            .or_else(|| self.handshake.as_ref().map(|h| h.capabilities.clone()))
+        self.system_capabilities
+            .clone()
+            .or_else(|| self.server.as_ref().map(|s| s.capabilities.clone()))
+            .or_else(|| {
+                self.handshake
+                    .as_ref()
+                    .filter(|_| self.handshake_for.as_ref() == Some(&self.facts_for))
+                    .map(|h| h.capabilities.clone())
+            })
             .unwrap_or_default()
     }
 
@@ -311,13 +334,36 @@ impl SessionStore {
     /// another account than `active`: the route waits for the new account's
     /// own answers rather than pairing it with the last one's.
     fn forget_other_account(&mut self, active: Option<String>) {
+        if self.handshake_for.is_none() {
+            self.handshake_for = Some(active.clone());
+        }
         if self.facts_for != active {
             self.facts_for = active;
             self.auth = None;
             self.server = None;
+            self.system_capabilities = None;
             self._status = None;
             self._recheck = None;
+            self._capabilities = None;
         }
+    }
+
+    /// Asks `system.capabilities` again (`capabilities.changed`).
+    pub fn refresh_capabilities(&mut self, cx: &mut Context<Self>) {
+        let call = self.rpc.call::<methods::SystemCapabilities>(&NoParams);
+        self._capabilities = Some(self.read(
+            call,
+            |s, result, cx| match result {
+                Ok(capabilities) => {
+                    if s.system_capabilities.as_ref() != Some(&capabilities) {
+                        s.system_capabilities = Some(capabilities);
+                        cx.notify();
+                    }
+                }
+                Err(e) => log::warn!("system.capabilities: {e}"),
+            },
+            cx,
+        ));
     }
 
     /// A new daemon session: forget everything and ask again. Only a `true`
@@ -333,10 +379,13 @@ impl SessionStore {
         self.server = None;
         self.direct = None;
         self.hermes = None;
+        self.system_capabilities = None;
         self.error = None;
         self.seen_accounts = None;
         self._recheck = None;
+        self._capabilities = None;
         self.handshake = handshake.response.as_deref().cloned();
+        self.handshake_for = None;
         self.needs_onboarding = (handshake.needs_onboarding == Some(true)).then_some(true);
         self.accounts.update(cx, |a, cx| {
             a.reset(cx);
@@ -453,6 +502,7 @@ impl SessionStore {
                     Err(e) => failed = failed.or(Some(e)),
                 }
                 s.refresh_server(cx);
+                s.refresh_capabilities(cx);
                 s.keep_resolving(failed, cx);
                 cx.notify();
             },
@@ -1486,6 +1536,37 @@ mod tests {
             assert!(!s.direct_only(cx));
             assert!(s.hermes_only(cx));
             assert_eq!(s.backend(cx), Some(Backend::Hermes));
+        });
+    }
+
+    #[gpui_kit::test]
+    fn another_account_never_takes_the_handshakes_capabilities(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(list(vec![account("a", "Avery", true, true)]));
+        let _held = daemon.hold::<methods::SystemCapabilities>();
+        let store = session(cx, &daemon);
+        let connected = Handshake::from_value(json!({
+            "protocolVersion": conduit_protocol::PROTOCOL_VERSION,
+            "daemonVersion": "0.1.0",
+            "sessionId": "s",
+            "platform": "macos",
+            "capabilities": {"notes": true},
+            "paths": {"userData": "/u", "database": "/d", "cache": "/c", "logs": "/l", "staging": "/s"},
+        }));
+        store.update(cx, |s, cx| s.on_connected(&connected, request(), cx));
+        cx.run_until_parked();
+        // The account it was made for: its areas until system.capabilities.
+        store.read_with(cx, |s, _| assert!(s.capabilities().notes));
+        let switched = list(vec![
+            account("a", "Avery", false, true),
+            account("b", "Blake", true, true),
+        ]);
+        daemon.returns::<methods::AccountsList>(switched.clone());
+        let accounts = store.read_with(cx, |s, _| s.accounts.clone());
+        accounts.update(cx, |a, cx| a.adopt(switched, cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(!s.capabilities().notes, "B shows A's areas");
         });
     }
 }

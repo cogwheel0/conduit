@@ -490,12 +490,13 @@ fn install_menu_observers(cx: &mut App) {
     let Some(state) = cx.try_global::<AppState>() else {
         return;
     };
-    let (layout, navigation, chat_list, settings, accounts) = (
+    let (layout, navigation, chat_list, settings, accounts, session) = (
         state.layout.clone(),
         state.stores.navigation.clone(),
         state.stores.chat_list.clone(),
         state.settings.clone(),
         state.stores.accounts.clone(),
+        state.stores.session.clone(),
     );
     cx.observe(&settings, |_, cx| menus::refresh_menus(cx))
         .detach();
@@ -506,6 +507,9 @@ fn install_menu_observers(cx: &mut App) {
     cx.observe(&navigation, |_, cx| menus::refresh_menus(cx))
         .detach();
     cx.observe(&chat_list, |_, cx| menus::refresh_menus(cx))
+        .detach();
+    // The Go menu's sections follow the account's capabilities and route.
+    cx.observe(&session, |_, cx| menus::refresh_menus(cx))
         .detach();
 }
 

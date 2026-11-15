@@ -899,8 +899,23 @@
       }
     }
   },
-  "desktopChannelsNotAvailable": "Kanäle gibt es auf dem Desktop noch nicht.",
-  "desktopNotesNotAvailable": "Notizen gibt es auf dem Desktop noch nicht.",
+  "desktopChannelsUnavailable": "Kanäle sind für dieses Konto nicht verfügbar.",
+  "desktopNotesUnavailable": "Notizen sind für dieses Konto nicht verfügbar.",
+  "desktopShowAll": "Alle anzeigen",
+  "desktopCalendarUpcoming": "Demnächst",
+  "desktopScheduledTasksAll": "Alle Aufgaben",
+  "desktopUnreadCount": "{count, plural, =1{1 ungelesen} other{{count} ungelesen}}",
+  "@desktopUnreadCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopMenuGo": "Gehe zu",
+  "desktopMenuBack": "Zurück",
+  "desktopMenuForward": "Vorwärts",
+  "desktopKeyboardGoToSection": "Zum Seitenleistenabschnitt",
   "desktopNotificationAnswerReady": "Die Antwort ist fertig.",
   "desktopNotificationAnswerFailed": "Die Antwort wurde nicht fertig.",
   "desktopTrayOpen": "Conduit öffnen",

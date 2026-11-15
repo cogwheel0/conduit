@@ -310,19 +310,23 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
 
     links(&["conduit://channel/c1"], cx);
     pass &= ok(
-        "conduit://channel/<id> toasts that channels are not available yet",
+        "conduit://channel/<id> opens the channel's pane",
         wait_until(cx, Duration::from_secs(5), |cx| {
-            toasts(cx).iter().any(|t| t.contains("Channels"))
+            selection(cx)
+                == Selection::Area(crate::stores::navigation::AreaItem::Channel("c1".into()))
         })
         .await,
     );
     shoot_main(dir, "shell-link-channel", cx).await;
+    let before = cx.update(selection);
     links(&["conduit://unknown/1", "https://example.org/x"], cx);
     settle(cx, 300).await;
     pass &= ok(
         "unknown links are ignored",
-        cx.update(|cx| selection(cx) == Selection::Chat(first_chat.clone())),
+        cx.update(|cx| selection(cx) == before),
     );
+    links(&[&format!("conduit://chat/{first_chat}")], cx);
+    settle(cx, 300).await;
 
     // ── Open with ──────────────────────────────────────────────────────
     let files = synthetic_files(&dir.join("open-with"));
@@ -832,6 +836,7 @@ pub fn probe(path: PathBuf, cx: &mut App) {
                 let selection = match stores.navigation.read(cx).selection() {
                     Selection::Chat(id) => format!("chat:{id}"),
                     Selection::New { .. } => "new".into(),
+                    Selection::Area(item) => format!("area:{item:?}"),
                 };
                 let (text, attachments) = pane(cx)
                     .map(|p| {

@@ -2003,13 +2003,50 @@
       }
     }
   },
-  "desktopChannelsNotAvailable": "Channels aren't available on desktop yet.",
-  "@desktopChannelsNotAvailable": {
-    "description": "Toast when a conduit://channel link is opened; channels come to the desktop app later."
+  "desktopChannelsUnavailable": "Channels aren't available for this account.",
+  "@desktopChannelsUnavailable": {
+    "description": "Toast when a conduit://channel link is opened and the account has no channels."
   },
-  "desktopNotesNotAvailable": "Notes aren't available on desktop yet.",
-  "@desktopNotesNotAvailable": {
-    "description": "Toast when a conduit://note link is opened; notes come to the desktop app later."
+  "desktopNotesUnavailable": "Notes aren't available for this account.",
+  "@desktopNotesUnavailable": {
+    "description": "Toast when a conduit://note link is opened and the account has no notes."
+  },
+  "desktopShowAll": "Show All",
+  "@desktopShowAll": {
+    "description": "Row after a long sidebar section's first items; lists all of them."
+  },
+  "desktopCalendarUpcoming": "Upcoming",
+  "@desktopCalendarUpcoming": {
+    "description": "The Calendar section's one row in the sidebar: the agenda of coming events."
+  },
+  "desktopScheduledTasksAll": "All Tasks",
+  "@desktopScheduledTasksAll": {
+    "description": "The Scheduled Tasks section's one row in the sidebar: every task."
+  },
+  "desktopUnreadCount": "{count, plural, =1{1 unread} other{{count} unread}}",
+  "@desktopUnreadCount": {
+    "description": "A channel's unread messages, as VoiceOver reads its sidebar row.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopMenuGo": "Go",
+  "@desktopMenuGo": {
+    "description": "The Go menu (Finder's): Back, Forward and the sidebar's sections."
+  },
+  "desktopMenuBack": "Back",
+  "@desktopMenuBack": {
+    "description": "Go › Back: what the main window showed before, as Finder's."
+  },
+  "desktopMenuForward": "Forward",
+  "@desktopMenuForward": {
+    "description": "Go › Forward: what was shown before Back, as Finder's."
+  },
+  "desktopKeyboardGoToSection": "Go to Sidebar Section",
+  "@desktopKeyboardGoToSection": {
+    "description": "Settings › Keyboard row for ⌘1–⌘8: open the sidebar's sections in order."
   },
   "desktopNotificationAnswerReady": "The answer is ready.",
   "@desktopNotificationAnswerReady": {

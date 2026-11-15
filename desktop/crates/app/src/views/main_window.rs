@@ -3,7 +3,8 @@
 //! * A blocking [`Status`] (fatal, or nothing routed yet) replaces the
 //!   content with its status card.
 //! * [`Route::Main`]: the main frame, the [`SidebarView`] beside the
-//!   [`ChatPane`], with the ⌘K [`PaletteView`] over both.
+//!   [`ChatPane`] or, for an item of another area, its
+//!   [`AreaPane`], with the ⌘K [`PaletteView`] over both.
 //!   First run and sign-in live in the setup window ([`crate::windows`]);
 //!   the main window closes when a session ends, so it shows its status
 //!   card only for the moment before.
@@ -11,6 +12,7 @@
 //!   ⌥⌘↩ / ⌥⌘⌫), toasts, and the reconnect banner.
 //! * Actions handled here: New Chat (⌘N) and New Temporary Chat (⇧⌘N),
 //!   the palette (⌘K), Find in Chat (⌘F, ⌘G, ⇧⌘G) and Search Chats (⌥⌘F),
+//!   the Go menu (Back ⌘[, Forward ⌘], the sidebar's sections ⌘1…),
 //!   ⌘W (which only hides the window with "Close to the menu bar" on), and
 //!   the sidebar's context-menu commands ([`ChatMenu`], [`MoveSelected`]).
 //!
@@ -35,8 +37,9 @@ use gpui_kit::{
 
 use crate::actions::{
     AllowRequest, ArchiveChat, CloseWindow, DeleteChat, DenyRequest, FindChats, FindInChat,
-    FindNext, FindPrevious, MoveChatTo, NewChat, NewFolder, NewTemporaryChat, NextChat,
-    OpenPalette, PreviousChat, RegenerateLastAnswer, RenameChat, ShareChat, TogglePinChat,
+    FindNext, FindPrevious, GoBack, GoForward, GoToSection, MoveChatTo, NewChat, NewFolder,
+    NewTemporaryChat, NextChat, OpenPalette, PreviousChat, RegenerateLastAnswer, RenameChat,
+    ShareChat, TogglePinChat,
 };
 use crate::l10n::ActiveL10n as _;
 use crate::stores::Stores;
@@ -47,6 +50,7 @@ use crate::stores::settings::SettingsStore;
 use crate::views::approvals::ApprovalsView;
 use crate::views::chat_pane::ChatPane;
 use crate::views::palette::PaletteView;
+use crate::views::panes::AreaPane;
 use crate::views::sidebar::{
     ActOnSelected, ChatCommand, ChatMenu, FolderMenu, MoveSelected, SidebarView,
 };
@@ -81,6 +85,8 @@ pub struct MainWindow {
     pub stores: Stores,
     layout: Entity<LayoutStore>,
     pub chat_pane: Entity<ChatPane>,
+    /// What an item of another area opens in.
+    pub area_pane: Entity<AreaPane>,
     pub sidebar: Entity<SidebarView>,
     pub palette: Entity<PaletteView>,
     pub approvals: Entity<ApprovalsView>,
@@ -142,6 +148,10 @@ impl MainWindow {
             cx.new(|cx| ChatPane::new(stores, layout, approvals, window, cx))
         };
         let sidebar = cx.new(|cx| SidebarView::new(stores.clone(), window, cx));
+        let area_pane = {
+            let (stores, layout) = (stores.clone(), layout.clone());
+            cx.new(|cx| AreaPane::new(stores, layout, cx))
+        };
         let palette = cx.new(|cx| PaletteView::new(stores.clone(), window, cx));
         let subscriptions = vec![
             cx.observe(&stores.connection, |_, _, cx| cx.notify()),
@@ -150,6 +160,7 @@ impl MainWindow {
             cx.observe(&stores.toasts, |_, _, cx| cx.notify()),
             cx.observe(&approvals, |_, _, cx| cx.notify()),
             cx.observe(&stores.palette, |_, _, cx| cx.notify()),
+            cx.observe(&stores.navigation, |_, _, cx| cx.notify()),
             cx.observe(&settings, |_, _, cx| cx.notify()),
             cx.observe(&layout, |_, _, cx| cx.notify()),
             // Geometry and the system's light/dark.
@@ -179,6 +190,7 @@ impl MainWindow {
             stores,
             layout,
             chat_pane,
+            area_pane,
             sidebar,
             palette,
             approvals,
@@ -335,8 +347,61 @@ impl MainWindow {
             .update(cx, |s, cx| s.start_new_folder(None, window, cx));
     }
 
-    fn main_frame(&self, reveal: f32) -> AnyElement {
-        let mut frame = MainWindowFrame::new(self.chat_pane.clone()).sidebar_reveal(reveal);
+    /// Whether the main pane shows the chat pane (a chat, or a new one),
+    /// not an item of another area.
+    pub fn shows_chat(&self, cx: &App) -> bool {
+        self.stores.navigation.read(cx).selection().is_chat()
+    }
+
+    /// Whether a step of history may be shown: its area is one the sidebar
+    /// still shows.
+    fn usable_step(
+        &self,
+        cx: &App,
+    ) -> impl Fn(&crate::stores::navigation::Selection) -> bool + 'static {
+        let areas = self.sidebar.read(cx).areas(cx);
+        move |step| areas.contains(&step.area())
+    }
+
+    /// Go › Back (⌘[) or Forward (⌘]).
+    pub fn go(&mut self, back: bool, cx: &mut Context<Self>) {
+        if !self.shows_main(cx) {
+            return;
+        }
+        let usable = self.usable_step(cx);
+        self.stores.navigation.update(cx, |n, cx| {
+            if back {
+                n.go_back(usable, cx)
+            } else {
+                n.go_forward(usable, cx)
+            }
+        });
+    }
+
+    /// Go › a section (⌘1…): the `index`th area the sidebar shows, the
+    /// sidebar shown first.
+    pub fn go_to_section(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.shows_main(cx) {
+            return;
+        }
+        let areas = self.sidebar.read(cx).areas(cx);
+        let Some(area) = index.checked_sub(1).and_then(|i| areas.get(i)).copied() else {
+            return;
+        };
+        if !self.layout.read(cx).state.sidebar_visible {
+            self.layout.update(cx, |l, cx| l.toggle_sidebar(cx));
+        }
+        self.sidebar
+            .update(cx, |s, cx| s.go_to_area(area, window, cx));
+    }
+
+    fn main_frame(&self, reveal: f32, cx: &App) -> AnyElement {
+        let content: AnyElement = if self.shows_chat(cx) {
+            self.chat_pane.clone().into_any_element()
+        } else {
+            self.area_pane.clone().into_any_element()
+        };
+        let mut frame = MainWindowFrame::new(content).sidebar_reveal(reveal);
         if reveal > 0. {
             frame = frame.sidebar(self.sidebar.clone());
         }
@@ -345,6 +410,12 @@ impl MainWindow {
         frame = frame.overlay(self.palette.clone());
         frame.into_any_element()
     }
+}
+
+/// Whether the approvals card floats over the window: everywhere but the
+/// chat pane, which docks it above its composer.
+fn floats_approvals(shows_main: bool, shows_chat: bool) -> bool {
+    !(shows_main && shows_chat)
 }
 
 impl Focusable for MainWindow {
@@ -408,7 +479,7 @@ impl Render for MainWindow {
         let (page, content): (Page, AnyElement) = if shows_main {
             (
                 Page::Main,
-                self.main_frame(if shows_sidebar { reveal } else { 0. }),
+                self.main_frame(if shows_sidebar { reveal } else { 0. }, cx),
             )
         } else {
             // Blocked, not routed yet, or a session that just ended (the
@@ -447,9 +518,11 @@ impl Render for MainWindow {
             }
             _ => None,
         };
-        // On the main frame the chat pane docks the card above its composer.
+        // On the main frame the chat pane docks the card above its composer;
+        // over another area's pane it floats, as it does off the main frame.
+        let floats = floats_approvals(shows_main, self.shows_chat(cx));
         let approvals =
-            (!blocked && !shows_main && self.approvals.read(cx).has_request(cx)).then(|| {
+            (!blocked && floats && self.approvals.read(cx).has_request(cx)).then(|| {
                 div()
                     .absolute()
                     .bottom(px(20.))
@@ -481,7 +554,7 @@ impl Render for MainWindow {
         }
         let chat_menu = shows_main && self.menu_chat(cx).is_some();
         // Find in Chat: over any open chat, read-only ones too.
-        let findable = shows_main && self.chat_pane.read(cx).chat.is_some();
+        let findable = shows_main && self.shows_chat(cx) && self.chat_pane.read(cx).chat.is_some();
         let makes_folders = shows_main && self.sidebar.read(cx).can_make_folders(cx);
 
         div()
@@ -535,7 +608,12 @@ impl Render for MainWindow {
                     .update(cx, |s, cx| s.run_folder(&id, command, window, cx));
             }))
             .when(shows_main, |d| {
-                d.on_action(cx.listener(|this, _: &FindChats, window, cx| this.find(window, cx)))
+                d.on_action(cx.listener(|this, _: &GoBack, _, cx| this.go(true, cx)))
+                    .on_action(cx.listener(|this, _: &GoForward, _, cx| this.go(false, cx)))
+                    .on_action(cx.listener(|this, a: &GoToSection, window, cx| {
+                        this.go_to_section(a.index, window, cx)
+                    }))
+                    .on_action(cx.listener(|this, _: &FindChats, window, cx| this.find(window, cx)))
                     .on_action(cx.listener(|this, _: &NextChat, _, cx| this.step_chat(true, cx)))
                     .on_action(
                         cx.listener(|this, _: &PreviousChat, _, cx| this.step_chat(false, cx)),
@@ -644,5 +722,18 @@ mod material_tests {
         assert_eq!(hold.step(None, true), MaterialStep::Hold);
         assert_eq!(hold.step(Some(260.), true), MaterialStep::Sync(Some(260.)));
         assert_eq!(hold.step(None, true), MaterialStep::Hold);
+    }
+}
+
+#[cfg(test)]
+mod approvals_tests {
+    #[test]
+    fn a_request_floats_over_every_pane_but_the_chats() {
+        assert!(!super::floats_approvals(true, true));
+        assert!(
+            super::floats_approvals(true, false),
+            "a note hides a chat's request"
+        );
+        assert!(super::floats_approvals(false, false));
     }
 }

@@ -8,9 +8,6 @@ import 'diagnostics.dart';
 import 'log.dart';
 
 /// Implements the `system.*` family.
-///
-/// Capabilities stay empty until the daemon has a server to interrogate — reporting `true` for a feature the core
-/// cannot yet serve would light up sidebar entries that dead-end.
 class SystemService {
   SystemService({
     required this.directories,
@@ -48,9 +45,10 @@ class SystemService {
   final List<String> _secrets;
   final DateTime _startedAt;
 
-  /// What this daemon can currently serve.
+  /// What the active account can use now.
   ///
-  /// Replaced when a server is selected, and the daemon then emits
+  /// [Capabilities.none] until the core is up; from then on kept current by
+  /// the `CapabilitiesService`, which also emits
   /// [ConduitEvents.capabilitiesChanged] so open windows re-gate their
   /// navigation without reconnecting.
   Capabilities capabilities = Capabilities.none;

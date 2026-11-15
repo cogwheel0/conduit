@@ -34,15 +34,26 @@
 //!   colour.
 //! * The open chat is highlighted, and its folders open and the list
 //!   scrolls to it when it is chosen elsewhere (the palette).
+//! * **Areas.** With more than one area to show (an Open WebUI account
+//!   with notes or channels, Hermes beside chats), each is a section under
+//!   a Finder-style heading: Chats (all of the above), Hermes, Notes,
+//!   Terminal, Channels, Workspace, Calendar and Scheduled Tasks, in the
+//!   phone's tab order with the Mac's own sections after. A heading closes
+//!   its section (the chevron shows on hover, ← and → close and open it),
+//!   and what is closed is kept per account ([`SectionsStore`]). A long
+//!   list shows its first few and Show All. An item opens its area's pane
+//!   ([`crate::views::panes`]).
 //!
 //! Every row and control carries an AccessKit role and label.
+//!
+//! [`SectionsStore`]: crate::stores::sections::SectionsStore
 //!
 //! [`ChatListStore`]: crate::stores::chat_list::ChatListStore
 //! [`NavigationStore::open`]: crate::stores::navigation::NavigationStore::open
 //! [`sidebar_model`]: super::sidebar_model
 
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -55,9 +66,9 @@ use conduit_components::views::kit::{Button, ClickHandler, IconButton, bare_inpu
 use conduit_components::views::model::{Account, Backend, ChatRow, SyncState};
 use conduit_components::views::palette::{find_words, match_highlight};
 use conduit_components::views::sidebar::{
-    FolderLine, ROW_ACTION_SLOT, ROW_CONTENT_INSET, ROW_STATUS_GUTTER, RowAction, RowState,
-    SECTION_HEADER_HEIGHT, SidebarFrame, chat_row, folder_row, quiet_section_header,
-    section_header,
+    AREA_GAP, FolderLine, ItemLine, ROW_ACTION_SLOT, ROW_CONTENT_INSET, ROW_STATUS_GUTTER,
+    RowAction, RowState, SECTION_HEADER_HEIGHT, SidebarFrame, area_header, chat_row, folder_row,
+    item_row, more_row, quiet_section_header, section_header,
 };
 use conduit_protocol::{BulkChatAction, ChatSearchHit, ChatSummary, FolderSummary, NoticeLevel};
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -76,8 +87,8 @@ use super::sidebar_keys::{
     selection_row,
 };
 use super::sidebar_model::{
-    DateBucket, Hint, Section, SidebarItem, build_sidebar, collapse, flatten, parse_snippet,
-    with_new_folder,
+    AreaHint, AreaLists, AreaRow, DateBucket, Hint, Section, SidebarItem, area_rows, build_sidebar,
+    collapse, compose, flatten, parse_snippet, with_new_folder,
 };
 use crate::actions::{DeleteChat, FocusComposer, NewChat, OpenSettings, ToggleSidebar};
 use crate::l10n::{ActiveL10n as _, L10n};
@@ -86,8 +97,9 @@ use crate::menus::{ChatCommandSlot, SIDEBAR_LIST_CONTEXT};
 use crate::shell::macos::{EdgeBand, ListEdges};
 use crate::shell::sheet::{SheetSpec, present_sheet};
 use crate::stores::Stores;
+use crate::stores::areas::{visible_areas, workspace_sections};
 use crate::stores::chat_list::{ChatAction, ChatListEvent, ChatListStore};
-use crate::stores::navigation::{NavigationEvent, Selection};
+use crate::stores::navigation::{Area, AreaItem, NavigationEvent, Selection, WorkspaceSection};
 use crate::stores::session;
 use crate::views::accounts::account_row;
 
@@ -273,8 +285,14 @@ impl Render for DraggedChat {
 #[derive(Clone, Debug, PartialEq)]
 struct RowsKey {
     revision: u64,
-    /// Bumped when a section opens or closes.
-    collapsed: u64,
+    /// The other areas' lists.
+    areas_revision: u64,
+    /// Bumped when a section opens or closes, or shows all.
+    sections: u64,
+    /// The areas shown, and the workspace sections.
+    areas: Vec<Area>,
+    workspace: Vec<WorkspaceSection>,
+    hermes_archived: bool,
     row_height: f32,
     today: NaiveDate,
     /// The sidebar has a server to sync (the empty hint differs).
@@ -304,6 +322,79 @@ struct Rename {
     /// Where focus was before the field took it, and goes back to.
     restore: Option<gpui_kit::FocusHandle>,
     _subscription: Subscription,
+}
+
+/// An area's name, as its heading, the Go menu and its pane say it.
+pub fn area_label(area: Area, l: &L10n) -> String {
+    match area {
+        Area::Chats => l.sidebar_chats_tab(),
+        Area::Hermes => l.sidebar_hermes_tab(),
+        Area::Notes => l.sidebar_notes_tab(),
+        Area::Terminal => l.sidebar_terminal_tab(),
+        Area::Channels => l.sidebar_channels_tab(),
+        Area::Workspace => l.workspace_title(),
+        Area::Calendar => l.calendar_title(),
+        Area::Automations => l.scheduled_tasks_title(),
+    }
+}
+
+/// A workspace section's name.
+pub fn workspace_label(section: WorkspaceSection, l: &L10n) -> String {
+    match section {
+        WorkspaceSection::Models => l.workspace_models(),
+        WorkspaceSection::Knowledge => l.workspace_knowledge(),
+        WorkspaceSection::Prompts => l.workspace_prompts(),
+        WorkspaceSection::Tools => l.workspace_tools(),
+        WorkspaceSection::Skills => l.workspace_skills(),
+    }
+}
+
+/// An area item's glyph, as the phone draws its tab or section.
+pub fn item_icon(item: &AreaItem) -> IconName {
+    match item {
+        AreaItem::Note(_) => IconName::FileText,
+        AreaItem::Channel(_) => IconName::Hash,
+        AreaItem::HermesSession(_) => IconName::Sparkles,
+        AreaItem::Workspace(WorkspaceSection::Models) => IconName::Network,
+        AreaItem::Workspace(WorkspaceSection::Knowledge) => IconName::LibraryBig,
+        AreaItem::Workspace(WorkspaceSection::Prompts) => IconName::TextQuote,
+        AreaItem::Workspace(WorkspaceSection::Tools) => IconName::Wrench,
+        AreaItem::Workspace(WorkspaceSection::Skills) => IconName::WandSparkles,
+        AreaItem::Terminal(_) => IconName::SquareTerminal,
+        AreaItem::Calendar => IconName::Calendar,
+        AreaItem::Automations => IconName::CalendarClock,
+    }
+}
+
+/// An area item's name: its own, or what the account's lists call it, or
+/// "Untitled" (a note or session with none, or one not listed yet).
+pub fn item_title(item: &AreaItem, listed: Option<&str>, l: &L10n) -> String {
+    let named = listed.map(str::trim).filter(|t| !t.is_empty());
+    match item {
+        AreaItem::Workspace(section) => workspace_label(*section, l),
+        AreaItem::Calendar => l.desktop_calendar_upcoming(),
+        AreaItem::Automations => l.desktop_scheduled_tasks_all(),
+        AreaItem::HermesSession(_) => named
+            .map(String::from)
+            .unwrap_or_else(|| l.hermes_session_untitled()),
+        AreaItem::Note(_) | AreaItem::Channel(_) | AreaItem::Terminal(_) => {
+            named.map(String::from).unwrap_or_else(|| l.untitled())
+        }
+    }
+}
+
+/// The scope the sidebar's sections are kept under: the Open WebUI account
+/// by id, or the setup in use (Direct, Hermes, the demo).
+pub fn sections_scope(stores: &Stores, cx: &App) -> String {
+    if let Some(account) = stores.accounts.read(cx).active() {
+        return format!("account:{}", account.id);
+    }
+    match stores.session.read(cx).backend(cx) {
+        Some(session::Backend::Direct) => "direct".into(),
+        Some(session::Backend::Hermes) => "hermes".into(),
+        Some(session::Backend::Demo) => "demo".into(),
+        Some(session::Backend::OpenWebUi) | None => "none".into(),
+    }
 }
 
 /// A chat's title, or "New Chat" for one still untitled.
@@ -429,10 +520,12 @@ pub struct SidebarView {
     hovered: Option<String>,
     /// The chat a context menu was opened for.
     context_target: Option<String>,
-    /// Sections closed from their headers (Pinned, Folders), and a count of
-    /// changes for the rows cache.
-    collapsed: HashSet<Section>,
-    collapsed_gen: u64,
+    /// Hermes's archived sessions are listed (its Archived row is open).
+    hermes_archived: bool,
+    /// The rows are under area headings (more than one area shows).
+    areas_shown: bool,
+    /// An area item to scroll to once the rows hold it.
+    pending_reveal_item: Option<AreaItem>,
     renaming: Option<Rename>,
     /// The chosen chats (two or more, or any number with checkboxes).
     pub selecting: Option<BTreeSet<String>>,
@@ -484,8 +577,15 @@ impl SidebarView {
         let subscriptions = vec![
             cx.observe(&stores.chat_list, |_, _, cx| cx.notify()),
             cx.observe(&stores.navigation, |_, _, cx| cx.notify()),
-            cx.observe(&stores.session, |_, _, cx| cx.notify()),
+            cx.observe(&stores.areas, |_, _, cx| cx.notify()),
+            cx.observe(&stores.sections, |_, _, cx| cx.notify()),
+            // Each account keeps its own sections.
+            cx.observe(&stores.session, |this, _, cx| {
+                this.sync_scope(cx);
+                cx.notify()
+            }),
             cx.observe(&stores.accounts, |this, accounts, cx| {
+                this.sync_scope(cx);
                 // Another account: nothing chosen carries over.
                 let active = accounts.read(cx).active().map(|a| a.id.clone());
                 if active != this.account {
@@ -510,12 +610,18 @@ impl SidebarView {
                 // The selection follows a chat opened anywhere (the palette,
                 // a new chat): the keyboard starts from there.
                 let NavigationEvent::Changed(selection) = e;
-                this.cursor = match selection {
-                    Selection::Chat(id) => Some(KeyRow::Chat(id.clone())),
-                    Selection::New { .. } => None,
-                };
-                if let Selection::Chat(id) = selection {
-                    this.reveal(id.clone(), cx);
+                this.cursor = KeyRow::of_selection(selection);
+                // Only the newest selection is revealed once its list loads.
+                this.pending_reveal = None;
+                this.pending_reveal_item = None;
+                match selection {
+                    Selection::Chat(id) => this.reveal(id.clone(), cx),
+                    Selection::Area(item) => {
+                        // Chosen chats are no selection for a note or channel.
+                        this.end_selection(cx);
+                        this.reveal_item(item.clone(), cx)
+                    }
+                    Selection::New { .. } => {}
                 }
             }),
             cx.subscribe(&stores.chat_list, |this, _, e: &ChatListEvent, cx| {
@@ -543,8 +649,9 @@ impl SidebarView {
             scroll: VirtualListScrollHandle::new(),
             hovered: None,
             context_target: None,
-            collapsed: HashSet::new(),
-            collapsed_gen: 0,
+            hermes_archived: false,
+            areas_shown: false,
+            pending_reveal_item: None,
             renaming: None,
             selecting: None,
             account,
@@ -629,9 +736,29 @@ impl SidebarView {
 
     // Rows.
 
+    /// The areas the sidebar shows now: those the account's capabilities
+    /// allow, once the main frame is up.
+    pub fn areas(&self, cx: &App) -> Vec<Area> {
+        let session = self.stores.session.read(cx);
+        if session.route(cx) != session::Route::Main {
+            return vec![Area::Chats];
+        }
+        visible_areas(&session.capabilities())
+    }
+
+    /// The sections' store follows the account in use.
+    fn sync_scope(&mut self, cx: &mut Context<Self>) {
+        let scope = sections_scope(&self.stores, cx);
+        self.stores
+            .sections
+            .update(cx, |s, cx| s.set_scope(scope, cx));
+    }
+
     fn rebuild_if_needed(&mut self, cx: &mut Context<Self>) {
         let t = cx.conduit().clone();
         let has_account = self.has_server(cx);
+        let areas = self.areas(cx);
+        let workspace = workspace_sections(&self.stores.session.read(cx).capabilities());
         let store = self.stores.chat_list.read(cx);
         let now = Local::now();
         let new_folder = match self.renaming.as_ref().map(|r| &r.target) {
@@ -640,7 +767,11 @@ impl SidebarView {
         };
         let key = RowsKey {
             revision: store.revision(),
-            collapsed: self.collapsed_gen,
+            areas_revision: self.stores.areas.read(cx).revision(),
+            sections: self.stores.sections.read(cx).revision(),
+            areas: areas.clone(),
+            workspace: workspace.clone(),
+            hermes_archived: self.hermes_archived,
             row_height: t.metrics.row_height,
             today: now.date_naive(),
             has_account,
@@ -649,14 +780,49 @@ impl SidebarView {
         if self.key.as_ref() == Some(&key) {
             return;
         }
-        let mut rows = collapse(build_rows(store, has_account, &now), &self.collapsed);
+        let sections = self.stores.sections.read(cx);
+        let mut chats = collapse(build_rows(store, has_account, &now), |s| {
+            sections.is_collapsed(&s.key())
+        });
         // A folder being made shows where it will go (its parent is open).
         if let Some(parent) = &new_folder
             && !store.is_searching()
-            && let Some(with) = with_new_folder(rows.clone(), parent.as_deref())
+            && let Some(with) = with_new_folder(chats.clone(), parent.as_deref())
         {
-            rows = with;
+            chats = with;
         }
+        // Search lists chats alone; otherwise every area, each under its
+        // heading when there is more than one.
+        let rows = if store.is_searching() {
+            chats
+        } else {
+            let lists = self.stores.areas.read(cx);
+            let failed: Vec<Area> = lists.failed.iter().copied().collect();
+            let area_lists = AreaLists {
+                notes: lists.notes.as_deref(),
+                channels: lists.channels.as_deref(),
+                hermes: lists.hermes.as_ref(),
+                terminals: lists.terminals.as_deref(),
+                failed: &failed,
+                workspace: &workspace,
+            };
+            compose(
+                &areas,
+                chats,
+                |area| {
+                    area_rows(
+                        area,
+                        &area_lists,
+                        sections.shows_all(area.id()),
+                        self.hermes_archived,
+                    )
+                },
+                |area| sections.is_collapsed(area.id()),
+            )
+        };
+        self.areas_shown = rows
+            .first()
+            .is_some_and(|r| matches!(r, SidebarItem::AreaHeader { .. }));
         let last = rows.len().saturating_sub(1);
         // The list runs down to the footer's rule, so rows scroll under it
         // rather than being cut short of it; the last row keeps a little
@@ -666,12 +832,19 @@ impl SidebarView {
             .enumerate()
             .map(|(i, item)| {
                 let tail = if i == last { LIST_TAIL } else { 0. };
-                size(px(0.), px(row_height(item, i, &t) + tail))
+                let previous = i.checked_sub(1).and_then(|p| rows.get(p));
+                size(px(0.), px(row_height(item, previous, &t) + tail))
             })
             .collect();
         self.rows = Rc::new(rows);
         self.sizes = Rc::new(sizes);
         self.key = Some(key);
+        if let Some(item) = self.pending_reveal_item.clone()
+            && let Some(ix) = self.rows.iter().position(|r| r.area_item() == Some(&item))
+        {
+            self.scroll.scroll_to_item(ix, ScrollStrategy::Nearest);
+            self.pending_reveal_item = None;
+        }
         if let Some(id) = self.pending_reveal.clone()
             && let Some(ix) = self.rows.iter().position(|r| r.chat_id() == Some(&id))
         {
@@ -698,8 +871,113 @@ impl SidebarView {
         }
     }
 
+    /// Opens the area holding `item` and scrolls to its row.
+    fn reveal_item(&mut self, item: AreaItem, cx: &mut Context<Self>) {
+        let area = item.area();
+        self.stores
+            .sections
+            .update(cx, |s, cx| s.set_collapsed(area.id(), false, cx));
+        // An archived Hermes session shows under its Archived row.
+        if let AreaItem::HermesSession(id) = &item
+            && self
+                .stores
+                .areas
+                .read(cx)
+                .hermes
+                .as_ref()
+                .is_some_and(|h| h.archived.iter().any(|s| &s.id == id))
+        {
+            self.hermes_archived = true;
+        }
+        match self.rows.iter().position(|r| r.area_item() == Some(&item)) {
+            Some(ix) => self.scroll.scroll_to_item(ix, ScrollStrategy::Nearest),
+            None => {
+                // Past the area's first rows (or not listed yet): all of
+                // them, so the row is there to scroll to.
+                self.stores
+                    .sections
+                    .update(cx, |s, cx| s.set_show_all(area.id(), true, cx));
+                self.pending_reveal_item = Some(item);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Go › a section (⌘1…): the area opened and scrolled to, the list
+    /// focused with the keyboard on its heading (on its first row when the
+    /// sidebar shows no headings).
+    pub fn go_to_area(&mut self, area: Area, window: &mut Window, cx: &mut Context<Self>) {
+        // Search lists chats alone: the sections come back first.
+        if !self.search.read(cx).value().is_empty() || self.stores.chat_list.read(cx).is_searching()
+        {
+            self.clear_search(window, cx);
+        }
+        self.stores
+            .sections
+            .update(cx, |s, cx| s.set_collapsed(area.id(), false, cx));
+        self.rebuild_if_needed(cx);
+        let target = KeyRow::Area(area);
+        let ix = index_of(&self.rows, &target).or_else(|| {
+            self.rows
+                .iter()
+                .position(|r| KeyRow::of(r).is_some_and(|k| !matches!(k, KeyRow::Area(_))))
+        });
+        self.list_focus.focus(window, cx);
+        if let Some(ix) = ix {
+            self.cursor = KeyRow::of(&self.rows[ix]);
+            self.scroll_to_top(ix);
+        }
+        cx.notify();
+    }
+
+    /// Whether `row` shows in the top half of the list, or the list is
+    /// scrolled as far as it goes (the E2E checks Go with it).
+    pub fn row_near_top(&self, row: &KeyRow) -> bool {
+        let Some(ix) = index_of(&self.rows, row) else {
+            return false;
+        };
+        let top: f32 = self.sizes[..ix].iter().map(|s| f32::from(s.height)).sum();
+        let scrolled = -f32::from(self.scroll.offset().y);
+        let visible = f32::from(self.scroll.base_handle().bounds().size.height);
+        let at_end = scrolled + 1. >= f32::from(self.scroll.max_offset().y);
+        top + 1. >= scrolled
+            && (top < scrolled + visible / 2. || at_end && top < scrolled + visible)
+    }
+
+    /// Scrolls row `ix` to the top of the list, as Finder brings a sidebar
+    /// group into view (Kit's virtual list scrolls only as far as the
+    /// nearest edge, which would leave a heading at the bottom). The list
+    /// keeps the offset within its bounds when it lays out.
+    fn scroll_to_top(&mut self, ix: usize) {
+        let above: f32 = self.sizes[..ix.min(self.sizes.len())]
+            .iter()
+            .map(|s| f32::from(s.height))
+            .sum();
+        // A heading's row carries the gap above it: past that gap.
+        let previous = ix.checked_sub(1).and_then(|p| self.rows.get(p));
+        let gap = self.rows.get(ix).map_or(0., |r| header_gap(r, previous));
+        self.scroll
+            .base_handle()
+            .set_offset(gpui_kit::point(px(0.), px(-(above + gap))));
+    }
+
+    /// Opens or closes area `area`'s section.
+    pub fn toggle_area(&mut self, area: Area, cx: &mut Context<Self>) {
+        self.stores
+            .sections
+            .update(cx, |s, cx| s.toggle_collapsed(area.id(), cx));
+    }
+
+    /// Whether area `area`'s section is closed (tests and the E2E).
+    pub fn area_collapsed(&self, area: Area, cx: &App) -> bool {
+        self.stores.sections.read(cx).is_collapsed(area.id())
+    }
+
     /// Opens the folders around `chat_id` and scrolls to it.
     fn reveal(&mut self, chat_id: String, cx: &mut Context<Self>) {
+        self.stores
+            .sections
+            .update(cx, |s, cx| s.set_collapsed(Area::Chats.id(), false, cx));
         self.stores
             .chat_list
             .update(cx, |c, cx| c.reveal_chat(&chat_id, cx));
@@ -724,13 +1002,14 @@ impl SidebarView {
             .map(|ix| {
                 let height = self.sizes.get(ix).map_or(px(0.), |s| s.height);
                 let item = self.rows[ix].clone();
-                let gap = ix > 0 && matches!(item, SidebarItem::Header(_));
+                let previous = ix.checked_sub(1).and_then(|p| self.rows.get(p));
+                let gap = header_gap(&item, previous);
                 let el = self.render_item(&item, &now, &t, cx);
                 div()
                     .h(height)
                     .w_full()
                     .px(px(10.))
-                    .when(gap, |d| d.pt(px(10.)))
+                    .when(gap > 0., |d| d.pt(px(gap)))
                     .child(el)
                     .into_any_element()
             })
@@ -749,6 +1028,85 @@ impl SidebarView {
         let l = cx.l10n().clone();
         let r = t.roles;
         match item {
+            SidebarItem::AreaHeader { area, expanded } => {
+                self.area_heading(*area, *expanded, t, cx)
+            }
+            SidebarItem::AreaRow(row) => self.area_row(row, now, t, cx),
+            SidebarItem::ShowAll { area, all } => {
+                let (area, all) = (*area, *all);
+                let label: SharedString = if all {
+                    l.markdown_show_less()
+                } else {
+                    l.desktop_show_all()
+                }
+                .into();
+                let row = KeyRow::ShowAll(area);
+                more_row(area.id(), &label, self.row_state(&row, area.id()), t)
+                    .aria_expanded(all)
+                    .when(self.is_cursor(&row), |d| d.aria_active_descendant())
+                    .on_hover(self.hover_listener(format!("more-{}", area.id()), cx))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.cursor = Some(KeyRow::ShowAll(area));
+                        this.toggle_show_all(area, cx);
+                    }))
+                    .into_any_element()
+            }
+            SidebarItem::HermesArchived { count, visible } => {
+                let visible = *visible;
+                footer_button(
+                    "hermes-archived",
+                    l.archived(),
+                    Some(visible),
+                    Some(count.to_string()),
+                    self.is_selection(&KeyRow::HermesArchived),
+                    self.list_focused,
+                    t,
+                )
+                .when(self.areas_shown, |d| {
+                    d.pl(px(ROW_CONTENT_INSET + ROW_STATUS_GUTTER))
+                })
+                .aria_description(SharedString::from(l.desktop_chat_count(*count as i64)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.cursor = Some(KeyRow::HermesArchived);
+                    this.hermes_archived = !visible;
+                    cx.notify();
+                }))
+                .into_any_element()
+            }
+            SidebarItem::AreaHint { area, hint } => {
+                let text = area_hint_text(*area, *hint, &l);
+                let retry = matches!(hint, AreaHint::Failed);
+                let area = *area;
+                div()
+                    .id(ElementId::Name(
+                        format!("hint-{}-{}", area.id(), format!("{hint:?}").to_lowercase()).into(),
+                    ))
+                    .role(Role::Status)
+                    .aria_label(SharedString::from(text.clone()))
+                    .h(px(t.metrics.row_height))
+                    .pl(px(ROW_CONTENT_INSET + ROW_STATUS_GUTTER))
+                    .pr(px(ROW_CONTENT_INSET))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .text_size(px(t.metrics.small))
+                    .text_color(r.sidebar_text_subtle)
+                    .child(div().flex_1().min_w_0().truncate().child(text))
+                    .when(retry, |d| {
+                        let areas = self.stores.areas.downgrade();
+                        d.child(
+                            conduit_components::views::kit::Button::new(
+                                ElementId::Name(format!("retry-{}", area.id()).into()),
+                                l.desktop_try_again(),
+                            )
+                            .ghost()
+                            .on_click(Rc::new(move |_, _, cx| {
+                                let _ = areas.update(cx, |a, cx| a.refresh(area, cx));
+                            })),
+                        )
+                    })
+                    .into_any_element()
+            }
             SidebarItem::NewFolder { parent, depth } => {
                 self.new_folder_row(parent.as_deref(), *depth, t, cx)
             }
@@ -785,6 +1143,11 @@ impl SidebarView {
                     self.list_focused,
                     t,
                 )
+                // Under an area's heading, a row of that area: in at the
+                // titles' column, as its sections' headers are.
+                .when(self.areas_shown, |d| {
+                    d.pl(px(ROW_CONTENT_INSET + ROW_STATUS_GUTTER))
+                })
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.stores.chat_list.update(cx, |c, cx| c.load_more(cx))
                 }))
@@ -801,6 +1164,9 @@ impl SidebarView {
                     self.list_focused,
                     t,
                 )
+                .when(self.areas_shown, |d| {
+                    d.pl(px(ROW_CONTENT_INSET + ROW_STATUS_GUTTER))
+                })
                 .aria_description(SharedString::from(l.desktop_chat_count(*count)))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.stores
@@ -823,6 +1189,100 @@ impl SidebarView {
         }
     }
 
+    /// How a row of the areas draws: selected, hovered, the list key.
+    fn row_state(&self, row: &KeyRow, hover_id: &str) -> RowState {
+        RowState {
+            selected: self.is_selection(row),
+            hovered: self.hovered.as_deref() == Some(hover_id),
+            keyboard: self.list_focused,
+            ..Default::default()
+        }
+    }
+
+    /// Whether the keyboard stands on `row` (its AccessKit focus).
+    fn is_cursor(&self, row: &KeyRow) -> bool {
+        self.list_focused && self.cursor.as_ref() == Some(row)
+    }
+
+    fn hover_listener(
+        &self,
+        id: String,
+        cx: &mut Context<Self>,
+    ) -> impl Fn(&bool, &mut Window, &mut App) + 'static {
+        cx.listener(move |this, on: &bool, _, cx| this.set_hovered(&id, *on, cx))
+    }
+
+    /// An area's heading: a click (or ← and →) closes and opens it.
+    fn area_heading(
+        &mut self,
+        area: Area,
+        expanded: bool,
+        t: &ConduitTheme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let l = cx.l10n().clone();
+        let label: SharedString = area_label(area, &l).into();
+        let row = KeyRow::Area(area);
+        area_header(area.id(), &label, expanded, self.row_state(&row, ""), t)
+            .when(self.is_cursor(&row), |d| d.aria_active_descendant())
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.cursor = Some(KeyRow::Area(area));
+                this.toggle_area(area, cx);
+            }))
+            .into_any_element()
+    }
+
+    /// An item of another area: a click opens it in its pane.
+    fn area_row(
+        &mut self,
+        row: &AreaRow,
+        now: &DateTime<Local>,
+        t: &ConduitTheme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let l = cx.l10n().clone();
+        let item = row.item.clone();
+        let id = area_item_id(&item);
+        let key = KeyRow::Item(item.clone());
+        let (trailing, description, emphasized) = if row.unread > 0 {
+            let spoken = l.desktop_unread_count(row.unread);
+            (Some(row.unread.to_string()), Some(spoken), true)
+        } else if let Some(ms) = row.updated_at_ms {
+            let (time, spoken) = dates::stamp(ms, now, &l);
+            (Some(time), Some(spoken), false)
+        } else {
+            (None, None, false)
+        };
+        let line = ItemLine {
+            id: id.clone().into(),
+            icon: item_icon(&item),
+            title: item_title(&item, Some(&row.title), &l).into(),
+            trailing: trailing.map(Into::into),
+            description: description.map(Into::into),
+            pinned: row.pinned,
+            emphasized,
+        };
+        item_row(&line, self.row_state(&key, &id), t)
+            .when(self.is_cursor(&key), |d| d.aria_active_descendant())
+            .on_hover(self.hover_listener(id, cx))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.cursor = Some(KeyRow::Item(item.clone()));
+                let item = item.clone();
+                this.stores
+                    .navigation
+                    .update(cx, |n, cx| n.open_item(item, cx));
+            }))
+            .into_any_element()
+    }
+
+    /// Lists all of `area`, or its first few again.
+    pub fn toggle_show_all(&mut self, area: Area, cx: &mut Context<Self>) {
+        self.stores.sections.update(cx, |s, cx| {
+            let all = !s.shows_all(area.id());
+            s.set_show_all(area.id(), all, cx)
+        });
+    }
+
     fn header(&mut self, section: Section, t: &ConduitTheme, cx: &mut Context<Self>) -> AnyElement {
         let l = cx.l10n();
         let label: SharedString = match section {
@@ -843,9 +1303,10 @@ impl SidebarView {
             Section::Date(b) => format!("{b:?}").to_lowercase(),
             other => format!("{other:?}").to_lowercase(),
         };
+        let key = section.key();
         let expanded = section
             .collapsible()
-            .then(|| !self.collapsed.contains(&section));
+            .then(|| !self.stores.sections.read(cx).is_collapsed(&key));
         // The Folders heading carries New Folder ("+"), as the phone's
         // drawer and the design's sidebar head that section: always there,
         // so it can be pointed at, tabbed to and named by VoiceOver.
@@ -865,13 +1326,20 @@ impl SidebarView {
             Some(open) if section.quiet_chevron() => quiet_section_header(&id, &label, open, t),
             _ => section_header(&id, &label, add, expanded, t),
         };
+        // Under an area's heading, the Chats area's own sections step in to
+        // the titles' column, a level below it.
+        let header = if self.areas_shown {
+            header
+                .pl(px(ROW_CONTENT_INSET + ROW_STATUS_GUTTER))
+                .aria_level(3)
+        } else {
+            header
+        };
         let header = if expanded.is_some() {
             header.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if !this.collapsed.remove(&section) {
-                    this.collapsed.insert(section);
-                }
-                this.collapsed_gen += 1;
-                cx.notify();
+                this.stores
+                    .sections
+                    .update(cx, |s, cx| s.toggle_collapsed(&key, cx));
             }))
         } else {
             header
@@ -1325,7 +1793,7 @@ impl SidebarView {
             &self.rows,
             self.list_focused,
             self.cursor.as_ref(),
-            self.stores.navigation.read(cx).selected_chat(),
+            KeyRow::of_selection(self.stores.navigation.read(cx).selection()).as_ref(),
         )
     }
 
@@ -1433,8 +1901,8 @@ impl SidebarView {
             .as_ref()
             .is_some_and(|c| index_of(&self.rows, c).is_some());
         if !listed {
-            let open = self.stores.navigation.read(cx).selected_chat();
-            self.cursor = initial_cursor(&self.rows, open);
+            let open = KeyRow::of_selection(self.stores.navigation.read(cx).selection());
+            self.cursor = initial_cursor(&self.rows, open.as_ref());
         }
     }
 
@@ -1455,6 +1923,11 @@ impl SidebarView {
                 if let Some(id) = row.chat_id() {
                     let id = id.to_string();
                     self.stores.navigation.update(cx, |n, cx| n.open(id, cx));
+                } else if let KeyRow::Item(item) = &row {
+                    let item = item.clone();
+                    self.stores
+                        .navigation
+                        .update(cx, |n, cx| n.open_item(item, cx));
                 }
                 self.cursor = Some(row);
             }
@@ -1463,6 +1936,7 @@ impl SidebarView {
                     .chat_list
                     .update(cx, |c, cx| c.toggle_folder(&folder, cx));
             }
+            ListMove::ToggleArea(area) => self.toggle_area(area, cx),
             ListMove::Stay => {}
         }
         cx.notify();
@@ -1536,6 +2010,14 @@ impl SidebarView {
                     .update(cx, |c, cx| c.set_archived_visible(!visible, cx))
                     .detach();
             }
+            Some(KeyRow::Area(area)) => self.toggle_area(area, cx),
+            Some(KeyRow::ShowAll(area)) => self.toggle_show_all(area, cx),
+            Some(KeyRow::HermesArchived) => {
+                self.hermes_archived = !self.hermes_archived;
+                cx.notify();
+            }
+            // Already shown in its pane.
+            Some(KeyRow::Item(_)) => {}
             Some(KeyRow::Chat(_)) | None => {
                 window.dispatch_action(Box::new(FocusComposer), cx);
             }
@@ -2096,9 +2578,11 @@ impl SidebarView {
                 .chat_list
                 .update(cx, |c, cx| c.reveal_folders(&path, cx));
         }
-        if self.collapsed.remove(&Section::Folders) {
-            self.collapsed_gen += 1;
-        }
+        // Where it will be is open: the Chats area and its Folders.
+        self.stores.sections.update(cx, |s, cx| {
+            s.set_collapsed(Area::Chats.id(), false, cx);
+            s.set_collapsed(&Section::Folders.key(), false, cx);
+        });
         self.edit_name(NameTarget::NewFolder { parent }, name, window, cx);
         // Scrolled to once the rows hold it (next frame).
         self.pending_new_folder = true;
@@ -2818,15 +3302,56 @@ const LIST_TAIL: f32 = 6.;
 const SNIPPET_LINE: f32 = 16.;
 const SNIPPET_LIFT: f32 = 4.;
 
-/// A row's height. Headers after the first carry the gap above them.
-fn row_height(item: &SidebarItem, index: usize, t: &ConduitTheme) -> f32 {
+/// The gap above a heading: an area's, the space Finder leaves between its
+/// groups; a section's, a line's worth, except right under its area's
+/// heading or at the top.
+fn header_gap(item: &SidebarItem, previous: Option<&SidebarItem>) -> f32 {
+    match (item, previous) {
+        (_, None) => 0.,
+        (SidebarItem::AreaHeader { .. }, Some(_)) => AREA_GAP,
+        (SidebarItem::Header(_), Some(SidebarItem::AreaHeader { .. })) => 0.,
+        (SidebarItem::Header(_), Some(_)) => 10.,
+        _ => 0.,
+    }
+}
+
+/// A row's height. Headings carry the gap above them.
+fn row_height(item: &SidebarItem, previous: Option<&SidebarItem>, t: &ConduitTheme) -> f32 {
     let row = t.metrics.row_height + 1.;
     match item {
-        SidebarItem::Header(_) if index == 0 => SECTION_HEADER_HEIGHT,
-        SidebarItem::Header(_) => SECTION_HEADER_HEIGHT + 10.,
+        SidebarItem::Header(_) | SidebarItem::AreaHeader { .. } => {
+            SECTION_HEADER_HEIGHT + header_gap(item, previous)
+        }
         SidebarItem::SearchHit(hit) if visible_snippet(hit).is_some() => row + SNIPPET_LINE,
         SidebarItem::Hint(_) => 52.,
         _ => row,
+    }
+}
+
+/// An area item's id among the rows (hover, AccessKit, the E2E).
+pub fn area_item_id(item: &AreaItem) -> String {
+    match item {
+        AreaItem::Note(id) => format!("note-{id}"),
+        AreaItem::Channel(id) => format!("channel-{id}"),
+        AreaItem::HermesSession(id) => format!("hermes-{id}"),
+        AreaItem::Workspace(section) => format!("workspace-{}", section.id()),
+        AreaItem::Terminal(id) => format!("terminal-{id}"),
+        AreaItem::Calendar => "calendar".into(),
+        AreaItem::Automations => "automations".into(),
+    }
+}
+
+/// What an area says instead of rows.
+fn area_hint_text(area: Area, hint: AreaHint, l: &L10n) -> String {
+    match (area, hint) {
+        (_, AreaHint::Loading) => l.loading_short(),
+        (Area::Notes, AreaHint::Empty) => l.no_notes_yet(),
+        (Area::Channels, AreaHint::Empty) => l.channel_empty_state(),
+        (Area::Hermes, AreaHint::Empty) => l.hermes_no_conversations_message(),
+        (_, AreaHint::Empty) => l.terminal_no_servers_configured(),
+        (Area::Notes, AreaHint::Failed) => l.failed_to_load_notes(),
+        (Area::Channels, AreaHint::Failed) => l.channel_load_error(),
+        (_, AreaHint::Failed) => l.desktop_action_failed(),
     }
 }
 
@@ -3111,6 +3636,79 @@ mod selection_tests {
         view.update(vcx, |s, cx| s.end_selection(cx));
         view.read_with(vcx, |s, _| {
             assert_eq!(s.on_selection(&ChatCommand::Delete), None)
+        });
+    }
+
+    #[gpui_kit::test]
+    fn go_to_a_section_ends_a_search_and_opening_a_chat_opens_chats(cx: &mut TestAppContext) {
+        let (stores, view, vcx) = bench(cx);
+        view.update_in(vcx, |s, window, cx| {
+            s.search
+                .update(cx, |i, cx| i.set_value("bread", window, cx));
+        });
+        stores
+            .chat_list
+            .update(vcx, |c, cx| c.set_query("bread", cx));
+        view.update_in(vcx, |s, window, cx| s.go_to_area(Area::Notes, window, cx));
+        stores.chat_list.read_with(vcx, |c, _| {
+            assert!(!c.is_searching(), "Go stayed on the search's chats");
+        });
+        view.read_with(vcx, |s, cx| assert!(s.search.read(cx).value().is_empty()));
+        stores
+            .sections
+            .update(vcx, |s, cx| s.set_collapsed(Area::Chats.id(), true, cx));
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+        stores.sections.read_with(vcx, |s, _| {
+            assert!(
+                !s.is_collapsed(Area::Chats.id()),
+                "the opened chat's row is hidden"
+            );
+        });
+    }
+
+    #[gpui_kit::test]
+    fn opening_a_note_ends_a_chat_selection_and_an_older_reveal(cx: &mut TestAppContext) {
+        let (stores, view, vcx) = bench(cx);
+        view.update(vcx, |s, cx| s.toggle_selected("chat-a", cx));
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n7".into()), cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |s, _| {
+            assert!(s.selecting.is_none(), "chats stay chosen")
+        });
+        // Another item while the note still waits for its list.
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Channel("c9".into()), cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |s, _| {
+            assert_eq!(s.pending_reveal_item, Some(AreaItem::Channel("c9".into())));
+        });
+        stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |s, _| assert_eq!(s.pending_reveal_item, None));
+    }
+
+    #[gpui_kit::test]
+    fn an_item_opened_past_its_areas_first_rows_shows_them_all(cx: &mut TestAppContext) {
+        let (stores, view, vcx) = bench(cx);
+        stores
+            .sections
+            .update(vcx, |s, cx| s.set_show_all(Area::Notes.id(), false, cx));
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n7".into()), cx));
+        vcx.run_until_parked();
+        stores.sections.read_with(vcx, |s, _| {
+            assert!(
+                s.shows_all(Area::Notes.id()),
+                "the opened note's row is not drawn"
+            );
+        });
+        view.read_with(vcx, |s, _| {
+            assert_eq!(s.pending_reveal_item, Some(AreaItem::Note("n7".into())));
         });
     }
 

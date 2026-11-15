@@ -899,8 +899,23 @@
       }
     }
   },
-  "desktopChannelsNotAvailable": "Los canales aún no están disponibles en el escritorio.",
-  "desktopNotesNotAvailable": "Las notas aún no están disponibles en el escritorio.",
+  "desktopChannelsUnavailable": "Los canales no están disponibles para esta cuenta.",
+  "desktopNotesUnavailable": "Las notas no están disponibles para esta cuenta.",
+  "desktopShowAll": "Mostrar todo",
+  "desktopCalendarUpcoming": "Próximos",
+  "desktopScheduledTasksAll": "Todas las tareas",
+  "desktopUnreadCount": "{count, plural, =1{1 sin leer} other{{count} sin leer}}",
+  "@desktopUnreadCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopMenuGo": "Ir",
+  "desktopMenuBack": "Atrás",
+  "desktopMenuForward": "Adelante",
+  "desktopKeyboardGoToSection": "Ir a una sección de la barra lateral",
   "desktopNotificationAnswerReady": "La respuesta está lista.",
   "desktopNotificationAnswerFailed": "La respuesta no terminó.",
   "desktopTrayOpen": "Abrir Conduit",

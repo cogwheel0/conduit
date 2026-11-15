@@ -33,6 +33,10 @@
 //!   Desktop, Quick Ask, notifications, close to the menu bar, open at
 //!   login, the model the composer names after a send and Show Sidebar
 //!   ([`shell`]).
+//! * `sections`: the sidebar's areas on the seeded server: sections per
+//!   capability, collapse kept per account, the keyboard across sections,
+//!   note and channel links, the Go menu, lists on `*.changed`, and
+//!   Hermes's section coming and going ([`sections`]).
 //! * `offline-setup`, `offline`: a signed-in account whose server is out of
 //!   reach at launch, with conduitd restarted once while the window opens;
 //!   two launches, run by `crates/app/e2e-offline.sh` ([`offline`]).
@@ -46,6 +50,7 @@
 mod chat;
 mod integration;
 mod offline;
+mod sections;
 pub mod shell;
 
 use std::collections::BTreeMap;
@@ -694,6 +699,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
             chat::run(&inputs, &dir, cx).await
         }
         "integration" => integration::run(&inputs, &dir, cx).await,
+        "sections" => sections::run(&inputs, &dir, cx).await,
         "shell" | "shell-notify" | "shell-close" => shell::run(&inputs, &dir, cx).await,
         "offline-setup" => offline::setup(&inputs, &dir, cx).await,
         "offline" => offline::run(&inputs, &dir, cx).await,
@@ -1173,6 +1179,12 @@ async fn wait_chat(
 }
 
 /// Types `stroke` into the main window as the keyboard would.
+/// Opens `urls` as the system hands links to the app.
+fn shell_links(urls: &[&str], cx: &mut AsyncApp) {
+    let urls: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
+    cx.update(|cx| crate::desktop::handle_urls(urls, cx));
+}
+
 fn press(handle: AnyWindowHandle, stroke: &str, cx: &mut AsyncApp) {
     let Ok(keystroke) = gpui_kit::Keystroke::parse_with_os(stroke, gpui_kit::OperatingSystem::Mac)
     else {

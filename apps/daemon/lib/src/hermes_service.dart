@@ -12,6 +12,7 @@ import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service
 import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -272,24 +273,52 @@ final class HermesService {
     if (_container.read(hermesApiServiceProvider) == null) {
       return const HermesSessions();
     }
-    _container.invalidate(hermesSessionsProvider);
+    _container
+      ..invalidate(hermesSessionsProvider)
+      ..invalidate(hermesArchivedSessionsProvider);
     final sessions = await readSettled(
       _container,
       hermesSessionsProvider.future,
     );
+    // The archived row has its own failure, as on a phone: it never takes
+    // the conversations with it.
+    List<HermesSessionSummary> archived;
+    try {
+      archived = await readSettled(
+        _container,
+        hermesArchivedSessionsProvider.future,
+      );
+    } on Object {
+      archived = const <HermesSessionSummary>[];
+    }
+    // Read one after the other, a session archived in between is in both:
+    // the later read, the archive, has it.
+    final archivedIds = <String>{for (final session in archived) session.id};
+    final active = sessions.where((s) => !archivedIds.contains(s.id));
     return HermesSessions(
       sessions: <HermesSessionDto>[
-        for (final session in sessions)
-          HermesSessionDto(
-            id: session.id,
-            chatId: hermesChatId(session.id),
-            title: session.title,
-            preview: session.preview,
-            updatedAtMs: session.updatedAt?.millisecondsSinceEpoch,
-          ),
+        // Pinned first, as the phone's list sections them.
+        for (final session in active)
+          if (session.pinned) _sessionDto(session),
+        for (final session in active)
+          if (!session.pinned) _sessionDto(session),
+      ],
+      archived: <HermesSessionDto>[
+        for (final session in archived) _sessionDto(session),
       ],
     );
   });
+
+  static HermesSessionDto _sessionDto(HermesSessionSummary session) =>
+      HermesSessionDto(
+        id: session.id,
+        chatId: hermesChatId(session.id),
+        title: session.title,
+        preview: session.preview,
+        updatedAtMs: session.updatedAt?.millisecondsSinceEpoch,
+        pinned: session.pinned,
+        archived: session.archived,
+      );
 
   Future<HermesSessions> rename(HermesRename request) => _guard(() async {
     await _sessions().rename(request.id, request.title.trim());
