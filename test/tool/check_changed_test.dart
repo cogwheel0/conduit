@@ -113,6 +113,8 @@ void main() {
     // The generator formats with rustfmt: a checkout without Rust skips it.
     check(plan.steps[4].optional).isTrue();
     check(plan.steps[4].needs).equals('rustfmt');
+    // Probed where the generator runs it, under the pinned toolchain.
+    check(plan.steps[4].needsIn).equals('desktop');
     check(
       plan.leftToCi,
     ).contains('Desktop workflow (cargo tests, builds and the generated Rust)');

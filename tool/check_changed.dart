@@ -41,6 +41,7 @@ class Step {
     this.directory = '.',
     this.optional = false,
     this.needs,
+    this.needsIn = '.',
   });
 
   final String name;
@@ -56,6 +57,10 @@ class Step {
   /// Another program the command runs, such as the generator's rustfmt. An
   /// [optional] step is skipped when it is missing too.
   final String? needs;
+
+  /// Where [needs] is probed: the generator runs rustfmt in `desktop/`,
+  /// where the pinned toolchain applies.
+  final String needsIn;
 
   @override
   String toString() =>
@@ -354,6 +359,7 @@ Plan planChecks(
         directory: 'packages/conduit_protocol',
         optional: true,
         needs: 'rustfmt',
+        needsIn: 'desktop',
       ),
     );
   }
@@ -554,7 +560,9 @@ void _printLeftToCi(Plan plan) {
 /// it is [Step.optional], which gives `skip`.
 Future<String> _run(Step step) async {
   final needs = step.needs;
-  if (step.optional && needs != null && !await _installed(needs)) {
+  if (step.optional &&
+      needs != null &&
+      !await _installed(needs, step.needsIn)) {
     return 'skip';
   }
   try {
@@ -581,12 +589,16 @@ Future<String> _run(Step step) async {
   }
 }
 
-/// Whether [program] starts (`--version`).
-Future<bool> _installed(String program) async {
+/// Whether [program] runs in [directory] (`--version` exits 0). A rustup
+/// proxy without the pinned toolchain or component starts but fails.
+Future<bool> _installed(String program, String directory) async {
   try {
-    await Process.run(program, const ['--version']);
-    return true;
+    final result = await Process.run(program, const [
+      '--version',
+    ], workingDirectory: directory);
+    return result.exitCode == 0;
   } on ProcessException catch (error) {
+    // Missing (2); any other start error is the step's to report.
     return error.errorCode != 2;
   }
 }
