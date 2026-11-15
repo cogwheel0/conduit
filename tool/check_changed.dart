@@ -353,6 +353,8 @@ Plan planChecks(
           path == '.github/workflows/ci.yml',
     ))
       'Android native tests and the foss build',
+    if (affected.contains('apps/daemon'))
+      'Desktop daemon (macOS build and smoke test)',
     if (any((path) => path.startsWith('relay/') || path.startsWith('push/')))
       'Push relay tests (cargo test)',
     if (any(

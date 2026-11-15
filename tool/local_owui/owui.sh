@@ -1,0 +1,355 @@
+#!/usr/bin/env bash
+# A throwaway local Open WebUI 0.13.2 with a fake model and synthetic seed
+# data, for the daemon's live tests and the desktop app's E2E passes.
+#
+#   tool/local_owui/owui.sh setup          venv with open-webui (once, ~5 min)
+#   tool/local_owui/owui.sh start          server and fake model, in the background
+#   tool/local_owui/owui.sh seed           synthetic users, chats, prompts and a file
+#   tool/local_owui/owui.sh up             start, then seed if it never was
+#   tool/local_owui/owui.sh reset          stop, set the data aside, start, seed
+#   tool/local_owui/owui.sh stop           stop both
+#   tool/local_owui/owui.sh status         what runs where
+#   tool/local_owui/owui.sh env            print the env file's path
+#   tool/local_owui/owui.sh chat DIR TEXT  one chat turn, as the web client
+#                                          sends it (drive_chat.py), into DIR
+#
+# Options, also read from the environment:
+#   --dir DIR        the instance: data, logs, pids, secrets
+#                    (CONDUIT_OWUI_DIR, default $CONDUIT_DEV_CACHE/local-owui;
+#                    the daemon's tests read CONDUIT_OWUI_DIR, so set it to
+#                    DIR for them too)
+#   --port N         the server's port; the fake model takes the next one
+#                    and the fake Hermes the one after (CONDUIT_OWUI_PORT,
+#                    default 8150)
+#   --model-port N   the fake model's port (CONDUIT_OWUI_MODEL_PORT)
+#   --hermes-port N  the fake Hermes server's port (CONDUIT_OWUI_HERMES_PORT)
+#
+#   CONDUIT_DEV_CACHE    the cache root (~/Library/Caches/conduit-dev on
+#                        macOS, ${XDG_CACHE_HOME:-~/.cache}/conduit-dev elsewhere)
+#   CONDUIT_OWUI_VENV    the venv (default $CONDUIT_DEV_CACHE/owui-0.13.2)
+#   CONDUIT_OWUI_PYTHON  a CPython 3.11 for setup (default: uv's, then
+#                        python3.11 on PATH)
+#   CONDUIT_OWUI_ENV     the env file seed writes and the tests read
+#                        (default $CONDUIT_OWUI_DIR/local-owui.env)
+#
+# Every account, password, chat and file it makes is invented. Nothing is
+# ever deleted: reset moves the old data into $CONDUIT_OWUI_DIR/old/.
+set -euo pipefail
+
+OWUI_VERSION=0.13.2
+TOOL_DIR=$(cd "$(dirname "$0")" && pwd)
+
+if [ "$(uname -s)" = Darwin ]; then
+  default_cache="$HOME/Library/Caches/conduit-dev"
+else
+  default_cache="${XDG_CACHE_HOME:-$HOME/.cache}/conduit-dev"
+fi
+CACHE=${CONDUIT_DEV_CACHE:-$default_cache}
+VENV=${CONDUIT_OWUI_VENV:-$CACHE/owui-$OWUI_VERSION}
+DIR=${CONDUIT_OWUI_DIR:-$CACHE/local-owui}
+PORT=${CONDUIT_OWUI_PORT:-}
+MODEL_PORT=${CONDUIT_OWUI_MODEL_PORT:-}
+HERMES_PORT=${CONDUIT_OWUI_HERMES_PORT:-}
+
+command=${1:-}
+[ $# -gt 0 ] && shift
+# `chat` takes two arguments; nothing else takes any.
+ARG1=
+ARG2=
+while [ $# -gt 0 ]; do
+  case $1 in
+    --dir) DIR=$2; shift 2 ;;
+    --port) PORT=$2; shift 2 ;;
+    --model-port) MODEL_PORT=$2; shift 2 ;;
+    --hermes-port) HERMES_PORT=$2; shift 2 ;;
+    -*) echo "unknown option: $1" >&2; exit 64 ;;
+    *)
+      if [ "$command" != chat ] || [ -n "$ARG2" ]; then
+        echo "unexpected argument: $1" >&2
+        exit 64
+      fi
+      if [ -z "$ARG1" ]; then ARG1=$1; else ARG2=$1; fi
+      shift
+      ;;
+  esac
+done
+
+STATE=$DIR/state
+DATA=$DIR/data
+ENV_FILE=${CONDUIT_OWUI_ENV:-$DIR/local-owui.env}
+
+# The port a running instance was started on wins over the default.
+if [ -z "$PORT" ] && [ -f "$STATE/port" ]; then PORT=$(cat "$STATE/port"); fi
+PORT=${PORT:-8150}
+if [ -z "$MODEL_PORT" ] && [ -f "$STATE/model_port" ]; then MODEL_PORT=$(cat "$STATE/model_port"); fi
+MODEL_PORT=${MODEL_PORT:-$((PORT + 1))}
+if [ -z "$HERMES_PORT" ] && [ -f "$STATE/hermes_port" ]; then HERMES_PORT=$(cat "$STATE/hermes_port"); fi
+HERMES_PORT=${HERMES_PORT:-$((PORT + 2))}
+URL=http://127.0.0.1:$PORT
+
+# Pid files and the identity of what they name: tool/local_owui/pids.sh.
+. "$TOOL_DIR/pids.sh"
+
+# Whether NAME (server, fake_model or fake_hermes) is running: the process
+# its pid file names, and no other one that took its pid since.
+alive() { pid_alive "$STATE/$1.pid"; }
+
+# A running instance keeps the ports it was started on: a different --port,
+# --model-port or --hermes-port would point seed and chat at whatever
+# listens there instead. Only stopping (reset stops first) may change them.
+if alive server; then
+  for kind in port model_port hermes_port; do
+    case $kind in
+      port) wanted=$PORT ;;
+      model_port) wanted=$MODEL_PORT ;;
+      hermes_port) wanted=$HERMES_PORT ;;
+    esac
+    [ -f "$STATE/$kind" ] || continue
+    running=$(cat "$STATE/$kind")
+    if [ "$wanted" != "$running" ]; then
+      case $command in
+        stop | status | reset | env) ;;
+        *)
+          echo "this instance runs with $kind $running, not $wanted: stop it (or reset) to change it" >&2
+          exit 1
+          ;;
+      esac
+    fi
+  done
+fi
+
+# Whether nothing listens on 127.0.0.1:PORT (curl: 7 = could not connect),
+# asked directly rather than through any proxy the shell exports.
+# Checked before each launch, so that a health answer can only come from
+# this instance's server and the seed never reaches another instance.
+port_free() {
+  local rc=0
+  curl -s --noproxy '*' -o /dev/null --max-time 2 "http://127.0.0.1:$1/" || rc=$?
+  [ "$rc" = 7 ]
+}
+
+# Refuses to start NAME on PORT when something else already listens there.
+need_free_port() {
+  if ! port_free "$2"; then
+    echo "port $2 is in use by something else, not this instance's $1: stop it or pick another --port" >&2
+    exit 1
+  fi
+}
+
+find_python() {
+  if [ -n "${CONDUIT_OWUI_PYTHON:-}" ]; then echo "$CONDUIT_OWUI_PYTHON"; return; fi
+  if command -v uv >/dev/null 2>&1; then
+    found=$(uv python find 3.11 2>/dev/null || true)
+    if [ -n "$found" ]; then echo "$found"; return; fi
+  fi
+  for candidate in "$HOME"/.local/share/uv/python/cpython-3.11*/bin/python3.11; do
+    if [ -x "$candidate" ]; then echo "$candidate"; return; fi
+  done
+  if command -v python3.11 >/dev/null 2>&1; then command -v python3.11; return; fi
+  echo "no CPython 3.11: install one (uv python install 3.11) or set CONDUIT_OWUI_PYTHON" >&2
+  exit 1
+}
+
+setup() {
+  if [ -x "$VENV/bin/open-webui" ] &&
+    [ "$("$VENV/bin/python" -c 'import importlib.metadata as m; print(m.version("open-webui"))' 2>/dev/null)" = "$OWUI_VERSION" ]; then
+    echo "open-webui $OWUI_VERSION is ready in $VENV"
+    return
+  fi
+  python=$(find_python)
+  echo "making $VENV with $python (open-webui $OWUI_VERSION, a few minutes)"
+  mkdir -p "$(dirname "$VENV")"
+  "$python" -m venv "$VENV"
+  "$VENV/bin/python" -m pip install --quiet --upgrade pip
+  "$VENV/bin/python" -m pip install --quiet "open-webui==$OWUI_VERSION"
+  echo "open-webui $OWUI_VERSION is ready in $VENV"
+}
+
+need_venv() {
+  if [ ! -x "$VENV/bin/open-webui" ]; then
+    echo "no open-webui in $VENV: run '$0 setup' first" >&2
+    exit 1
+  fi
+}
+
+start() {
+  need_venv
+  if alive server; then
+    echo "already running at $(cat "$STATE/url")"
+    return
+  fi
+  need_free_port server "$PORT"
+  alive fake_model || need_free_port 'fake model' "$MODEL_PORT"
+  if command -v dart >/dev/null 2>&1; then
+    alive fake_hermes || need_free_port 'fake Hermes' "$HERMES_PORT"
+  fi
+  mkdir -p "$DATA" "$STATE"
+  chmod 700 "$STATE"
+  if [ ! -s "$STATE/secret" ]; then
+    (umask 077 && "$VENV/bin/python" -I -c 'import secrets; print(secrets.token_urlsafe(32))' > "$STATE/secret")
+  fi
+  echo "$PORT" > "$STATE/port"
+  echo "$MODEL_PORT" > "$STATE/model_port"
+  echo "$HERMES_PORT" > "$STATE/hermes_port"
+  echo "$URL" > "$STATE/url"
+  if [ ! -s "$STATE/hermes_key" ]; then
+    (umask 077 && "$VENV/bin/python" -I -c 'import secrets; print(secrets.token_urlsafe(24))' > "$STATE/hermes_key")
+  fi
+
+  if ! alive fake_model; then
+    nohup "$VENV/bin/python" -I "$TOOL_DIR/fake_model.py" \
+      --port "$MODEL_PORT" --log "$STATE/requests.jsonl" \
+      > "$STATE/fake_model.log" 2>&1 &
+    pid_record "$STATE/fake_model.pid" $!
+  fi
+
+  # The daemon tests' fake Hermes API server, for the desktop app's Hermes
+  # pass. It needs only the Dart SDK: an empty package config keeps `dart`
+  # from resolving (and running the build hooks of) the whole workspace.
+  if ! alive fake_hermes; then
+    if command -v dart >/dev/null 2>&1; then
+      echo '{"configVersion":2,"packages":[]}' > "$STATE/no_packages.json"
+      nohup dart --packages="$STATE/no_packages.json" "$TOOL_DIR/fake_hermes.dart" \
+        --port "$HERMES_PORT" --key "$(cat "$STATE/hermes_key")" \
+        > "$STATE/fake_hermes.log" 2>&1 &
+      pid_record "$STATE/fake_hermes.pid" $!
+    else
+      echo "no dart on PATH: the fake Hermes server is not started" >&2
+    fi
+  fi
+
+  # The server writes a few files into its working directory.
+  (
+    cd "$STATE"
+    # Its own SQLite file, local file storage and the fake model only,
+    # whatever the caller's shell exports: an inherited DATABASE_URL (or
+    # DATABASE_TYPE and its parts), STORAGE_PROVIDER (s3, gcs, azure) or
+    # OPENAI_API_BASE_URLS/KEYS would point this throwaway server at real
+    # data, a real bucket or a real provider.
+    DATA_DIR="$DATA" STORAGE_PROVIDER=local \
+      DATABASE_URL="sqlite:///$DATA/webui.db" DATABASE_TYPE= DATABASE_SCHEMA= \
+      OPENAI_API_BASE_URLS="http://127.0.0.1:$MODEL_PORT/v1" OPENAI_API_KEYS=sk-local-fake \
+      WEBUI_SECRET_KEY="$(cat "$STATE/secret")" \
+      ENABLE_PERSISTENT_CONFIG=false \
+      OFFLINE_MODE=true HF_HUB_OFFLINE=1 \
+      ENABLE_VERSION_UPDATE_CHECK=false \
+      DO_NOT_TRACK=true SCARF_NO_ANALYTICS=true ANONYMIZED_TELEMETRY=false \
+      ENABLE_OLLAMA_API=false \
+      ENABLE_OPENAI_API=true \
+      OPENAI_API_BASE_URL="http://127.0.0.1:$MODEL_PORT/v1" \
+      OPENAI_API_KEY=sk-local-fake \
+      ENABLE_TOOL_CALL_LABELS=true \
+      ENABLE_DIRECT_CONNECTIONS=true \
+      ENABLE_CHANNELS=true \
+      BYPASS_EMBEDDING_AND_RETRIEVAL=true \
+      AUDIO_STT_ENGINE=openai AUDIO_STT_MODEL=whisper-1 \
+      AUDIO_STT_OPENAI_API_BASE_URL="http://127.0.0.1:$MODEL_PORT/v1" \
+      AUDIO_STT_OPENAI_API_KEY=sk-local-fake \
+      AUDIO_TTS_ENGINE=openai AUDIO_TTS_MODEL=tts-1 AUDIO_TTS_VOICE=alloy \
+      AUDIO_TTS_OPENAI_API_BASE_URL="http://127.0.0.1:$MODEL_PORT/v1" \
+      AUDIO_TTS_OPENAI_API_KEY=sk-local-fake \
+      nohup "$VENV/bin/open-webui" serve --host 127.0.0.1 --port "$PORT" \
+      > "$STATE/server.log" 2>&1 &
+    pid_record "$STATE/server.pid" $!
+  )
+
+  code=000
+  for _ in $(seq 1 120); do
+    code=$(curl -s --noproxy '*' --max-time 5 -o /dev/null -w '%{http_code}' "$URL/health" || true)
+    [ "$code" = 200 ] && break
+    if ! alive server; then break; fi
+    sleep 2
+  done
+  if [ "$code" != 200 ] || ! alive server; then
+    echo "the server did not come up (health $code); see $STATE/server.log" >&2
+    exit 1
+  fi
+  echo "running at $URL (fake model on $MODEL_PORT)"
+}
+
+seed() {
+  need_venv
+  if ! alive server; then
+    echo "not running: run '$0 start' first" >&2
+    exit 1
+  fi
+  if [ -f "$STATE/seeded" ]; then
+    echo "already seeded; '$0 reset' starts over"
+    echo "env file: $ENV_FILE"
+    return
+  fi
+  "$VENV/bin/python" -I "$TOOL_DIR/seed.py" \
+    --url "$URL" --state "$STATE" --data "$DATA" --env-file "$ENV_FILE" \
+    --fake-model-url "http://127.0.0.1:$MODEL_PORT/v1" \
+    --fake-hermes-url "http://127.0.0.1:$HERMES_PORT/v1" \
+    --fake-hermes-key-file "$STATE/hermes_key"
+  date -u +%FT%TZ > "$STATE/seeded"
+  echo "env file: $ENV_FILE"
+}
+
+stop() {
+  for name in server fake_model fake_hermes; do
+    case $(pid_stop "$STATE/$name.pid") in
+      stopped) echo "stopped $name" ;;
+      killed) echo "stopped $name (killed)" ;;
+    esac
+    rm -f "$STATE/$name.pid"
+  done
+}
+
+chat() {
+  need_venv
+  if [ -z "$ARG1" ] || [ -z "$ARG2" ]; then
+    echo "usage: $0 chat OUT-DIR PROMPT" >&2
+    exit 64
+  fi
+  if ! alive server || [ ! -f "$ENV_FILE" ]; then
+    echo "not running or not seeded: run '$0 up' first" >&2
+    exit 1
+  fi
+  "$VENV/bin/python" -I "$TOOL_DIR/drive_chat.py" "$ENV_FILE" "$ARG1" "$ARG2"
+}
+
+set_aside() {
+  [ -d "$DATA" ] || [ -d "$STATE" ] || return 0
+  stamp=$(date +%Y%m%d-%H%M%S)
+  mkdir -p "$DIR/old/$stamp"
+  [ -d "$DATA" ] && mv "$DATA" "$DIR/old/$stamp/data"
+  if [ -d "$STATE" ]; then
+    # Keep the ports; the rest belongs to the old data.
+    mv "$STATE" "$DIR/old/$stamp/state"
+  fi
+  if [ -f "$ENV_FILE" ]; then mv "$ENV_FILE" "$DIR/old/$stamp/"; fi
+  echo "old data moved to $DIR/old/$stamp"
+}
+
+status() {
+  for name in server fake_model fake_hermes; do
+    if alive "$name"; then
+      echo "$name: running (pid $(pid_of "$STATE/$name.pid"))"
+    else
+      echo "$name: stopped"
+    fi
+  done
+  echo "url: $URL"
+  echo "fake model: http://127.0.0.1:$MODEL_PORT/v1"
+  echo "fake Hermes: http://127.0.0.1:$HERMES_PORT/v1"
+  if [ -f "$STATE/seeded" ]; then echo "seeded: $(cat "$STATE/seeded")"; else echo "seeded: no"; fi
+  echo "env file: $ENV_FILE"
+}
+
+case $command in
+  setup) setup ;;
+  start) start ;;
+  seed) seed ;;
+  up) start; seed ;;
+  reset) stop; set_aside; start; seed ;;
+  stop) stop ;;
+  status) status ;;
+  env) echo "$ENV_FILE" ;;
+  chat) chat ;;
+  *)
+    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+    exit 64
+    ;;
+esac
