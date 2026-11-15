@@ -342,7 +342,31 @@ final class TurnsService implements ChatTurns {
               _events.emitTo(
                 sessionId,
                 ConduitEventSpecs.turnBlocks,
-                _companionBlocks(session, turn, entry.key),
+                _companionBlocks(
+                  session,
+                  turn,
+                  entry.key,
+                  finished: companion.finished,
+                ),
+                scope: chatId,
+              );
+            }
+            // One already over says so: the window that just met it would
+            // otherwise keep it streaming until the whole turn ends.
+            if (companion.completed case final completed?
+                when wants(ConduitEvents.turnCompleted)) {
+              _events.emitTo(
+                sessionId,
+                ConduitEventSpecs.turnCompleted,
+                completed,
+                scope: chatId,
+              );
+            } else if (companion.failed case final failed?
+                when wants(ConduitEvents.turnFailed)) {
+              _events.emitTo(
+                sessionId,
+                ConduitEventSpecs.turnFailed,
+                failed,
                 scope: chatId,
               );
             }
@@ -822,9 +846,20 @@ final class TurnsService implements ChatTurns {
       }
       return MergeStarted(targetId: running?.targetId ?? request.targetId);
     }
+    // An answer named twice would be weighed twice.
+    if (request.sourceIds.toSet().length != request.sourceIds.length) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{'reason': 'notMergeable'},
+        debugMessage: 'an answer is named more than once',
+      );
+    }
     _refuseTemporary(request.chatId);
     final session = await _sessionFor(request.chatId);
     var started = false;
+    // Reserved before the first await, so a second merge, or a send, edit
+    // or regenerate ([_requireIdle]), is refused while this one is admitted.
+    _Merge? run;
     try {
       if (isRunning(request.chatId) || session.merge != null) {
         throw const RpcError(
@@ -833,7 +868,13 @@ final class TurnsService implements ChatTurns {
           debugMessage: 'that chat is answering or merging already',
         );
       }
-      await _requireIdle(session);
+      run = _Merge(
+        chatId: request.chatId,
+        messageId: request.messageId,
+        targetId: request.targetId,
+      );
+      session.merge = run;
+      await _requireIdle(session, admitting: run);
       final displayed = session.scope.messages
           .where((m) => m.id == request.messageId && m.role == 'assistant')
           .lastOrNull;
@@ -872,17 +913,13 @@ final class TurnsService implements ChatTurns {
       }
       final scope = session.scope.container;
       final model = target.model ?? displayed.model ?? '';
-      final run = _Merge(
-        chatId: request.chatId,
-        messageId: displayed.id,
-        targetId: target.messageId,
-      );
-      session.merge = run;
-      session.holds++;
+      // The hold [_sessionFor] took is the merge's now; [_endMerge] lets it
+      // go.
+      final admitted = run;
       started = true;
       run.ticker = Timer.periodic(
         _deltaInterval,
-        (_) => _emitMerge(session, run),
+        (_) => _emitMerge(session, admitted),
       );
       final merging = scope
           .read(comparisonMergeProvider.notifier)
@@ -895,10 +932,10 @@ final class TurnsService implements ChatTurns {
           );
       unawaited(
         merging.then<void>(
-          (_) => _endMerge(session, run),
+          (_) => _endMerge(session, admitted),
           onError: (Object error) => _endMerge(
             session,
-            run,
+            admitted,
             error: error is ComparisonMergeException
                 ? error.reason.name
                 : ComparisonMergeFailure.failed.name,
@@ -907,7 +944,10 @@ final class TurnsService implements ChatTurns {
       );
       return MergeStarted(targetId: target.messageId);
     } finally {
-      if (!started) _release(session);
+      if (!started) {
+        if (run != null && identical(session.merge, run)) session.merge = null;
+        _release(session);
+      }
     }
   }
 
@@ -977,6 +1017,16 @@ final class TurnsService implements ChatTurns {
       );
     }
     final session = await _sessionFor(chatId);
+    // One save at a time: a second would make a second server chat.
+    if (session.saving) {
+      _release(session);
+      throw const RpcError(
+        code: ConduitErrorCodes.conflict,
+        args: <String, String>{'reason': 'saving'},
+        debugMessage: 'that chat is being saved already',
+      );
+    }
+    session.saving = true;
     var closing = false;
     try {
       await _requireIdle(session);
@@ -1016,6 +1066,7 @@ final class TurnsService implements ChatTurns {
       closing = true;
       return ChatForked(chatId: saved.id);
     } finally {
+      session.saving = false;
       _release(session);
       // Its scope holds the chat under the old id's turn state; the saved
       // chat opens fresh.
@@ -1609,26 +1660,24 @@ final class TurnsService implements ChatTurns {
     _events.emit(ConduitEventSpecs.turnBlocks, blocks, scope: turn.chatId);
     final error = failure ?? answer?.error?.content;
     if (error != null || answer?.error != null) {
-      _events.emit(
-        ConduitEventSpecs.turnFailed,
-        TurnFailed(
-          chatId: turn.chatId,
-          messageId: id,
-          code: ConduitErrorCodes.serverError,
-          args: <String, String>{'detail': ?error},
-          partialText: companion.text,
-        ),
-        scope: turn.chatId,
+      final failed = companion.failed = TurnFailed(
+        chatId: turn.chatId,
+        messageId: id,
+        code: ConduitErrorCodes.serverError,
+        args: <String, String>{'detail': ?error},
+        partialText: companion.text,
       );
+      _events.emit(ConduitEventSpecs.turnFailed, failed, scope: turn.chatId);
     } else {
+      final completed = companion.completed = TurnCompleted(
+        chatId: turn.chatId,
+        messageId: id,
+        text: companion.text,
+        usage: _usageOf(answer?.usage),
+      );
       _events.emit(
         ConduitEventSpecs.turnCompleted,
-        TurnCompleted(
-          chatId: turn.chatId,
-          messageId: id,
-          text: companion.text,
-          usage: _usageOf(answer?.usage),
-        ),
+        completed,
         scope: turn.chatId,
       );
     }
@@ -2696,14 +2745,18 @@ final class TurnsService implements ChatTurns {
   /// waits for the transcript to be quiet and not streaming, for at most
   /// [_settleBudget], and only a chat still generating after that is
   /// refused.
-  Future<void> _requireIdle(_ChatSession session) async {
+  Future<void> _requireIdle(_ChatSession session, {_Merge? admitting}) async {
     void refuse() => throw const RpcError(
       code: ConduitErrorCodes.conflict,
       debugMessage: 'that chat is already generating',
     );
+    // A merge writes into the transcript too: nothing else starts meanwhile.
+    bool merging() =>
+        session.merge != null && !identical(session.merge, admitting);
     final turn = session.turn;
     if ((turn != null && !turn.finished) ||
-        (session.pending != null && !session.pending!.started.isCompleted)) {
+        (session.pending != null && !session.pending!.started.isCompleted) ||
+        merging()) {
       refuse();
     }
     // The last turn's stored copy first: until it has the answer, the
@@ -2715,7 +2768,10 @@ final class TurnsService implements ChatTurns {
     if (session.requestedChatId != null || session.scope.conversation != null) {
       await _settleBeforeTurn(session);
     }
-    if (!session.scope.isDisposed && session.scope.isStreaming) refuse();
+    if ((!session.scope.isDisposed && session.scope.isStreaming) ||
+        merging()) {
+      refuse();
+    }
   }
 
   static const Duration _settleBudget = Duration(seconds: 6);
@@ -2872,6 +2928,9 @@ final class _ChatSession {
   _Turn? turn;
   Timer? linger;
 
+  /// Save Chat is making this temporary chat a stored one.
+  bool saving = false;
+
   /// Requests preparing a turn in this chat; it is not let go meanwhile.
   int holds = 0;
 
@@ -2940,6 +2999,11 @@ final class _Companion {
   bool blocksDirty = false;
   List<MessageBlockDto> lastBlocks = const <MessageBlockDto>[];
   bool finished = false;
+
+  /// How it ended, for a window that subscribes while the turn's own
+  /// answer still streams: one of these once [finished].
+  TurnCompleted? completed;
+  TurnFailed? failed;
 }
 
 /// One answer being streamed.

@@ -119,7 +119,12 @@ final class HandoffService implements HandoffBroker {
       const Duration(seconds: 10),
       onTimeout: () => null,
     );
-    if (opened == null) return const HandoffAnswered(open: false);
+    if (opened == null) {
+      // Never opened: the question is let go, so no later open is taken
+      // for it.
+      if (identical(_agreed, ask)) _agreed = null;
+      return const HandoffAnswered(open: false);
+    }
     return HandoffAnswered(
       open: true,
       modelId: opened.modelId,

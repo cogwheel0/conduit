@@ -76,8 +76,15 @@ final class DaemonHandoffPort {
 final class _DaemonChatHandoffCoordinator extends ChatHandoffCoordinator {
   _DaemonChatHandoffCoordinator(Ref ref, this._port)
     : super(
-        claimActiveChat: (chatId) =>
-            _port.claims(chatId) ? () => _port.claims(chatId) : null,
+        // A chat is claimed for the account in use when it was: after a
+        // switch, a window still showing its id claims nothing.
+        claimActiveChat: (chatId) {
+          if (!_port.claims(chatId)) return null;
+          final account = ref.read(openWebUiAuthSessionEpochProvider);
+          return () =>
+              identical(account, ref.read(openWebUiAuthSessionEpochProvider)) &&
+              _port.claims(chatId);
+        },
         findModel: (modelId) async {
           final listed = ref.read(modelsProvider).value ?? const <Model>[];
           final model = openWebUiHandoffModel(listed, modelId);

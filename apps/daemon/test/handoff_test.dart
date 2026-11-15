@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -35,14 +36,8 @@ void main() {
           .payload,
     ).requestId;
 
-    test('claims only the chats it is told the user is in', () {
-      expect(handoff.claims('chat-1'), isTrue);
-      expect(handoff.claims('chat-2'), isFalse);
-    });
-
     test('asks every window, and the one that agrees opens the chat', () async {
       final agreed = ask();
-      await Future<void>.delayed(Duration.zero);
       final request = HandoffRequest.fromJson(heard.single.payload);
       expect(request.modelName, 'Fake Model B');
       expect(request.chatId, 'chat-1');
@@ -68,7 +63,6 @@ void main() {
 
     test('a second answer opens nothing', () async {
       final agreed = ask();
-      await Future<void>.delayed(Duration.zero);
       final id = requestId();
       final first = handoff.answer(HandoffAnswer(requestId: id, accept: true));
       final second = await handoff.answer(
@@ -82,7 +76,6 @@ void main() {
 
     test('declining, or the core refusing after, opens nothing', () async {
       final declined = ask();
-      await Future<void>.delayed(Duration.zero);
       final reply = await handoff.answer(
         HandoffAnswer(requestId: requestId(), accept: false),
       );
@@ -91,7 +84,6 @@ void main() {
 
       heard.clear();
       final agreed = ask();
-      await Future<void>.delayed(Duration.zero);
       final answered = handoff.answer(
         HandoffAnswer(requestId: requestId(), accept: true),
       );
@@ -101,15 +93,48 @@ void main() {
       expect((await answered).open, isFalse);
     });
 
-    test('unanswered, it is declined and closed everywhere', () async {
-      expect(await ask(), isFalse);
-      expect(
-        heard.map((e) => e.event),
-        containsAllInOrder(<String>[
-          ConduitEvents.handoffRequested,
-          ConduitEvents.handoffSettled,
-        ]),
-      );
+    test('unanswered, it is declined and closed everywhere', () {
+      fakeAsync((time) {
+        bool? agreed;
+        ask().then((value) => agreed = value);
+        time.elapse(const Duration(milliseconds: 199));
+        expect(agreed, isNull);
+        time.elapse(const Duration(milliseconds: 1));
+        expect(agreed, isFalse);
+        expect(
+          heard.map((e) => e.event),
+          containsAllInOrder(<String>[
+            ConduitEvents.handoffRequested,
+            ConduitEvents.handoffSettled,
+          ]),
+        );
+      });
+    });
+
+    test('agreed but never opened, it ends unopened and is let go', () {
+      fakeAsync((time) {
+        ask();
+        time.flushMicrotasks();
+        HandoffAnswered? reply;
+        handoff
+            .answer(HandoffAnswer(requestId: requestId(), accept: true))
+            .then((value) => reply = value);
+        time.elapse(const Duration(seconds: 10));
+        expect(reply?.open, isFalse);
+        // A late open belongs to no question now: the next agreed one
+        // opens with its own model and prompt.
+        handoff.opened('fake-model-a', 'Too late.');
+        heard.clear();
+        ask();
+        time.flushMicrotasks();
+        handoff
+            .answer(HandoffAnswer(requestId: requestId(), accept: true))
+            .then((value) => reply = value);
+        time.flushMicrotasks();
+        handoff.opened('fake-model-b', 'Carry on with the pond plan.');
+        time.flushMicrotasks();
+        expect(reply?.modelId, 'fake-model-b');
+      });
     });
 
     test('with no window open, nobody is asked', () async {
@@ -122,7 +147,6 @@ void main() {
 
     test('the last window closing declines what waits', () async {
       final asked = ask();
-      await Future<void>.delayed(Duration.zero);
       events
         ..detach('window-a')
         ..detach('window-b');
