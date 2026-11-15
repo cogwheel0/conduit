@@ -103,8 +103,13 @@ the app, not the user.
   their last web sign-in.
 - So Conduit's client must emit the same role and group claims as Open
   WebUI's client, or users can lose their groups or be refused.
+- From 0.12, with group management on: an empty groups claim removes no
+  groups, as on the web, so exchange can't take away a user's last group.
+  From 0.13.1, a token with no groups claim is refused while the user is in
+  any group.
 - From 0.12, with role management on: a token with no roles claim is refused
-  while `OAUTH_ALLOWED_ROLES` doesn't contain `*`.
+  while `OAUTH_ALLOWED_ROLES` is set and doesn't contain `*`. A server's only
+  user is always made admin, without this check.
 
 ### Session length
 
