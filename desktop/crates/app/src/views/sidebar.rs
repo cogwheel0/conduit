@@ -126,6 +126,12 @@ pub enum ChatCommand {
     RemoveFromFolder,
     /// Start selection mode with this chat chosen.
     Select,
+    /// Mark as Unread, and back (Mark as Read).
+    MarkUnread,
+    MarkRead,
+    GenerateTitle,
+    /// Export › Backup (JSON)… or Transcript (Markdown)….
+    Export(conduit_protocol::ChatExportFormat),
 }
 
 /// The context menu's action: `command` on `chat_id`.
@@ -1574,6 +1580,8 @@ impl SidebarView {
             streaming: false,
             status: None,
             note: read_only.then(|| l.read_only().into()),
+            unread: chat.unread,
+            unread_spoken: Some(l.desktop_unread().into()),
         };
         let key_row = KeyRow::Chat(id.clone());
         let selected = self.is_selection(&key_row);
@@ -2402,8 +2410,29 @@ impl SidebarView {
             },
             (l.desktop_rename_ellipsis(), ChatCommand::Rename),
         ];
+        // What the server keeps for a chat it holds (not one made on this
+        // computer that has not reached it yet).
+        let served = self.has_server(cx) && !chat.id.starts_with("local:");
+        if served {
+            items.push(if chat.unread {
+                (l.desktop_mark_as_read(), ChatCommand::MarkRead)
+            } else {
+                (l.mark_as_unread(), ChatCommand::MarkUnread)
+            });
+            items.push((l.generate_title(), ChatCommand::GenerateTitle));
+        }
         if self.has_server(cx) {
-            items.push((l.desktop_share_chat(), ChatCommand::Share));
+            items.push((l.desktop_share_chat_sheet(), ChatCommand::Share));
+        }
+        if served {
+            items.push((
+                format!("{}…", l.chat_export_json()),
+                ChatCommand::Export(conduit_protocol::ChatExportFormat::Json),
+            ));
+            items.push((
+                format!("{}…", l.chat_export_markdown()),
+                ChatCommand::Export(conduit_protocol::ChatExportFormat::Markdown),
+            ));
         }
         if chat.folder_id.is_some() {
             items.push((
@@ -2443,7 +2472,16 @@ impl SidebarView {
             .unwrap_or_default();
         let mut menu = menu;
         let mut filed = folders.is_empty();
+        let mut export: Option<NativeMenu> = None;
         for (label, command) in self.menu_items(chat, cx) {
+            // Export's two formats go in one submenu, in its place.
+            if let ChatCommand::Export(_) = command {
+                export = Some(export.unwrap_or_default().menu(label, action(command)));
+                continue;
+            }
+            if let Some(sub) = export.take() {
+                menu = menu.submenu(l.chat_export_action(), sub);
+            }
             // Move To takes its place in the shared order: after Share,
             // before the folder and archive items.
             if !filed && ChatCommandSlot::of(&command).rank() > ChatCommandSlot::MoveTo.rank() {
@@ -2494,7 +2532,23 @@ impl SidebarView {
             }
             ChatCommand::Rename => self.start_rename(&id, window, cx),
             ChatCommand::Delete => self.confirm_delete(vec![id], window, cx),
-            ChatCommand::Share => self.share(&id, cx),
+            ChatCommand::Share => {
+                crate::views::chat::share_sheet::open(id, window, cx);
+            }
+            ChatCommand::MarkUnread | ChatCommand::MarkRead => {
+                let unread = command == ChatCommand::MarkUnread;
+                list.update(cx, |c, cx| {
+                    if unread {
+                        c.marked_unread_here.insert(id.clone());
+                    }
+                    c.mark_unread(&id, unread, cx)
+                })
+                .detach();
+            }
+            ChatCommand::GenerateTitle => self.generate_title(&id, cx),
+            ChatCommand::Export(format) => {
+                crate::views::chat::export::export(id, format, window, cx)
+            }
             ChatCommand::MoveTo(folder) => {
                 list.update(cx, |c, cx| c.move_to(&id, Some(&folder), cx))
                     .detach();
@@ -2965,6 +3019,31 @@ impl SidebarView {
         .detach();
     }
 
+    /// Generate Title: the server's model titles the chat; says so when it
+    /// wrote none, or could not.
+    fn generate_title(&mut self, chat_id: &str, cx: &mut Context<Self>) {
+        let task = self
+            .stores
+            .chat_list
+            .update(cx, |c, cx| c.generate_title(chat_id, cx));
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let result = task.await;
+            this.update(cx, |s, cx| {
+                let l = cx.l10n().clone();
+                match result {
+                    Ok(t) if t.outcome == conduit_protocol::GenerateTitleOutcome::None => {
+                        s.toast(NoticeLevel::Info, l.generate_title_none(), cx)
+                    }
+                    Ok(_) => {}
+                    Err(_) => s.toast(NoticeLevel::Error, l.generate_title_failed(), cx),
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    #[allow(dead_code)]
     fn share(&mut self, chat_id: &str, cx: &mut Context<Self>) {
         let server = self
             .stores
@@ -2978,7 +3057,7 @@ impl SidebarView {
         let task = self
             .stores
             .chat_list
-            .update(cx, |c, cx| c.share(chat_id, cx));
+            .update(cx, |c, cx| c.share(chat_id, true, None, cx));
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let Ok(share) = task.await else {
                 return;

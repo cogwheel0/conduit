@@ -15,7 +15,8 @@
       "archived": false,
       "tags": [],
       "shared": false,
-      "readOnly": false
+      "readOnly": false,
+      "unread": false
     }
   ]
 }

@@ -44,6 +44,7 @@ import 'turns_service.dart';
 import 'valves_service.dart';
 import 'workspace_service.dart';
 import 'terminals_service.dart';
+import 'handoff_service.dart';
 import 'hermes_service.dart';
 import 'voice_service.dart';
 import 'core_settings_service.dart';
@@ -100,6 +101,7 @@ class DaemonServer {
   AuthService? _auth;
   SettingsService? _settings;
   ChatsService? _chats;
+  HandoffService? _handoff;
   TurnsService? _turns;
   ModelsService? _models;
   FilesService? _files;
@@ -200,6 +202,16 @@ class DaemonServer {
       hermes: _hermes,
       files: _files,
     );
+    // The list's unread dots and a chat's abilities read the turns.
+    _chats!.turns = _turns;
+    // A server's `chat:handoff` for a chat the user is in: one answering
+    // here, or one a window shows.
+    _handoff = HandoffService(
+      events,
+      claims: (chatId) =>
+          (_turns?.hasScope(chatId) ?? false) || events.watches(chatId),
+    );
+    core.handoff.attach(_handoff!);
     _drafts = DraftsService(core.container, temporary: temporary);
     _accounts = AccountsService(core.container, events: events, turns: _turns);
     _models = ModelsService(core.container, events: events);
@@ -261,6 +273,7 @@ class DaemonServer {
       valves: _valves,
       access: _access,
       folderSettings: _folderSettings,
+      handoff: _handoff,
     );
     // What the active account can use: answered by `system.capabilities`
     // and the handshake, announced on change.
@@ -911,6 +924,8 @@ class DaemonServer {
     _turns = null;
     _chats?.dispose();
     _chats = null;
+    _core?.handoff.detach();
+    _handoff = null;
     _capabilities?.dispose();
     _capabilities = null;
     // After the sockets and those, so nothing can arrive mid-teardown and

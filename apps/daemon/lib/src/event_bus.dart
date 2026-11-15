@@ -27,6 +27,10 @@ class EventBus {
 
   void detach(String sessionId) => _subscribers.remove(sessionId);
 
+  /// Whether a window is listening to [scope] (shows that chat, say).
+  bool watches(String scope) =>
+      _subscribers.values.any((subscriber) => subscriber.scopes.contains(scope));
+
   /// Replaces [sessionId]'s interest set.
   ///
   /// Replace rather than merge: a reconnecting window sends its whole set in

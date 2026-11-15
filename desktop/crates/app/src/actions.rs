@@ -95,9 +95,22 @@ actions!(
         ShareChat,
         ArchiveChat,
         DeleteChat,
-        RegenerateLastAnswer
+        RegenerateLastAnswer,
+        // Mark as Unread / Mark as Read, Generate Title, Show Branches…
+        // (the open chat's whole tree) and Save Chat (a temporary chat).
+        MarkChatUnread,
+        GenerateChatTitle,
+        ShowBranches,
+        SaveTemporaryChat
     ]
 );
+
+/// Chat › Export › Backup (JSON)… or Transcript (Markdown)….
+#[derive(Clone, Debug, PartialEq, Action)]
+#[action(namespace = conduit, no_json)]
+pub struct ExportChatAs {
+    pub format: conduit_protocol::ChatExportFormat,
+}
 
 // Go › Back (⌘[) and Forward (⌘]): what the main window showed before,
 // across the sidebar's areas, as Finder's.

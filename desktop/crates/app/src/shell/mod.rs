@@ -25,6 +25,7 @@ pub mod open_files;
 pub mod open_url;
 pub mod placement;
 pub mod reduce_motion;
+pub mod share;
 pub mod sheet;
 pub mod speech;
 pub mod sso;

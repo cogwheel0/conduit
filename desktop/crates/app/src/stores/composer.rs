@@ -226,6 +226,8 @@ pub struct OneShot {
     /// The message's `@`/`$` mentions, so its text comes back with them
     /// ([`OneShot::with_mentions`]).
     pub mentions: Vec<ComposerMentionDto>,
+    /// Compare Models' second model.
+    pub compare_with: Option<ModelSummary>,
 }
 
 impl OneShot {
@@ -347,6 +349,9 @@ pub struct ComposerStore {
     filters_touched: bool,
     /// `@`: the model for the next message only.
     pub mention: Option<ModelSummary>,
+    /// Compare Models: the second model to answer the next message, beside
+    /// the one it goes to.
+    pub compare_with: Option<ModelSummary>,
     /// `#`: knowledge bases for the next message.
     pub knowledge: Vec<KnowledgeSummary>,
     /// `#` notes and knowledge files, and web pages: context for the next
@@ -417,6 +422,7 @@ impl ComposerStore {
             filter_ids: BTreeSet::new(),
             filters_touched: false,
             mention: None,
+            compare_with: None,
             knowledge: vec![],
             context: vec![],
             draft_params: serde_json::Value::Null,
@@ -1313,7 +1319,21 @@ impl ComposerStore {
             image_generation: self.image_generation,
             code_interpreter: self.code_interpreter,
             file_ids: self.file_ids(),
-            compare_models: vec![],
+            compare_models: match (&self.compare_with, self.next_model()) {
+                (Some(other), Some(first)) if other.id != first.id => {
+                    vec![first.id.clone(), other.id.clone()]
+                }
+                _ => vec![],
+            },
+        }
+    }
+
+    /// Compare Models: the next message is also answered by `model`, side by
+    /// side (`None`: by the one model only).
+    pub fn set_compare_with(&mut self, model: Option<ModelSummary>, cx: &mut Context<Self>) {
+        if self.compare_with != model {
+            self.compare_with = model;
+            cx.notify();
         }
     }
 
@@ -1433,6 +1453,7 @@ impl ComposerStore {
     /// attachments.
     pub fn clear_message(&mut self, cx: &mut Context<Self>) {
         self.mention = None;
+        self.compare_with = None;
         self.knowledge.clear();
         self.context.clear();
         self.attachments.clear();
@@ -1628,6 +1649,7 @@ impl ComposerStore {
             context: self.context.clone(),
             mention: self.mention.clone(),
             mentions: vec![],
+            compare_with: self.compare_with.clone(),
         }
     }
 
@@ -1664,6 +1686,9 @@ impl ComposerStore {
         if self.mention.is_none() {
             self.mention = used.mention;
         }
+        if self.compare_with.is_none() {
+            self.compare_with = used.compare_with;
+        }
         cx.notify();
         true
     }
@@ -1677,6 +1702,7 @@ impl ComposerStore {
         self.knowledge.clear();
         self.context.clear();
         self.mention = None;
+        self.compare_with = None;
         cx.notify();
     }
 
@@ -1698,6 +1724,7 @@ impl ComposerStore {
         self.searched = [None, None, None];
         self.attachments.clear();
         self.mention = None;
+        self.compare_with = None;
         self.knowledge.clear();
         self.context.clear();
         self.tool_ids.clear();
@@ -2491,6 +2518,40 @@ mod tests {
                 s.draft_params, saved,
                 "the pick's reply put older settings back"
             );
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_comparison_is_one_messages_and_never_a_temporary_chats(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ModelsList>(ModelList {
+            models: vec![model("a", "A"), model("b", "B")],
+            selected_id: Some("a".into()),
+            ..Default::default()
+        });
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| s.refresh_models(cx));
+        cx.run_until_parked();
+        store.update(cx, |s, cx| {
+            s.set_compare_with(Some(model("b", "B")), cx);
+            let used = s.one_shot();
+            let turn = s.take_turn(vec![], cx);
+            assert_eq!(turn.compare_models, ["a", "b"]);
+            // A temporary chat sends one model.
+            assert!(
+                turn.clone()
+                    .into_turn("Hi".into(), None, true)
+                    .compare_models
+                    .is_empty()
+            );
+            assert!(s.compare_with.is_none());
+            // Not sent: given back with the rest.
+            assert!(s.give_back(used, cx));
+            assert_eq!(s.compare_with.as_ref().map(|m| m.id.as_str()), Some("b"));
+            // A new draft starts without it.
+            s.start_over(cx);
+            assert!(s.compare_with.is_none());
         });
     }
 

@@ -10,5 +10,6 @@
     "architecture"
   ],
   "shared": true,
-  "readOnly": true
+  "readOnly": true,
+  "unread": false
 }

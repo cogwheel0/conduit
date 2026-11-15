@@ -28,7 +28,7 @@ use gpui_kit::component::text::TextViewState;
 use gpui_kit::{App, Context, Entity, EntityId, Hsla, ListOffset, Subscription, px};
 
 use super::Transcript;
-use crate::views::chat::rows::{RowFlags, RowView};
+use crate::views::chat::rows::RowView;
 
 /// Where in a row a match is.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -215,13 +215,10 @@ impl Transcript {
         let store = self.store.read(cx);
         let row = store.rows().get(ix).copied()?;
         let item = store.item(row)?;
-        let flags = RowFlags {
-            can_branch: store.can_branch(),
-            can_follow_up: !store.missing && !store.read_only(),
-        };
         let key = store.row_key(row);
+        let flags = self.flags(cx);
         let view = match self.rows.get(&key) {
-            Some(view) if view.set(item.clone(), flags, cx) => view.clone(),
+            Some(view) if view.set(item.clone(), flags.clone(), cx) => view.clone(),
             _ => {
                 let view = RowView::new(self.host.clone(), item, flags, cx);
                 self.rows.insert(key.clone(), view.clone());
@@ -436,6 +433,13 @@ mod tests {
 
     fn message(id: &str, role: &str, content: &str) -> ChatMessageDto {
         ChatMessageDto {
+            sibling_ids: vec![],
+            parent_id: None,
+            slot: None,
+            merged: None,
+            retry_without_effort: false,
+            comparison: vec![],
+            mergeable_ids: vec![],
             id: id.into(),
             role: role.into(),
             content: content.into(),
@@ -481,8 +485,12 @@ mod tests {
         let daemon = FakeDaemon::new();
         daemon.returns::<methods::ChatsGet>(ChatResult {
             chat: Some(ChatDetail {
+                abilities: Default::default(),
+                temporary: false,
+                share_id: None,
                 read_only: false,
                 summary: ChatSummary {
+                    unread: false,
                     read_only: false,
                     id: "c1".into(),
                     title: "A chat".into(),

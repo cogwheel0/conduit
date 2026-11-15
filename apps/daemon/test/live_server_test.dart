@@ -36,6 +36,7 @@ import 'support/window.dart';
 void main() {
   final credentials = LocalOwui.read();
   final turnModel = credentials?.model ?? 'fake-model';
+  final secondModel = credentials?.secondModel ?? 'fake-model-b';
 
   group(
     'against a local Open WebUI',
@@ -639,6 +640,408 @@ void main() {
           'Reply with exactly the word: twins',
         );
       }, timeout: const Timeout(Duration(minutes: 3)));
+
+      group('message and chat actions', () {
+        late EventBus events;
+        late TurnsService turns;
+        late ChatsService chats;
+        final seen = <EventEnvelope>[];
+
+        setUp(() {
+          events = EventBus();
+          final temporary = TemporaryChats();
+          turns = TurnsService(runtime.container, events, temporary: temporary);
+          chats = ChatsService(
+            runtime.container,
+            events: events,
+            temporary: temporary,
+          )..turns = turns;
+          seen.clear();
+          events.attach('probe', seen.add);
+        });
+        tearDown(() async {
+          await turns.dispose();
+          chats.dispose();
+        });
+
+        bool ended(String messageId) => seen.any(
+          (e) =>
+              (e.event == ConduitEvents.turnCompleted ||
+                  e.event == ConduitEvents.turnFailed) &&
+              e.payload['messageId'] == messageId,
+        );
+
+        /// One turn, answered and in the stored copy.
+        Future<SendTurnAccepted> answered(String text, {String? chatId}) async {
+          final accepted = await turns.send(
+            SendTurn(chatId: chatId, model: turnModel, text: text),
+          );
+          created.add(accepted.chatId);
+          subscribeWindow(events, turns, 'probe', <String>[accepted.chatId]);
+          await _waitFor(() => ended(accepted.assistantMessageId), seconds: 90);
+          await _waitFor(
+            () async => (await _messagesOf(runtime, accepted.chatId)).any(
+              (m) =>
+                  m.id == accepted.assistantMessageId &&
+                  m.content.isNotEmpty &&
+                  m.usage != null,
+            ),
+            seconds: 60,
+          );
+          return accepted;
+        }
+
+        Future<ChatDetail> reopened(String chatId) async {
+          runtime.container.invalidate(loadConversationProvider(chatId));
+          return (await ChatsService(runtime.container).get(chatId))!;
+        }
+
+        test('a chat says what it offers, and its answers carry usage', () async {
+          final accepted = await answered('Say the word: offers');
+          final detail = await reopened(accepted.chatId);
+          expect(detail.abilities.fork, isTrue, reason: 'admin may import');
+          expect(detail.abilities.export, isTrue);
+          expect(detail.abilities.branch, isTrue);
+          expect(detail.abilities.deleteMessages, isTrue);
+          expect(detail.abilities.share, isTrue);
+          expect(detail.abilities.generateTitle, isTrue);
+          expect(detail.abilities.saveTemporary, isFalse);
+          final answer = detail.messages.lastWhere((m) => m.role == 'assistant');
+          expect(answer.parentId, accepted.userMessageId);
+          expect(answer.usage?.generationTokens, isNotNull);
+        }, timeout: const Timeout(Duration(minutes: 3)));
+
+        test('compares two models: both stream under their own ids, then '
+            'merge into one', () async {
+          final accepted = await turns.send(
+            SendTurn(
+              text: 'Reply with exactly the word: columns',
+              compareModels: <String>[turnModel, secondModel],
+            ),
+          );
+          created.add(accepted.chatId);
+          subscribeWindow(events, turns, 'probe', <String>[accepted.chatId]);
+          await _waitFor(
+            () => seen.any((e) => e.event == ConduitEvents.turnFinished),
+            seconds: 120,
+          );
+          final started = seen
+              .where((e) => e.event == ConduitEvents.turnStarted)
+              .map((e) => TurnStarted.fromJson(e.payload))
+              .firstOrNull;
+          printOnFailure('events: ${seen.map((e) => e.event).toList()}');
+          expect(started?.companionIds, hasLength(1));
+          final companion = started!.companionIds.single;
+          expect(ended(accepted.assistantMessageId), isTrue);
+          expect(
+            seen.any(
+              (e) =>
+                  e.event == ConduitEvents.turnCompleted &&
+                  e.payload['messageId'] == companion,
+            ),
+            isTrue,
+            reason: 'the second column ends on its own',
+          );
+          expect(
+            seen.any(
+              (e) =>
+                  e.event == ConduitEvents.turnBlocks &&
+                  e.payload['messageId'] == companion,
+            ),
+            isTrue,
+          );
+
+          late ChatMessageDto answer;
+          await _waitFor(() async {
+            final got = await reopened(accepted.chatId);
+            final shown = got.messages
+                .where((m) => m.role == 'assistant')
+                .lastOrNull;
+            if (shown == null || shown.comparison.length < 2) return false;
+            answer = shown;
+            return shown.mergeableIds.length >= 2;
+          }, seconds: 60);
+          printOnFailure('answer: $answer');
+          expect(answer.comparison.map((s) => s.index), <int>[0, 1]);
+          expect(answer.slot, isNotNull);
+          expect(answer.siblingIds, hasLength(2));
+          expect(answer.mergeableIds, hasLength(2));
+
+          seen.clear();
+          final merge = await turns.merge(
+            MergeTurn(
+              chatId: accepted.chatId,
+              messageId: answer.id,
+              targetId: answer.id,
+              sourceIds: answer.mergeableIds,
+            ),
+          );
+          expect(merge.targetId, answer.id);
+          await _waitFor(
+            () => seen.any(
+              (e) =>
+                  e.event == ConduitEvents.messagesMerge &&
+                  e.payload['running'] == false,
+            ),
+            seconds: 90,
+          );
+          final last = MergeProgress.fromJson(
+            seen
+                .lastWhere((e) => e.event == ConduitEvents.messagesMerge)
+                .payload,
+          );
+          printOnFailure('merge: $last');
+          expect(last.error, isNull);
+          expect(last.text, contains('merged'));
+          await _waitFor(
+            () async =>
+                (await reopened(accepted.chatId)).messages.any(
+                  (m) => (m.merged ?? '').contains('merged'),
+                ) ||
+                (await reopened(accepted.chatId)).messages.any(
+                  (m) => m.versions.any(
+                    (v) => (v.merged ?? '').contains('merged'),
+                  ),
+                ),
+            seconds: 30,
+          );
+          final merged = await reopened(accepted.chatId);
+          expect(
+            merged.messages.any((m) => (m.merged ?? '').contains('merged')),
+            isTrue,
+          );
+        }, timeout: const Timeout(Duration(minutes: 5)));
+
+        test('regenerates with another model, then switches back to the '
+            'first answer on the server', () async {
+          final accepted = await answered('Say the word: original');
+          final again = await turns.regenerate(
+            RegenerateTurn(
+              chatId: accepted.chatId,
+              messageId: accepted.assistantMessageId,
+              model: secondModel,
+            ),
+          );
+          await _waitFor(() => ended(again.assistantMessageId), seconds: 90);
+          late ChatMessageDto shown;
+          // Switched at once, while Open WebUI may still be writing the new
+          // answer: `chats.setCurrent` checks the server kept the switch.
+          await _waitFor(() async {
+            final got = await reopened(accepted.chatId);
+            shown = got.messages.lastWhere((m) => m.role == 'assistant');
+            return shown.id == again.assistantMessageId &&
+                shown.content.startsWith('B: ');
+          }, seconds: 60);
+          expect(shown.content, startsWith('B: '));
+          expect(shown.siblingIds, <String>[
+            accepted.assistantMessageId,
+            again.assistantMessageId,
+          ]);
+
+          final back = await chats.setCurrent(
+            ChatCurrent(
+              chatId: accepted.chatId,
+              messageId: accepted.assistantMessageId,
+              alternativeTo: again.assistantMessageId,
+            ),
+          );
+          expect(
+            back?.messages.lastWhere((m) => m.role == 'assistant').id,
+            accepted.assistantMessageId,
+          );
+          // Kept on the server, so a reopen (or another device) shows it.
+          String? currentId;
+          await _waitFor(() async {
+            final raw = await runtime.container
+                .read(apiServiceProvider)!
+                .getChatRaw(accepted.chatId);
+            currentId =
+                ((raw?['chat'] as Map?)?['history'] as Map?)?['currentId']
+                    as String?;
+            return currentId == accepted.assistantMessageId;
+          }, seconds: 30);
+          expect(currentId, accepted.assistantMessageId);
+          final reread = await reopened(accepted.chatId);
+          expect(
+            reread.messages.lastWhere((m) => m.role == 'assistant').id,
+            accepted.assistantMessageId,
+          );
+          // An answer that is not the shown one's sibling is refused.
+          await expectLater(
+            chats.setCurrent(
+              ChatCurrent(
+                chatId: accepted.chatId,
+                messageId: accepted.userMessageId,
+                alternativeTo: accepted.assistantMessageId,
+              ),
+            ),
+            throwsA(isA<RpcError>()),
+          );
+        }, timeout: const Timeout(Duration(minutes: 5)));
+
+        test('deletes an answer, after counting what goes', () async {
+          final first = await answered('Say the word: keep');
+          final second = await answered(
+            'Say the word: drop',
+            chatId: first.chatId,
+          );
+          final count = await turns.deleteMessages(
+            DeleteMessages(
+              chatId: first.chatId,
+              messageIds: <String>[second.userMessageId],
+              dryRun: true,
+            ),
+          );
+          expect(count, 2, reason: 'the question and its answer');
+          expect(
+            await turns.deleteMessages(
+              DeleteMessages(
+                chatId: first.chatId,
+                messageIds: <String>[second.assistantMessageId],
+              ),
+            ),
+            1,
+          );
+          await _waitFor(
+            () async => !(await reopened(
+              first.chatId,
+            )).messages.any((m) => m.id == second.assistantMessageId),
+            seconds: 30,
+          );
+          final after = await reopened(first.chatId);
+          expect(
+            after.messages.map((m) => m.id),
+            isNot(contains(second.assistantMessageId)),
+          );
+          final raw = await runtime.container
+              .read(apiServiceProvider)!
+              .getChatRaw(first.chatId);
+          final messages =
+              (((raw?['chat'] as Map?)?['history'] as Map?)?['messages']
+                  as Map?) ??
+              const <String, Object?>{};
+          expect(messages.keys, isNot(contains(second.assistantMessageId)));
+        }, timeout: const Timeout(Duration(minutes: 5)));
+
+        test('forks a chat at an answer, and exports it both ways', () async {
+          final first = await answered('Say the word: trunk');
+          await answered('Say the word: branch', chatId: first.chatId);
+          final fork = await chats.fork(
+            ForkChat(chatId: first.chatId, messageId: first.assistantMessageId),
+          );
+          created.add(fork.chatId);
+          expect(fork.chatId, isNot(first.chatId));
+          final forked = await reopened(fork.chatId);
+          expect(
+            forked.messages.map((m) => m.content),
+            <String>['Say the word: trunk', 'trunk'],
+          );
+
+          final json = await chats.export(
+            ExportChat(chatId: first.chatId, format: ChatExportFormat.json),
+          );
+          expect(json.fileName, endsWith('.json'));
+          expect(json.mimeType, 'application/json');
+          final decoded = jsonDecode(json.content);
+          expect(decoded, isA<List<Object?>>());
+          expect(
+            (((decoded as List).single as Map)['chat'] as Map)['history'],
+            isA<Map<Object?, Object?>>(),
+          );
+          final markdown = await chats.export(
+            ExportChat(chatId: first.chatId, format: ChatExportFormat.markdown),
+          );
+          expect(markdown.fileName, endsWith('.md'));
+          expect(markdown.content, contains('Say the word: branch'));
+        }, timeout: const Timeout(Duration(minutes: 5)));
+
+        test('titles a chat, marks it unread and read', () async {
+          final accepted = await answered('Say the word: heading');
+          final title = await chats.generateTitle(accepted.chatId);
+          expect(
+            title.outcome,
+            isIn(<GenerateTitleOutcome>[
+              GenerateTitleOutcome.saved,
+              GenerateTitleOutcome.unchanged,
+            ]),
+          );
+          expect(title.title, isNotEmpty);
+
+          ChatSummary? listed(ChatList list) =>
+              list.chats.where((c) => c.id == accepted.chatId).firstOrNull;
+          final unread = await chats.markUnread(
+            MarkUnread(chatId: accepted.chatId),
+          );
+          expect(listed(unread)?.unread, isTrue);
+          final read = await chats.markUnread(
+            MarkUnread(chatId: accepted.chatId, unread: false),
+          );
+          expect(listed(read)?.unread, isFalse);
+        }, timeout: const Timeout(Duration(minutes: 3)));
+
+        test('shares a chat, chooses who may open it, and unshares', () async {
+          final accepted = await answered('Say the word: linked');
+          final shared = await chats.share(ShareChat(id: accepted.chatId));
+          expect(shared.shareId, isNotEmpty);
+          expect(shared.url, contains('/s/${shared.shareId}'));
+          final read = await chats.share(
+            ShareChat(id: accepted.chatId, publish: false),
+          );
+          expect(read.shareId, shared.shareId);
+          final open = await chats.share(
+            ShareChat(
+              id: accepted.chatId,
+              publish: false,
+              audience: ShareAudience.open,
+            ),
+          );
+          expect(open.audience, ShareAudience.open);
+          final public = await chats.share(
+            ShareChat(
+              id: accepted.chatId,
+              publish: false,
+              audience: ShareAudience.public,
+            ),
+          );
+          expect(public.audience, ShareAudience.public);
+          final gone = await chats.unshare(accepted.chatId);
+          expect(gone.shareId, isNull);
+          final after = await reopened(accepted.chatId);
+          expect(after.shareId, isNull);
+        }, timeout: const Timeout(Duration(minutes: 3)));
+
+        test('saves a temporary chat as a stored one', () async {
+          final first = await turns.send(
+            SendTurn(
+              model: turnModel,
+              text: 'Say the word: kept',
+              temporary: true,
+            ),
+          );
+          subscribeWindow(events, turns, 'probe', <String>[first.chatId]);
+          await _waitFor(() => ended(first.assistantMessageId), seconds: 90);
+          final temporaryDetail = await chats.get(first.chatId);
+          expect(temporaryDetail?.temporary, isTrue);
+          final saved = await turns.saveTemporary(first.chatId);
+          created.add(saved.chatId);
+          expect(saved.chatId, isNot(startsWith('local:')));
+          expect(
+            seen.any(
+              (e) =>
+                  e.event == ConduitEvents.routeRemap &&
+                  e.payload['fromId'] == first.chatId &&
+                  e.payload['toId'] == saved.chatId,
+            ),
+            isTrue,
+          );
+          final stored = await reopened(saved.chatId);
+          expect(stored.temporary, isFalse);
+          expect(
+            stored.messages.map((m) => m.content),
+            containsAll(<String>['Say the word: kept', 'kept']),
+          );
+        }, timeout: const Timeout(Duration(minutes: 3)));
+      });
 
       test('opens a conversation from past the list it has loaded', () async {
         // A search hit, a link or a notification can name a conversation

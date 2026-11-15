@@ -59,6 +59,38 @@ struct Citation {
     position: Point<Pixels>,
 }
 
+/// What a row's popover shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowPopoverKind {
+    /// An answer's usage (Info).
+    Usage,
+    /// A message's versions.
+    Versions,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct RowPopover {
+    kind: RowPopoverKind,
+    key: String,
+    position: Point<Pixels>,
+}
+
+/// Opens a row's popover in the transcript on screen, hung from `position`
+/// (where its button was clicked).
+pub fn show_row_popover(kind: RowPopoverKind, key: String, position: Point<Pixels>, cx: &mut App) {
+    let Some(target) = cx.try_global::<CitationTarget>().map(|t| t.0.clone()) else {
+        return;
+    };
+    let _ = target.update(cx, |t, cx| {
+        t.row_popover = Some(RowPopover {
+            kind,
+            key,
+            position,
+        });
+        cx.notify();
+    });
+}
+
 pub struct Transcript {
     store: Entity<ChatStore>,
     host: RowHost,
@@ -93,6 +125,14 @@ pub struct Transcript {
     painted_fades: bool,
     /// Find in Chat, while its bar is open.
     find: Option<find::Finder>,
+    /// A row's Usage or Versions popover, and the one fading out.
+    row_popover: Option<RowPopover>,
+    leaving_row_popover: Option<RowPopover>,
+    /// Settings › Chat › Message Actions: the actions shown under each
+    /// answer, in order, or `None` for Automatic.
+    action_prefs: Option<Vec<String>>,
+    /// Show All Branches… in the version list: the chat pane opens them.
+    on_branches: Option<super::popovers::ShowBranches>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -265,10 +305,51 @@ impl Transcript {
             last_focus: None,
             painted_fades: true,
             find: None,
+            row_popover: None,
+            leaving_row_popover: None,
+            action_prefs: None,
+            on_branches: None,
             _subscriptions: subscriptions,
         };
         this.sync(cx);
         this
+    }
+
+    /// Settings › Chat › Message Actions, as the rows lay out their actions.
+    pub fn set_action_prefs(&mut self, prefs: Option<Vec<String>>, cx: &mut Context<Self>) {
+        if self.action_prefs != prefs {
+            self.action_prefs = prefs;
+            cx.notify();
+        }
+    }
+
+    /// What Show All Branches… does (the chat pane's Branches sheet).
+    pub fn set_on_branches(&mut self, f: super::popovers::ShowBranches) {
+        self.on_branches = Some(f);
+    }
+
+    /// The flags every row is drawn with now.
+    pub(super) fn flags(&self, cx: &App) -> RowFlags {
+        let store = self.store.read(cx);
+        RowFlags {
+            can_branch: store.can_branch(),
+            can_follow_up: !store.missing && !store.read_only(),
+            abilities: store.abilities(),
+            merging: store.merging(),
+            actions: self.action_prefs.clone(),
+        }
+    }
+
+    /// Which row popover shows, if one does (the E2E pass checks it).
+    pub fn row_popover_open(&self) -> Option<(RowPopoverKind, String)> {
+        self.row_popover.as_ref().map(|p| (p.kind, p.key.clone()))
+    }
+
+    pub fn close_row_popover(&mut self, cx: &mut Context<Self>) {
+        if let Some(p) = self.row_popover.take() {
+            self.leaving_row_popover = Some(p);
+            cx.notify();
+        }
     }
 
     /// Leaves the edge fades to the window (see `painted_fades`).
@@ -488,15 +569,12 @@ impl Transcript {
         let Some(item) = store.item(row) else {
             return div().into_any_element();
         };
-        let flags = RowFlags {
-            can_branch: store.can_branch(),
-            can_follow_up: !store.missing && !store.read_only(),
-        };
         // The row's key, not its message's id: a regenerate's answer is the
         // same row (and view) from the regenerate to the stored copy.
         let key = store.row_key(row);
+        let flags = self.flags(cx);
         let view = match self.rows.get(&key) {
-            Some(view) if view.set(item.clone(), flags, cx) => view.clone(),
+            Some(view) if view.set(item.clone(), flags.clone(), cx) => view.clone(),
             _ => {
                 let view = RowView::new(self.host.clone(), item, flags, cx);
                 self.rows.insert(key.clone(), view.clone());
@@ -719,6 +797,190 @@ impl Transcript {
 }
 
 impl Transcript {
+    /// A row's Usage or Versions popover, hung from the button that opened
+    /// it as the citation popover is (and with its motion).
+    fn row_popover_card(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let open = self.row_popover.is_some();
+        let shown = motion::appear(
+            "row-popover-motion",
+            open,
+            specs::POPOVER_IN,
+            specs::POPOVER_OUT,
+            window,
+            cx,
+        );
+        if !shown.visible {
+            return None;
+        }
+        let p = self
+            .row_popover
+            .as_ref()
+            .or(self.leaving_row_popover.as_ref())?
+            .clone();
+        let store = self.store.read(cx);
+        let row = store.row_for_key(&p.key)?;
+        let item = store.item(row)?;
+        let t = cx.conduit().clone();
+        let l10n = cx.l10n().clone();
+        let r = t.roles;
+        let weak = cx.entity().downgrade();
+        let (body, label, lines) = match p.kind {
+            RowPopoverKind::Usage => {
+                let usage = item.usage.clone()?;
+                let n = super::popovers::usage_lines(&usage, &l10n).len();
+                (
+                    super::popovers::usage_card(&p.key, &usage, cx),
+                    l10n.usage_info_title(),
+                    n + 1,
+                )
+            }
+            RowPopoverKind::Versions => {
+                let shown_id = store.messages().iter().find(|m| m.id == p.key).map(|_| {
+                    item.version
+                        .and_then(|(at, _)| item.siblings.get(at - 1).cloned())
+                        .unwrap_or(p.key.clone())
+                })?;
+                let entries = super::popovers::version_entries(
+                    &item.siblings,
+                    &shown_id,
+                    |id| store.version_text(id),
+                    &l10n,
+                );
+                let n = entries.len() * 2 + 2;
+                let pick_store = self.store.downgrade();
+                let pick_key = p.key.clone();
+                let close = weak.clone();
+                let on_pick: super::popovers::PickVersion = std::rc::Rc::new(move |id, _, cx| {
+                    let _ = pick_store.update(cx, |s, cx| s.choose_version(&pick_key, &id, cx));
+                    let _ = close.update(cx, |t, cx| t.close_row_popover(cx));
+                });
+                let branches = self
+                    .on_branches
+                    .clone()
+                    .filter(|_| store.abilities().branch);
+                let close = weak.clone();
+                let on_branches = branches.map(|f| {
+                    std::rc::Rc::new(move |window: &mut Window, cx: &mut App| {
+                        let _ = close.update(cx, |t, cx| t.close_row_popover(cx));
+                        f(window, cx)
+                    }) as super::popovers::ShowBranches
+                });
+                (
+                    super::popovers::versions_card(&p.key, entries, on_pick, on_branches, cx),
+                    l10n.chat_branch_sheet_title(),
+                    n,
+                )
+            }
+        };
+        let close = weak.clone();
+        let card = div()
+            .id("row-popover")
+            .role(Role::Dialog)
+            .aria_label(SharedString::from(label))
+            .occlude()
+            .w(px(ROW_POPOVER_WIDTH))
+            .p(px(6.))
+            .rounded(t.overlay_radius())
+            .border_1()
+            .border_color(r.border_strong)
+            .bg(r.overlay)
+            .shadow(conduit_components::views::kit::overlay_shadow(&t))
+            .on_mouse_down_out(move |_, _, cx| {
+                let _ = close.update(cx, |t, cx| t.close_row_popover(cx));
+            })
+            .on_key_down({
+                let close = weak.clone();
+                move |e: &gpui_kit::KeyDownEvent, _, cx| {
+                    if e.keystroke.key == "escape" {
+                        let _ = close.update(cx, |t, cx| t.close_row_popover(cx));
+                        cx.stop_propagation();
+                    }
+                }
+            })
+            .child(body);
+        Some(self.hang(
+            "row-popover",
+            card,
+            ROW_POPOVER_WIDTH,
+            24. * lines as f32,
+            p.position,
+            open,
+            shown,
+            cx,
+        ))
+    }
+
+    /// Hangs `card` (`width` wide, about `height` tall) from `at` by a tail:
+    /// below it, or above when the transcript has no room under it, inside
+    /// the chat column. Fades and drops in with `shown`.
+    #[allow(clippy::too_many_arguments)]
+    fn hang(
+        &self,
+        id: &str,
+        card: gpui_kit::Stateful<gpui_kit::Div>,
+        width: f32,
+        height: f32,
+        at: Point<Pixels>,
+        open: bool,
+        shown: motion::Appear,
+        cx: &App,
+    ) -> AnyElement {
+        let t = cx.conduit().clone();
+        let r = t.roles;
+        let b = self.bounds.get();
+        let column = (b.size.width - px(64.)).min(px(CHAT_COLUMN)).max(px(width));
+        let column_left = b.origin.x + (b.size.width - column) / 2.;
+        let left = (at.x - px(32.))
+            .max(column_left)
+            .min(column_left + column - px(width));
+        let tail_x = (at.x - left).clamp(px(18.), px(width - 18.));
+        let room_below = b.bottom() - at.y;
+        let below = room_below > px(40. + height) || b.size.height == px(0.);
+        let tail = popover_tail(tail_x, below, r.overlay, r.border_strong);
+        let card = div()
+            .relative()
+            .top(px(shown.offset(if below { -4. } else { 4. })))
+            .opacity(shown.opacity)
+            .when(below, |d| d.pt(px(TAIL_HEIGHT)))
+            .when(!below, |d| d.pb(px(TAIL_HEIGHT)))
+            .child(card)
+            .child(tail)
+            .when(!open, |d| {
+                d.child(
+                    div()
+                        .id(ElementId::Name(format!("{id}-leaving").into()))
+                        .absolute()
+                        .inset_0()
+                        .occlude(),
+                )
+            });
+        deferred(
+            anchored()
+                .anchor(if below {
+                    Anchor::TopLeft
+                } else {
+                    Anchor::BottomLeft
+                })
+                .position(point(
+                    left,
+                    if below {
+                        at.y + px(10.)
+                    } else {
+                        at.y - px(10.)
+                    },
+                ))
+                .snap_to_window_with_margin(px(8.))
+                .child(card),
+        )
+        .with_priority(2)
+        .into_any_element()
+    }
+}
+
+/// The Usage and Versions popovers' width.
+const ROW_POPOVER_WIDTH: f32 = 300.;
+
+impl Transcript {
     /// Tab moved onto a row's buttons. The control brings itself into view,
     /// 24 pt clear of the edges, as it is drawn (the window's focus reveal,
     /// [`conduit_components::window::FOCUS_REVEAL_INSET`]); following the
@@ -939,6 +1201,7 @@ impl Render for Transcript {
                 )
         });
         let popover = self.citation_popover(window, cx);
+        let row_popover = self.row_popover_card(window, cx);
         let bounds = self.bounds.clone();
         div()
             .id("transcript")
@@ -1002,6 +1265,7 @@ impl Render for Transcript {
             )
             .children(older)
             .children(popover)
+            .children(row_popover)
     }
 }
 
@@ -1026,6 +1290,13 @@ mod tests {
 
     fn message(id: &str, role: &str, content: &str) -> ChatMessageDto {
         ChatMessageDto {
+            sibling_ids: vec![],
+            parent_id: None,
+            slot: None,
+            merged: None,
+            retry_without_effort: false,
+            comparison: vec![],
+            mergeable_ids: vec![],
             id: id.into(),
             role: role.into(),
             content: content.into(),
@@ -1082,8 +1353,12 @@ mod tests {
         let daemon = FakeDaemon::new();
         daemon.returns::<methods::ChatsGet>(ChatResult {
             chat: Some(ChatDetail {
+                abilities: Default::default(),
+                temporary: false,
+                share_id: None,
                 read_only: false,
                 summary: ChatSummary {
+                    unread: false,
                     read_only: false,
                     id: "c1".into(),
                     title: "A chat".into(),
@@ -1316,6 +1591,7 @@ mod tests {
             s.regenerate("a1", None, cx);
             s.on_event(
                 &Event::TurnStarted(conduit_protocol::TurnStarted {
+                    companion_ids: vec![],
                     chat_id: "c1".into(),
                     message_id: "a2".into(),
                     model: "m".into(),
@@ -1349,6 +1625,10 @@ mod tests {
             ..message("a2", "assistant", "New line 1.")
         };
         new.versions = vec![conduit_protocol::ChatMessageVersionDto {
+            slot: None,
+            merged: None,
+            streaming: false,
+            error_code: None,
             id: "a1".into(),
             content: "old".into(),
             timestamp_ms: 1,
@@ -1359,8 +1639,12 @@ mod tests {
         }];
         let detail = |messages: Vec<ChatMessageDto>| ChatResult {
             chat: Some(ChatDetail {
+                abilities: Default::default(),
+                temporary: false,
+                share_id: None,
                 read_only: false,
                 summary: ChatSummary {
+                    unread: false,
                     read_only: false,
                     id: "c1".into(),
                     title: "A chat".into(),
@@ -1438,8 +1722,12 @@ mod tests {
         };
         let detail = |answer: ChatMessageDto| ChatResult {
             chat: Some(ChatDetail {
+                abilities: Default::default(),
+                temporary: false,
+                share_id: None,
                 read_only: false,
                 summary: ChatSummary {
+                    unread: false,
                     read_only: false,
                     id: "c1".into(),
                     title: "A chat".into(),

@@ -15,17 +15,18 @@ gpui_kit::assets::icon_assets!(
     [
         AppWindow, Archive, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, AtSign, AudioLines, Bell,
         BookOpen, Bot, Brain, Calendar, CalendarClock, Captions, Check, ChevronDown, ChevronLeft,
-        ChevronRight, ChevronsUpDown, ChevronUp, Circle, CircleAlert, CircleCheck, CircleUser,
-        Clock, ClockFading, Cloud, CloudOff, Code, Coffee, Command, Copy, CornerDownLeft, Cpu,
-        Database, DatabaseBackup, Download, Ellipsis, ExternalLink, Eye, EyeOff, FileCode,
-        FileText, FlaskConical, Folder, FolderClosed, FolderOpen, Funnel, Github, Globe, Hash,
-        Heart, Image, ImageOff, Info, Keyboard, KeyRound, Laptop, Layers, LibraryBig, Link, List,
-        ListChecks, LoaderCircle, Lock, LogOut, Mail, Maximize2, Megaphone, MessageSquare,
-        MessageSquarePlus, Mic, Minimize2, Monitor, Moon, Network, NotebookPen, Palette, PanelLeft,
-        Paperclip, Pencil, Pin, PinOff, Play, Plus, RefreshCw, RotateCcw, ScrollText, Search,
-        Server, Settings, Share, ShieldAlert, ShieldCheck, SlidersHorizontal, Smartphone, Sparkles,
-        Square, SquarePen, SquareTerminal, Sun, Terminal, TextCursorInput, TextQuote, ThumbsDown,
-        ThumbsUp, Trash, Upload, User, UserPlus, Users, WandSparkles, Wifi, Wrench, X, Zap
+        ChevronRight, ChevronsUpDown, ChevronUp, Circle, CircleAlert, CircleCheck, CircleSlash,
+        CircleUser, Clock, ClockFading, Cloud, CloudOff, Code, Coffee, Columns2, Command, Copy,
+        CornerDownLeft, Cpu, Database, DatabaseBackup, Download, Ellipsis, ExternalLink, Eye,
+        EyeOff, FileCode, FileDown, FileText, FlaskConical, Folder, FolderClosed, FolderOpen,
+        Funnel, GitBranch, Github, GitMerge, Globe, Hash, Heart, Image, ImageOff, Info, Keyboard,
+        KeyRound, Laptop, Layers, LibraryBig, Link, List, ListChecks, ListTree, LoaderCircle, Lock,
+        LogOut, Mail, Maximize2, Megaphone, MessageSquare, MessageSquareDot, MessageSquarePlus, Mic,
+        Minimize2, Monitor, Moon, Network, NotebookPen, Palette, PanelLeft, Paperclip, Pencil, Pin,
+        PinOff, Play, Plus, RefreshCw, RotateCcw, Save, ScrollText, Search, Server, Settings, Share,
+        ShieldAlert, ShieldCheck, SlidersHorizontal, Smartphone, Sparkles, Square, SquarePen,
+        SquareTerminal, Sun, Terminal, TextCursorInput, TextQuote, ThumbsDown, ThumbsUp, Trash,
+        Upload, User, UserPlus, Users, WandSparkles, Wifi, Wrench, X, Zap
     ]
 );
 

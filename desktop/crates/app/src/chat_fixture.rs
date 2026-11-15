@@ -134,6 +134,13 @@ fn chat_value() -> Value {
                 format!("Question {i}: how long is a day on moon {i}?")
             };
             ChatMessageDto {
+                sibling_ids: vec![],
+                parent_id: None,
+                slot: None,
+                merged: None,
+                retry_without_effort: false,
+                comparison: vec![],
+                mergeable_ids: vec![],
                 id: format!("m{i}"),
                 role: if assistant { "assistant" } else { "user" }.into(),
                 content: content.clone(),
@@ -156,8 +163,12 @@ fn chat_value() -> Value {
         .collect();
     serde_json::to_value(ChatResult {
         chat: Some(ChatDetail {
+            abilities: Default::default(),
+            temporary: false,
+            share_id: None,
             read_only: false,
             summary: ChatSummary {
+                unread: false,
                 read_only: false,
                 id: "fixture".into(),
                 title: "A long synthetic chat".into(),

@@ -9,10 +9,12 @@ import 'composer.dart';
 import 'data.dart';
 import 'direct.dart';
 import 'events.dart';
+import 'handoff.dart';
 import 'handshake.dart';
 import 'hermes.dart';
 import 'mcp.dart';
 import 'memories.dart';
+import 'messages.dart';
 import 'methods.dart';
 import 'models.dart';
 import 'notes.dart';
@@ -544,9 +546,9 @@ abstract final class ConduitMethodSpecs {
         params: ArchivedVisibility.fromJson,
         result: ChatList.fromJson,
       );
-  static const chatsShare = ConduitMethodSpec<ChatRef, ChatShare>(
+  static const chatsShare = ConduitMethodSpec<ShareChat, ChatShare>(
     ConduitMethods.chatsShare,
-    params: ChatRef.fromJson,
+    params: ShareChat.fromJson,
     result: ChatShare.fromJson,
   );
   static const chatsUnshare = ConduitMethodSpec<ChatRef, ChatShare>(
@@ -554,6 +556,41 @@ abstract final class ConduitMethodSpecs {
     params: ChatRef.fromJson,
     result: ChatShare.fromJson,
   );
+  static const chatsFork = ConduitMethodSpec<ForkChat, ChatForked>(
+    ConduitMethods.chatsFork,
+    params: ForkChat.fromJson,
+    result: ChatForked.fromJson,
+  );
+  static const chatsExport = ConduitMethodSpec<ExportChat, ChatExportFile>(
+    ConduitMethods.chatsExport,
+    params: ExportChat.fromJson,
+    result: ChatExportFile.fromJson,
+  );
+  static const chatsGenerateTitle =
+      ConduitMethodSpec<ChatRef, GeneratedTitle>(
+        ConduitMethods.chatsGenerateTitle,
+        params: ChatRef.fromJson,
+        result: GeneratedTitle.fromJson,
+      );
+  static const chatsMarkUnread = ConduitMethodSpec<MarkUnread, ChatList>(
+    ConduitMethods.chatsMarkUnread,
+    params: MarkUnread.fromJson,
+    result: ChatList.fromJson,
+  );
+  static const chatsSaveTemporary = ConduitMethodSpec<ChatRef, ChatForked>(
+    ConduitMethods.chatsSaveTemporary,
+    params: ChatRef.fromJson,
+    result: ChatForked.fromJson,
+  );
+
+  // messages.*
+
+  static const messagesDelete =
+      ConduitMethodSpec<DeleteMessages, MessagesDeleted>(
+        ConduitMethods.messagesDelete,
+        params: DeleteMessages.fromJson,
+        result: MessagesDeleted.fromJson,
+      );
 
   // models.*, composer.*, prompts.*
 
@@ -903,6 +940,20 @@ abstract final class ConduitMethodSpecs {
     params: RateTurn.fromJson,
     result: RatedResult.fromJson,
   );
+  static const turnsMerge = ConduitMethodSpec<MergeTurn, MergeStarted>(
+    ConduitMethods.turnsMerge,
+    params: MergeTurn.fromJson,
+    result: MergeStarted.fromJson,
+  );
+
+  // handoff.*
+
+  static const handoffAnswer =
+      ConduitMethodSpec<HandoffAnswer, HandoffAnswered>(
+        ConduitMethods.handoffAnswer,
+        params: HandoffAnswer.fromJson,
+        result: HandoffAnswered.fromJson,
+      );
 
   // notes.*
 
@@ -1427,6 +1478,12 @@ abstract final class ConduitMethodSpecs {
         chatsSetArchivedVisible,
         chatsShare,
         chatsUnshare,
+        chatsFork,
+        chatsExport,
+        chatsGenerateTitle,
+        chatsMarkUnread,
+        chatsSaveTemporary,
+        messagesDelete,
         modelsList,
         modelsSelect,
         modelsSetPinned,
@@ -1489,6 +1546,8 @@ abstract final class ConduitMethodSpecs {
         turnsEdit,
         turnsSteer,
         turnsRate,
+        turnsMerge,
+        handoffAnswer,
         notesList,
         notesGet,
         notesSave,
@@ -1721,6 +1780,21 @@ abstract final class ConduitEventSpecs {
     payload: QueueState.fromJson,
     scoped: true,
   );
+  static const messagesMerge = ConduitEventSpec<MergeProgress>(
+    ConduitEvents.messagesMerge,
+    payload: MergeProgress.fromJson,
+    scoped: true,
+  );
+  static const handoffRequested = ConduitEventSpec<HandoffRequest>(
+    ConduitEvents.handoffRequested,
+    payload: HandoffRequest.fromJson,
+    scoped: false,
+  );
+  static const handoffSettled = ConduitEventSpec<HandoffSettled>(
+    ConduitEvents.handoffSettled,
+    payload: HandoffSettled.fromJson,
+    scoped: false,
+  );
 
   /// Every event, once.
   static const List<ConduitEventSpec<Object?>> all =
@@ -1752,6 +1826,9 @@ abstract final class ConduitEventSpecs {
         terminalDisplayFile,
         settingsChanged,
         queueChanged,
+        messagesMerge,
+        handoffRequested,
+        handoffSettled,
       ];
 
   static final Map<String, ConduitEventSpec<Object?>> _byName =

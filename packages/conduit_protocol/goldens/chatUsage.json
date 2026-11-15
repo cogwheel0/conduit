@@ -7,5 +7,6 @@
   "totalTokens": 115,
   "totalSeconds": 2.25,
   "queueSeconds": 0.02,
-  "loadSeconds": 1.0
+  "loadSeconds": 1.0,
+  "incomplete": false
 }

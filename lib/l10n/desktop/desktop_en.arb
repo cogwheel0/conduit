@@ -2964,5 +2964,87 @@
   "desktopReleaseNotesLearnMore": "Learn More",
   "@desktopReleaseNotesLearnMore": {
     "description": "Button on the after-update banner in the main window that opens the release notes (the phone's \"Tap to learn more\"). Title Case."
+  },
+  "desktopRegenerateWith": "Regenerate With",
+  "@desktopRegenerateWith": {
+    "description": "Submenu in an answer's More menu listing the models; choosing one runs the answer again with that model. Title Case."
+  },
+  "desktopShowBranches": "Show All Branches…",
+  "@desktopShowBranches": {
+    "description": "Last row of the message versions popover: opens the sheet with every branch of the chat as a tree. Title Case."
+  },
+  "desktopCompareCurrent": "Current",
+  "@desktopCompareCurrent": {
+    "description": "Small caption beside the model name over one column of a Compare Models answer: the answer the chat continues from."
+  },
+  "desktopBranchesTitle": "Branches",
+  "@desktopBranchesTitle": {
+    "description": "Title of the sheet listing every message of a chat on every branch (edits and regenerations), as an outline; also its list's accessibility name."
+  },
+  "desktopBranchesDescription": "Every version of every message in this chat. Choose one to continue the chat from there.",
+  "@desktopBranchesDescription": {
+    "description": "Line under the Branches sheet's title. Sentence case."
+  },
+  "desktopBranchesCurrent": "On the branch shown",
+  "@desktopBranchesCurrent": {
+    "description": "Read by VoiceOver after a message in the Branches sheet that is on the branch the chat shows now."
+  },
+  "desktopBranchesFailed": "The branches could not be loaded.",
+  "@desktopBranchesFailed": {
+    "description": "Shown in the Branches sheet when the chat's branches would not load."
+  },
+  "desktopShareAudiencePrivate": "Only People Given Access",
+  "@desktopShareAudiencePrivate": {
+    "description": "Choice in Share Chat's Who Has Access pop-up: only the people and groups the chat is shared with may open its link. Title Case."
+  },
+  "desktopShareAudiencePublic": "Everyone on This Server",
+  "@desktopShareAudiencePublic": {
+    "description": "Choice in Share Chat's Who Has Access pop-up: every user of the Open WebUI server may open the link. Title Case."
+  },
+  "desktopShareAudienceOpen": "Anyone with the Link",
+  "@desktopShareAudienceOpen": {
+    "description": "Choice in Share Chat's Who Has Access pop-up: anyone who has the link may open it, signed in or not. Title Case."
+  },
+  "desktopUnread": "Unread",
+  "@desktopUnread": {
+    "description": "Read by VoiceOver after a chat's title in the sidebar when the chat has an unread dot."
+  },
+  "desktopMarkAsRead": "Mark as Read",
+  "@desktopMarkAsRead": {
+    "description": "Chat menu, sidebar context menu and More menu item for a chat with an unread dot: takes the dot away. Title Case (the phone's Mark as Unread's counterpart)."
+  },
+  "desktopMenuShowBranches": "Show Branches…",
+  "@desktopMenuShowBranches": {
+    "description": "Chat menu item that opens the sheet with every branch of the open chat as a tree. Title Case."
+  },
+  "desktopChatExported": "Exported “{name}”",
+  "@desktopChatExported": {
+    "description": "Toast after a chat was exported to a file; {name} is the file's name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopChatSaved": "Chat saved",
+  "@desktopChatSaved": {
+    "description": "Toast after Save Chat made a temporary chat a normal, stored one."
+  },
+  "desktopShareChatSheet": "Share Chat…",
+  "@desktopShareChatSheet": {
+    "description": "Chat menu, sidebar context menu and More menu item that opens the Share Chat sheet (link, who has access). Title Case, with an ellipsis because it opens a sheet."
+  },
+  "desktopCompareWithChip": "Also {model}",
+  "@desktopCompareWithChip": {
+    "description": "Chip over the message field after Compare Models: the next message is answered by {model} too, side by side with the chosen model.",
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopStopComparing": "Don't Compare",
+  "@desktopStopComparing": {
+    "description": "Tooltip and accessibility name of the chip's remove button: the next message goes to one model only. Title Case."
   }
 }

@@ -1,0 +1,56 @@
+{
+  "id": "msg-a1",
+  "role": "assistant",
+  "content": "Two coats are enough.",
+  "timestampMs": 1758412800000,
+  "model": "fake-model",
+  "streaming": false,
+  "versions": [
+    {
+      "id": "msg-b1",
+      "content": "Three thin coats.",
+      "timestampMs": 1758412800000,
+      "model": "fake-model-b",
+      "sources": [],
+      "blocks": [],
+      "slot": 1,
+      "streaming": true
+    }
+  ],
+  "sources": [],
+  "usage": {
+    "totalTokens": 15,
+    "contextLength": 8192,
+    "contextTokens": 15,
+    "incomplete": true
+  },
+  "files": [],
+  "blocks": [],
+  "parentId": "msg-q1",
+  "slot": 0,
+  "merged": "Two coats, a day apart.",
+  "retryWithoutEffort": true,
+  "comparison": [
+    {
+      "index": 0,
+      "answerIds": [
+        "msg-a1"
+      ],
+      "model": "fake-model"
+    },
+    {
+      "index": 1,
+      "answerIds": [
+        "msg-b1"
+      ],
+      "model": "fake-model-b"
+    }
+  ],
+  "mergeableIds": [
+    "msg-a1"
+  ],
+  "siblingIds": [
+    "msg-a1",
+    "msg-b1"
+  ]
+}

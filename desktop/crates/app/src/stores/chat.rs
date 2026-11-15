@@ -28,6 +28,15 @@
 //!   or a reconnect, catches up.
 //! * **Remaps:** `route.remap` moves the store to the chat's new id; it
 //!   resubscribes and refetches.
+//! * **Versions and branches:** a version's arrows, the version list and
+//!   Continue from This Response make another answer the chat's current
+//!   one on the server (`chats.setCurrent`); the chosen answer shows at once
+//!   and the stored copy the daemon answers with replaces the transcript.
+//!   A chat that cannot branch (temporary, read-only) only changes which
+//!   version this window shows.
+//! * **Compare Models:** a comparison turn's other answers (the
+//!   `companionIds` of `turn.started`) stream as overlays of their own,
+//!   drawn as columns beside the first.
 //! * **This window only:** which answer version each message shows,
 //!   ratings given here that the stored copy may not show yet (rolled back
 //!   if refused), and how many of the newest messages the transcript shows
@@ -38,10 +47,11 @@ use std::rc::Rc;
 
 use conduit_daemon::RpcError;
 use conduit_protocol::{
-    ChatDetail, ChatFileDto, ChatMessageDto, ChatRef, ChatSourceDto, ComposerMentionDto,
-    ContextAttachmentDto, EditTurn, Event, KnowledgeSummary, MessageBlockDto, MessageBlockKind,
-    QueueAdd, QueueDraftRef, QueueEdit, QueueSendNowResult, QueueState, RateTurn, RegenerateTurn,
-    SendTurn, SendTurnAccepted, SteerResult, SteerTurn, StopTurn, events, methods,
+    ChatAbilities, ChatCurrent, ChatDetail, ChatFileDto, ChatForked, ChatMessageDto, ChatRef,
+    ChatSourceDto, ChatUsageDto, ComposerMentionDto, ContextAttachmentDto, DeleteMessages,
+    EditTurn, Event, ForkChat, KnowledgeSummary, MergeProgress, MergeTurn, MessageBlockDto,
+    MessageBlockKind, QueueAdd, QueueDraftRef, QueueEdit, QueueSendNowResult, QueueState, RateTurn,
+    RegenerateTurn, SendTurn, SendTurnAccepted, SteerResult, SteerTurn, StopTurn, events, methods,
 };
 use gpui_kit::{App, AppContext as _, AsyncApp, Context, EventEmitter, Task, WeakEntity};
 
@@ -58,6 +68,7 @@ pub const CHAT_EVENTS: &[&str] = &[
     events::TURN_FINISHED,
     events::CHATS_CHANGED,
     events::QUEUE_CHANGED,
+    events::MESSAGES_MERGE,
 ];
 
 /// How many of the newest messages show at first, and how many more each
@@ -258,7 +269,7 @@ pub enum Row {
 }
 
 /// A row as the views draw it.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct RowItem {
     /// Stable across frames: the message id, or `pending`.
     pub key: String,
@@ -283,10 +294,40 @@ pub struct RowItem {
     pub last_answer: bool,
     /// A regenerate's old answer, shown dimmed until the new one starts.
     pub stale: bool,
+    /// Tokens and timing, when the provider reported them (Usage).
+    pub usage: Option<ChatUsageDto>,
+    /// The merged response (Merge Responses): saved, or arriving.
+    pub merged: Option<String>,
+    /// A merge is writing into this answer now.
+    pub merging: bool,
+    /// Retry Without Reasoning Effort applies (the daemon's reading of the
+    /// error).
+    pub retry_without_effort: bool,
+    /// A Compare Models answer: each model's column, in order (two or
+    /// more); empty for an ordinary answer.
+    pub columns: Vec<CompareColumn>,
+    /// Of the columns' answers, those Merge Responses may read.
+    pub mergeable: Vec<String>,
+    /// The message and its versions, by id, in the server's order (for the
+    /// version list); empty without versions.
+    pub siblings: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// One model's answer in a Compare Models row.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CompareColumn {
+    pub answer_id: String,
+    pub model: Option<String>,
+    pub text: String,
+    pub blocks: Vec<MessageBlockDto>,
+    pub streaming: bool,
+    /// The answer the chat goes on from (the transcript's own message).
+    pub current: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Role {
+    #[default]
     User,
     Assistant,
 }
@@ -302,12 +343,28 @@ pub enum ChatAction {
     Rate,
     /// A `queue.*` change the daemon refused.
     Queue,
+    /// Another version or branch (`chats.setCurrent`) was refused.
+    Branch,
+    /// `messages.delete` was refused.
+    Delete,
+    /// Fork Chat was refused; the reason is the core's `ChatBranchFailure`.
+    Fork,
+    /// Merge Responses failed; the reason is the core's
+    /// `ComparisonMergeFailure` (`unavailable`, `notMergeable`, ...).
+    Merge,
+    /// Save Chat (a temporary chat) was refused.
+    Save,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChatStoreEvent {
     /// An action the daemon refused (the store already rolled back).
-    Failed { action: ChatAction, error: String },
+    /// `reason` is the daemon's own word for why, when it gave one.
+    Failed {
+        action: ChatAction,
+        error: String,
+        reason: Option<String>,
+    },
     /// The chat no longer exists (deleted elsewhere).
     Missing,
 }
@@ -321,6 +378,9 @@ pub struct ChatStore {
     /// The model the next answer is from, for the live row's name until
     /// `turn.started` says (a new chat subscribes after it went out).
     pub model_hint: Option<String>,
+    /// A Compare Models turn's models, in order: the other answers' names
+    /// while they stream.
+    pub compare_hint: Vec<String>,
     pub detail: Option<ChatDetail>,
     pub loading: bool,
     pub missing: bool,
@@ -353,6 +413,16 @@ pub struct ChatStore {
     /// Messages queued behind the running answer (`queue.*`), and whether
     /// one typed now would be.
     pub queue: QueueState,
+    /// A Compare Models turn's other answers, streaming beside `live`.
+    pub companions: Vec<LiveTurn>,
+    /// The merge writing into an answer (`messages.merge`), until the stored
+    /// copy has it.
+    pub merge: Option<MergeProgress>,
+    /// A version switch on its way to the daemon.
+    switching: bool,
+    /// A version chosen while a switch was on its way: made the chat's once
+    /// that one has landed (the last choice wins).
+    queued_version: Option<String>,
     _fetch: Option<Task<()>>,
     _refetch: Option<Task<()>>,
     _queue: Option<Task<()>>,
@@ -369,6 +439,7 @@ impl ChatStore {
             chat_id,
             temporary: false,
             model_hint: None,
+            compare_hint: vec![],
             detail: None,
             loading: true,
             missing: false,
@@ -387,6 +458,10 @@ impl ChatStore {
             stored_rev: 0,
             live_rev: 0,
             queue: empty_queue(String::new()),
+            companions: vec![],
+            merge: None,
+            switching: false,
+            queued_version: None,
             _fetch: None,
             _refetch: None,
             _queue: None,
@@ -617,6 +692,7 @@ impl ChatStore {
                 cx.emit(ChatStoreEvent::Failed {
                     action: ChatAction::Load,
                     error: e.to_string(),
+                    reason: None,
                 });
             }
         }
@@ -654,6 +730,19 @@ impl ChatStore {
                 self.live = None;
             }
         }
+        // A comparison's other answers settle once the stored copy has each
+        // (they are versions of the first answer there).
+        if self.live.is_none() {
+            self.companions
+                .retain(|c| c.streaming() || !stored_has_answer(messages, &c.message_id, None));
+        }
+        // A finished merge, once the stored copy shows it (or it failed).
+        if let Some(merge) = &self.merge
+            && !merge.running
+            && (merge.error.is_some() || stored_merged(messages, &merge.target_id).is_some())
+        {
+            self.merge = None;
+        }
         self.ratings.retain(|id, rating| {
             !messages
                 .iter()
@@ -681,12 +770,43 @@ impl ChatStore {
     /// A daemon event (the window forwards every one; the store picks its
     /// own).
     pub fn on_event(&mut self, event: &Event, cx: &mut Context<Self>) {
+        // A comparison's other answers: their own overlays, never `live`.
+        if self.on_companion_event(event, cx) {
+            return;
+        }
         match event {
             Event::TurnStarted(e) if e.chat_id == self.chat_id => {
                 let live = self.live_for(&e.message_id);
                 live.model = Some(e.model.clone());
                 live.phase = LivePhase::Streaming;
+                let hints = self.compare_hint.clone();
+                self.companions = e
+                    .companion_ids
+                    .iter()
+                    .filter(|id| **id != e.message_id)
+                    .enumerate()
+                    .map(|(i, id)| LiveTurn {
+                        model: hints.get(i + 1).cloned(),
+                        ..LiveTurn::new(id.clone())
+                    })
+                    .collect();
                 self.rebuild(cx);
+            }
+            Event::MessagesMerge(p) if p.chat_id == self.chat_id => {
+                let ended = !p.running;
+                if let Some(error) = &p.error {
+                    cx.emit(ChatStoreEvent::Failed {
+                        action: ChatAction::Merge,
+                        error: error.clone(),
+                        reason: Some(error.clone()),
+                    });
+                }
+                self.merge = Some(p.clone());
+                self.stored_rev += 1;
+                if ended {
+                    self.fetch(cx);
+                }
+                cx.notify();
             }
             Event::TurnDelta(e) if e.chat_id == self.chat_id => {
                 let live = self.live_for(&e.message_id);
@@ -754,6 +874,47 @@ impl ChatStore {
             Event::QueueChanged(queue) => self.set_queue(queue.clone(), cx),
             _ => {}
         }
+    }
+
+    /// Routes a `turn.*` event for one of a comparison's other answers to
+    /// its overlay. True when it was one.
+    fn on_companion_event(&mut self, event: &Event, cx: &mut Context<Self>) -> bool {
+        let (chat, id) = match event {
+            Event::TurnDelta(e) => (&e.chat_id, &e.message_id),
+            Event::TurnBlocks(e) => (&e.chat_id, &e.message_id),
+            Event::TurnCompleted(e) => (&e.chat_id, &e.message_id),
+            Event::TurnFailed(e) => (&e.chat_id, &e.message_id),
+            _ => return false,
+        };
+        if *chat != self.chat_id {
+            return false;
+        }
+        let Some(c) = self.companions.iter_mut().find(|c| &c.message_id == id) else {
+            return false;
+        };
+        match event {
+            Event::TurnDelta(e) if c.streaming() => c.text = e.text.clone(),
+            Event::TurnBlocks(e) => c.blocks = known_blocks(&e.blocks),
+            Event::TurnCompleted(e) => {
+                c.text = e.text.clone();
+                c.phase = LivePhase::Completed;
+                self.fetch(cx);
+            }
+            Event::TurnFailed(e) => {
+                if c.text.is_empty() {
+                    c.text = e.partial_text.clone();
+                }
+                c.phase = LivePhase::Failed {
+                    code: e.code.clone(),
+                    detail: e.args.get("detail").cloned().filter(|d| !d.is_empty()),
+                };
+                self.fetch(cx);
+            }
+            _ => {}
+        }
+        self.live_rev += 1;
+        cx.notify();
+        true
     }
 
     /// The overlay for `message_id`, made if it is a new turn. A regenerate
@@ -975,36 +1136,64 @@ impl ChatStore {
             Row::Stored(i) => {
                 let m = self.messages().get(i)?;
                 let assistant = m.role == "assistant";
-                let (text, blocks, sources, model, version) = if assistant {
-                    let shown = self
-                        .versions
-                        .get(&m.id)
-                        .copied()
-                        .unwrap_or(m.versions.len())
-                        .min(m.versions.len());
-                    let version =
-                        (!m.versions.is_empty()).then_some((shown + 1, m.versions.len() + 1));
-                    match m.versions.get(shown) {
-                        Some(v) => (
-                            v.content.clone(),
-                            known_blocks(&v.blocks),
-                            v.sources.clone(),
-                            v.model.clone().or(m.model.clone()),
-                            version,
-                        ),
-                        None => (
-                            m.content.clone(),
-                            known_blocks(&m.blocks),
-                            m.sources.clone(),
-                            m.model.clone(),
-                            version,
-                        ),
-                    }
+                // The version this window shows: the message itself, or (a
+                // switch on its way, or a chat that cannot branch) another.
+                let shown_ix = self
+                    .versions
+                    .get(&m.id)
+                    .copied()
+                    .filter(|ix| *ix < m.versions.len());
+                let shown = shown_ix.map(|ix| &m.versions[ix]);
+                let shown_id = shown.map_or(m.id.as_str(), |v| v.id.as_str());
+                let compared = assistant && m.comparison.len() > 1;
+                let version = if compared {
+                    None
+                } else if m.sibling_ids.len() > 1
+                    && let Some(at) = m.sibling_ids.iter().position(|id| id == shown_id)
+                {
+                    Some((at + 1, m.sibling_ids.len()))
+                } else if !m.versions.is_empty() {
+                    let at = shown_ix.unwrap_or(m.versions.len());
+                    Some((at + 1, m.versions.len() + 1))
                 } else {
-                    (m.content.clone(), vec![], vec![], m.model.clone(), None)
+                    None
                 };
+                let (text, blocks, sources, model, usage, stored_merged) = match shown {
+                    Some(v) => (
+                        v.content.clone(),
+                        if assistant {
+                            known_blocks(&v.blocks)
+                        } else {
+                            vec![]
+                        },
+                        v.sources.clone(),
+                        v.model.clone().or(m.model.clone()),
+                        v.usage.clone(),
+                        v.merged.clone(),
+                    ),
+                    None => (
+                        m.content.clone(),
+                        if assistant {
+                            known_blocks(&m.blocks)
+                        } else {
+                            vec![]
+                        },
+                        m.sources.clone(),
+                        m.model.clone(),
+                        m.usage.clone(),
+                        m.merged.clone(),
+                    ),
+                };
+                let merge = self.merge.as_ref().filter(|p| p.target_id == shown_id);
+                let merged = match merge {
+                    Some(p) if p.running || stored_merged.is_none() => {
+                        (!p.text.is_empty()).then(|| p.text.clone())
+                    }
+                    _ => stored_merged.filter(|t| !t.trim().is_empty()),
+                };
+                let columns = if compared { compare_columns(m) } else { vec![] };
                 // An older version's rating is not stored: no thumb.
-                let current = version.is_none_or(|(shown, total)| shown == total);
+                let current = shown.is_none();
                 Some(RowItem {
                     key: m.id.clone(),
                     role: if assistant {
@@ -1015,7 +1204,7 @@ impl ChatStore {
                     text,
                     blocks,
                     files: m.files.clone(),
-                    sources,
+                    sources: if assistant { sources } else { vec![] },
                     model,
                     timestamp_ms: Some(m.timestamp_ms),
                     streaming: m.streaming,
@@ -1026,6 +1215,13 @@ impl ChatStore {
                     stored: true,
                     last_answer,
                     stale: false,
+                    usage: usage.filter(|_| assistant),
+                    merged,
+                    merging: merge.is_some_and(|p| p.running),
+                    retry_without_effort: current && m.retry_without_effort,
+                    columns,
+                    mergeable: m.mergeable_ids.clone(),
+                    siblings: m.sibling_ids.clone(),
                 })
             }
             Row::Pending => {
@@ -1045,6 +1241,7 @@ impl ChatStore {
                     stored: false,
                     last_answer: false,
                     stale: false,
+                    ..Default::default()
                 })
             }
             Row::Waiting => Some(RowItem {
@@ -1062,6 +1259,7 @@ impl ChatStore {
                 stored: false,
                 last_answer,
                 stale: false,
+                ..Default::default()
             }),
             Row::Live => {
                 let l = self.live.as_ref()?;
@@ -1103,6 +1301,7 @@ impl ChatStore {
                         stored: false,
                         last_answer,
                         stale: true,
+                        ..Default::default()
                     });
                 }
                 let blocks = l.display_blocks();
@@ -1111,6 +1310,30 @@ impl ChatStore {
                     .find(|b| b.kind == MessageBlockKind::Sources)
                     .and_then(|b| b.sources.clone())
                     .unwrap_or_default();
+                // A comparison: the first model's answer and the others'
+                // overlays, side by side.
+                let columns = if self.companions.is_empty() {
+                    vec![]
+                } else {
+                    let model = l.model.clone().or_else(|| self.model_hint.clone());
+                    std::iter::once(CompareColumn {
+                        answer_id: l.message_id.clone(),
+                        model,
+                        text: l.text.clone(),
+                        blocks: blocks.clone(),
+                        streaming: l.streaming(),
+                        current: true,
+                    })
+                    .chain(self.companions.iter().map(|c| CompareColumn {
+                        answer_id: c.message_id.clone(),
+                        model: c.model.clone(),
+                        text: c.text.clone(),
+                        blocks: c.display_blocks(),
+                        streaming: c.streaming(),
+                        current: false,
+                    }))
+                    .collect()
+                };
                 Some(RowItem {
                     key: l.message_id.clone(),
                     role: Role::Assistant,
@@ -1120,12 +1343,14 @@ impl ChatStore {
                     sources,
                     model: l.model.clone().or_else(|| self.model_hint.clone()),
                     timestamp_ms: None,
-                    streaming: l.streaming(),
+                    streaming: l.streaming() || self.companions.iter().any(LiveTurn::streaming),
                     rating: self.ratings.get(&l.message_id).copied(),
                     version,
                     stored: false,
                     last_answer,
                     stale: false,
+                    columns,
+                    ..Default::default()
                 })
             }
         }
@@ -1151,6 +1376,7 @@ impl ChatStore {
     pub fn is_streaming(&self) -> bool {
         self.awaiting
             || self.live.as_ref().is_some_and(LiveTurn::streaming)
+            || self.companions.iter().any(LiveTurn::streaming)
             || self.messages().last().is_some_and(|m| m.streaming)
     }
 
@@ -1207,6 +1433,124 @@ impl ChatStore {
             .map(|m| m.content.clone())
     }
 
+    /// What the chat offers, as the daemon says (nothing until it is
+    /// loaded).
+    pub fn abilities(&self) -> ChatAbilities {
+        self.detail
+            .as_ref()
+            .map(|d| d.abilities.clone())
+            .unwrap_or_default()
+    }
+
+    /// The text of answer (or question) `id`: a message, or one of its
+    /// versions.
+    pub fn version_text(&self, id: &str) -> Option<String> {
+        self.messages().iter().find_map(|m| {
+            if m.id == id {
+                return Some(m.content.clone());
+            }
+            m.versions
+                .iter()
+                .find(|v| v.id == id)
+                .map(|v| v.content.clone())
+        })
+    }
+
+    /// Makes `message_id` the chat's current answer on the server (the
+    /// branch through it), in place of `alternative_to` when that is what
+    /// the window shows. The stored copy the daemon answers with replaces
+    /// the transcript. The task says whether it went through.
+    pub fn set_current(
+        &mut self,
+        message_id: &str,
+        alternative_to: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> Task<bool> {
+        let asked = self.chat_id.clone();
+        let call = self.rpc.call::<methods::ChatsSetCurrent>(&ChatCurrent {
+            chat_id: self.chat_id.clone(),
+            message_id: message_id.to_string(),
+            alternative_to: alternative_to.map(str::to_string),
+        });
+        self.switching = true;
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            this.update(cx, |s, cx| {
+                s.switching = false;
+                // Saved under a new id meanwhile (Save Chat): its own fetch
+                // shows it, never this answer's copy of the old id.
+                if s.chat_id != asked {
+                    return result.is_ok();
+                }
+                // A fetch already on its way would put the old branch back.
+                s.generation += 1;
+                let ok = match result {
+                    Ok(result) => {
+                        if let Some(chat) = result.chat {
+                            s.detail = Some(chat);
+                        }
+                        true
+                    }
+                    Err(e) => {
+                        s.failed(ChatAction::Branch, &e, cx);
+                        false
+                    }
+                };
+                s.versions.clear();
+                s.rebuild(cx);
+                // A version chosen meanwhile: the switch to it goes out now.
+                if let Some(target) = s.queued_version.take()
+                    && let Some(m) = s
+                        .messages()
+                        .iter()
+                        .find(|m| m.sibling_ids.contains(&target))
+                        .map(|m| m.id.clone())
+                    && m != target
+                {
+                    s.choose_version(&m, &target, cx);
+                }
+                ok
+            })
+            .unwrap_or(false)
+        })
+    }
+
+    /// Shows version `target` of `message_id` (by its id): on the server
+    /// when the chat can branch (the version shows at once, and the stored
+    /// copy follows), else in this window only.
+    pub fn choose_version(&mut self, message_id: &str, target: &str, cx: &mut Context<Self>) {
+        let Some(m) = self.messages().iter().find(|m| m.id == message_id) else {
+            return;
+        };
+        let local = m.versions.iter().position(|v| v.id == target);
+        if target != message_id && local.is_none() {
+            return;
+        }
+        let branch = self.abilities().branch && !self.is_streaming();
+        if branch && self.switching {
+            self.queued_version = Some(target.to_string());
+        }
+        match local {
+            Some(ix) => self.show_version(message_id, ix, cx),
+            None => {
+                self.versions.remove(message_id);
+                self.stored_rev += 1;
+                cx.notify();
+            }
+        }
+        if branch && !self.switching && target != message_id {
+            self.set_current(target, Some(message_id), cx).detach();
+        }
+    }
+
+    /// The version shown of `m`, by id.
+    fn shown_version_id(&self, m: &ChatMessageDto) -> String {
+        self.versions
+            .get(&m.id)
+            .and_then(|ix| m.versions.get(*ix))
+            .map_or(m.id.clone(), |v| v.id.clone())
+    }
+
     /// Shows `index` of `message_id`'s versions (`versions.len()` is the
     /// message's own content).
     pub fn show_version(&mut self, message_id: &str, index: usize, cx: &mut Context<Self>) {
@@ -1215,11 +1559,25 @@ impl ChatStore {
         cx.notify();
     }
 
-    /// Steps the shown version by `delta`, within bounds.
+    /// Steps the shown version by `delta`, within bounds: in the server's
+    /// order, switching the chat's branch when it can branch.
     pub fn step_version(&mut self, message_id: &str, delta: isize, cx: &mut Context<Self>) {
         let Some(m) = self.messages().iter().find(|m| m.id == message_id) else {
             return;
         };
+        if m.sibling_ids.len() > 1 {
+            let shown = self.shown_version_id(m);
+            let Some(at) = m.sibling_ids.iter().position(|id| *id == shown) else {
+                return;
+            };
+            let last = m.sibling_ids.len() as isize - 1;
+            let next = (at as isize + delta).clamp(0, last) as usize;
+            if next != at {
+                let target = m.sibling_ids[next].clone();
+                self.choose_version(message_id, &target, cx);
+            }
+            return;
+        }
         let total = m.versions.len();
         let shown = self
             .versions
@@ -1235,11 +1593,17 @@ impl ChatStore {
 
     // ── Actions ─────────────────────────────────────────────────────────
 
-    fn failed(&mut self, action: ChatAction, e: &RpcError, cx: &mut Context<Self>) {
+    /// A branch switch (`chats.setCurrent`) is on its way.
+    pub fn is_switching(&self) -> bool {
+        self.switching
+    }
+
+    pub(crate) fn failed(&mut self, action: ChatAction, e: &RpcError, cx: &mut Context<Self>) {
         log::warn!("{action:?} failed: {e}");
         cx.emit(ChatStoreEvent::Failed {
             action,
             error: e.to_string(),
+            reason: e.args.get("reason").cloned(),
         });
     }
 
@@ -1303,6 +1667,19 @@ impl ChatStore {
 
     /// Runs `message_id` (an answer) again, optionally with `model`.
     pub fn regenerate(&mut self, message_id: &str, model: Option<String>, cx: &mut Context<Self>) {
+        self.regenerate_with(message_id, model, false, cx);
+    }
+
+    /// Runs `message_id` again: with `model` (Regenerate With), and, with
+    /// `without_effort`, after setting the reasoning effort the chat and the
+    /// picker sent back to automatic (Retry Without Reasoning Effort).
+    pub fn regenerate_with(
+        &mut self,
+        message_id: &str,
+        model: Option<String>,
+        without_effort: bool,
+        cx: &mut Context<Self>,
+    ) {
         if !self.can_branch() {
             return;
         }
@@ -1310,6 +1687,7 @@ impl ChatStore {
             chat_id: self.chat_id.clone(),
             message_id: message_id.to_string(),
             model,
+            without_reasoning_effort: without_effort,
         });
         // Shown as an answer on its way straight away, over the old one.
         let old = message_id.to_string();
@@ -1448,6 +1826,167 @@ impl ChatStore {
     }
 }
 
+impl ChatStore {
+    /// How many messages deleting `ids` removes (the answers to a question
+    /// go with it), for the confirmation; nothing is deleted.
+    pub fn delete_count(&self, ids: Vec<String>, cx: &App) -> Task<Result<i64, RpcError>> {
+        let call = self.rpc.call::<methods::MessagesDelete>(&DeleteMessages {
+            chat_id: self.chat_id.clone(),
+            message_ids: ids,
+            dry_run: true,
+        });
+        cx.background_spawn(async move { call.await.map(|r| r.count) })
+    }
+
+    /// Deletes `ids` (with the answers to them); the stored copy the
+    /// daemon answers with replaces the transcript.
+    pub fn delete_messages(&mut self, ids: Vec<String>, cx: &mut Context<Self>) {
+        let asked = self.chat_id.clone();
+        let call = self.rpc.call::<methods::MessagesDelete>(&DeleteMessages {
+            chat_id: self.chat_id.clone(),
+            message_ids: ids,
+            dry_run: false,
+        });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| {
+                match result {
+                    // Saved under a new id meanwhile: its own fetch shows it.
+                    Ok(_) if s.chat_id != asked => {}
+                    Ok(done) => {
+                        s.generation += 1;
+                        if let Some(chat) = done.chat {
+                            s.detail = Some(chat);
+                        }
+                        // A finished answer's overlay whose message went
+                        // with the deletion goes too (no fetch would find
+                        // it to clear it).
+                        if let Some(live) = &s.live
+                            && live.phase != LivePhase::Streaming
+                            && !s.messages().iter().any(|m| {
+                                m.id == live.message_id
+                                    || m.versions.iter().any(|v| v.id == live.message_id)
+                            })
+                        {
+                            s.live = None;
+                        }
+                    }
+                    Err(e) => s.failed(ChatAction::Delete, &e, cx),
+                }
+                s.rebuild(cx);
+            });
+        })
+        .detach();
+    }
+
+    /// Fork Chat: a new chat from the start of this one to `message_id`.
+    pub fn fork(&mut self, message_id: &str, cx: &mut Context<Self>) -> Task<Option<ChatForked>> {
+        let call = self.rpc.call::<methods::ChatsFork>(&ForkChat {
+            chat_id: self.chat_id.clone(),
+            message_id: message_id.to_string(),
+        });
+        cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| match call.await {
+                Ok(forked) => Some(forked),
+                Err(e) => {
+                    let _ = this.update(cx, |s, cx| s.failed(ChatAction::Fork, &e, cx));
+                    None
+                }
+            },
+        )
+    }
+
+    /// Merge Responses: `sources` (two or more answers of the comparison in
+    /// `message_id`) merged into one, saved on `target`. The text arrives as
+    /// `messages.merge`.
+    pub fn merge(
+        &mut self,
+        message_id: &str,
+        target: &str,
+        sources: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let call = self.rpc.call::<methods::TurnsMerge>(&MergeTurn {
+            chat_id: self.chat_id.clone(),
+            message_id: message_id.to_string(),
+            target_id: target.to_string(),
+            source_ids: sources,
+            stop: false,
+        });
+        // Shown as running at once; the first `messages.merge` follows.
+        self.merge = Some(MergeProgress {
+            chat_id: self.chat_id.clone(),
+            message_id: message_id.to_string(),
+            target_id: target.to_string(),
+            text: String::new(),
+            running: true,
+            error: None,
+        });
+        self.stored_rev += 1;
+        cx.notify();
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            if let Err(e) = call.await {
+                let _ = this.update(cx, |s, cx| {
+                    s.merge = None;
+                    s.stored_rev += 1;
+                    s.failed(ChatAction::Merge, &e, cx);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// A merge is running in this chat.
+    pub fn merging(&self) -> bool {
+        self.merge.as_ref().is_some_and(|m| m.running)
+    }
+
+    /// Stops the merge running in this chat (what arrived is kept).
+    pub fn stop_merge(&mut self, cx: &mut Context<Self>) {
+        let Some(merge) = self.merge.clone() else {
+            return;
+        };
+        let call = self.rpc.call::<methods::TurnsMerge>(&MergeTurn {
+            chat_id: self.chat_id.clone(),
+            message_id: merge.message_id,
+            target_id: merge.target_id,
+            source_ids: vec![],
+            stop: true,
+        });
+        cx.background_spawn(async move {
+            if let Err(e) = call.await {
+                log::warn!("turns.merge (stop): {e}");
+            }
+        })
+        .detach();
+    }
+
+    /// Save Chat: this temporary chat becomes a stored one. The daemon
+    /// answers with its new id (and `route.remap` moves the windows to it).
+    pub fn save_temporary(&mut self, cx: &mut Context<Self>) -> Task<Option<ChatForked>> {
+        let call = self.rpc.call::<methods::ChatsSaveTemporary>(&ChatRef {
+            id: self.chat_id.clone(),
+        });
+        cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| match call.await {
+                Ok(saved) => {
+                    let _ = this.update(cx, |s, cx| {
+                        s.temporary = false;
+                        let from = s.chat_id.clone();
+                        s.remap(&from, &saved.chat_id, cx);
+                    });
+                    Some(saved)
+                }
+                Err(e) => {
+                    let _ = this.update(cx, |s, cx| s.failed(ChatAction::Save, &e, cx));
+                    None
+                }
+            },
+        )
+    }
+}
+
 /// Whether the stored transcript has `message_id`'s answer: the message
 /// with content, an error or blocks and no longer streaming (and not still
 /// the `stale` text a same-id regenerate replaces), or a version of another
@@ -1476,6 +2015,50 @@ pub fn stored_behind(messages: &[ChatMessageDto], message_id: &str, live: &str) 
         let stored = m.content.trim_end();
         m.id == message_id && stored.len() < live.len() && live.starts_with(stored)
     })
+}
+
+/// The merged response the stored copy has on answer `id` (a message or
+/// one of its versions).
+pub fn stored_merged(messages: &[ChatMessageDto], id: &str) -> Option<String> {
+    messages.iter().find_map(|m| {
+        if m.id == id {
+            return m.merged.clone();
+        }
+        m.versions
+            .iter()
+            .find(|v| v.id == id)
+            .and_then(|v| v.merged.clone())
+    })
+}
+
+/// A stored Compare Models answer's columns: each model's newest answer,
+/// from the message itself or its versions.
+pub fn compare_columns(m: &ChatMessageDto) -> Vec<CompareColumn> {
+    m.comparison
+        .iter()
+        .filter_map(|slot| {
+            let id = slot.answer_ids.last()?;
+            if *id == m.id {
+                return Some(CompareColumn {
+                    answer_id: m.id.clone(),
+                    model: m.model.clone().or(slot.model.clone()),
+                    text: m.content.clone(),
+                    blocks: known_blocks(&m.blocks),
+                    streaming: m.streaming,
+                    current: true,
+                });
+            }
+            let v = m.versions.iter().find(|v| &v.id == id)?;
+            Some(CompareColumn {
+                answer_id: v.id.clone(),
+                model: v.model.clone().or(slot.model.clone()),
+                text: v.content.clone(),
+                blocks: known_blocks(&v.blocks),
+                streaming: v.streaming,
+                current: false,
+            })
+        })
+        .collect()
 }
 
 /// The parameters of a new turn, from the composer.
@@ -1527,7 +2110,13 @@ impl TurnOptions {
             context: self.context,
             mentions: self.mentions,
             filter_ids: self.filter_ids,
-            compare_models: self.compare_models,
+            // A temporary chat is never compared: the server stores no
+            // second answer for it.
+            compare_models: if temporary {
+                vec![]
+            } else {
+                self.compare_models
+            },
             temporary,
             folder_id: self.folder_id,
             chat_params: self.chat_params,
@@ -1577,6 +2166,13 @@ mod tests {
 
     fn message(id: &str, role: &str, content: &str) -> ChatMessageDto {
         ChatMessageDto {
+            sibling_ids: vec![],
+            parent_id: None,
+            slot: None,
+            merged: None,
+            retry_without_effort: false,
+            comparison: vec![],
+            mergeable_ids: vec![],
             id: id.into(),
             role: role.into(),
             content: content.into(),
@@ -1607,8 +2203,12 @@ mod tests {
     fn chat(id: &str, messages: Vec<ChatMessageDto>) -> ChatResult {
         ChatResult {
             chat: Some(ChatDetail {
+                abilities: Default::default(),
+                temporary: false,
+                share_id: None,
                 read_only: false,
                 summary: ChatSummary {
+                    unread: false,
                     read_only: false,
                     id: id.into(),
                     title: "A chat".into(),
@@ -1971,6 +2571,7 @@ mod tests {
         store.update(cx, |s, cx| {
             s.on_event(
                 &Event::TurnStarted(TurnStarted {
+                    companion_ids: vec![],
                     chat_id: "c1".into(),
                     message_id: "a1".into(),
                     model: "m".into(),
@@ -2376,6 +2977,10 @@ mod tests {
         // Stored: the new answer carries the old one as a version.
         let mut answer = message("a2", "assistant", "new");
         answer.versions = vec![ChatMessageVersionDto {
+            slot: None,
+            merged: None,
+            streaming: false,
+            error_code: None,
             id: "a1".into(),
             content: "old".into(),
             timestamp_ms: 1,
@@ -2452,6 +3057,7 @@ mod tests {
             // The turn's first events, before the reply is read.
             s.on_event(
                 &Event::TurnStarted(TurnStarted {
+                    companion_ids: vec![],
                     chat_id: "c1".into(),
                     message_id: "a2".into(),
                     model: "m".into(),
@@ -2474,6 +3080,10 @@ mod tests {
             ..message("a2", "assistant", "new")
         };
         new.versions = vec![ChatMessageVersionDto {
+            slot: None,
+            merged: None,
+            streaming: false,
+            error_code: None,
             id: "a1".into(),
             content: "old".into(),
             timestamp_ms: 1,
@@ -2605,6 +3215,10 @@ mod tests {
         assert!(stored_has_answer(&[failed], "a1", None));
         let mut newer = message("a2", "assistant", "new");
         newer.versions = vec![ChatMessageVersionDto {
+            slot: None,
+            merged: None,
+            streaming: false,
+            error_code: None,
             id: "a1".into(),
             content: "old".into(),
             timestamp_ms: 1,

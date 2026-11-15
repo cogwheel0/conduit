@@ -1,0 +1,8 @@
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageId": "msg-a1",
+  "model": "fake-model",
+  "companionIds": [
+    "msg-b1"
+  ]
+}

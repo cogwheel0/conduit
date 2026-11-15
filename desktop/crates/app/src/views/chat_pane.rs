@@ -83,6 +83,13 @@ pub struct ChatPane {
     /// A new chat's first send handing over to its transcript: when it
     /// began, and the greeting that fades out (see [`Handoff`]).
     handoff: Option<Handoff>,
+    /// The handoff question showing now (its request) and what takes it
+    /// away once another window answers it or it runs out of time.
+    handoff_ask: Option<(String, crate::shell::sheet::SheetCloser)>,
+    /// Handoff requests already settled (answered here or elsewhere, or out
+    /// of time): a replay of one (another window subscribing, Quick Ask)
+    /// never asks again.
+    handoff_settled: std::collections::VecDeque<String>,
     /// Find in Chat's field, and whether its bar shows.
     find_input: Entity<InputState>,
     find_open: bool,
@@ -270,9 +277,14 @@ impl ChatPane {
                 }
             }),
             // Settings › Chat changes the composer as it changes.
-            cx.observe(&stores.app_settings, |this, _, cx| {
+            cx.observe(&stores.app_settings, |this, settings, cx| {
                 this.adopt_prefs(cx);
                 this.sync_settings_offer(cx);
+                let prefs = settings.read(cx).settings().inline_message_actions.clone();
+                if let Some(chat) = &this.chat {
+                    chat.transcript
+                        .update(cx, |t, cx| t.set_action_prefs(prefs, cx));
+                }
             }),
             cx.observe(&layout, |_, _, cx| cx.notify()),
             cx.observe(&approvals, |_, _, cx| cx.notify()),
@@ -352,6 +364,8 @@ impl ChatPane {
             starting: false,
             account,
             handoff: None,
+            handoff_ask: None,
+            handoff_settled: Default::default(),
             find_input,
             find_open: false,
             dock_focus: cx.focus_handle(),
@@ -370,7 +384,12 @@ impl ChatPane {
         this.stores.connection.update(cx, |c, _| {
             c.subscribe(
                 "composer",
-                &[events::MODELS_CHANGED, events::SYNC_STATUS],
+                &[
+                    events::MODELS_CHANGED,
+                    events::SYNC_STATUS,
+                    events::HANDOFF_REQUESTED,
+                    events::HANDOFF_SETTLED,
+                ],
                 vec![],
             )
         });
@@ -384,6 +403,206 @@ impl ChatPane {
         self.stores
             .toasts
             .update(cx, |t, cx| t.show(level, text, cx));
+    }
+
+    /// Chat › Show Branches…, and the version list's Show All Branches…:
+    /// the open chat's branches, as a sheet.
+    pub fn show_branches(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Entity<crate::views::chat::branches::BranchesSheet>> {
+        let chat = self.chat.as_ref()?;
+        let store = chat.store.downgrade();
+        let chat_id = chat.store.read(cx).chat_id().to_string();
+        let tree = self.stores.chat_list.read(cx).tree(&chat_id, cx);
+        let names: std::collections::HashMap<String, String> = self
+            .composer_store
+            .read(cx)
+            .models
+            .as_ref()
+            .map(|m| {
+                m.models
+                    .iter()
+                    .map(|m| (m.id.clone(), m.name.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        crate::views::chat::sheets::open(
+            window,
+            crate::views::chat::branches::WIDTH,
+            crate::views::chat::branches::HEIGHT,
+            cx,
+            move |window, cx| {
+                crate::views::chat::branches::BranchesSheet::new(store, tree, names, window, cx)
+            },
+        )
+    }
+
+    /// The server suggests carrying on in a new chat with another model
+    /// (`chat:handoff`): asks, as the phone does, in a sheet on the main
+    /// window; agreeing opens a new chat on that model with the suggested
+    /// message in the field, unsent.
+    fn ask_handoff(&mut self, request: conduit_protocol::HandoffRequest, cx: &mut Context<Self>) {
+        // Each request is asked once: a replay of the one on screen, or of
+        // one already settled, presents nothing and keeps the alert it has.
+        if !self.handoff_new(&request.request_id) {
+            return;
+        }
+        let Some(window) = cx
+            .try_global::<crate::AppState>()
+            .and_then(|s| s.main_window)
+        else {
+            return;
+        };
+        let rpc = self.stores.connection.read(cx).rpc();
+        let pane = cx.entity().downgrade();
+        let asked_id = request.request_id.clone();
+        // The account it was asked in: another one never gets its chat.
+        let scope = self.composer_store.read(cx).scope();
+        let closer = window.update(cx, move |_, window, cx| {
+            let l10n = cx.l10n().clone();
+            let spec = crate::shell::sheet::SheetSpec::new(
+                l10n.chat_handoff_prompt_title(&request.model_name),
+                l10n.chat_handoff_prompt_message(&request.model_name),
+                l10n.chat_handoff_start_new_chat(),
+                l10n.chat_handoff_stay_here(),
+            );
+            let (asked, closer) = crate::shell::sheet::present_sheet_closable(window, spec, cx);
+            let request_id = request.request_id.clone();
+            let settled = closer.clone();
+            window
+                .spawn(cx, async move |cx| {
+                    let accept = asked.await;
+                    // Settled elsewhere: nothing to answer.
+                    if settled.is_closed() {
+                        return;
+                    }
+                    let call =
+                        rpc.call::<methods::HandoffAnswer>(&conduit_protocol::HandoffAnswer {
+                            request_id,
+                            accept,
+                        });
+                    let Ok(answered) = call.await else {
+                        return;
+                    };
+                    if !answered.open {
+                        return;
+                    }
+                    let _ = cx.update(|window, cx| {
+                        let _ = pane.update(cx, |p, cx| {
+                            p.open_handoff_in(scope, answered.model_id, answered.prompt, window, cx)
+                        });
+                    });
+                })
+                .detach();
+            closer
+        });
+        if let Ok(closer) = closer {
+            self.handoff_ask = Some((asked_id, closer));
+        }
+    }
+
+    /// Whether handoff request `id` is neither on screen nor settled.
+    fn handoff_new(&self, id: &str) -> bool {
+        self.handoff_ask
+            .as_ref()
+            .is_none_or(|(asked, _)| asked != id)
+            && !self.handoff_settled.iter().any(|s| s == id)
+    }
+
+    /// [`Self::open_handoff`], only while the account it was asked in
+    /// (`scope`, the composer's) is still the active one.
+    pub fn open_handoff_in(
+        &mut self,
+        scope: u64,
+        model: Option<String>,
+        prompt: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.composer_store.read(cx).scope() != scope {
+            return;
+        }
+        self.open_handoff(model, prompt, window, cx);
+    }
+
+    /// A handoff the user agreed to: a new chat on `model`, `prompt` in the
+    /// message field.
+    pub fn open_handoff(
+        &mut self,
+        model: Option<String>,
+        prompt: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // A chat that is kept, whatever "temporary by default" says: the
+        // user chose it.
+        self.temporary_chosen = true;
+        self.stores
+            .navigation
+            .update(cx, |n, cx| n.new_chat(false, cx));
+        if let Some(model) = model {
+            self.composer_store
+                .update(cx, |c, cx| c.select_model(&model, cx));
+        }
+        // Once the new chat's draft has taken the field (the switch, which
+        // empties it, follows this update), the suggested message goes in.
+        let prompt = prompt.filter(|p| !p.is_empty());
+        cx.spawn_in(window, async move |this, cx| {
+            let _ = this.update_in(cx, |this, window, cx| {
+                if let Some(prompt) = prompt {
+                    this.composer
+                        .update(cx, |c, cx| c.restore(&prompt, window, cx));
+                }
+                this.composer.update(cx, |c, cx| c.focus_input(window, cx));
+            });
+        })
+        .detach();
+    }
+
+    /// A temporary chat with messages is open: Save Chat applies.
+    pub fn can_save_temporary(&self, cx: &App) -> bool {
+        self.chat.as_ref().is_some_and(|c| {
+            let s = c.store.read(cx);
+            (s.temporary || s.detail.as_ref().is_some_and(|d| d.temporary))
+                && !s.messages().is_empty()
+                && !s.is_streaming()
+        })
+    }
+
+    /// Save Chat: the open temporary chat becomes a stored one, and stays
+    /// open under its new id.
+    pub fn save_temporary(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(chat) = &self.chat else {
+            return;
+        };
+        let task = chat.store.update(cx, |s, cx| s.save_temporary(cx));
+        cx.spawn(async move |this, cx| {
+            let Some(saved) = task.await else {
+                return;
+            };
+            let _ = this.update(cx, |p, cx| {
+                p.stores
+                    .navigation
+                    .update(cx, |n, cx| n.open(saved.chat_id.clone(), cx));
+                p.stores.chat_list.update(cx, |c, cx| c.refresh(cx));
+                let text = cx.l10n().desktop_chat_saved();
+                p.toast(NoticeLevel::Success, text, cx);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Branch in New Chat made `chat_id`: it opens, and says so.
+    pub fn open_forked(&mut self, chat_id: String, cx: &mut Context<Self>) {
+        self.stores
+            .navigation
+            .update(cx, |n, cx| n.open(chat_id, cx));
+        self.stores.chat_list.update(cx, |c, cx| c.refresh(cx));
+        let text = cx.l10n().chat_branch_fork_opened();
+        self.toast(NoticeLevel::Success, text, cx);
     }
 
     /// "Copied", after a copy action.
@@ -523,8 +742,20 @@ impl ChatPane {
             .update(cx, |c, cx| c.switch_draft(key, &text, cx));
     }
 
-    /// Opens `id` in a fresh store and transcript.
+    /// Opens `id` in a fresh store and transcript. Opening reads it, and
+    /// the chat left is read up to now.
     fn open_chat(&mut self, id: String, cx: &mut Context<Self>) -> Entity<ChatStore> {
+        let left = self
+            .chat
+            .as_ref()
+            .map(|c| c.store.read(cx).chat_id().to_string())
+            .filter(|left| *left != id);
+        self.stores.chat_list.update(cx, |c, cx| {
+            if let Some(left) = &left {
+                c.mark_left(left, cx);
+            }
+            c.mark_read(&id, cx);
+        });
         let rpc = self.stores.connection.read(cx).rpc();
         let subscribe = self.subscribe_hook();
         let store = cx.new(|cx| ChatStore::new(rpc, subscribe, id, cx));
@@ -535,6 +766,23 @@ impl ChatPane {
             composer: Some(self.composer_store.downgrade()),
         };
         let transcript = cx.new(|cx| Transcript::new(store.clone(), host, cx));
+        // Settings › Chat › Message Actions lays out each answer's actions.
+        let prefs = self
+            .stores
+            .app_settings
+            .read(cx)
+            .settings()
+            .inline_message_actions
+            .clone();
+        let pane = cx.entity().downgrade();
+        transcript.update(cx, |t, cx| {
+            t.set_action_prefs(prefs, cx);
+            t.set_on_branches(Rc::new(move |window, cx| {
+                let _ = pane.update(cx, |p, cx| {
+                    p.show_branches(window, cx);
+                });
+            }));
+        });
         // The find bar stays open over the next chat, finding the same text.
         let query = self.find_input.read(cx).value().to_string();
         if self.find_open && !query.is_empty() {
@@ -556,12 +804,8 @@ impl ChatPane {
             cx.subscribe(&store, |this, _, event: &ChatStoreEvent, cx| {
                 let l10n = cx.l10n().clone();
                 match event {
-                    ChatStoreEvent::Failed { action, .. } => {
-                        let text = match action {
-                            ChatAction::Load => l10n.desktop_chat_load_failed(),
-                            ChatAction::Rate => l10n.desktop_rating_not_saved(),
-                            _ => l10n.desktop_action_failed(),
-                        };
+                    ChatStoreEvent::Failed { action, reason, .. } => {
+                        let text = failure_text(*action, reason.as_deref(), &l10n);
                         this.toast(NoticeLevel::Warning, text, cx);
                     }
                     ChatStoreEvent::Missing => cx.notify(),
@@ -605,6 +849,22 @@ impl ChatPane {
                         self.composer_store.update(cx, |c, cx| c.refresh_models(cx));
                     }
                     Event::SyncStatus(_) => self.sync_offline(cx),
+                    Event::HandoffRequested(request) => self.ask_handoff(request.clone(), cx),
+                    // Answered in another window, or out of time: its
+                    // question here goes, unanswered.
+                    Event::HandoffSettled(settled) => {
+                        if self.handoff_settled.len() >= 32 {
+                            self.handoff_settled.pop_front();
+                        }
+                        self.handoff_settled.push_back(settled.request_id.clone());
+                        if let Some((id, closer)) = self.handoff_ask.take() {
+                            if id == settled.request_id {
+                                closer.close(cx);
+                            } else {
+                                self.handoff_ask = Some((id, closer));
+                            }
+                        }
+                    }
                     _ => {}
                 }
                 if let Some(chat) = &self.chat {
@@ -674,10 +934,12 @@ impl ChatPane {
         };
         // Whose settings the first message carries (not their values).
         let sent_params = self.composer_store.read(cx).params_owner();
+        let compare = options.compare_models.clone();
         if let Some(chat) = &self.chat {
             let turn = options.into_turn(text.clone(), None, false);
             let task = chat.store.update(cx, |s, cx| {
                 s.model_hint = model;
+                s.compare_hint = compare;
                 s.send(turn, pending, cx)
             });
             chat.transcript.update(cx, |t, cx| t.scroll_to_end(cx));
@@ -753,6 +1015,7 @@ impl ChatPane {
                         });
                         store.update(cx, |s, cx| {
                             s.model_hint = model;
+                            s.compare_hint = compare;
                             s.started(pending, &accepted, temporary, cx)
                         });
                         let id = accepted.chat_id.clone();
@@ -1768,7 +2031,27 @@ impl Render for ChatPane {
                 ),
             );
         }
+        let saveable = self.can_save_temporary(cx);
         match &self.chat {
+            // A temporary chat (as opened, or as the server says it is):
+            // Save Chat in place of More, as on the phone.
+            Some(chat)
+                if {
+                    let s = chat.store.read(cx);
+                    s.temporary || s.detail.as_ref().is_some_and(|d| d.temporary)
+                } =>
+            {
+                let pane = cx.entity().downgrade();
+                toolbar = toolbar.trailing(
+                    IconButton::new("save-chat", IconName::Save, l10n.save_chat())
+                        .size(30., 16.)
+                        .round()
+                        .disabled(!saveable)
+                        .on_click(Rc::new(move |_, window, cx| {
+                            let _ = pane.update(cx, |p, cx| p.save_temporary(window, cx));
+                        })),
+                );
+            }
             // The chat's commands, as the sidebar's context menu has them.
             Some(chat) if !read_only => {
                 let chat_id = chat.store.read(cx).chat_id().to_string();
@@ -2058,6 +2341,38 @@ fn composer_dock(
                 .children(docked)
                 .child(composer),
         )
+}
+
+/// What the window says when the daemon refused `action`, in the phone's
+/// words for a branch, a fork or a merge (`reason` is the core's failure:
+/// `ChatBranchFailure` or `ComparisonMergeFailure`).
+pub fn failure_text(action: ChatAction, reason: Option<&str>, l10n: &crate::l10n::L10n) -> String {
+    match (action, reason) {
+        (ChatAction::Load, _) => l10n.desktop_chat_load_failed(),
+        (ChatAction::Rate, _) => l10n.desktop_rating_not_saved(),
+        (ChatAction::Branch | ChatAction::Fork, Some("responseRunning" | "forkConflict")) => {
+            l10n.chat_branch_wait_for_response()
+        }
+        (ChatAction::Branch | ChatAction::Fork, Some("unavailable")) => {
+            l10n.chat_branch_unavailable()
+        }
+        (ChatAction::Branch | ChatAction::Fork, Some("ownerChanged")) => {
+            l10n.chat_branch_owner_changed()
+        }
+        (ChatAction::Branch | ChatAction::Fork, Some("messageNotFound" | "notAnAlternative")) => {
+            l10n.chat_branch_message_missing()
+        }
+        (ChatAction::Fork, Some("offline")) => l10n.chat_fork_offline(),
+        (ChatAction::Fork, Some("forkForbidden")) => l10n.chat_fork_forbidden(),
+        (ChatAction::Fork, Some("forkSourceMissing")) => l10n.chat_fork_source_missing(),
+        (ChatAction::Fork, Some("forkUnsupported")) => l10n.chat_fork_unsupported(),
+        (ChatAction::Fork, _) => l10n.chat_fork_failed(),
+        (ChatAction::Merge, Some("unavailable")) => l10n.chat_merge_error_unavailable(),
+        (ChatAction::Merge, Some("notMergeable" | "busy")) => l10n.chat_merge_error_not_mergeable(),
+        (ChatAction::Merge, Some("ownerChanged")) => l10n.chat_merge_error_owner_changed(),
+        (ChatAction::Merge, _) => l10n.chat_merge_error_failed(),
+        _ => l10n.desktop_action_failed(),
+    }
 }
 
 /// The sidebar's native menu for `chat_id`, from the toolbar's More button.
@@ -2520,6 +2835,125 @@ mod tests {
                 settings,
                 "the other folder's settings went with the first chat"
             );
+        }
+
+        #[gpui_kit::test]
+        fn an_agreed_handoff_opens_a_kept_chat_with_its_message(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            pane.update(vcx, |p, cx| {
+                p.composer_store
+                    .update(cx, |c, _| c.prefs.temporary_by_default = true)
+            });
+            stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer
+                    .update(cx, |c, cx| c.restore("Notes for chat A", window, cx));
+                p.open_handoff(None, Some("Compare the two plans".into()), window, cx);
+            });
+            vcx.run_until_parked();
+            assert_eq!(composer_text(&pane, vcx), "Compare the two plans");
+            assert_eq!(
+                stores
+                    .navigation
+                    .read_with(vcx, |n, _| n.selection().clone()),
+                crate::stores::navigation::Selection::New { temporary: false }
+            );
+            assert!(
+                !pane.read_with(vcx, |p, cx| p.composer.read(cx).temporary),
+                "the handoff's chat started temporary"
+            );
+        }
+
+        #[gpui_kit::test]
+        fn a_handoff_settled_elsewhere_takes_its_question_away(cx: &mut TestAppContext) {
+            let (_daemon, _stores, pane, vcx) = bench(cx);
+            let closer = crate::shell::sheet::SheetCloser::default();
+            pane.update(vcx, |p, _| {
+                p.handoff_ask = Some(("r1".into(), closer.clone()))
+            });
+            let settled = |id: &str| {
+                crate::stores::connection::ConnectionEvent::Daemon(Box::new(
+                    conduit_protocol::Event::HandoffSettled(conduit_protocol::HandoffSettled {
+                        request_id: id.into(),
+                    }),
+                ))
+            };
+            // Another request's settling leaves this one.
+            pane.update(vcx, |p, cx| p.on_connection(&settled("r0"), cx));
+            assert!(!closer.is_closed());
+            pane.update(vcx, |p, cx| p.on_connection(&settled("r1"), cx));
+            assert!(closer.is_closed(), "the settled question stayed up");
+            assert!(pane.read_with(vcx, |p, _| p.handoff_ask.is_none()));
+        }
+
+        #[gpui_kit::test]
+        fn a_replayed_handoff_is_asked_once_and_its_settling_closes_it(cx: &mut TestAppContext) {
+            let (_daemon, _stores, pane, vcx) = bench(cx);
+            let request = conduit_protocol::HandoffRequest {
+                request_id: "r1".into(),
+                chat_id: "chat-a".into(),
+                model_id: "m2".into(),
+                model_name: "Model Two".into(),
+                prompt: String::new(),
+            };
+            let closer = crate::shell::sheet::SheetCloser::default();
+            pane.update(vcx, |p, _| {
+                p.handoff_ask = Some(("r1".into(), closer.clone()))
+            });
+            // Replayed twice (another window subscribed): still the one alert.
+            pane.update(vcx, |p, cx| {
+                assert!(!p.handoff_new("r1"));
+                p.ask_handoff(request.clone(), cx);
+                p.ask_handoff(request.clone(), cx);
+            });
+            let settled = crate::stores::connection::ConnectionEvent::Daemon(Box::new(
+                conduit_protocol::Event::HandoffSettled(conduit_protocol::HandoffSettled {
+                    request_id: "r1".into(),
+                }),
+            ));
+            pane.update(vcx, |p, cx| p.on_connection(&settled, cx));
+            assert!(closer.is_closed(), "settling left the alert up");
+            // Replayed after it settled: never asked again.
+            pane.update(vcx, |p, cx| {
+                assert!(
+                    !p.handoff_new("r1"),
+                    "a settled request would be asked again"
+                );
+                p.ask_handoff(request, cx);
+                assert!(p.handoff_ask.is_none());
+                assert!(p.handoff_new("r2"));
+            });
+        }
+
+        #[gpui_kit::test]
+        fn a_handoff_answered_after_an_account_switch_opens_nothing(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+            vcx.run_until_parked();
+            let scope = pane.read_with(vcx, |p, cx| p.composer_store.read(cx).scope());
+            switch_account(&stores, vcx);
+            let before = stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone());
+            pane.update_in(vcx, |p, window, cx| {
+                p.open_handoff_in(
+                    scope,
+                    None,
+                    Some("Compare the two plans".into()),
+                    window,
+                    cx,
+                )
+            });
+            vcx.run_until_parked();
+            assert_eq!(
+                stores
+                    .navigation
+                    .read_with(vcx, |n, _| n.selection().clone()),
+                before,
+                "the last account's handoff opened a chat"
+            );
+            assert!(composer_text(&pane, vcx).is_empty());
         }
 
         fn switch_account(stores: &Stores, vcx: &mut VisualTestContext) {

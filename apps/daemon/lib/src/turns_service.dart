@@ -35,6 +35,8 @@ import 'package:conduit_core/features/hermes/services/hermes_session_provenance.
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
     show TerminalFileRequest, terminalDisplayFileProvider;
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/features/chat/providers/temporary_chat_save.dart';
+import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/file_info.dart';
@@ -53,6 +55,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 
+import 'chats_service.dart' show ChatTurns;
 import 'composer_wire.dart';
 import 'event_bus.dart';
 import 'files_service.dart';
@@ -95,7 +98,7 @@ import 'ui_requests_service.dart';
 /// for the title, tags and follow-ups the server sends once the answer is
 /// done. It is disposed sooner when the account changes or the user signs
 /// out: its chat belongs to the account it was opened under.
-final class TurnsService {
+final class TurnsService implements ChatTurns {
   TurnsService(
     this._container,
     this._events, {
@@ -175,10 +178,59 @@ final class TurnsService {
   ];
 
   /// Chats currently generating, for the sidebar's spinner.
+  @override
   Iterable<String> get activeChatIds => <String>[
     for (final session in _sessions)
       if (session.turn case final turn? when !turn.finished) turn.chatId,
   ];
+
+  /// Whether [chatId] is answering, or about to.
+  @override
+  bool isRunning(String chatId) {
+    final session = _sessionOf(chatId);
+    if (session == null) return false;
+    final turn = session.turn;
+    final pending = session.pending;
+    return (turn != null && !turn.finished) ||
+        (pending != null && !pending.started.isCompleted);
+  }
+
+  /// Whether [chatId] has a scope here: a turn, a merge or a queue in it,
+  /// or one just finished.
+  bool hasScope(String chatId) => _sessionOf(chatId) != null;
+
+  @override
+  Future<void> settled(String chatId) async {
+    final settling = _sessionOf(chatId)?.settling;
+    if (settling == null) return;
+    await settling.timeout(_settleTimeout, onTimeout: () {});
+  }
+
+  /// Whether a merge (Merge Responses) is writing in [chatId].
+  @override
+  bool mergeRunning(String chatId) => _sessionOf(chatId)?.merge != null;
+
+  /// Lets go of [chatId]'s scope when nothing runs in it: its transcript was
+  /// read before the stored copy changed (another branch, say), and the next
+  /// turn must start from the stored one.
+  @override
+  void forgetIdle(String chatId) {
+    final session = _sessionOf(chatId);
+    final pending = session?.pending;
+    if (session == null ||
+        session.holds > 0 ||
+        // A send still on its way owns the scope; one that has gone out and
+        // whose answer finished only waits for the stored copy, which the
+        // settle reads from the account's container.
+        (pending != null &&
+            (!pending.sendSettled || !pending.started.isCompleted)) ||
+        session.merge != null ||
+        isRunning(chatId) ||
+        _queued(session)) {
+      return;
+    }
+    _close(session);
+  }
 
   /// [chatId]'s running turn as a window that subscribes now needs it: the
   /// whole answer so far, or null when nothing is running there.
@@ -217,7 +269,8 @@ final class TurnsService {
   ///
   /// For a chat answering now, the answer so far as a `turn.delta` and a
   /// `turn.blocks`, whether or not the window was listening before (a
-  /// snapshot is harmless). For a chat it has only now added, whose answer
+  /// snapshot is harmless), after its `turn.started` for a chat the window
+  /// only now adds (it names a comparison's other answers). For a chat it has only now added, whose answer
   /// finished since the window could last have seen it -- a fast model can
   /// finish before `turns.send` returns the new chat's id -- that turn's
   /// final `turn.blocks` and its `turn.completed` or `turn.failed`, for as
@@ -232,6 +285,25 @@ final class TurnsService {
     for (final chatId in subscription.scopes) {
       final running = progress(chatId);
       if (running != null) {
+        // Which answers the turn writes: a new chat's window subscribes after
+        // `turn.started` went out, and a comparison's columns are named only
+        // there.
+        final turn = _sessionOf(chatId)?.turn;
+        if (turn != null &&
+            !alreadySubscribed.contains(chatId) &&
+            wants(ConduitEvents.turnStarted)) {
+          _events.emitTo(
+            sessionId,
+            ConduitEventSpecs.turnStarted,
+            TurnStarted(
+              chatId: turn.chatId,
+              messageId: turn.messageId,
+              model: turn.model,
+              companionIds: turn.companions.keys.toList(growable: false),
+            ),
+            scope: chatId,
+          );
+        }
         if (wants(ConduitEvents.turnDelta)) {
           _events.emitTo(
             sessionId,
@@ -248,6 +320,57 @@ final class TurnsService {
             blocks,
             scope: chatId,
           );
+        }
+        // A comparison's other answers, as far as they have got.
+        final session = _sessionOf(chatId);
+        if (session != null && turn != null) {
+          for (final entry in turn.companions.entries) {
+            final companion = entry.value;
+            if (wants(ConduitEvents.turnDelta) && !companion.finished) {
+              _events.emitTo(
+                sessionId,
+                ConduitEventSpecs.turnDelta,
+                TurnDelta(
+                  chatId: turn.chatId,
+                  messageId: entry.key,
+                  text: companion.text,
+                ),
+                scope: chatId,
+              );
+            }
+            if (wants(ConduitEvents.turnBlocks)) {
+              _events.emitTo(
+                sessionId,
+                ConduitEventSpecs.turnBlocks,
+                _companionBlocks(
+                  session,
+                  turn,
+                  entry.key,
+                  finished: companion.finished,
+                ),
+                scope: chatId,
+              );
+            }
+            // One already over says so: the window that just met it would
+            // otherwise keep it streaming until the whole turn ends.
+            if (companion.completed case final completed?
+                when wants(ConduitEvents.turnCompleted)) {
+              _events.emitTo(
+                sessionId,
+                ConduitEventSpecs.turnCompleted,
+                completed,
+                scope: chatId,
+              );
+            } else if (companion.failed case final failed?
+                when wants(ConduitEvents.turnFailed)) {
+              _events.emitTo(
+                sessionId,
+                ConduitEventSpecs.turnFailed,
+                failed,
+                scope: chatId,
+              );
+            }
+          }
         }
         continue;
       }
@@ -446,9 +569,10 @@ final class TurnsService {
   /// turn (the core's [durableCompareSend]); the server answers each under
   /// its own message id.
   ///
-  /// The windows follow the first model's answer live, as any turn; the
-  /// second arrives with the stored copy (`chats.changed` once both are
-  /// done), until a window draws the two side by side.
+  /// The windows follow the first model's answer as the turn, and the
+  /// others as its companions (`turn.started` names them): each streams
+  /// under its own id and ends with its own `turn.completed` or
+  /// `turn.failed`; the turn ends once every answer has.
   Future<SendTurnAccepted> _compare(
     _ChatSession session,
     SendTurn request,
@@ -471,6 +595,7 @@ final class TurnsService {
         session,
         model: models.first,
         userMessageId: null,
+        compare: true,
         start: (onPlaceholder) {
           // The core reads the knowledge and context from the scope's tray,
           // which choosing the model emptied: both answers get them, as a
@@ -539,6 +664,22 @@ final class TurnsService {
       );
       await _requireBackendFor(model);
       _choose(session.scope.container, model);
+      if (request.withoutReasoningEffort) {
+        // "Automatic" clears the local pick and, for a model that was sent
+        // it, the chat's saved override; the retry goes only once both are
+        // confirmed, or it would resend the rejected value.
+        final cleared = await clearReasoningEffortForRetry(
+          session.scope.container,
+          model,
+        );
+        if (!cleared) {
+          throw const RpcError(
+            code: ConduitErrorCodes.serverError,
+            args: <String, String>{'reason': 'effortNotCleared'},
+            debugMessage: 'the reasoning effort could not be cleared',
+          );
+        }
+      }
       return await _run(
         session,
         model: model,
@@ -619,6 +760,335 @@ final class TurnsService {
       );
     } finally {
       _release(session);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // messages.delete, turns.merge, chats.saveTemporary
+  // ---------------------------------------------------------------------------
+
+  /// Deletes [DeleteMessages.messageIds] (each with the answers to it) from
+  /// the chat, as a phone's Delete does (the core's
+  /// [deleteChatMessageGroup], in the chat's scope); or, for a dry run,
+  /// counts what would go. Answers with how many messages that is. Refused
+  /// while the chat is answering.
+  Future<int> deleteMessages(DeleteMessages request) async {
+    final session = await _sessionFor(request.chatId);
+    var reserved = false;
+    try {
+      if (isRunning(request.chatId) ||
+          session.merge != null ||
+          session.deleting) {
+        throw const RpcError(
+          code: ConduitErrorCodes.conflict,
+          debugMessage: 'that chat is still answering',
+        );
+      }
+      // Reserved before the first await: the core writes the shorter
+      // transcript before the server answers, and puts the old one back if
+      // it refuses, so a turn or merge started meanwhile would be lost.
+      session.deleting = reserved = true;
+      await _requireIdle(session, deleting: true);
+      final scope = session.scope.container;
+      final count = chatMessageIdsRemovedByDelete(
+        session.scope.messages,
+        request.messageIds,
+      ).length;
+      if (count == 0) {
+        throw const RpcError(
+          code: ConduitErrorCodes.notFound,
+          debugMessage: 'no such message in that conversation',
+        );
+      }
+      if (request.dryRun) return count;
+      final outcome = await deleteChatMessageGroup(scope, request.messageIds);
+      switch (outcome) {
+        case ChatMessageDeleteOutcome.nothingToDelete:
+          throw const RpcError(
+            code: ConduitErrorCodes.notFound,
+            debugMessage: 'no such message in that conversation',
+          );
+        case ChatMessageDeleteOutcome.persistFailed:
+          throw const RpcError(
+            code: ConduitErrorCodes.serverError,
+            debugMessage: 'the server kept the message',
+          );
+        case ChatMessageDeleteOutcome.deleted:
+          break;
+      }
+      // The turn that ended here last is replayed to a window that opens
+      // the chat now ([catchUp]); an answer that is gone must not come back.
+      final ended = session.ended;
+      if (ended != null &&
+          !session.scope.messages.any((m) => m.id == ended.blocks.messageId)) {
+        session.ended = null;
+      }
+      final chatId = session.chatId ?? request.chatId;
+      if (temporary.contains(chatId)) {
+        temporary.replace(chatId, session.scope.messages);
+        _announce(chatId);
+      } else {
+        await _pull(chatId);
+        _announce(chatId);
+      }
+      return count;
+    } finally {
+      if (reserved) session.deleting = false;
+      _release(session);
+    }
+  }
+
+  /// Merge Responses: [MergeTurn.sourceIds] (by default, the answers a
+  /// merge may read) merged into one response and saved on
+  /// [MergeTurn.targetId], through the core's merge, in the chat's scope.
+  /// The text goes out as `messages.merge`, at most one frame per tick, and
+  /// once more as it ends. [MergeTurn.stop] stops the running merge.
+  Future<MergeStarted> merge(MergeTurn request) async {
+    if (request.stop) {
+      final session = _sessionOf(request.chatId);
+      final running = session?.merge;
+      if (session != null && running != null && !session.scope.isDisposed) {
+        await session.scope.container
+            .read(comparisonMergeProvider.notifier)
+            .cancel();
+      }
+      return MergeStarted(targetId: running?.targetId ?? request.targetId);
+    }
+    // An answer named twice would be weighed twice.
+    if (request.sourceIds.toSet().length != request.sourceIds.length) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{'reason': 'notMergeable'},
+        debugMessage: 'an answer is named more than once',
+      );
+    }
+    _refuseTemporary(request.chatId);
+    final session = await _sessionFor(request.chatId);
+    var started = false;
+    // Reserved before the first await, so a second merge, or a send, edit
+    // or regenerate ([_requireIdle]), is refused while this one is admitted.
+    _Merge? run;
+    try {
+      if (isRunning(request.chatId) || session.merge != null) {
+        throw const RpcError(
+          code: ConduitErrorCodes.conflict,
+          args: <String, String>{'reason': 'busy'},
+          debugMessage: 'that chat is answering or merging already',
+        );
+      }
+      run = _Merge(
+        chatId: request.chatId,
+        messageId: request.messageId,
+        targetId: request.targetId,
+      );
+      session.merge = run;
+      await _requireIdle(session, admitting: run);
+      final displayed = session.scope.messages
+          .where((m) => m.id == request.messageId && m.role == 'assistant')
+          .lastOrNull;
+      if (displayed == null) {
+        throw const RpcError(
+          code: ConduitErrorCodes.notFound,
+          debugMessage: 'no such answer in that conversation',
+        );
+      }
+      final group = ChatComparisonGroup.fromMessage(displayed);
+      final answers = <String, ChatComparisonAnswer>{
+        for (final slot in group.slots)
+          for (final answer in slot.answers) answer.messageId: answer,
+      };
+      final target = answers[request.targetId];
+      final sources = request.sourceIds.isEmpty
+          ? group.mergeableAnswers(shownId: request.targetId)
+          : <ChatComparisonAnswer>[
+              for (final id in request.sourceIds) ?answers[id],
+            ];
+      final parentId = group.parentId;
+      if (!group.isComparison ||
+          target == null ||
+          parentId == null ||
+          sources.length < 2 ||
+          // Every answer named must be one of this question's.
+          (request.sourceIds.isNotEmpty &&
+              sources.length != request.sourceIds.length) ||
+          !target.isMergeable ||
+          sources.any((answer) => !answer.isMergeable)) {
+        throw const RpcError(
+          code: ConduitErrorCodes.invalidParams,
+          args: <String, String>{'reason': 'notMergeable'},
+          debugMessage: 'those answers cannot be merged',
+        );
+      }
+      final scope = session.scope.container;
+      final model = target.model ?? displayed.model ?? '';
+      // The hold [_sessionFor] took is the merge's now; [_endMerge] lets it
+      // go.
+      final admitted = run;
+      started = true;
+      run.ticker = Timer.periodic(
+        _deltaInterval,
+        (_) => _emitMerge(session, admitted),
+      );
+      final merging = scope
+          .read(comparisonMergeProvider.notifier)
+          .merge(
+            targetMessageId: target.messageId,
+            displayedMessageId: displayed.id,
+            parentMessageId: parentId,
+            model: model,
+            responses: <String>[for (final answer in sources) answer.sourceText],
+          );
+      unawaited(
+        merging.then<void>(
+          (_) => _endMerge(session, admitted),
+          onError: (Object error) => _endMerge(
+            session,
+            admitted,
+            error: error is ComparisonMergeException
+                ? error.reason.name
+                : ComparisonMergeFailure.failed.name,
+          ),
+        ),
+      );
+      return MergeStarted(targetId: target.messageId);
+    } finally {
+      if (!started) {
+        if (run != null && identical(session.merge, run)) session.merge = null;
+        _release(session);
+      }
+    }
+  }
+
+  /// The merged text [run] writes, as the scope's transcript has it now.
+  String _mergeText(_ChatSession session, _Merge run) {
+    if (session.scope.isDisposed) return run.text;
+    final message = session.scope.messages
+        .where((m) => m.id == run.messageId)
+        .lastOrNull;
+    if (message == null) return run.text;
+    Object? raw;
+    if (message.id == run.targetId) {
+      raw = message.metadata?[kMessageMergedMetadataKey];
+    } else {
+      for (final version in message.versions) {
+        if (version.id == run.targetId) raw = version.merged;
+      }
+    }
+    return ChatMergedResponse.tryFrom(raw)?.content ?? run.text;
+  }
+
+  void _emitMerge(_ChatSession session, _Merge run) {
+    final text = _mergeText(session, run);
+    if (text == run.text && run.published) return;
+    run.text = text;
+    run.published = true;
+    _events.emit(
+      ConduitEventSpecs.messagesMerge,
+      MergeProgress(
+        chatId: run.chatId,
+        messageId: run.messageId,
+        targetId: run.targetId,
+        text: text,
+      ),
+      scope: run.chatId,
+    );
+  }
+
+  void _endMerge(_ChatSession session, _Merge run, {String? error}) {
+    run.ticker?.cancel();
+    run.text = _mergeText(session, run);
+    if (identical(session.merge, run)) session.merge = null;
+    _events.emit(
+      ConduitEventSpecs.messagesMerge,
+      MergeProgress(
+        chatId: run.chatId,
+        messageId: run.messageId,
+        targetId: run.targetId,
+        text: run.text,
+        running: false,
+        error: error,
+      ),
+      scope: run.chatId,
+    );
+    _release(session);
+    // The merge's stored copy, as a turn's: a turn started before its pull
+    // lands would have the transcript it reads replaced.
+    final synced = _announceWhenSynced(run.chatId);
+    session.settling = synced;
+    unawaited(
+      synced.whenComplete(() {
+        if (identical(session.settling, synced)) session.settling = null;
+      }),
+    );
+  }
+
+  /// Save Chat: the temporary chat [chatId] becomes a stored one (the core's
+  /// [saveTemporaryChat], in its scope). Windows showing it follow it to its
+  /// new id (`route.remap`), which this answers with.
+  Future<ChatForked> saveTemporary(String chatId) async {
+    if (!temporary.contains(chatId)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'only a temporary chat can be saved',
+      );
+    }
+    final session = await _sessionFor(chatId);
+    // One save at a time: a second would make a second server chat.
+    if (session.saving) {
+      _release(session);
+      throw const RpcError(
+        code: ConduitErrorCodes.conflict,
+        args: <String, String>{'reason': 'saving'},
+        debugMessage: 'that chat is being saved already',
+      );
+    }
+    session.saving = true;
+    var closing = false;
+    try {
+      await _requireIdle(session, saving: true);
+      final messages = session.scope.messages;
+      if (messages.isEmpty) {
+        throw const RpcError(
+          code: ConduitErrorCodes.invalidParams,
+          debugMessage: 'an empty chat has nothing to save',
+        );
+      }
+      // The model the chat is saved with: its last answer's.
+      final answeredWith = messages
+          .where((m) => m.role == 'assistant')
+          .lastOrNull
+          ?.model;
+      final model = await _resolveModel(answeredWith);
+      _requireOpenWebUi();
+      final scope = session.scope.container;
+      _choose(scope, model, temporary: true);
+      final outcome = await saveTemporaryChat(scope);
+      final saved = session.scope.conversation;
+      if (outcome != TemporaryChatSaveOutcome.saved ||
+          saved == null ||
+          saved.id == chatId) {
+        throw RpcError(
+          code: ConduitErrorCodes.serverError,
+          args: <String, String>{'reason': outcome.name},
+          debugMessage: 'the chat could not be saved (${outcome.name})',
+        );
+      }
+      temporary.forget(chatId);
+      _events.emit(
+        ConduitEventSpecs.routeRemap,
+        RouteRemap(fromId: chatId, toId: saved.id),
+      );
+      _announce(saved.id);
+      closing = true;
+      return ChatForked(chatId: saved.id);
+    } finally {
+      session.saving = false;
+      _release(session);
+      // Its scope holds the chat under the old id's turn state; the saved
+      // chat opens fresh.
+      if (closing && !session.scope.isDisposed && session.holds == 0) {
+        _close(session);
+      }
     }
   }
 
@@ -1021,6 +1491,7 @@ final class TurnsService {
     _ChatSession session, {
     required Model model,
     required String? userMessageId,
+    bool compare = false,
     required Future<void> Function(
       void Function(ChatSendPlaceholderHandle handle) onPlaceholder,
     )
@@ -1031,6 +1502,7 @@ final class TurnsService {
     final pending = _PendingTurn(
       model: model.id,
       userMessageId: userMessageId,
+      compare: compare,
       baseline: <String, ChatMessage>{
         for (final message in session.scope.messages)
           if (message.role == 'assistant') message.id: message,
@@ -1125,7 +1597,106 @@ final class TurnsService {
     // settled too; before that its placeholder can still be swapped for
     // the stored row while the request goes out.
     final settled = turn.clientOwned || (turn.pending?.sendSettled ?? true);
-    if (!answer.isStreaming && settled) _finish(session, turn, answer);
+    // A comparison's other answers, each ending on its own.
+    for (final entry in turn.companions.entries) {
+      final companion = entry.value;
+      if (companion.finished) continue;
+      final other = messages.where((m) => m.id == entry.key).lastOrNull;
+      if (other == null) continue;
+      if (other.isStreaming) {
+        final live = session.scope.container
+            .read(chatMessagesProvider.notifier)
+            .contentForStreamingMessage(entry.key);
+        if (live != null && live != companion.text) {
+          companion.text = live;
+          companion.dirty = true;
+        }
+      } else if (other.content != companion.text) {
+        companion.text = other.content;
+        companion.dirty = true;
+      }
+      final inputs = messageBlockInputsHash(other);
+      if (inputs != companion.blockInputs) {
+        companion.blockInputs = inputs;
+        companion.blocksDirty = true;
+      }
+      if (!other.isStreaming && settled) {
+        _finishCompanion(session, turn, entry.key, other);
+      }
+    }
+    final companionsDone = turn.companions.values.every((c) => c.finished);
+    if (!answer.isStreaming && settled && companionsDone) {
+      _finish(session, turn, answer);
+    }
+  }
+
+  /// [turn]'s companion [id] (another column of a comparison), parsed: as it
+  /// streams, or whole once it has finished.
+  TurnBlocks _companionBlocks(
+    _ChatSession session,
+    _Turn turn,
+    String id, {
+    bool finished = false,
+  }) {
+    final companion = turn.companions[id]!;
+    final answer = session.scope.isDisposed
+        ? null
+        : session.scope.messages.where((m) => m.id == id).lastOrNull;
+    if (answer != null) {
+      companion.lastBlocks = MessageBlocks.toDtos(
+        assistantMessageBlocks(
+          answer,
+          content: companion.text,
+          streaming: finished ? false : null,
+          live: finished ? null : companion.live,
+        ),
+      );
+    }
+    return TurnBlocks(
+      chatId: turn.chatId,
+      messageId: id,
+      blocks: companion.lastBlocks,
+    );
+  }
+
+  /// Ends companion [id] of [turn]: its whole answer, then its own
+  /// `turn.completed`, or `turn.failed` with [failure] or its error.
+  void _finishCompanion(
+    _ChatSession session,
+    _Turn turn,
+    String id,
+    ChatMessage? answer, {
+    String? failure,
+  }) {
+    final companion = turn.companions[id];
+    if (companion == null || companion.finished) return;
+    if (answer != null) companion.text = answer.content;
+    final blocks = _companionBlocks(session, turn, id, finished: true);
+    companion.finished = true;
+    _events.emit(ConduitEventSpecs.turnBlocks, blocks, scope: turn.chatId);
+    final error = failure ?? answer?.error?.content;
+    if (error != null || answer?.error != null) {
+      final failed = companion.failed = TurnFailed(
+        chatId: turn.chatId,
+        messageId: id,
+        code: ConduitErrorCodes.serverError,
+        args: <String, String>{'detail': ?error},
+        partialText: companion.text,
+      );
+      _events.emit(ConduitEventSpecs.turnFailed, failed, scope: turn.chatId);
+    } else {
+      final completed = companion.completed = TurnCompleted(
+        chatId: turn.chatId,
+        messageId: id,
+        text: companion.text,
+        usage: _usageOf(answer?.usage),
+      );
+      _events.emit(
+        ConduitEventSpecs.turnCompleted,
+        completed,
+        scope: turn.chatId,
+      );
+    }
   }
 
   void _maybeStart(
@@ -1188,11 +1759,27 @@ final class TurnsService {
     )
       ..text = answer.content
       ..pending = pending;
+    if (pending.compare) {
+      // The other columns' answers: the same question's other placeholders.
+      for (final other in messages) {
+        if (other.role == 'assistant' &&
+            other.id != answer.id &&
+            other.metadata?['parentId']?.toString() == question &&
+            other.metadata?[kMessageModelIdxMetadataKey] is int) {
+          turn.companions[other.id] = _Companion()..text = other.content;
+        }
+      }
+    }
     session.turn = turn;
     turn.announced = true;
     _events.emit(
       ConduitEventSpecs.turnStarted,
-      TurnStarted(chatId: chatId, messageId: turn.messageId, model: turn.model),
+      TurnStarted(
+        chatId: chatId,
+        messageId: turn.messageId,
+        model: turn.model,
+        companionIds: turn.companions.keys.toList(growable: false),
+      ),
       scope: chatId,
     );
     turn.ticker = Timer.periodic(
@@ -1222,6 +1809,7 @@ final class TurnsService {
   /// the text or anything else it is made from moved.
   void _emitDelta(_ChatSession session, _Turn turn) {
     _refreshText(session, turn);
+    if (!turn.finished) _emitCompanionDeltas(session, turn);
     if (turn.finished || !(turn.dirty || turn.blocksDirty)) return;
     if (turn.dirty) {
       _events.emit(
@@ -1241,6 +1829,42 @@ final class TurnsService {
       _blocks(session, turn),
       scope: turn.chatId,
     );
+  }
+
+  /// A frame for each companion still answering whose text or blocks moved.
+  void _emitCompanionDeltas(_ChatSession session, _Turn turn) {
+    if (turn.companions.isEmpty || session.scope.isDisposed) return;
+    final notifier = session.scope.container.read(
+      chatMessagesProvider.notifier,
+    );
+    for (final entry in turn.companions.entries) {
+      final companion = entry.value;
+      if (companion.finished) continue;
+      final live = notifier.contentForStreamingMessage(entry.key);
+      if (live != null && live != companion.text) {
+        companion.text = live;
+        companion.dirty = true;
+      }
+      if (!(companion.dirty || companion.blocksDirty)) continue;
+      if (companion.dirty) {
+        _events.emit(
+          ConduitEventSpecs.turnDelta,
+          TurnDelta(
+            chatId: turn.chatId,
+            messageId: entry.key,
+            text: companion.text,
+          ),
+          scope: turn.chatId,
+        );
+      }
+      companion.dirty = false;
+      companion.blocksDirty = false;
+      _events.emit(
+        ConduitEventSpecs.turnBlocks,
+        _companionBlocks(session, turn, entry.key),
+        scope: turn.chatId,
+      );
+    }
   }
 
   /// [turn]'s answer, parsed: frame by frame while it streams, and whole
@@ -1275,6 +1899,20 @@ final class TurnsService {
     String? failure,
   }) {
     if (turn.finished) return;
+    // A comparison's answers that had not ended end with the turn.
+    for (final id in turn.companions.keys.toList()) {
+      if (turn.companions[id]!.finished) continue;
+      final other = session.scope.isDisposed
+          ? null
+          : session.scope.messages.where((m) => m.id == id).lastOrNull;
+      _finishCompanion(
+        session,
+        turn,
+        id,
+        other,
+        failure: failure ?? (other?.isStreaming ?? true ? 'stopped' : null),
+      );
+    }
     if (answer != null) turn.text = answer.content;
     // The whole answer, parsed whole: what the windows settle on.
     final blocks = _blocks(session, turn, finished: true);
@@ -2123,14 +2761,42 @@ final class TurnsService {
   /// waits for the transcript to be quiet and not streaming, for at most
   /// [_settleBudget], and only a chat still generating after that is
   /// refused.
-  Future<void> _requireIdle(_ChatSession session) async {
+  Future<void> _requireIdle(
+    _ChatSession session, {
+    _Merge? admitting,
+    bool saving = false,
+    bool deleting = false,
+  }) async {
     void refuse() => throw const RpcError(
       code: ConduitErrorCodes.conflict,
       debugMessage: 'that chat is already generating',
     );
+    // A temporary chat being saved takes nothing else meanwhile: the saved
+    // chat would miss it, and the temporary one goes once it is saved.
+    void refuseWhileReserved() {
+      if (session.saving && !saving) {
+        throw const RpcError(
+          code: ConduitErrorCodes.conflict,
+          args: <String, String>{'reason': 'saving'},
+          debugMessage: 'that chat is being saved',
+        );
+      }
+      if (session.deleting && !deleting) {
+        throw const RpcError(
+          code: ConduitErrorCodes.conflict,
+          debugMessage: 'messages in that chat are being deleted',
+        );
+      }
+    }
+
+    refuseWhileReserved();
+    // A merge writes into the transcript too: nothing else starts meanwhile.
+    bool merging() =>
+        session.merge != null && !identical(session.merge, admitting);
     final turn = session.turn;
     if ((turn != null && !turn.finished) ||
-        (session.pending != null && !session.pending!.started.isCompleted)) {
+        (session.pending != null && !session.pending!.started.isCompleted) ||
+        merging()) {
       refuse();
     }
     // The last turn's stored copy first: until it has the answer, the
@@ -2142,7 +2808,11 @@ final class TurnsService {
     if (session.requestedChatId != null || session.scope.conversation != null) {
       await _settleBeforeTurn(session);
     }
-    if (!session.scope.isDisposed && session.scope.isStreaming) refuse();
+    refuseWhileReserved();
+    if ((!session.scope.isDisposed && session.scope.isStreaming) ||
+        merging()) {
+      refuse();
+    }
   }
 
   static const Duration _settleBudget = Duration(seconds: 6);
@@ -2299,6 +2969,12 @@ final class _ChatSession {
   _Turn? turn;
   Timer? linger;
 
+  /// Save Chat is making this temporary chat a stored one.
+  bool saving = false;
+
+  /// Messages in this chat are being deleted.
+  bool deleting = false;
+
   /// Requests preparing a turn in this chat; it is not let go meanwhile.
   int holds = 0;
 
@@ -2317,6 +2993,9 @@ final class _ChatSession {
   /// The queue as `queue.changed` last published it.
   QueueState? lastQueue;
 
+  /// A merge (Merge Responses) writing in this chat.
+  _Merge? merge;
+
   String? get chatId {
     if (!scope.isDisposed) {
       final id = scope.conversation?.id;
@@ -2332,6 +3011,7 @@ final class _PendingTurn {
     required this.model,
     required this.userMessageId,
     required this.baseline,
+    this.compare = false,
   });
 
   final String model;
@@ -2348,6 +3028,26 @@ final class _PendingTurn {
   bool sendSettled = false;
   Object? sendError;
   final Completer<_Turn> started = Completer<_Turn>();
+
+  /// A Compare Models turn: its other answers are the turn's companions.
+  final bool compare;
+}
+
+/// Another column's answer of a Compare Models turn, streamed beside the
+/// turn's own.
+final class _Companion {
+  String text = '';
+  bool dirty = false;
+  final StreamingContentBlocks live = StreamingContentBlocks();
+  int? blockInputs;
+  bool blocksDirty = false;
+  List<MessageBlockDto> lastBlocks = const <MessageBlockDto>[];
+  bool finished = false;
+
+  /// How it ended, for a window that subscribes while the turn's own
+  /// answer still streams: one of these once [finished].
+  TurnCompleted? completed;
+  TurnFailed? failed;
 }
 
 /// One answer being streamed.
@@ -2393,6 +3093,25 @@ final class _Turn {
   bool announced = false;
   bool finished = false;
   bool stopped = false;
+  Timer? ticker;
+
+  /// A comparison's other answers, by id.
+  final Map<String, _Companion> companions = <String, _Companion>{};
+}
+
+/// A merge (Merge Responses) running in a chat.
+final class _Merge {
+  _Merge({
+    required this.chatId,
+    required this.messageId,
+    required this.targetId,
+  });
+
+  final String chatId;
+  final String messageId;
+  final String targetId;
+  String text = '';
+  bool published = false;
   Timer? ticker;
 }
 

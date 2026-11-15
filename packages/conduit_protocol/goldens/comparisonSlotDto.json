@@ -1,0 +1,8 @@
+{
+  "index": 1,
+  "answerIds": [
+    "msg-b1",
+    "msg-b2"
+  ],
+  "model": "fake-model-b"
+}

@@ -648,7 +648,8 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "chatId": "chat-7c1f0b2a",
   "messageId": "msg-assistant-1",
-  "model": "gpt-4o"
+  "model": "gpt-4o",
+  "companionIds": []
 }''',
 
   'turnDelta': r'''
@@ -746,7 +747,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "totalTokens": 115,
   "totalSeconds": 2.25,
   "queueSeconds": 0.02,
-  "loadSeconds": 1.0
+  "loadSeconds": 1.0,
+  "incomplete": false
 }''',
 
   'chatSource': r'''
@@ -2725,7 +2727,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "kind": "text",
       "markdown": "The first answer."
     }
-  ]
+  ],
+  "streaming": false
 }''',
 
   'messageBlockText': r'''
@@ -3044,7 +3047,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "archived": false,
       "tags": [],
       "shared": false,
-      "readOnly": false
+      "readOnly": false,
+      "unread": false
     }
   ]
 }''',
@@ -3146,7 +3150,8 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "chatId": "chat-7c1f0b2a",
   "messageId": "msg-2f9d4c17",
-  "model": "llama3.2:1b"
+  "model": "llama3.2:1b",
+  "withoutReasoningEffort": false
 }''',
 
   'chatSummary': r'''
@@ -3162,7 +3167,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     "architecture"
   ],
   "shared": true,
-  "readOnly": true
+  "readOnly": true,
+  "unread": false
 }''',
 
   'chatList': r'''
@@ -3176,7 +3182,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "archived": false,
       "tags": [],
       "shared": false,
-      "readOnly": false
+      "readOnly": false,
+      "unread": false
     }
   ],
   "hasMore": true,
@@ -3203,7 +3210,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   ],
   "usage": {
     "generationTokens": 7,
-    "totalSeconds": 0.5
+    "totalSeconds": 0.5,
+    "incomplete": false
   },
   "rating": 1,
   "files": [],
@@ -3221,7 +3229,11 @@ const Map<String, String> protocolGoldens = <String, String>{
         }
       ]
     }
-  ]
+  ],
+  "retryWithoutEffort": false,
+  "comparison": [],
+  "mergeableIds": [],
+  "siblingIds": []
 }''',
 
   'chatDetail': r'''
@@ -3234,7 +3246,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     "archived": false,
     "tags": [],
     "shared": false,
-    "readOnly": true
+    "readOnly": true,
+    "unread": false
   },
   "messages": [
     {
@@ -3246,10 +3259,27 @@ const Map<String, String> protocolGoldens = <String, String>{
       "versions": [],
       "sources": [],
       "files": [],
-      "blocks": []
+      "blocks": [],
+      "retryWithoutEffort": false,
+      "comparison": [],
+      "mergeableIds": [],
+      "siblingIds": []
     }
   ],
-  "readOnly": true
+  "readOnly": true,
+  "abilities": {
+    "fork": false,
+    "export": false,
+    "merge": false,
+    "branch": false,
+    "deleteMessages": false,
+    "markUnread": false,
+    "generateTitle": false,
+    "share": false,
+    "saveTemporary": false,
+    "compare": false
+  },
+  "temporary": false
 }''',
 
   'chatRef': r'''
@@ -3536,11 +3566,25 @@ const Map<String, String> protocolGoldens = <String, String>{
       "archived": false,
       "tags": [],
       "shared": false,
-      "readOnly": false
+      "readOnly": false,
+      "unread": false
     },
     "messages": [],
     "systemPrompt": "Answer briefly.",
-    "readOnly": false
+    "readOnly": false,
+    "abilities": {
+      "fork": false,
+      "export": false,
+      "merge": false,
+      "branch": false,
+      "deleteMessages": false,
+      "markUnread": false,
+      "generateTitle": false,
+      "share": false,
+      "saveTemporary": false,
+      "compare": false
+    },
+    "temporary": false
   }
 }''',
 
@@ -4446,6 +4490,337 @@ const Map<String, String> protocolGoldens = <String, String>{
   "shared": false,
   "canWrite": true,
   "icon": "W"
+}''',
+
+  'chatSummaryUnread': r'''
+{
+  "id": "chat-9a2e4d1b",
+  "title": "Pond liner sizes",
+  "updatedAtMs": 1758412900000,
+  "pinned": false,
+  "archived": false,
+  "tags": [],
+  "shared": false,
+  "readOnly": false,
+  "unread": true
+}''',
+
+  'comparisonSlotDto': r'''
+{
+  "index": 1,
+  "answerIds": [
+    "msg-b1",
+    "msg-b2"
+  ],
+  "model": "fake-model-b"
+}''',
+
+  'chatMessageCompared': r'''
+{
+  "id": "msg-a1",
+  "role": "assistant",
+  "content": "Two coats are enough.",
+  "timestampMs": 1758412800000,
+  "model": "fake-model",
+  "streaming": false,
+  "versions": [
+    {
+      "id": "msg-b1",
+      "content": "Three thin coats.",
+      "timestampMs": 1758412800000,
+      "model": "fake-model-b",
+      "sources": [],
+      "blocks": [],
+      "slot": 1,
+      "streaming": true
+    }
+  ],
+  "sources": [],
+  "usage": {
+    "totalTokens": 15,
+    "contextLength": 8192,
+    "contextTokens": 15,
+    "incomplete": true
+  },
+  "files": [],
+  "blocks": [],
+  "parentId": "msg-q1",
+  "slot": 0,
+  "merged": "Two coats, a day apart.",
+  "retryWithoutEffort": true,
+  "comparison": [
+    {
+      "index": 0,
+      "answerIds": [
+        "msg-a1"
+      ],
+      "model": "fake-model"
+    },
+    {
+      "index": 1,
+      "answerIds": [
+        "msg-b1"
+      ],
+      "model": "fake-model-b"
+    }
+  ],
+  "mergeableIds": [
+    "msg-a1"
+  ],
+  "siblingIds": [
+    "msg-a1",
+    "msg-b1"
+  ]
+}''',
+
+  'chatMessageVersionFailed': r'''
+{
+  "id": "msg-b2",
+  "content": "",
+  "timestampMs": 1758412800000,
+  "sources": [],
+  "blocks": [],
+  "slot": 1,
+  "merged": "Merged.",
+  "streaming": false,
+  "errorCode": "rpc.serverError"
+}''',
+
+  'chatAbilities': r'''
+{
+  "fork": true,
+  "export": true,
+  "merge": true,
+  "branch": true,
+  "deleteMessages": true,
+  "markUnread": true,
+  "generateTitle": true,
+  "share": true,
+  "saveTemporary": true,
+  "compare": true
+}''',
+
+  'chatDetailActions': r'''
+{
+  "summary": {
+    "id": "chat-9a2e4d1b",
+    "title": "Pond liner sizes",
+    "updatedAtMs": 1758412900000,
+    "pinned": false,
+    "archived": false,
+    "tags": [],
+    "shared": true,
+    "readOnly": false,
+    "unread": false
+  },
+  "messages": [],
+  "readOnly": false,
+  "abilities": {
+    "fork": true,
+    "export": true,
+    "merge": false,
+    "branch": true,
+    "deleteMessages": false,
+    "markUnread": false,
+    "generateTitle": false,
+    "share": false,
+    "saveTemporary": false,
+    "compare": false
+  },
+  "temporary": false,
+  "shareId": "b5c6d7e8-1f2a-4b3c-9d0e-6a7b8c9d0e1f"
+}''',
+
+  'chatCurrentAlternative': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageId": "msg-b1",
+  "alternativeTo": "msg-a1"
+}''',
+
+  'shareChat': r'''
+{
+  "id": "chat-9a2e4d1b",
+  "publish": false,
+  "audience": "open"
+}''',
+
+  'chatShareLinked': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "shareId": "b5c6d7e8-1f2a-4b3c-9d0e-6a7b8c9d0e1f",
+  "url": "http://127.0.0.1:19060/s/b5c6d7e8-1f2a-4b3c-9d0e-6a7b8c9d0e1f",
+  "audience": "public"
+}''',
+
+  'forkChat': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageId": "msg-a1"
+}''',
+
+  'chatForked': r'''
+{
+  "chatId": "chat-3c4d5e6f"
+}''',
+
+  'exportChat': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "format": "markdown"
+}''',
+
+  'chatExportFile': r'''
+{
+  "fileName": "Pond liner sizes-1758412900000.md",
+  "content": "# Pond liner sizes",
+  "mimeType": "text/markdown",
+  "hasUnsyncedChanges": true
+}''',
+
+  'generatedTitle': r'''
+{
+  "outcome": "saved",
+  "title": "Pond liner sizes"
+}''',
+
+  'generatedTitleNone': r'''
+{
+  "outcome": "none"
+}''',
+
+  'markUnread': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "unread": false
+}''',
+
+  'deleteMessages': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageIds": [
+    "msg-q1"
+  ],
+  "dryRun": true
+}''',
+
+  'messagesDeletedDryRun': r'''
+{
+  "count": 2,
+  "chat": null
+}''',
+
+  'messagesDeleted': r'''
+{
+  "count": 2,
+  "chat": {
+    "summary": {
+      "id": "chat-9a2e4d1b",
+      "title": "Pond liner sizes",
+      "updatedAtMs": 1758412900000,
+      "pinned": false,
+      "archived": false,
+      "tags": [],
+      "shared": false,
+      "readOnly": false,
+      "unread": false
+    },
+    "messages": [],
+    "readOnly": false,
+    "abilities": {
+      "fork": false,
+      "export": false,
+      "merge": false,
+      "branch": false,
+      "deleteMessages": false,
+      "markUnread": false,
+      "generateTitle": false,
+      "share": false,
+      "saveTemporary": false,
+      "compare": false
+    },
+    "temporary": false
+  }
+}''',
+
+  'mergeTurn': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageId": "msg-a1",
+  "targetId": "msg-a1",
+  "sourceIds": [
+    "msg-a1",
+    "msg-b1"
+  ],
+  "stop": false
+}''',
+
+  'mergeStarted': r'''
+{
+  "targetId": "msg-a1"
+}''',
+
+  'mergeProgress': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageId": "msg-a1",
+  "targetId": "msg-a1",
+  "text": "Two coats",
+  "running": true
+}''',
+
+  'mergeProgressFailed': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageId": "msg-a1",
+  "targetId": "msg-a1",
+  "text": "",
+  "running": false,
+  "error": "unavailable"
+}''',
+
+  'regenerateWithoutEffort': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageId": "msg-a1",
+  "withoutReasoningEffort": true
+}''',
+
+  'turnStartedCompared': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageId": "msg-a1",
+  "model": "fake-model",
+  "companionIds": [
+    "msg-b1"
+  ]
+}''',
+
+  'handoffRequest': r'''
+{
+  "requestId": "handoff-1",
+  "chatId": "chat-9a2e4d1b",
+  "modelId": "fake-model-b",
+  "modelName": "Fake Model B",
+  "prompt": "Carry on with the pond plan."
+}''',
+
+  'handoffAnswer': r'''
+{
+  "requestId": "handoff-1",
+  "accept": true
+}''',
+
+  'handoffAnswered': r'''
+{
+  "open": true,
+  "modelId": "fake-model-b",
+  "prompt": "Carry on with the pond plan."
+}''',
+
+  'handoffSettled': r'''
+{
+  "requestId": "handoff-1"
 }''',
 
 };

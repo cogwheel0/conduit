@@ -217,9 +217,36 @@ abstract final class ConduitMethods {
   /// Includes archived chats in `chats.list`, or stops including them.
   static const String chatsSetArchivedVisible = 'chats.setArchivedVisible';
 
-  /// Creates or removes a public share link.
+  /// Creates or updates a public share link, or reads it (and sets who
+  /// may open it); `chats.unshare` deletes it.
   static const String chatsShare = 'chats.share';
   static const String chatsUnshare = 'chats.unshare';
+
+  /// A new chat from the start of one to a message in it (Open WebUI's
+  /// fork); answers with the new chat's id.
+  static const String chatsFork = 'chats.fork';
+
+  /// A chat as a file to save: a JSON backup Open WebUI imports (every
+  /// branch), or a Markdown transcript of the branch shown.
+  static const String chatsExport = 'chats.export';
+
+  /// Asks the server's model for a title and saves it, unless the chat was
+  /// renamed meanwhile.
+  static const String chatsGenerateTitle = 'chats.generateTitle';
+
+  /// Marks a chat unread, or read again.
+  static const String chatsMarkUnread = 'chats.markUnread';
+
+  /// Makes a temporary chat a normal, stored one (Save Chat); answers with
+  /// its new id, and windows showing it hear `route.remap`.
+  static const String chatsSaveTemporary = 'chats.saveTemporary';
+
+  // ---------------------------------------------------------------------
+  // messages.* -- one message of a chat.
+  // ---------------------------------------------------------------------
+
+  /// Deletes messages (with the answers to them), or counts what would go.
+  static const String messagesDelete = 'messages.delete';
 
   // ---------------------------------------------------------------------
   // models.* -- what the active server offers.
@@ -466,6 +493,16 @@ abstract final class ConduitMethods {
   /// evaluation record plus the thumb on the message. Gated on
   /// `capabilities.messageRating`.
   static const String turnsRate = 'turns.rate';
+
+  /// Merge Responses: the answers of a Compare Models turn merged into one,
+  /// saved on the answer shown; or stops the merge running. The text
+  /// arrives as `messages.merge`.
+  static const String turnsMerge = 'turns.merge';
+
+  // handoff.* -- a server's suggestion to carry on with another model.
+
+  /// The user's answer to `handoff.requested`.
+  static const String handoffAnswer = 'handoff.answer';
 
   // ---------------------------------------------------------------------
   // settings.* -- the app's own preferences.
@@ -828,6 +865,8 @@ abstract final class ConduitMethods {
   static const String chatSettingsPrefix = 'chatSettings.';
   static const String valvesPrefix = 'valves.';
   static const String accessPrefix = 'access.';
+  static const String messagesPrefix = 'messages.';
+  static const String handoffPrefix = 'handoff.';
 
   /// Every namespace the protocol reserves. A method outside these prefixes
   /// is a typo, and the daemon's fallback handler says so.
@@ -869,6 +908,8 @@ abstract final class ConduitMethods {
     chatSettingsPrefix,
     valvesPrefix,
     accessPrefix,
+    messagesPrefix,
+    handoffPrefix,
   };
 
   /// Whether [method] sits in a namespace this protocol version defines.

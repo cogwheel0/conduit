@@ -802,6 +802,7 @@ mod tests {
 
     fn chat(id: &str) -> ChatSummary {
         ChatSummary {
+            unread: false,
             read_only: false,
             id: id.into(),
             title: id.into(),
