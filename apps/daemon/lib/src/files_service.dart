@@ -110,11 +110,12 @@ final class FilesService {
     String fileId,
   ) async {
     // The id is put into the server's path, with the account's credential,
-    // so it must be one plain segment: no `..`, query, fragment or slash.
+    // so it must be one plain segment: no `..`, query, fragment or slash,
+    // and no `%`, which the server would decode into one of them.
     if (fileId.isEmpty ||
         fileId == '.' ||
         fileId == '..' ||
-        fileId.contains(RegExp(r'[/\\?#]'))) {
+        fileId.contains(RegExp(r'[/\\?#%]'))) {
       throw const RpcError(
         code: ConduitErrorCodes.invalidParams,
         debugMessage: 'not a file id',

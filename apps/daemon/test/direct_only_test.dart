@@ -171,7 +171,17 @@ void main() {
   // id that is not one plain path segment must not reach anywhere else.
   test('a file id that is not one plain segment is refused', () async {
     final files = FilesService(runtime.container);
-    for (final id in <String>['..', '.', 'a?b', 'a#b', '../../auths', r'a\b']) {
+    for (final id in <String>[
+      '..',
+      '.',
+      'a?b',
+      'a#b',
+      '../../auths',
+      r'a\b',
+      // Decoded once already; the server would decode it again.
+      '%2E%2E',
+      'a%2Fb',
+    ]) {
       await expectLater(
         files.download('any-server', id),
         throwsA(
