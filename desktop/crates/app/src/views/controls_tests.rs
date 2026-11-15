@@ -445,8 +445,8 @@ fn hovering_a_row_never_moves_its_date(cx: &mut TestAppContext) {
             .expect("the date is laid out")
     };
     let plain = right(vcx, "plain");
-    // A read-only row has no hover button: its date stays put (it moved
-    // 5 pt when the row's end padding shrank for the button).
+    // A read-only row has no hover button, and its date stays where a
+    // plain row's is.
     assert_eq!(right(vcx, "read-only"), plain);
     // With "…" the date keeps its slot (drawn under the button, hidden).
     assert_eq!(right(vcx, "with-more"), plain);

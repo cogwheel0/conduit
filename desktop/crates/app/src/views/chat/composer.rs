@@ -24,7 +24,9 @@ use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::{IconName, icon};
 use conduit_components::motion::{self, specs};
 use conduit_components::theme::{ConduitTheme, with_alpha};
-use conduit_components::views::focus::{ControlExt as _, Ring, pressed_fill};
+use conduit_components::views::focus::{
+    ControlExt as _, RadioGroupExt as _, Ring, pressed_fill, radio_option_id,
+};
 use conduit_components::views::kit::{IconButton, icon_tile, overlay_shadow};
 use conduit_components::views::shell::ModelPickerButton;
 use conduit_protocol::{
@@ -109,6 +111,9 @@ pub struct ChatComposer {
     pub input: Entity<TextareaState>,
     menu: Option<Menu>,
     form: Option<PromptForm>,
+    /// Bumped by each `prompts.render` and by Cancel: only the latest
+    /// request, while it is not cancelled, changes the draft or the form.
+    prompt_request: u64,
     picker: Option<Picker>,
     /// The picker just closed, drawn while it fades out.
     leaving_picker: Option<Picker>,
@@ -206,6 +211,7 @@ impl ChatComposer {
             input,
             menu: None,
             form: None,
+            prompt_request: 0,
             picker: None,
             leaving_picker: None,
             streaming: false,
@@ -266,6 +272,10 @@ impl ChatComposer {
 
     /// Enter or Send: emits the text and clears the field.
     pub fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // A trigger menu with nothing in it is no menu: Send sends.
+        if self.menu.is_some() && self.menu_len(cx) == 0 {
+            self.menu = None;
+        }
         if self.menu.is_some() || self.form.is_some() {
             return;
         }
@@ -501,13 +511,27 @@ impl ChatComposer {
         if let Some(form) = &mut self.form {
             form.busy = true;
         }
+        self.prompt_request += 1;
+        let request_id = self.prompt_request;
+        // The draft as it was: the text goes where the trigger was only if
+        // the draft has not changed since, else at its end.
+        let draft = self.text(cx);
         let task = self
             .composer
             .update(cx, |c, cx| c.render_prompt(request, cx));
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
             let _ = this.update_in(cx, |this, window, cx| match result {
-                Ok(rendered) => this.rendered(prompt, at, rendered, window, cx),
+                // Cancelled, or another prompt chosen since.
+                _ if this.prompt_request != request_id => {}
+                Ok(rendered) => {
+                    let at = if this.text(cx) == draft {
+                        at
+                    } else {
+                        this.text(cx).len()
+                    };
+                    this.rendered(prompt, at, rendered, window, cx)
+                }
                 Err(e) => {
                     log::warn!("prompts.render: {e}");
                     match &mut this.form {
@@ -619,6 +643,7 @@ impl ChatComposer {
 
     pub fn cancel_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.form = None;
+        self.prompt_request += 1;
         self.focus_input(window, cx);
         cx.notify();
     }
@@ -1227,46 +1252,69 @@ impl ChatComposer {
                                 .aria_label(SharedString::from(f.input.label.clone())),
                         )
                         .into_any_element(),
-                    FieldInput::Select(selected) => div()
-                        .id(ElementId::NamedInteger("prompt-select".into(), fi as u64))
-                        .role(Role::RadioGroup)
-                        .aria_label(SharedString::from(f.input.label.clone()))
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(6.))
-                        .children(f.input.options.iter().enumerate().map(|(oi, o)| {
-                            let on = oi == *selected;
-                            div()
-                                .id(ElementId::Name(format!("prompt-option-{fi}-{oi}").into()))
-                                .role(Role::RadioButton)
-                                .aria_label(SharedString::from(o.clone()))
-                                .aria_toggled(if on {
-                                    gpui_kit::Toggled::True
-                                } else {
-                                    gpui_kit::Toggled::False
-                                })
-                                .h(px(28.))
-                                .px(px(10.))
-                                .flex()
-                                .items_center()
-                                .rounded_full()
-                                .border_1()
-                                .border_color(if on { r.border_strong } else { r.border })
-                                .when(on, |d| d.bg(r.selected))
-                                .cursor_pointer()
-                                .text_size(px(m.small))
-                                .text_color(if on { r.text } else { r.text_subtle })
-                                .child(SharedString::from(o.clone()))
-                                .on_click(cx.listener(move |this, _, _, cx| {
+                    FieldInput::Select(selected) => {
+                        // One key-view stop for the group, as AppKit's: the
+                        // chosen option has focus, the arrows choose.
+                        let count = f.input.options.len();
+                        let group = format!("prompt-select-{fi}");
+                        let this = cx.entity().downgrade();
+                        let choose: conduit_components::views::kit::SelectHandler =
+                            Rc::new(move |oi, _, cx| {
+                                let _ = this.update(cx, |this, cx| {
                                     if let Some(form) = &mut this.form
                                         && let Some(field) = form.fields.get_mut(fi)
                                     {
                                         field.value = FieldInput::Select(oi);
                                         cx.notify();
                                     }
-                                }))
-                        }))
-                        .into_any_element(),
+                                });
+                            });
+                        div()
+                            .id(ElementId::NamedInteger("prompt-select".into(), fi as u64))
+                            .role(Role::RadioGroup)
+                            .aria_label(SharedString::from(f.input.label.clone()))
+                            .radio_group(*selected, count, Some(choose.clone()), cx)
+                            .flex()
+                            .flex_wrap()
+                            .gap(px(6.))
+                            .children(f.input.options.iter().enumerate().map(|(oi, o)| {
+                                let on = oi == *selected;
+                                let choose = choose.clone();
+                                div()
+                                    .id(radio_option_id(&group, oi, on))
+                                    .role(Role::RadioButton)
+                                    .aria_label(SharedString::from(o.clone()))
+                                    .aria_toggled(if on {
+                                        gpui_kit::Toggled::True
+                                    } else {
+                                        gpui_kit::Toggled::False
+                                    })
+                                    .aria_position_in_set(oi + 1)
+                                    .aria_size_of_set(count)
+                                    .radio_option_outline(on, 14., cx)
+                                    .cursor_pointer()
+                                    .on_click(move |_, window, cx| choose(oi, window, cx))
+                                    .child(
+                                        div()
+                                            .h(px(28.))
+                                            .px(px(10.))
+                                            .flex()
+                                            .items_center()
+                                            .rounded_full()
+                                            .border_1()
+                                            .border_color(if on {
+                                                r.border_strong
+                                            } else {
+                                                r.border
+                                            })
+                                            .when(on, |d| d.bg(r.selected))
+                                            .text_size(px(m.small))
+                                            .text_color(if on { r.text } else { r.text_subtle })
+                                            .child(SharedString::from(o.clone())),
+                                    )
+                            }))
+                            .into_any_element()
+                    }
                 };
                 div()
                     .flex()
@@ -1362,8 +1410,6 @@ impl ChatComposer {
         )
     }
 
-    /// The model picker, when open: anchored by whoever draws it (above
-    /// Quick Ask's composer, under the main window's title capsule).
     /// The model picker, hanging from its trigger: it fades in over 120 ms,
     /// dropping 4 pt from the trigger on a short-tailed ease-out, and out
     /// over an even 100 ms (taking nothing while it goes); under Reduce
@@ -2016,6 +2062,100 @@ mod tests {
         // An empty field sends nothing.
         cx.simulate_keystrokes("enter");
         assert_eq!(seen.borrow().len(), 1);
+    }
+
+    fn select_form(view: &Entity<ChatComposer>, cx: &mut VisualTestContext) {
+        view.update(cx, |c, cx| {
+            c.form = Some(PromptForm {
+                prompt: serde_json::from_value(serde_json::json!({
+                    "command": "/tone", "title": "Tone"
+                }))
+                .unwrap(),
+                at: 0,
+                fields: vec![PromptField {
+                    input: serde_json::from_value(serde_json::json!({
+                        "name": "tone", "label": "Tone", "type": "select",
+                        "options": ["Calm", "Brisk", "Warm"], "required": false
+                    }))
+                    .unwrap(),
+                    value: FieldInput::Select(0),
+                }],
+                error: None,
+                busy: false,
+            });
+            cx.notify();
+        });
+    }
+
+    fn selected(view: &Entity<ChatComposer>, cx: &mut VisualTestContext) -> Option<usize> {
+        view.read_with(cx, |c, _| match c.form.as_ref()?.fields[0].value {
+            FieldInput::Select(i) => Some(i),
+            _ => None,
+        })
+    }
+
+    #[gpui_kit::test]
+    fn a_prompts_choices_are_one_tab_stop_the_arrows_move(cx: &mut TestAppContext) {
+        let (view, cx, _) = composer(cx);
+        cx.update(|_, cx| {
+            cx.set_global(conduit_components::views::focus::KeyboardAccess { all_controls: true })
+        });
+        select_form(&view, cx);
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        // Tab from the message field reaches the chosen option.
+        let mut reached = false;
+        for _ in 0..12 {
+            cx.update(|window, cx| {
+                window.focus_next(cx);
+                window.draw(cx).clear(cx);
+            });
+            cx.simulate_keystrokes("right");
+            if selected(&view, cx) == Some(1) {
+                reached = true;
+                break;
+            }
+        }
+        assert!(reached, "Tab reaches the choices and → chooses the next");
+        cx.simulate_keystrokes("right");
+        assert_eq!(selected(&view, cx), Some(2));
+        cx.simulate_keystrokes("left");
+        assert_eq!(selected(&view, cx), Some(1));
+    }
+
+    #[gpui_kit::test]
+    fn a_cancelled_prompt_never_lands_in_the_draft(cx: &mut TestAppContext) {
+        let (view, cx, _) = composer(cx);
+        let held = {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<conduit_protocol::methods::PromptsRender>(
+                serde_json::from_value(serde_json::json!({"content": "LATE", "inputs": []}))
+                    .unwrap(),
+            );
+            let held = daemon.hold::<conduit_protocol::methods::PromptsRender>();
+            let store = cx.new(|_| ComposerStore::new(daemon.rpc(), None));
+            view.update(cx, |c, _| c.composer = store);
+            held
+        };
+        select_form(&view, cx);
+        view.update_in(cx, |c, window, cx| {
+            c.submit_form(window, cx);
+            c.cancel_form(window, cx);
+        });
+        held.release();
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "");
+        assert!(view.read_with(cx, |c, _| c.form.is_none()));
+    }
+
+    #[gpui_kit::test]
+    fn send_goes_when_a_trigger_matches_nothing(cx: &mut TestAppContext) {
+        let (view, cx, seen) = composer(cx);
+        cx.simulate_input("explain /nonexistent");
+        view.update_in(cx, |c, window, cx| c.submit(window, cx));
+        assert_eq!(
+            *seen.borrow(),
+            vec![ChatComposerEvent::Submit("explain /nonexistent".into())]
+        );
     }
 
     #[gpui_kit::test]
