@@ -1553,16 +1553,15 @@ mod tests {
     /// The app's Info.plist carries the same line (LICENSE's holder).
     #[test]
     fn the_about_copyright_is_the_bundles() {
-        for plist in [include_str!("../../../../packaging/macos/Info.plist")] {
-            let key = plist.find("NSHumanReadableCopyright").unwrap();
-            let value = &plist[key..];
-            let start = value.find("<string>").unwrap() + "<string>".len();
-            assert!(
-                value[start..].starts_with(super::COPYRIGHT),
-                "{}",
-                &value[start..start + 40]
-            );
-        }
+        let plist = include_str!("../../../../packaging/macos/Info.plist");
+        let key = plist.find("NSHumanReadableCopyright").unwrap();
+        let value = &plist[key..];
+        let start = value.find("<string>").unwrap() + "<string>".len();
+        assert!(
+            value[start..].starts_with(super::COPYRIGHT),
+            "{}",
+            &value[start..start + 40]
+        );
     }
 
     #[test]
