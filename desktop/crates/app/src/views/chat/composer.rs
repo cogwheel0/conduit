@@ -669,6 +669,14 @@ impl ChatComposer {
         self.render_prompt(prompt, at, values, window, cx);
     }
 
+    /// Another account: drops a prompt form filled for the last one, and
+    /// any render still on its way. (A refresh of the same account keeps it.)
+    pub fn forget_account(&mut self, cx: &mut Context<Self>) {
+        self.form = None;
+        self.prompt_request += 1;
+        cx.notify();
+    }
+
     pub fn cancel_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.form = None;
         self.prompt_request += 1;

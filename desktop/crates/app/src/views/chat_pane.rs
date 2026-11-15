@@ -216,6 +216,7 @@ impl ChatPane {
                 if active != this.account {
                     this.account = active;
                     this.composer_store.update(cx, |c, cx| c.reset(cx));
+                    this.composer.update(cx, |c, cx| c.forget_account(cx));
                 }
             }),
             cx.observe(&layout, |_, _, cx| cx.notify()),
@@ -1513,6 +1514,53 @@ mod tests {
             });
             vcx.run_until_parked();
             assert!(attachment_names(&pane, vcx).is_empty());
+        }
+
+        #[gpui_kit::test]
+        fn another_account_never_gets_the_last_ones_prompt_form(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::PromptsList>(
+                serde_json::from_value(serde_json::json!({
+                    "prompts": [{"command": "/greet", "title": "Greet"}]
+                }))
+                .unwrap(),
+            );
+            daemon.returns::<methods::PromptsRender>(
+                serde_json::from_value(serde_json::json!({
+                    "content": "Hello {{name}}",
+                    "inputs": [{"name": "name", "label": "Name", "type": "text", "required": false}]
+                }))
+                .unwrap(),
+            );
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer.update(cx, |c, cx| c.focus_input(window, cx))
+            });
+            vcx.simulate_input("/gr");
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer
+                    .update(cx, |c, cx| c.choose_menu_item(0, window, cx))
+            });
+            vcx.run_until_parked();
+            assert!(pane.read_with(vcx, |p, cx| p.composer.read(cx).has_popup()));
+            let renders = daemon.calls::<methods::PromptsRender>().len();
+            stores.accounts.update(vcx, |a, cx| {
+                a.adopt(
+                    list(vec![
+                        account("a", "Avery", false, true),
+                        account("b", "Blake", true, true),
+                    ]),
+                    cx,
+                )
+            });
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                assert!(!p.composer.read(cx).has_popup(), "the form stayed open");
+                // Insert, as if the form were still there: nothing is sent.
+                p.composer.update(cx, |c, cx| c.submit_form(window, cx));
+            });
+            vcx.run_until_parked();
+            assert_eq!(daemon.calls::<methods::PromptsRender>().len(), renders);
         }
 
         #[gpui_kit::test]
