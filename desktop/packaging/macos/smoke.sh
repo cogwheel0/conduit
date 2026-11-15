@@ -52,8 +52,8 @@ if [ "$launch" = 1 ]; then
   fi
   grep -h 'conduitd' "$scratch/logs"/*.log 2>/dev/null | grep -m3 -E 'spawn|ready|Resources/conduitd' || true
   sleep 1
-  if pgrep -f "$daemon" >/dev/null; then
-    pgrep -fl "$daemon" >&2
+  # By executable path, exactly (never a pattern over command lines).
+  if ps -axo pid=,comm= | awk -v d="$daemon" '{p=$1; sub(/^ *[0-9]+ /, ""); if ($0 == d) print p}' | grep -q .; then
     die "a conduitd from this bundle is still running after the app quit"
   fi
   log "no orphan conduitd"
