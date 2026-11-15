@@ -1,0 +1,9 @@
+{
+  "events": [
+    "turn.delta",
+    "chats.changed"
+  ],
+  "scopes": [
+    "chat_01HV8Z"
+  ]
+}

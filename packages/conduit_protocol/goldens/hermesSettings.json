@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "baseUrl": "https://hermes.example.com/v1",
+  "mode": "responses",
+  "hasApiKey": true,
+  "hasSessionKey": true,
+  "desktopProfile": "work",
+  "desktopAuthKind": "nativePkce",
+  "desktopSignedIn": true,
+  "allowSelfSignedCertificates": true,
+  "usable": true
+}

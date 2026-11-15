@@ -1,0 +1,20 @@
+{
+  "serverStt": true,
+  "localStt": true,
+  "sttEngine": "local",
+  "localModel": "base.en",
+  "localReady": true,
+  "serverTts": true,
+  "sttLanguage": "en",
+  "silenceMs": 1500,
+  "holdToTalk": true,
+  "autoSend": true,
+  "bargeIn": false,
+  "ttsEngine": "server",
+  "deviceVoice": "Samantha",
+  "serverVoice": "alloy",
+  "speed": 1.25,
+  "pitch": 1.1,
+  "volume": 0.8,
+  "splitOn": "paragraphs"
+}

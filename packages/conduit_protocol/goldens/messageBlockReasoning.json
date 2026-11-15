@@ -1,0 +1,9 @@
+{
+  "kind": "reasoning",
+  "summary": "Thought for 4 seconds",
+  "title": "thoughtFor",
+  "durationSeconds": 4,
+  "done": true,
+  "pending": false,
+  "body": "> The reader wants a short poem about tides."
+}

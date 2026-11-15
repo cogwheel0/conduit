@@ -1,0 +1,19 @@
+{
+  "chats": [
+    {
+      "id": "chat-7c1f0b2a",
+      "title": "Rewriting the sync engine",
+      "updatedAtMs": 1758412800000,
+      "pinned": false,
+      "archived": false,
+      "tags": [],
+      "shared": false,
+      "readOnly": false
+    }
+  ],
+  "hasMore": true,
+  "archivedCount": 12,
+  "archivedVisible": false,
+  "folders": [],
+  "foldersEnabled": true
+}

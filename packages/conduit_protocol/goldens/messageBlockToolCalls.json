@@ -1,0 +1,26 @@
+{
+  "kind": "toolCalls",
+  "calls": [
+    {
+      "id": "call_a1",
+      "name": "tide_table",
+      "arguments": "{}",
+      "result": "High water 06:12, low water 12:40",
+      "done": true,
+      "pending": false,
+      "status": "completed",
+      "isError": false,
+      "files": "[]"
+    },
+    {
+      "id": "call_a2",
+      "name": "harbour_weather",
+      "arguments": "",
+      "result": "",
+      "done": false,
+      "pending": true,
+      "status": "pending",
+      "isError": false
+    }
+  ]
+}

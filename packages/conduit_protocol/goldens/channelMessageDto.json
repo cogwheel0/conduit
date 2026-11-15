@@ -1,0 +1,21 @@
+{
+  "id": "m1",
+  "channelId": "c1",
+  "user": {
+    "id": "u1",
+    "name": "Ada"
+  },
+  "content": "Deploy is done",
+  "pinned": true,
+  "replyCount": 2,
+  "createdAtMs": 1790000000000,
+  "editedAtMs": 1790000001000,
+  "reactions": [
+    {
+      "name": "🎉",
+      "count": 1,
+      "mine": false
+    }
+  ],
+  "mine": true
+}

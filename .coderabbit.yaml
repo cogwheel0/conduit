@@ -16,6 +16,8 @@ reviews:
     - "!**/*.g.swift"
     - "!lib/l10n/app_localizations*.dart"
     - "!assets/computer/**"
+    # The protocol's JSON goldens, written by its dump_goldens tool.
+    - "!packages/conduit_protocol/goldens/**"
     - "!**/pubspec.lock"
     - "!**/Podfile.lock"
     - "!**/Cargo.lock"

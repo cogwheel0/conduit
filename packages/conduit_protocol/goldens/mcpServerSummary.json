@@ -1,0 +1,20 @@
+{
+  "id": "mcp-1",
+  "name": "Docs",
+  "endpoint": "https://mcp.example.com/mcp",
+  "enabled": true,
+  "auth": "oauth",
+  "hasBearerToken": false,
+  "customHeaderNames": [
+    "X-Team"
+  ],
+  "oauthConnected": true,
+  "allowInsecureCredentials": false,
+  "approvals": [
+    {
+      "digest": "sha256:1f2e",
+      "toolName": "search",
+      "createdAtMs": 1790000000000
+    }
+  ]
+}

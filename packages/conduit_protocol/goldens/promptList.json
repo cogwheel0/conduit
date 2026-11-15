@@ -1,0 +1,9 @@
+{
+  "prompts": [
+    {
+      "command": "/standup",
+      "title": "Stand-up notes",
+      "usesClipboard": false
+    }
+  ]
+}

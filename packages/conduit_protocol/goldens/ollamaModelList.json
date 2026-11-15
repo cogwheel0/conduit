@@ -1,0 +1,11 @@
+{
+  "models": [
+    {
+      "id": "gpt-oss:120b",
+      "name": "gpt-oss:120b",
+      "thinking": "high"
+    }
+  ],
+  "lifecycle": false,
+  "cloud": true
+}

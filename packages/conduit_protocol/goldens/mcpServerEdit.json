@@ -1,0 +1,11 @@
+{
+  "name": "Docs",
+  "endpoint": "https://mcp.example.com/mcp",
+  "enabled": true,
+  "auth": "bearer",
+  "bearerToken": "secret",
+  "customHeaders": {
+    "X-Team": "blue"
+  },
+  "allowInsecureCredentials": false
+}

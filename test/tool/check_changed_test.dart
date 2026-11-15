@@ -9,6 +9,7 @@ name: conduit
 workspace:
   - packages/conduit_core
   - packages/conduit_markdown
+  - packages/conduit_protocol
   - packages/conduit_theme
 dependencies:
   flutter:
@@ -25,6 +26,7 @@ dependencies:
   dio: ^5.9.0
 ''',
   'packages/conduit_markdown': 'name: conduit_markdown\ndependencies:\n',
+  'packages/conduit_protocol': 'name: conduit_protocol\n',
   'packages/conduit_theme': 'name: conduit_theme\n',
 });
 
@@ -76,11 +78,26 @@ void main() {
     check(_names(lock)).deepEquals([
       'Analyze conduit_core',
       'Analyze conduit_markdown',
+      'Analyze conduit_protocol',
       'Analyze conduit_theme',
       'Analyze app',
     ]);
     // It can also change the Android plugin set.
     check(lock.leftToCi).contains('Android native tests and the foss build');
+  });
+
+  test('a package tested only by goldens runs its whole suite', () {
+    final plan = _plan([
+      'packages/conduit_protocol/goldens/chatDto.json',
+      'packages/conduit_protocol/lib/src/chats.dart',
+    ]);
+
+    check(_names(plan)).deepEquals([
+      'Package boundaries',
+      'Analyze conduit_protocol',
+      'Test conduit_protocol (whole suite)',
+    ]);
+    check(plan.steps.last.command).deepEquals(['dart', 'test']);
   });
 
   test('an app change runs the seam and the tests beside what changed', () {

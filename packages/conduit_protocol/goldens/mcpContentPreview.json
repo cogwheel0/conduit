@@ -1,0 +1,12 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "Summarize llamas."
+    },
+    {
+      "role": "assistant",
+      "text": "Sure."
+    }
+  ]
+}

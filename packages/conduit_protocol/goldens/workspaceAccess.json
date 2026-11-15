@@ -1,0 +1,39 @@
+{
+  "models": {
+    "manage": true,
+    "importItems": false,
+    "exportItems": false,
+    "share": true,
+    "sharePublicly": false
+  },
+  "knowledge": {
+    "manage": false,
+    "importItems": false,
+    "exportItems": false,
+    "share": false,
+    "sharePublicly": false
+  },
+  "prompts": {
+    "manage": true,
+    "importItems": true,
+    "exportItems": false,
+    "share": false,
+    "sharePublicly": false
+  },
+  "tools": {
+    "manage": false,
+    "importItems": false,
+    "exportItems": false,
+    "share": false,
+    "sharePublicly": false
+  },
+  "skills": {
+    "manage": false,
+    "importItems": false,
+    "exportItems": false,
+    "share": false,
+    "sharePublicly": false
+  },
+  "allowUserGrants": true,
+  "admin": false
+}

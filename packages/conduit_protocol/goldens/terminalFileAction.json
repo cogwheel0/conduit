@@ -1,0 +1,6 @@
+{
+  "handle": "h1",
+  "op": "move",
+  "path": "/home/ada/a.txt",
+  "destination": "/home/ada/b.txt"
+}

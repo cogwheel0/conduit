@@ -1,0 +1,15 @@
+{
+  "skills": [
+    {
+      "name": "review"
+    }
+  ],
+  "toolsets": [
+    {
+      "name": "web",
+      "label": "",
+      "enabled": true,
+      "tools": []
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "code": "net.serverError",
+  "args": {
+    "status": "503",
+    "host": "chat.example.com"
+  },
+  "debugMessage": "upstream returned 503",
+  "retryable": true
+}

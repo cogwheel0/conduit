@@ -1,0 +1,28 @@
+{
+  "summary": {
+    "id": "n1",
+    "title": "Groceries",
+    "updatedAtMs": 1,
+    "pinned": false,
+    "preview": "",
+    "conflictCopy": false
+  },
+  "ops": [
+    {
+      "insert": "milk "
+    },
+    {
+      "insert": "and eggs",
+      "attributes": {
+        "bold": true
+      }
+    }
+  ],
+  "files": [
+    {
+      "id": "f1",
+      "name": "list.pdf",
+      "contentType": "application/pdf"
+    }
+  ]
+}

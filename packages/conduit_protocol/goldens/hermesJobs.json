@@ -1,0 +1,10 @@
+{
+  "jobs": [
+    {
+      "id": "j2",
+      "prompt": "",
+      "schedule": "",
+      "enabled": true
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "id": "call_b1",
+  "name": "search",
+  "arguments": "{}",
+  "result": "Error: quota exceeded",
+  "done": true,
+  "pending": false,
+  "status": "failed",
+  "isError": true
+}

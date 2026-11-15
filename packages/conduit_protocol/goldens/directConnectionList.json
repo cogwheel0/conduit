@@ -1,0 +1,44 @@
+{
+  "connections": [
+    {
+      "id": "ollama",
+      "name": "Home Ollama",
+      "kind": "ollama",
+      "baseUrl": "http://192.168.1.10:11434",
+      "apiMode": "chat",
+      "apiKeyHeader": false,
+      "enabled": true,
+      "hasApiKey": false,
+      "customHeaderNames": [],
+      "manualModelIds": [],
+      "allowSelfSignedCertificates": false,
+      "openRouter": false,
+      "ollamaCloud": false,
+      "openWebUi": false,
+      "compatible": true,
+      "tags": []
+    },
+    {
+      "id": "owui-0",
+      "name": "Team gateway",
+      "kind": "openai",
+      "baseUrl": "https://llm.example.com/v1",
+      "apiMode": "chat",
+      "apiKeyHeader": false,
+      "enabled": true,
+      "hasApiKey": false,
+      "customHeaderNames": [],
+      "manualModelIds": [],
+      "allowSelfSignedCertificates": false,
+      "openRouter": false,
+      "ollamaCloud": false,
+      "openWebUi": true,
+      "compatible": false,
+      "tags": []
+    }
+  ],
+  "localHistory": true,
+  "openWebUiAvailable": true,
+  "preferred": true,
+  "usable": true
+}

@@ -235,6 +235,10 @@ jobs:
         working-directory: packages/conduit_markdown
         run: dart test
         background: true
+      - name: Test conduit_protocol
+        working-directory: packages/conduit_protocol
+        run: dart test
+        background: true
       - name: Test conduit_theme
         working-directory: packages/conduit_theme
         run: dart test
@@ -252,6 +256,10 @@ jobs:
       - name: Analyze conduit_markdown
         if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
         working-directory: packages/conduit_markdown
+        run: dart analyze --fatal-infos
+      - name: Analyze conduit_protocol
+        if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
+        working-directory: packages/conduit_protocol
         run: dart analyze --fatal-infos
       - name: Analyze conduit_theme
         if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}

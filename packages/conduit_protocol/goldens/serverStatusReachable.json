@@ -1,0 +1,26 @@
+{
+  "activeServerId": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
+  "capabilities": {
+    "workspace": true,
+    "notes": true,
+    "channels": true,
+    "hermes": false,
+    "terminal": false,
+    "directConnections": false,
+    "mcp": false,
+    "serverStt": true,
+    "onDeviceStt": false,
+    "serverTts": true,
+    "deviceTts": true,
+    "appleOnDeviceModels": false,
+    "applePcc": false,
+    "branchNavigation": true,
+    "messageRating": false,
+    "tags": true,
+    "bulkSelection": false
+  },
+  "reachability": "reachable",
+  "version": "0.11.3",
+  "isVersionSupported": true,
+  "maxSupportedVersion": "0.11.3"
+}

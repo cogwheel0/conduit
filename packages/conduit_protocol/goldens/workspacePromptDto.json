@@ -1,0 +1,13 @@
+{
+  "id": "p1",
+  "command": "summarize",
+  "name": "Summarize",
+  "content": "Summarize {{CLIPBOARD}}",
+  "tags": [
+    "writing"
+  ],
+  "active": true,
+  "versionId": "v2",
+  "commitMessage": "Shorter",
+  "production": false
+}

@@ -1,0 +1,24 @@
+{
+  "id": "openrouter",
+  "name": "OpenRouter",
+  "kind": "openai",
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "apiMode": "chat",
+  "apiKeyHeader": false,
+  "enabled": true,
+  "hasApiKey": true,
+  "customHeaderNames": [
+    "HTTP-Referer"
+  ],
+  "manualModelIds": [],
+  "allowSelfSignedCertificates": false,
+  "openRouter": true,
+  "ollamaCloud": false,
+  "openWebUi": false,
+  "compatible": true,
+  "tags": [
+    "cloud"
+  ],
+  "certificateLabel": "client.pem",
+  "privateKeyLabel": "client.key"
+}

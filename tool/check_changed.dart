@@ -7,8 +7,9 @@
 // Committed, uncommitted and untracked files all count. From them it picks:
 // the platform UI seam, the package boundaries and the ARB checks when their
 // inputs changed; the analyzer for each workspace member that changed and for
-// every member that depends on one; the test files beside the changed files;
-// and the relay's format and lint checks.
+// every member that depends on one; the test files beside the changed files,
+// or the whole suite of a member whose tests sit beside no source file; and
+// the relay's format and lint checks.
 //
 // CI still runs the full test suites and the jobs listed at the end of the
 // summary. Steps run one at a time: analyzers started together race to build
@@ -19,6 +20,10 @@ import 'dart:io';
 
 /// The app's directory in a [Workspace]; packages are `packages/<name>`.
 const String appMember = '.';
+
+/// Members whose tests check goldens and tables rather than sit beside a
+/// source file. Any change in one runs its whole suite, which takes seconds.
+const Set<String> wholeSuiteMembers = {'packages/conduit_protocol'};
 
 /// One command of the plan.
 class Step {
@@ -262,6 +267,17 @@ Plan planChecks(
   final members = workspace.dependencies.keys.toList()
     ..sort((a, b) => _order(a).compareTo(_order(b)));
   for (final member in members) {
+    if (wholeSuiteMembers.contains(member)) {
+      if (changed.any((path) => workspace.memberOf(path) == member)) {
+        steps.add(
+          Step('Test ${_label(member)} (whole suite)', const [
+            'dart',
+            'test',
+          ], directory: member),
+        );
+      }
+      continue;
+    }
     final tests = <String>{};
     for (final path in changed) {
       if (workspace.memberOf(path) != member) continue;

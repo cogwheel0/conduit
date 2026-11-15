@@ -1,0 +1,9 @@
+{
+  "id": "f1",
+  "filename": "guide.pdf",
+  "contentType": "application/pdf",
+  "size": 2048,
+  "updatedAtMs": 1767225600000,
+  "status": "failed",
+  "error": "unreadable"
+}

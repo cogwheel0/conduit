@@ -1,0 +1,9 @@
+{
+  "voices": [
+    {
+      "id": "echo",
+      "name": ""
+    }
+  ],
+  "defaultVoice": "alloy"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "j1",
+  "name": "Morning brief",
+  "prompt": "Summarise the news",
+  "schedule": "0 8 * * *",
+  "scheduleText": "At 08:00",
+  "enabled": false,
+  "lastStatus": "ok",
+  "lastError": "none",
+  "lastRunAtMs": 1767225600000,
+  "nextRunAtMs": 1767312000000
+}

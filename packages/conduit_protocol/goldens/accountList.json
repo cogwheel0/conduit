@@ -1,0 +1,41 @@
+{
+  "accounts": [
+    {
+      "id": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
+      "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+      "connection": {
+        "id": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
+        "name": "Home",
+        "url": "https://chat.example.com",
+        "isActive": true,
+        "allowSelfSignedCertificates": false,
+        "hasMutualTlsCredentials": false,
+        "customHeaderNames": [],
+        "hasStoredSession": false
+      },
+      "user": {
+        "name": "Ada Lovelace"
+      },
+      "isActive": true,
+      "hasSession": true
+    },
+    {
+      "id": "e1d2c3b4-a596-4877-8695-a4b3c2d1e0f9",
+      "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+      "connection": {
+        "id": "e1d2c3b4-a596-4877-8695-a4b3c2d1e0f9",
+        "name": "Home",
+        "url": "https://chat.example.com",
+        "isActive": false,
+        "allowSelfSignedCertificates": false,
+        "hasMutualTlsCredentials": false,
+        "customHeaderNames": [],
+        "hasStoredSession": false
+      },
+      "isActive": false,
+      "hasSession": false
+    }
+  ],
+  "activeAccountId": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
+  "addingAccount": true
+}

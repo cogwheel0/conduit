@@ -1,0 +1,8 @@
+{
+  "chatIds": [
+    "chat-1",
+    "chat-2"
+  ],
+  "action": "move",
+  "folderId": "folder-1"
+}

@@ -1,0 +1,17 @@
+{
+  "chat": {
+    "summary": {
+      "id": "chat-3d9e",
+      "title": "Planning a garden",
+      "updatedAtMs": 1758412800000,
+      "pinned": false,
+      "archived": false,
+      "tags": [],
+      "shared": false,
+      "readOnly": false
+    },
+    "messages": [],
+    "systemPrompt": "Answer briefly.",
+    "readOnly": false
+  }
+}

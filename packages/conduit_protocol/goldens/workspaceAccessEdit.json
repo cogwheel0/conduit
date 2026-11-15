@@ -1,0 +1,11 @@
+{
+  "kind": "models",
+  "id": "helper",
+  "grants": [
+    {
+      "principalType": "user",
+      "principalId": "u2",
+      "write": false
+    }
+  ]
+}

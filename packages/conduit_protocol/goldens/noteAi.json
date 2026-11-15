@@ -1,0 +1,8 @@
+{
+  "ops": [
+    {
+      "insert": "milk, eggs"
+    }
+  ],
+  "model": "gemma3:1b"
+}

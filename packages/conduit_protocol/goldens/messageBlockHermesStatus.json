@@ -1,0 +1,15 @@
+{
+  "kind": "status",
+  "summary": "terminal (2), search",
+  "pending": true,
+  "statuses": [
+    {
+      "description": "ls -la",
+      "action": "hermes_tool_terminal",
+      "done": false,
+      "queries": [],
+      "links": [],
+      "details": []
+    }
+  ]
+}

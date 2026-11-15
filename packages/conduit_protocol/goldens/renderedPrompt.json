@@ -1,0 +1,12 @@
+{
+  "content": "Notes for {{team}}",
+  "inputs": [
+    {
+      "name": "team",
+      "label": "Team",
+      "type": "text",
+      "required": false,
+      "options": []
+    }
+  ]
+}

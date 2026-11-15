@@ -1,0 +1,8 @@
+{
+  "description": "Searching Knowledge",
+  "action": "knowledge_search",
+  "done": false,
+  "queries": [],
+  "links": [],
+  "details": []
+}

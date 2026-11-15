@@ -1,0 +1,21 @@
+{
+  "folder": {
+    "id": "folder-1",
+    "name": "Work",
+    "expanded": false,
+    "shared": false,
+    "canWrite": true
+  },
+  "chats": [
+    {
+      "id": "chat-1",
+      "title": "Q3 plan",
+      "updatedAtMs": 1758412800000,
+      "pinned": false,
+      "archived": false,
+      "tags": [],
+      "shared": false,
+      "readOnly": false
+    }
+  ]
+}

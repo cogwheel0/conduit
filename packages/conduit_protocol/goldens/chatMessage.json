@@ -1,0 +1,36 @@
+{
+  "id": "msg-1",
+  "role": "assistant",
+  "content": "The outbox drains oldest-first.",
+  "timestampMs": 1758412800000,
+  "model": "gpt-4o",
+  "streaming": true,
+  "versions": [],
+  "sources": [
+    {
+      "label": "Sync design notes",
+      "url": "https://example.com/sync"
+    }
+  ],
+  "usage": {
+    "generationTokens": 7,
+    "totalSeconds": 0.5
+  },
+  "rating": 1,
+  "files": [],
+  "blocks": [
+    {
+      "kind": "text",
+      "markdown": "The outbox drains oldest-first."
+    },
+    {
+      "kind": "sources",
+      "sources": [
+        {
+          "label": "Sync design notes",
+          "url": "https://example.com/sync"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "chatId": "chat-7c1f0b2a",
+  "title": "Rewriting the sync engine",
+  "snippet": "the <b>outbox</b> drains oldest-first",
+  "updatedAtMs": 1758412800000
+}

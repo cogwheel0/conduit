@@ -1,0 +1,15 @@
+{
+  "toolId": "web",
+  "user": true,
+  "schema": {
+    "properties": {
+      "limit": {
+        "type": "integer",
+        "default": 3
+      }
+    }
+  },
+  "values": {
+    "limit": 5
+  }
+}

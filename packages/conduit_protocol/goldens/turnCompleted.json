@@ -1,0 +1,9 @@
+{
+  "chatId": "chat-7c1f0b2a",
+  "messageId": "msg-assistant-1",
+  "text": "The outbox drains oldest-first.",
+  "usage": {
+    "prompt_tokens": 812,
+    "completion_tokens": 46
+  }
+}

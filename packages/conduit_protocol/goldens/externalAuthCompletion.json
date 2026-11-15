@@ -1,0 +1,7 @@
+{
+  "origin": "https://chat.example.com",
+  "cookies": {
+    "oauth2_proxy": "opaque-session-value"
+  },
+  "token": "session-token-from-the-sign-in-window"
+}

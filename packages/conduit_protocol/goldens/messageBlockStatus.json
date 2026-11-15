@@ -1,0 +1,34 @@
+{
+  "kind": "status",
+  "pending": false,
+  "statuses": [
+    {
+      "description": "Searching",
+      "action": "web_search_queries_generated",
+      "done": true,
+      "queries": [
+        "spring tide height"
+      ],
+      "links": [],
+      "details": []
+    },
+    {
+      "description": "Retrieved 2 sources",
+      "action": "sources_retrieved",
+      "done": true,
+      "queries": [],
+      "links": [
+        {
+          "label": "example.com",
+          "url": "https://example.com/t"
+        }
+      ],
+      "details": [
+        {
+          "label": "Tide basics",
+          "snippet": "Twice a day."
+        }
+      ]
+    }
+  ]
+}

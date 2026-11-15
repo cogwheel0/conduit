@@ -1,0 +1,6 @@
+{
+  "id": "j1",
+  "name": "Brief",
+  "prompt": "Summarise",
+  "schedule": "every 1h"
+}

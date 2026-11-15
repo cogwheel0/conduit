@@ -1,0 +1,20 @@
+{
+  "kind": "skills",
+  "skill": {
+    "id": "tidy",
+    "name": "Tidy",
+    "description": "",
+    "content": "",
+    "active": true
+  },
+  "grants": [
+    {
+      "principalType": "user",
+      "principalId": "*",
+      "write": false
+    }
+  ],
+  "writeAccess": false,
+  "ownerName": "Ada",
+  "updatedAtMs": 1767225600000
+}

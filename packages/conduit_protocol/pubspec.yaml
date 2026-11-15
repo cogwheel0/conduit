@@ -1,0 +1,25 @@
+name: conduit_protocol
+description: >-
+  DTOs and JSON-RPC contracts shared by the conduitd sidecar and the Conduit
+  desktop app. Pure Dart, no dart:io.
+version: 0.1.0
+publish_to: 'none'
+resolution: workspace
+
+environment:
+  sdk: ">=3.13.0 <4.0.0"
+
+dependencies:
+  freezed_annotation: ^3.0.0
+  json_annotation: ^4.12.0
+  json_rpc_2: ^4.1.0
+  meta: ^1.16.0
+
+dev_dependencies:
+  # tool/generate_rust.dart reads the DTOs' source.
+  analyzer: ^13.3.0
+  build_runner: ^2.15.1
+  freezed: ^4.0.1
+  json_serializable: ^6.11.1
+  lints: ^6.0.0
+  test: ^1.25.0

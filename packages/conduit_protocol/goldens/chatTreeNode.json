@@ -1,0 +1,8 @@
+{
+  "id": "msg-2",
+  "parentId": "msg-1",
+  "role": "assistant",
+  "preview": "Oldest first.",
+  "timestampMs": 1758412800000,
+  "model": "gpt-4o"
+}

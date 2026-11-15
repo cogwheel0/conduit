@@ -1,0 +1,10 @@
+{
+  "id": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
+  "name": "Home",
+  "url": "https://chat.example.com",
+  "isActive": false,
+  "allowSelfSignedCertificates": false,
+  "hasMutualTlsCredentials": false,
+  "customHeaderNames": [],
+  "hasStoredSession": false
+}

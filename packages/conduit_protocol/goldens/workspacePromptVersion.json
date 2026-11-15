@@ -1,0 +1,11 @@
+{
+  "id": "v1",
+  "parentId": "v0",
+  "commitMessage": "First",
+  "authorName": "Ada",
+  "createdAtMs": 1767225600000,
+  "name": "Summarize",
+  "command": "summarize",
+  "content": "Summarize this.",
+  "production": true
+}

@@ -1,0 +1,34 @@
+{
+  "folder": {
+    "id": "folder-2",
+    "name": "Field notes",
+    "parentId": "folder-1",
+    "expanded": false,
+    "shared": false,
+    "canWrite": true
+  },
+  "list": {
+    "chats": [],
+    "hasMore": false,
+    "archivedCount": 0,
+    "archivedVisible": false,
+    "folders": [
+      {
+        "id": "folder-1",
+        "name": "Work",
+        "expanded": true,
+        "shared": false,
+        "canWrite": true
+      },
+      {
+        "id": "folder-2",
+        "name": "Field notes",
+        "parentId": "folder-1",
+        "expanded": false,
+        "shared": false,
+        "canWrite": true
+      }
+    ],
+    "foldersEnabled": true
+  }
+}

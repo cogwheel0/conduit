@@ -1,0 +1,7 @@
+{
+  "knowledgeId": "k1",
+  "fileId": "f1",
+  "op": "move",
+  "filename": "renamed.pdf",
+  "directoryId": "d2"
+}

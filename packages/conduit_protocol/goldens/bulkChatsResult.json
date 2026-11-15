@@ -1,0 +1,13 @@
+{
+  "list": {
+    "chats": [],
+    "hasMore": false,
+    "archivedCount": 0,
+    "archivedVisible": false,
+    "folders": [],
+    "foldersEnabled": true
+  },
+  "failed": [
+    "chat-2"
+  ]
+}

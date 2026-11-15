@@ -1,0 +1,11 @@
+{
+  "sttEngine": "local",
+  "localModel": "tiny",
+  "clearSttLanguage": true,
+  "silenceMs": 1000,
+  "ttsEngine": "device",
+  "deviceVoice": "Alex",
+  "clearDeviceVoice": false,
+  "clearServerVoice": true,
+  "speed": 1.5
+}

@@ -1,0 +1,9 @@
+{
+  "event": "turn.delta",
+  "seq": 9007199254740991,
+  "scope": "chat_01HV8Z",
+  "payload": {
+    "text": "Hello",
+    "index": 3
+  }
+}
