@@ -2324,6 +2324,76 @@ mod tests {
         }
 
         #[gpui_kit::test]
+        fn a_temporary_chats_settings_saved_after_it_was_made_reach_no_next_chat(
+            cx: &mut TestAppContext,
+        ) {
+            use crate::views::chat_settings::ChatSettingsSheet;
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::ModelsList>(
+                serde_json::from_value(serde_json::json!({
+                    "models": [{"id": "m", "name": "M"}], "selectedId": "m"
+                }))
+                .unwrap(),
+            );
+            daemon.returns::<methods::ComposerOptions>(Default::default());
+            daemon.returns::<methods::ValvesTargets>(Default::default());
+            let state: conduit_protocol::ChatSettingsState =
+                serde_json::from_value(serde_json::json!({
+                    "entry": "editor", "advanced": true,
+                    "canEditSystemPrompt": true, "canEditParameters": true,
+                    "systemPrompt": {"key": "system", "kind": "text", "mode": "inherit"},
+                    "parameters": [{"key": "temperature", "kind": "decimal", "mode": "custom",
+                                    "text": "0.3", "min": 0.0, "max": 2.0}],
+                    "saved": true, "params": {"top_k": 5}
+                }))
+                .unwrap();
+            daemon.returns::<methods::ChatSettingsGet>(state.clone());
+            daemon.returns::<methods::ChatSettingsCheck>(state.clone());
+            daemon.returns::<methods::ChatSettingsSave>(state);
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "local:t1", "userMessageId": "m1", "assistantMessageId": "a1"
+                }))
+                .unwrap(),
+            );
+            pane.update(vcx, |p, cx| {
+                p.composer_store.update(cx, |c, cx| c.refresh_models(cx))
+            });
+            stores.navigation.update(vcx, |n, cx| n.new_chat(true, cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| p.open_chat_settings(window, cx));
+            vcx.run_until_parked();
+            let sheet = vcx
+                .update(|_, cx| crate::views::sheet::current::<ChatSettingsSheet>(cx))
+                .expect("Chat Settings opens on a temporary new chat");
+            vcx.update(|window, cx| sheet.update(cx, |s, cx| s.inherit("temperature", window, cx)));
+            vcx.executor()
+                .advance_clock(std::time::Duration::from_millis(200));
+            vcx.run_until_parked();
+            // Its first message goes and the temporary chat is made.
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Plan the trip".into(), vec![], window, cx)
+            });
+            drop(held);
+            vcx.run_until_parked();
+            // Saved now, then another temporary new chat.
+            vcx.update(|window, cx| sheet.update(cx, |s, cx| s.save(window, cx)));
+            vcx.run_until_parked();
+            vcx.update(|_, cx| crate::views::sheet::dismiss(cx));
+            stores.navigation.update(vcx, |n, cx| n.new_chat(true, cx));
+            vcx.run_until_parked();
+            assert!(
+                pane.read_with(vcx, |p, cx| p
+                    .composer_store
+                    .read(cx)
+                    .draft_params
+                    .is_null()),
+                "the made chat's settings went out with the next new chat"
+            );
+        }
+
+        #[gpui_kit::test]
         fn chat_settings_saved_after_the_chat_was_made_land_on_no_other_draft(
             cx: &mut TestAppContext,
         ) {

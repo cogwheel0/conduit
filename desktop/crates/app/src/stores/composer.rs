@@ -1389,6 +1389,9 @@ impl ComposerStore {
 
     /// A new chat was made with what this composer held for it.
     pub fn new_chat_sent(&mut self, cx: &mut Context<Self>) {
+        // The new chat's draft is done with: a sheet still open on it (a
+        // temporary chat keeps no draft key to tell it by) saves nowhere.
+        self.draft_round += 1;
         self.set_params(serde_json::Value::Null);
         self.draft_model = None;
         self._draft_model = None;
