@@ -80,6 +80,44 @@ pub const SESSION_EVENTS: &[&str] = &[
 ];
 
 impl Stores {
+    /// Stores over `rpc` for view tests: the connection never starts a
+    /// daemon, and nothing is wired.
+    #[cfg(test)]
+    pub fn for_test(rpc: rpc::Rpc, scratch: &std::path::Path, cx: &mut App) -> Self {
+        use conduit_daemon::paths::{AppPaths, Flavor};
+        let connection = ConnectionStore::start_quiet(
+            connection::ConnectionOptions {
+                paths: AppPaths {
+                    flavor: Flavor::Dev,
+                    user_data: scratch.join("user-data"),
+                    logs: scratch.join("logs"),
+                },
+                binary: std::path::PathBuf::from("/nonexistent/conduitd"),
+                master_key: Err("test".into()),
+                locale: "en".into(),
+                client_version: "0".into(),
+            },
+            cx,
+        );
+        connection.update(cx, |c, _| c.set_rpc_for_test(rpc.clone()));
+        let accounts = cx.new(|_| AccountsStore::new(rpc.clone()));
+        let session = {
+            let (rpc, accounts) = (rpc.clone(), accounts.clone());
+            cx.new(|cx| SessionStore::new(rpc, accounts, cx))
+        };
+        Self {
+            connection,
+            accounts,
+            session,
+            ui_requests: cx.new(|_| UiRequestsStore::new(rpc.clone())),
+            router: cx.new(|_| RouterStore::new()),
+            toasts: cx.new(|_| ToastStore::new()),
+            navigation: cx.new(|_| NavigationStore::new()),
+            chat_list: cx.new(|_| ChatListStore::new(rpc.clone())),
+            palette: cx.new(|_| PaletteStore::new(rpc)),
+        }
+    }
+
     /// Creates the stores over `connection` and wires the events.
     pub fn install(connection: Entity<ConnectionStore>, cx: &mut App) -> Self {
         let rpc = connection.read(cx).rpc();

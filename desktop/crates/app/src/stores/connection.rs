@@ -209,10 +209,17 @@ pub struct ConnectionOptions {
 impl ConnectionStore {
     /// Starts the daemon and the connection.
     pub fn start(options: ConnectionOptions, cx: &mut App) -> Entity<Self> {
-        cx.new(|cx| Self::new(options, cx))
+        cx.new(|cx| Self::new(options, true, cx))
     }
 
-    fn new(options: ConnectionOptions, cx: &mut Context<Self>) -> Self {
+    /// A connection for view tests: its client's events are not followed,
+    /// so nothing on the daemon's I/O thread wakes the test's tasks.
+    #[cfg(test)]
+    pub fn start_quiet(options: ConnectionOptions, cx: &mut App) -> Entity<Self> {
+        cx.new(|cx| Self::new(options, false, cx))
+    }
+
+    fn new(options: ConnectionOptions, follow: bool, cx: &mut Context<Self>) -> Self {
         let rt = runtime::shared();
         let token = secrets::new_session_token();
         let mut rpc_config = RpcConfig::new(token.clone(), options.client_version.clone());
@@ -227,7 +234,9 @@ impl ConnectionStore {
                 (None, Some(e))
             }
         };
-        pump(cx, client_events, |s, e, cx| s.on_client(e, cx));
+        if follow {
+            pump(cx, client_events, |s, e, cx| s.on_client(e, cx));
+        }
 
         let mut this = Self {
             paths: options.paths,
@@ -287,6 +296,12 @@ impl ConnectionStore {
             port,
             staging,
         });
+    }
+
+    /// Answers the windows' calls from `rpc` (a scripted daemon).
+    #[cfg(test)]
+    pub fn set_rpc_for_test(&mut self, rpc: Rpc) {
+        self.rpc_handle = rpc;
     }
 
     /// The handle stores call the daemon through.
