@@ -412,7 +412,11 @@ pub fn normalize_url(raw: &str) -> Option<String> {
     let with_scheme = if raw.contains("://") {
         raw.to_string()
     } else {
-        let host = raw.split(['/', ':']).next().unwrap_or_default();
+        // A bracketed IPv6 literal (`[::1]:8080`) is one host.
+        let host = match raw.strip_prefix('[') {
+            Some(rest) => rest.split(']').next().unwrap_or_default(),
+            None => raw.split(['/', ':']).next().unwrap_or_default(),
+        };
         let local = host == "localhost"
             || host.ends_with(".local")
             || host.parse::<std::net::IpAddr>().is_ok();
@@ -735,6 +739,11 @@ mod tests {
         assert_eq!(
             normalize_url("localhost:3000").as_deref(),
             Some("http://localhost:3000")
+        );
+        // A bracketed IPv6 address is local like an IPv4 one.
+        assert_eq!(
+            normalize_url("[::1]:8080").as_deref(),
+            Some("http://[::1]:8080")
         );
         assert_eq!(
             normalize_url("http://box.local/owui").as_deref(),

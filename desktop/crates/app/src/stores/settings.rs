@@ -271,6 +271,17 @@ impl SettingsStore {
         cx.notify();
     }
 
+    /// Ends any recording (the pane it was in went away).
+    pub fn stop_recording(&mut self, cx: &mut Context<Self>) {
+        if self.recording.is_some() || self.recording_quick_ask {
+            self.recording = None;
+            self.recording_quick_ask = false;
+            self.record_message = None;
+            self.quick_ask_message = None;
+            cx.notify();
+        }
+    }
+
     /// Settings › Desktop: changes one of its settings.
     pub fn set_desktop(&mut self, edit: impl FnOnce(&mut DesktopPrefs), cx: &mut Context<Self>) {
         let before = self.prefs.desktop.clone();

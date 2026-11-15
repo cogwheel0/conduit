@@ -207,7 +207,16 @@ impl Render for SetupWindow {
             // does when a window's content is swapped); sign-in starts in
             // its first field, as Mail's account sheet does.
             let root = self.focus.clone();
-            let first = (page == Page::SignIn).then(|| self.sign_in.read(cx).email.clone());
+            // The field the method shows first: the key alone for an API
+            // key, else the email.
+            let first = (page == Page::SignIn).then(|| {
+                let s = self.sign_in.read(cx);
+                if s.method == crate::views::sign_in::Method::ApiKey {
+                    s.api_key.clone()
+                } else {
+                    s.email.clone()
+                }
+            });
             window.on_next_frame(move |window, cx| {
                 if let Some(field) = first {
                     let handle = gpui_kit::Focusable::focus_handle(field.read(cx), cx);

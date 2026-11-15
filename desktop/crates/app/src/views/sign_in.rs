@@ -58,7 +58,15 @@ pub struct SignInView {
     pub error: Option<String>,
     /// A neutral line (a proxy let the user through, SSO cancelled).
     pub note: Option<String>,
+    /// The account the fields are for ([`sign_in_scope`]).
+    scope: (Option<String>, bool),
     _subscriptions: Vec<Subscription>,
+}
+
+/// The account a sign-in form is for: the active one, and whether it is
+/// being added.
+fn sign_in_scope(accounts: &crate::stores::accounts::AccountsStore) -> (Option<String>, bool) {
+    (accounts.active().map(|a| a.id.clone()), accounts.adding())
 }
 
 impl SignInView {
@@ -87,14 +95,24 @@ impl SignInView {
             cx.subscribe_in(&email, window, on_input),
             cx.subscribe_in(&password, window, on_input),
             cx.subscribe_in(&api_key, window, on_input),
-            // A new account to sign in to clears what the last one left.
-            cx.observe(&stores.accounts, |this: &mut Self, _, cx| {
-                if !this.busy && this.error.is_some() {
-                    cx.notify();
-                }
-            }),
+            // Another account to sign in to (a switch, Back, an addition)
+            // starts with empty fields: one account's password or key is
+            // never sent to another's server.
+            cx.observe_in(
+                &stores.accounts,
+                window,
+                |this: &mut Self, accounts, window, cx| {
+                    let scope = sign_in_scope(accounts.read(cx));
+                    if scope != this.scope {
+                        this.scope = scope;
+                        this.clear(window, cx);
+                    }
+                },
+            ),
         ];
+        let scope = sign_in_scope(stores.accounts.read(cx));
         Self {
+            scope,
             stores,
             method: Method::Password,
             email,
@@ -110,11 +128,19 @@ impl SignInView {
 
     /// Empties the fields (after a sign-in, or for the next account).
     pub fn reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.clear(window, cx);
+        self.busy = false;
+        self.sso = false;
+        self.error = None;
+        self.note = None;
+        cx.notify();
+    }
+
+    /// Empties the fields and what they last said.
+    fn clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         for input in [&self.email, &self.password, &self.api_key] {
             input.update(cx, |i, cx| i.set_value("", window, cx));
         }
-        self.busy = false;
-        self.sso = false;
         self.error = None;
         self.note = None;
         cx.notify();
@@ -534,5 +560,59 @@ impl Render for SignInView {
                 .on_click(handler(|s, window, cx| s.submit(window, cx)))
                 .into_any_element(),
             ]))
+    }
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use gpui_kit::TestAppContext;
+
+    use super::*;
+    use crate::stores::accounts::tests::{account, list};
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    #[gpui_kit::test]
+    fn another_account_never_gets_the_last_ones_password(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-sign-in-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", true, false),
+                    account("b", "Blake", false, false),
+                ]),
+                cx,
+            )
+        });
+        let s = stores.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| SignInView::new(s, window, cx));
+        view.update_in(vcx, |v, window, cx| {
+            v.email
+                .update(cx, |i, cx| i.set_value("avery@example.org", window, cx));
+            v.password
+                .update(cx, |i, cx| i.set_value("synthetic-secret", window, cx));
+            v.api_key
+                .update(cx, |i, cx| i.set_value("sk-synthetic", window, cx));
+        });
+        // Switched to B (through Settings, say).
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, false),
+                    account("b", "Blake", true, false),
+                ]),
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, cx| {
+            for input in [&v.email, &v.password, &v.api_key] {
+                assert_eq!(input.read(cx).value().as_ref(), "");
+            }
+        });
     }
 }

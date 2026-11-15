@@ -49,6 +49,9 @@ pub struct DirectView {
     pub list: Option<DirectConnectionList>,
     /// The connection being edited (`None` = a new one).
     pub editing: Option<String>,
+    /// The saved connection being edited: what the form does not show is
+    /// sent back as it was.
+    saved: Option<DirectConnectionSummary>,
     /// The form is open (always, in onboarding).
     pub form_open: bool,
     pub kind: DirectKind,
@@ -95,6 +98,7 @@ impl DirectView {
             onboarding,
             list: None,
             editing: None,
+            saved: None,
             form_open: onboarding,
             kind: DirectKind::Openai,
             name,
@@ -135,6 +139,7 @@ impl DirectView {
 
     pub fn open_new(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.editing = None;
+        self.saved = None;
         self.kind = DirectKind::Openai;
         self.self_signed = false;
         for i in [&self.name, &self.base_url, &self.api_key] {
@@ -153,6 +158,7 @@ impl DirectView {
         cx: &mut Context<Self>,
     ) {
         self.editing = Some(c.id.clone());
+        self.saved = Some(c.clone());
         self.kind = c.kind;
         self.self_signed = c.allow_self_signed_certificates;
         let (name, url) = (c.name.clone(), c.base_url.clone());
@@ -191,22 +197,31 @@ impl DirectView {
             return None;
         };
         let key = forms::raw(&self.api_key, cx);
+        // An edit keeps what this form does not show (the API mode and
+        // version, the header, prefix, enabled state, model ids and tags);
+        // a new connection starts from the defaults.
+        let saved = self
+            .saved
+            .as_ref()
+            .filter(|c| Some(&c.id) == self.editing.as_ref());
         Some(DirectConnectionEdit {
             id: self.editing.clone(),
             name,
             kind: self.kind,
             base_url,
-            api_mode: DirectApiMode::Chat,
-            api_version: None,
-            api_key_header: false,
-            model_id_prefix: None,
-            enabled: true,
-            open_web_ui: false,
+            api_mode: saved.map_or(DirectApiMode::Chat, |c| c.api_mode),
+            api_version: saved.and_then(|c| c.api_version.clone()),
+            api_key_header: saved.is_some_and(|c| c.api_key_header),
+            model_id_prefix: saved.and_then(|c| c.model_id_prefix.clone()),
+            enabled: saved.is_none_or(|c| c.enabled),
+            open_web_ui: saved.is_some_and(|c| c.open_web_ui),
             api_key: (!key.is_empty()).then_some(key),
             custom_headers: None,
-            manual_model_ids: vec![],
+            manual_model_ids: saved
+                .map(|c| c.manual_model_ids.clone())
+                .unwrap_or_default(),
             allow_self_signed_certificates: self.self_signed,
-            tags: vec![],
+            tags: saved.map(|c| c.tags.clone()).unwrap_or_default(),
             certificate_pem: None,
             certificate_label: None,
             private_key_pem: None,
@@ -282,16 +297,48 @@ impl DirectView {
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
-                let mut result = rpc.call::<methods::DirectSave>(&edit).await;
-                if onboarding && result.is_ok() {
-                    // Chosen on the welcome screen: Direct is how this Mac chats.
-                    result = rpc
-                        .call::<methods::DirectSetPreferred>(&DirectPreferred { preferred: true })
-                        .await;
-                }
+                let saved = rpc.call::<methods::DirectSave>(&edit).await;
+                // Chosen on the welcome screen: Direct is how this Mac chats.
+                let preferred = match &saved {
+                    Ok(_) if onboarding => Some(
+                        rpc.call::<methods::DirectSetPreferred>(&DirectPreferred {
+                            preferred: true,
+                        })
+                        .await,
+                    ),
+                    _ => None,
+                };
                 session.update(cx, |s, cx| s.refresh(cx));
                 let _ = this.update_in(cx, |s, window, cx| {
                     s.busy = false;
+                    // A save that went through is kept whatever follows: a
+                    // new connection is edited from here on (Connect again
+                    // never adds it twice).
+                    if let Ok(list) = &saved
+                        && edit.id.is_none()
+                    {
+                        let before: Vec<&str> = s
+                            .list
+                            .iter()
+                            .flat_map(|l| l.connections.iter().map(|c| c.id.as_str()))
+                            .collect();
+                        if let Some(made) = list
+                            .connections
+                            .iter()
+                            .find(|c| !before.contains(&c.id.as_str()))
+                        {
+                            s.editing = Some(made.id.clone());
+                            s.saved = Some(made.clone());
+                        }
+                    }
+                    let result = match (saved, preferred) {
+                        (Ok(list), Some(Err(e))) => {
+                            s.list = Some(list);
+                            Err(e)
+                        }
+                        (Ok(_), Some(Ok(list))) | (Ok(list), None) => Ok(list),
+                        (Err(e), _) => Err(e),
+                    };
                     match result {
                         Ok(list) => {
                             s.list = Some(list);
@@ -670,5 +717,99 @@ impl Render for DirectView {
                 d.child(div().flex().justify_end().child(self.add_button(cx)))
             })
             .when(self.form_open, |d| d.child(self.form(window, cx)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use conduit_protocol::methods;
+    use gpui_kit::{Entity, TestAppContext, VisualTestContext};
+    use serde_json::json;
+
+    use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    fn connection(id: &str) -> DirectConnectionSummary {
+        serde_json::from_value(json!({
+            "id": id, "name": "Lab", "kind": "openai", "baseUrl": "http://127.0.0.1:11434/v1",
+            "apiMode": "responses", "apiVersion": "2025-01-01", "apiKeyHeader": true,
+            "modelIdPrefix": "lab/", "enabled": false, "hasApiKey": true,
+            "customHeaderNames": [], "manualModelIds": ["synthetic-model"],
+            "allowSelfSignedCertificates": false, "openRouter": false, "ollamaCloud": false,
+            "openWebUi": false, "compatible": true, "tags": ["work"]
+        }))
+        .unwrap()
+    }
+
+    fn list(connections: Vec<DirectConnectionSummary>) -> DirectConnectionList {
+        DirectConnectionList {
+            connections,
+            ..Default::default()
+        }
+    }
+
+    fn bench(
+        onboarding: bool,
+        cx: &mut TestAppContext,
+    ) -> (FakeDaemon, Entity<DirectView>, &mut VisualTestContext) {
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-direct-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| DirectView::new(stores, onboarding, window, cx));
+        (daemon, view, vcx)
+    }
+
+    #[gpui_kit::test]
+    fn renaming_a_connection_keeps_what_the_form_does_not_show(cx: &mut TestAppContext) {
+        let (daemon, view, vcx) = bench(false, cx);
+        daemon.returns::<methods::DirectSave>(list(vec![connection("c1")]));
+        view.update_in(vcx, |v, window, cx| {
+            v.open_edit(&connection("c1"), window, cx);
+            v.name
+                .update(cx, |i, cx| i.set_value("Lab two", window, cx));
+            v.save(window, cx);
+        });
+        vcx.run_until_parked();
+        let sent = &daemon.calls::<methods::DirectSave>()[0];
+        assert_eq!(sent["name"], "Lab two");
+        assert_eq!(sent["apiMode"], "responses");
+        assert_eq!(sent["apiVersion"], "2025-01-01");
+        assert_eq!(sent["apiKeyHeader"], true);
+        assert_eq!(sent["modelIdPrefix"], "lab/");
+        assert_eq!(sent["enabled"], false);
+        assert_eq!(sent["manualModelIds"], json!(["synthetic-model"]));
+        assert_eq!(sent["tags"], json!(["work"]));
+    }
+
+    #[gpui_kit::test]
+    fn a_save_that_went_through_is_not_added_twice(cx: &mut TestAppContext) {
+        let (daemon, view, vcx) = bench(true, cx);
+        daemon.returns::<methods::DirectSave>(list(vec![connection("made")]));
+        daemon.once::<methods::DirectSetPreferred>(Err(conduit_daemon::protocol::error(
+            "rpc.timeout",
+            "slow",
+        )));
+        daemon.returns::<methods::DirectSetPreferred>(list(vec![connection("made")]));
+        view.update_in(vcx, |v, window, cx| {
+            v.open_new(window, cx);
+            v.base_url.update(cx, |i, cx| {
+                i.set_value("http://127.0.0.1:11434/v1", window, cx)
+            });
+            v.save(window, cx);
+        });
+        vcx.run_until_parked();
+        view.update_in(vcx, |v, window, cx| v.save(window, cx));
+        vcx.run_until_parked();
+        let sent = daemon.calls::<methods::DirectSave>();
+        assert_eq!(sent.len(), 2);
+        assert_eq!(sent[0]["id"], serde_json::Value::Null);
+        assert_eq!(
+            sent[1]["id"], "made",
+            "the second Connect edits what the first made"
+        );
     }
 }

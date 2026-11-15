@@ -504,6 +504,12 @@ impl ConnectionStore {
     /// userData aside (accounts, sessions, the local database; nothing is
     /// deleted, the folder keeps a timestamp) and starts a fresh daemon,
     /// which sends the window back to onboarding.
+    /// Whether Clear Local Data can start: no clear running, and a daemon
+    /// to stop (running, failed or out of reach: it needs no connection).
+    pub fn can_clear(&self) -> bool {
+        !self.clearing && self.supervisor.is_some()
+    }
+
     pub fn clear_local_data(&mut self, cx: &mut Context<Self>) {
         if self.clearing {
             return;

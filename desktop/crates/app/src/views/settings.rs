@@ -313,6 +313,9 @@ impl SettingsView {
             if let Some(sheet) = this.add_sheet.take() {
                 end_sheet_window(sheet.handle, cx);
             }
+            // A chord being recorded is the window's: keys go back to the
+            // app once it closes.
+            this.settings.update(cx, |s, cx| s.stop_recording(cx));
         }));
         // The system's answers may have changed since (System Settings).
         crate::desktop::refresh_statuses(cx);
@@ -344,6 +347,8 @@ impl SettingsView {
     /// Shows `tab`'s pane, fading it in over the one before.
     fn show_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
         if tab != self.tab {
+            // Recording belongs to the pane it started in.
+            self.settings.update(cx, |s, cx| s.stop_recording(cx));
             self.tab = tab;
             self.switched = Some(cx.background_executor().now());
             cx.notify();
@@ -1155,7 +1160,7 @@ impl SettingsView {
                 .text_color(t.roles.text_subtle)
                 .child(middle_truncate(&full, 44))
         };
-        let clearing = conn.clearing;
+        let can_clear = conn.can_clear();
         let connected = conn.is_connected();
         let exporting = conn.diagnostics == crate::stores::connection::Diagnostics::Exporting;
         let state = diagnostics_state(&conn.diagnostics, cx);
@@ -1201,7 +1206,7 @@ impl SettingsView {
                         Some(l10n.desktop_clear_local_data_hint().into()),
                         Button::new("clear-local-data", l10n.desktop_clear_ellipsis())
                             .danger()
-                            .disabled(clearing || !connected)
+                            .disabled(!can_clear)
                             .on_click(clear),
                         cx,
                     )
