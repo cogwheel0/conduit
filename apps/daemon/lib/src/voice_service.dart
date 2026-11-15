@@ -227,6 +227,8 @@ final class VoiceService {
 
   /// Makes a job for [request]; the audio is asked for when it is played.
   Future<VoiceSpeech> speak(VoiceSpeak request) async {
+    // Before any await: the text is the account's in use now.
+    final session = _container.read(openWebUiAuthSessionEpochProvider);
     final text = request.text.trim();
     if (text.isEmpty) {
       throw const RpcError(
@@ -244,11 +246,7 @@ final class VoiceService {
     final id =
         'tts-${_random.nextInt(1 << 32).toRadixString(16)}'
         '${_random.nextInt(1 << 32).toRadixString(16)}';
-    _jobs[id] = _SpeechJob(
-      text,
-      voice,
-      _container.read(openWebUiAuthSessionEpochProvider),
-    );
+    _jobs[id] = _SpeechJob(text, voice, session);
     while (_jobs.length > _maxJobs) {
       _jobs.remove(_jobs.keys.first);
     }

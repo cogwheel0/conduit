@@ -95,11 +95,14 @@ void main() {
   });
 
   test('a path that would climb out of the port is refused', () async {
-    // The proxy decodes `%2F` and then resolves the `..` it makes.
-    expect(
-      (await visit('/..%2F..%2Ffiles/read')).statusCode,
-      HttpStatus.badRequest,
-    );
+    // The proxy decodes `%2F` and then resolves the `..` it makes; one that
+    // decodes twice would read `%252F` the same way.
+    for (final path in <String>[
+      '/..%2F..%2Ffiles/read',
+      '/..%252F..%252Ffiles/read',
+    ]) {
+      expect((await visit(path)).statusCode, HttpStatus.badRequest);
+    }
     expect(asked, isEmpty);
   });
 

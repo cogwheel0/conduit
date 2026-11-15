@@ -132,6 +132,7 @@ final class TerminalsService {
   // ---------------------------------------------------------------------------
 
   Future<TerminalAttached> attach(TerminalAttach request) async {
+    final session = _session();
     final scope = _scope(request.scopeId);
     final server = (await _available(request.scopeId))
         .where((s) => s.selectionId == request.serverId)
@@ -150,6 +151,9 @@ final class TerminalsService {
     final cwd = supported
         ? await _guard(() => service.getCwd(server, sessionScopeId: scope))
         : null;
+    // Attached under another account than the one now in use: the cleanup
+    // for that change has run, so this handle would outlive it.
+    _requireSession(session);
     final handle = _newKey();
     _handles[handle] = _Handle(server, scope);
     return TerminalAttached(
@@ -401,6 +405,7 @@ final class TerminalsService {
   /// carries a key; the first visit swaps it for a cookie and every later
   /// request must bring it back.
   Future<TerminalPreview> previewPort(TerminalPortRef request) async {
+    final session = _session();
     final h = _handle(request.handle);
     final existing = h.previews[request.port];
     if (existing != null) return TerminalPreview(url: existing.entryUrl);
@@ -417,6 +422,15 @@ final class TerminalsService {
       key: _newKey(),
       log: _log,
     );
+    if (!identical(session, _session()) ||
+        !identical(_handles[request.handle], h)) {
+      await preview.close();
+      _requireSession(session);
+      throw const RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: 'no such terminal',
+      );
+    }
     h.previews[request.port] = preview;
     return TerminalPreview(url: preview.entryUrl);
   }
@@ -424,6 +438,18 @@ final class TerminalsService {
   Future<void> dispose() async {
     _accountWatch.close();
     await _closeHandles();
+  }
+
+  /// The account session now in use.
+  Object _session() => _container.read(openWebUiAuthSessionEpochProvider);
+
+  void _requireSession(Object session) {
+    if (!identical(session, _session())) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed',
+      );
+    }
   }
 
   Future<void> _closeHandles() async {
@@ -624,11 +650,24 @@ final class PortPreview {
 /// credential.
 bool previewPathAllowed(Uri uri) {
   for (final segment in uri.pathSegments) {
-    if (segment == '.' ||
-        segment == '..' ||
-        segment.contains('/') ||
-        segment.contains('\\')) {
-      return false;
+    // Decoded again until it settles: a server that decodes twice would
+    // read `%252F` as a slash.
+    var decoded = segment;
+    for (var i = 0; i < 4; i++) {
+      if (decoded == '.' ||
+          decoded == '..' ||
+          decoded.contains('/') ||
+          decoded.contains('\\')) {
+        return false;
+      }
+      final String next;
+      try {
+        next = Uri.decodeComponent(decoded);
+      } on ArgumentError {
+        break;
+      }
+      if (next == decoded) break;
+      decoded = next;
     }
   }
   return true;
