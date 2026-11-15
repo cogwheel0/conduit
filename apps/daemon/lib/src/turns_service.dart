@@ -1017,7 +1017,7 @@ final class TurnsService {
     // An Open WebUI answer is finished once the send that started it has
     // settled too; before that its placeholder can still be swapped for
     // the stored row while the request goes out.
-    final settled = turn.clientOwned || (session.pending?.sendSettled ?? true);
+    final settled = turn.clientOwned || (turn.pending?.sendSettled ?? true);
     if (!answer.isStreaming && settled) _finish(session, turn, answer);
   }
 
@@ -1078,7 +1078,9 @@ final class TurnsService {
       model: answer.model ?? pending.model,
       userMessageId: question == answer.id ? null : question,
       clientOwned: clientOwned,
-    )..text = answer.content;
+    )
+      ..text = answer.content
+      ..pending = pending;
     session.turn = turn;
     turn.announced = true;
     _events.emit(
@@ -1233,9 +1235,11 @@ final class TurnsService {
     _Turn turn, {
     required bool failed,
   }) async {
-    // A direct or Hermes send settles once its answer is stored.
+    // A direct or Hermes send settles once its answer is stored. This
+    // turn's own send: a queued message may already have put its own in
+    // [session.pending], and it waits for this settle to start.
     try {
-      await session.pending?.sending;
+      await turn.pending?.sending;
     } on Object {
       // Reported with the turn.
     }
@@ -1264,7 +1268,11 @@ final class TurnsService {
         answerId: failed ? null : turn.messageId,
       );
     }
-    if (identical(session.turn, turn)) session.pending = null;
+    // Only this turn's: a queued send installed meanwhile keeps its own,
+    // so it is still announced, streams and can be stopped.
+    if (turn.pending != null && identical(session.pending, turn.pending)) {
+      session.pending = null;
+    }
     _scheduleLinger(session);
   }
 
@@ -2241,6 +2249,10 @@ final class _Turn {
   /// Whether this process talks to the provider itself (direct, Hermes), so
   /// the send that started the turn lasts as long as the answer.
   final bool clientOwned;
+
+  /// The send that started this turn; null for one followed from the
+  /// queued-answer outbox. [session.pending] may already be the next send.
+  _PendingTurn? pending;
 
   String text = '';
   bool dirty = false;
