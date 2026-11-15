@@ -248,7 +248,7 @@ impl Transcript {
                 };
                 match view {
                     RowView::User(row) => {
-                        let text = row.read(cx).item_text().to_string();
+                        let text = row.read(cx).item_text();
                         for range in find_ranges(&text, &finder.query) {
                             finder.matches.push(FindMatch {
                                 row: key.clone(),

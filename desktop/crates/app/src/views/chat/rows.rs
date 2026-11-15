@@ -1442,9 +1442,10 @@ impl UserRow {
         cx.notify();
     }
 
-    /// The question's text, as the bubble shows it.
-    pub fn item_text(&self) -> &str {
-        &self.item.text
+    /// The question's text, as the bubble shows it (mentions by name), so
+    /// Find's ranges fall on what is drawn.
+    pub fn item_text(&self) -> String {
+        shown_mentions(&self.item.text)
     }
 
     /// Find in Chat's matches in the text (byte ranges), painted behind it.
@@ -1916,6 +1917,21 @@ mod activity_tests {
             last_answer: true,
             stale: false,
         }
+    }
+
+    #[test]
+    fn find_reads_a_question_as_its_bubble_shows_it() {
+        let mut item = answer(vec![], "Ask <@U:u-1|Riley> about bread");
+        item.role = MessageRole::User;
+        let host = RowHost {
+            store: WeakEntity::new_invalid(),
+            pane: RowSink::None,
+            server_id: None,
+            composer: None,
+        };
+        let row = UserRow::new(host, item, RowFlags::default());
+        // "bread" is found where it is drawn, after "@Riley".
+        assert_eq!(row.item_text(), "Ask @Riley about bread");
     }
 
     #[test]
