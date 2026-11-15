@@ -14,6 +14,7 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -603,6 +604,26 @@ void _withAnAccount() {
       },
     );
 
+    test('a settings patch stops once another account signs in', () async {
+      final settings = _Settings();
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWith(() => settings),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+        ],
+      );
+      addTearDown(container.dispose);
+      final saving = CoreSettingsService(container).set(
+        const AppSettingsPatch(computerEnabled: false, sendOnEnter: false),
+      );
+      // Another account signs in while the first setting is written.
+      epoch = Object();
+      container.invalidate(openWebUiAuthSessionEpochProvider);
+      settings.written.complete();
+      await expectLater(saving, refused(ConduitErrorCodes.sessionExpired));
+      expect(settings.calls, <String>['computerEnabled']);
+    });
+
     test('a birth date past its month is refused', () async {
       final profiles = ProfileService(containerWith());
       await expectLater(
@@ -793,6 +814,27 @@ AccountMetadata _avaMetadata({String? image, String? bio}) => AccountMetadata(
 final class _ActiveConversation extends ActiveConversationNotifier {
   @override
   Conversation? build() => null;
+}
+
+/// Core's settings, recording what is written. The first write waits for
+/// [written].
+final class _Settings extends AppSettingsNotifier {
+  final calls = <String>[];
+  final written = Completer<void>();
+
+  @override
+  AppSettings build() => const AppSettings();
+
+  @override
+  Future<void> setComputerEnabled(bool value) async {
+    calls.add('computerEnabled');
+    await written.future;
+  }
+
+  @override
+  Future<void> setSendOnEnter(bool value) async {
+    calls.add('sendOnEnter');
+  }
 }
 
 /// Signed in already: a profile save's refresh of the session asks

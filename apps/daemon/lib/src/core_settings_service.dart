@@ -132,13 +132,29 @@ final class CoreSettingsService {
   /// bad one changes nothing.
   Future<AppSettingsDto> set(AppSettingsPatch patch) async {
     _validate(patch);
-    final n = _notifier;
+    // The whole patch is for the account in use when it was sent: core
+    // picks an account's keys as each setter starts, so each starts only
+    // while that account still is.
+    final account = _container.read(openWebUiAuthSessionEpochProvider);
+    AppSettingsNotifier n() {
+      if (!identical(
+        account,
+        _container.read(openWebUiAuthSessionEpochProvider),
+      )) {
+        throw const RpcError(
+          code: ConduitErrorCodes.sessionExpired,
+          debugMessage: 'the account changed while the settings were saved',
+        );
+      }
+      return _notifier;
+    }
+
     final clear = patch.clear.toSet();
     bool cleared(String field) => clear.contains(field);
 
-    if (patch.computerEnabled case final v?) await n.setComputerEnabled(v);
+    if (patch.computerEnabled case final v?) await n().setComputerEnabled(v);
     if (patch.quickPills case final v?) {
-      await n.setQuickPills(
+      await n().setQuickPills(
         <String>{
           for (final id in v)
             if (id.trim().isNotEmpty) id.trim(),
@@ -146,59 +162,59 @@ final class CoreSettingsService {
       );
     }
     if (cleared('inlineMessageActions')) {
-      await n.setInlineMessageActions(null);
+      await n().setInlineMessageActions(null);
     } else if (patch.inlineMessageActions case final v?) {
-      await n.setInlineMessageActions(v);
+      await n().setInlineMessageActions(v);
     }
-    if (patch.sendOnEnter case final v?) await n.setSendOnEnter(v);
+    if (patch.sendOnEnter case final v?) await n().setSendOnEnter(v);
     if (patch.showComposerNotesButton case final v?) {
-      await n.setShowComposerNotesButton(v);
+      await n().setShowComposerNotesButton(v);
     }
     if (patch.temporaryChatByDefault case final v?) {
-      await n.setTemporaryChatByDefault(v);
+      await n().setTemporaryChatByDefault(v);
     }
     if (patch.citationShowTitles case final v?) {
-      await n.setCitationShowTitles(v);
+      await n().setCitationShowTitles(v);
     }
     if (patch.citationBackground case final v?) {
-      await n.setCitationBackground(v);
+      await n().setCitationBackground(v);
     }
     if (patch.advancedFeaturesEnabled case final v?) {
-      await n.setAdvancedFeaturesEnabled(v);
+      await n().setAdvancedFeaturesEnabled(v);
     }
     if (cleared('defaultModel')) {
-      await n.setDefaultModel(null);
+      await n().setDefaultModel(null);
     } else if (patch.defaultModel case final v?) {
-      await n.setDefaultModel(v.trim());
+      await n().setDefaultModel(v.trim());
     }
     if (cleared('openRouterImageGenerationModel')) {
-      await n.setOpenRouterImageGenerationModel(null);
+      await n().setOpenRouterImageGenerationModel(null);
     } else if (patch.openRouterImageGenerationModel case final v?) {
-      await n.setOpenRouterImageGenerationModel(v);
+      await n().setOpenRouterImageGenerationModel(v);
     }
     if (patch.socketTransportMode case final v?) {
-      await n.setSocketTransportMode(v);
+      await n().setSocketTransportMode(v);
     }
     if (patch.voiceCallMode case final v?) {
-      await n.setVoiceCallMode(VoiceCallMode.values.byName(v));
+      await n().setVoiceCallMode(VoiceCallMode.values.byName(v));
     }
     if (patch.sttPreference case final v?) {
-      await n.setSttPreference(SttPreference.values.byName(v));
+      await n().setSttPreference(SttPreference.values.byName(v));
     }
     if (cleared('voiceLocaleId')) {
-      await n.setVoiceLocaleId(null);
+      await n().setVoiceLocaleId(null);
     } else if (patch.voiceLocaleId case final v?) {
-      await n.setVoiceLocaleId(v);
+      await n().setVoiceLocaleId(v);
     }
     if (cleared('sttLanguageCode')) {
-      await n.setSttLanguageCode(null);
+      await n().setSttLanguageCode(null);
     } else if (patch.sttLanguageCode case final v?) {
-      await n.setSttLanguageCode(v);
+      await n().setSttLanguageCode(v);
     }
     if (patch.voiceSilenceDuration case final v?) {
       // The phone's slider: 100 ms steps between core's bounds.
       final stepped = (v / 100).round() * 100;
-      await n.setVoiceSilenceDuration(
+      await n().setVoiceSilenceDuration(
         stepped.clamp(
           SettingsService.minVoiceSilenceDurationMs,
           SettingsService.maxVoiceSilenceDurationMs,
@@ -206,44 +222,44 @@ final class CoreSettingsService {
       );
     }
     if (patch.voiceBargeInEnabled case final v?) {
-      await n.setVoiceBargeInEnabled(v);
+      await n().setVoiceBargeInEnabled(v);
     }
     if (patch.ttsEngine case final v?) {
-      await n.setTtsEngineSelection(TtsEngine.values.byName(v));
+      await n().setTtsEngineSelection(TtsEngine.values.byName(v));
     }
     // A voice given wins over clearing its name; a name alone renames the
     // voice chosen (checked in [_validate]).
     if (patch.ttsVoice case final v?) {
-      await n.setTtsDeviceVoiceSelection(
+      await n().setTtsDeviceVoiceSelection(
         v,
         cleared('ttsVoiceName') ? null : (patch.ttsVoiceName ?? v),
       );
     } else if (cleared('ttsVoice')) {
-      await n.setTtsDeviceVoiceSelection(null, null);
+      await n().setTtsDeviceVoiceSelection(null, null);
     } else if (cleared('ttsVoiceName')) {
-      await n.setTtsDeviceVoiceSelection(_settings.ttsVoice, null);
+      await n().setTtsDeviceVoiceSelection(_settings.ttsVoice, null);
     } else if (patch.ttsVoiceName case final name?) {
-      await n.setTtsDeviceVoiceSelection(_settings.ttsVoice, name);
+      await n().setTtsDeviceVoiceSelection(_settings.ttsVoice, name);
     }
     if (patch.ttsServerVoiceId case final v?) {
-      await n.setTtsServerVoiceSelection(
+      await n().setTtsServerVoiceSelection(
         v,
         cleared('ttsServerVoiceName') ? null : (patch.ttsServerVoiceName ?? v),
       );
     } else if (cleared('ttsServerVoiceId')) {
-      await n.setTtsServerVoiceSelection(null, null);
+      await n().setTtsServerVoiceSelection(null, null);
     } else if (cleared('ttsServerVoiceName')) {
-      await n.setTtsServerVoiceSelection(_settings.ttsServerVoiceId, null);
+      await n().setTtsServerVoiceSelection(_settings.ttsServerVoiceId, null);
     } else if (patch.ttsServerVoiceName case final name?) {
-      await n.setTtsServerVoiceSelection(_settings.ttsServerVoiceId, name);
+      await n().setTtsServerVoiceSelection(_settings.ttsServerVoiceId, name);
     }
     if (patch.ttsSpeed case final v?) {
-      await n.setTtsSpeed(nearestTtsSpeed(v));
+      await n().setTtsSpeed(nearestTtsSpeed(v));
     }
     if (cleared('directVoiceProvider')) {
-      await n.setDirectVoiceProvider(null);
+      await n().setDirectVoiceProvider(null);
     } else if (patch.directVoiceProvider case final p?) {
-      await n.setDirectVoiceProvider(_voiceProvider(p));
+      await n().setDirectVoiceProvider(_voiceProvider(p));
     }
     _announceIfChanged();
     return get();
