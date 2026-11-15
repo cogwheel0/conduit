@@ -697,6 +697,23 @@ void _withAnAccount() {
       expect(api.saved, isEmpty);
     });
 
+    test("a profile save survives the sign-in refresh core makes after it",
+        () async {
+      final container = containerWith();
+      final profiles = ProfileService(container);
+      api.saves = true;
+      // Core refreshes the same account's sign-in after a save: a new
+      // session epoch, the same account.
+      api.onSaved = () {
+        epoch = Object();
+        container.invalidate(openWebUiAuthSessionEpochProvider);
+      };
+      addTearDown(() => api.onSaved = null);
+      final saved = await profiles.update(const ProfileEdit(bio: 'A newer bio'));
+      expect(saved.bio, 'A newer bio');
+      expect(api.savedBios, <String?>['A newer bio']);
+    });
+
     test('a photo change waits for a details change before it', () async {
       final container = containerWith();
       final profiles = ProfileService(container);
@@ -938,6 +955,9 @@ final class _Api extends ApiService {
 
   /// Saves go through and are what the profile reads next.
   var saves = false;
+
+  /// Run after a save, as core's own auth refresh after it.
+  void Function()? onSaved;
   final savedBios = <String?>[];
   final prompts = <String>[];
   var deletedAll = 0;
@@ -969,6 +989,7 @@ final class _Api extends ApiService {
       bio: bio,
     );
     metadata = () async => updated;
+    onSaved?.call();
     return updated;
   }
 

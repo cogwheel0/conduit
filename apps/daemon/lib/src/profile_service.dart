@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:conduit_core/models/account_metadata.dart';
+import 'package:conduit_core/persistence/account_scoped_preferences.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/utils/account_profile_form.dart';
@@ -311,6 +312,11 @@ final class ProfileService {
         debugMessage: 'the account changed',
       );
     }
+    // Core refreshes the account's sign-in after saving (a new session
+    // epoch, the same account): what is shown after it is checked against
+    // the account and its server, not the epoch.
+    final accountId = currentPreferenceAccountId();
+    final server = _api().serverConfig.id;
     final updated = await _container
         .read(accountProfileProvider.notifier)
         .save(
@@ -320,7 +326,16 @@ final class ProfileService {
           gender: keep ? m.gender : gender,
           dateOfBirth: keep ? m.dateOfBirth : dateOfBirth,
         );
-    return _dto(updated, session, _api());
+    final api = _container.read(apiServiceProvider);
+    if (accountId != currentPreferenceAccountId() ||
+        api == null ||
+        api.serverConfig.id != server) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed while the profile was saved',
+      );
+    }
+    return _dto(updated, _session(), api);
   }
 
   /// As the phone: on success the account is signed out, to sign in again
