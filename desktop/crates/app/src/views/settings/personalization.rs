@@ -47,8 +47,9 @@ pub struct PersonalizationPane {
     pub memory_input: Entity<TextareaState>,
     pub memory_path: Entity<InputState>,
     pub editor: Option<MemoryEditor>,
-    /// What the editor's last Save sent.
-    editor_saved: Option<String>,
+    /// What the editor's last Save sent: its words, and with Advanced on
+    /// its type and path.
+    editor_saved: Option<MemoryEdit>,
     /// The memory ids listed when a new memory's Save started.
     editor_known: Option<std::collections::HashSet<String>>,
     pub busy: bool,
@@ -287,10 +288,11 @@ impl PersonalizationPane {
                             });
                             s.memories = Some(list);
                             if closes_editor {
-                                // Typed on while the save was out: the editor
-                                // stays with it, to be saved again.
-                                let typed = s.memory_input.read(cx).value().trim().to_string();
-                                if s.editor_saved.as_deref() == Some(typed.as_str()) {
+                                // Typed on (or another type or path chosen)
+                                // while the save was out: the editor stays
+                                // with it, to be saved again.
+                                let now = s.editor_edit(cx);
+                                if now.is_some() && now == s.editor_saved {
                                     s.editor = None;
                                 } else if let Some(editor) = s.editor.as_mut() {
                                     editor.saving = false;
@@ -351,27 +353,31 @@ impl PersonalizationPane {
         cx.notify();
     }
 
-    pub fn save_memory(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(editor) = self.editor.as_ref() else {
-            return;
-        };
-        let content = self.memory_input.read(cx).value().trim().to_string();
-        if content.is_empty() {
-            return;
-        }
+    /// What the editor holds now, as Save would send it (None: no editor).
+    fn editor_edit(&self, cx: &App) -> Option<MemoryEdit> {
+        let editor = self.editor.as_ref()?;
         let advanced = self
             .stores
             .app_settings
             .read(cx)
             .settings()
             .advanced_features_enabled;
-        let edit = MemoryEdit {
+        Some(MemoryEdit {
             id: editor.id.clone(),
-            content,
+            content: self.memory_input.read(cx).value().trim().to_string(),
             r#type: advanced.then(|| editor.kind.clone()),
             path: advanced.then(|| forms::text(&self.memory_path, cx)),
+        })
+    }
+
+    pub fn save_memory(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(edit) = self.editor_edit(cx) else {
+            return;
         };
-        self.editor_saved = Some(edit.content.clone());
+        if edit.content.is_empty() {
+            return;
+        }
+        self.editor_saved = Some(edit.clone());
         self.editor_known = edit.id.is_none().then(|| {
             self.memories
                 .iter()
@@ -926,6 +932,47 @@ mod tests {
         view.read_with(vcx, |p, cx| {
             assert!(p.editor.is_some(), "the editor closed over what was typed");
             assert_eq!(p.memory_input.read(cx).value(), "Prefers green tea");
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_memory_type_changed_while_its_save_is_out_is_kept(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let list = serde_json::json!({"available": true, "enabled": true, "memories": []});
+        for_methods(&daemon, list);
+        let held = daemon.hold::<methods::MemoriesAdd>();
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-memory-kind-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let mut advanced = stores
+            .app_settings
+            .read_with(cx, |s, _| s.settings().clone());
+        advanced.advanced_features_enabled = true;
+        stores
+            .app_settings
+            .update(cx, |s, cx| s.adopt(advanced, cx));
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| PersonalizationPane::new(stores, window, cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |p, window, cx| {
+            p.open_editor(None, window, cx);
+            p.memory_input
+                .update(cx, |i, cx| i.set_value("Prefers tea", window, cx));
+            p.save_memory(window, cx);
+            // Same words, another type, while the save is out.
+            p.choose_memory_kind("context", cx);
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        view.read_with(vcx, |p, _| {
+            assert!(
+                p.editor.as_ref().is_some_and(|e| e.kind == "context"),
+                "the editor closed over the type chosen while saving"
+            );
         });
     }
 
