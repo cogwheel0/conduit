@@ -34,6 +34,12 @@ stops it, only while `ps` still says exactly that, so a pid reused after a
 crash, or another instance's process, is left alone.
 `tool/local_owui/pids_test.sh` checks that with `sleep` processes of its own.
 
+A start refuses a port something else already listens on, and a running
+instance keeps the ports it was started on: any command but `stop`,
+`status`, `reset` and `env` given another port is refused, so `seed` and
+`chat` never reach another listener. `tool/local_owui/ports_test.sh` checks
+that.
+
 ## What it holds
 
 `owui.sh start` runs Open WebUI with `ENABLE_PERSISTENT_CONFIG=false`,

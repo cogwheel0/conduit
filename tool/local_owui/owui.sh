@@ -94,6 +94,30 @@ URL=http://127.0.0.1:$PORT
 # its pid file names, and no other one that took its pid since.
 alive() { pid_alive "$STATE/$1.pid"; }
 
+# A running instance keeps the ports it was started on: a different --port,
+# --model-port or --hermes-port would point seed and chat at whatever
+# listens there instead. Only stopping (reset stops first) may change them.
+if alive server; then
+  for kind in port model_port hermes_port; do
+    case $kind in
+      port) wanted=$PORT ;;
+      model_port) wanted=$MODEL_PORT ;;
+      hermes_port) wanted=$HERMES_PORT ;;
+    esac
+    [ -f "$STATE/$kind" ] || continue
+    running=$(cat "$STATE/$kind")
+    if [ "$wanted" != "$running" ]; then
+      case $command in
+        stop | status | reset | env) ;;
+        *)
+          echo "this instance runs with $kind $running, not $wanted: stop it (or reset) to change it" >&2
+          exit 1
+          ;;
+      esac
+    fi
+  done
+fi
+
 # Whether nothing listens on 127.0.0.1:PORT (curl: 7 = could not connect),
 # asked directly rather than through any proxy the shell exports.
 # Checked before each launch, so that a health answer can only come from
