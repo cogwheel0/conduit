@@ -306,19 +306,22 @@ feed on `127.0.0.1`, without touching the real app:
    anything Sparkle relaunches) keep their data apart from the real app.
 3. With the throwaway private key in the environment
    (`export SPARKLE_ED_PRIVATE_KEY=<private>`), add N+1 to a new feed, then
-   the beta to that feed, and serve the folder:
+   the beta to that feed, and serve the second folder with both DMGs (it
+   starts with only the beta's):
 
    ```sh
    appcast.sh --dmg <N+1>.dmg --version <N+1> --fresh \
      --download-url-prefix http://127.0.0.1:<port>/ --work /tmp/feed
    appcast.sh --dmg <beta>.dmg --version <beta> --existing /tmp/feed/appcast.xml \
      --download-url-prefix http://127.0.0.1:<port>/ --work /tmp/feed-2
+   cp <N+1>.dmg /tmp/feed-2/
    python3 -m http.server --bind 127.0.0.1 <port> --directory /tmp/feed-2
    ```
 
    `appcast.sh` refuses a feed that drops an earlier item, an unsigned or
-   wrong-length enclosure, or a build that is not the newest
-   (`check_appcast.py`); `release_test.sh` checks those safeguards and the
+   wrong-length enclosure, or a build out of order (a stable build must be
+   newer than every stable item, a beta newer than every item;
+   `check_appcast.py`); `release_test.sh` checks those safeguards and the
    publishing ones against synthetic feeds.
 4. Copy N into a scratch folder, set
    `defaults write <test id> SUAutomaticallyUpdate -bool YES` so Sparkle

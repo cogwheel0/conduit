@@ -9,7 +9,9 @@ Fails (exit 1, a line saying why) unless:
   still in NEW, by build number: a feed never drops earlier releases;
 * NEW holds exactly one item for build N, version V, whose enclosure is
   URL, is as long as DMG, and carries a 64-byte EdDSA signature;
-* build N is newer than every other item's: Sparkle orders by it;
+* build N is newer than every other item on its channel's way: a stable
+  build newer than every stable item, a beta build newer than every item
+  (Sparkle orders by build, and beta readers also see stable items);
 * the item is on the beta channel exactly when --beta is given.
 
 Only the standard library: it runs on any Mac or CI image.
@@ -68,7 +70,7 @@ def check(args):
     if len(signature) != 64:
         return "the enclosure has no EdDSA signature"
     for other in new:
-        if other is item:
+        if other is item or (not args.beta and other["channel"] == "beta"):
             continue
         if not other["build"].isdigit() or int(other["build"]) >= args.build:
             return f"build {args.build} is not newer than build {other['build']} already in the feed"

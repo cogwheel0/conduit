@@ -6,7 +6,8 @@
 #
 # * check_appcast.py refuses a feed that drops an earlier item, an enclosure
 #   without an EdDSA signature or with the wrong length or URL, a build that
-#   is not the newest, and the wrong channel; it accepts a correct feed.
+#   is not the newest on its channel's way, and the wrong channel; it
+#   accepts a correct feed, and a stable release under a newer beta.
 # * release_exists / feed_exists answer yes or no, and stop on any other
 #   answer (a failed lookup is never "none yet").
 # * publish-appcast.sh keeps the live appcast.xml when the new upload fails,
@@ -69,10 +70,26 @@ feed "$tmp/url.xml" "$(item 1030099 1.3.0 https://example.org/other.dmg "$size" 
 expect 1 "an enclosure at another URL is refused" check "$tmp/url.xml"
 feed "$tmp/older.xml" "$new_item" "$old_item" "$beta_item" "$(item 1040099 1.4.0 https://example.org/x.dmg 1 "$sig" "")"
 expect 1 "a build older than one already in the feed is refused" check "$tmp/older.xml"
+patch_url="https://example.org/releases/download/desktop-v1.2.1/Conduit-1.2.1.dmg"
+feed "$tmp/patch-old.xml" "$old_item" "$beta_item"
+feed "$tmp/stable-under-beta.xml" "$(item 1020199 1.2.1 "$patch_url" "$size" "$sig" "")" "$old_item" "$beta_item"
+expect 0 "stable 1.2.1 under 1.3.0-beta.1 already in the feed is accepted" \
+  python3 -I "$here/check_appcast.py" --old "$tmp/patch-old.xml" --dmg "$dmg" --version 1.2.1 \
+  --build 1020199 --url "$patch_url" --new "$tmp/stable-under-beta.xml"
 feed "$tmp/twice.xml" "$new_item" "$new_item" "$old_item" "$beta_item"
 expect 1 "two items for the new build are refused" check "$tmp/twice.xml"
 feed "$tmp/channel.xml" "$(item 1030099 1.3.0 "$url" "$size" "$sig" beta)" "$old_item" "$beta_item"
 expect 1 "a stable release on the beta channel is refused" check "$tmp/channel.xml"
+beta_dmg="$tmp/Conduit-1.5.0-beta.1.dmg"
+cp "$dmg" "$beta_dmg"
+beta_url="https://example.org/releases/download/desktop-v1.5.0-beta.1/Conduit-1.5.0-beta.1.dmg"
+beta_new="$(item 1050001 1.5.0-beta.1 "$beta_url" "$size" "$sig" beta)"
+check_beta() { python3 -I "$here/check_appcast.py" --old "$tmp/good.xml" --dmg "$beta_dmg" --version 1.5.0-beta.1 --build 1050001 --url "$beta_url" --beta --new "$@"; }
+feed "$tmp/beta-good.xml" "$beta_new" "$new_item" "$old_item" "$beta_item"
+expect 0 "a beta newer than every item is accepted" check_beta "$tmp/beta-good.xml"
+feed "$tmp/beta-under-stable.xml" "$beta_new" "$new_item" "$old_item" "$beta_item" \
+  "$(item 1060099 1.6.0 https://example.org/Conduit-1.6.0.dmg 10 "$sig" "")"
+expect 1 "a beta older than a stable item already in the feed is refused" check_beta "$tmp/beta-under-stable.xml"
 
 # ── release_exists / feed_exists ────────────────────────────────────────────
 mkdir -p "$tmp/bin"
