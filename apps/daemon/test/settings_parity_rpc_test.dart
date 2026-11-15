@@ -714,6 +714,20 @@ void _withAnAccount() {
       expect(api.savedBios, <String?>['A newer bio']);
     });
 
+    test("another user signing in on the same entry during a save never gets "
+        'the profile', () async {
+      final container = containerWith();
+      final profiles = ProfileService(container);
+      api.saves = true;
+      // Bo signs in on the same saved account entry while Ava's save runs.
+      api.onSaved = () => switchAccount(container);
+      addTearDown(() => api.onSaved = null);
+      await expectLater(
+        profiles.update(const ProfileEdit(bio: 'A newer bio')),
+        refused(ConduitErrorCodes.sessionExpired),
+      );
+    });
+
     test('a photo change waits for a details change before it', () async {
       final container = containerWith();
       final profiles = ProfileService(container);
