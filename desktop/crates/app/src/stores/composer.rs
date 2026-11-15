@@ -66,6 +66,14 @@ pub enum UploadState {
     Failed(String),
 }
 
+/// What one message uses up ([`ComposerStore::one_shot`]).
+#[derive(Clone, Debug, Default)]
+pub struct OneShot {
+    pub attachments: Vec<Attachment>,
+    pub knowledge: Vec<KnowledgeSummary>,
+    pub mention: Option<ModelSummary>,
+}
+
 #[derive(Clone)]
 pub struct Attachment {
     /// This window's id for it (the server's comes with `Done`).
@@ -592,6 +600,37 @@ impl ComposerStore {
         self.attachments.clear();
         cx.notify();
         options
+    }
+
+    /// What [`Self::take_turn`] is about to use up for one message: the
+    /// uploaded attachments, the chosen knowledge and the `@` model.
+    pub fn one_shot(&self) -> OneShot {
+        OneShot {
+            attachments: self
+                .attachments
+                .iter()
+                .filter(|a| matches!(a.state, UploadState::Done { .. }))
+                .cloned()
+                .collect(),
+            knowledge: self.knowledge.clone(),
+            mention: self.mention.clone(),
+        }
+    }
+
+    /// Puts back what a message that was not sent used up: its attachments
+    /// before any added since, its knowledge and model unless chosen anew.
+    pub fn give_back(&mut self, used: OneShot, cx: &mut Context<Self>) {
+        let mut attachments = used.attachments;
+        attachments.retain(|a| !self.attachments.iter().any(|b| b.local_id == a.local_id));
+        attachments.append(&mut self.attachments);
+        self.attachments = attachments;
+        if self.knowledge.is_empty() {
+            self.knowledge = used.knowledge;
+        }
+        if self.mention.is_none() {
+            self.mention = used.mention;
+        }
+        cx.notify();
     }
 
     /// Another account: start over. Answers to what the last account
