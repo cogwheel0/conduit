@@ -192,7 +192,12 @@ impl Stores {
 
     fn on_event(&self, event: &Event, cx: &mut App) {
         match event {
-            Event::AccountsChanged(_) => self.accounts.update(cx, |a, cx| a.refresh(cx)),
+            Event::AccountsChanged(_) => {
+                self.accounts.update(cx, |a, cx| a.refresh(cx));
+                // A session read still on its way holds the list from before
+                // the change: it starts over, so it never adopts that list.
+                self.session.update(cx, |s, cx| s.refresh(cx));
+            }
             Event::UiRequest(request) => {
                 let request = request.clone();
                 self.ui_requests
@@ -233,5 +238,53 @@ impl Stores {
             }
         })
         .detach();
+    }
+}
+
+#[cfg(test)]
+mod event_tests {
+    use conduit_protocol::{AccountsChanged, methods};
+    use gpui_kit::TestAppContext;
+
+    use super::*;
+    use crate::stores::accounts::tests::{account, list};
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    #[gpui_kit::test]
+    fn an_older_session_read_never_brings_back_the_last_account(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-stores-events-{}", std::process::id()));
+        let stores = cx.update(|cx| Stores::for_test(daemon.rpc(), &scratch, cx));
+        let on_a = list(vec![
+            account("a", "Avery", true, true),
+            account("b", "Blake", false, true),
+        ]);
+        let on_b = list(vec![
+            account("a", "Avery", false, true),
+            account("b", "Blake", true, true),
+        ]);
+        daemon.returns::<methods::AccountsList>(on_a);
+        let held = daemon.hold::<methods::AccountsList>();
+        // The session's read, answered with the list before the switch.
+        stores.session.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+        // The switch, and its accounts.changed.
+        daemon.returns::<methods::AccountsList>(on_b);
+        cx.update(|cx| {
+            stores.on_event(
+                &Event::AccountsChanged(AccountsChanged {
+                    active_account_id: Some("b".into()),
+                }),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        held.release();
+        cx.run_until_parked();
+        let active = stores
+            .accounts
+            .read_with(cx, |a, _| a.active().map(|a| a.id.clone()));
+        assert_eq!(active.as_deref(), Some("b"));
     }
 }
