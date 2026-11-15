@@ -19,6 +19,8 @@ reviews:
     - "!assets/computer/**"
     # The protocol's JSON goldens, written by its dump_goldens tool.
     - "!packages/conduit_protocol/goldens/**"
+    # The protocol's Rust types, written by its generate_rust tool.
+    - "!desktop/crates/protocol/src/generated.rs"
     - "!**/pubspec.lock"
     - "!**/Podfile.lock"
     - "!**/Cargo.lock"

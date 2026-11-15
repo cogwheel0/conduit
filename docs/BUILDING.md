@@ -118,9 +118,10 @@ packages. It is the same as running those steps by hand.
 compares the branch with `origin/main` (or the ref you pass) and runs CI's fast
 checks for what changed: the platform UI seam, the package boundaries, the ARB
 checks, the analyzer for each changed workspace package and everything that
-depends on it, the test files beside the changed files, and the relay's format
-and lint checks. `--list` prints the steps without running them. It ends by
-naming the CI jobs it left out.
+depends on it, the test files beside the changed files, the relay's format
+and lint checks, and for the desktop Cargo workspace the protocol's generated
+Rust, `cargo fmt` and `cargo check`. `--list` prints the steps without running
+them. It ends by naming the CI jobs it left out.
 
 CI (`.github/workflows/ci.yml`) runs everything on pushes to `main` and on pull
 requests. To run the whole app suite yourself, for a dependency bump or a
