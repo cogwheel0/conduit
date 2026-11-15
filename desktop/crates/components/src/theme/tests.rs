@@ -96,12 +96,13 @@ fn text_pairs_meet_wcag_aa() {
                 (AccentPolicy::System, SidebarStyle::Material),
                 (AccentPolicy::System, SidebarStyle::Surface),
             ] {
+                let system_accent = accent();
                 let prefs = DesignPrefs {
                     accent: policy,
                     sidebar,
                     ..Default::default()
                 };
-                let t = ConduitTheme::new(&p.id, dark, prefs, accent());
+                let t = ConduitTheme::new(&p.id, dark, prefs, system_accent);
                 let c = &t.colors;
                 let s = &t.surfaces;
                 let r = &t.roles;
@@ -110,8 +111,9 @@ fn text_pairs_meet_wcag_aa() {
                     let ratio = contrast_ratio(fg, bg);
                     if ratio + 1e-3 < min {
                         failures.push(format!(
-                            "{} {mode} {policy:?} {sidebar:?}: {name} = {ratio:.2} < {min}",
-                            p.id
+                            "{} {mode} {policy:?} {sidebar:?} {}: {name} = {ratio:.2} < {min}",
+                            p.id,
+                            palette::to_hex(system_accent)
                         ));
                     }
                 };
@@ -210,7 +212,34 @@ fn text_pairs_meet_wcag_aa() {
                 check("danger text", r.danger, s.panel, 4.5);
                 check("danger button", r.danger_foreground, r.danger_fill, 4.5);
                 check("checked control", r.checked_foreground, r.checked, 3.0);
+                check("link on panel", r.link, s.panel, 4.5);
                 check("focus ring on panel", r.focus, s.panel, 1.5);
+            }
+        }
+    }
+    // The system accent is the user's choice: a bright one, which white
+    // text and a light panel both fail on, still gives a readable checked
+    // control and link.
+    for p in &palettes().palettes {
+        for dark in [false, true] {
+            let prefs = DesignPrefs {
+                accent: AccentPolicy::System,
+                ..Default::default()
+            };
+            let t = ConduitTheme::new(&p.id, dark, prefs, rgb(0xFFCC00).into());
+            let r = &t.roles;
+            for (name, fg, bg, min) in [
+                ("checked control", r.checked_foreground, r.checked, 3.0),
+                ("link on panel", r.link, t.surfaces.panel, 4.5),
+            ] {
+                let ratio = contrast_ratio(fg, bg);
+                if ratio + 1e-3 < min {
+                    failures.push(format!(
+                        "{} {} #FFCC00: {name} = {ratio:.2} < {min}",
+                        p.id,
+                        if dark { "dark" } else { "light" }
+                    ));
+                }
             }
         }
     }

@@ -176,7 +176,9 @@ impl ConduitTheme {
                     with_alpha(accent, if dark { 0.30 } else { 0.18 }),
                     accent,
                     with_alpha(accent, 0.75),
-                    accent,
+                    // A checked control's white mark reads at 3:1 whatever
+                    // accent the user picked (a yellow one darkens).
+                    legible_fill(accent, rgb(0xffffff).into(), 3.0),
                     rgb(0xffffff).into(),
                     with_alpha(accent, if dark { 0.45 } else { 0.28 }),
                 )
@@ -329,7 +331,11 @@ impl ConduitTheme {
             success: c.success,
             warning: c.warning,
             info: c.info,
-            link: if system { accent } else { c.foreground },
+            link: if system {
+                legible_text(accent, c.foreground, s.panel, 4.5)
+            } else {
+                c.foreground
+            },
             scrim: with_alpha(rgb(0x000000).into(), if dark { 0.45 } else { 0.18 }),
         }
     }
