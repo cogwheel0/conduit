@@ -115,6 +115,9 @@ void main() {
         }
       });
 
+      // Response handling is shared after dispatch; exercise it once.
+      if (kind != TerminalServerKind.direct) return;
+
       test('unavailable conversion preserves the binary fallback and original download', () async {
         contentType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
         body = [80, 75, 3, 4, 0, 255];
