@@ -759,9 +759,13 @@ impl SidebarView {
             SidebarItem::Chat { chat, depth } => self.chat(chat, *depth, now, t, cx),
             SidebarItem::SearchHit(hit) => self.search_hit(hit, now, t, cx),
             SidebarItem::LoadMore => {
-                let loading = self.stores.chat_list.read(cx).loading_more;
-                // Reaching the end of the loaded page loads the next one.
-                if !loading {
+                let (loading, failed) = {
+                    let c = self.stores.chat_list.read(cx);
+                    (c.loading_more, c.more_failed)
+                };
+                // Reaching the end of the loaded page loads the next one,
+                // but not again after a failure (Load More asks again).
+                if !loading && !failed {
                     let chat_list = self.stores.chat_list.clone();
                     cx.defer(move |cx| chat_list.update(cx, |c, cx| c.load_more(cx)));
                 }
