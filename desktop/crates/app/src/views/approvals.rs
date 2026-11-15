@@ -378,11 +378,14 @@ impl ApprovalsView {
                 };
                 let actions = if self.confirming_always {
                     let back = {
-                        let this = this.clone();
+                        let (this, id) = (this.clone(), id.clone());
                         Rc::new(move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
                             let _ = this.update(cx, |s, cx| {
-                                s.confirming_always = false;
-                                cx.notify();
+                                // Only while this request's card is the one shown.
+                                if s.for_request.as_deref() == Some(id.as_str()) {
+                                    s.confirming_always = false;
+                                    cx.notify();
+                                }
                             });
                         })
                     };
@@ -400,11 +403,14 @@ impl ApprovalsView {
                     ]
                 } else {
                     let ask_always = {
-                        let this = this.clone();
+                        let (this, id) = (this.clone(), id.clone());
                         Rc::new(move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
                             let _ = this.update(cx, |s, cx| {
-                                s.confirming_always = true;
-                                cx.notify();
+                                // Only while this request's card is the one shown.
+                                if s.for_request.as_deref() == Some(id.as_str()) {
+                                    s.confirming_always = true;
+                                    cx.notify();
+                                }
                             });
                         })
                     };
@@ -845,6 +851,51 @@ mod answer_tests {
             assert!(u.answering.is_empty());
             assert_eq!(u.top().map(|r| r.request_id.as_str()), Some("b"));
         });
+    }
+
+    #[gpui_kit::test]
+    fn always_allow_asked_on_one_card_never_confirms_another(cx: &mut TestAppContext) {
+        let (b, vcx) = bench(cx);
+        b.stores.ui_requests.update(vcx, |u, cx| {
+            for id in ["a", "b"] {
+                u.on_request(
+                    request(
+                        id,
+                        UiRequestKind::McpApproval,
+                        serde_json::json!({"serverName": "lab", "toolName": "read"}),
+                    ),
+                    cx,
+                );
+            }
+        });
+        let parts = |id: &str, vcx: &mut VisualTestContext| {
+            let id = id.to_string();
+            vcx.update(|_, cx| {
+                b.view.update(cx, |v, cx| {
+                    let top = v.top(cx).unwrap();
+                    assert_eq!(top.request_id, id);
+                    v.for_request = Some(id.clone());
+                    let l10n = cx.l10n().clone();
+                    v.card_parts(&top, &l10n, cx).1
+                })
+            })
+        };
+        let ask_a = parts("a", vcx)
+            .iter()
+            .find(|a| a.id.as_ref() == "ask-always-a")
+            .and_then(|a| a.on_click.clone())
+            .expect("A's Always Allow");
+        // A settles and B's card comes up before A's click lands.
+        b.stores
+            .ui_requests
+            .update(vcx, |u, cx| u.on_settled("a", cx));
+        parts("b", vcx);
+        vcx.update(|window, cx| ask_a(&ClickEvent::default(), window, cx));
+        let actions = parts("b", vcx);
+        assert!(
+            actions.iter().all(|a| a.id.as_ref() != "always-b"),
+            "B skipped its own first step"
+        );
     }
 
     #[gpui_kit::test]
