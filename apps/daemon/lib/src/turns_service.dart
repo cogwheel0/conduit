@@ -1,0 +1,1847 @@
+import 'dart:async';
+
+import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show ChatStorageKind;
+import 'package:conduit_core/features/chat/models/chat_context_attachment.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
+import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
+import 'package:conduit_core/features/chat/providers/openwebui_prompt_resolution.dart';
+import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
+import 'package:conduit_core/features/chat/services/historical_message_regeneration.dart';
+import 'package:conduit_core/features/chat/utils/message_targeting.dart';
+import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
+    show
+        DirectChatInputException,
+        kDirectMcpApprovalMetadataKey,
+        kDirectTransport;
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart'
+    show kHermesTransport;
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
+    show TerminalFileRequest, terminalDisplayFileProvider;
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/openwebui_chat_prompt.dart';
+import 'package:conduit_core/ports/ui_request_port.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/message_rating.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_protocol/conduit_protocol.dart';
+import 'package:riverpod/riverpod.dart';
+
+import 'event_bus.dart';
+import 'hermes_service.dart';
+import 'message_blocks.dart';
+import 'models_service.dart';
+import 'settled.dart';
+import 'temporary_chats.dart';
+import 'ui_requests_service.dart';
+
+/// Implements `turns.*` by driving the core's chat library, the one mobile
+/// streams through.
+///
+/// Each chat with a turn in it gets a [ChatSessionScope]: the chat library's
+/// per-conversation state (the open chat, its transcript, the composer's
+/// model and toggles) in a child container of its own. A turn is started
+/// through the same entry points the phone's composer uses -- [durableSend],
+/// [regenerateHistoricalMessageById], [resendEditedUserMessage] and the stop
+/// provider -- with the scope as `ref`, and streams into that scope's own
+/// transcript. So a user can start a turn, open another chat and start
+/// another, and both answer at once, through one pipeline for Open WebUI,
+/// direct connections and Hermes alike.
+///
+/// What this class adds is what the phone's screen does around the
+/// pipeline:
+///
+/// * it projects the scope's transcript onto the `turn.*` events, coalesced
+///   to 60 Hz -- the text as `turn.delta`, the parsed answer as
+///   `turn.blocks` -- and answers a window that subscribes mid-turn with the
+///   answer so far ([progress]); every window, whichever chat it shows,
+///   hears `turn.finished`;
+/// * it asks the user, through `ui.request`, for the approvals the pipeline
+///   leaves for the screen to show: a direct connection's MCP tool, a Hermes
+///   agent wanting to act. Open WebUI's own prompts reach the user through
+///   the core's [UiRequestPort], which the daemon binds;
+/// * it tells the windows when the stored copy has the answer
+///   (`chats.changed`), and when the server renamed or tagged the chat.
+///
+/// A scope lives while its turn runs and for [lingerAfterTurn] afterwards,
+/// for the title, tags and follow-ups the server sends once the answer is
+/// done. It is disposed sooner when the account changes or the user signs
+/// out: its chat belongs to the account it was opened under.
+final class TurnsService {
+  TurnsService(
+    this._container,
+    this._events, {
+    TemporaryChats? temporary,
+    UiRequestsService? uiRequests,
+    HermesService? hermes,
+  }) : temporary = temporary ?? TemporaryChats(),
+       _uiRequests = uiRequests,
+       _hermes = hermes {
+    // A chat belongs to the account it was opened under. On another
+    // account, or none, every scope goes, and a running turn with it.
+    _accountWatches = <ProviderSubscription<Object?>>[
+      _container.listen<Object?>(openWebUiAuthSessionEpochProvider, (
+        previous,
+        next,
+      ) {
+        _closeAll(reason: 'account-changed');
+        this.temporary.clear();
+      }),
+      _container.listen<Object?>(apiServiceProvider, (previous, next) {
+        if (!identical(previous, next)) _closeAll(reason: 'session-changed');
+      }),
+    ];
+    _remaps = _container
+        .read(syncEngineProvider.notifier)
+        .remapEvents
+        .where((event) => event.entityKind == 'chat')
+        .listen((event) => _followRemap(event.fromId, event.toId));
+  }
+
+  final ProviderContainer _container;
+  final EventBus _events;
+
+  /// Conversations the server never stores. Shared with `ChatsService`,
+  /// which answers `chats.get` for them from the same memory.
+  final TemporaryChats temporary;
+
+  /// Where the approvals this class hosts are asked. Without one they are
+  /// denied, as the pipeline's own questions are with no window attached.
+  final UiRequestsService? _uiRequests;
+
+  /// Hermes sessions' transcripts, for opening a Hermes chat in a scope and
+  /// refreshing what `chats.get` shows after a turn.
+  final HermesService? _hermes;
+
+  late final List<ProviderSubscription<Object?>> _accountWatches;
+  StreamSubscription<Object?>? _remaps;
+  final List<_ChatSession> _sessions = <_ChatSession>[];
+  bool _disposed = false;
+
+  /// Coalescing window for `turn.delta`: a 60 Hz ceiling. A fast model emits
+  /// tokens far quicker than that, and every extra frame costs a JSON
+  /// encode, a socket write and a markdown parse for text nobody can read at
+  /// that rate.
+  static const Duration _deltaInterval = Duration(milliseconds: 16);
+
+  /// How long a chat's scope outlives its turn. The server sends a new
+  /// chat's title, its tags and the follow-up suggestions after the answer,
+  /// over the chat's socket subscription, which lives in the scope.
+  /// Assignable so a test can shorten it.
+  static Duration lingerAfterTurn = const Duration(seconds: 30);
+
+  /// How long to keep looking for a finished answer in the server's copy
+  /// before telling the windows it changed. Open WebUI writes the answer
+  /// when its own stream handler finishes, which is not the moment ours
+  /// does. Assignable so a test can shorten it.
+  static List<Duration> syncRetryDelays = const <Duration>[
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+    Duration(seconds: 8),
+  ];
+
+  /// Chats currently generating, for the sidebar's spinner.
+  Iterable<String> get activeChatIds => <String>[
+    for (final session in _sessions)
+      if (session.turn case final turn? when !turn.finished) turn.chatId,
+  ];
+
+  /// [chatId]'s running turn as a window that subscribes now needs it: the
+  /// whole answer so far, or null when nothing is running there.
+  ///
+  /// A new chat's id reaches the window with the reply to `turns.send`, and
+  /// `turn.started` has gone out by then to no one subscribed to it -- so
+  /// without this the composer offered Send in a busy chat until the first
+  /// token.
+  TurnDelta? progress(String chatId) {
+    final session = _sessionOf(chatId);
+    final turn = session?.turn;
+    if (session == null || turn == null || turn.finished || !turn.announced) {
+      return null;
+    }
+    _refreshText(session, turn);
+    return TurnDelta(
+      chatId: turn.chatId,
+      messageId: turn.messageId,
+      text: turn.text,
+    );
+  }
+
+  /// [chatId]'s running answer, parsed, as a window that subscribes now
+  /// needs it; null when nothing is running there.
+  TurnBlocks? progressBlocks(String chatId) {
+    final session = _sessionOf(chatId);
+    final turn = session?.turn;
+    if (session == null || turn == null || turn.finished || !turn.announced) {
+      return null;
+    }
+    _refreshText(session, turn);
+    return _blocks(session, turn);
+  }
+
+  /// Sends [sessionId] what it missed in the chats [subscription] names.
+  ///
+  /// For a chat answering now, the answer so far as a `turn.delta` and a
+  /// `turn.blocks`, whether or not the window was listening before (a
+  /// snapshot is harmless). For a chat it has only now added, whose answer
+  /// finished since the window could last have seen it -- a fast model can
+  /// finish before `turns.send` returns the new chat's id -- that turn's
+  /// final `turn.blocks` and its `turn.completed` or `turn.failed`, for as
+  /// long as its scope lingers.
+  void catchUp(
+    String sessionId,
+    EventSubscription subscription, {
+    Set<String> alreadySubscribed = const <String>{},
+  }) {
+    bool wants(String event) =>
+        subscription.events.isEmpty || subscription.events.contains(event);
+    for (final chatId in subscription.scopes) {
+      final running = progress(chatId);
+      if (running != null) {
+        if (wants(ConduitEvents.turnDelta)) {
+          _events.emitTo(
+            sessionId,
+            ConduitEventSpecs.turnDelta,
+            running,
+            scope: chatId,
+          );
+        }
+        final blocks = progressBlocks(chatId);
+        if (blocks != null && wants(ConduitEvents.turnBlocks)) {
+          _events.emitTo(
+            sessionId,
+            ConduitEventSpecs.turnBlocks,
+            blocks,
+            scope: chatId,
+          );
+        }
+        continue;
+      }
+      if (alreadySubscribed.contains(chatId)) continue;
+      final ended = _sessionOf(chatId)?.ended;
+      if (ended == null) continue;
+      if (wants(ConduitEvents.turnBlocks)) {
+        _events.emitTo(
+          sessionId,
+          ConduitEventSpecs.turnBlocks,
+          ended.blocks,
+          scope: chatId,
+        );
+      }
+      if (ended.completed case final completed?
+          when wants(ConduitEvents.turnCompleted)) {
+        _events.emitTo(
+          sessionId,
+          ConduitEventSpecs.turnCompleted,
+          completed,
+          scope: chatId,
+        );
+      }
+      if (ended.failed case final failed?
+          when wants(ConduitEvents.turnFailed)) {
+        _events.emitTo(
+          sessionId,
+          ConduitEventSpecs.turnFailed,
+          failed,
+          scope: chatId,
+        );
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // turns.*
+  // ---------------------------------------------------------------------------
+
+  Future<SendTurnAccepted> send(SendTurn request) async {
+    _refuseDeleted(request.chatId);
+    final text = request.text.trim();
+    if (text.isEmpty) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'turns.send needs a non-empty text',
+      );
+    }
+    final model = await _resolveModel(request.model);
+    await _requireBackendFor(model);
+    final session = await _sessionFor(request.chatId);
+    try {
+      await _requireIdle(session);
+      final scope = session.scope.container;
+      _choose(
+        scope,
+        model,
+        webSearch: request.webSearch,
+        imageGeneration: request.imageGeneration,
+        codeInterpreter: request.codeInterpreter,
+        toolIds: request.toolIds,
+        temporary: request.chatId == null
+            ? request.temporary
+            : temporary.contains(request.chatId!),
+      );
+      // Knowledge bases chosen with `#`: the composer's context attachments,
+      // which the core sends as Open WebUI's own client does.
+      final knowledge = <ChatContextAttachment>[
+        for (final base in request.knowledge)
+          ChatContextAttachment.knowledgeBase(
+            id: base.id,
+            name: base.name,
+            description: base.description,
+          ),
+      ];
+      return await _run(
+        session,
+        model: model,
+        userMessageId: null,
+        start: (onPlaceholder) => durableSend(
+          scope,
+          text,
+          request.fileIds.isEmpty ? null : request.fileIds,
+          toolIds: request.toolIds.isEmpty ? null : request.toolIds,
+          contextAttachments: knowledge,
+          onAssistantPlaceholderCreated: onPlaceholder,
+        ),
+      );
+    } finally {
+      _release(session);
+    }
+  }
+
+  /// Runs a turn again, replacing one assistant answer.
+  ///
+  /// A branch, not an overwrite: the new answer is another child of the same
+  /// question, so the previous one stays reachable as a version.
+  Future<SendTurnAccepted> regenerate(RegenerateTurn request) async {
+    _refuseTemporary(request.chatId);
+    final session = await _sessionFor(request.chatId);
+    try {
+      await _requireIdle(session);
+      final target = resolveAssistantRegenerationTarget(
+        session.scope.messages,
+        request.messageId,
+      );
+      if (target == null) {
+        final known = session.scope.messages.any(
+          (message) => message.id == request.messageId,
+        );
+        throw RpcError(
+          code: known
+              ? ConduitErrorCodes.invalidParams
+              : ConduitErrorCodes.notFound,
+          debugMessage: known
+              ? 'only an answer to a question can be regenerated'
+              : 'no such message in that conversation',
+        );
+      }
+      // "Run this again" means the same model unless the caller says
+      // otherwise.
+      final model = await _resolveModel(
+        request.model ?? target.assistantMessage.model,
+      );
+      await _requireBackendFor(model);
+      _choose(session.scope.container, model);
+      return await _run(
+        session,
+        model: model,
+        userMessageId: target.userMessage.id,
+        start: (_) => regenerateHistoricalMessageById(
+          session.scope.container,
+          request.messageId,
+        ),
+      );
+    } finally {
+      _release(session);
+    }
+  }
+
+  /// Replaces one of the user's messages and answers the new text.
+  ///
+  /// The new question is a sibling of the old one, so the old question keeps
+  /// its answer and everything after it.
+  Future<SendTurnAccepted> edit(EditTurn request) async {
+    _refuseTemporary(request.chatId);
+    final text = request.text.trim();
+    if (text.isEmpty) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'turns.edit needs a non-empty text',
+      );
+    }
+    final session = await _sessionFor(request.chatId);
+    try {
+      await _requireIdle(session);
+      final messages = session.scope.messages;
+      final index = messages.indexWhere((m) => m.id == request.messageId);
+      if (index < 0) {
+        throw const RpcError(
+          code: ConduitErrorCodes.notFound,
+          debugMessage: 'no such message in that conversation',
+        );
+      }
+      if (messages[index].role != 'user') {
+        throw const RpcError(
+          code: ConduitErrorCodes.invalidParams,
+          debugMessage: 'only a user message can be edited',
+        );
+      }
+      if (messages[index].content.trim() == text) {
+        throw const RpcError(
+          code: ConduitErrorCodes.invalidParams,
+          debugMessage: 'the edited text is the same as the original',
+        );
+      }
+      // A question carries no model; the answer that followed it does, and
+      // "ask this again, differently" means the same model as before.
+      final answeredWith = messages
+          .skip(index + 1)
+          .where((m) => m.role == 'assistant')
+          .firstOrNull
+          ?.model;
+      final model = await _resolveModel(request.model ?? answeredWith);
+      await _requireBackendFor(model);
+      _choose(session.scope.container, model);
+      return await _run(
+        session,
+        model: model,
+        userMessageId: null,
+        start: (_) async {
+          final sent = await resendEditedUserMessage(
+            session.scope.container,
+            messageId: request.messageId,
+            newText: text,
+          );
+          if (!sent) {
+            throw const RpcError(
+              code: ConduitErrorCodes.notFound,
+              debugMessage: 'that message is no longer in the conversation',
+            );
+          }
+        },
+      );
+    } finally {
+      _release(session);
+    }
+  }
+
+  /// Rates an answer up or down.
+  ///
+  /// The core's `MessageRating` does what Open WebUI's client does; this
+  /// only refuses what cannot be rated and tells the windows afterwards, so
+  /// the thumb comes back from the stored copy like everything else does.
+  Future<void> rate(RateTurn request) async {
+    if (request.rating != 1 && request.rating != -1) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'a rating is 1 or -1',
+      );
+    }
+    if (TemporaryChats.isTemporary(request.chatId)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'a temporary chat is not stored, so it cannot be rated',
+      );
+    }
+    try {
+      await MessageRating(_requireOpenWebUi()).rate(
+        chatId: request.chatId,
+        messageId: request.messageId,
+        rating: request.rating,
+      );
+    } on StateError catch (error) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: error.message,
+      );
+    } finally {
+      unawaited(_announceWhenSynced(request.chatId));
+    }
+  }
+
+  /// Stops generation, keeping what has arrived.
+  ///
+  /// Not an error when nothing is running: a stop button pressed as the last
+  /// token lands is the common case, not a mistake.
+  Future<void> stop(String chatId) async {
+    final session = _sessionOf(chatId);
+    final turn = session?.turn;
+    if (session == null || turn == null || turn.finished) return;
+    turn.stopped = true;
+    try {
+      await session.scope.container.read(stopGenerationSettledProvider)();
+    } on Object catch (error, stackTrace) {
+      DebugLogger.error(
+        'turn-stop-failed',
+        scope: 'daemon/turns',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+    // Stopped is finished, whatever the transport did with its message.
+    if (!session.scope.isDisposed) _project(session);
+    if (!turn.finished) _finish(session, turn, _answerOf(session, turn));
+  }
+
+  /// Stops every running answer, as leaving the account they belong to does
+  /// once the user has agreed to.
+  Future<void> stopAll() async {
+    for (final chatId in activeChatIds.toList()) {
+      await stop(chatId);
+    }
+  }
+
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    await _remaps?.cancel();
+    for (final watch in _accountWatches) {
+      watch.close();
+    }
+    for (final session in List<_ChatSession>.of(_sessions)) {
+      if (session.turn case final turn? when !turn.finished) {
+        await stop(turn.chatId);
+      }
+      _close(session);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Running a turn
+  // ---------------------------------------------------------------------------
+
+  /// Starts [start] in [session]'s scope and returns once its answer has
+  /// started: the placeholder is in the transcript, and the chat has the id
+  /// the windows should address it by.
+  ///
+  /// The core's send does not return at the same moment for every backend.
+  /// An Open WebUI turn returns once the server has the request and the
+  /// stream is attached; a direct or Hermes turn returns when the answer is
+  /// finished. So the send runs on its own and this waits for the answer to
+  /// appear in the scope.
+  Future<SendTurnAccepted> _run(
+    _ChatSession session, {
+    required Model model,
+    required String? userMessageId,
+    required Future<void> Function(
+      void Function(ChatSendPlaceholderHandle handle) onPlaceholder,
+    )
+    start,
+  }) async {
+    session.linger?.cancel();
+    session.ended = null;
+    final pending = _PendingTurn(
+      model: model.id,
+      userMessageId: userMessageId,
+      baseline: <String, ChatMessage>{
+        for (final message in session.scope.messages)
+          if (message.role == 'assistant') message.id: message,
+      },
+    );
+    session.pending = pending;
+
+    Future<void> sending;
+    try {
+      sending = start((handle) {
+        pending.assistantMessageId = handle.assistantMessageId;
+        pending.userMessageId ??= handle.userMessageId;
+        _project(session);
+      });
+    } on Object catch (error, stackTrace) {
+      sending = Future<void>.error(error, stackTrace);
+    }
+    pending.sending = sending.then<void>(
+      (_) {
+        pending.sendSettled = true;
+        if (!session.scope.isDisposed) _project(session);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        pending.sendSettled = true;
+        pending.sendError = error;
+        DebugLogger.error(
+          'turn-send-failed',
+          scope: 'daemon/turns',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        final turn = session.turn;
+        if (turn != null && !turn.finished) {
+          _finish(
+            session,
+            turn,
+            _answerOf(session, turn),
+            failure: _describe(error),
+          );
+        }
+        if (!pending.started.isCompleted) {
+          pending.started.completeError(_rpcErrorFor(error));
+        }
+      },
+    );
+    _project(session);
+
+    final _Turn turn;
+    try {
+      turn = await pending.started.future;
+    } on Object {
+      if (identical(session.pending, pending)) session.pending = null;
+      _scheduleLinger(session);
+      rethrow;
+    }
+    return SendTurnAccepted(
+      chatId: turn.chatId,
+      userMessageId: turn.userMessageId ?? '',
+      assistantMessageId: turn.messageId,
+    );
+  }
+
+  /// Brings [session]'s turn up to date with its scope's transcript: starts
+  /// it once its answer has appeared, marks new text for the next frame,
+  /// asks the approvals waiting in it, and finishes it when the answer has.
+  void _project(_ChatSession session) {
+    if (session.scope.isDisposed) return;
+    final messages = session.scope.messages;
+    final pending = session.pending;
+    if (pending != null && !pending.started.isCompleted) {
+      _maybeStart(session, pending, messages);
+    }
+    final turn = session.turn;
+    if (turn == null || turn.finished) return;
+    final answer = messages.where((m) => m.id == turn.messageId).lastOrNull;
+    if (answer == null) return;
+    if (answer.isStreaming) {
+      _refreshText(session, turn);
+    } else if (answer.content != turn.text) {
+      turn.text = answer.content;
+      turn.dirty = true;
+    }
+    // A status, a code execution, the sources: the blocks change without
+    // the text.
+    final inputs = messageBlockInputsHash(answer);
+    if (inputs != turn.blockInputs) {
+      turn.blockInputs = inputs;
+      turn.blocksDirty = true;
+    }
+    _hostApprovals(session, answer);
+    // An Open WebUI answer is finished once the send that started it has
+    // settled too; before that its placeholder can still be swapped for
+    // the stored row while the request goes out.
+    final settled = turn.clientOwned || (session.pending?.sendSettled ?? true);
+    if (!answer.isStreaming && settled) _finish(session, turn, answer);
+  }
+
+  void _maybeStart(
+    _ChatSession session,
+    _PendingTurn pending,
+    List<ChatMessage> messages,
+  ) {
+    ChatMessage? answer;
+    final expected = pending.assistantMessageId;
+    if (expected != null) {
+      answer = messages.where((m) => m.id == expected).lastOrNull;
+    } else {
+      // The answer now streaming at the end of the transcript. A regenerate
+      // may stream into the answer it replaces, keeping its id and moving
+      // the old text into its versions, as the core does for a direct chat.
+      final tail = messages.where((m) => m.role == 'assistant').lastOrNull;
+      if (tail != null &&
+          tail.isStreaming &&
+          !(pending.baseline[tail.id]?.isStreaming ?? false)) {
+        answer = tail;
+      } else if (tail != null &&
+          pending.sendSettled &&
+          _changed(pending.baseline[tail.id], tail)) {
+        // Over before it was seen streaming: a quick provider.
+        answer = tail;
+      }
+    }
+    if (answer == null) {
+      if (pending.sendSettled && pending.sendError == null) {
+        pending.started.completeError(
+          const RpcError(
+            code: ConduitErrorCodes.serverError,
+            debugMessage: 'the core started no answer',
+          ),
+        );
+      }
+      return;
+    }
+    final transport = answer.metadata?['transport'];
+    final clientOwned =
+        transport == kHermesTransport || transport == kDirectTransport;
+    // The id the windows address the chat by. A direct or Hermes chat has
+    // it as soon as the core has made the chat; an Open WebUI turn returns
+    // once its send has, by which time a new chat has the server's id.
+    final chatId = session.scope.conversation?.id;
+    if (chatId == null || (!clientOwned && !pending.sendSettled)) return;
+    final index = messages.indexOf(answer);
+    final question =
+        pending.userMessageId ??
+        messages
+            .take(index < 0 ? 0 : index)
+            .lastWhere((m) => m.role == 'user', orElse: () => answer!)
+            .id;
+    final turn = _Turn(
+      chatId: chatId,
+      messageId: answer.id,
+      model: answer.model ?? pending.model,
+      userMessageId: question == answer.id ? null : question,
+      clientOwned: clientOwned,
+    )..text = answer.content;
+    session.turn = turn;
+    turn.announced = true;
+    _events.emit(
+      ConduitEventSpecs.turnStarted,
+      TurnStarted(chatId: chatId, messageId: turn.messageId, model: turn.model),
+      scope: chatId,
+    );
+    turn.ticker = Timer.periodic(
+      _deltaInterval,
+      (_) => _emitDelta(session, turn),
+    );
+    pending.started.complete(turn);
+  }
+
+  /// Reads the answer as the scope's transcript has it right now, including
+  /// what the core has buffered since it last published the text: the core
+  /// paints a phone's screen at its own cadence, and the windows get frames
+  /// at [_deltaInterval].
+  void _refreshText(_ChatSession session, _Turn turn) {
+    if (session.scope.isDisposed || turn.finished) return;
+    final live = session.scope.container
+        .read(chatMessagesProvider.notifier)
+        .contentForStreamingMessage(turn.messageId);
+    if (live != null && live != turn.text) {
+      turn.text = live;
+      turn.dirty = true;
+    }
+  }
+
+  /// Publishes at most one frame per tick, and only when something changed:
+  /// the text as `turn.delta`, and the parsed answer as `turn.blocks` when
+  /// the text or anything else it is made from moved.
+  void _emitDelta(_ChatSession session, _Turn turn) {
+    _refreshText(session, turn);
+    if (turn.finished || !(turn.dirty || turn.blocksDirty)) return;
+    if (turn.dirty) {
+      _events.emit(
+        ConduitEventSpecs.turnDelta,
+        TurnDelta(
+          chatId: turn.chatId,
+          messageId: turn.messageId,
+          text: turn.text,
+        ),
+        scope: turn.chatId,
+      );
+    }
+    turn.dirty = false;
+    turn.blocksDirty = false;
+    _events.emit(
+      ConduitEventSpecs.turnBlocks,
+      _blocks(session, turn),
+      scope: turn.chatId,
+    );
+  }
+
+  /// [turn]'s answer, parsed: frame by frame while it streams, and whole
+  /// once [finished], the snapshot a window settles on.
+  TurnBlocks _blocks(
+    _ChatSession session,
+    _Turn turn, {
+    bool finished = false,
+  }) {
+    final answer = _answerOf(session, turn);
+    if (answer != null) {
+      turn.lastBlocks = MessageBlocks.toDtos(
+        assistantMessageBlocks(
+          answer,
+          content: turn.text,
+          streaming: finished ? false : null,
+          live: finished ? null : turn.live,
+        ),
+      );
+    }
+    return TurnBlocks(
+      chatId: turn.chatId,
+      messageId: turn.messageId,
+      blocks: turn.lastBlocks,
+    );
+  }
+
+  void _finish(
+    _ChatSession session,
+    _Turn turn,
+    ChatMessage? answer, {
+    String? failure,
+  }) {
+    if (turn.finished) return;
+    if (answer != null) turn.text = answer.content;
+    // The whole answer, parsed whole: what the windows settle on.
+    final blocks = _blocks(session, turn, finished: true);
+    turn.finished = true;
+    turn.ticker?.cancel();
+    final error = failure ?? answer?.error?.content;
+    final failed = error != null || answer?.error != null;
+    final ended = failed
+        ? _Ended(
+            blocks: blocks,
+            failed: TurnFailed(
+              chatId: turn.chatId,
+              messageId: turn.messageId,
+              code: ConduitErrorCodes.serverError,
+              // The server's own words: a refusal like "this model needs a
+              // paid plan" is information only the server has.
+              args: <String, String>{'detail': ?error},
+              partialText: turn.text,
+            ),
+          )
+        : _Ended(
+            blocks: blocks,
+            completed: TurnCompleted(
+              chatId: turn.chatId,
+              messageId: turn.messageId,
+              text: turn.text,
+              usage: _usageOf(answer?.usage),
+            ),
+          );
+    session.ended = ended;
+    _events.emit(ConduitEventSpecs.turnBlocks, blocks, scope: turn.chatId);
+    if (ended.failed case final payload?) {
+      _events.emit(ConduitEventSpecs.turnFailed, payload, scope: turn.chatId);
+    }
+    if (ended.completed case final payload?) {
+      _events.emit(
+        ConduitEventSpecs.turnCompleted,
+        payload,
+        scope: turn.chatId,
+      );
+    }
+    // Unscoped: every window hears it, whichever chat it shows.
+    _events.emit(
+      ConduitEventSpecs.turnFinished,
+      TurnFinished(
+        chatId: turn.chatId,
+        messageId: turn.messageId,
+        ok: !failed,
+        code: failed ? ConduitErrorCodes.serverError : null,
+      ),
+    );
+    final settling = _settle(session, turn, failed: failed);
+    session.settling = settling;
+    unawaited(
+      settling.whenComplete(() {
+        if (identical(session.settling, settling)) session.settling = null;
+      }),
+    );
+  }
+
+  /// After the turn: makes sure the stored copy has the answer, then tells
+  /// every window, and lets the scope go once nothing needs it.
+  Future<void> _settle(
+    _ChatSession session,
+    _Turn turn, {
+    required bool failed,
+  }) async {
+    // A direct or Hermes send settles once its answer is stored.
+    try {
+      await session.pending?.sending;
+    } on Object {
+      // Reported with the turn.
+    }
+    final chatId = session.scope.isDisposed
+        ? turn.chatId
+        : (session.scope.conversation?.id ?? turn.chatId);
+    if (temporary.contains(chatId) ||
+        (TemporaryChats.isTemporary(chatId) &&
+            hermesSessionOf(chatId) == null &&
+            !session.scope.isDisposed &&
+            _isTemporaryConversation(session.scope.conversation))) {
+      if (!session.scope.isDisposed) {
+        temporary.replace(chatId, session.scope.messages);
+      }
+      _announce(chatId);
+    } else if (hermesSessionOf(chatId) case final sessionId?) {
+      _hermes?.forget(sessionId);
+      _hermes?.announceSessions();
+      _announce(chatId);
+    } else if (_storedLocally(session, chatId)) {
+      _container.invalidate(loadConversationProvider(chatId));
+      _announce(chatId);
+    } else {
+      await _announceWhenSynced(
+        chatId,
+        answerId: failed ? null : turn.messageId,
+      );
+    }
+    if (identical(session.turn, turn)) session.pending = null;
+    _scheduleLinger(session);
+  }
+
+  bool _storedLocally(_ChatSession session, String chatId) {
+    if (chatId.startsWith('direct-local:')) return true;
+    final conversation = session.scope.isDisposed
+        ? null
+        : session.scope.conversation;
+    return chatStorageKindOf(conversation) == ChatStorageKind.directLocal;
+  }
+
+  static bool _isTemporaryConversation(Conversation? conversation) =>
+      conversation != null &&
+      isTemporaryChat(conversation.id) &&
+      chatStorageKindOf(conversation) != ChatStorageKind.openWebUi &&
+      !isNativeHermesConversation(conversation);
+
+  void _scheduleLinger(_ChatSession session) {
+    session.linger?.cancel();
+    if (session.scope.isDisposed) return;
+    session.linger = Timer(lingerAfterTurn, () {
+      if (session.holds > 0) return;
+      final turn = session.turn;
+      if (turn != null && !turn.finished) return;
+      if (session.pending != null) return;
+      _close(session);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Approvals the screen would show
+  // ---------------------------------------------------------------------------
+
+  void _hostApprovals(_ChatSession session, ChatMessage answer) {
+    final mcp = answer.metadata?[kDirectMcpApprovalMetadataKey];
+    if (mcp is Map && mcp['state'] == 'pending') {
+      final id = mcp['id']?.toString() ?? '';
+      if (id.isNotEmpty &&
+          _container.read(directRunRegistryProvider).hasLiveMcpApproval(id) &&
+          session.asked.add(id)) {
+        unawaited(
+          _answerMcpApproval(
+            id: id,
+            serverName: mcp['serverName']?.toString() ?? '',
+            toolName: mcp['toolName']?.toString() ?? '',
+            argumentsJson: mcp['arguments']?.toString() ?? '{}',
+          ),
+        );
+      }
+    }
+    final toolPrompt = findPendingOpenWebUiToolPrompt(<ChatMessage>[answer]);
+    if (toolPrompt != null &&
+        session.asked.add('openwebui:${toolPrompt.callId}')) {
+      unawaited(_answerToolPrompt(session, toolPrompt));
+    }
+    final hermes = pendingHermesApprovalOf(session.scope.container, answer);
+    if (hermes != null &&
+        session.scope.conversation != null &&
+        session.asked.add('hermes:${hermes.approvalId}')) {
+      unawaited(_answerHermesApproval(session, hermes));
+    }
+  }
+
+  Future<void> _answerMcpApproval({
+    required String id,
+    required String serverName,
+    required String toolName,
+    required String argumentsJson,
+  }) async {
+    final registry = _container.read(directRunRegistryProvider);
+    final ask = _uiRequests;
+    final choice = ask == null
+        ? 'deny'
+        : await ask.askMcpApproval(
+            serverName: serverName,
+            toolName: toolName,
+            argumentsJson: argumentsJson,
+            timeout: kDirectToolApprovalTimeout,
+          );
+    try {
+      switch (choice) {
+        case 'allow':
+          registry.resolveMcpApprovalById(
+            id,
+            DirectToolApprovalDecision.allowOnce,
+          );
+        case 'allowSession':
+          registry.resolveMcpApprovalById(
+            id,
+            DirectToolApprovalDecision.allowSession,
+          );
+        case 'allowAlways':
+          final servers = _container.read(directMcpServersProvider.notifier);
+          await registry.resolveMcpApprovalAlwaysById(
+            id,
+            servers.rememberApproval,
+            servers.revokeRememberedApproval,
+          );
+        default:
+          registry.resolveMcpApprovalById(id, DirectToolApprovalDecision.deny);
+      }
+    } on Object catch (error, stackTrace) {
+      DebugLogger.error(
+        'mcp-approval-failed',
+        scope: 'daemon/turns',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      registry.resolveMcpApprovalById(id, DirectToolApprovalDecision.deny);
+    }
+  }
+
+  /// Answers an Open WebUI tool prompt persisted on the answer (Open WebUI
+  /// 0.13's ask-user, tool approval and confirmation): the server resolves
+  /// the tool call, and the core resumes the turn.
+  Future<void> _answerToolPrompt(
+    _ChatSession session,
+    OpenWebUiPendingToolPrompt pending,
+  ) async {
+    final reply = await _askPrompt(pending.prompt);
+    final chatId = session.chatId;
+    if (session.scope.isDisposed || chatId == null) return;
+    try {
+      await resolvePersistedOpenWebUiPrompt(
+        session.scope.container,
+        ownerConversationId: chatId,
+        pending: pending,
+        action: reply.action,
+        answers: reply.answers,
+        isMounted: () => !session.scope.isDisposed,
+      );
+    } on Object catch (error, stackTrace) {
+      DebugLogger.error(
+        'openwebui-tool-prompt-failed',
+        scope: 'daemon/turns',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  /// Answers a prompt Open WebUI raised over the socket and the core is
+  /// holding for the chat: a confirmation, or questions for the user.
+  Future<void> _hostLivePrompt(
+    _ChatSession session,
+    OpenWebUiLivePromptState? live,
+  ) async {
+    if (live == null || !session.asked.add('live:${live.prompt.identity}')) {
+      return;
+    }
+    final reply = await _askPrompt(live.prompt);
+    if (session.scope.isDisposed) return;
+    final prompts = session.scope.container.read(
+      openWebUiLivePromptProvider.notifier,
+    );
+    switch (reply.action) {
+      case OpenWebUiToolCallAction.approve:
+        prompts.decide(live.prompt.identity, true);
+      case OpenWebUiToolCallAction.answer:
+        prompts.answer(live.prompt.identity, reply.answers ?? const {});
+      case OpenWebUiToolCallAction.reject:
+        if (live.prompt.kind == OpenWebUiComposerPromptKind.confirmation) {
+          prompts.decide(live.prompt.identity, false);
+        } else {
+          prompts.cancel();
+        }
+    }
+  }
+
+  /// Puts [prompt] to the windows as `ui.request`s and returns what to tell
+  /// Open WebUI: an approval or confirmation as one yes-or-no, questions one
+  /// at a time, each answered with one of its options or, where the server
+  /// allows it, the user's own words. Unanswered, or with no window, it is
+  /// declined.
+  Future<({OpenWebUiToolCallAction action, Map<String, dynamic>? answers})>
+  _askPrompt(OpenWebUiComposerPrompt prompt) async {
+    const declined = (action: OpenWebUiToolCallAction.reject, answers: null);
+    final ask = _uiRequests;
+    if (ask == null) return declined;
+    final title = prompt.title.trim().isEmpty ? 'Open WebUI' : prompt.title;
+    switch (prompt.kind) {
+      case OpenWebUiComposerPromptKind.confirmation:
+        final approved = await ask.confirm(
+          title: title,
+          message: prompt.message,
+        );
+        return approved
+            ? (action: OpenWebUiToolCallAction.approve, answers: null)
+            : declined;
+      case OpenWebUiComposerPromptKind.toolApproval:
+        final approved = await ask.askToolApproval(
+          title: title,
+          message: prompt.message,
+        );
+        return approved
+            ? (action: OpenWebUiToolCallAction.approve, answers: null)
+            : declined;
+      case OpenWebUiComposerPromptKind.askUser:
+        final answers = <String, dynamic>{};
+        for (final question in prompt.questions) {
+          final pick = question.options.isNotEmpty && !question.allowOther;
+          final text = await ask.promptForText(
+            title: question.header.trim().isEmpty ? title : question.header,
+            message: question.question,
+            inputType: pick ? UiTextInputType.select : UiTextInputType.text,
+            options: <UiSelectOption>[
+              for (final option in question.options)
+                UiSelectOption(value: option.label, label: option.label),
+            ],
+          );
+          if (text == null) return declined;
+          final index = question.options.indexWhere((o) => o.label == text);
+          answers[question.id] = index >= 0
+              ? <String, dynamic>{
+                  'type': 'option',
+                  'option_index': index,
+                  'label': question.options[index].label,
+                  'description': question.options[index].description,
+                }
+              : <String, dynamic>{'type': 'other', 'text': text.trim()};
+        }
+        return (action: OpenWebUiToolCallAction.answer, answers: answers);
+    }
+  }
+
+  void _showTerminalFile(_ChatSession session, TerminalFileRequest? request) {
+    final chatId = session.chatId;
+    final path = request?.path.trim() ?? '';
+    if (chatId == null || path.isEmpty) return;
+    _events.emit(
+      ConduitEventSpecs.terminalDisplayFile,
+      TerminalDisplayFile(chatId: chatId, path: path),
+      scope: chatId,
+    );
+  }
+
+  Future<void> _answerHermesApproval(
+    _ChatSession session,
+    HermesPendingApproval approval,
+  ) async {
+    final ask = _uiRequests;
+    final choices = approval.choices.isEmpty
+        ? const <String>['once', 'deny']
+        : approval.choices;
+    final choice = ask == null
+        ? 'deny'
+        : await ask.askHermesApproval(
+            summary: approval.summary ?? '',
+            choices: choices,
+          );
+    if (session.scope.isDisposed) return;
+    final answered = await resolveHermesApproval(
+      session.scope.container,
+      approval,
+      choice: choice,
+    );
+    if (!answered) {
+      DebugLogger.warning('hermes-approval-not-taken', scope: 'daemon/turns');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Scopes
+  // ---------------------------------------------------------------------------
+
+  _ChatSession? _sessionOf(String chatId) {
+    for (final session in _sessions) {
+      if (session.chatId == chatId) return session;
+    }
+    return null;
+  }
+
+  /// [chatId]'s scope, opened with the chat in it; a new one for a new chat.
+  /// A temporary chat the user deleted is answered no more.
+  void _refuseDeleted(String? chatId) {
+    if (chatId != null && temporary.isDeleted(chatId)) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: 'chat $chatId was deleted',
+      );
+    }
+  }
+
+  Future<_ChatSession> _sessionFor(String? chatId) async {
+    if (_disposed) {
+      throw const RpcError(
+        code: ConduitErrorCodes.shuttingDown,
+        debugMessage: 'the daemon is stopping',
+      );
+    }
+    _refuseDeleted(chatId);
+    if (chatId != null) {
+      final existing = _sessionOf(chatId);
+      if (existing != null) {
+        // Held by this request until it has started its turn or failed.
+        existing.linger?.cancel();
+        existing.holds++;
+        return existing;
+      }
+    }
+    // Loaded under one account, a chat is not opened under the next: an
+    // account change while it loads closes only the sessions already open.
+    final account = _container.read(openWebUiAuthSessionEpochProvider);
+    final conversation = chatId == null ? null : await _conversation(chatId);
+    if (!identical(
+      account,
+      _container.read(openWebUiAuthSessionEpochProvider),
+    )) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed while the chat loaded',
+      );
+    }
+    final scope = ChatSessionScope.open(_container);
+    final session = _ChatSession(scope, requestedChatId: chatId)..holds = 1;
+    _sessions.add(session);
+    session.subscriptions.addAll(<ProviderSubscription<Object?>>[
+      scope.container.listen<List<ChatMessage>>(
+        chatMessagesProvider,
+        (_, _) => _project(session),
+      ),
+      scope.container.listen<Conversation?>(activeConversationProvider, (
+        previous,
+        next,
+      ) {
+        _onConversation(session, previous, next);
+        // A new chat's id can arrive after its answer has started.
+        _project(session);
+      }),
+      // A question or confirmation Open WebUI raised mid-turn.
+      scope.container.listen<OpenWebUiLivePromptState?>(
+        openWebUiLivePromptProvider,
+        (_, next) => _hostLivePrompt(session, next),
+      ),
+      // A file the model's terminal tool asked to show.
+      scope.container.listen<TerminalFileRequest?>(
+        terminalDisplayFileProvider,
+        (_, next) => _showTerminalFile(session, next),
+      ),
+    ]);
+    if (conversation != null) {
+      if (hermesSessionOf(conversation.id) case final sessionId?) {
+        scope.container
+            .read(hermesActiveSessionProvider.notifier)
+            .set(sessionId);
+      }
+      scope.container
+          .read(activeConversationProvider.notifier)
+          .set(conversation);
+    }
+    return session;
+  }
+
+  /// The conversation [chatId] names, as a scope opens it.
+  Future<Conversation> _conversation(String chatId) async {
+    if (temporary.contains(chatId)) {
+      final messages = temporary.transcript(chatId);
+      final now = DateTime.now();
+      return Conversation(
+        id: chatId,
+        title: messages.isEmpty ? '' : messages.first.content.split('\n').first,
+        createdAt: now,
+        updatedAt: now,
+        messages: messages,
+      );
+    }
+    if (hermesSessionOf(chatId) case final sessionId?) {
+      final hermes = _hermes;
+      if (hermes == null) {
+        throw const RpcError(
+          code: ConduitErrorCodes.daemonUnavailable,
+          debugMessage: 'the core is not up yet',
+        );
+      }
+      final messages = await hermes.transcript(sessionId, reload: true);
+      final now = DateTime.now();
+      return markNativeHermesConversation(
+        Conversation(
+          id: chatId,
+          title: await hermes.titleOf(sessionId) ?? '',
+          createdAt: now,
+          updatedAt: now,
+          messages: messages,
+          metadata: <String, dynamic>{
+            'backend': 'hermes',
+            'hermesSessionId': sessionId,
+          },
+        ),
+      );
+    }
+    try {
+      return await readSettled(
+        _container,
+        loadConversationProvider(chatId).future,
+      );
+    } on RpcError {
+      rethrow;
+    } on Object catch (error) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        args: <String, String>{'chatId': chatId},
+        debugMessage: 'could not open that chat: $error',
+      );
+    }
+  }
+
+  void _onConversation(
+    _ChatSession session,
+    Conversation? previous,
+    Conversation? next,
+  ) {
+    final turn = session.turn;
+    if (next != null && turn != null && !turn.finished) {
+      // A chat's id can change under a running turn: a `local:` id replaced
+      // by the server's. The windows follow the chat (`route.remap`), so
+      // the turn publishes under the new id from then on.
+      turn.chatId = next.id;
+    }
+    // The server titles a new chat, or tags it, after the answer.
+    if (previous != null &&
+        next != null &&
+        previous.id == next.id &&
+        (previous.title != next.title ||
+            !_sameTags(previous.tags, next.tags))) {
+      _announce(next.id);
+    }
+  }
+
+  static bool _sameTags(List<String> a, List<String> b) =>
+      a.length == b.length && a.toSet().containsAll(b);
+
+  void _followRemap(String fromId, String toId) {
+    for (final session in _sessions) {
+      if (session.turn case final turn? when turn.chatId == fromId) {
+        turn.chatId = toId;
+      }
+      if (session.requestedChatId == fromId) session.requestedChatId = toId;
+    }
+  }
+
+  /// Lets go of [session] for a request that has started its turn, or failed
+  /// to; it lingers from then on as any finished chat does.
+  void _release(_ChatSession session) {
+    if (session.holds > 0) session.holds--;
+    if (session.holds > 0 || session.scope.isDisposed) return;
+    final turn = session.turn;
+    final running = turn != null && !turn.finished;
+    if (!running && session.pending == null) _scheduleLinger(session);
+  }
+
+  void _close(_ChatSession session) {
+    session.linger?.cancel();
+    session.turn?.ticker?.cancel();
+    for (final subscription in session.subscriptions) {
+      subscription.close();
+    }
+    session.subscriptions.clear();
+    // A temporary chat's transcript lived in the scope; keep it for the next
+    // turn and for `chats.get`.
+    if (!session.scope.isDisposed) {
+      final conversation = session.scope.conversation;
+      if (conversation != null && _isTemporaryConversation(conversation)) {
+        temporary.replace(conversation.id, session.scope.messages);
+      }
+    }
+    session.scope.dispose();
+    _sessions.remove(session);
+  }
+
+  void _closeAll({required String reason}) {
+    if (_sessions.isEmpty) return;
+    DebugLogger.log(
+      'chat-scopes-closed',
+      scope: 'daemon/turns',
+      data: <String, Object?>{'reason': reason, 'count': _sessions.length},
+    );
+    for (final session in List<_ChatSession>.of(_sessions)) {
+      final turn = session.turn;
+      if (turn != null && !turn.finished) {
+        turn.finished = true;
+        turn.ticker?.cancel();
+        _events
+          ..emit(
+            ConduitEventSpecs.turnFailed,
+            TurnFailed(
+              chatId: turn.chatId,
+              messageId: turn.messageId,
+              code: ConduitErrorCodes.sessionExpired,
+              partialText: turn.text,
+            ),
+            scope: turn.chatId,
+          )
+          ..emit(
+            ConduitEventSpecs.turnFinished,
+            TurnFinished(
+              chatId: turn.chatId,
+              messageId: turn.messageId,
+              ok: false,
+              code: ConduitErrorCodes.sessionExpired,
+            ),
+          );
+      }
+      final pending = session.pending;
+      if (pending != null && !pending.started.isCompleted) {
+        pending.started.completeError(
+          const RpcError(
+            code: ConduitErrorCodes.sessionExpired,
+            debugMessage: 'the account changed before the answer started',
+          ),
+        );
+      }
+      _close(session);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // The composer, as the request describes it
+  // ---------------------------------------------------------------------------
+
+  /// Sets [scope]'s composer to what this turn asks for. Chosen by hand, so
+  /// the core's default-model restore leaves it alone.
+  void _choose(
+    ProviderContainer scope,
+    Model model, {
+    bool webSearch = false,
+    bool imageGeneration = false,
+    bool codeInterpreter = false,
+    List<String> toolIds = const <String>[],
+    bool? temporary,
+  }) {
+    scope.read(isManualModelSelectionProvider.notifier).set(true);
+    scope.read(selectedModelProvider.notifier).set(model, allowHidden: true);
+    scope.read(webSearchEnabledProvider.notifier).set(webSearch);
+    scope.read(imageGenerationEnabledProvider.notifier).set(imageGeneration);
+    scope.read(codeInterpreterEnabledProvider.notifier).set(codeInterpreter);
+    scope.read(selectedToolIdsProvider.notifier).set(toolIds);
+    scope.read(contextAttachmentsProvider.notifier).clear();
+    if (temporary != null) {
+      scope.read(temporaryChatEnabledProvider.notifier).set(temporary);
+    }
+  }
+
+  /// The model a turn runs with.
+  ///
+  /// The request wins when it names one, as the composer's picker does.
+  /// Otherwise the account's selection or default ([currentModel]), and
+  /// failing that the first model offered.
+  Future<Model> _resolveModel(String? requested) async {
+    List<Model> models;
+    try {
+      // Awaited, not read: a turn sent before anything loaded the list
+      // would otherwise find none.
+      models = await readSettled(_container, modelsProvider.future);
+    } on Object catch (error) {
+      DebugLogger.error(
+        'models-unavailable',
+        scope: 'daemon/turns',
+        error: error,
+      );
+      models = const <Model>[];
+    }
+    final id = requested?.trim();
+    if (id != null && id.isNotEmpty) {
+      final known = models.where((m) => m.id == id).firstOrNull;
+      if (known != null) return known;
+      // A direct model is the core's own object, bound in its registry; only
+      // discovery hands it out, and a connection saved a moment ago may
+      // still be being discovered.
+      if (DirectModelId.decode(id) != null) {
+        final discovered = await _discoveredDirectModel(id);
+        if (discovered != null) return discovered;
+      }
+      // A bare id shaped like a direct or Hermes model is not that model.
+      if (DirectModelId.decode(id) != null || id.startsWith('hermes:')) {
+        throw RpcError(
+          code: ConduitErrorCodes.notFound,
+          args: <String, String>{'model': id},
+          debugMessage: 'that model is not available',
+        );
+      }
+      return Model(id: id, name: id);
+    }
+    final current = await currentModel(_container);
+    if (current != null) return current;
+    if (models.isNotEmpty) return models.first;
+    throw const RpcError(
+      code: ConduitErrorCodes.unsupported,
+      debugMessage: 'this server offers no models',
+    );
+  }
+
+  Future<Model?> _discoveredDirectModel(String id) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (true) {
+      try {
+        final state = await readSettled(
+          _container,
+          directModelDiscoveryProvider.future,
+        );
+        final model = state.models.where((m) => m.id == id).firstOrNull;
+        if (model != null) return model;
+      } on Object catch (error) {
+        DebugLogger.error(
+          'direct-discovery-failed',
+          scope: 'daemon/turns',
+          error: error,
+        );
+      }
+      if (DateTime.now().isAfter(deadline)) return null;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+  }
+
+  /// Refuses a turn its backend cannot take, saying why, before the core
+  /// starts one: signed out of Open WebUI, Hermes not set up or waiting for
+  /// its sign-in. The core would stop quietly or fail further in, and the
+  /// window could only call that a connection problem.
+  Future<void> _requireBackendFor(Model model) async {
+    if (isHermesModel(model)) {
+      final config = _container.read(hermesConfigProvider.notifier);
+      // Before anything reads the connection: on a cold start the saved
+      // tokens are still loading, and loading them rebuilds the service.
+      await config.waitForSecretsHydration();
+      if (_container.read(hermesConfigProvider).mode ==
+          HermesBackendMode.responsesApi) {
+        // The long-term memory key, made before the first turn as mobile
+        // does; made later it would rebuild the service underneath.
+        await config.ensureSessionKey();
+      }
+      if (_container.read(hermesApiServiceProvider) == null) {
+        throw const RpcError(
+          code: ConduitErrorCodes.unauthenticated,
+          args: <String, String>{'backend': 'hermes'},
+          debugMessage: 'Hermes is not configured',
+        );
+      }
+      if (hermesAwaitsSignIn(_container.read(hermesConfigProvider))) {
+        throw const RpcError(
+          code: ConduitErrorCodes.unauthenticated,
+          args: <String, String>{'backend': 'hermes'},
+          debugMessage: 'sign in to Hermes first',
+        );
+      }
+      return;
+    }
+    final binding = _container.read(directModelRegistryProvider).resolve(model);
+    if (binding?.source == DirectModelSource.device) return;
+    _requireOpenWebUi();
+  }
+
+  /// The signed-in server, or the error that says why there is none.
+  ///
+  /// Both checks, in this order: a configured-but-signed-out server still
+  /// produces a client, so a null check alone lets the request go out and
+  /// come back as a transport error.
+  ApiService _requireOpenWebUi() {
+    final api = _container.read(apiServiceProvider);
+    final session = _container.read(authStateManagerProvider).value;
+    if (api == null || session == null || !session.isAuthenticated) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unauthenticated,
+        debugMessage: 'sign in before sending a turn',
+      );
+    }
+    return api;
+  }
+
+  /// Refuses a second turn in a chat that is already generating: two
+  /// answers would interleave into one transcript.
+  /// Refuses a second turn in a chat that is already generating: two
+  /// answers would interleave into one transcript.
+  ///
+  /// A chat this daemon is not answering in is first let settle. Opening an
+  /// Open WebUI chat starts the core's reconciliation with the stored and the
+  /// server's copies, which can briefly put a finished answer back to
+  /// streaming while it checks whether that answer is still running; a
+  /// regenerate or an edit started meanwhile loses its claim on the
+  /// transcript and the core quietly drops it. On a phone the user's tap
+  /// comes after that settles; here the call can come first. So the turn
+  /// waits for the transcript to be quiet and not streaming, for at most
+  /// [_settleBudget], and only a chat still generating after that is
+  /// refused.
+  Future<void> _requireIdle(_ChatSession session) async {
+    void refuse() => throw const RpcError(
+      code: ConduitErrorCodes.conflict,
+      debugMessage: 'that chat is already generating',
+    );
+    final turn = session.turn;
+    if ((turn != null && !turn.finished) ||
+        (session.pending != null && !session.pending!.started.isCompleted)) {
+      refuse();
+    }
+    // The last turn's stored copy first: until it has the answer, the
+    // pulls that bring it keep replacing the transcript a new turn reads.
+    final settling = session.settling;
+    if (settling != null) {
+      await settling.timeout(_settleTimeout, onTimeout: () {});
+    }
+    if (session.requestedChatId != null || session.scope.conversation != null) {
+      await _settleBeforeTurn(session);
+    }
+    if (!session.scope.isDisposed && session.scope.isStreaming) refuse();
+  }
+
+  static const Duration _settleBudget = Duration(seconds: 6);
+
+  /// Longest a turn waits for the previous one to reach the stored copy:
+  /// past [syncRetryDelays]' total, so a sync that is merely slow is waited
+  /// for, and one that has failed outright does not hold the turn.
+  static const Duration _settleTimeout = Duration(seconds: 20);
+  static const Duration _settleQuiet = Duration(milliseconds: 500);
+
+  Future<void> _settleBeforeTurn(_ChatSession session) async {
+    if (session.scope.isDisposed) return;
+    var lastChange = DateTime.now();
+    final watch = session.scope.container.listen<List<ChatMessage>>(
+      chatMessagesProvider,
+      (_, _) => lastChange = DateTime.now(),
+    );
+    try {
+      final deadline = DateTime.now().add(_settleBudget);
+      while (DateTime.now().isBefore(deadline) && !session.scope.isDisposed) {
+        final quiet = DateTime.now().difference(lastChange) >= _settleQuiet;
+        if (quiet && !session.scope.isStreaming) return;
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+    } finally {
+      watch.close();
+    }
+  }
+
+  void _refuseTemporary(String chatId) {
+    if (temporary.contains(chatId)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'a temporary chat has no history to branch',
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Telling the windows
+  // ---------------------------------------------------------------------------
+
+  void _announce(String chatId) {
+    // Unscoped, so every window's sidebar reorders; the payload names the
+    // chat, so only a window showing it refetches its transcript.
+    _events.emit(ConduitEventSpecs.chatsChanged, ChatsChanged(chatId: chatId));
+  }
+
+  Future<void> _announceWhenSynced(String chatId, {String? answerId}) async {
+    // Nothing to pull for a chat the server never stored.
+    if (TemporaryChats.isTemporary(chatId)) {
+      _announce(chatId);
+      return;
+    }
+    for (final delay in <Duration>[Duration.zero, ...syncRetryDelays]) {
+      if (delay > Duration.zero) await Future<void>.delayed(delay);
+      if (_disposed) return;
+      await _pull(chatId);
+      // A failed turn has no answer to wait for; one pull is all it gets.
+      if (answerId == null || await _hasAnswer(chatId, answerId)) break;
+    }
+    if (!_disposed) _announce(chatId);
+  }
+
+  Future<void> _pull(String chatId) async {
+    try {
+      await _container.read(syncEngineProvider.notifier).pullChatNow(chatId);
+    } on Object catch (error) {
+      DebugLogger.error(
+        'post-turn-pull-failed',
+        scope: 'daemon/turns',
+        error: error,
+      );
+    }
+    _container.invalidate(loadConversationProvider(chatId));
+  }
+
+  Future<bool> _hasAnswer(String chatId, String answerId) async {
+    try {
+      final conversation = await readSettled(
+        _container,
+        loadConversationProvider(chatId).future,
+      );
+      return conversation.messages.any(
+        (message) => message.id == answerId && message.content.isNotEmpty,
+      );
+    } on Object {
+      // Unreadable is not the same as missing, and retrying would not make
+      // it readable. Announce what there is.
+      return true;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  static ChatMessage? _answerOf(_ChatSession session, _Turn turn) {
+    if (session.scope.isDisposed) return null;
+    return session.scope.messages
+        .where((m) => m.id == turn.messageId)
+        .lastOrNull;
+  }
+
+  static bool _changed(ChatMessage? before, ChatMessage after) =>
+      before == null ||
+      before.content != after.content ||
+      before.versions.length != after.versions.length ||
+      before.timestamp != after.timestamp;
+
+  static Map<String, int>? _usageOf(Map<String, dynamic>? usage) {
+    if (usage == null || usage.isEmpty) return null;
+    final counts = <String, int>{
+      for (final entry in usage.entries)
+        if (entry.value is num) entry.key: (entry.value as num).toInt(),
+    };
+    return counts.isEmpty ? null : counts;
+  }
+
+  static String _describe(Object error) => switch (error) {
+    RpcError(:final debugMessage?) => debugMessage,
+    StateError(:final message) => message,
+    _ => '$error',
+  };
+
+  static RpcError _rpcErrorFor(Object error) {
+    if (error is RpcError) return error;
+    if (error is DirectChatInputException) {
+      return RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{'detail': error.message},
+        debugMessage: error.message,
+      );
+    }
+    final detail = _describe(error);
+    return RpcError(
+      code: ConduitErrorCodes.serverError,
+      args: <String, String>{'detail': detail},
+      debugMessage: detail,
+    );
+  }
+}
+
+/// One chat's scope and the turn running in it.
+final class _ChatSession {
+  _ChatSession(this.scope, {required this.requestedChatId});
+
+  final ChatSessionScope scope;
+
+  /// The id the scope was opened for; null for a new chat.
+  String? requestedChatId;
+
+  _PendingTurn? pending;
+  _Turn? turn;
+  Timer? linger;
+
+  /// Requests preparing a turn in this chat; it is not let go meanwhile.
+  int holds = 0;
+
+  /// The last turn's post-turn sync, while it runs.
+  Future<void>? settling;
+
+  /// The last turn's final blocks and terminal event, for a window that adds
+  /// this chat after they went out.
+  _Ended? ended;
+  final List<ProviderSubscription<Object?>> subscriptions =
+      <ProviderSubscription<Object?>>[];
+
+  /// Approvals already put to the user, so each is asked once.
+  final Set<String> asked = <String>{};
+
+  String? get chatId {
+    if (!scope.isDisposed) {
+      final id = scope.conversation?.id;
+      if (id != null) return id;
+    }
+    return turn?.chatId ?? requestedChatId;
+  }
+}
+
+/// A turn asked for whose answer has not appeared yet.
+final class _PendingTurn {
+  _PendingTurn({
+    required this.model,
+    required this.userMessageId,
+    required this.baseline,
+  });
+
+  final String model;
+  String? userMessageId;
+
+  /// The answer's id, once the core's send has made its placeholder.
+  String? assistantMessageId;
+
+  /// The answers in the transcript before this turn, as they were; the turn
+  /// is the answer that starts streaming, or that changed, since.
+  final Map<String, ChatMessage> baseline;
+
+  Future<void>? sending;
+  bool sendSettled = false;
+  Object? sendError;
+  final Completer<_Turn> started = Completer<_Turn>();
+}
+
+/// One answer being streamed.
+final class _Turn {
+  _Turn({
+    required this.chatId,
+    required this.messageId,
+    required this.model,
+    required this.userMessageId,
+    required this.clientOwned,
+  });
+
+  /// Not final: a chat's `local:` id can be replaced by the server's while
+  /// the answer streams.
+  String chatId;
+  final String messageId;
+  final String model;
+  final String? userMessageId;
+
+  /// Whether this process talks to the provider itself (direct, Hermes), so
+  /// the send that started the turn lasts as long as the answer.
+  final bool clientOwned;
+
+  String text = '';
+  bool dirty = false;
+
+  /// Parses the answer frame by frame without re-reading what is closed.
+  final StreamingContentBlocks live = StreamingContentBlocks();
+
+  /// [messageBlockInputsHash] of the answer as last seen.
+  int? blockInputs;
+
+  /// The blocks need publishing though the text may not have changed.
+  bool blocksDirty = false;
+
+  /// The blocks last built, for a frame where the answer is gone from the
+  /// transcript.
+  List<MessageBlockDto> lastBlocks = const <MessageBlockDto>[];
+  bool announced = false;
+  bool finished = false;
+  bool stopped = false;
+  Timer? ticker;
+}
+
+/// How a turn ended, kept for a window that subscribes afterwards.
+final class _Ended {
+  _Ended({required this.blocks, this.completed, this.failed});
+
+  final TurnBlocks blocks;
+  final TurnCompleted? completed;
+  final TurnFailed? failed;
+}

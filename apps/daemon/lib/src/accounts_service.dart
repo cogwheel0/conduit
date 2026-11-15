@@ -21,6 +21,7 @@ import 'package:uuid/uuid.dart';
 import 'event_bus.dart';
 import 'servers_service.dart';
 import 'settled.dart';
+import 'turns_service.dart';
 
 /// Implements `accounts.*` over the core's [OpenWebUiAccountsController], the
 /// layer mobile's Accounts page calls.
@@ -34,7 +35,7 @@ import 'settled.dart';
 /// leaves, errors leave as codes -- and the daemon's own running answers to
 /// the controller's question "is a reply still being written".
 final class AccountsService {
-  AccountsService(this._container, {required EventBus events})
+  AccountsService(this._container, {required EventBus events, this.turns})
     : _events = events {
     _watches = <ProviderSubscription<Object?>>[
       // Which account is active, after a switch, an addition or a sign-in
@@ -63,6 +64,10 @@ final class AccountsService {
 
   final ProviderContainer _container;
   final EventBus _events;
+
+  /// The daemon's running answers, which the controller cannot see: they
+  /// stream in chat scopes, not in the root's one open chat.
+  final TurnsService? turns;
 
   late final List<ProviderSubscription<Object?>> _watches;
   bool _announceScheduled = false;
@@ -319,13 +324,16 @@ final class AccountsService {
   /// stopped first. The controller asks the same of the root's own chat and
   /// of the direct and Hermes runs this process holds.
   Future<bool> _mayLeave({required bool force}) async {
+    final running = turns?.activeChatIds.isNotEmpty ?? false;
     if (!force) {
+      if (running) return false;
       try {
         return !_container.read(accountChangeReplyGuardProvider)();
       } on Object {
         return true;
       }
     }
+    await turns?.stopAll();
     return true;
   }
 

@@ -21,6 +21,7 @@ import 'package:conduit_core/providers/app_providers.dart'
     show activeServerProvider, apiServiceProvider, socketServiceManagerProvider;
 import 'package:conduit_core/features/chat/services/request_completion_runner.dart'
     show chatRequestCompletionRunnerProvider;
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show openWebUiDuplicateAccountReconcilerProvider;
@@ -36,6 +37,7 @@ import 'package:riverpod/riverpod.dart';
 
 import 'bootstrap.dart';
 import 'daemon_paths.dart';
+import 'hermes_service.dart' show hermesAwaitsSignIn;
 import 'log.dart';
 import 'ports/connectivity.dart';
 import 'ports/database_opener.dart';
@@ -131,7 +133,12 @@ final class CoreRuntime {
             Uri.parse(destination).path == Routes.directConnections)) {
       return true;
     }
-    return false;
+    // So is a chosen Hermes gateway that still has to sign in: the core
+    // counts it set up, but it cannot answer yet (see [hermesAwaitsSignIn]).
+    return destination == null &&
+        container.read(activeServerProvider).value == null &&
+        container.read(preferredBackendProvider) == PreferredBackend.hermes &&
+        hermesAwaitsSignIn(container.read(hermesConfigProvider));
   }
 
   /// Sends what the outbox holds, for at most [budget], and returns how

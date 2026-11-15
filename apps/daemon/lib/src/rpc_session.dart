@@ -6,11 +6,20 @@ import 'package:stream_channel/stream_channel.dart';
 
 import 'accounts_service.dart';
 import 'auth_service.dart';
+import 'chats_service.dart';
+import 'composer_service.dart';
+import 'direct_service.dart';
+import 'mcp_service.dart';
+import 'prompts_service.dart';
 import 'event_bus.dart';
 import 'log.dart';
+import 'models_service.dart';
 import 'servers_service.dart';
 import 'settings_service.dart';
 import 'system_service.dart';
+import 'turns_service.dart';
+import 'ui_requests_service.dart';
+import 'hermes_service.dart';
 
 /// The services that need the core. The daemon swaps in a full set when the
 /// core attaches; until then every one is null.
@@ -20,12 +29,30 @@ final class CoreServices {
     this.servers,
     this.auth,
     this.settings,
+    this.chats,
+    this.turns,
+    this.models,
+    this.uiRequests,
+    this.composer,
+    this.prompts,
+    this.direct,
+    this.mcp,
+    this.hermes,
   });
 
   final AccountsService? accounts;
   final ServersService? servers;
   final AuthService? auth;
   final SettingsService? settings;
+  final ChatsService? chats;
+  final TurnsService? turns;
+  final ModelsService? models;
+  final UiRequestsService? uiRequests;
+  final ComposerService? composer;
+  final PromptsService? prompts;
+  final DirectService? direct;
+  final McpService? mcp;
+  final HermesService? hermes;
 }
 
 /// One connected renderer window.
@@ -67,6 +94,9 @@ class RpcSession {
   ServersService? get _servers => _services().servers;
   AuthService? get _auth => _services().auth;
   SettingsService? get _settings => _services().settings;
+  ChatsService? get _chats => _services().chats;
+  TurnsService? get _turns => _services().turns;
+  ModelsService? get _models => _services().models;
   final json_rpc.Peer _peer;
 
   /// Set by a successful `system.handshake`. Until then every other method is
@@ -76,6 +106,15 @@ class RpcSession {
 
   bool get isHandshakeComplete => _handshake != null;
 
+  /// Questions from the core, shared by every window. Null until the core
+  /// is attached, when there is nothing to ask yet.
+  UiRequestsService? get _uiRequests => _services().uiRequests;
+  ComposerService? get _composer => _services().composer;
+  PromptsService? get _prompts => _services().prompts;
+  DirectService? get _direct => _services().direct;
+  McpService? get _mcp => _services().mcp;
+  HermesService? get _hermes => _services().hermes;
+
   /// Where a window's `online`/`offline` events go: the connectivity port,
   /// which then tells every window. Null before the core is up.
   final void Function(bool online)? _reportNetwork;
@@ -84,6 +123,10 @@ class RpcSession {
 
   Future<void> close() async {
     _events.detach(sessionId);
+    // If that was the last window, nobody is left to answer: questions
+    // still waiting take their conservative default now rather than hang
+    // the turn that asked them.
+    _uiRequests?.onWindowsChanged();
     await _peer.close();
   }
 
@@ -167,16 +210,41 @@ class RpcSession {
           );
         }
       }
-      _events.subscribe(sessionId, subscription);
+      final previous = _events.subscribe(sessionId, subscription);
+      // A window that opens while a question is waiting sees it too.
+      // Otherwise a tool approval asked before the window existed could
+      // only be answered by one that no longer does.
+      for (final request in _uiRequests?.pending ?? const <UiRequest>[]) {
+        _events.emitTo(sessionId, ConduitEventSpecs.uiRequest, request);
+      }
+      // And a chat already answering, or one whose answer finished before
+      // the window could listen: see [TurnsService.catchUp].
+      _turns?.catchUp(sessionId, subscription, alreadySubscribed: previous);
       // Echo the accepted filter back so the client can assert on what the
       // daemon actually stored rather than on what it hoped it sent.
       return subscription;
+    });
+
+    _on(ConduitMethodSpecs.uiRespond, (response) {
+      final accepted = _uiRequests?.respond(response) ?? false;
+      if (!accepted) {
+        // Late or duplicate answer — the request already timed out or
+        // another window answered first. Not an error worth surfacing.
+        _log.debug(
+          'session $sessionId: ui.respond for unknown request '
+          '${response.requestId}',
+        );
+      }
+      return AcceptedResult(accepted: accepted);
     });
 
     _registerAccounts();
     _registerServers();
     _registerAuth();
     _registerSettings();
+    _registerChats();
+    _registerTurns();
+    _registerModels();
 
     _peer.registerFallback((json_rpc.Parameters params) {
       final method = params.method;
@@ -255,6 +323,279 @@ class RpcSession {
       (patch) => _requireSettings().write(patch),
     );
   }
+
+  void _registerChats() {
+    _on(ConduitMethodSpecs.chatsList, (_) => _requireChats().list());
+    _on(ConduitMethodSpecs.chatsLoadMore, (_) => _requireChats().loadMore());
+
+    // A null chat travels as data rather than as an error: opening a chat
+    // that was deleted on another device is ordinary.
+    _on(
+      ConduitMethodSpecs.chatsGet,
+      (ref) async => ChatResult(chat: await _requireChats().get(ref.id)),
+    );
+    _on(
+      ConduitMethodSpecs.chatsRename,
+      (r) => _requireChats().rename(r.id, r.title),
+    );
+    _on(
+      ConduitMethodSpecs.chatsSetPinned,
+      (r) => _requireChats().setPinned(r.id, value: r.value),
+    );
+    _on(
+      ConduitMethodSpecs.chatsSetArchived,
+      (r) => _requireChats().setArchived(r.id, value: r.value),
+    );
+    _on(
+      ConduitMethodSpecs.chatsDelete,
+      (ref) => _requireChats().delete(ref.id),
+    );
+    _on(ConduitMethodSpecs.syncGet, (_) => _requireChats().syncState());
+    _on(
+      ConduitMethodSpecs.chatsSetArchivedVisible,
+      (r) => _requireChats().setArchivedVisible(visible: r.visible),
+    );
+    _on(ConduitMethodSpecs.chatsShare, (ref) => _requireChats().share(ref.id));
+    _on(
+      ConduitMethodSpecs.chatsUnshare,
+      (ref) => _requireChats().unshare(ref.id),
+    );
+    _on(ConduitMethodSpecs.chatsBulk, (r) => _requireChats().bulk(r));
+    _on(
+      ConduitMethodSpecs.chatsSetSystemPrompt,
+      (r) async => ChatResult(chat: await _requireChats().setSystemPrompt(r)),
+    );
+    _on(ConduitMethodSpecs.chatsTree, (r) => _requireChats().tree(r.id));
+    _on(
+      ConduitMethodSpecs.chatsSetCurrent,
+      (r) async => ChatResult(chat: await _requireChats().setCurrent(r)),
+    );
+    _on(
+      ConduitMethodSpecs.chatsFolder,
+      (r) => _requireChats().folder(r.folderId),
+    );
+    _on(ConduitMethodSpecs.chatsMove, (r) => _requireChats().move(r));
+    _on(
+      ConduitMethodSpecs.foldersCreate,
+      (r) => _requireChats().createFolder(r),
+    );
+    _on(
+      ConduitMethodSpecs.foldersRename,
+      (r) => _requireChats().renameFolder(r),
+    );
+    _on(
+      ConduitMethodSpecs.foldersDelete,
+      (r) => _requireChats().deleteFolder(r.folderId),
+    );
+    _on(ConduitMethodSpecs.chatsTagsAll, (_) => _requireChats().allTags());
+    _on(ConduitMethodSpecs.chatsTagsAdd, (r) => _requireChats().addTag(r));
+    _on(
+      ConduitMethodSpecs.chatsTagsRemove,
+      (r) => _requireChats().removeTag(r),
+    );
+    _on(ConduitMethodSpecs.chatsSearch, (q) => _requireChats().search(q));
+  }
+
+  void _registerTurns() {
+    _on(ConduitMethodSpecs.turnsSend, (r) => _requireTurns().send(r));
+    _on(
+      ConduitMethodSpecs.turnsRegenerate,
+      (r) => _requireTurns().regenerate(r),
+    );
+    _on(ConduitMethodSpecs.turnsEdit, (r) => _requireTurns().edit(r));
+    _on(ConduitMethodSpecs.turnsRate, (r) async {
+      await _requireTurns().rate(r);
+      return const RatedResult(rated: true);
+    });
+    _on(ConduitMethodSpecs.turnsStop, (r) async {
+      await _requireTurns().stop(r.chatId);
+      return const StoppedResult(stopped: true);
+    });
+  }
+
+  void _registerModels() {
+    _on(ConduitMethodSpecs.composerOptions, (_) {
+      final composer = _composer;
+      if (composer == null) {
+        throw const RpcError(
+          code: ConduitErrorCodes.daemonUnavailable,
+          debugMessage: 'the core is not up yet',
+        );
+      }
+      return composer.options();
+    });
+    _on(ConduitMethodSpecs.composerKnowledge, (request) {
+      final composer = _composer;
+      if (composer == null) {
+        throw const RpcError(
+          code: ConduitErrorCodes.daemonUnavailable,
+          debugMessage: 'the core is not up yet',
+        );
+      }
+      return composer.knowledge(request.query);
+    });
+
+    // direct.*.
+    _on(ConduitMethodSpecs.directList, (_) => _requireDirect().list());
+    _on(ConduitMethodSpecs.directSave, (e) => _requireDirect().save(e));
+    _on(
+      ConduitMethodSpecs.directRemove,
+      (ref) => _requireDirect().remove(ref.id),
+    );
+    _on(
+      ConduitMethodSpecs.directSetEnabled,
+      (r) => _requireDirect().setEnabled(r.id, r.enabled),
+    );
+    _on(ConduitMethodSpecs.directTest, (e) => _requireDirect().test(e));
+    _on(
+      ConduitMethodSpecs.directSetHistory,
+      (r) => _requireDirect().setHistory(localOnly: r.localOnly),
+    );
+    _on(
+      ConduitMethodSpecs.directSetPreferred,
+      (r) => _requireDirect().setPreferred(preferred: r.preferred),
+    );
+    _on(
+      ConduitMethodSpecs.directOllamaModels,
+      (ref) => _requireDirect().ollamaModels(ref.id),
+    );
+    _on(
+      ConduitMethodSpecs.directOllamaLoad,
+      (a) => _requireDirect().ollamaLoad(a),
+    );
+    _on(
+      ConduitMethodSpecs.directOllamaUnload,
+      (a) => _requireDirect().ollamaUnload(a),
+    );
+    _on(
+      ConduitMethodSpecs.directOllamaKeepAlive,
+      (a) => _requireDirect().ollamaKeepAlive(a),
+    );
+    _on(
+      ConduitMethodSpecs.directOllamaThinking,
+      (a) => _requireDirect().ollamaThinking(a),
+    );
+
+    // hermes.*.
+    _on(ConduitMethodSpecs.hermesSettings, (_) => _requireHermes().settings());
+    _on(
+      ConduitMethodSpecs.hermesSaveSettings,
+      (p) => _requireHermes().saveSettings(p),
+    );
+    _on(ConduitMethodSpecs.hermesTest, (p) => _requireHermes().test(p));
+    _on(ConduitMethodSpecs.hermesStatus, (_) => _requireHermes().status());
+    _on(ConduitMethodSpecs.hermesSignIn, (_) => _requireHermes().signIn());
+    _on(ConduitMethodSpecs.hermesSignOut, (_) => _requireHermes().signOut());
+    _on(ConduitMethodSpecs.hermesSessions, (_) => _requireHermes().sessions());
+    _on(
+      ConduitMethodSpecs.hermesRenameSession,
+      (p) => _requireHermes().rename(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesDeleteSession,
+      (p) => _requireHermes().delete(p.id),
+    );
+    _on(
+      ConduitMethodSpecs.hermesForkSession,
+      (p) => _requireHermes().fork(p.id),
+    );
+    _on(ConduitMethodSpecs.hermesJobs, (_) => _requireHermes().jobs());
+    _on(ConduitMethodSpecs.hermesSaveJob, (p) => _requireHermes().saveJob(p));
+    _on(
+      ConduitMethodSpecs.hermesSetJobEnabled,
+      (p) => _requireHermes().setJobEnabled(p),
+    );
+    _on(ConduitMethodSpecs.hermesRunJob, (p) => _requireHermes().runJob(p.id));
+    _on(
+      ConduitMethodSpecs.hermesDeleteJob,
+      (p) => _requireHermes().deleteJob(p.id),
+    );
+    _on(ConduitMethodSpecs.hermesCatalog, (_) => _requireHermes().catalog());
+
+    // mcp.*.
+    _on(ConduitMethodSpecs.mcpList, (_) => _requireMcp().list());
+    _on(ConduitMethodSpecs.mcpSave, (e) => _requireMcp().save(e));
+    _on(ConduitMethodSpecs.mcpRemove, (ref) => _requireMcp().remove(ref.id));
+    _on(
+      ConduitMethodSpecs.mcpSetEnabled,
+      (r) => _requireMcp().setEnabled(r.id, r.enabled),
+    );
+    _on(ConduitMethodSpecs.mcpTest, (e) => _requireMcp().test(e));
+    _on(ConduitMethodSpecs.mcpConnect, (ref) => _requireMcp().connect(ref.id));
+    _on(ConduitMethodSpecs.mcpCancelConnect, (ref) async {
+      await _requireMcp().cancelConnect(ref.id);
+      return const CancelledResult(cancelled: true);
+    });
+    _on(
+      ConduitMethodSpecs.mcpDisconnect,
+      (ref) => _requireMcp().disconnect(ref.id),
+    );
+    _on(
+      ConduitMethodSpecs.mcpForgetApproval,
+      (r) => _requireMcp().forgetApproval(r),
+    );
+    _on(ConduitMethodSpecs.mcpContent, (ref) => _requireMcp().content(ref.id));
+    _on(ConduitMethodSpecs.mcpGetPrompt, (r) => _requireMcp().getPrompt(r));
+    _on(
+      ConduitMethodSpecs.mcpReadResource,
+      (r) => _requireMcp().readResource(r),
+    );
+
+    // prompts.*, models.*.
+    _on(ConduitMethodSpecs.promptsList, (_) => _requirePrompts().list());
+    _on(ConduitMethodSpecs.promptsRender, (r) => _requirePrompts().render(r));
+    _on(ConduitMethodSpecs.modelsList, (_) => _requireModels().list());
+    _on(ConduitMethodSpecs.modelsSelect, (r) => _requireModels().select(r.id));
+  }
+
+  HermesService _requireHermes() =>
+      _hermes ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  McpService _requireMcp() =>
+      _mcp ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  DirectService _requireDirect() =>
+      _direct ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  PromptsService _requirePrompts() =>
+      _prompts ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  ModelsService _requireModels() =>
+      _models ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  TurnsService _requireTurns() =>
+      _turns ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  ChatsService _requireChats() =>
+      _chats ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
 
   SettingsService _requireSettings() =>
       _settings ??

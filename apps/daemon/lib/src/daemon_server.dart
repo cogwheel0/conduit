@@ -2,9 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:conduit_core/providers/backend_mode_providers.dart'
     show preferredBackendProvider;
+import 'package:conduit_core/services/api_service.dart'
+    show FileContentTooLargeException;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:shelf/shelf.dart' as shelf;
 import 'package:shelf/shelf_io.dart' as shelf_io;
@@ -14,15 +17,26 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'accounts_service.dart';
 import 'auth_service.dart';
 import 'bootstrap.dart';
+import 'chats_service.dart';
+import 'composer_service.dart';
+import 'direct_service.dart';
+import 'mcp_service.dart';
+import 'prompts_service.dart';
 import 'core_runtime.dart';
 import 'redact.dart';
 import 'daemon_paths.dart';
 import 'event_bus.dart';
+import 'files_service.dart';
 import 'log.dart';
 import 'rpc_session.dart';
+import 'temporary_chats.dart';
+import 'ui_requests_service.dart';
+import 'models_service.dart';
 import 'servers_service.dart';
 import 'settings_service.dart';
 import 'system_service.dart';
+import 'turns_service.dart';
+import 'hermes_service.dart';
 
 /// The loopback server the desktop app talks to.
 ///
@@ -68,9 +82,23 @@ class DaemonServer {
   ServersService? _servers;
   AuthService? _auth;
   SettingsService? _settings;
+  ChatsService? _chats;
+  TurnsService? _turns;
+  ModelsService? _models;
+  FilesService? _files;
+  UiRequestsService? _uiRequests;
+  ComposerService? _composer;
+  PromptsService? _prompts;
+  DirectService? _direct;
+  McpService? _mcp;
+  HermesService? _hermes;
 
   /// What sessions see of the services above: none until [attachCore].
   CoreServices _coreServices = const CoreServices();
+
+  /// The broker the core asks its questions through. Exposed so tests can
+  /// ask one and watch it cross the RPC boundary.
+  UiRequestsService? get uiRequests => _uiRequests;
 
   final EventBus events = EventBus();
   final Map<String, RpcSession> _sessions = <String, RpcSession>{};
@@ -118,13 +146,47 @@ class DaemonServer {
     _servers = ServersService(core.container);
     _auth = AuthService(core.container);
     _settings = SettingsService(core.container);
-    _accounts = AccountsService(core.container, events: events);
+    final temporary = TemporaryChats();
+    _hermes = HermesService(core.container, events: events);
+    _chats = ChatsService(
+      core.container,
+      events: events,
+      temporary: temporary,
+      hermes: _hermes,
+    );
+    _files = FilesService(core.container);
+    _uiRequests = UiRequestsService(events);
+    // The core's own prompts, raised from any chat's turn, reach the windows
+    // through the same broker.
+    core.uiRequests.attach(_uiRequests!);
+    _turns = TurnsService(
+      core.container,
+      events,
+      temporary: temporary,
+      uiRequests: _uiRequests,
+      hermes: _hermes,
+    );
+    _accounts = AccountsService(core.container, events: events, turns: _turns);
+    _models = ModelsService(core.container, events: events);
+    _composer = ComposerService(core.container);
+    _prompts = PromptsService(core.container);
+    _direct = DirectService(core.container);
+    _mcp = McpService(core.container);
     // Every session reads this, including one that connected before now.
     _coreServices = CoreServices(
       accounts: _accounts,
       servers: _servers,
       auth: _auth,
       settings: _settings,
+      chats: _chats,
+      turns: _turns,
+      models: _models,
+      uiRequests: _uiRequests,
+      composer: _composer,
+      prompts: _prompts,
+      direct: _direct,
+      mcp: _mcp,
+      hermes: _hermes,
     );
     // An MCP sign-in opens the provider's page through a window.
     core.openUrl.attach(events);
@@ -244,6 +306,8 @@ class DaemonServer {
   Future<shelf.Response> _route(shelf.Request request) async {
     final path = '/${request.url.path}';
     if (path == ConduitHttpRoutes.rpc) return _rpcHandler(request);
+    if (path == ConduitHttpRoutes.upload) return _upload(request);
+    if (path.startsWith('/files/')) return _file(request);
     if (path == '/health') {
       // Authenticated liveness probe for a supervisor; it does not
       // reveal anything a holder of the token cannot already ask for on /rpc.
@@ -258,6 +322,153 @@ class DaemonServer {
       );
     }
     return shelf.Response.notFound('no such endpoint');
+  }
+
+  /// `POST /upload` -- an attachment on its way to the server.
+  ///
+  /// The body is the file's bytes and nothing else. No multipart parsing
+  /// here: both ends of this request are ours, the daemon re-wraps the
+  /// bytes for Open WebUI anyway, and a parser is a surface that would earn
+  /// its keep only if some other client were posting to us.
+  ///
+  /// The name travels in a header because a body that is *only* bytes is
+  /// what lets the whole thing stream. It is percent-encoded: a header is
+  /// Latin-1 by definition, and an attachment called `résumé.pdf` would
+  /// otherwise be rejected by the HTTP layer before this code ran.
+  Future<shelf.Response> _upload(shelf.Request request) async {
+    final files = _files;
+    if (files == null) {
+      return _problem(
+        503,
+        ConduitErrorCodes.daemonUnavailable,
+        'core starting',
+      );
+    }
+    if (request.method != 'POST') {
+      return shelf.Response(405, body: 'POST only');
+    }
+
+    final rawName = request.headers['x-conduit-filename'];
+    if (rawName == null || rawName.trim().isEmpty) {
+      return _problem(
+        400,
+        ConduitErrorCodes.invalidParams,
+        'missing x-conduit-filename',
+      );
+    }
+    final String name;
+    try {
+      name = Uri.decodeComponent(rawName);
+    } on FormatException {
+      return _problem(
+        400,
+        ConduitErrorCodes.invalidParams,
+        'x-conduit-filename is not percent-encoded',
+      );
+    }
+
+    try {
+      final bytes = await _collect(request.read());
+      final uploaded = await files.upload(
+        name: name,
+        bytes: bytes,
+        contentType: request.headers['content-type'],
+      );
+      return shelf.Response.ok(
+        jsonEncode(uploaded.toJson()),
+        headers: <String, String>{
+          'content-type': 'application/json',
+          ..._corsHeaders,
+        },
+      );
+    } on RpcError catch (error) {
+      final status = switch (error.code) {
+        ConduitErrorCodes.unauthenticated => 401,
+        ConduitErrorCodes.invalidParams => 400,
+        _ => 502,
+      };
+      return _problem(status, error.code, error.debugMessage);
+    } on Object catch (error, stack) {
+      _log.error('upload failed', error, stack);
+      return _problem(502, ConduitErrorCodes.serverError, 'upload failed');
+    }
+  }
+
+  /// `GET /files/{serverId}/{fileId}` -- an attachment's bytes, for an image
+  /// in a message.
+  ///
+  /// The desktop app sends the daemon's token with it, as with every request
+  /// to this port, so the daemon refuses anyone else.
+  Future<shelf.Response> _file(shelf.Request request) async {
+    final files = _files;
+    if (files == null) {
+      return _problem(
+        503,
+        ConduitErrorCodes.daemonUnavailable,
+        'core starting',
+      );
+    }
+    if (request.method != 'GET') {
+      return shelf.Response(405, body: 'GET only');
+    }
+    final segments = request.url.pathSegments;
+    if (segments.length != 3) {
+      return _problem(404, ConduitErrorCodes.notFound, 'no such file');
+    }
+    try {
+      final file = await files.download(segments[1], segments[2]);
+      return shelf.Response.ok(
+        file.bytes,
+        headers: <String, String>{
+          'content-type': file.contentType,
+          // Taken as given: a file claiming to be bytes must never be read
+          // as HTML because its first line looks like some.
+          'x-content-type-options': 'nosniff',
+          'content-disposition': 'inline',
+          // Private: it is the user's file. An hour: the same image is drawn
+          // every time the conversation is opened.
+          'cache-control': 'private, max-age=3600',
+          ..._corsHeaders,
+        },
+      );
+    } on RpcError catch (error) {
+      final status = switch (error.code) {
+        ConduitErrorCodes.invalidParams => 400,
+        ConduitErrorCodes.unauthenticated => 401,
+        ConduitErrorCodes.notFound => 404,
+        _ => 502,
+      };
+      return _problem(status, error.code, error.debugMessage);
+    } on FileContentTooLargeException {
+      return _problem(413, ConduitErrorCodes.invalidParams, 'file too large');
+    } on Object catch (error, stack) {
+      _log.error('file download failed', error, stack);
+      return _problem(502, ConduitErrorCodes.serverError, 'download failed');
+    }
+  }
+
+  /// The same error shape RPC uses, so the renderer has one thing to read.
+  shelf.Response _problem(int status, String code, String? message) =>
+      shelf.Response(
+        status,
+        body: jsonEncode(<String, Object?>{
+          'code': code,
+          'debugMessage': ?message,
+        }),
+        headers: <String, String>{
+          'content-type': 'application/json',
+          // On the error path too, or the renderer sees an opaque CORS
+          // failure instead of the reason the upload was refused.
+          ..._corsHeaders,
+        },
+      );
+
+  static Future<Uint8List> _collect(Stream<List<int>> body) async {
+    final builder = BytesBuilder(copy: false);
+    await for (final chunk in body) {
+      builder.add(chunk);
+    }
+    return builder.takeBytes();
   }
 
   late final shelf.Handler _rpcHandler = webSocketHandler(
@@ -290,6 +501,9 @@ class DaemonServer {
             .whenComplete(() {
               _sessions.remove(sessionId);
               events.detach(sessionId);
+              // A window that dropped is gone as surely as one that closed:
+              // if it was the last, waiting questions take their default.
+              _uiRequests?.onWindowsChanged();
               _log.debug('session $sessionId closed');
             }),
       );
@@ -353,6 +567,41 @@ class DaemonServer {
           'isReviewerMode': auth.isReviewerMode,
         };
       }),
+      'direct': await section(() async {
+        final direct = await _direct!.list();
+        return <String, Object?>{
+          'preferred': direct.preferred,
+          'localHistory': direct.localHistory,
+          'connections': <Map<String, Object?>>[
+            for (final connection in direct.connections)
+              <String, Object?>{
+                'id': connection.id,
+                'kind': connection.kind.name,
+                'origin': originOnly(connection.baseUrl),
+                'apiMode': connection.apiMode.name,
+                'enabled': connection.enabled,
+                'hasApiKey': connection.hasApiKey,
+                'customHeaderNames': connection.customHeaderNames,
+                'openWebUi': connection.openWebUi,
+                'compatible': connection.compatible,
+                'allowSelfSignedCertificates':
+                    connection.allowSelfSignedCertificates,
+              },
+          ],
+        };
+      }),
+      'hermes': await section(() async {
+        final hermes = await _hermes!.settings();
+        return <String, Object?>{
+          'enabled': hermes.enabled,
+          'origin': originOnly(hermes.baseUrl),
+          'mode': hermes.mode,
+          'desktopAuthKind': hermes.desktopAuthKind,
+          'desktopSignedIn': hermes.desktopSignedIn,
+          'hasApiKey': hermes.hasApiKey,
+          'usable': hermes.usable,
+        };
+      }),
       'outboxPending': await section(core.pendingOutboxCount),
       'windows': _sessions.length,
     };
@@ -392,6 +641,10 @@ class DaemonServer {
     // chat that lingers after its answer, both read its container.
     _accounts?.dispose();
     _accounts = null;
+    await _turns?.dispose();
+    _turns = null;
+    _chats?.dispose();
+    _chats = null;
     // After the sockets and those, so nothing can arrive mid-teardown and
     // read a half-disposed container; before completing, so a caller
     // awaiting `onStopped` knows the database is closed and the process can
@@ -401,6 +654,7 @@ class DaemonServer {
     _servers = null;
     _auth = null;
     _settings = null;
+    _models = null;
     if (!_stopped.isCompleted) _stopped.complete();
   }
 }
