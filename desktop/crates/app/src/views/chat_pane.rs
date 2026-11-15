@@ -710,13 +710,19 @@ impl ChatPane {
                             s.started(pending, &accepted, temporary, cx)
                         });
                         let id = accepted.chat_id.clone();
-                        // What is typed next is the new chat's draft (open
-                        // first, so the selection finds it already open).
-                        this.composer_store.update(cx, |c, _| {
-                            c.rekey_draft(DraftKey {
-                                chat_id: Some(id.clone()),
-                                folder_id: None,
-                            })
+                        // What was typed while it waited, and what is typed
+                        // next, is the new chat's draft (open first, so the
+                        // selection finds it already open).
+                        let text = this.composer.read(cx).text(cx);
+                        this.composer_store.update(cx, |c, cx| {
+                            c.adopt_draft(
+                                DraftKey {
+                                    chat_id: Some(id.clone()),
+                                    folder_id: None,
+                                },
+                                &text,
+                                cx,
+                            )
                         });
                         this.stores.navigation.update(cx, |n, cx| n.open(id, cx));
                         this.composer.update(cx, |c, cx| c.focus_input(window, cx));
@@ -2088,6 +2094,74 @@ mod tests {
                 Some("chat-new".to_string()),
                 "a follow-up typed now is kept as the new chat's draft"
             );
+        }
+
+        /// A daemon that keeps drafts by chat (`""` for New Chat).
+        fn keep_drafts(daemon: &FakeDaemon) {
+            let drafts: std::sync::Arc<
+                std::sync::Mutex<std::collections::HashMap<String, String>>,
+            > = Default::default();
+            let saved = drafts.clone();
+            daemon.on::<methods::DraftsSave>(move |p| {
+                let key = p["chatId"].as_str().unwrap_or_default().to_string();
+                let text = p["text"].as_str().unwrap_or_default().to_string();
+                saved.lock().unwrap().insert(key, text);
+                Ok(serde_json::json!({"text": "", "stored": true}))
+            });
+            daemon.on::<methods::DraftsGet>(move |p| {
+                let key = p["chatId"].as_str().unwrap_or_default();
+                let text = drafts.lock().unwrap().get(key).cloned().unwrap_or_default();
+                Ok(serde_json::json!({"text": text, "stored": true}))
+            });
+        }
+
+        #[gpui_kit::test]
+        fn a_follow_up_typed_while_the_first_send_waits_moves_with_its_chat(
+            cx: &mut TestAppContext,
+        ) {
+            // Accepted before the 400 ms save, and after it.
+            for saved_first in [false, true] {
+                let (daemon, stores, pane, vcx) = bench(cx);
+                keep_drafts(&daemon);
+                daemon.returns::<methods::TurnsSend>(
+                    serde_json::from_value(serde_json::json!({
+                        "chatId": "chat-new",
+                        "userMessageId": "m",
+                        "assistantMessageId": "a",
+                    }))
+                    .unwrap(),
+                );
+                let held = daemon.hold::<methods::TurnsSend>();
+                pane.update_in(vcx, |p, window, cx| {
+                    p.send_text("Hello".into(), vec![], window, cx);
+                    p.composer
+                        .update(cx, |c, cx| c.set_text("And another thing", window, cx));
+                });
+                if saved_first {
+                    vcx.executor()
+                        .advance_clock(std::time::Duration::from_millis(450));
+                }
+                vcx.run_until_parked();
+                held.release();
+                vcx.run_until_parked();
+                vcx.executor()
+                    .advance_clock(std::time::Duration::from_millis(450));
+                vcx.run_until_parked();
+                // Away to New Chat: it holds nothing of the follow-up.
+                stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+                vcx.run_until_parked();
+                assert_eq!(composer_text(&pane, vcx), "", "saved first: {saved_first}");
+                // Back: the accepted chat shows it.
+                stores
+                    .navigation
+                    .update(vcx, |n, cx| n.open("chat-new", cx));
+                vcx.run_until_parked();
+                assert_eq!(
+                    composer_text(&pane, vcx),
+                    "And another thing",
+                    "saved first: {saved_first}"
+                );
+            }
         }
 
         #[gpui_kit::test]

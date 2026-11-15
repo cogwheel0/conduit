@@ -1118,6 +1118,26 @@ impl ComposerStore {
 
     /// A chat's `local:` id became the server's: its draft follows, with
     /// nothing re-read.
+    /// A first send made a new chat: what the composer holds (`text`, typed
+    /// while the send waited) becomes that chat's draft. A save still
+    /// pending goes under the new key, and one already made under the New
+    /// Chat key is taken back from there.
+    pub fn adopt_draft(&mut self, key: DraftKey, text: &str, cx: &mut Context<Self>) {
+        let _ = cx;
+        let Some(old) = self.draft.take() else {
+            return;
+        };
+        self._draft = None;
+        if !self.draft_saved.is_empty() {
+            self.save_now(&old, "");
+        }
+        if !text.is_empty() {
+            self.save_now(&key, text);
+        }
+        self.draft_saved = text.to_string();
+        self.draft = Some(key);
+    }
+
     pub fn rekey_draft(&mut self, key: DraftKey) {
         if self.draft.is_some() {
             self.draft = Some(key);
