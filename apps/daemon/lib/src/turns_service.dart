@@ -1890,15 +1890,7 @@ final class TurnsService implements ChatTurns {
     if (pending != null && !pending.started.isCompleted) {
       final answerId = pending.assistantMessageId;
       if (answerId == null || !queued.isQueued(chatId, answerId)) return;
-      pending.started.complete(
-        _Turn(
-          chatId: chatId,
-          messageId: answerId,
-          model: pending.model,
-          userMessageId: pending.userMessageId,
-          clientOwned: false,
-        )..finished = true,
-      );
+      _endQueuedBeforeStart(session, pending, answerId);
       _announce(chatId);
       return;
     }
@@ -1912,12 +1904,42 @@ final class TurnsService implements ChatTurns {
     turn.finished = true;
     turn.ticker?.cancel();
     session.ended = null;
-    if (pending != null && pending.sendSettled) session.pending = null;
+    // The turn is over here, its send settled or not: the scope may close
+    // once nothing else holds it.
+    if (pending != null && identical(pending, turn.pending)) {
+      session.pending = null;
+    }
+    _scheduleLinger(session);
     _events.emit(
       ConduitEventSpecs.turnFinished,
       TurnFinished(chatId: chatId, messageId: turn.messageId, ok: true),
     );
     _announce(chatId);
+  }
+
+  /// Ends [pending], whose answer [answerId] the core queued (or removed)
+  /// before it ever started: `turns.send` answers with it, and the chat no
+  /// longer counts as answering, so its scope can linger and close.
+  void _endQueuedBeforeStart(
+    _ChatSession session,
+    _PendingTurn pending,
+    String answerId,
+  ) {
+    final chatId = session.chatId;
+    if (chatId == null) return;
+    if (!pending.started.isCompleted) {
+      pending.started.complete(
+        _Turn(
+          chatId: chatId,
+          messageId: answerId,
+          model: pending.model,
+          userMessageId: pending.userMessageId,
+          clientOwned: false,
+        )..finished = true,
+      );
+    }
+    if (identical(session.pending, pending)) session.pending = null;
+    _scheduleLinger(session);
   }
 
   /// `turns.retryQueued`: sends a queued answer's request again now.
@@ -1949,6 +1971,13 @@ final class TurnsService implements ChatTurns {
           .read(queuedCompletionActionsProvider)
           .cancel(info);
       _queuedCompletions?.followed(ref.chatId, ref.messageId);
+      // Removed before its hand-off was seen: the send waiting for it ends.
+      final pending = session.pending;
+      if (pending != null &&
+          !pending.started.isCompleted &&
+          pending.assistantMessageId == ref.messageId) {
+        _endQueuedBeforeStart(session, pending, ref.messageId);
+      }
       _announce(ref.chatId);
       return OkResult(ok: removed > 0);
     } finally {
@@ -2422,6 +2451,23 @@ final class TurnsService implements ChatTurns {
   ) async {
     final session = await _sessionFor(chatId);
     try {
+      final running = session.turn;
+      if (running != null &&
+          !running.finished &&
+          running.messageId == pending.messageId) {
+        // A coding agent waits on its card inside the turn still running:
+        // the server hands that turn the answer and it goes on, so nothing
+        // new is started and the busy check does not apply.
+        await resolvePersistedOpenWebUiPrompt(
+          session.scope.container,
+          ownerConversationId: chatId,
+          pending: pending,
+          action: action,
+          answers: answers,
+          isMounted: () => !session.scope.isDisposed,
+        );
+        return;
+      }
       await _requireIdle(session);
       final answer = session.scope.messages
           .where((m) => m.id == pending.messageId)
