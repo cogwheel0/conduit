@@ -110,6 +110,9 @@ void main() {
       'Protocol Rust types',
     ]);
     check(plan.steps[3].command).deepEquals(['dart', 'test']);
+    // The generator formats with rustfmt: a checkout without Rust skips it.
+    check(plan.steps[4].optional).isTrue();
+    check(plan.steps[4].needs).equals('rustfmt');
     check(
       plan.leftToCi,
     ).contains('Desktop workflow (cargo tests, builds and the generated Rust)');
@@ -164,7 +167,7 @@ void main() {
     final desktop = _plan(['desktop/crates/protocol/src/generated.rs']);
     check(_names(desktop))
         .deepEquals(['Protocol Rust types', 'Desktop format', 'Desktop build']);
-    check(desktop.steps.skip(1).every((step) => step.optional)).isTrue();
+    check(desktop.steps.every((step) => step.optional)).isTrue();
     check(desktop.leftToCi).deepEquals([
       'Desktop workflow (cargo tests, builds and the generated Rust)',
     ]);

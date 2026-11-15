@@ -40,6 +40,7 @@ class Step {
     this.command, {
     this.directory = '.',
     this.optional = false,
+    this.needs,
   });
 
   final String name;
@@ -51,6 +52,10 @@ class Step {
   /// Whether the step is skipped, not failed, when its program is missing.
   /// Only for a toolchain a Flutter checkout can do without.
   final bool optional;
+
+  /// Another program the command runs, such as the generator's rustfmt. An
+  /// [optional] step is skipped when it is missing too.
+  final String? needs;
 
   @override
   String toString() =>
@@ -343,12 +348,13 @@ Plan planChecks(
         path == 'desktop/crates/protocol/src/generated.rs',
   )) {
     steps.add(
-      const Step('Protocol Rust types', [
-        'dart',
-        'run',
-        'tool/generate_rust.dart',
-        '--check',
-      ], directory: 'packages/conduit_protocol'),
+      const Step(
+        'Protocol Rust types',
+        ['dart', 'run', 'tool/generate_rust.dart', '--check'],
+        directory: 'packages/conduit_protocol',
+        optional: true,
+        needs: 'rustfmt',
+      ),
     );
   }
 
@@ -532,7 +538,7 @@ Future<void> main(List<String> args) async {
   for (final (step, outcome, elapsed) in results) {
     stdout.writeln(
       '${outcome.padRight(4)}  ${step.name}  ${elapsed.inSeconds}s'
-      '${outcome == 'skip' ? '  (${step.command.first} is not installed)' : ''}',
+      '${outcome == 'skip' ? '  (${step.needs ?? step.command.first} is not installed)' : ''}',
     );
   }
   _printLeftToCi(plan);
@@ -547,6 +553,10 @@ void _printLeftToCi(Plan plan) {
 /// `pass` or `FAIL`. A step whose program is not installed fails too, unless
 /// it is [Step.optional], which gives `skip`.
 Future<String> _run(Step step) async {
+  final needs = step.needs;
+  if (step.optional && needs != null && !await _installed(needs)) {
+    return 'skip';
+  }
   try {
     final process = await Process.start(
       step.command.first,
@@ -568,6 +578,16 @@ Future<String> _run(Step step) async {
     if (step.optional && error.errorCode == 2) return 'skip';
     stderr.writeln('Cannot start ${step.command.first}. Is it installed?');
     return 'FAIL';
+  }
+}
+
+/// Whether [program] starts (`--version`).
+Future<bool> _installed(String program) async {
+  try {
+    await Process.run(program, const ['--version']);
+    return true;
+  } on ProcessException catch (error) {
+    return error.errorCode != 2;
   }
 }
 
