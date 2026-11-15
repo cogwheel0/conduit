@@ -1,12 +1,17 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/model.dart' as core;
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:dio/dio.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_openai.dart';
@@ -69,6 +74,33 @@ void main() {
     );
   });
 
+  test("a draft asked for under one account is not the next one's", () async {
+    var account = Object();
+    final chat = Completer<Conversation>();
+    final container = ProviderContainer(
+      overrides: [
+        openWebUiAuthSessionEpochProvider.overrideWith((ref) => account),
+        loadConversationProvider.overrideWith((ref, id) => chat.future),
+      ],
+    );
+    addTearDown(container.dispose);
+    final drafts = DraftsService(container, temporary: TemporaryChats());
+    final saving = drafts.save(const DraftSave(chatId: 'chat-1', text: ''));
+    account = Object();
+    container.invalidate(openWebUiAuthSessionEpochProvider);
+    chat.completeError(StateError('that account has left'));
+    await expectLater(
+      saving,
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+    );
+  });
+
   group('with a direct connection', () {
     late Directory temporary;
     late CoreRuntime runtime;
@@ -97,19 +129,21 @@ void main() {
           manualModelIds: const <String>['fake-model'],
         ),
       );
-      final models = ModelsService(runtime.container);
-      final deadline = DateTime.now().add(const Duration(seconds: 20));
-      ModelSummary? offered;
-      while (offered == null && DateTime.now().isBefore(deadline)) {
-        offered = (await models.list()).models
-            .where((m) => m.connection == 'Fake')
-            .firstOrNull;
-        if (offered == null) {
-          await Future<void>.delayed(const Duration(milliseconds: 200));
-        }
-      }
-      modelId = offered!.id;
-      await models.select(modelId);
+      // The connection's model, once the model list has it.
+      final listed = Completer<core.Model>();
+      final subscription = runtime.container.listen<AsyncValue<List<core.Model>>>(
+        modelsProvider,
+        (_, next) {
+          final model = next.value
+              ?.where((m) => m.metadata?['directProfileName'] == 'Fake')
+              .firstOrNull;
+          if (model != null && !listed.isCompleted) listed.complete(model);
+        },
+        fireImmediately: true,
+      );
+      modelId = (await listed.future).id;
+      subscription.close();
+      await ModelsService(runtime.container).select(modelId);
     });
 
     tearDownAll(() async {

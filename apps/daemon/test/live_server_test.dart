@@ -617,12 +617,23 @@ void main() {
           if (got == null) return false;
           detail = got;
           final answer = got.messages.where((m) => m.role == 'assistant');
+          // Both written: an empty placeholder is not an answer yet.
           return answer.isNotEmpty &&
-              answer.length + answer.first.versions.length >= 2;
+              <String>[
+                for (final a in answer) a.content,
+                for (final v in answer.first.versions) v.content,
+              ].where((text) => text.trim().isNotEmpty).length >= 2;
         }, seconds: 60);
         final answers = detail.messages.where((m) => m.role == 'assistant');
         printOnFailure('messages: ${detail.messages}');
         expect(answers.length + answers.first.versions.length, 2);
+        expect(
+          <String>[
+            for (final a in answers) a.content,
+            for (final v in answers.first.versions) v.content,
+          ].where((text) => text.trim().isNotEmpty),
+          hasLength(2),
+        );
         expect(
           detail.messages.where((m) => m.role == 'user').single.content,
           'Reply with exactly the word: twins',

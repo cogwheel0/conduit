@@ -227,14 +227,22 @@ final class ComposerService {
     final api = _container.read(apiServiceProvider);
     if (api == null) return const ContextSuggestions();
     final notes = _container.read(notesFeatureEnabledProvider);
+    final account = _container.read(openWebUiAuthSessionEpochProvider);
     final rows = await searchComposerContext(
       api,
       query: query.trim(),
       includeNotes: notes,
-      // As mobile: a server that refuses notes stops being asked for them.
-      onNotesForbidden: () => _container
-          .read(notesFeatureEnabledProvider.notifier)
-          .setEnabled(false),
+      // As mobile: a server that refuses notes stops being asked for them,
+      // the account that asked only.
+      onNotesForbidden: () {
+        if (!identical(
+          account,
+          _container.read(openWebUiAuthSessionEpochProvider),
+        )) {
+          return;
+        }
+        _container.read(notesFeatureEnabledProvider.notifier).setEnabled(false);
+      },
     );
     final suggestions = buildComposerContextSuggestions(
       notes: rows.notes,

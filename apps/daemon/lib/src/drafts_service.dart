@@ -49,7 +49,16 @@ final class DraftsService {
     String? chatId,
     String? folderId,
   ) async {
+    // Placed for the account in use when asked: once another one is, the
+    // chat id may name one of its chats, whose draft is not this one's.
+    final account = _container.read(openWebUiAuthSessionEpochProvider);
     final active = chatId == null ? null : await _conversation(chatId);
+    if (!identical(account, _container.read(openWebUiAuthSessionEpochProvider))) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed',
+      );
+    }
     return resolveComposerDraftContext(
       _container.read,
       active: active,

@@ -294,7 +294,12 @@ final class TurnsService {
         debugMessage: 'turns.send needs a non-empty text',
       );
     }
-    final model = await _resolveModel(request.model);
+    // A comparison runs on its own models: the first is the one chosen.
+    final model = await _resolveModel(
+      request.compareModels.isNotEmpty
+          ? request.compareModels.first
+          : request.model,
+    );
     await _requireBackendFor(model);
     final session = await _sessionFor(request.chatId);
     try {
@@ -374,18 +379,28 @@ final class TurnsService {
         session,
         model: models.first,
         userMessageId: null,
-        start: (onPlaceholder) => durableCompareSend(
-          scope,
-          text,
-          request.fileIds.isEmpty ? null : request.fileIds,
-          models: models,
-          toolIds: request.toolIds.isEmpty ? null : request.toolIds,
-          onAssistantPlaceholderCreated: (handle) {
-            // The first slot is the turn the windows follow.
-            if (first) onPlaceholder(handle);
-            first = false;
-          },
-        ).then((_) {}),
+        start: (onPlaceholder) {
+          // The core reads the knowledge and context from the scope's tray,
+          // which choosing the model emptied: both answers get them, as a
+          // normal send does.
+          final tray = scope.read(contextAttachmentsProvider.notifier)
+            ..clear();
+          for (final attachment in context) {
+            tray.add(attachment);
+          }
+          return durableCompareSend(
+            scope,
+            text,
+            request.fileIds.isEmpty ? null : request.fileIds,
+            models: models,
+            toolIds: request.toolIds.isEmpty ? null : request.toolIds,
+            onAssistantPlaceholderCreated: (handle) {
+              // The first slot is the turn the windows follow.
+              if (first) onPlaceholder(handle);
+              first = false;
+            },
+          ).then((_) {});
+        },
       );
     } on ComparisonAdmissionException catch (error) {
       throw RpcError(
