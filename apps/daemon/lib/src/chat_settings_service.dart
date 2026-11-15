@@ -176,6 +176,21 @@ final class ChatSettingsService {
     String? modelId,
     Map<String, dynamic> draft,
   ) async {
+    // Read for the account in use now: once another one is, nothing read
+    // is shown to it, and no write starts from it.
+    final session = _container.read(openWebUiAuthSessionEpochProvider);
+    void sameAccount() {
+      if (!identical(
+        session,
+        _container.read(openWebUiAuthSessionEpochProvider),
+      )) {
+        throw const RpcError(
+          code: ConduitErrorCodes.sessionExpired,
+          debugMessage: 'the account changed',
+        );
+      }
+    }
+
     final scope = chatId == null ? null : _scopeOf?.call(chatId);
     final ref = scope ?? _container;
     Conversation? conversation;
@@ -184,6 +199,7 @@ final class ChatSettingsService {
       saved = openWebUiChatParamsFrom(draft);
     } else {
       conversation = await _conversation(chatId, scope);
+      sameAccount();
       if (conversation == null) {
         throw RpcError(
           code: ConduitErrorCodes.notFound,
@@ -200,9 +216,11 @@ final class ChatSettingsService {
       } on Object {
         // An unreadable row falls back to the copy in memory.
       }
+      sameAccount();
       saved = stored ?? conversation.chatParams;
     }
     final model = await _model(modelId);
+    sameAccount();
     OpenWebUiChatSettingsAccess access;
     try {
       access = await readSettled(
@@ -212,6 +230,7 @@ final class ChatSettingsService {
     } on Object {
       access = OpenWebUiChatSettingsAccess.denied;
     }
+    sameAccount();
     return _Open(
       ref: ref,
       read: _container.read,
