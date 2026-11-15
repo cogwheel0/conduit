@@ -41,7 +41,9 @@ pub fn open(
 /// The audience's label.
 pub fn audience_label(a: ShareAudience, l10n: &L10n) -> String {
     match a {
-        ShareAudience::Private | ShareAudience::Unknown => l10n.desktop_share_audience_private(),
+        ShareAudience::Private => l10n.desktop_share_audience_private(),
+        // Never "private" when it could not be read: a link may be open.
+        ShareAudience::Unknown => l10n.resource_sharing_load_failed(),
         ShareAudience::Public => l10n.desktop_share_audience_public(),
         ShareAudience::Open => l10n.desktop_share_audience_open(),
     }
@@ -144,6 +146,10 @@ impl ShareSheet {
 
     /// Who Has Access.
     pub fn set_audience(&mut self, audience: ShareAudience, cx: &mut Context<Self>) {
+        // One change at a time: what shows is what the server last said.
+        if self.busy {
+            return;
+        }
         self.call(false, Some(audience), false, cx);
     }
 
@@ -265,9 +271,11 @@ impl Render for ShareSheet {
                 )
         };
         let audience_button = {
+            // A link whose audience could not be read may be open: never
+            // shown as private.
             let label = audience
                 .map(|a| audience_label(a, &l10n))
-                .unwrap_or_else(|| l10n.desktop_share_audience_private());
+                .unwrap_or_else(|| l10n.resource_sharing_load_failed());
             let sheet = weak.clone();
             let l = l10n.clone();
             div()
@@ -414,5 +422,18 @@ impl Render for ShareSheet {
             &t,
         )
         .track_focus(&self.focus)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_audience_that_could_not_be_read_is_never_private() {
+        let l10n = L10n::new("en");
+        let unknown = audience_label(ShareAudience::Unknown, &l10n);
+        assert_ne!(unknown, audience_label(ShareAudience::Private, &l10n));
+        assert_eq!(unknown, l10n.resource_sharing_load_failed());
     }
 }
