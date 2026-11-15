@@ -234,6 +234,8 @@ impl ChatPane {
                     this.account = active;
                     this.composer_store.update(cx, |c, cx| c.reset(cx));
                     this.composer.update(cx, |c, cx| c.forget_account(cx));
+                    // The new account's draft for what is shown.
+                    this.sync_selection(cx);
                 }
             }),
             // Settings › Chat changes the composer as it changes.
@@ -607,7 +609,7 @@ impl ChatPane {
         // the composer rather than starting a second chat.
         if self.chat.is_none() && self.starting {
             self.composer
-                .update(cx, |c, cx| c.restore(&text, window, cx));
+                .update(cx, |c, cx| c.restore_with(&text, &mentions, window, cx));
             return;
         }
         let files = self.composer_store.read(cx).pending_files();
@@ -617,7 +619,11 @@ impl ChatPane {
             .next_model()
             .map(|m| m.name.clone());
         // Given back with the text if the send fails.
-        let used = self.composer_store.read(cx).one_shot();
+        let used = self
+            .composer_store
+            .read(cx)
+            .one_shot()
+            .with_mentions(mentions.clone());
         let options = self
             .composer_store
             .update(cx, |c, cx| c.take_turn(mentions, cx));
@@ -704,6 +710,14 @@ impl ChatPane {
                             s.started(pending, &accepted, temporary, cx)
                         });
                         let id = accepted.chat_id.clone();
+                        // What is typed next is the new chat's draft (open
+                        // first, so the selection finds it already open).
+                        this.composer_store.update(cx, |c, _| {
+                            c.rekey_draft(DraftKey {
+                                chat_id: Some(id.clone()),
+                                folder_id: None,
+                            })
+                        });
                         this.stores.navigation.update(cx, |n, cx| n.open(id, cx));
                         this.composer.update(cx, |c, cx| c.focus_input(window, cx));
                     }
@@ -736,7 +750,11 @@ impl ChatPane {
         };
         let chat_id = chat.store.read(cx).chat_id().to_string();
         // Given back with the text if the queue refuses it.
-        let used = self.composer_store.read(cx).one_shot();
+        let used = self
+            .composer_store
+            .read(cx)
+            .one_shot()
+            .with_mentions(mentions.clone());
         let add = self
             .composer_store
             .update(cx, |c, cx| c.take_turn(mentions, cx))
@@ -774,7 +792,11 @@ impl ChatPane {
         let Some(chat) = &self.chat else {
             return;
         };
-        let used = self.composer_store.read(cx).text_only();
+        let used = self
+            .composer_store
+            .read(cx)
+            .text_only()
+            .with_mentions(mentions.clone());
         let task = chat
             .store
             .update(cx, |s, cx| s.steer(text.clone(), mentions, steer, cx));
@@ -2037,6 +2059,51 @@ mod tests {
             vcx.run_until_parked();
             assert!(attachment_names(&pane, vcx).is_empty());
             assert_eq!(composer_text(&pane, vcx), "");
+        }
+
+        #[gpui_kit::test]
+        fn a_first_send_makes_the_new_chat_the_drafts_owner(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "chat-new",
+                    "userMessageId": "m",
+                    "assistantMessageId": "a",
+                }))
+                .unwrap(),
+            );
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Hello".into(), vec![], window, cx)
+            });
+            vcx.run_until_parked();
+            assert_eq!(
+                stores
+                    .navigation
+                    .read_with(vcx, |n, _| n.selected_chat().map(String::from)),
+                Some("chat-new".to_string())
+            );
+            let key = pane.read_with(vcx, |p, cx| p.composer_store.read(cx).draft_key().cloned());
+            assert_eq!(
+                key.and_then(|k| k.chat_id),
+                Some("chat-new".to_string()),
+                "a follow-up typed now is kept as the new chat's draft"
+            );
+        }
+
+        #[gpui_kit::test]
+        fn another_account_never_sees_the_last_ones_draft(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer
+                    .update(cx, |c, cx| c.set_text("Typed for Avery", window, cx))
+            });
+            switch_account(&stores, vcx);
+            vcx.run_until_parked();
+            assert_eq!(composer_text(&pane, vcx), "", "A's draft stayed for B");
+            assert!(
+                pane.read_with(vcx, |p, cx| p.composer_store.read(cx).draft_key().is_some()),
+                "B's new chat keeps no draft"
+            );
         }
 
         #[gpui_kit::test]

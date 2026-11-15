@@ -39,9 +39,16 @@ pub fn is_youtube(url: &str) -> bool {
     .any(|p| url.starts_with(p))
 }
 
+/// A new panel's id ([`Panel::id`]).
+fn next_panel_id() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 // ── Server Files ───────────────────────────────────────────────────────────
 
 pub struct ServerFilesPanel {
+    pub id: u64,
     pub search: Entity<InputState>,
     /// The answer for `query`, once it came.
     files: Option<Result<Vec<ServerFile>, ()>>,
@@ -66,6 +73,7 @@ impl ServerFilesPanel {
             }
         });
         Self {
+            id: next_panel_id(),
             search,
             files: None,
             query: String::new(),
@@ -97,6 +105,7 @@ impl ServerFilesPanel {
 // ── Web Page ───────────────────────────────────────────────────────────────
 
 pub struct WebPagePanel {
+    pub id: u64,
     pub url: Entity<InputState>,
     pub busy: bool,
     pub error: Option<String>,
@@ -117,6 +126,7 @@ impl WebPagePanel {
             }
         });
         Self {
+            id: next_panel_id(),
             url,
             busy: false,
             error: None,
@@ -143,14 +153,18 @@ pub enum McpItem {
 }
 
 pub struct McpPanel {
+    pub id: u64,
     rpc: Rpc,
+    /// Bumped per server chosen and item read: only the latest read's
+    /// answer is shown.
+    reads: u64,
     pub search: Entity<InputState>,
     /// The enabled servers, once listed.
     servers: Option<Vec<McpServerSummary>>,
     pub server: Option<McpServerSummary>,
     content: Option<McpContent>,
     pub highlighted: usize,
-    loading: bool,
+    pub loading: bool,
     pub error: Option<String>,
     /// The text to insert, and its preview, once an item is read.
     pub preview: Option<(String, McpContentPreview)>,
@@ -170,6 +184,7 @@ impl McpPanel {
                 cx.notify();
             }
         });
+        let id = next_panel_id();
         let list = rpc.call::<methods::McpList>(&NoParams);
         cx.spawn(async move |this, cx| {
             let result = list.await;
@@ -177,18 +192,24 @@ impl McpPanel {
                 let Some(Panel::Mcp(p)) = &mut this.panel else {
                     return;
                 };
+                if p.id != id {
+                    return;
+                }
                 match result {
                     Ok(list) => {
                         let servers: Vec<_> =
                             list.servers.into_iter().filter(|s| s.enabled).collect();
                         let first = servers.first().cloned();
                         p.servers = Some(servers);
-                        if let Some(first) = first {
-                            p.choose_server(first, cx);
+                        match first {
+                            Some(first) => p.choose_server(first, cx),
+                            // Nothing to list: the empty state, not loading.
+                            None => p.loading = false,
                         }
                     }
                     Err(e) => {
                         log::warn!("mcp.list: {e}");
+                        p.loading = false;
                         p.error = Some(cx.l10n().direct_mcp_content_load_failed());
                     }
                 }
@@ -197,7 +218,9 @@ impl McpPanel {
         })
         .detach();
         Self {
+            id,
             rpc,
+            reads: 0,
             search,
             servers: None,
             server: None,
@@ -221,10 +244,13 @@ impl McpPanel {
         self.error = None;
         self.loading = true;
         self.highlighted = 0;
+        // A read of the last server's item is not this one's.
+        self.reads += 1;
         let call = self.rpc.call::<methods::McpContent>(&McpRef {
             id: server.id.clone(),
         });
         let id = server.id.clone();
+        let panel = self.id;
         self.server = Some(server);
         cx.spawn(async move |this, cx| {
             let result = call.await;
@@ -232,7 +258,7 @@ impl McpPanel {
                 let Some(Panel::Mcp(p)) = &mut this.panel else {
                     return;
                 };
-                if p.server.as_ref().map(|s| s.id.as_str()) != Some(id.as_str()) {
+                if p.id != panel || p.server.as_ref().map(|s| s.id.as_str()) != Some(id.as_str()) {
                     return;
                 }
                 p.loading = false;
@@ -296,6 +322,9 @@ impl McpPanel {
         let l10n = cx.l10n().clone();
         self.loading = true;
         self.error = None;
+        self.preview = None;
+        self.reads += 1;
+        let (panel, round) = (self.id, self.reads);
         let (call, heading, is_prompt) = match &item {
             McpItem::Prompt { name, title, .. } => (
                 futures::future::Either::Left(self.rpc.call::<methods::McpGetPrompt>(
@@ -325,6 +354,10 @@ impl McpPanel {
                 let Some(Panel::Mcp(p)) = &mut this.panel else {
                     return;
                 };
+                // Another item or server chosen since, or another panel.
+                if p.id != panel || p.reads != round {
+                    return;
+                }
                 p.loading = false;
                 match result {
                     Ok(preview) => {
@@ -741,11 +774,12 @@ impl ChatComposer {
                     let total = items.len();
                     let empty = if p.loading {
                         Some(note(l10n.direct_mcp_content_loading(), t, false))
-                    } else if p
-                        .content
-                        .as_ref()
-                        .is_some_and(|c| c.prompts.is_empty() && c.resources.is_empty())
+                    } else if p.servers.as_ref().is_some_and(Vec::is_empty)
+                        || p.content
+                            .as_ref()
+                            .is_some_and(|c| c.prompts.is_empty() && c.resources.is_empty())
                     {
+                        // No server to list, or one with nothing in it.
                         Some(note(l10n.direct_mcp_content_empty(), t, false))
                     } else if total == 0 && p.content.is_some() {
                         Some(note(l10n.direct_mcp_content_no_matches(), t, false))

@@ -47,7 +47,7 @@ use conduit_protocol::{
     PromptSummary, RenderPrompt, RenderedPrompt, SkillSummary,
 };
 use gpui_kit::component::input::{
-    InlineToken, Input, InputEvent, InputState, Textarea, TextareaState,
+    InlineToken, Input, InputContent, InputEvent, InputState, Textarea, TextareaState,
 };
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -155,6 +155,18 @@ pub(crate) enum Panel {
     Mcp(Box<super::composer_panels::McpPanel>),
 }
 
+impl Panel {
+    /// This panel's own id: an answer is taken only by the panel that
+    /// asked for it, never by one opened since.
+    pub(crate) fn id(&self) -> u64 {
+        match self {
+            Self::ServerFiles(p) => p.id,
+            Self::WebPage(p) => p.id,
+            Self::Mcp(p) => p.id,
+        }
+    }
+}
+
 /// One field of a prompt's fill-in form.
 enum FieldInput {
     Text(Entity<InputState>),
@@ -231,6 +243,9 @@ pub struct ChatComposer {
     /// answers side by side; the daemon already runs a comparison
     /// (`turns.send` with `compareModels`).
     pub compare_ui: bool,
+    /// Queue, Steer, Send Next and Save as Note: the main window's. Quick
+    /// Ask, which only asks and answers, turns them off.
+    pub follow_ups: bool,
     pub(crate) panel: Option<Panel>,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
@@ -301,6 +316,11 @@ impl ChatComposer {
                     ComposerEvent::DraftSwitched => {
                         this.input.update(cx, |s, cx| s.set_value("", window, cx));
                         this.menu = None;
+                        // The last draft's prompt form and panel go with it:
+                        // nothing they bring back lands in this one.
+                        this.form = None;
+                        this.prompt_request += 1;
+                        this.panel = None;
                         cx.notify();
                     }
                     ComposerEvent::DraftLoaded { key, text } => {
@@ -333,10 +353,14 @@ impl ChatComposer {
                 if key == "enter" && m.platform && !m.shift && !m.alt && !m.control {
                     let handled = this.update(cx, |c, cx| {
                         let focused = c.input.read(cx).focus_handle(cx).is_focused(window);
-                        if focused {
+                        // An input method composing keeps its keys (as Enter).
+                        let composing = focused
+                            && c.input
+                                .update(cx, |s, cx| s.marked_text_range(window, cx).is_some());
+                        if focused && !composing {
                             c.submit(window, cx);
                         }
-                        focused
+                        focused && !composing
                     });
                     if handled {
                         cx.stop_propagation();
@@ -368,6 +392,7 @@ impl ChatComposer {
             picker: None,
             leaving_picker: None,
             streaming: false,
+            follow_ups: true,
             offline: false,
             offline_word: None,
             offline_reason: None,
@@ -469,7 +494,7 @@ impl ChatComposer {
 
     /// Hermes on a Desktop Gateway takes a message while it works.
     pub fn steers(&self, cx: &App) -> bool {
-        self.composer.read(cx).options.steer
+        self.follow_ups && self.composer.read(cx).options.steer
     }
 
     /// What Enter does while an answer is written: queue (Open WebUI), hand
@@ -478,7 +503,7 @@ impl ChatComposer {
         if !self.streaming || !self.ready(cx) || self.text(cx).trim().is_empty() {
             return None;
         }
-        if self.queue_offer {
+        if self.queue_offer && self.follow_ups {
             Some(true)
         } else if self.steers(cx) {
             Some(false)
@@ -583,16 +608,36 @@ impl ChatComposer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let mentions = used.mentions.clone();
         if self.composer.update(cx, |c, cx| c.give_back(used, cx)) {
-            self.restore(text, window, cx);
+            self.restore_with(text, &mentions, window, cx);
         }
     }
 
     /// Puts text back after a refused send.
     pub fn restore(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if self.text(cx).trim().is_empty() {
-            self.set_text(text, window, cx);
+        self.restore_with(text, &[], window, cx);
+    }
+
+    /// Puts text back with its `@`/`$` mentions as tokens again, so the
+    /// next send carries them.
+    pub fn restore_with(
+        &mut self,
+        text: &str,
+        mentions: &[ComposerMentionDto],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.text(cx).trim().is_empty() {
+            return;
         }
+        let content = content_with_mentions(text, mentions);
+        let end = text.len();
+        self.input.update(cx, |s, cx| {
+            s.set_value(content, window, cx);
+            s.set_selected_range(end..end, cx);
+        });
+        self.text_changed(cx);
     }
 
     fn text_changed(&mut self, cx: &mut Context<Self>) {
@@ -898,7 +943,8 @@ impl ChatComposer {
             return None;
         }
         let start = menu.trigger.start;
-        let new = format!("{}{}", &value[..start], &value[cursor..]);
+        // The mentions already in the field stay tokens.
+        let new = cut_content(&state.content(), start..cursor);
         self.input.update(cx, |s, cx| {
             s.set_value(new, window, cx);
             s.set_selected_range(start..start, cx);
@@ -1155,6 +1201,8 @@ impl ChatComposer {
     pub fn forget_account(&mut self, cx: &mut Context<Self>) {
         self.form = None;
         self.prompt_request += 1;
+        // A panel's list or page is the last account's.
+        self.panel = None;
         cx.notify();
     }
 
@@ -1297,7 +1345,8 @@ impl ChatComposer {
         );
         let tool_ids = store.tool_ids.clone();
         let filter_ids = store.filter_ids.clone();
-        let notes_button = store.prefs.show_notes_button;
+        // Save as Note is the main window's (not Quick Ask's).
+        let notes_button = self.follow_ups && store.prefs.show_notes_button;
         // The entries as drawn, to measure the menu (`None`: a separator).
         let mut entries: Vec<Option<String>> = vec![];
         let mut menu = NativeMenu::new();
@@ -1544,11 +1593,16 @@ impl ChatComposer {
     }
 
     pub(crate) fn search_server_files(&mut self, query: String, cx: &mut Context<Self>) {
+        let Some(id) = self.panel.as_ref().map(Panel::id) else {
+            return;
+        };
         let task = self.composer.update(cx, |c, cx| c.server_files(&query, cx));
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                if let Some(Panel::ServerFiles(p)) = &mut this.panel {
+                if let Some(Panel::ServerFiles(p)) = &mut this.panel
+                    && p.id == id
+                {
                     p.loaded(&query, result.map(|l| l.items), cx);
                     cx.notify();
                 }
@@ -1592,10 +1646,16 @@ impl ChatComposer {
         }
         panel.busy = true;
         panel.error = None;
+        let id = panel.id;
         let task = self.composer.update(cx, |c, cx| c.fetch_url(&url, cx));
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
             let _ = this.update_in(cx, |this, window, cx| {
+                // Only the panel that asked takes the page: closed, or
+                // another account or chat since, it is dropped.
+                if !matches!(&this.panel, Some(Panel::WebPage(p)) if p.id == id) {
+                    return;
+                }
                 let error = match result {
                     Ok(fetched) => match (fetched.attachment, fetched.error.as_deref()) {
                         (Some(attachment), _) => {
@@ -3127,6 +3187,65 @@ impl Render for ChatComposer {
     }
 }
 
+/// `content` without the bytes in `cut` (a trigger word): the tokens after
+/// it move back, one inside it goes, the rest stay tokens.
+fn cut_content(content: &InputContent, cut: std::ops::Range<usize>) -> InputContent {
+    let text = content.text();
+    let mut out = InputContent::new(format!("{}{}", &text[..cut.start], &text[cut.end..]));
+    let len = cut.end - cut.start;
+    for span in content.tokens() {
+        let range = span.range();
+        let moved = if range.end <= cut.start {
+            range
+        } else if range.start >= cut.end {
+            range.start - len..range.end - len
+        } else {
+            continue;
+        };
+        out = match out.clone().with_token(moved, span.token().clone()) {
+            Ok(next) => next,
+            Err(_) => out,
+        };
+    }
+    out
+}
+
+/// `text` with its mentions (UTF-16 ranges, as sent) as the field's tokens.
+fn content_with_mentions(text: &str, mentions: &[ComposerMentionDto]) -> InputContent {
+    let byte = |utf16: i64| -> Option<usize> {
+        let mut units = 0i64;
+        for (at, ch) in text.char_indices() {
+            if units == utf16 {
+                return Some(at);
+            }
+            units += ch.len_utf16() as i64;
+        }
+        (units == utf16).then_some(text.len())
+    };
+    let mut out = InputContent::new(text.to_string());
+    for m in mentions {
+        let target = match (m.kind, m.id_type.as_str()) {
+            (conduit_protocol::MentionKind::Skill, _) => MentionTarget::Skill(m.id.clone()),
+            (_, "U") => MentionTarget::User(m.id.clone()),
+            (_, "C") => MentionTarget::Channel(m.id.clone()),
+            _ => continue,
+        };
+        let (Some(start), Some(end)) = (byte(m.start), byte(m.end)) else {
+            continue;
+        };
+        if start >= end {
+            continue;
+        }
+        let token = InlineToken::new(target.token_id(), text[start..end].to_string())
+            .with_label(m.label.clone());
+        out = match out.clone().with_token(start..end, token) {
+            Ok(next) => next,
+            Err(_) => out,
+        };
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -3142,6 +3261,13 @@ mod tests {
     type Seen = Rc<RefCell<Vec<ChatComposerEvent>>>;
 
     fn composer(cx: &mut TestAppContext) -> (Entity<ChatComposer>, &mut VisualTestContext, Seen) {
+        composer_on(FakeDaemon::new(), cx)
+    }
+
+    fn composer_on(
+        daemon: FakeDaemon,
+        cx: &mut TestAppContext,
+    ) -> (Entity<ChatComposer>, &mut VisualTestContext, Seen) {
         cx.update(|cx| {
             gpui_kit::init(cx);
             install(
@@ -3151,7 +3277,7 @@ mod tests {
             cx.set_global(L10n::new("en"));
             cx.set_global(conduit_components::Strings::default());
         });
-        let rpc = FakeDaemon::new().rpc();
+        let rpc = daemon.rpc();
         let store = cx.new(|_| ComposerStore::new(rpc, None));
         let seen: Seen = Rc::default();
         let (view, vcx) = cx.add_window_view(|window, cx| ChatComposer::new(store, window, cx));
@@ -3406,6 +3532,8 @@ mod tests {
         assert!(cx.update(|window, cx| {
             input.update(cx, |s, cx| s.marked_text_range(window, cx).is_some())
         }));
+        cx.simulate_keystrokes("cmd-enter");
+        assert!(seen.borrow().is_empty(), "⌘↩ while composing does not send");
         cx.simulate_keystrokes("enter");
         assert!(
             seen.borrow().is_empty(),
@@ -3666,5 +3794,256 @@ mod tests {
         assert_eq!((mentions[0].start, mentions[0].end), (7, 21));
         assert_eq!(mentions[0].id, "plain-english");
         assert_eq!(mentions[0].kind, conduit_protocol::MentionKind::Skill);
+    }
+
+    fn web_page(id: &str) -> conduit_protocol::FetchedUrl {
+        serde_json::from_value(serde_json::json!({
+            "attachment": {"id": id, "kind": "web", "name": "A page", "url": "https://example.com/a"}
+        }))
+        .unwrap()
+    }
+
+    fn context_names(view: &Entity<ChatComposer>, cx: &mut VisualTestContext) -> Vec<String> {
+        view.read_with(cx, |c, cx| {
+            c.composer
+                .read(cx)
+                .context
+                .iter()
+                .map(|a| a.name.clone())
+                .collect()
+        })
+    }
+
+    #[gpui_kit::test]
+    fn a_page_read_for_a_closed_panel_or_another_draft_is_dropped(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<conduit_protocol::methods::ContextFetchUrl>(web_page("w1"));
+        let (view, cx, _) = composer_on(daemon.clone(), cx);
+        let fetch = |view: &Entity<ChatComposer>, cx: &mut VisualTestContext| {
+            view.update_in(cx, |c, window, cx| {
+                c.open_web_page(window, cx);
+                if let Some(Panel::WebPage(p)) = &c.panel {
+                    p.url
+                        .update(cx, |i, cx| i.set_value("https://example.com/a", window, cx));
+                }
+                c.fetch_web_page(window, cx);
+            });
+        };
+        // Closed before the page came: it never attaches.
+        let held = daemon.hold::<conduit_protocol::methods::ContextFetchUrl>();
+        fetch(&view, cx);
+        view.update_in(cx, |c, window, cx| c.close_panel(window, cx));
+        held.release();
+        cx.run_until_parked();
+        assert!(
+            context_names(&view, cx).is_empty(),
+            "a closed panel's page attached"
+        );
+        // Another chat (or account) since: neither.
+        let held = daemon.hold::<conduit_protocol::methods::ContextFetchUrl>();
+        fetch(&view, cx);
+        let store = view.read_with(cx, |c, _| c.composer.clone());
+        store.update(cx, |s, cx| {
+            s.switch_draft(
+                Some(crate::stores::composer::DraftKey {
+                    chat_id: Some("chat-b".into()),
+                    folder_id: None,
+                }),
+                "",
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        held.release();
+        cx.run_until_parked();
+        assert!(
+            context_names(&view, cx).is_empty(),
+            "another draft took the page"
+        );
+        // The panel still open: it attaches.
+        fetch(&view, cx);
+        cx.run_until_parked();
+        assert_eq!(context_names(&view, cx), vec!["A page".to_string()]);
+    }
+
+    #[gpui_kit::test]
+    fn an_mcp_item_read_before_another_was_chosen_never_shows(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<conduit_protocol::methods::McpList>(
+            serde_json::from_value(serde_json::json!({"servers": [
+                {"id": "s1", "name": "Notes server", "endpoint": "https://mcp.example.com", "enabled": true}
+            ]}))
+            .unwrap(),
+        );
+        daemon.returns::<conduit_protocol::methods::McpContent>(
+            serde_json::from_value(serde_json::json!({
+                "serverId": "s1", "serverName": "Notes server",
+                "prompts": [
+                    {"name": "first", "displayName": "First"},
+                    {"name": "second", "displayName": "Second"}
+                ]
+            }))
+            .unwrap(),
+        );
+        daemon.on::<conduit_protocol::methods::McpGetPrompt>(|p| {
+            let name = p["name"].as_str().unwrap_or_default().to_string();
+            Ok(serde_json::json!({"messages": [{"role": "user", "text": format!("Text of {name}")}]}))
+        });
+        let (view, cx, _) = composer_on(daemon.clone(), cx);
+        view.update_in(cx, |c, window, cx| c.open_mcp(window, cx));
+        cx.run_until_parked();
+        let held = daemon.hold_one::<conduit_protocol::methods::McpGetPrompt>(0);
+        view.update(cx, |c, cx| {
+            let Some(Panel::Mcp(p)) = &mut c.panel else {
+                panic!("no MCP panel");
+            };
+            let items = p.items(cx);
+            assert_eq!(items.len(), 2);
+            p.read(items[0].clone(), cx);
+            p.read(items[1].clone(), cx);
+        });
+        cx.run_until_parked();
+        held.release();
+        cx.run_until_parked();
+        let preview = view.read_with(cx, |c, _| match &c.panel {
+            Some(Panel::Mcp(p)) => p.preview.as_ref().map(|(text, _)| text.clone()),
+            _ => None,
+        });
+        assert!(
+            preview
+                .as_deref()
+                .is_some_and(|t| t.contains("Text of second")),
+            "{preview:?}"
+        );
+    }
+
+    #[gpui_kit::test]
+    fn mcp_content_with_no_servers_stops_loading(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<conduit_protocol::methods::McpList>(
+            serde_json::from_value(serde_json::json!({"servers": []})).unwrap(),
+        );
+        let (view, cx, _) = composer_on(daemon, cx);
+        view.update_in(cx, |c, window, cx| c.open_mcp(window, cx));
+        cx.run_until_parked();
+        assert!(view.read_with(
+            cx,
+            |c, _| matches!(&c.panel, Some(Panel::Mcp(p)) if !p.loading)
+        ));
+    }
+
+    #[gpui_kit::test]
+    fn a_prompt_rendered_for_another_draft_never_lands(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<conduit_protocol::methods::PromptsRender>(
+            serde_json::from_value(serde_json::json!({"content": "LATE", "inputs": []})).unwrap(),
+        );
+        let held = daemon.hold::<conduit_protocol::methods::PromptsRender>();
+        let (view, cx, _) = composer_on(daemon, cx);
+        view.update_in(cx, |c, window, cx| {
+            let prompt = serde_json::from_value(serde_json::json!({
+                "command": "/greet", "title": "Greet"
+            }))
+            .unwrap();
+            c.render_prompt(prompt, 0, BTreeMap::new(), window, cx);
+        });
+        let store = view.read_with(cx, |c, _| c.composer.clone());
+        store.update(cx, |s, cx| {
+            s.switch_draft(
+                Some(crate::stores::composer::DraftKey {
+                    chat_id: Some("chat-b".into()),
+                    folder_id: None,
+                }),
+                "",
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        held.release();
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "", "chat A's prompt landed in chat B");
+    }
+
+    fn token_ids(view: &Entity<ChatComposer>, cx: &mut VisualTestContext) -> Vec<String> {
+        view.read_with(cx, |c, cx| {
+            c.input
+                .read(cx)
+                .tokens()
+                .iter()
+                .map(|t| t.token().id().to_string())
+                .collect()
+        })
+    }
+
+    #[gpui_kit::test]
+    fn a_second_mention_keeps_the_first(cx: &mut TestAppContext) {
+        let (view, cx, _) = composer(cx);
+        cx.simulate_input("Ask @Av");
+        view.update_in(cx, |c, window, cx| {
+            c.text_changed(cx);
+            c.insert_mention(MentionTarget::User("u-1".into()), "Avery", window, cx);
+        });
+        cx.simulate_input("and @Bl");
+        view.update_in(cx, |c, window, cx| {
+            c.text_changed(cx);
+            c.insert_mention(MentionTarget::User("u-2".into()), "Blake", window, cx);
+        });
+        assert_eq!(value(&view, cx), "Ask @Avery and @Blake ");
+        assert_eq!(token_ids(&view, cx), vec!["U:u-1", "U:u-2"]);
+    }
+
+    #[gpui_kit::test]
+    fn a_refused_send_comes_back_with_its_mentions(cx: &mut TestAppContext) {
+        let (view, cx, seen) = composer(cx);
+        cx.simulate_input("Ask @Av");
+        view.update_in(cx, |c, window, cx| {
+            c.text_changed(cx);
+            c.insert_mention(MentionTarget::User("u-1".into()), "Avery", window, cx);
+        });
+        cx.simulate_keystrokes("enter");
+        let ChatComposerEvent::Submit { text, mentions } = seen.borrow()[0].clone() else {
+            panic!("not sent");
+        };
+        assert_eq!(mentions.len(), 1);
+        view.update_in(cx, |c, window, cx| {
+            let used = c
+                .composer
+                .read(cx)
+                .one_shot()
+                .with_mentions(mentions.clone());
+            c.give_back(&text, used, window, cx);
+        });
+        assert_eq!(value(&view, cx), "Ask @Avery");
+        assert_eq!(token_ids(&view, cx), vec!["U:u-1"]);
+        // Sent again: the same mention goes with it.
+        cx.simulate_keystrokes("enter");
+        let ChatComposerEvent::Submit {
+            mentions: again, ..
+        } = seen.borrow()[1].clone()
+        else {
+            panic!("not sent again");
+        };
+        assert_eq!(again, mentions);
+    }
+
+    #[gpui_kit::test]
+    fn without_follow_ups_a_running_answer_keeps_the_text(cx: &mut TestAppContext) {
+        let (view, cx, seen) = composer(cx);
+        view.update(cx, |c, cx| {
+            c.follow_ups = false;
+            c.streaming = true;
+            c.queue_offer = true;
+            c.composer.update(cx, |s, _| s.options.steer = true);
+        });
+        cx.simulate_input("Next one");
+        cx.simulate_keystrokes("enter");
+        view.update_in(cx, |c, window, cx| c.steer(window, cx));
+        assert!(seen.borrow().is_empty(), "{:?}", seen.borrow());
+        // (The test platform hands the unused Enter to the field as a newline.)
+        assert_eq!(
+            value(&view, cx).trim_end(),
+            "Next one",
+            "the text was taken and lost"
+        );
     }
 }

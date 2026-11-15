@@ -213,6 +213,17 @@ pub struct OneShot {
     pub knowledge: Vec<KnowledgeSummary>,
     pub context: Vec<ContextAttachmentDto>,
     pub mention: Option<ModelSummary>,
+    /// The message's `@`/`$` mentions, so its text comes back with them
+    /// ([`OneShot::with_mentions`]).
+    pub mentions: Vec<ComposerMentionDto>,
+}
+
+impl OneShot {
+    /// The same, with the mentions the message carried.
+    pub fn with_mentions(mut self, mentions: Vec<ComposerMentionDto>) -> Self {
+        self.mentions = mentions;
+        self
+    }
 }
 
 #[derive(Clone)]
@@ -1247,6 +1258,7 @@ impl ComposerStore {
             knowledge: self.knowledge.clone(),
             context: self.context.clone(),
             mention: self.mention.clone(),
+            mentions: vec![],
         }
     }
 
@@ -1327,6 +1339,8 @@ impl ComposerStore {
         self.draft_saved = String::new();
         self._draft = None;
         self.refresh_models(cx);
+        // The last account's text, panel and prompt leave the field.
+        cx.emit(ComposerEvent::DraftSwitched);
     }
 }
 

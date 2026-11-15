@@ -111,6 +111,9 @@ impl QuickAskView {
         let composer = cx.new(|cx| {
             let mut c = ChatComposer::new(composer_store.clone(), window, cx);
             c.set_placeholder(&placeholder, window, cx);
+            // No queue, steering or Save as Note here: Enter on a running
+            // answer leaves the text in the field.
+            c.follow_ups = false;
             // No temporary switch: Quick Ask chats are ordinary chats, so
             // "Open in Conduit" can show them.
             c.new_chat = false;
@@ -391,7 +394,7 @@ impl QuickAskView {
         // go without it: it waits in the field instead.
         if (self.chat.is_none() && self.starting) || self.composer_store.read(cx).uploading() {
             self.composer
-                .update(cx, |c, cx| c.restore(&text, window, cx));
+                .update(cx, |c, cx| c.restore_with(&text, &mentions, window, cx));
             return;
         }
         self.notice = None;
@@ -402,7 +405,11 @@ impl QuickAskView {
             .next_model()
             .map(|m| m.name.clone());
         // Given back with the text if the send fails.
-        let used = self.composer_store.read(cx).one_shot();
+        let used = self
+            .composer_store
+            .read(cx)
+            .one_shot()
+            .with_mentions(mentions.clone());
         let options = self
             .composer_store
             .update(cx, |c, cx| c.take_turn(mentions, cx));
