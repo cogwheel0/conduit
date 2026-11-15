@@ -798,10 +798,7 @@ pub fn open_settings(tab: Option<Tab>, cx: &mut App) {
             .is_ok()
     {
         if let Some(tab) = tab {
-            view.update(cx, |v, cx| {
-                v.tab = tab;
-                cx.notify();
-            });
+            view.update(cx, |v, cx| v.show_tab(tab, cx));
         }
         return;
     }
@@ -816,6 +813,17 @@ pub fn open_settings(tab: Option<Tab>, cx: &mut App) {
     }) {
         Ok((handle, view)) => {
             cx.global_mut::<AppState>().settings_window = Some((handle, view));
+            // A chord being recorded is the window's: once it closes, keys go
+            // back to the app (the view itself lives on in AppState until
+            // this lets it go).
+            let _ = handle.update(cx, |_, window, cx| {
+                window.on_window_should_close(cx, |_, cx| {
+                    let settings = cx.global::<AppState>().settings.clone();
+                    settings.update(cx, |s, cx| s.stop_recording(cx));
+                    cx.global_mut::<AppState>().settings_window = None;
+                    true
+                });
+            });
         }
         Err(e) => log::error!("could not open Settings: {e}"),
     }

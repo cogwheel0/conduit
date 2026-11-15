@@ -344,8 +344,9 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// Shows `tab`'s pane, fading it in over the one before.
-    fn show_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
+    /// Shows `tab`'s pane, fading it in over the one before. Every tab
+    /// change comes through here, so a recording never outlives its pane.
+    pub fn show_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
         if tab != self.tab {
             // Recording belongs to the pane it started in.
             self.settings.update(cx, |s, cx| s.stop_recording(cx));
@@ -359,8 +360,7 @@ impl SettingsView {
     /// as System Settings › Internet Accounts): the server's address, then
     /// Connect. Sign-in for the new account follows in the setup window.
     pub fn open_add_sheet(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.tab = Tab::Accounts;
-        cx.notify();
+        self.show_tab(Tab::Accounts, cx);
         if let Some(sheet) = &self.add_sheet {
             // Already down: it keeps the keyboard.
             let handle = sheet.handle;
