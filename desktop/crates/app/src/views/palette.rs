@@ -222,7 +222,12 @@ impl PaletteView {
         let store = self.stores.palette.read(cx);
         let query = store.query().trim().to_string();
         let searching = store.searching;
-        let recent = self.stores.chat_list.read(cx).recent(RECENT_COUNT);
+        // Recent chats show only with no query (sorting the list costs).
+        let recent = if query.is_empty() {
+            self.stores.chat_list.read(cx).recent(RECENT_COUNT)
+        } else {
+            vec![]
+        };
         // Hits for another query (a search still on its way, or one that
         // failed) are not this query's.
         let results = store.results.as_ref().filter(|_| store.searched() == query);

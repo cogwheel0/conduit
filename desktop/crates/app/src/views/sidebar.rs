@@ -2389,6 +2389,10 @@ impl SidebarView {
                 let list = s.stores.chat_list.clone();
                 if let [id] = ids.as_slice() {
                     list.update(cx, |c, cx| c.delete(id, cx)).detach();
+                    // A selection of just this chat is done with too.
+                    if s.selecting.as_ref().is_some_and(|sel| sel.contains(id)) {
+                        s.selecting = None;
+                    }
                 } else {
                     list.update(cx, |c, cx| c.bulk(ids, BulkChatAction::Delete, None, cx))
                         .detach();

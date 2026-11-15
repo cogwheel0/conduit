@@ -293,7 +293,11 @@ impl ChatListStore {
                         Ok(list) if s.generation == generation => s.adopt(list, cx),
                         Ok(_) => s.changed(cx),
                         Err(error) => {
-                            s.more_failed = true;
+                            // Only this list's page: an older one's failure
+                            // never stops the newer list's paging.
+                            if s.generation == generation {
+                                s.more_failed = true;
+                            }
                             cx.emit(ChatListEvent::Failed {
                                 action: ChatAction::LoadMore,
                                 error,
@@ -1263,6 +1267,19 @@ mod tests {
         store.update(cx, |s, cx| s.load_more(cx));
         cx.run_until_parked();
         assert!(store.read_with(cx, |s, _| s.more_failed && !s.loading_more));
+
+        // A page that fails after a newer list came does not stop its paging.
+        let held = daemon.hold::<methods::ChatsLoadMore>();
+        daemon.once::<methods::ChatsLoadMore>(Err(conduit_daemon::protocol::error(
+            "net.offline",
+            "offline",
+        )));
+        store.update(cx, |s, cx| s.load_more(cx));
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+        held.release();
+        cx.run_until_parked();
+        assert!(store.read_with(cx, |s, _| !s.more_failed));
     }
 
     #[gpui_kit::test]
