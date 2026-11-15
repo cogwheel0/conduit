@@ -27,7 +27,9 @@ fn used_keys() -> Vec<(&'static str, &'static str)> {
         for (i, name) in ACCESSORS.iter().enumerate() {
             let a = format!("l10n.{name}(");
             let b = format!("l10n().{name}(");
-            if text.contains(&a) || text.contains(&b) {
+            // The components' strings, through `l: &L10n`.
+            let c = format!("(l.{name}(");
+            if text.contains(&a) || text.contains(&b) || text.contains(&c) {
                 used.insert((KEYS[i], *name));
             }
         }

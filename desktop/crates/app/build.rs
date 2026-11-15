@@ -54,9 +54,8 @@ fn main() {
                 }
                 if let Some(prev) = catalog.insert(key.clone(), message.to_string())
                     && prev != message
-                    && locale == "en"
                 {
-                    panic!("{key} is defined differently in the app and desktop ARBs");
+                    panic!("{key} ({locale}) is defined differently in the app and desktop ARBs");
                 }
                 if locale == "en" {
                     let mut names = vec![];
