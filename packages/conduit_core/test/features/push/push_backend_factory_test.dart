@@ -30,12 +30,13 @@ final class _Configs extends HermesConfigController {
   Object? refusal;
 
   @override
-  HermesDesktopCredentialsWriter credentialsWriterFor(
-    HermesConfig connection, {
-    bool live = false,
-  }) => (credentials) async {
-    if (refusal case final error?) throw error;
-  };
+  ({HermesDesktopCredentialsWriter write, HermesDesktopTokensReader read})
+  tokenAccessFor(HermesConfig connection, {bool live = false}) => (
+    write: (credentials) async {
+      if (refusal case final error?) throw error;
+    },
+    read: () async => saved.desktopCredentials?.nativeTokens,
+  );
 
   @override
   HermesConfig build() => const HermesConfig();

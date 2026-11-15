@@ -536,7 +536,14 @@ class HermesConfigController extends Notifier<HermesConfig> {
   HermesDesktopCredentialsWriter credentialsWriterFor(
     HermesConfig connection, {
     bool live = false,
-  }) {
+  }) => tokenAccessFor(connection, live: live).write;
+
+  /// [credentialsWriterFor]'s writer, with a reader the client calls before
+  /// it renews. The reader hands it the stored tokens, which another client
+  /// may have rotated meanwhile, and the writer then expects those: the
+  /// client adopts them rather than send a spent refresh token.
+  ({HermesDesktopCredentialsWriter write, HermesDesktopTokensReader read})
+  tokenAccessFor(HermesConfig connection, {bool live = false}) {
     final generation = live ? ++_liveClientGeneration : null;
     final connectionId = connection.connectionId;
     // The refresh token this writer's client holds. Two clients built from
@@ -547,7 +554,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
     // Signed out with no tokens, as a sign-in starts, the refresh token
     // expected and the one stored after a sign-out are both none.
     final signOuts = _desktopSignOuts[connectionId] ?? 0;
-    return (credentials) => _serializeMutation(() async {
+
+    /// The connection as stored, while it is still [connection]'s.
+    Future<({HermesConfig stored, bool active})> storedConnection() async {
       await _secretsHydration;
       _throwIfSecretsUnavailable();
       final profile = _profile(connectionId);
@@ -576,25 +585,49 @@ class HermesConfigController extends Notifier<HermesConfig> {
               connection.allowSelfSignedCertificates) {
         throw StateError('Hermes connection changed before sign-in completed.');
       }
-      final storedRefreshToken =
-          stored.desktopCredentials?.nativeTokens?.refreshToken;
-      if (storedRefreshToken != expectedRefreshToken) {
-        if (storedRefreshToken != null) throw HermesTokenRotationSuperseded();
-        throw StateError('Hermes connection changed before sign-in completed.');
-      }
-      final previous = stored.desktopCredentials;
-      final next = HermesDesktopCredentials(
-        legacyToken: previous?.legacyToken,
-        nativeTokens: credentials.nativeTokens,
-        accessHeaders: previous?.accessHeaders ?? const {},
-      );
-      await _persistDesktopCredentials(connectionId, next);
-      if (active) {
-        state = _withState(desktopCredentials: next);
-        if (generation != _liveClientGeneration) _rebuildLiveClientWhenIdle();
-      }
-      expectedRefreshToken = credentials.nativeTokens?.refreshToken;
-    });
+      return (stored: stored, active: active);
+    }
+
+    Future<void> write(HermesDesktopCredentials credentials) =>
+        _serializeMutation(() async {
+          final (:stored, :active) = await storedConnection();
+          final storedRefreshToken =
+              stored.desktopCredentials?.nativeTokens?.refreshToken;
+          if (storedRefreshToken != expectedRefreshToken) {
+            if (storedRefreshToken != null) {
+              throw HermesTokenRotationSuperseded();
+            }
+            throw StateError(
+              'Hermes connection changed before sign-in completed.',
+            );
+          }
+          final previous = stored.desktopCredentials;
+          final next = HermesDesktopCredentials(
+            legacyToken: previous?.legacyToken,
+            nativeTokens: credentials.nativeTokens,
+            accessHeaders: previous?.accessHeaders ?? const {},
+          );
+          await _persistDesktopCredentials(connectionId!, next);
+          if (active) {
+            state = _withState(desktopCredentials: next);
+            if (generation != _liveClientGeneration) {
+              _rebuildLiveClientWhenIdle();
+            }
+          }
+          expectedRefreshToken = credentials.nativeTokens?.refreshToken;
+        });
+
+    Future<HermesDesktopTokenSet?> read() async {
+      HermesDesktopTokenSet? tokens;
+      await _serializeMutation(() async {
+        final (:stored, active: _) = await storedConnection();
+        tokens = stored.desktopCredentials?.nativeTokens;
+        expectedRefreshToken = tokens?.refreshToken;
+      });
+      return tokens;
+    }
+
+    return (write: write, read: read);
   }
 
   /// Rebuilds the live client so it takes the stored tokens, but only once
@@ -2291,9 +2324,9 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
     // Rotations land even after this client is replaced, as by a switch
     // away: the server has already spent the refresh token they replace.
     // They never overwrite tokens this client did not hold.
-    final writeCredentials = ref
+    final (write: writeCredentials, :read) = ref
         .read(hermesConfigProvider.notifier)
-        .credentialsWriterFor(config, live: true);
+        .tokenAccessFor(config, live: true);
     final desktopService = HermesDesktopApiService(
       config: config,
       openExternalUrl: ref.read(openExternalUrlProvider),
@@ -2302,6 +2335,7 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
         hostHermesDashboardBridgeFactoryProvider,
       ),
       confirmModelSwitch: ref.read(hermesModelSwitchPromptProvider),
+      readStoredTokens: read,
       onCredentialsChanged: (credentials) async {
         try {
           await writeCredentials(credentials);

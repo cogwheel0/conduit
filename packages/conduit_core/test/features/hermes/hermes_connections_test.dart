@@ -1355,22 +1355,33 @@ void main() {
       // Two temporary clients built from the same stored tokens.
       final beta = await controller.savedConnectionConfig(_b);
       final first = controller.credentialsWriterFor(beta);
-      final second = controller.credentialsWriterFor(beta);
+      final second = controller.tokenAccessFor(beta);
 
       await first(_nativeCredentials('refresh-1'));
       // The second client's refresh token is spent; its sign-out after the
       // resulting 401 must not erase the rotated tokens.
-      await check(second(HermesDesktopCredentials())).throws<StateError>();
+      await check(
+        second.write(HermesDesktopCredentials()),
+      ).throws<StateError>();
       // Its own rotation is refused too, as one another client superseded:
       // nobody signed out.
       await check(
-        second(_nativeCredentials('refresh-x')),
+        second.write(_nativeCredentials('refresh-x')),
       ).throws<HermesTokenRotationSuperseded>();
       check(await storedRefreshToken()).equals('refresh-1');
 
       // The client that rotated keeps persisting its own rotations.
       await first(_nativeCredentials('refresh-2'));
       check(await storedRefreshToken()).equals('refresh-2');
+
+      // Reading before it renews hands the second client the stored tokens,
+      // so its renewal of those lands, and the first client's is superseded.
+      check((await second.read())?.refreshToken).equals('refresh-2');
+      await second.write(_nativeCredentials('refresh-3'));
+      check(await storedRefreshToken()).equals('refresh-3');
+      await check(
+        first(_nativeCredentials('refresh-x')),
+      ).throws<HermesTokenRotationSuperseded>();
     });
 
     // A client of the active connection refreshes its tokens; the server

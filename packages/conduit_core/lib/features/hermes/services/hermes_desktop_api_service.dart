@@ -64,6 +64,10 @@ typedef HermesDesktopCredentialsWriter = Future<void> Function(
   HermesDesktopCredentials credentials,
 );
 
+/// The gateway tokens stored for a client's connection, read as it is about
+/// to renew. Another client may have rotated them since it read its own.
+typedef HermesDesktopTokensReader = Future<HermesDesktopTokenSet?> Function();
+
 /// A [HermesDesktopCredentialsWriter] refused a token rotation because
 /// another client of the same gateway tokens stored its own first. The
 /// stored tokens are the newer ones; nobody signed out.
@@ -250,6 +254,7 @@ final class HermesDesktopApiService
     BrowserAuthPort? browserAuth,
     HermesDashboardBridgeFactory? dashboardBridgeFactory,
     this.onCredentialsChanged,
+    HermesDesktopTokensReader? readStoredTokens,
     HermesModelSwitchPrompt? confirmModelSwitch,
     @visibleForTesting
     this.gatewayStartRetryDelays = const [
@@ -266,6 +271,7 @@ final class HermesDesktopApiService
     this.pendingCompactionDeadline = const Duration(minutes: 15),
   }) : _openExternalUrl = openExternalUrl ?? const NullOpenExternalUrlPort(),
        _browserAuth = browserAuth ?? const NullBrowserAuthPort(),
+       _readStoredTokens = readStoredTokens,
        _dashboardBridgeFactory = dashboardBridgeFactory,
        _confirmModelSwitch = confirmModelSwitch,
        _nativeTokens = config.desktopCredentials?.nativeTokens,
@@ -300,6 +306,11 @@ final class HermesDesktopApiService
   /// Runs native sign-in in the system browser's sheet, which returns to
   /// the app by itself; without one, [_openExternalUrl] opens the page.
   final BrowserAuthPort _browserAuth;
+
+  /// Read before a renewal: other clients of the same gateway tokens (push,
+  /// a settings probe) rotate them too, and a refresh token one of them
+  /// spent ends the whole session at a provider that detects its reuse.
+  final HermesDesktopTokensReader? _readStoredTokens;
 
   /// How long to wait before each new attempt to reach a gateway that said
   /// it is not ready (starting, restarting or draining).

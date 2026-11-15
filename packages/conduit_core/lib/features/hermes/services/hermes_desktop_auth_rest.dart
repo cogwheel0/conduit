@@ -293,7 +293,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
       return;
     }
     try {
-      await _validNativeTokens(forceRefresh: true);
+      await _validNativeTokens(margin: margin);
     } catch (error) {
       DebugLogger.warning(
         'resume-token-refresh-failed',
@@ -344,16 +344,37 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     await onCredentialsChanged?.call(credentials);
   }
 
+  /// Tokens to send: the held ones, renewed first when they expire within
+  /// [margin], or when [forceRefresh] because the gateway refused them.
   Future<HermesDesktopTokenSet?> _validNativeTokens({
     bool forceRefresh = false,
+    Duration margin = const Duration(seconds: 60),
   }) async {
-    final current = _nativeTokens;
-    if (current == null || (!forceRefresh && !current.needsRefresh)) {
-      return current;
-    }
-    return _refreshing ??= _refreshNative(current).whenComplete(() {
+    final held = _nativeTokens;
+    if (held == null) return null;
+    bool stale(HermesDesktopTokenSet tokens) =>
+        (forceRefresh && identical(tokens, held)) ||
+        tokens.expiresWithin(margin);
+    if (!stale(held)) return held;
+    return _refreshing ??= _renewNative(held, stale).whenComplete(() {
       _refreshing = null;
     });
+  }
+
+  Future<HermesDesktopTokenSet?> _renewNative(
+    HermesDesktopTokenSet held,
+    bool Function(HermesDesktopTokenSet tokens) stale,
+  ) async {
+    final read = _readStoredTokens;
+    if (read == null) return _refreshNative(held);
+    final stored = await read();
+    if (!identical(_nativeTokens, held)) return _nativeTokens;
+    if (stored?.refreshToken == held.refreshToken) return _refreshNative(held);
+    // Another client rotated the tokens, or signed out: the held refresh
+    // token is spent, and sending it back would end the session.
+    _nativeTokens = stored;
+    if (stored == null || !stale(stored)) return stored;
+    return _refreshNative(stored);
   }
 
   Future<HermesDesktopTokenSet?> _refreshNative(
@@ -367,11 +388,14 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
         body: {'refresh_token': current.refreshToken},
       );
       final next = _parseTokenSet(data);
+      // A sign-in that finished meanwhile is newer than this renewal.
+      if (!identical(_nativeTokens, current)) return _nativeTokens;
       await _saveTokens(next);
       return next;
     } on DioException catch (error) {
       if (error.response?.statusCode == 503) return current;
       if (error.response?.statusCode == 401) {
+        if (!identical(_nativeTokens, current)) return _nativeTokens;
         await _saveTokens(null);
         return null;
       }

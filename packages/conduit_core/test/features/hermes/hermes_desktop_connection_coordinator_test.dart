@@ -264,6 +264,8 @@ void main() {
       _TokenRest rest, {
       required DateTime expiresAt,
       required List<HermesDesktopCredentials> saved,
+      BrowserAuthPort? browserAuth,
+      HermesDesktopTokensReader? readStoredTokens,
     }) {
       final service = HermesDesktopApiService(
         config: HermesConfig(
@@ -280,6 +282,8 @@ void main() {
           ),
         ),
         dio: Dio()..httpClientAdapter = rest,
+        browserAuth: browserAuth,
+        readStoredTokens: readStoredTokens,
         onCredentialsChanged: (credentials) async => saved.add(credentials),
       );
       addTearDown(service.close);
@@ -308,6 +312,84 @@ void main() {
 
           check(rest.paths.contains('/auth/native/refresh')).equals(renews);
           check(saved.length).equals(renews ? 1 : 0);
+        }),
+      );
+    }
+
+    // Back from the sign-in sheet the app resumes, and a renewal of the old
+    // tokens may still be on its way: whether Hermes renewed or refused
+    // them, it must not replace the sign-in that finished first.
+    for (final refreshStatus in [HttpStatus.ok, HttpStatus.unauthorized]) {
+      test(
+        'a renewal answered $refreshStatus after a sign-in leaves the sign-in',
+        () => withClock(Clock.fixed(now), () async {
+          final held = Completer<void>();
+          final rest = _TokenRest(
+            refreshStatus: refreshStatus,
+            refreshGate: held.future,
+          );
+          final saved = <HermesDesktopCredentials>[];
+          final lifecycle = _Lifecycle();
+          final gateway = service(
+            rest,
+            expiresAt: now.add(const Duration(minutes: 2)),
+            saved: saved,
+            browserAuth: _Sheet(),
+          )..startLifecycleObservation(lifecycle);
+
+          lifecycle.emit(AppLifecyclePhase.resumed);
+          await pumpEventQueue();
+          check(rest.refreshTokensSent).deepEquals(['refresh']);
+          check(await gateway.signInNative()).isNotNull();
+          held.complete();
+          await pumpEventQueue();
+
+          check(
+            saved.single.nativeTokens?.refreshToken,
+          ).equals('signed-in-refresh');
+          await gateway.listJobs();
+          check(
+            rest.jobsAuthorizations,
+          ).deepEquals(['Bearer signed-in-access']);
+        }),
+      );
+    }
+
+    // Push renewed the same tokens while this client was busy, so the
+    // refresh token it holds is spent: sending it would end the session at
+    // a provider that detects reuse. It takes the stored tokens instead, and
+    // renews only those.
+    for (final (storedExpiresIn, renews) in [
+      (const Duration(hours: 1), false),
+      (const Duration(minutes: 2), true),
+    ]) {
+      test(
+        'coming back after another client rotated the tokens '
+        '${renews ? 'renews the stored ones' : 'takes the stored ones'}',
+        () => withClock(Clock.fixed(now), () async {
+          final rest = _TokenRest();
+          final lifecycle = _Lifecycle();
+          final gateway = service(
+            rest,
+            expiresAt: now.add(const Duration(minutes: 2)),
+            saved: [],
+            readStoredTokens: () async => HermesDesktopTokenSet(
+              accessToken: 'pushed-access',
+              refreshToken: 'pushed-refresh',
+              expiresAt: now.add(storedExpiresIn),
+            ),
+          )..startLifecycleObservation(lifecycle);
+
+          lifecycle.emit(AppLifecyclePhase.resumed);
+          await pumpEventQueue();
+          await gateway.listJobs();
+
+          check(
+            rest.refreshTokensSent,
+          ).deepEquals([if (renews) 'pushed-refresh']);
+          check(rest.jobsAuthorizations).deepEquals([
+            renews ? 'Bearer renewed-access' : 'Bearer pushed-access',
+          ]);
         }),
       );
     }
@@ -656,11 +738,21 @@ final class _TokenRest implements HttpClientAdapter {
   _TokenRest({
     this.refreshStatus = HttpStatus.ok,
     this.requestStatus = HttpStatus.ok,
+    this.refreshGate,
   });
 
   final int refreshStatus;
   final int requestStatus;
+
+  /// Holds the refresh's answer until it completes.
+  final Future<void>? refreshGate;
   final paths = <String>[];
+
+  /// The refresh tokens renewals sent.
+  final refreshTokensSent = <Object?>[];
+
+  /// The `Authorization` each `/api/cron/jobs` request carried.
+  final jobsAuthorizations = <Object?>[];
 
   @override
   void close({bool force = false}) {}
@@ -673,8 +765,35 @@ final class _TokenRest implements HttpClientAdapter {
   ) async {
     final path = options.uri.path;
     paths.add(path);
-    final (status, body) = switch (path) {
-      '/api/status' => (HttpStatus.ok, {'auth_required': true}),
+    if (path == '/auth/native/refresh') {
+      final data = options.data;
+      final body = data is String ? jsonDecode(data) : data;
+      refreshTokensSent.add((body as Map)['refresh_token']);
+      await refreshGate;
+    }
+    if (path == '/api/cron/jobs') {
+      jobsAuthorizations.add(options.headers['Authorization']);
+    }
+    final (status, Object body) = switch (path) {
+      '/api/status' => (
+        HttpStatus.ok,
+        {
+          'auth_required': true,
+          'auth_flows': ['native_pkce'],
+        },
+      ),
+      '/auth/native/token' => (
+        HttpStatus.ok,
+        {
+          'access_token': 'signed-in-access',
+          'refresh_token': 'signed-in-refresh',
+          'expires_at': DateTime.utc(2099).millisecondsSinceEpoch ~/ 1000,
+        },
+      ),
+      '/api/cron/jobs' when requestStatus == HttpStatus.ok => (
+        HttpStatus.ok,
+        const <Object?>[],
+      ),
       '/auth/native/refresh' when refreshStatus == HttpStatus.ok => (
         HttpStatus.ok,
         {
