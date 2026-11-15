@@ -69,6 +69,8 @@ pub struct AudioPane {
     /// Bumped when the pane is left: a preview still on its way stays
     /// silent.
     preview_round: u64,
+    /// The fields hold the loaded settings' provider.
+    provider_filled: bool,
 }
 
 impl AudioPane {
@@ -87,8 +89,19 @@ impl AudioPane {
                 .auto_grow(2, 8)
                 .placeholder(l10n.voice_provider_realtime_instructions_hint())
         });
-        cx.observe(&stores.app_settings, |_, _, cx| cx.notify())
-            .detach();
+        // Opened before settings.get answered: the saved provider goes in
+        // the fields once it is in (not over what was typed since).
+        cx.observe_in(
+            &stores.app_settings,
+            window,
+            |this: &mut Self, store, window, cx| {
+                if !this.provider_filled && store.read(cx).loaded {
+                    this.fill_provider(window, cx);
+                }
+                cx.notify()
+            },
+        )
+        .detach();
         let mut this = Self {
             stores,
             voice: None,
@@ -104,6 +117,7 @@ impl AudioPane {
             provider: None,
             provider_saved: None,
             preview_round: 0,
+            provider_filled: false,
             previewing: false,
         };
         this.refresh(window, cx);
@@ -148,12 +162,9 @@ impl AudioPane {
 
     /// Puts the saved Voice Provider in the fields.
     fn fill_provider(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let saved = self
-            .store()
-            .read(cx)
-            .settings()
-            .direct_voice_provider
-            .clone();
+        let store = self.store().read(cx);
+        self.provider_filled = store.loaded;
+        let saved = store.settings().direct_voice_provider.clone();
         self.provider = saved.as_ref().map(|p| p.profile_id.clone());
         let p = saved.unwrap_or(DirectVoiceProviderDto {
             profile_id: String::new(),
@@ -723,7 +734,8 @@ impl AudioPane {
                     &l10n.voice_provider_connection(),
                     choices,
                     &selected,
-                    providers.connections.is_empty(),
+                    // A saved provider can still be set back to None.
+                    providers.connections.is_empty() && self.provider.is_none(),
                     window,
                     cx,
                 ),

@@ -217,8 +217,10 @@ impl PersonalizationPane {
     ) {
         self.busy = true;
         self.memory_failed = false;
-        if let Some(e) = self.editor.as_mut() {
-            e.saving = closes_editor;
+        // Only the editor's own Save holds it; a switch or a delete
+        // meanwhile leaves a pending save as it is.
+        if closes_editor && let Some(e) = self.editor.as_mut() {
+            e.saving = true;
             e.failed = false;
         }
         cx.notify();
@@ -238,7 +240,7 @@ impl PersonalizationPane {
                         Err(e) => {
                             log::warn!("memories: {e}");
                             s.memory_failed = true;
-                            if let Some(editor) = s.editor.as_mut() {
+                            if closes_editor && let Some(editor) = s.editor.as_mut() {
                                 editor.saving = false;
                                 editor.failed = true;
                             }
@@ -749,5 +751,55 @@ impl Render for PersonalizationPane {
             sections.extend(self.memory_groups(&list, &l10n, window, cx));
         }
         div().flex().flex_col().gap(px(22.)).children(sections)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui_kit::TestAppContext;
+
+    use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    #[gpui_kit::test]
+    fn the_memory_switch_never_reopens_a_pending_save(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let list = serde_json::json!({"available": true, "enabled": true, "memories": []});
+        for_methods(&daemon, list);
+        let held = daemon.hold::<methods::MemoriesAdd>();
+        let scratch = std::env::temp_dir().join(format!("conduit-memory-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| PersonalizationPane::new(stores, window, cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |p, window, cx| {
+            p.open_editor(None, window, cx);
+            p.memory_input
+                .update(cx, |i, cx| i.set_value("Prefers tea", window, cx));
+            p.save_memory(window, cx);
+            p.set_memory_enabled(false, window, cx);
+        });
+        vcx.run_until_parked();
+        view.read_with(vcx, |p, _| {
+            assert!(
+                p.editor.as_ref().is_some_and(|e| e.saving),
+                "Save is open again"
+            );
+        });
+        held.release();
+        vcx.run_until_parked();
+        view.read_with(vcx, |p, _| assert!(p.editor.is_none()));
+        assert_eq!(daemon.calls::<methods::MemoriesAdd>().len(), 1);
+    }
+
+    fn for_methods(daemon: &FakeDaemon, list: serde_json::Value) {
+        let a = list.clone();
+        daemon.on::<methods::MemoriesList>(move |_| Ok(a.clone()));
+        let a = list.clone();
+        daemon.on::<methods::MemoriesAdd>(move |_| Ok(a.clone()));
+        daemon.on::<methods::MemoriesSetEnabled>(move |_| Ok(list.clone()));
     }
 }

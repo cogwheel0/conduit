@@ -795,7 +795,12 @@ fn read_app_preferences(settings: &Entity<SettingsStore>, cx: &mut App) {
     cx.spawn(async move |cx| {
         match call.await {
             Ok(stored) => {
-                settings.update(cx, |s, cx| s.adopt_app_preferences(&stored, cx));
+                // A choice made on this Mac while the read was out wins.
+                settings.update(cx, |s, cx| {
+                    if !s.has_file() {
+                        s.adopt_app_preferences(&stored, cx);
+                    }
+                });
                 cx.update(|cx| push_app_preferences(&settings, cx));
             }
             // Unread, the account's own stay as they are: this Mac's

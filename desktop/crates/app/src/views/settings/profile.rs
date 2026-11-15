@@ -279,6 +279,17 @@ impl ProfilePane {
         self.run(call, Target::Photo, window, cx);
     }
 
+    /// What the details fields hold now.
+    fn typed(&self, cx: &App) -> [String; 5] {
+        [
+            self.name.read(cx).value().to_string(),
+            self.bio.read(cx).value().to_string(),
+            self.custom_gender.read(cx).value().to_string(),
+            self.birth.read(cx).value().to_string(),
+            self.gender.clone(),
+        ]
+    }
+
     pub fn remove_photo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;
@@ -298,6 +309,7 @@ impl ProfilePane {
     ) {
         self.busy = true;
         self.details_note = None;
+        let sent = self.typed(cx);
         cx.notify();
         cx.spawn_in(
             window,
@@ -307,8 +319,10 @@ impl ProfilePane {
                     s.busy = false;
                     match result {
                         Ok(profile) => {
-                            // A photo change keeps what is being typed.
-                            s.show(profile, target == Target::Details, window, cx);
+                            // A photo change keeps what is being typed, and
+                            // so does a save typed over while it was out.
+                            let fill = target == Target::Details && s.typed(cx) == sent;
+                            s.show(profile, fill, window, cx);
                             if target == Target::Details {
                                 s.details_note = Some(ProfileNote::Saved);
                             }
@@ -820,6 +834,43 @@ mod tests {
 
     use super::*;
     use crate::stores::rpc::fake::FakeDaemon;
+
+    #[gpui_kit::test]
+    fn a_name_typed_while_a_save_is_out_is_kept(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let profile = |name: &str| serde_json::json!({"id": "u1", "name": name, "email": "avery@example.com"});
+        let first = profile("Avery");
+        daemon.on::<methods::ProfileGet>(move |_| Ok(first.clone()));
+        let saved = profile("Avery Q");
+        daemon.on::<methods::ProfileUpdate>(move |_| Ok(saved.clone()));
+        let held = daemon.hold::<methods::ProfileUpdate>();
+        let scratch = std::env::temp_dir().join(format!("conduit-profile-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| ProfilePane::new(stores, window, cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |p, window, cx| {
+            p.name
+                .update(cx, |i, cx| i.set_value("Avery Q", window, cx));
+            p.save(window, cx);
+            p.name
+                .update(cx, |i, cx| i.set_value("Avery R", window, cx));
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        view.read_with(vcx, |p, cx| {
+            assert_eq!(
+                p.name.read(cx).value(),
+                "Avery R",
+                "the save's answer replaced the typing"
+            );
+            assert_eq!(p.details_note, Some(ProfileNote::Saved));
+        });
+    }
 
     #[gpui_kit::test]
     fn change_password_checks_its_fields_and_says_why_the_server_refused(cx: &mut TestAppContext) {

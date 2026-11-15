@@ -383,7 +383,8 @@ async fn chats(dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= ok(
         &format!("Regenerate moved up ({reordered:?})"),
         reordered.as_deref().is_some_and(|a| {
-            a.iter().position(|x| x == "regenerate") < a.iter().position(|x| x == "tts")
+            let at = |name: &str| a.iter().position(|x| x == name);
+            matches!((at("regenerate"), at("tts")), (Some(r), Some(t)) if r < t)
         }),
     );
     again(dir, "settings-chat-actions", true, cx).await;
