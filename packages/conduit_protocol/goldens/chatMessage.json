@@ -37,5 +37,10 @@
   "retryWithoutEffort": false,
   "comparison": [],
   "mergeableIds": [],
-  "siblingIds": []
+  "siblingIds": [],
+  "queued": {
+    "failed": false,
+    "offline": true,
+    "reasoningEffortRejected": false
+  }
 }

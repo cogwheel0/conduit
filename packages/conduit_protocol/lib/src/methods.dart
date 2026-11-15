@@ -504,6 +504,46 @@ abstract final class ConduitMethods {
   /// The user's answer to `handoff.requested`.
   static const String handoffAnswer = 'handoff.answer';
 
+  /// Sends a queued answer again now ([QueuedTurnRef]): one waiting for
+  /// the connection, or one that stopped retrying. Optionally without the
+  /// reasoning effort the provider refused.
+  static const String turnsRetryQueued = 'turns.retryQueued';
+
+  /// Removes a queued answer before it goes out: its request, and the
+  /// empty answer waiting for it.
+  static const String turnsRemoveQueued = 'turns.removeQueued';
+
+  // ---------------------------------------------------------------------
+  // chatPrompts.* -- Open WebUI's questions and approvals in a chat.
+  // ---------------------------------------------------------------------
+
+  /// The prompt waiting in a chat, if any ([ChatPromptState]): asked over
+  /// the live connection, or saved in the chat by the server.
+  static const String chatPromptsGet = 'chatPrompts.get';
+
+  /// Answers an `askUser` prompt's questions; the turn goes on.
+  static const String chatPromptsAnswer = 'chatPrompts.answer';
+
+  /// Approves or refuses a tool approval or confirmation, or declines an
+  /// `askUser` prompt.
+  static const String chatPromptsDecide = 'chatPrompts.decide';
+
+  // ---------------------------------------------------------------------
+  // mcpApps.* -- MCP Apps in Open WebUI chats, hosted by the daemon.
+  // ---------------------------------------------------------------------
+
+  /// Loads an app's page through the server's app RPC and starts its host.
+  static const String mcpAppsOpen = 'mcpApps.open';
+
+  /// One message the page posted to its host.
+  static const String mcpAppsMessage = 'mcpApps.message';
+
+  /// The app's place changed: the window's appearance, the page's width.
+  static const String mcpAppsContext = 'mcpApps.context';
+
+  /// The app's view is going: tells the app, then stops its host.
+  static const String mcpAppsClose = 'mcpApps.close';
+
   // ---------------------------------------------------------------------
   // settings.* -- the app's own preferences.
   // ---------------------------------------------------------------------
@@ -636,6 +676,8 @@ abstract final class ConduitMethods {
   static const String contextPrefix = 'context.';
   static const String knowledgePrefix = 'knowledge.';
   static const String notesPrefix = 'notes.';
+  static const String chatPromptsPrefix = 'chatPrompts.';
+  static const String mcpAppsPrefix = 'mcpApps.';
 
   // notes.* -- listed with the prefixes because they are few.
 
@@ -910,6 +952,8 @@ abstract final class ConduitMethods {
     accessPrefix,
     messagesPrefix,
     handoffPrefix,
+    chatPromptsPrefix,
+    mcpAppsPrefix,
   };
 
   /// Whether [method] sits in a namespace this protocol version defines.

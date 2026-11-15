@@ -10,7 +10,8 @@
       "pending": false,
       "status": "completed",
       "isError": false,
-      "files": "[]"
+      "files": "[]",
+      "shownEmbeds": []
     },
     {
       "id": "call_a2",
@@ -20,7 +21,8 @@
       "done": false,
       "pending": true,
       "status": "pending",
-      "isError": false
+      "isError": false,
+      "shownEmbeds": []
     }
   ]
 }

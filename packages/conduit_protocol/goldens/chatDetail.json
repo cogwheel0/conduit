@@ -40,5 +40,17 @@
     "saveTemporary": false,
     "compare": false
   },
-  "temporary": false
+  "temporary": false,
+  "tasks": [
+    {
+      "id": "1",
+      "content": "Read the DAO",
+      "status": "completed"
+    },
+    {
+      "id": "2",
+      "content": "Draw the order",
+      "status": "in_progress"
+    }
+  ]
 }

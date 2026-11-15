@@ -56,6 +56,7 @@ import 'package:riverpod/riverpod.dart';
 import 'chat_settings_service.dart';
 import 'event_bus.dart';
 import 'message_blocks.dart';
+import 'queued_completions_service.dart';
 import 'settled.dart';
 import 'temporary_chats.dart';
 import 'hermes_service.dart';
@@ -165,8 +166,10 @@ final class ChatsService {
     TemporaryChats? temporary,
     HermesService? hermes,
     MessageBlocks? blocks,
+    QueuedCompletionsService? queued,
   }) : _events = events,
        _hermes = hermes,
+       _queued = queued,
        blocks = blocks ?? MessageBlocks(),
        _now = now ?? DateTime.now,
        _temporary = temporary ?? TemporaryChats() {
@@ -179,6 +182,9 @@ final class ChatsService {
   }
 
   /// Hermes sessions, which open as chats.
+  /// Answers waiting in the outbox, shown on the messages they fill.
+  final QueuedCompletionsService? _queued;
+
   final HermesService? _hermes;
 
   /// The turns service, once the daemon has made it.
@@ -515,13 +521,20 @@ final class ChatsService {
         : conversation.systemPrompt?.trim();
     final opened = _summarize(conversation);
     final shareId = conversation.shareId;
+    final queued =
+        await _queued?.forChat(id) ?? const <String, QueuedCompletionDto>{};
     return ChatDetail(
       summary: opened,
-      messages: _messages(conversation.messages, conversation: conversation),
+      messages: _messages(
+        conversation.messages,
+        conversation: conversation,
+        queued: queued,
+      ),
       systemPrompt: prompt == null || prompt.isEmpty ? null : prompt,
       readOnly: opened.readOnly,
       abilities: await _abilities(conversation),
       shareId: shareId == null || shareId.isEmpty ? null : shareId,
+      tasks: chatTaskDtos(conversation.metadata),
     );
   }
 
@@ -1516,10 +1529,13 @@ final class ChatsService {
 
   /// [messages] as the windows draw them. [conversation], when given, is the
   /// chat they belong to, which decides whether a failed answer offers Retry
-  /// Without Reasoning Effort.
+  /// Without Reasoning Effort. [queued] holds the answers waiting to go out,
+  /// by id.
   List<ChatMessageDto> _messages(
     List<core.ChatMessage> messages, {
     Conversation? conversation,
+    Map<String, QueuedCompletionDto> queued =
+        const <String, QueuedCompletionDto>{},
   }) {
     final byId = <String, core.ChatMessage>{
       for (final message in messages) message.id: message,
@@ -1532,6 +1548,7 @@ final class ChatsService {
           parent: byId[message.metadata?['parentId']?.toString()],
           conversation: conversation,
           models: models,
+          queued: queued[message.id],
         ),
     ];
   }
@@ -1564,6 +1581,7 @@ final class ChatsService {
     core.ChatMessage? parent,
     Conversation? conversation,
     Map<String, Model> models = const <String, Model>{},
+    QueuedCompletionDto? queued,
   }) {
     final assistant = message.role == 'assistant';
     // A question more than one model answered: its answers, by column.
@@ -1641,6 +1659,7 @@ final class ChatsService {
                 answer.messageId,
             ],
       siblingIds: siblingIdsOf(message, parent),
+      queued: assistant ? queued : null,
     );
   }
 

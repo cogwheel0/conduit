@@ -166,6 +166,41 @@ final class UiRequestsService implements UiRequestPort {
     return response.choice == 'allow';
   }
 
+  /// Asks whether an MCP App in a chat may call one of its server's tools,
+  /// as mobile asks before every call. Unanswered, it is refused.
+  Future<bool> askMcpAppToolCall({
+    required String serverName,
+    required String toolName,
+    required String argumentsJson,
+    Future<void>? until,
+  }) async {
+    final response = await _ask(
+      UiRequestKind.mcpAppToolCall,
+      messageCode: 'mcpApp.toolCall',
+      args: <String, String>{'serverName': serverName, 'toolName': toolName},
+      detail: <String, dynamic>{'arguments': argumentsJson},
+      until: until,
+    );
+    return response.choice == 'allow';
+  }
+
+  /// Asks whether to open [url], a page an MCP App asked for: an app can
+  /// ask at any time, not only when the user clicked something.
+  /// [until] completing (the app closed) takes the question back: it is
+  /// settled as refused and every window closes its card.
+  Future<bool> askMcpAppOpenLink({
+    required String url,
+    Future<void>? until,
+  }) async {
+    final response = await _ask(
+      UiRequestKind.mcpAppOpenLink,
+      messageCode: 'mcpApp.openLink',
+      args: <String, String>{'url': url},
+      until: until,
+    );
+    return response.choice == 'allow';
+  }
+
   /// Asks whether a Hermes agent may go on with what it wants to do:
   /// run a command, write a file. [choices] are the agent's own -- `once`,
   /// `session`, `always`, `deny` -- and unanswered it is denied.
@@ -212,6 +247,7 @@ final class UiRequestsService implements UiRequestPort {
     Duration? timeout,
     UiInputType? inputType,
     List<UiInputOption>? options,
+    Future<void>? until,
   }) {
     final request = UiRequest(
       requestId: _uuid.v4(),
@@ -235,6 +271,18 @@ final class UiRequestsService implements UiRequestPort {
     final answer = Completer<UiResponse>();
     _pending[request.requestId] = (request: request, answer: answer);
     _events.emit(ConduitEventSpecs.uiRequest, request);
+    // What asked is gone: the question goes with it, answered as refused.
+    unawaited(
+      until?.then((_) {
+        if (_pending.remove(request.requestId) == null) return;
+        _publishSettled(request.requestId);
+        if (!answer.isCompleted) {
+          answer.complete(
+            UiResponse(requestId: request.requestId, choice: defaultChoice),
+          );
+        }
+      }),
+    );
 
     if (timeout == null) return answer.future;
     return answer.future.timeout(

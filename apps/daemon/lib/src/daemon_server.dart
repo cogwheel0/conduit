@@ -18,14 +18,17 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'accounts_service.dart';
 import 'auth_service.dart';
 import 'bootstrap.dart';
+import 'chat_prompts_service.dart';
 import 'chats_service.dart';
 import 'composer_service.dart';
 import 'drafts_service.dart';
 import 'direct_service.dart';
+import 'mcp_apps_service.dart';
 import 'mcp_service.dart';
 import 'notes_service.dart';
 import 'channels_service.dart';
 import 'prompts_service.dart';
+import 'queued_completions_service.dart';
 import 'core_runtime.dart';
 import 'redact.dart';
 import 'daemon_paths.dart';
@@ -106,6 +109,9 @@ class DaemonServer {
   ModelsService? _models;
   FilesService? _files;
   UiRequestsService? _uiRequests;
+  ChatPromptsService? _chatPrompts;
+  QueuedCompletionsService? _queuedCompletions;
+  McpAppsService? _mcpApps;
   ComposerService? _composer;
   DraftsService? _drafts;
   PromptsService? _prompts;
@@ -182,18 +188,21 @@ class DaemonServer {
     _auth = AuthService(core.container);
     _settings = SettingsService(core.container);
     final temporary = TemporaryChats();
+    _queuedCompletions = QueuedCompletionsService(core.container, events);
     _hermes = HermesService(core.container, events: events);
     _chats = ChatsService(
       core.container,
       events: events,
       temporary: temporary,
       hermes: _hermes,
+      queued: _queuedCompletions,
     );
     _files = FilesService(core.container);
     _uiRequests = UiRequestsService(events);
     // The core's own prompts, raised from any chat's turn, reach the windows
     // through the same broker.
     core.uiRequests.attach(_uiRequests!);
+    _chatPrompts = ChatPromptsService(events);
     _turns = TurnsService(
       core.container,
       events,
@@ -201,6 +210,8 @@ class DaemonServer {
       uiRequests: _uiRequests,
       hermes: _hermes,
       files: _files,
+      chatPrompts: _chatPrompts,
+      queued: _queuedCompletions,
     );
     // The list's unread dots and a chat's abilities read the turns.
     _chats!.turns = _turns;
@@ -213,6 +224,11 @@ class DaemonServer {
     );
     core.handoff.attach(_handoff!);
     _drafts = DraftsService(core.container, temporary: temporary);
+    _mcpApps = McpAppsService(
+      core.container,
+      events,
+      uiRequests: _uiRequests,
+    );
     _accounts = AccountsService(core.container, events: events, turns: _turns);
     _models = ModelsService(core.container, events: events);
     _composer = ComposerService(core.container);
@@ -253,6 +269,8 @@ class DaemonServer {
       turns: _turns,
       models: _models,
       uiRequests: _uiRequests,
+      chatPrompts: _chatPrompts,
+      mcpApps: _mcpApps,
       composer: _composer,
       prompts: _prompts,
       direct: _direct,
@@ -921,6 +939,8 @@ class DaemonServer {
     _accounts?.dispose();
     _accounts = null;
     await _turns?.dispose();
+    _queuedCompletions?.dispose();
+    _mcpApps?.dispose();
     _turns = null;
     _chats?.dispose();
     _chats = null;

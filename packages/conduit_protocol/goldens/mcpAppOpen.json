@@ -1,0 +1,13 @@
+{
+  "chatId": "chat-7c1f0b2a",
+  "app": {
+    "serverId": "harbour",
+    "toolName": "show_tides",
+    "binding": "b",
+    "arguments": "{}",
+    "result": "{}"
+  },
+  "theme": "dark",
+  "locale": "de",
+  "width": 640.0
+}

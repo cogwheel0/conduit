@@ -112,6 +112,15 @@ abstract final class ConduitEvents {
   /// [HandoffSettled].
   static const String handoffSettled = 'handoff.settled';
 
+  /// The Open WebUI prompt waiting in a chat came or went. Payload
+  /// [ChatPromptState], scoped to the chat.
+  static const String chatPromptsChanged = 'chatPrompts.changed';
+
+  /// An MCP App's host has something for its view: a message for the
+  /// page, a new height, a start or an end. Payload [McpAppEvent], scoped
+  /// to the app's chat.
+  static const String mcpAppsEvent = 'mcpApps.event';
+
   /// Every event name, for subscription validation and tests.
   static const Set<String> all = {
     turnStarted,
@@ -144,6 +153,8 @@ abstract final class ConduitEvents {
     messagesMerge,
     handoffRequested,
     handoffSettled,
+    chatPromptsChanged,
+    mcpAppsEvent,
   };
 }
 

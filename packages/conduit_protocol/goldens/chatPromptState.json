@@ -1,0 +1,11 @@
+{
+  "chatId": "chat-7c1f0b2a",
+  "prompt": {
+    "id": "live:43",
+    "chatId": "chat-7c1f0b2a",
+    "kind": "confirmation",
+    "title": "Overwrite the plan?",
+    "message": "The agent wants to replace plan.md.",
+    "questions": []
+  }
+}

@@ -264,6 +264,8 @@ final class AccessService {
       // A folder has no audience of its own (mobile shows none).
       allowPublic:
           kind != AccessResourceKind.folder && sharing.section.sharePublicly,
+      // Only a chat has "Anyone with the link" (mobile's audience choice).
+      allowOpen: kind == AccessResourceKind.chat && sharing.shareOpenly,
       ownerName: ownerName,
     );
   }

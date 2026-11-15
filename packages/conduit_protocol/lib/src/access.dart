@@ -71,6 +71,10 @@ abstract class AccessState with _$AccessState {
     /// folder, which has none.
     @Default(false) bool allowPublic,
 
+    /// "Anyone with the link" may be chosen too: a chat only, when the
+    /// account may share chats openly (`sharing.open_chats`).
+    @Default(false) bool allowOpen,
+
     /// Who owns the resource, when known.
     String? ownerName,
   }) = _AccessState;

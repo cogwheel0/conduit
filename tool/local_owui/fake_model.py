@@ -12,9 +12,16 @@ offers three models:
   - "what is my favourite colour": the colour an earlier message named;
   - "fail": HTTP 500; "refuse": HTTP 400 with a reason;
   - "time": a call to `get_current_timestamp` (with `__labels__`, and
-    `__approval__` required when the message also says "approve");
+    `__approval__` required when the message also says "approve"; every
+    other call states `__approval__` not required, as the server's auto
+    tool permissions ask for any call that does not say);
   - "tool" (direct mode): a call to `web_fetch` for a URL not in the
     message, which the app must refuse;
+  - "ask me": a call to Open WebUI's `ask_user` with two questions, then,
+    answered, "You chose X and Y.";
+  - "plan the tasks": a call to `create_tasks` with three tasks, then a
+    short answer;
+  - "alerts": one of each GitHub-style alert;
   - "reason": reasoning (`reasoning_content`) first, then the answer below;
   - "code": python, html and mermaid code blocks;
   - "math": inline and display math;
@@ -35,7 +42,9 @@ Open WebUI's background tasks (title, tags, follow-ups) get JSON answers,
 and a note sent as `<notes>...</notes>` comes back as a markdown list.
 `/audio/transcriptions` answers with a fixed sentence and `/audio/speech`
 with a tenth of a second of silence (WAV), for the server's speech
-features. Every answer is invented. The log gets each request's roles, tool names,
+features. `/mcp` is a small MCP server (streamable HTTP, JSON answers)
+with one MCP App, `show_tides`, whose page shows the tool's result, for
+Open WebUI's MCP Apps. Every answer is invented. The log gets each request's roles, tool names,
 whether it streamed, its system text, its last user text and its generation
 params (temperature, seed, reasoning effort, ...): what a test needs to check
 that a chat's or a folder's settings reached the model. The text is the seed's
@@ -74,6 +83,110 @@ NOTES = re.compile(r'<notes>(.*?)</notes>', re.DOTALL)
 
 
 TRANSCRIPT = 'A synthetic transcript from the fake model.'
+
+ASK_USER = {
+    'questions': [
+        {'id': 'when', 'header': 'Departure', 'question': 'When should the boat leave?',
+         'options': [{'label': 'Morning', 'description': 'Before the tide turns'},
+                     {'label': 'Evening', 'description': 'After the wind drops'}]},
+        {'id': 'crew', 'header': 'Crew', 'question': 'How many sail?',
+         'options': [{'label': 'Two', 'description': 'A small crew'},
+                     {'label': 'Four', 'description': 'A full crew'}],
+         'allow_other': False},
+    ],
+}
+
+TASKS = [
+    {'id': '1', 'content': 'Read the tide table', 'status': 'completed'},
+    {'id': '2', 'content': 'Check the harbour wind', 'status': 'in_progress'},
+    {'id': '3', 'content': 'Pack the life jackets', 'status': 'pending'},
+]
+
+ALERTS = (
+    'Before you sail, read these.\n\n'
+    '> [!NOTE]\n> The tide tables here are synthetic.\n\n'
+    '> [!TIP]\n> Leave **an hour** before high water.\n\n'
+    '> [!IMPORTANT]\n> Tell someone your route.\n\n'
+    '> [!WARNING]\n> The harbour wall is slippery.\n\n'
+    '> [!CAUTION]\n> Do not sail after dark.\n\n'
+    'Fair winds.'
+)
+
+# The MCP App: one tool with a `ui://` resource, its page, and the policy
+# it declares (nothing to reach).
+MCP_TOOL = {
+    'name': 'show_tides',
+    'description': 'Shows the synthetic tide board.',
+    'inputSchema': {'type': 'object', 'properties': {'port': {'type': 'string'}}},
+    '_meta': {'ui': {'resourceUri': 'ui://harbour/tides'}},
+}
+MCP_APP_HTML = '''<!doctype html><html><head><title>Tide board</title>
+<style>body{font:14px -apple-system,sans-serif;margin:12px}h1{font-size:16px}</style></head>
+<body><h1>Tide board</h1><p id="result">Waiting for the tide.</p>
+<script>
+const send = (m) => window.parent.postMessage(m, '*');
+window.addEventListener('message', (e) => {
+  const m = e.data || {};
+  if (m.id === 1 && m.result) {
+    send({jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {}});
+    send({jsonrpc: '2.0', method: 'ui/notifications/size-changed', params: {height: 180}});
+  }
+  if (m.method === 'ui/notifications/tool-result') {
+    const text = ((m.params || {}).content || []).map((c) => c.text || '').join(' ');
+    document.getElementById('result').textContent = text || 'No tide.';
+  }
+});
+send({jsonrpc: '2.0', id: 1, method: 'ui/initialize',
+      params: {protocolVersion: '2026-01-26', appInfo: {name: 'Tide board', version: '1'},
+               appCapabilities: {}}});
+</script></body></html>'''
+
+
+def mcp_answer(request):
+    """The MCP server's answer to one JSON-RPC request, or None for a
+    notification."""
+    method = request.get('method')
+    rid = request.get('id')
+    if rid is None:
+        return None
+    if method == 'initialize':
+        result = {
+            'protocolVersion': (request.get('params') or {}).get('protocolVersion', '2025-06-18'),
+            'capabilities': {'tools': {}, 'resources': {}},
+            'serverInfo': {'name': 'harbour', 'version': '1.0'},
+        }
+    elif method == 'tools/list':
+        result = {'tools': [MCP_TOOL]}
+    elif method == 'tools/call':
+        result = {'content': [{'type': 'text', 'text': 'High water 06:12, low water 12:40.'}]}
+    elif method == 'resources/list':
+        result = {'resources': [{'uri': 'ui://harbour/tides', 'name': 'Tide board',
+                                 'mimeType': 'text/html;profile=mcp-app'}]}
+    elif method == 'resources/read':
+        result = {'contents': [{
+            'uri': 'ui://harbour/tides',
+            'mimeType': 'text/html;profile=mcp-app',
+            'text': MCP_APP_HTML,
+            '_meta': {'ui': {'csp': {'connectDomains': [], 'resourceDomains': []}}},
+        }]}
+    elif method == 'ping':
+        result = {}
+    else:
+        return {'jsonrpc': '2.0', 'id': rid, 'error': {'code': -32601, 'message': 'Method not found'}}
+    return {'jsonrpc': '2.0', 'id': rid, 'result': result}
+
+
+def tool_result(messages, name):
+    """The text a tool call named `name` came back with, if it did."""
+    ids = {
+        c.get('id')
+        for m in messages for c in (m.get('tool_calls') or [])
+        if (c.get('function') or {}).get('name') == name
+    }
+    for m in messages:
+        if m.get('role') == 'tool' and m.get('tool_call_id') in ids:
+            return text_of(m)
+    return None
 
 
 def fake_embedding(text, size=16):
@@ -191,6 +304,20 @@ def tool_call(name, args):
     }
 
 
+def server_fields(tools, name, args, *, labels=None, approval=False):
+    """[args] with the fields Open WebUI adds to `name`'s schema: the
+    display labels, and whether the call needs approval (auto tool
+    permissions ask for any call that does not say)."""
+    spec = next((t for t in tools if (t.get('function') or {}).get('name') == name), {})
+    props = ((spec.get('function') or {}).get('parameters') or {}).get('properties') or {}
+    args = dict(args)
+    if labels and '__labels__' in props:
+        args['__labels__'] = labels
+    if '__approval__' in props:
+        args['__approval__'] = {'required': approval}
+    return args
+
+
 def called(messages, name):
     return any(
         (c.get('function') or {}).get('name') == name
@@ -216,7 +343,18 @@ class Handler(BaseHTTPRequestHandler):
     def _error(self, status, message):
         self._json(status, {'error': {'message': message, 'type': 'invalid_request_error'}})
 
+    def do_DELETE(self):
+        self.send_response(200)
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
     def do_GET(self):
+        if self.path.split('?')[0].rstrip('/').endswith('/mcp'):
+            # No server-to-client stream.
+            self.send_response(405)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         if self.path.rstrip('/').endswith('/page/raised-beds'):
             # A page for Open WebUI to read as a Web Page attachment.
             body = PAGE.encode()
@@ -267,6 +405,24 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return
+        if path.endswith('/mcp'):
+            try:
+                request = json.loads(raw or b'{}')
+            except ValueError:
+                self._error(400, 'The body is not JSON.')
+                return
+            if isinstance(request, list):
+                answer = [a for a in (mcp_answer(r) for r in request) if a is not None] or None
+            else:
+                answer = mcp_answer(request)
+            if answer is None:
+                # Notifications only.
+                self.send_response(202)
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
+            self._json(200, answer)
+            return
         if path.endswith('/embeddings'):
             # Memories need an embedding to be saved: a small vector made
             # from the text's bytes, the same for the same text.
@@ -316,6 +472,8 @@ class Handler(BaseHTTPRequestHandler):
         after_user = messages[messages.index(last_user) + 1:] if last_user else []
         clock_answered = called(after_user, 'get_current_timestamp')
         fetch_answered = called(after_user, 'web_fetch')
+        asked = tool_result(after_user, 'ask_user')
+        planned = called(after_user, 'create_tasks')
 
         reasoning = None
         call = None
@@ -332,6 +490,19 @@ class Handler(BaseHTTPRequestHandler):
         elif notes:
             items = [i.strip() for i in re.split(r'[;\n]', notes.group(1)) if i.strip()]
             text = '# Notes\n\n' + '\n'.join(f'- [ ] {i}' for i in items)
+        elif asked is not None:
+            try:
+                answers = json.loads(asked).get('answers') or {}
+            except (ValueError, AttributeError):
+                answers = {}
+            chosen = [
+                (answers.get(q['id']) or {}).get('label') or (answers.get(q['id']) or {}).get('text')
+                for q in ASK_USER['questions']
+            ]
+            chosen = [c for c in chosen if c]
+            text = f"You chose {' and '.join(chosen)}." if chosen else 'You did not answer.'
+        elif planned:
+            text = 'The plan is ready: one task done, one under way.'
         elif fetch_answered:
             text = 'The page was not fetched, as expected: it was not in your message.'
         elif clock_answered:
@@ -342,6 +513,14 @@ class Handler(BaseHTTPRequestHandler):
             facts = [COLOUR_FACT.search(text_of(m)) for m in users[:-1]]
             facts = [f.group(1) for f in facts if f]
             text = facts[-1] if facts else 'You have not told me.'
+        elif 'ask me' in lower and 'ask_user' in tool_names:
+            call = tool_call('ask_user', ASK_USER)
+            text = ''
+        elif 'plan the tasks' in lower and 'create_tasks' in tool_names:
+            call = tool_call('create_tasks', server_fields(tools, 'create_tasks', {'tasks': TASKS}))
+            text = ''
+        elif 'alerts' in lower:
+            text = ALERTS
         elif 'fail' in lower:
             self._error(500, 'The fake model failed on purpose.')
             return
@@ -349,13 +528,11 @@ class Handler(BaseHTTPRequestHandler):
             self._error(400, 'The fake model refused on purpose.')
             return
         elif 'time' in lower and 'get_current_timestamp' in tool_names:
-            spec = next(t for t in tools if (t.get('function') or {}).get('name') == 'get_current_timestamp')
-            props = ((spec.get('function') or {}).get('parameters') or {}).get('properties') or {}
-            args = {}
-            if '__labels__' in props:
-                args['__labels__'] = {'running': 'Checking the clock', 'completed': 'Checked the clock'}
-            if '__approval__' in props:
-                args['__approval__'] = {'required': 'approve' in lower}
+            args = server_fields(
+                tools, 'get_current_timestamp', {},
+                labels={'running': 'Checking the clock', 'completed': 'Checked the clock'},
+                approval='approve' in lower,
+            )
             call = tool_call('get_current_timestamp', args)
             text = ''
         elif 'tool' in lower and 'web_fetch' in tool_names:

@@ -457,6 +457,8 @@ impl AssistantRow {
         let m = t.metrics;
         let key = self.item.key.clone();
         Some(match block.kind {
+            // Not drawn yet.
+            MessageBlockKind::Alert | MessageBlockKind::Embeds => return None,
             MessageBlockKind::Text => {
                 // No caret appended while streaming: each snapshot must
                 // extend the last one for TextView to parse only the new

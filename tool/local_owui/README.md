@@ -82,7 +82,9 @@ makes:
 `fake_model.py` answers from the last user message: "Say the word: X"
 with X, a favourite colour from earlier in the chat, `fail` with a 500,
 `refuse` with a 400, `time` with a `get_current_timestamp` call
-(approval asked when the message says `approve`), and `reason`, `code`,
+(approval asked when the message says `approve`, once
+`owui.sh tool-permissions on` has turned on auto tool permissions; every
+other call says it needs none), and `reason`, `code`,
 `math`, `long` and `slow` with the answers the chat view's E2E checks,
 `effort` (sent with a `reasoning_effort`) with a 400 naming the parameter,
 and Open WebUI's Merge Responses prompt with one merged sentence. A streamed

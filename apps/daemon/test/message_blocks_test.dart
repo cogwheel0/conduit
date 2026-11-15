@@ -95,6 +95,80 @@ void main() {
   });
 
   group('on the wire', () {
+    test('alerts, embeds and a tool call\'s embeds have kinds of their own', () {
+      final message = ChatMessage(
+        id: 'msg-rich',
+        role: 'assistant',
+        content:
+            '<details type="tool_calls" done="true" id="call_e1" '
+            'name="tide_board" arguments="{&quot;port&quot;:&quot;Wren&quot;}" '
+            'result="&quot;Shown&quot;" '
+            'embeds="[&quot;&lt;p&gt;Board&lt;/p&gt;&quot;]">\n'
+            '<summary>Tool Executed</summary>\n</details>\n\n'
+            '> [!TIP]\n> Leave early.',
+        timestamp: DateTime.utc(2026, 11, 8),
+        embeds: const <Map<String, dynamic>>[
+          {
+            'type': 'mcp_app',
+            'server_id': 'harbour',
+            'tool_name': 'show_tides',
+            'binding': 'signed',
+            'arguments': {'port': 'Wren'},
+          },
+        ],
+      );
+      final dtos = MessageBlocks().forMessage(message);
+      expect(dtos.map((b) => b.kind), [
+        MessageBlockKind.embeds,
+        MessageBlockKind.toolCalls,
+        MessageBlockKind.alert,
+      ]);
+      final app = dtos.first.embeds!.single;
+      expect(app.kind, EmbedKind.mcpApp);
+      expect(app.app!.serverId, 'harbour');
+      expect(jsonDecode(app.app!.arguments), {'port': 'Wren'});
+      final call = dtos[1].calls!.single;
+      expect(call.shownEmbeds, const <EmbedDto>[
+        EmbedDto(
+          kind: EmbedKind.html,
+          source: '<p>Board</p>',
+          argsText: '{"port":"Wren"}',
+        ),
+      ]);
+      expect((dtos[2].type, dtos[2].markdown), ('tip', 'Leave early.'));
+    });
+
+    test('a citation reads as the source\'s site, or its title', () {
+      final sources = chatSourceDtos(const <ChatSourceReference>[
+        ChatSourceReference(
+          title: 'Spring tides explained for sailors',
+          url: 'https://www.example.com/tides/spring',
+        ),
+        ChatSourceReference(title: 'notes.pdf', type: 'file'),
+      ]);
+      expect(sources[0].inlineLabel, 'example.com');
+      expect(sources[0].inlineTitle, 'Spring tides ex...or sailors');
+      expect(sources[1].inlineLabel, 'notes.pdf');
+      expect(sources[1].type, 'file');
+    });
+
+    test('the task checklist keeps its order and statuses', () {
+      expect(
+        chatTaskDtos(const <String, dynamic>{
+          'openwebui_tasks': [
+            {'id': '1', 'content': 'Read the tables', 'status': 'completed'},
+            {'id': '2', 'status': 'pending'},
+            {'id': '3', 'content': 'Plan the trip'},
+          ],
+        }),
+        const <ChatTaskDto>[
+          ChatTaskDto(id: '1', content: 'Read the tables', status: 'completed'),
+          ChatTaskDto(id: '3', content: 'Plan the trip'),
+        ],
+      );
+      expect(chatTaskDtos(null), isEmpty);
+    });
+
     test('a status line names its pages by title, or by domain', () {
       final dtos = MessageBlocks().forMessage(
         answer(

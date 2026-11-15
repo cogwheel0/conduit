@@ -1,5 +1,7 @@
 {
   "label": "dart.dev",
   "url": "https://dart.dev/overview",
-  "snippet": "Dart is a client-optimized language"
+  "snippet": "Dart is a client-optimized language",
+  "inlineLabel": "dart.dev",
+  "inlineTitle": "Dart overview"
 }

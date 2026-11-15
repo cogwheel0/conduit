@@ -13,6 +13,7 @@ import 'package:conduit_core/features/terminal/providers/terminal_providers.dart
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:conduitd/src/chat_prompts_service.dart';
 import 'package:test/test.dart';
 
 import 'support/null_sink.dart';
@@ -31,6 +32,7 @@ void main() {
   late TurnsService turns;
   late ChatsService chats;
   late UiRequestsService ui;
+  late ChatPromptsService prompts;
   late String model;
   final windows = <String, List<EventEnvelope>>{};
   final previousLinger = TurnsService.lingerAfterTurn;
@@ -93,7 +95,13 @@ void main() {
     model = DirectModelId.encode(saved.connections.single.id, 'scripted-model');
     events = EventBus();
     ui = UiRequestsService(events);
-    turns = TurnsService(runtime.container, events, uiRequests: ui);
+    prompts = ChatPromptsService(events);
+    turns = TurnsService(
+      runtime.container,
+      events,
+      uiRequests: ui,
+      chatPrompts: prompts,
+    );
     chats = ChatsService(runtime.container, events: events);
   });
 
@@ -458,15 +466,39 @@ void main() {
           },
           acknowledge: (response) => acknowledged = response,
         );
-    await until(() => of('prompted', ConduitEvents.uiRequest).isNotEmpty);
-    final asked = UiRequest.fromJson(
-      of('prompted', ConduitEvents.uiRequest).single.payload,
+    // It docks in its chat (`chatPrompts.changed`), not as a `ui.request`.
+    await until(
+      () => of('prompted', ConduitEvents.chatPromptsChanged).isNotEmpty,
     );
-    expect(asked.kind, UiRequestKind.confirm);
-    expect(asked.messageArgs['title'], 'Delete the draft?');
-    ui.respond(UiResponse(requestId: asked.requestId, choice: 'allow'));
+    final asked = ChatPromptState.fromJson(
+      of('prompted', ConduitEvents.chatPromptsChanged).last.payload,
+    ).prompt!;
+    expect(asked.kind, ChatPromptKind.confirmation);
+    expect(asked.title, 'Delete the draft?');
+    expect(asked.message, 'It cannot return.');
+    expect(of('prompted', ConduitEvents.uiRequest), isEmpty);
+    expect(
+      (await prompts.get(ChatPromptRef(chatId: accepted.chatId))).prompt?.id,
+      asked.id,
+    );
+    final decided = await prompts.decide(
+      ChatPromptDecision(
+        chatId: accepted.chatId,
+        promptId: asked.id,
+        approved: true,
+      ),
+    );
+    expect(decided.accepted, isTrue);
     await until(() => acknowledged != null);
     expect(acknowledged, isTrue);
+    // Answered, its card goes from every window.
+    await until(
+      () =>
+          ChatPromptState.fromJson(
+            of('prompted', ConduitEvents.chatPromptsChanged).last.payload,
+          ).prompt ==
+          null,
+    );
 
     // A file the model's terminal tool asked to show.
     scope.container.read(terminalDisplayFileProvider.notifier).handleEvent(

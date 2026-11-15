@@ -188,6 +188,11 @@ abstract class ChatMessageDto with _$ChatMessageDto {
     /// screen stands (`2 / 3`) whichever is current. Empty when it has no
     /// versions.
     @Default(<String>[]) List<String> siblingIds,
+
+    /// An assistant answer whose request is waiting to go out: sent while
+    /// offline, or retried after failing. Null once it has gone (or for
+    /// any other message).
+    QueuedCompletionDto? queued,
   }) = _ChatMessageDto;
 
   factory ChatMessageDto.fromJson(Map<String, dynamic> json) =>
@@ -226,6 +231,19 @@ abstract class ChatSourceDto with _$ChatSourceDto {
     /// Only when there is a real http(s) address to open.
     String? url,
     String? snippet,
+
+    /// What an inline citation reads: the source's site, shortened as the
+    /// mobile app shortens it. Absent from older daemons; hosts then use
+    /// the number.
+    String? inlineLabel,
+
+    /// What an inline citation reads with "show citation titles" on: the
+    /// source's own title where it has one, else [inlineLabel].
+    String? inlineTitle,
+
+    /// The kind of source Open WebUI recorded (`file`, `collection`, …),
+    /// shown where there is no address.
+    String? type,
   }) = _ChatSourceDto;
 
   factory ChatSourceDto.fromJson(Map<String, dynamic> json) =>
@@ -347,6 +365,10 @@ abstract class ChatDetail with _$ChatDetail {
 
     /// The public link's share id, when the chat has one.
     String? shareId,
+
+    /// Open WebUI's task checklist for this chat, in order; empty when it
+    /// has none. A running turn sends newer ones with `turn.blocks`.
+    @Default(<ChatTaskDto>[]) List<ChatTaskDto> tasks,
   }) = _ChatDetail;
 
   factory ChatDetail.fromJson(Map<String, dynamic> json) =>
@@ -396,6 +418,44 @@ abstract class ChatAbilities with _$ChatAbilities {
 
   factory ChatAbilities.fromJson(Map<String, dynamic> json) =>
       _$ChatAbilitiesFromJson(json);
+}
+
+/// What a queued answer is waiting for.
+@freezed
+abstract class QueuedCompletionDto with _$QueuedCompletionDto {
+  const factory QueuedCompletionDto({
+    /// It stopped retrying: only Retry (or Remove) moves it on.
+    @Default(false) bool failed,
+
+    /// It waits for the connection to come back, and goes out on its own
+    /// then.
+    @Default(false) bool offline,
+
+    /// The last failure, in the server's or the core's words.
+    String? error,
+
+    /// The provider refused the reasoning effort it was sent with: Retry
+    /// Without Reasoning Effort is offered.
+    @Default(false) bool reasoningEffortRejected,
+  }) = _QueuedCompletionDto;
+
+  factory QueuedCompletionDto.fromJson(Map<String, dynamic> json) =>
+      _$QueuedCompletionDtoFromJson(json);
+}
+
+/// One item of Open WebUI's task checklist.
+@freezed
+abstract class ChatTaskDto with _$ChatTaskDto {
+  const factory ChatTaskDto({
+    @Default('') String id,
+    required String content,
+
+    /// `pending`, `in_progress`, `completed` or `cancelled`.
+    @Default('pending') String status,
+  }) = _ChatTaskDto;
+
+  factory ChatTaskDto.fromJson(Map<String, dynamic> json) =>
+      _$ChatTaskDtoFromJson(json);
 }
 
 /// One message in a conversation's tree, for the overview.

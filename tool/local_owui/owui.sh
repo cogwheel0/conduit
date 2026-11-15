@@ -12,6 +12,11 @@
 #   tool/local_owui/owui.sh env            print the env file's path
 #   tool/local_owui/owui.sh chat DIR TEXT  one chat turn, as the web client
 #                                          sends it (drive_chat.py), into DIR
+#   tool/local_owui/owui.sh showcase DIR   a stored chat with every rich block
+#                                          (showcase.py), its ids into DIR
+#   tool/local_owui/owui.sh tool-permissions on|off
+#                                          auto tool permissions on, or back as
+#                                          they were (tool_permissions.py)
 #
 # Options, also read from the environment:
 #   --dir DIR        the instance: data, logs, pids, secrets
@@ -64,7 +69,7 @@ while [ $# -gt 0 ]; do
     --hermes-port) HERMES_PORT=$2; shift 2 ;;
     -*) echo "unknown option: $1" >&2; exit 64 ;;
     *)
-      if [ "$command" != chat ] || [ -n "$ARG2" ]; then
+      if { [ "$command" != chat ] && [ "$command" != showcase ] && [ "$command" != tool-permissions ]; } || [ -n "$ARG2" ]; then
         echo "unexpected argument: $1" >&2
         exit 64
       fi
@@ -253,6 +258,7 @@ start() {
       OPENAI_API_KEY=sk-local-fake \
       ENABLE_TOOL_CALL_LABELS=true \
       ENABLE_DIRECT_CONNECTIONS=true \
+      TOOL_SERVER_CONNECTIONS="[{\"type\":\"mcp\",\"url\":\"http://127.0.0.1:$MODEL_PORT/mcp\",\"path\":\"\",\"auth_type\":\"none\",\"key\":\"\",\"config\":{\"enable\":true},\"info\":{\"id\":\"harbour\",\"name\":\"Harbour\",\"description\":\"A synthetic MCP server with one app.\"}}]" \
       ENABLE_CHANNELS=true \
       ENABLE_LOCAL_WEB_FETCH=true \
       CODE_INTERPRETER_ENGINE=jupyter \
@@ -353,6 +359,34 @@ chat() {
   "$VENV/bin/python" -I "$TOOL_DIR/drive_chat.py" "$ENV_FILE" "$ARG1" "$ARG2"
 }
 
+showcase() {
+  need_venv
+  if [ -z "$ARG1" ]; then
+    echo "usage: $0 showcase OUT-DIR" >&2
+    exit 64
+  fi
+  if ! alive server || [ ! -f "$ENV_FILE" ]; then
+    echo "not running or not seeded: run '$0 up' first" >&2
+    exit 1
+  fi
+  "$VENV/bin/python" -I "$TOOL_DIR/showcase.py" --env-file "$ENV_FILE" \
+    --secret-file "$STATE/secret" --out "$ARG1"
+}
+
+tool_permissions() {
+  need_venv
+  if [ "$ARG1" != on ] && [ "$ARG1" != off ]; then
+    echo "usage: $0 tool-permissions on|off" >&2
+    exit 64
+  fi
+  if ! alive server || [ ! -f "$ENV_FILE" ]; then
+    echo "not running or not seeded: run '$0 up' first" >&2
+    exit 1
+  fi
+  "$VENV/bin/python" -I "$TOOL_DIR/tool_permissions.py" --env-file "$ENV_FILE" \
+    --state-file "$STATE/tool-permissions.json" "$ARG1"
+}
+
 set_aside() {
   [ -d "$DATA" ] || [ -d "$STATE" ] || return 0
   stamp=$(date +%Y%m%d-%H%M%S)
@@ -391,8 +425,10 @@ case $command in
   status) status ;;
   env) echo "$ENV_FILE" ;;
   chat) chat ;;
+  showcase) showcase ;;
+  tool-permissions) tool_permissions ;;
   *)
-    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
     exit 64
     ;;
 esac

@@ -28,6 +28,8 @@ import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show openWebUiDuplicateAccountReconcilerProvider;
 import 'package:conduit_core/providers/storage_providers.dart';
+import 'package:conduit_core/services/connectivity_service.dart'
+    show isOnlineProvider;
 import 'package:conduit_core/services/settings_service.dart'
     show AppSettingsHostDefaults, appSettingsHostDefaultsProvider;
 import 'package:conduit_core/sync/request_completion_runner_provider.dart';
@@ -329,6 +331,15 @@ final class CoreRuntime {
     // The same for the account's database, which the same checks compare:
     // read cold, the first answer and the next could differ.
     container.listen<Object?>(appDatabaseProvider, (_, _) {});
+    // The connection coming back sends what the outbox holds: a message
+    // sent while the server was out of reach, and the chat's changes before
+    // it. On mobile `syncTriggers` does this; the daemon does not run those
+    // triggers (they also pull on a timer and on app lifecycle), so it
+    // takes this one alone. Nothing else drains the outbox then: an op that
+    // failed as the connection went would wait for the next send.
+    container.listen<bool>(isOnlineProvider, (previous, next) {
+      if (previous == false && next) unawaited(_drainAfterReconnect());
+    });
     log.info('core runtime ready');
     return CoreRuntime._(
       container: container,
@@ -362,6 +373,21 @@ final class CoreRuntime {
     } on Object catch (error) {
       DebugLogger.error(
         'post-certification-pull-failed',
+        scope: 'daemon/runtime',
+        error: error,
+      );
+    }
+  }
+
+  static Future<void> _drainAfterReconnect() async {
+    final container = _containerForSync;
+    if (container == null) return;
+    try {
+      // Resets the pending ops' backoff, then drains.
+      await container.read(syncEngineProvider.notifier).drainNow();
+    } on Object catch (error) {
+      DebugLogger.error(
+        'reconnect-drain-failed',
         scope: 'daemon/runtime',
         error: error,
       );

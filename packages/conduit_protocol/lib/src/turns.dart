@@ -1,6 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'blocks.dart';
+import 'chats.dart';
 import 'composer.dart';
 
 part 'turns.freezed.dart';
@@ -212,6 +213,10 @@ abstract class TurnBlocks with _$TurnBlocks {
 
     /// The answer's blocks, in order (see [MessageBlockKind]).
     @Default(<MessageBlockDto>[]) List<MessageBlockDto> blocks,
+
+    /// The chat's task checklist as the turn left it ([ChatDetail.tasks]);
+    /// null when the turn has not touched it.
+    List<ChatTaskDto>? tasks,
   }) = _TurnBlocks;
 
   factory TurnBlocks.fromJson(Map<String, dynamic> json) =>
@@ -335,4 +340,21 @@ abstract class SteerResult with _$SteerResult {
 
   factory SteerResult.fromJson(Map<String, dynamic> json) =>
       _$SteerResultFromJson(json);
+}
+
+/// Params for `turns.retryQueued` and `turns.removeQueued`: the queued
+/// answer [messageId] in [chatId] ([ChatMessageDto.queued]).
+@freezed
+abstract class QueuedTurnRef with _$QueuedTurnRef {
+  const factory QueuedTurnRef({
+    required String chatId,
+    required String messageId,
+
+    /// `turns.retryQueued` only: send it again without the reasoning
+    /// effort the provider refused.
+    @Default(false) bool withoutReasoningEffort,
+  }) = _QueuedTurnRef;
+
+  factory QueuedTurnRef.fromJson(Map<String, dynamic> json) =>
+      _$QueuedTurnRefFromJson(json);
 }

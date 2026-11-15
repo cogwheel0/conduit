@@ -1,0 +1,26 @@
+{
+  "kind": "embeds",
+  "embeds": [
+    {
+      "kind": "html",
+      "source": "<h1>Tide board</h1>",
+      "argsText": ""
+    },
+    {
+      "kind": "url",
+      "source": "https://example.com/tides",
+      "argsText": ""
+    },
+    {
+      "kind": "mcpApp",
+      "argsText": "",
+      "app": {
+        "serverId": "harbour",
+        "toolName": "show_tides",
+        "binding": "b1nd1ng",
+        "arguments": "{}",
+        "result": "{}"
+      }
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'chats.dart';
+import 'mcp_apps.dart';
 
 part 'blocks.freezed.dart';
 part 'blocks.g.dart';
@@ -11,13 +12,15 @@ part 'blocks.g.dart';
 /// mobile app draws them (its `AssistantMessageWidget`, top to bottom):
 ///
 /// 1. [files] -- at most one;
-/// 2. [status] -- at most one;
-/// 3. the content, in the order it was written: [text], [reasoning],
-///    [toolCalls], [codeInterpreter] and [details], any number of each;
-/// 4. [error] -- at most one;
-/// 5. [codeExecution] -- one per execution;
-/// 6. [sources] -- at most one;
-/// 7. [followUps] -- at most one, only once the answer is finished.
+/// 2. [embeds] -- at most one;
+/// 3. [status] -- at most one;
+/// 4. the content, in the order it was written: [text], [alert],
+///    [reasoning], [toolCalls], [codeInterpreter] and [details], any number
+///    of each;
+/// 5. [error] -- at most one;
+/// 6. [codeExecution] -- one per execution;
+/// 7. [sources] -- at most one;
+/// 8. [followUps] -- at most one, only once the answer is finished.
 ///
 /// A kind this build does not know (from a newer daemon) is skipped.
 enum MessageBlockKind {
@@ -77,6 +80,50 @@ enum MessageBlockKind {
   /// Suggested follow-ups, at most three: [MessageBlockDto.followUps].
   /// The mobile app offers them under the last answer of a chat only.
   followUps,
+
+  /// A GitHub-style alert written at the top level of the answer
+  /// (`> [!NOTE]`): its kind in [MessageBlockDto.type] (`note`, `tip`,
+  /// `important`, `warning` or `caution`) and its body in
+  /// [MessageBlockDto.markdown]. Hosts label it in their own words.
+  alert,
+
+  /// Rich content the answer carries: tool-returned HTML, a page to embed,
+  /// or an MCP App ([MessageBlockDto.embeds]). Each loads only when the
+  /// user opens it.
+  embeds,
+}
+
+/// What an [EmbedDto] shows.
+enum EmbedKind {
+  /// Inline HTML (or SVG) a tool returned: [EmbedDto.source].
+  html,
+
+  /// A web page to embed: [EmbedDto.source] is its http(s) address.
+  url,
+
+  /// An MCP App: [EmbedDto.app].
+  mcpApp,
+}
+
+/// One piece of rich content in an answer or a tool call's result.
+@freezed
+abstract class EmbedDto with _$EmbedDto {
+  const factory EmbedDto({
+    required EmbedKind kind,
+
+    /// [EmbedKind.html]: the markup. [EmbedKind.url]: the address.
+    String? source,
+
+    /// A tool call's arguments as written, which an HTML embed may read as
+    /// `window.args`; empty for an answer's own embeds.
+    @Default('') String argsText,
+
+    /// [EmbedKind.mcpApp]: the app, to open with `mcpApps.open`.
+    McpAppDto? app,
+  }) = _EmbedDto;
+
+  factory EmbedDto.fromJson(Map<String, dynamic> json) =>
+      _$EmbedDtoFromJson(json);
 }
 
 /// What a reasoning block's header reads.
@@ -108,7 +155,7 @@ abstract class MessageBlockDto with _$MessageBlockDto {
   const factory MessageBlockDto({
     required MessageBlockKind kind,
 
-    /// `text`: the markdown.
+    /// `text`: the markdown. `alert`: its body, as markdown.
     String? markdown,
 
     /// `reasoning`, `details`: the `<summary>` text (may be empty).
@@ -164,6 +211,8 @@ abstract class MessageBlockDto with _$MessageBlockDto {
     bool? isError,
 
     /// `details`: the section's `type` attribute; empty when absent.
+    /// `alert`: its kind (`note`, `tip`, `important`, `warning`,
+    /// `caution`).
     /// `error`: why, when hosts should say something other than [error]:
     /// `directToolsUnsupported` (the model refused tool definitions; advise
     /// turning web search off). Absent otherwise.
@@ -180,6 +229,9 @@ abstract class MessageBlockDto with _$MessageBlockDto {
 
     /// `followUps`: the suggestions.
     List<String>? followUps,
+
+    /// `embeds`: what the answer carries, in order.
+    List<EmbedDto>? embeds,
   }) = _MessageBlockDto;
 
   factory MessageBlockDto.fromJson(Map<String, dynamic> json) =>
@@ -221,6 +273,10 @@ abstract class ToolCallDto with _$ToolCallDto {
 
     /// Embeds the tool returned, as the JSON array Open WebUI wrote.
     String? embeds,
+
+    /// [embeds], read: what to show under the call, in order (HTML with
+    /// the call's arguments, a page, or an MCP App).
+    @Default(<EmbedDto>[]) List<EmbedDto> shownEmbeds,
   }) = _ToolCallDto;
 
   factory ToolCallDto.fromJson(Map<String, dynamic> json) =>
