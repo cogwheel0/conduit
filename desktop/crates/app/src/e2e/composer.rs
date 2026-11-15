@@ -75,8 +75,10 @@ async fn wait_row(group: Option<&str>, title: &str, cx: &mut AsyncApp) -> Option
         log::warn!("menu rows: {:?}", cx.update(menu_rows));
         return None;
     }
-    cx.update(menu_rows)
-        .and_then(|(_, rows)| rows.iter().position(|(_, t)| *t == title))
+    cx.update(menu_rows).and_then(|(_, rows)| {
+        rows.iter()
+            .position(|(g, t)| *t == title && (group.is_none() || *g == group))
+    })
 }
 
 async fn choose(index: usize, cx: &mut AsyncApp) {
