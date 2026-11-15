@@ -53,11 +53,14 @@ void main() {
         '/first/report.pdf',
         '/second/report.pdf',
         '/second/report.pdf',
+        '/second/slides.pptx',
+        '/second/slides.pptx',
+        '/second/report.docx',
       ]) {
         // The cache contract is independent of PDF parsing: each network read
         // has its own bytes, including rewrites of the same file.
         service.readResult = TerminalFileReadResult(
-          fileName: 'report.pdf',
+          fileName: path.split('/').last,
           contentType: 'application/pdf',
           bytes: Uint8List.fromList([1, 2, 3]),
         );

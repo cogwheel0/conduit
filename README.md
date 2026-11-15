@@ -191,7 +191,7 @@ settings navigation. Sections you don't have permission for simply don't appear.
 | Voice | Voice input with on-device or server speech recognition, plus a full voice-call mode |
 | Home screen | Widgets on iOS and Android for new chat, mic, camera, photos, and clipboard; app quick actions; iOS App Intents and Shortcuts |
 | Sharing | Share-sheet ingestion from other apps straight into a prompt |
-| Terminal | Interactive sessions over WebSocket with a file browser, shown only when your server exposes it |
+| Terminal | Interactive sessions over WebSocket with a file browser, shown only when your server exposes it. PDF previews open inside the app; PPTX/DOCX use server PDF conversion. Reopening fetches the latest version, and Download keeps the original file. |
 | Personalization | Light, dark, and system themes; five accent palettes; adaptive Material and Cupertino UI; haptics |
 | Languages | 14 locales: English, German, Spanish, French, Italian, Japanese, Korean, Dutch, Russian, Simplified and Traditional Chinese, Czech, Slovak, Polish |
 
