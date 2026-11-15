@@ -12,14 +12,17 @@ final List<(RegExp, String Function(Match))>
 _rules = <(RegExp, String Function(Match))>[
   // A quoted value under a quoted header or secret name, as JSON writes
   // them: the whole value, escapes and spaces included, before the rules
-  // below see only its first word.
+  // below see only its first word. The value's two alternatives never match
+  // the same character (an escape starts with a backslash, the other takes
+  // anything but one), so a long run of backslashes is read one way, in
+  // linear time.
   (
     RegExp(
       r'''(["'])(authorization|proxy-authorization|cookie|set-cookie|'''
       r'''x-api-key|api-key|api[_-]?key|access[_-]?token|refresh[_-]?token|'''
       r'''id[_-]?token|session[_-]?token|session[_-]?key|client[_-]?secret|'''
       r'''token|password|passphrase|secret|code_verifier|master[_-]?key)\1'''
-      r'''(\s*:\s*)(["'])(?:\\.|(?!\4).)*\4''',
+      r'''(\s*:\s*)(["'])(?:\\[\s\S]|(?!\4)[^\\])*\4''',
       caseSensitive: false,
     ),
     (m) => '${m[1]}${m[2]}${m[1]}${m[3]}${m[4]}$_hidden${m[4]}',

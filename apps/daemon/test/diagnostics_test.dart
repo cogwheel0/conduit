@@ -28,6 +28,19 @@ void main() {
   tearDown(() => temp.deleteSync(recursive: true));
 
   group('redactSecrets', () {
+    // A run of backslashes inside a quoted value can be read in many ways
+    // by a pattern whose alternatives overlap; left open, the run then
+    // takes exponential time: here, about half a minute for the earlier
+    // pattern, and no time at all for a linear one.
+    test('a long unterminated run of backslashes is scrubbed at once', () {
+      final run = r'\' * 60;
+      expect(redactSecrets('{"cookie":"$run'), isNot(contains('made-up')));
+      expect(
+        redactSecrets('{"cookie":"$run$run sid=made-up"}'),
+        isNot(contains('made-up')),
+      );
+    });
+
     test('scrubs the shapes credentials come in', () {
       final cases = <String, String>{
         'Authorization: Bearer abcdefghijklmnop': 'abcdefghijklmnop',
