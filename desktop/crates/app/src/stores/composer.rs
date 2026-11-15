@@ -615,6 +615,27 @@ impl ComposerStore {
         options
     }
 
+    /// Takes attachments another window's composer hands over (Quick Ask's
+    /// Open in Conduit), under this window's ids.
+    pub fn adopt_attachments(&mut self, attachments: Vec<Attachment>, cx: &mut Context<Self>) {
+        for mut a in attachments {
+            self.next_id += 1;
+            a.local_id = self.next_id;
+            self.attachments.push(a);
+        }
+        cx.notify();
+    }
+
+    /// The uploaded attachments, taken out of this composer.
+    pub fn take_uploaded(&mut self, cx: &mut Context<Self>) -> Vec<Attachment> {
+        let (done, rest) = std::mem::take(&mut self.attachments)
+            .into_iter()
+            .partition(|a| matches!(a.state, UploadState::Done { .. }));
+        self.attachments = rest;
+        cx.notify();
+        done
+    }
+
     /// What [`Self::take_turn`] is about to use up for one message: the
     /// uploaded attachments, the chosen knowledge and the `@` model.
     pub fn one_shot(&self) -> OneShot {

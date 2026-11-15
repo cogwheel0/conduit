@@ -40,7 +40,7 @@ use crate::stores::session::Route;
 use crate::views::chat::composer::{ChatComposer, ChatComposerEvent};
 use crate::views::chat::rows::{RowHost, RowSink};
 use crate::views::chat::transcript::Transcript;
-use crate::views::chat_pane::daemon_uploader;
+use crate::views::chat_pane::{daemon_uploader, follow_daemon_http};
 
 /// The connection subscription key for the Quick Ask window's chat.
 pub const SUBSCRIPTION_KEY: &str = "quick-ask";
@@ -53,7 +53,7 @@ pub struct QuickChat {
 }
 
 /// What the Quick Ask window asks the shell to do.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub enum QuickAskEvent {
     /// Esc: hide the panel.
     Hide,
@@ -61,8 +61,12 @@ pub enum QuickAskEvent {
     Blurred,
     /// Show the main window on this chat.
     OpenChat(String),
-    /// Show the main window on a new chat with this draft.
-    OpenDraft(String),
+    /// Show the main window on a new chat with this draft and its uploaded
+    /// attachments.
+    OpenDraft {
+        text: String,
+        attachments: Vec<crate::stores::composer::Attachment>,
+    },
 }
 
 impl gpui_kit::EventEmitter<QuickAskEvent> for QuickAskView {}
@@ -74,6 +78,11 @@ pub struct QuickAskView {
     pub chat: Option<QuickChat>,
     /// The first message is on its way.
     starting: bool,
+    /// Bumped by New Chat and by another account: a first message sent
+    /// before it never opens its chat here.
+    generation: u64,
+    /// The account (and whether it has a session) this exchange belongs to.
+    scope: (Option<String>, bool),
     /// A short notice in the footer ("Copied", a failed send).
     notice: Option<String>,
     /// The panel's tint and hairline, and the mask that fades the
@@ -104,6 +113,16 @@ impl QuickAskView {
             c
         });
         let subscriptions = vec![
+            follow_daemon_http(&stores.connection, cx),
+            cx.observe_in(&stores.accounts, window, |this, _, window, cx| {
+                // Another account, or signed out: nothing of the last one's
+                // stays (its chat, the draft, its attachments).
+                let scope = scope_of(&this.stores, cx);
+                if scope != this.scope {
+                    this.scope = scope;
+                    this.forget(window, cx);
+                }
+            }),
             cx.observe(&stores.session, |_, _, cx| cx.notify()),
             cx.observe_window_activation(window, |_, window, cx| {
                 if !window.is_window_active() {
@@ -140,12 +159,15 @@ impl QuickAskView {
                 cx.notify();
             }),
         ];
+        let scope = scope_of(&stores, cx);
         let mut this = Self {
             stores,
             composer_store,
             composer,
             chat: None,
             starting: false,
+            generation: 0,
+            scope,
             notice: None,
             #[cfg(target_os = "macos")]
             chrome: Rc::default(),
@@ -192,8 +214,25 @@ impl QuickAskView {
         cx.notify();
     }
 
-    /// New chat: drops this exchange (the chat stays in the sidebar).
+    /// New chat: drops this exchange (the chat stays in the sidebar), the
+    /// draft and its attachments.
     pub fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.clear(window, cx);
+        self.composer_store.update(cx, |c, cx| {
+            c.take_turn(cx);
+        });
+        self.composer.update(cx, |c, cx| c.focus_input(window, cx));
+    }
+
+    /// Another account: drops everything of the last one's, the composer's
+    /// models, options and attachments included.
+    fn forget(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.clear(window, cx);
+        self.composer_store.update(cx, |c, cx| c.reset(cx));
+    }
+
+    fn clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.generation += 1;
         self.chat = None;
         self.starting = false;
         self.notice = None;
@@ -201,7 +240,6 @@ impl QuickAskView {
         self.composer.update(cx, |c, cx| {
             c.streaming = false;
             c.set_text("", window, cx);
-            c.focus_input(window, cx);
         });
         cx.notify();
     }
@@ -213,9 +251,10 @@ impl QuickAskView {
             cx.emit(QuickAskEvent::OpenChat(id));
             return;
         }
-        let draft = self.composer.read(cx).text(cx);
+        let text = self.composer.read(cx).text(cx);
         self.composer.update(cx, |c, cx| c.set_text("", window, cx));
-        cx.emit(QuickAskEvent::OpenDraft(draft));
+        let attachments = self.composer_store.update(cx, |c, cx| c.take_uploaded(cx));
+        cx.emit(QuickAskEvent::OpenDraft { text, attachments });
     }
 
     fn on_connection(&mut self, event: &ConnectionEvent, cx: &mut Context<Self>) {
@@ -329,6 +368,8 @@ impl QuickAskView {
             .read(cx)
             .next_model()
             .map(|m| m.name.clone());
+        // Given back with the text if the send fails.
+        let used = self.composer_store.read(cx).one_shot();
         let options = self.composer_store.update(cx, |c, cx| c.take_turn(cx));
         let pending = PendingMessage {
             files,
@@ -347,6 +388,7 @@ impl QuickAskView {
                 let result = task.await;
                 if result.is_err() {
                     let _ = composer.update_in(cx, |c, window, cx| c.restore(&text, window, cx));
+                    let _ = models.update(cx, |m, cx| m.give_back(used, cx));
                 }
                 // The daemon may have picked the model just now.
                 let _ = models.update(cx, |m, cx| m.refresh_models(cx));
@@ -362,10 +404,16 @@ impl QuickAskView {
             .rpc()
             .call::<methods::TurnsSend>(&turn);
         self.starting = true;
+        let generation = self.generation;
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             let result = call.await;
             let _ = this.update_in(cx, |this, window, cx| {
+                // New Chat or another account since: this send is no longer
+                // the panel's (the chat stays in the sidebar).
+                if this.generation != generation {
+                    return;
+                }
                 this.starting = false;
                 match result {
                     Ok(accepted) => {
@@ -380,6 +428,8 @@ impl QuickAskView {
                         log::warn!("turns.send (quick ask): {e}");
                         this.composer
                             .update(cx, |c, cx| c.restore(&text, window, cx));
+                        this.composer_store
+                            .update(cx, |c, cx| c.give_back(used, cx));
                         this.notice = Some(cx.l10n().desktop_action_failed());
                     }
                 }
@@ -540,7 +590,8 @@ impl Render for QuickAskView {
         };
         let ready = self.ready(cx);
         let has_chat = self.chat.is_some();
-        let draft = !self.composer.read(cx).text(cx).trim().is_empty();
+        let draft = !self.composer.read(cx).text(cx).trim().is_empty()
+            || self.composer_store.read(cx).has_attachments();
         // Key caps as the palette's footer draws them ("esc" in words).
         let hint = |keys: &'static str, label: String| {
             div()
@@ -670,6 +721,14 @@ impl Render for QuickAskView {
     }
 }
 
+/// The active account and whether it has a session.
+fn scope_of(stores: &Stores, cx: &App) -> (Option<String>, bool) {
+    match stores.accounts.read(cx).active() {
+        Some(a) => (Some(a.id.clone()), a.has_session),
+        None => (None, false),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -689,5 +748,124 @@ mod tests {
                 "{material:06x}: {red} {green} {blue}"
             );
         }
+    }
+
+    use conduit_protocol::methods;
+    use gpui_kit::{TestAppContext, VisualTestContext};
+
+    use crate::stores::accounts::tests::{account, list};
+    use crate::stores::composer::{Attachment, UploadState};
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    fn bench(
+        cx: &mut TestAppContext,
+    ) -> (
+        FakeDaemon,
+        Stores,
+        Entity<QuickAskView>,
+        &mut VisualTestContext,
+    ) {
+        let daemon = FakeDaemon::new();
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-quick-ask-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        let s = stores.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| QuickAskView::new(s, window, cx));
+        (daemon, stores, view, vcx)
+    }
+
+    fn uploaded(name: &str) -> Attachment {
+        Attachment {
+            local_id: 0,
+            name: name.into(),
+            size: 3,
+            content_type: None,
+            image: None,
+            state: UploadState::Done {
+                file_id: format!("file-{name}"),
+            },
+        }
+    }
+
+    #[gpui_kit::test]
+    fn another_account_or_a_sign_out_leaves_nothing_of_the_last_one(cx: &mut TestAppContext) {
+        let (_daemon, stores, view, vcx) = bench(cx);
+        let fill = |view: &Entity<QuickAskView>, vcx: &mut VisualTestContext| {
+            view.update_in(vcx, |v, window, cx| {
+                v.open_chat("chat-a".into(), cx);
+                v.composer
+                    .update(cx, |c, cx| c.set_text("draft for A", window, cx));
+                v.composer_store
+                    .update(cx, |c, cx| c.adopt_attachments(vec![uploaded("a.txt")], cx));
+            });
+        };
+        let empty = |view: &Entity<QuickAskView>, vcx: &mut VisualTestContext| {
+            view.read_with(vcx, |v, cx| {
+                assert!(v.chat.is_none());
+                assert_eq!(v.composer.read(cx).text(cx), "");
+                assert!(v.composer_store.read(cx).attachments.is_empty());
+            });
+        };
+        fill(&view, vcx);
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blake", true, true),
+                ]),
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        empty(&view, vcx);
+        // Signed out of B.
+        fill(&view, vcx);
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blake", true, false),
+                ]),
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        empty(&view, vcx);
+    }
+
+    #[gpui_kit::test]
+    fn new_chat_drops_a_first_send_still_on_its_way(cx: &mut TestAppContext) {
+        let (daemon, _stores, view, vcx) = bench(cx);
+        daemon.returns::<methods::TurnsSend>(
+            serde_json::from_value(serde_json::json!({
+                "chatId": "chat-late",
+                "userMessageId": "m",
+                "assistantMessageId": "a",
+            }))
+            .unwrap(),
+        );
+        let held = daemon.hold::<methods::TurnsSend>();
+        view.update_in(vcx, |v, window, cx| {
+            v.composer_store.update(cx, |c, cx| {
+                c.adopt_attachments(vec![uploaded("old.txt")], cx)
+            });
+            v.send_text("hello".into(), window, cx);
+            v.composer_store.update(cx, |c, cx| {
+                c.adopt_attachments(vec![uploaded("next.txt")], cx)
+            });
+            v.new_chat(window, cx);
+        });
+        held.release();
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, cx| {
+            assert!(v.chat.is_none(), "the late reply opened its chat");
+            assert!(v.composer_store.read(cx).attachments.is_empty());
+        });
     }
 }

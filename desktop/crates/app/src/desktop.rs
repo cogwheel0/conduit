@@ -269,6 +269,11 @@ fn dispatch(request: OpenRequest, cx: &mut App) {
         }
         OpenRequest::NewChat { text, files } => {
             show_main(cx);
+            let carried = if cx.has_global::<DraftAttachments>() {
+                cx.remove_global::<DraftAttachments>().0
+            } else {
+                vec![]
+            };
             let plan = open_files::plan(&files, open_files::file_size);
             for path in &plan.skipped {
                 log::info!("open with: skipped a folder or missing file");
@@ -284,6 +289,10 @@ fn dispatch(request: OpenRequest, cx: &mut App) {
                     if !plan.accepted.is_empty() {
                         p.composer_store
                             .update(cx, |c, cx| c.add_paths(&plan.accepted, cx));
+                    }
+                    if !carried.is_empty() {
+                        p.composer_store
+                            .update(cx, |c, cx| c.adopt_attachments(carried, cx));
                     }
                     p.focus_composer(window, cx);
                 });
@@ -1004,6 +1013,11 @@ fn schedule_quick_ask_blur(cx: &mut App) {
     .detach();
 }
 
+/// Attachments Quick Ask's Open in Conduit hands to the next new chat.
+struct DraftAttachments(Vec<crate::stores::composer::Attachment>);
+
+impl gpui_kit::Global for DraftAttachments {}
+
 fn on_quick_ask_event(event: QuickAskEvent, cx: &mut App) {
     match event {
         QuickAskEvent::Hide => hide_quick_ask(cx),
@@ -1017,9 +1031,13 @@ fn on_quick_ask_event(event: QuickAskEvent, cx: &mut App) {
             show_main(cx);
             drain(cx);
         }
-        QuickAskEvent::OpenDraft(text) => {
+        QuickAskEvent::OpenDraft { text, attachments } => {
             hide_quick_ask(cx);
             let text = Some(text).filter(|t| !t.trim().is_empty());
+            // The new chat takes them once the main window shows it.
+            if !attachments.is_empty() {
+                cx.set_global(DraftAttachments(attachments));
+            }
             if let Some(shell) = shell(cx) {
                 shell.update(cx, |s, cx| {
                     s.push(
