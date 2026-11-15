@@ -1022,7 +1022,11 @@ async fn smoke(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         }
         before = now;
     }
-    let before = before.unwrap_or_default();
+    // Without a list to compare with, the clean-up below could take chats
+    // this pass did not make: stop here.
+    let Some(before) = before else {
+        return ok("the chat list before the pass", false);
+    };
     println!("SMOKE e2e chats before: {}", before.len());
     // The model for each message is chosen with `@` (this message only), so
     // the account's saved default is left alone.

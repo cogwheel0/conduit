@@ -202,6 +202,11 @@ fn window_rect(handle: AnyWindowHandle, cx: &mut App) -> Option<CGRect> {
 
 pub(crate) async fn shoot(handle: AnyWindowHandle, out: PathBuf, cx: &mut AsyncApp) {
     cx.update(|cx| {
+        // Every pass that shoots (the fixtures' too) has the backdrop, so a
+        // material never samples another app's windows.
+        if BACKDROP.with(|b| b.get()).is_none() {
+            open_backdrop(cx);
+        }
         force_activate(handle, cx);
         backdrop_below(handle, cx);
     });
@@ -412,6 +417,14 @@ pub fn run(dir: PathBuf, options: SmokeOptions, cx: &mut App) {
             )
             .await;
             println!("SMOKE status {status:?} after {:?}", started.elapsed());
+            // The wait also ends at its timeout: a pass that never failed
+            // is a failed negative pass.
+            if !matches!(
+                status,
+                Status::Failed { .. } | Status::StoreUnreadable | Status::VersionMismatch { .. }
+            ) {
+                println!("SMOKE FAILED expected a failure, got {status:?}");
+            }
             let route = cx.update(report);
             shoot_both_modes(main, &dir, status_name(&status, route), cx).await;
             if options.reset && status == Status::StoreUnreadable {

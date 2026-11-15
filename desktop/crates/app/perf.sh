@@ -37,3 +37,6 @@ scratch="${PERF_SCRATCH:-$PWD/target/app/perf-profile}"
 open -W -n "$app" --env "CONDUIT_USER_DATA=$scratch/user-data" --env "CONDUIT_LOGS=$scratch/logs" \
   --stdout "$log" --stderr "$log" --args --cwd "$PWD" --chat-fixture "$mode"
 grep '^{' "$log"
+# A report has samples; a fixture that could not run prints {"error": …}.
+grep -q '^{"error"' "$log" && exit 1
+grep -q '^{' "$log"

@@ -412,7 +412,11 @@ pub fn run(mode: Mode) {
         cx.spawn(async move |cx: &mut AsyncApp| {
             settle(cx, 800).await;
             let passed = match mode {
-                Mode::A11y => a11y(handle, &view, &stores, &scratch, cx).await,
+                // An unlabelled control anywhere fails the pass.
+                Mode::A11y => {
+                    a11y(handle, &view, &stores, &scratch, cx).await
+                        && crate::e2e::unlabelled_seen() == 0
+                }
                 Mode::Perf { .. } => perf(&view, cx).await,
                 Mode::Shell { .. } => false,
             };
@@ -648,7 +652,8 @@ fn shell(
                 crate::smoke::shoot(quick, path, cx).await;
             }
         }
-        let passed = !desktop.is_empty() && !quick_controls.is_empty();
+        let passed =
+            !desktop.is_empty() && !quick_controls.is_empty() && crate::e2e::unlabelled_seen() == 0;
         println!("FIXTURE {}", if passed { "passed" } else { "FAILED" });
         cx.update(|cx| cx.quit());
     })

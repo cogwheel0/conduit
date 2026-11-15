@@ -221,7 +221,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= ok("models.list answered", wait_models(cx).await);
     settle(cx, 500).await;
 
-    // ── Carry-over (b): the model label after a send ───────────────────
+    // ── The model label after a send ───────────────────────────────────
     send("Hello from the shell check", cx).await;
     pass &= ok(
         "the first answer arrives",
@@ -253,7 +253,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     }
     shoot_main(dir, "shell-model-label", cx).await;
 
-    // ── Carry-over (a): Show Sidebar ───────────────────────────────────
+    // ── Show Sidebar ───────────────────────────────────────────────────
     dispatch(&crate::actions::ToggleSidebar, cx);
     settle(cx, 500).await;
     let controls = ax(main, "shell-sidebar-hidden", dir, cx).await;

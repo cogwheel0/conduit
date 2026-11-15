@@ -78,6 +78,19 @@ pub struct E2eInputs {
     pub env: BTreeMap<String, String>,
 }
 
+/// Whether `url` is an http(s) address on this Mac (loopback).
+pub(crate) fn is_local_url(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|u| {
+        matches!(u.scheme(), "http" | "https")
+            && match u.host() {
+                Some(url::Host::Domain(d)) => d.eq_ignore_ascii_case("localhost"),
+                Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+                Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+                None => false,
+            }
+    })
+}
+
 /// What a pass says when the env file is missing or incomplete.
 const NO_SERVER: &str = "the local Open WebUI's env file is there (tool/local_owui/owui.sh up)";
 
@@ -94,10 +107,16 @@ impl E2eInputs {
             let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
             default_env_path(var)
         });
-        let env = path
+        let mut env = path
             .and_then(|p| std::fs::read_to_string(p).ok())
             .map(|text| parse_env(&text))
             .unwrap_or_default();
+        // The passes sign in with these credentials and photograph what
+        // the server shows: only ever on this Mac's own test server.
+        if let Some(url) = env.get("OWUI_URL").filter(|u| !is_local_url(u)) {
+            println!("SMOKE FAILED e2e OWUI_URL {url} is not a local address");
+            env.clear();
+        }
         Some(Self { scenario, env })
     }
 
@@ -279,6 +298,14 @@ const CONTROL_ROLES: &[&str] = &[
 /// Returns the labelled controls, and the labelled headings, as
 /// `role:label`, followed by their states in brackets when they have any
 /// (`TreeItem:Garden [selected, expanded, focused]`).
+/// Controls without a label any [`ax`] check has found in this run.
+static UNLABELLED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// How many controls without a label this run's [`ax`] checks found.
+pub(crate) fn unlabelled_seen() -> usize {
+    UNLABELLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub(crate) async fn ax(
     handle: AnyWindowHandle,
     name: &str,
@@ -365,6 +392,7 @@ pub(crate) async fn ax(
         }
     }
     controls.sort();
+    UNLABELLED.fetch_add(failures.len(), std::sync::atomic::Ordering::Relaxed);
     let out = dir.join("ax");
     std::fs::create_dir_all(&out).ok();
     let report = json!({"screen": name, "controls": controls, "failures": failures});
@@ -2066,6 +2094,17 @@ async fn sidebar(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn passes_sign_in_only_on_this_macs_own_server() {
+        assert!(is_local_url("http://127.0.0.1:19860"));
+        assert!(is_local_url("http://localhost:8150/"));
+        assert!(is_local_url("http://[::1]:8080"));
+        assert!(!is_local_url("https://chat.example.org"));
+        assert!(!is_local_url("http://10.0.0.5:8080"));
+        assert!(!is_local_url("http://localhost.example.org"));
+        assert!(!is_local_url("file:///tmp/x"));
+    }
 
     #[test]
     fn env_files_parse_like_a_shell() {
