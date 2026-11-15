@@ -54,6 +54,15 @@ void main() {
           expect(value, matches(hex));
         }
         expect(colorTokens, containsAll(accessible.keys));
+        // Exactly the colours accessibleColors moved, at their new value.
+        final source = paletteById(palette['id'] as String)
+            .variantFor(dark: mode == 'dark');
+        final moved = accessibleColors(source);
+        for (final token in source.colors.keys) {
+          final changed = moved[token] != source.colors[token];
+          expect(accessible.containsKey(token), changed, reason: token);
+          if (changed) expect(accessible[token], cssHex(moved[token]!));
+        }
         expect(variant['radius'], greaterThan(0));
       }
     }
@@ -62,27 +71,5 @@ void main() {
   test('colours are written as #RRGGBBAA', () {
     expect(cssHex(0xFF102030), '#102030FF');
     expect(cssHex(0x0D0D0D0D), '#0D0D0D0D');
-  });
-
-  test('accessible lists only the colours accessibleColors moved', () {
-    for (final palette in kConduitPalettes) {
-      for (final variant in <ThemeVariant>[palette.light, palette.dark]) {
-        final moved = accessibleColors(variant);
-        final doc = jsonDecode(desktopThemeJson()) as Map<String, dynamic>;
-        final entry = (doc['palettes'] as List)
-            .cast<Map<String, dynamic>>()
-            .firstWhere((p) => p['id'] == palette.id);
-        final json =
-            ((entry[identical(variant, palette.light) ? 'light' : 'dark']
-                        as Map)['accessible']
-                    as Map)
-                .cast<String, String>();
-        for (final token in variant.colors.keys) {
-          final changed = moved[token] != variant.colors[token];
-          expect(json.containsKey(token), changed, reason: token);
-          if (changed) expect(json[token], cssHex(moved[token]!));
-        }
-      }
-    }
   });
 }

@@ -38,6 +38,28 @@ int mixColor(int argb, int toward, double amount) {
       channel(0);
 }
 
+/// Black or white, whichever reads better on every one of [colors] (by the
+/// lowest contrast against any of them): the way to move a colour so it can
+/// reach a ratio against them, whatever their luminance.
+int contrastEndpoint(Iterable<int> colors) {
+  double worst(int end) =>
+      colors.map((c) => contrastRatio(end, c)).reduce(math.min);
+  return worst(0xFF000000) >= worst(0xFFFFFFFF) ? 0xFF000000 : 0xFFFFFFFF;
+}
+
+/// [argb] drawn over the opaque [background]: what it looks like there,
+/// fully opaque.
+int compositeOver(int argb, int background) {
+  final a = ((argb >> 24) & 0xFF) / 255;
+  int channel(int shift) {
+    final top = (argb >> shift) & 0xFF;
+    final under = (background >> shift) & 0xFF;
+    return (top * a + under * (1 - a)).round().clamp(0, 255);
+  }
+
+  return 0xFF000000 | (channel(16) << 16) | (channel(8) << 8) | channel(0);
+}
+
 /// [variant]'s colours for the desktop window, with the destructive red
 /// moved until it reads as text at WCAG AA (4.5:1) on every opaque layer the
 /// window draws: the shared surfaces and the desktop's own (window, panels,
@@ -67,33 +89,39 @@ Map<String, int> accessibleColors(ThemeVariant variant) {
   if (red == null || foreground == null || layers.isEmpty) return colors;
   bool readable(int c) => layers.every((s) => contrastRatio(c, s) >= 4.5);
   bool filled(int c) => contrastRatio(foreground, c) >= 4.5;
-  final light = relativeLuminance(colors['background'] ?? layers.first) > 0.5;
+  // Toward whichever end reads on the layers; darkening (a light variant)
+  // also keeps the fill under a light foreground readable.
+  final toward = contrastEndpoint(layers);
+  final light = toward == 0xFF000000;
   for (
     var step = 0;
-    step < 40 && !(readable(red!) && (!light || filled(red)));
+    step < 100 && !(readable(red!) && (!light || filled(red)));
     step++
   ) {
-    red = mixColor(red, light ? 0xFF000000 : 0xFFFFFFFF, 0.04);
+    final next = mixColor(red, toward, 0.04);
+    // Near the end a 4% step rounds to no change: take the end itself.
+    red = next == red ? toward : next;
   }
   colors['destructive'] = red!;
   return colors;
 }
 
 /// The fill of a destructive button in [variant]: the red from
-/// [accessibleColors], darkened under a light foreground (lightened under a
-/// dark one) until the foreground reads on it at 4.5:1. On a light variant
-/// that is the red itself. The desktop's `legible_fill` does the same.
+/// [accessibleColors], moved toward black or white, whichever reads better
+/// under the foreground, until the foreground reads on it at 4.5:1. On a
+/// light variant that is the red itself.
 int destructiveFill(ThemeVariant variant) {
   final colors = accessibleColors(variant);
   final foreground = colors['destructiveForeground']!;
-  final toward = relativeLuminance(foreground) > 0.5 ? 0xFF000000 : 0xFFFFFFFF;
+  final toward = contrastEndpoint(<int>[foreground]);
   var fill = colors['destructive']!;
   for (
     var step = 0;
-    step < 40 && contrastRatio(foreground, fill) < 4.5;
+    step < 100 && contrastRatio(foreground, fill) < 4.5;
     step++
   ) {
-    fill = mixColor(fill, toward, 0.04);
+    final next = mixColor(fill, toward, 0.04);
+    fill = next == fill ? toward : next;
   }
   return fill;
 }

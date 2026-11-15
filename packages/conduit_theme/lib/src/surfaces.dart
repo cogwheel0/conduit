@@ -104,20 +104,21 @@ Map<String, int> desktopSurfaces(ThemeVariant variant) {
     for (final token in kTextLayerSurfaces)
       if (surfaces[token]! >> 24 & 0xFF == 0xFF) surfaces[token]!,
   ];
-  final subtle = _towardContrast(
-    surfaces['foregroundSubtle']!,
+  // A translucent text override is held to contrast as it is drawn on the
+  // main layer.
+  int opaque(int argb) =>
+      argb >> 24 & 0xFF == 0xFF ? argb : compositeOver(argb, c['background']!);
+  surfaces['foregroundSubtle'] = _towardContrast(
+    opaque(surfaces['foregroundSubtle']!),
     fg,
     layers,
     4.5,
-    dark: dark,
   );
-  surfaces['foregroundSubtle'] = subtle;
   surfaces['foregroundSubtlest'] = _towardContrast(
-    surfaces['foregroundSubtlest']!,
+    opaque(surfaces['foregroundSubtlest']!),
     fg,
     layers,
     3,
-    dark: dark,
   );
   return <String, int>{
     for (final token in kSurfaceTokens) token: surfaces[token]!,
@@ -125,26 +126,23 @@ Map<String, int> desktopSurfaces(ThemeVariant variant) {
 }
 
 /// Moves [color] toward [foreground] until it has [ratio] against every one
-/// of [layers]; once a step toward [foreground] no longer changes it (the two
-/// are a rounding step apart), toward black on a light variant or white on a
-/// dark one instead.
-int _towardContrast(
-  int color,
-  int foreground,
-  List<int> layers,
-  double ratio, {
-  required bool dark,
-}) {
+/// of [layers]. When [foreground] itself falls short of [ratio], or a step
+/// toward it no longer changes the colour (the two are a rounding step
+/// apart), it moves toward black or white instead, whichever reads on the
+/// layers, and keeps going that way, to the end itself once a step rounds
+/// to no change.
+int _towardContrast(int color, int foreground, List<int> layers, double ratio) {
+  bool reads(int c) => layers.every((l) => contrastRatio(c, l) >= ratio);
+  final endpoint = contrastEndpoint(layers);
+  var target = reads(foreground) ? foreground : endpoint;
   var value = color;
-  for (
-    var step = 0;
-    step < 40 && layers.any((l) => contrastRatio(value, l) < ratio);
-    step++
-  ) {
-    final next = mixColor(value, foreground, 0.08);
-    value = next != value
-        ? next
-        : mixColor(value, dark ? 0xFFFFFFFF : 0xFF000000, 0.08);
+  for (var step = 0; step < 60 && !reads(value); step++) {
+    var next = mixColor(value, target, 0.08);
+    if (next == value && target != endpoint) {
+      target = endpoint;
+      next = mixColor(value, target, 0.08);
+    }
+    value = next == value ? endpoint : next;
   }
   return value;
 }
