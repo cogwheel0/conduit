@@ -5,7 +5,7 @@
 //!
 //! * `offline-setup`: a fresh profile, the server form, a password sign-in,
 //!   and the main frame with the seeded chats. Then the app quits.
-//! * `offline`: kills conduitd once while the window is still opening, then
+//! * `offline`: restarts conduitd once while the window is still opening, then
 //!   expects the main frame from what the daemon stored: the stored chats,
 //!   with the offline banner and without the chat made meanwhile. It starts
 //!   the server again (`owui.sh start`) and expects the banner to go and
@@ -60,12 +60,12 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         }
     };
 
-    // The daemon is killed as soon as it is up: the window is still opening
-    // (the route is unknown), and the supervisor starts another.
-    let killed = kill_first_daemon(cx).await;
+    // The daemon is restarted as soon as it is up: the window is still
+    // opening (the route is unknown).
+    let restarted = restart_first_daemon(cx).await;
     let mut pass = ok(
-        "conduitd killed once while the window was still opening",
-        killed == Some(Route::Unknown),
+        "conduitd restarted once while the window was still opening",
+        restarted == Some(Route::Unknown),
     );
     pass &= wait_route(cx, Route::Main, Duration::from_secs(90)).await;
 
@@ -123,25 +123,26 @@ fn new_chat_id(dir: &Path) -> Option<String> {
     chat.get("id")?.as_str().map(str::to_string)
 }
 
-/// Waits for the first daemon to be up, kills it, and returns the route
-/// at that moment. None if it never came up.
-async fn kill_first_daemon(cx: &mut AsyncApp) -> Option<Route> {
+/// Waits for the first daemon to be up, has its supervisor stop it and
+/// starts a fresh one, and returns the route at that moment. None if it
+/// never came up. Only the supervisor signals the daemon: a pid read here
+/// could already belong to another process.
+async fn restart_first_daemon(cx: &mut AsyncApp) -> Option<Route> {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
-        let running = cx.update(|cx| {
-            let phase = cx.global::<AppState>().connection.read(cx).daemon.clone();
-            match phase {
-                DaemonPhase::Running { pid, .. } => Some((pid, current_route(cx))),
-                _ => None,
+        let restarted = cx.update(|cx| {
+            let connection = cx.global::<AppState>().connection.clone();
+            if !matches!(connection.read(cx).daemon, DaemonPhase::Running { .. }) {
+                return None;
             }
+            let route = current_route(cx);
+            connection
+                .update(cx, |c, cx| c.restart_daemon(cx))
+                .then_some(route)
         });
-        if let Some((pid, route)) = running {
-            let killed = Command::new("/bin/kill")
-                .args(["-KILL", &pid.to_string()])
-                .status()
-                .is_ok_and(|s| s.success());
-            println!("e2e: killed conduitd pid {pid} (route {route:?})");
-            return killed.then_some(route);
+        if let Some(route) = restarted {
+            println!("e2e: restarted conduitd (route {route:?})");
+            return Some(route);
         }
         if Instant::now() > deadline {
             return None;

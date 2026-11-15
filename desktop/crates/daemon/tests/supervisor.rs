@@ -300,3 +300,22 @@ async fn an_exit_with_stderr_still_open_is_graceful_and_signals_nothing() {
     assert!(!log.contains("SIGTERM"), "{log}");
     assert!(!log.contains("SIGKILL"), "{log}");
 }
+
+#[tokio::test]
+async fn a_stop_after_the_daemon_exited_signals_nothing_and_a_new_one_starts() {
+    // The capture's reconnect: it asks for a stop after the daemon already
+    // died (here it waits to restart), then starts a fresh supervisor.
+    let (mut config, dir) = setup("exited", "crash");
+    config.policy.base_delay = Duration::from_secs(30);
+    config.policy.max_delay = Duration::from_secs(30);
+    let (sup, mut rx) = Supervisor::spawn(config, &tokio::runtime::Handle::current());
+    until(&mut rx, |e| matches!(e, SupervisorEvent::Restarting { .. })).await;
+    assert_eq!(sup.stop().await, StopOutcome::NotRunning);
+    let log = std::fs::read_to_string(dir.join("logs/conduitd.log")).unwrap();
+    assert!(!log.contains("SIGTERM"), "{log}");
+    assert!(!log.contains("SIGKILL"), "{log}");
+    let (config, _) = setup("exited-fresh", "ready");
+    let (fresh, mut rx) = Supervisor::spawn(config, &tokio::runtime::Handle::current());
+    until(&mut rx, |e| matches!(e, SupervisorEvent::Ready { .. })).await;
+    assert_eq!(fresh.stop().await, StopOutcome::Graceful);
+}

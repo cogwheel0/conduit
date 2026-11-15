@@ -511,11 +511,24 @@ impl ConnectionStore {
     }
 
     pub fn clear_local_data(&mut self, cx: &mut Context<Self>) {
+        self.stop_and_respawn(true, cx);
+    }
+
+    /// Stops the daemon through its supervisor and starts a fresh one, as a
+    /// crash and restart would look (the capture's reconnecting state). Only
+    /// the supervisor signals the daemon, and never once it has exited.
+    #[cfg(feature = "harness")]
+    pub fn restart_daemon(&mut self, cx: &mut Context<Self>) -> bool {
+        self.stop_and_respawn(false, cx)
+    }
+
+    /// `move_data`: move userData aside between the stop and the start.
+    fn stop_and_respawn(&mut self, move_data: bool, cx: &mut Context<Self>) -> bool {
         if self.clearing {
-            return;
+            return false;
         }
         let Some(supervisor) = self.supervisor.take() else {
-            return;
+            return false;
         };
         self.clearing = true;
         self.reset_error = None;
@@ -531,25 +544,27 @@ impl ConnectionStore {
         });
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let stopped = rx.await;
-            log::info!("daemon stopped for a reset: {stopped:?}");
-            let moved = move_aside(&user_data, SystemTime::now());
+            log::info!("daemon stopped for a restart: {stopped:?}");
+            let moved = move_data.then(|| move_aside(&user_data, SystemTime::now()));
             let _ = this.update(cx, |s, cx| {
                 s.clearing = false;
                 match moved {
-                    Ok(moved_to) => {
+                    Some(Ok(moved_to)) => {
                         log::warn!("cleared local data: moved to {}", moved_to.display());
                         cx.emit(ConnectionEvent::LocalDataReset { moved_to });
                     }
-                    Err(e) => {
+                    Some(Err(e)) => {
                         log::warn!("clear local data: {e}");
                         s.reset_error = Some(e.to_string());
                     }
+                    None => {}
                 }
                 s.spawn_supervisor(cx);
                 cx.notify();
             });
         })
         .detach();
+        true
     }
 
     /// `system.exportDiagnostics`, then reveal the zip in Finder.
