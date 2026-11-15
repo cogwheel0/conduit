@@ -103,8 +103,9 @@ alive() {
     fake_hermes) program=fake_hermes.dart instance="$STATE/no_packages.json" ;;
     *) return 1 ;;
   esac
-  case "$(ps -o command= -p "$(cat "$pidfile")" 2>/dev/null)" in
-    *"$program"*"$instance"* | *"$instance"*"$program"*) return 0 ;;
+  # Padded with spaces, so `--port 8150` does not match `--port 81500`.
+  case " $(ps -o command= -p "$(cat "$pidfile")" 2>/dev/null) " in
+    *"$program"*" $instance "* | *" $instance "*"$program"*) return 0 ;;
     *) return 1 ;;
   esac
 }
