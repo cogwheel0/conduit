@@ -12,7 +12,9 @@
 #    killed once while the window opens, and the pass starts the server
 #    again and expects the app to catch up.
 #
-# Arguments go to run.sh; `--shots` is required. The instance is
+# Arguments go to run.sh; `--shots` is required. Both launches use one
+# profile: CONDUIT_USER_DATA's when set, else a new scratch one (every other
+# scripted launch gets a fresh profile of its own). The instance is
 # CONDUIT_OWUI_DIR's, as for every pass. It is left running afterwards.
 set -eu
 cd "$(dirname "$0")/../.."
@@ -25,6 +27,13 @@ done
 if [ -z "$shots" ]; then
   echo "usage: $0 --shots <dir> [run.sh arguments]" >&2
   exit 64
+fi
+if [ -z "${CONDUIT_USER_DATA:-}" ]; then
+  profile="$(mktemp -d "${TMPDIR:-/tmp}/conduit-e2e-offline.XXXXXX")"
+  CONDUIT_USER_DATA="$profile/user-data"
+  CONDUIT_LOGS="${CONDUIT_LOGS:-$profile/logs}"
+  export CONDUIT_USER_DATA CONDUIT_LOGS
+  echo "e2e-offline: profile $profile"
 fi
 owui=../tool/local_owui/owui.sh
 "$owui" up
