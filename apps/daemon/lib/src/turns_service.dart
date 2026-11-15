@@ -376,8 +376,12 @@ final class TurnsService {
   Future<void> _requireChatParamsAccess(Model model, SendTurn request) async {
     final params = request.chatParams;
     if (params == null || params.isEmpty) return;
+    // Only a chat this device runs keeps no Open WebUI settings: Hermes, or
+    // a Direct connection of its own. A server's own connection is still
+    // the server's chat, held to its rights.
     if (isHermesModel(model) ||
-        _container.read(directModelRegistryProvider).resolve(model) != null) {
+        _container.read(directModelRegistryProvider).resolve(model)?.source ==
+            DirectModelSource.device) {
       return;
     }
     // The rights are the asking account's: another one signed in or made

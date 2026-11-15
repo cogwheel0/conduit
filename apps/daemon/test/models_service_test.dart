@@ -6,6 +6,11 @@ import 'dart:io';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show openWebUiChatSettingsAccessProvider;
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
+    show directModelRegistryProvider;
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesFastTierSelectionProvider;
 import 'package:conduit_core/models/model.dart' as core;
@@ -72,6 +77,16 @@ final class _Personal extends PersonalizationSettings {
     toggled.add(modelId);
     return const ServerUserSettings();
   }
+}
+
+/// A server offering exactly [models].
+final class _These extends Models {
+  _These(this.models);
+
+  final List<core.Model> models;
+
+  @override
+  Future<List<core.Model>> build() async => models;
 }
 
 /// Signed out, or never signed in: there is no list to fall back on.
@@ -189,6 +204,52 @@ void main() {
           model: 'first-model',
           text: 'Hello',
           chatParams: <String, dynamic>{'system': 'Answer in riddles.'},
+        ),
+      ),
+      refused(ConduitErrorCodes.unauthorized),
+    );
+  });
+
+  // A server's own connection is still the server's chat: its settings
+  // keep to the account's rights as any Open WebUI chat's do.
+  test("a new chat on a server connection's model keeps to the rights",
+      () async {
+    final registry = DirectModelRegistry();
+    final served = registry
+        .replaceProfileModels(
+          DirectConnectionProfile(
+            id: 'server-connection',
+            name: 'Server connection',
+            adapterKey: kOpenAiCompatibleAdapterKey,
+            baseUrl: 'https://models.invalid/v1',
+          ),
+          [DirectRemoteModel(id: 'served-model')],
+          source: DirectModelSource.openWebUi,
+          openWebUiUrlIndex: 0,
+        )
+        .single;
+    final container = ProviderContainer(
+      overrides: [
+        directModelRegistryProvider.overrideWithValue(registry),
+        modelsProvider.overrideWith(() => _These(<core.Model>[served])),
+        openWebUiChatSettingsAccessProvider.overrideWith(
+          (ref) async => const OpenWebUiChatSettingsAccess(
+            canEditSystemPrompt: false,
+            canEditParameters: true,
+          ),
+        ),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    final turns = TurnsService(container, EventBus());
+    addTearDown(turns.dispose);
+    await expectLater(
+      turns.send(
+        SendTurn(
+          model: served.id,
+          text: 'Hello',
+          chatParams: const <String, dynamic>{'system': 'Answer in riddles.'},
         ),
       ),
       refused(ConduitErrorCodes.unauthorized),
