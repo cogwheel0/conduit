@@ -150,6 +150,9 @@ pub struct SessionStore {
     accounts: Entity<AccountsStore>,
     pub auth: Option<AuthSnapshot>,
     pub server: Option<ServerStatus>,
+    /// The active account `auth` and `server` were asked for (`None`: no
+    /// account). Another account's are dropped, never routed on.
+    facts_for: Option<String>,
     pub direct: Option<DirectConnectionList>,
     pub hermes: Option<HermesSettings>,
     /// The core's onboarding answer, once confirmed (see the module docs).
@@ -168,6 +171,7 @@ pub struct SessionStore {
     /// Asks made since the route was last known ([`RESOLVE_ATTEMPTS`]).
     resolve_attempts: u32,
     _refresh: Option<Task<()>>,
+    _backends: Option<Task<()>>,
     _status: Option<Task<()>>,
     _resolve: Option<Task<()>>,
     _recheck: Option<Task<()>>,
@@ -187,7 +191,12 @@ fn signature(list: &AccountList) -> String {
 impl SessionStore {
     pub fn new(rpc: Rpc, accounts: Entity<AccountsStore>, cx: &mut Context<Self>) -> Self {
         let subscription = cx.observe(&accounts, |this, accounts, cx| {
-            let sig = accounts.read(cx).list.as_ref().map(signature);
+            let list = accounts.read(cx).list.as_ref();
+            let sig = list.map(signature);
+            if let Some(list) = list {
+                let active = list.active_account_id.clone();
+                this.forget_other_account(active);
+            }
             if sig.is_some() && sig != this.seen_accounts {
                 this.seen_accounts = sig;
                 this.refresh(cx);
@@ -199,6 +208,7 @@ impl SessionStore {
             accounts,
             auth: None,
             server: None,
+            facts_for: None,
             direct: None,
             hermes: None,
             needs_onboarding: None,
@@ -210,6 +220,7 @@ impl SessionStore {
             seen_accounts: None,
             resolve_attempts: 0,
             _refresh: None,
+            _backends: None,
             _status: None,
             _resolve: None,
             _recheck: None,
@@ -282,6 +293,19 @@ impl SessionStore {
             .unwrap_or_default()
     }
 
+    /// Drops the auth snapshot and server status when they were asked for
+    /// another account than `active`: the route waits for the new account's
+    /// own answers rather than pairing it with the last one's.
+    fn forget_other_account(&mut self, active: Option<String>) {
+        if self.facts_for != active {
+            self.facts_for = active;
+            self.auth = None;
+            self.server = None;
+            self._status = None;
+            self._recheck = None;
+        }
+    }
+
     /// A new daemon session: forget everything and ask again. Only a `true`
     /// onboarding answer from the handshake is taken as it is.
     pub fn on_connected(
@@ -300,6 +324,7 @@ impl SessionStore {
         self.seen_accounts = None;
         self.resolve_attempts = 0;
         self._refresh = None;
+        self._backends = None;
         self._status = None;
         self._resolve = None;
         self._recheck = None;
@@ -345,6 +370,7 @@ impl SessionStore {
                         let _ = this.update(cx, |s, cx| {
                             if s.generation == generation {
                                 s.seen_accounts = Some(signature(&list));
+                                s.forget_other_account(list.active_account_id.clone());
                                 s.accounts.update(cx, |a, cx| a.adopt(list, cx));
                             }
                         });
@@ -360,8 +386,26 @@ impl SessionStore {
                     }
                 }
                 let auth = rpc.call::<methods::AuthStatus>(&NoParams);
+                // `direct.list` and `hermes.settings` may wait on a server:
+                // they land on their own and never hold back the route.
                 let direct = rpc.call::<methods::DirectList>(&NoParams);
                 let hermes = rpc.call::<methods::HermesSettings>(&NoParams);
+                let _ = this.update(cx, |s, cx| {
+                    s._backends = Some(cx.spawn(
+                        async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                            let (direct, hermes) = futures::join!(direct, hermes);
+                            let _ = this.update(cx, |s, cx| {
+                                if s.generation == generation {
+                                    // A daemon without Direct or Hermes
+                                    // answers as none.
+                                    s.direct = Some(direct.unwrap_or_default());
+                                    s.hermes = Some(hermes.unwrap_or_default());
+                                    cx.notify();
+                                }
+                            });
+                        },
+                    ));
+                });
                 // Asked again now that the core is up: its own answer.
                 let onboarding = async {
                     match &request {
@@ -369,8 +413,7 @@ impl SessionStore {
                         None => Ok(Value::Null),
                     }
                 };
-                let (auth, direct, hermes, onboarding) =
-                    futures::join!(auth, direct, hermes, onboarding);
+                let (auth, onboarding) = futures::join!(auth, onboarding);
                 let _ = this.update(cx, |s, cx| {
                     if s.generation != generation {
                         return;
@@ -381,9 +424,6 @@ impl SessionStore {
                         Ok(a) => s.auth = Some(a),
                         Err(e) => failed = Some(e),
                     }
-                    // A daemon without Direct or Hermes answers as none.
-                    s.direct = Some(direct.unwrap_or_default());
-                    s.hermes = Some(hermes.unwrap_or_default());
                     match onboarding {
                         Ok(v) => {
                             if let Some(needs) = v.get("needsOnboarding").and_then(Value::as_bool) {
@@ -933,6 +973,72 @@ mod tests {
         cx.executor().advance_clock(SERVER_RECHECK * 3);
         cx.run_until_parked();
         assert_eq!(daemon.calls::<methods::ServersStatus>().len(), checks);
+    }
+
+    #[gpui_kit::test]
+    fn a_slow_direct_list_does_not_hold_back_the_route(cx: &mut TestAppContext) {
+        // Offline start-up: `direct.list` waits on the server, the account and
+        // its auth come from what the daemon stored.
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(signed_in());
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Authenticated, true));
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+        daemon.returns::<methods::DirectList>(DirectConnectionList::default());
+        let held = daemon.hold::<methods::DirectList>();
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| {
+            s.on_connected(&handshake(Some(false)), request(), cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(route_of(&store, cx), Route::Main);
+        held.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, cx| {
+            assert_eq!(s.route(cx), Route::Main);
+            assert!(s.direct.is_some());
+        });
+    }
+
+    #[gpui_kit::test]
+    fn another_accounts_auth_and_server_never_route_the_new_one(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(signed_in());
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Authenticated, true));
+        daemon.on::<OnboardingProbe>(|_| Ok(json!({"needsOnboarding": false})));
+        daemon.returns::<methods::ServersStatus>(server(ServerReachability::Unreachable));
+        let store = session(cx, &daemon);
+        store.update(cx, |s, cx| {
+            s.on_connected(&handshake(Some(false)), request(), cx)
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, cx| {
+            assert_eq!(s.route(cx), Route::Main);
+            assert!(s.server_unreachable(cx));
+        });
+
+        // Switched to B, which has no session; its auth answer fails at first
+        // and its server status is slow.
+        let b = list(vec![
+            account("a", "Avery", false, true),
+            account("b", "Blair", true, false),
+        ]);
+        daemon.returns::<methods::AccountsList>(b);
+        daemon.once::<methods::AuthStatus>(Err(conduit_daemon::protocol::error(
+            "rpc.daemonUnavailable",
+            "busy",
+        )));
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Unauthenticated, false));
+        let held = daemon.hold::<methods::ServersStatus>();
+        let accounts = store.read_with(cx, |s, _| s.accounts().clone());
+        accounts.update(cx, |a, cx| a.refresh(cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, cx| {
+            assert_eq!(s.route(cx), Route::Unknown, "A's sign-in is not B's");
+            assert!(!s.server_unreachable(cx), "A's server is not B's");
+        });
+        wait_asks(1, cx);
+        assert_eq!(route_of(&store, cx), Route::SignIn);
+        drop(held);
     }
 
     #[gpui_kit::test]

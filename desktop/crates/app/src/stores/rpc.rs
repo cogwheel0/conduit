@@ -72,6 +72,28 @@ pub mod fake {
         queued: HashMap<&'static str, VecDeque<Result<Value, RpcError>>>,
         handlers: HashMap<&'static str, Handler>,
         calls: Vec<(&'static str, Value)>,
+        /// Methods whose calls wait for [`Hold::release`], and their waiters.
+        held: HashMap<&'static str, Vec<futures::channel::oneshot::Sender<()>>>,
+    }
+
+    /// Keeps a method's calls unanswered until released (or dropped).
+    pub struct Hold {
+        daemon: FakeDaemon,
+        method: &'static str,
+    }
+
+    impl Hold {
+        /// Answers the held calls, and every later call at once.
+        pub fn release(self) {}
+    }
+
+    impl Drop for Hold {
+        fn drop(&mut self) {
+            let waiters = self.daemon.0.lock().unwrap().held.remove(self.method);
+            for w in waiters.into_iter().flatten() {
+                let _ = w.send(());
+            }
+        }
     }
 
     /// Answers each method from its queue, else its handler, else
@@ -116,6 +138,16 @@ pub mod fake {
             self
         }
 
+        /// Holds every `method` call, answered (as it would be now) only
+        /// once the returned [`Hold`] is released.
+        pub fn hold<M: RpcMethod>(&self) -> Hold {
+            self.0.lock().unwrap().held.insert(M::NAME, vec![]);
+            Hold {
+                daemon: self.clone(),
+                method: M::NAME,
+            }
+        }
+
         /// The params of every `method` call so far.
         pub fn calls<M: RpcMethod>(&self) -> Vec<Value> {
             self.0
@@ -151,7 +183,17 @@ pub mod fake {
                     None => Err(error(codes::METHOD_NOT_FOUND, method)),
                 },
             };
-            Box::pin(async move { answer })
+            let wait = state.held.get_mut(method).map(|waiters| {
+                let (tx, rx) = futures::channel::oneshot::channel();
+                waiters.push(tx);
+                rx
+            });
+            Box::pin(async move {
+                if let Some(wait) = wait {
+                    let _ = wait.await;
+                }
+                answer
+            })
         }
     }
 }

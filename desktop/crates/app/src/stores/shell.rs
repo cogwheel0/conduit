@@ -91,8 +91,9 @@ impl ShellStore {
         Self::default()
     }
 
-    /// Queues `request`. Files for a new chat join a new chat already
-    /// waiting with files, so one "Open with" burst makes one chat.
+    /// Queues `request`. Files for a new chat join the new chat with files
+    /// queued last, so one "Open with" burst makes one chat; after another
+    /// request they start a chat of their own.
     pub fn push(&mut self, request: OpenRequest, cx: &mut Context<Self>) {
         queue(&mut self.pending, request);
         cx.notify();
@@ -156,9 +157,8 @@ fn queue(pending: &mut VecDeque<OpenRequest>, request: OpenRequest) {
     } = &request
         && !incoming.is_empty()
         && let Some(OpenRequest::NewChat { files, .. }) = pending
-            .iter_mut()
-            .rev()
-            .find(|r| matches!(r, OpenRequest::NewChat { files, .. } if !files.is_empty()))
+            .back_mut()
+            .filter(|r| matches!(r, OpenRequest::NewChat { files, .. } if !files.is_empty()))
     {
         for f in incoming {
             if !files.contains(f) {
@@ -244,6 +244,11 @@ mod tests {
             },
         );
         assert_eq!(q.len(), 3);
+        // Files after another request are a chat of their own, in order.
+        queue(&mut q, files(&["/c.txt"]));
+        assert_eq!(q.len(), 4);
+        assert_eq!(q[0], files(&["/a.md", "/b.pdf"]));
+        assert_eq!(q[3], files(&["/c.txt"]));
     }
 
     #[gpui_kit::test]

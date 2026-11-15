@@ -92,6 +92,7 @@ impl NavigationStore {
 
     /// Another account, or no account: nothing selected carries over.
     pub fn reset(&mut self, cx: &mut Context<Self>) {
+        self.new_chat_folder = None;
         self.set(Selection::New { temporary: false }, cx);
     }
 
@@ -141,6 +142,12 @@ mod tests {
             assert_eq!(s.selected_chat(), None);
         });
         store.update(cx, |s, cx| s.reset(cx));
+        // A reset forgets the folder a new chat was going to go in.
+        store.update(cx, |s, cx| {
+            s.new_chat_in_folder("folder-a".into(), cx);
+            s.reset(cx);
+        });
+        store.read_with(cx, |s, _| assert_eq!(s.new_chat_folder(), None));
         assert_eq!(
             *seen.borrow(),
             vec![
