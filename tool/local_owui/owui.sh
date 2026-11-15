@@ -88,20 +88,23 @@ HERMES_PORT=${HERMES_PORT:-$((PORT + 2))}
 URL=http://127.0.0.1:$PORT
 
 # Whether NAME (server, fake_model or fake_hermes) is running: its pid
-# file names a process whose command line is still that program's. A pid
+# file names a process whose command line is still that program's, started
+# for this instance. A pid
 # left behind by a crash may belong to an unrelated process by now, which
 # must be neither reported as ours nor stopped.
 alive() {
   pidfile=$STATE/$1.pid
   [ -f "$pidfile" ] || return 1
+  # The program, and an argument only this instance passes it: another
+  # instance's fake model is not ours either.
   case $1 in
-    server) program=open-webui ;;
-    fake_model) program=fake_model.py ;;
-    fake_hermes) program=fake_hermes.dart ;;
+    server) program=open-webui instance="--port $PORT" ;;
+    fake_model) program=fake_model.py instance="$STATE/requests.jsonl" ;;
+    fake_hermes) program=fake_hermes.dart instance="$STATE/no_packages.json" ;;
     *) return 1 ;;
   esac
   case "$(ps -o command= -p "$(cat "$pidfile")" 2>/dev/null)" in
-    *"$program"*) return 0 ;;
+    *"$program"*"$instance"* | *"$instance"*"$program"*) return 0 ;;
     *) return 1 ;;
   esac
 }
