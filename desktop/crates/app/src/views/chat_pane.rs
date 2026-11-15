@@ -448,6 +448,8 @@ impl ChatPane {
         let rpc = self.stores.connection.read(cx).rpc();
         let pane = cx.entity().downgrade();
         let asked_id = request.request_id.clone();
+        // The account it was asked in: another one never gets its chat.
+        let scope = self.composer_store.read(cx).scope();
         let closer = window.update(cx, move |_, window, cx| {
             let l10n = cx.l10n().clone();
             let spec = crate::shell::sheet::SheetSpec::new(
@@ -479,7 +481,7 @@ impl ChatPane {
                     }
                     let _ = cx.update(|window, cx| {
                         let _ = pane.update(cx, |p, cx| {
-                            p.open_handoff(answered.model_id, answered.prompt, window, cx)
+                            p.open_handoff_in(scope, answered.model_id, answered.prompt, window, cx)
                         });
                     });
                 })
@@ -489,6 +491,22 @@ impl ChatPane {
         if let Ok(closer) = closer {
             self.handoff_ask = Some((asked_id, closer));
         }
+    }
+
+    /// [`Self::open_handoff`], only while the account it was asked in
+    /// (`scope`, the composer's) is still the active one.
+    pub fn open_handoff_in(
+        &mut self,
+        scope: u64,
+        model: Option<String>,
+        prompt: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.composer_store.read(cx).scope() != scope {
+            return;
+        }
+        self.open_handoff(model, prompt, window, cx);
     }
 
     /// A handoff the user agreed to: a new chat on `model`, `prompt` in the
@@ -2845,6 +2863,36 @@ mod tests {
             pane.update(vcx, |p, cx| p.on_connection(&settled("r1"), cx));
             assert!(closer.is_closed(), "the settled question stayed up");
             assert!(pane.read_with(vcx, |p, _| p.handoff_ask.is_none()));
+        }
+
+        #[gpui_kit::test]
+        fn a_handoff_answered_after_an_account_switch_opens_nothing(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+            vcx.run_until_parked();
+            let scope = pane.read_with(vcx, |p, cx| p.composer_store.read(cx).scope());
+            switch_account(&stores, vcx);
+            let before = stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone());
+            pane.update_in(vcx, |p, window, cx| {
+                p.open_handoff_in(
+                    scope,
+                    None,
+                    Some("Compare the two plans".into()),
+                    window,
+                    cx,
+                )
+            });
+            vcx.run_until_parked();
+            assert_eq!(
+                stores
+                    .navigation
+                    .read_with(vcx, |n, _| n.selection().clone()),
+                before,
+                "the last account's handoff opened a chat"
+            );
+            assert!(composer_text(&pane, vcx).is_empty());
         }
 
         fn switch_account(stores: &Stores, vcx: &mut VisualTestContext) {
