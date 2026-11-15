@@ -21,6 +21,9 @@ printf '%s\n' 8152 > "$dir/state/hermes_port"
 nohup sleep 60 > /dev/null 2>&1 &
 s=$!
 pid_record "$dir/state/server.pid" "$s"
+# Only the fixture's ports and paths count, whatever the shell exports.
+unset CONDUIT_OWUI_PORT CONDUIT_OWUI_MODEL_PORT CONDUIT_OWUI_HERMES_PORT \
+  CONDUIT_OWUI_DIR CONDUIT_OWUI_ENV
 export CONDUIT_OWUI_VENV="$dir/no-venv"
 failures=0
 
