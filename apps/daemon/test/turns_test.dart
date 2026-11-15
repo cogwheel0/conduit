@@ -530,7 +530,8 @@ void main() {
     await until(() => ended('linger', next.assistantMessageId));
   });
 
-  test('a temporary chat is saved once at a time', () async {
+  test('a temporary chat being saved takes no second save and no turn',
+      () async {
     open('saving');
     final chat = await turns.send(
       SendTurn(model: model, text: 'keep me', temporary: true),
@@ -539,35 +540,16 @@ void main() {
     await until(() => ended('saving', chat.assistantMessageId));
     final first = turns.saveTemporary(chat.chatId);
     final second = turns.saveTemporary(chat.chatId);
-    await expectLater(
-      second,
-      throwsA(
-        isA<RpcError>().having((e) => e.code, 'code', ConduitErrorCodes.conflict),
-      ),
-    );
-    // This account has no Open WebUI server to save to.
-    await expectLater(first, throwsA(isA<RpcError>()));
-  });
-
-  test('a temporary chat being saved takes no other turn meanwhile', () async {
-    open('saving-send');
-    final chat = await turns.send(
-      SendTurn(model: model, text: 'keep me', temporary: true),
-    );
-    subscribeWindow(events, turns, 'saving-send', <String>[chat.chatId]);
-    await until(() => ended('saving-send', chat.assistantMessageId));
-    final saving = turns.saveTemporary(chat.chatId);
     final sending = turns.send(
       SendTurn(model: model, chatId: chat.chatId, text: 'and this'),
     );
-    await expectLater(
-      sending,
-      throwsA(
-        isA<RpcError>().having((e) => e.code, 'code', ConduitErrorCodes.conflict),
-      ),
+    final conflict = throwsA(
+      isA<RpcError>().having((e) => e.code, 'code', ConduitErrorCodes.conflict),
     );
+    await expectLater(second, conflict);
+    await expectLater(sending, conflict);
     // This account has no Open WebUI server to save to.
-    await expectLater(saving, throwsA(isA<RpcError>()));
+    await expectLater(first, throwsA(isA<RpcError>()));
   });
 
   test('a chat whose messages are being deleted takes no turn meanwhile',
