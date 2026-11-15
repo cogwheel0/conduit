@@ -86,6 +86,9 @@ pub struct ChatListStore {
     pub list: Option<ChatList>,
     pub load_error: Option<RpcError>,
     pub loading_more: bool,
+    /// The last page request failed: reaching the end does not ask again
+    /// (only Load More, or a new list, does).
+    pub more_failed: bool,
     /// Open folders; `None` until seeded from the first list with folders.
     expanded: Option<BTreeSet<String>>,
     /// `chats.folder` answers for the open folders.
@@ -120,6 +123,7 @@ impl ChatListStore {
             list: None,
             load_error: None,
             loading_more: false,
+            more_failed: false,
             expanded: None,
             folder_contents: HashMap::new(),
             sync: None,
@@ -159,6 +163,7 @@ impl ChatListStore {
         self.list = None;
         self.load_error = None;
         self.loading_more = false;
+        self.more_failed = false;
         self.expanded = None;
         self.folder_contents.clear();
         self.folder_fetches.clear();
@@ -275,6 +280,7 @@ impl ChatListStore {
             return;
         }
         self.loading_more = true;
+        self.more_failed = false;
         self.generation += 1;
         let generation = self.generation;
         let call = self.rpc.call::<methods::ChatsLoadMore>(&NoParams);
@@ -287,6 +293,11 @@ impl ChatListStore {
                         Ok(list) if s.generation == generation => s.adopt(list, cx),
                         Ok(_) => s.changed(cx),
                         Err(error) => {
+                            // Only this list's page: an older one's failure
+                            // never stops the newer list's paging.
+                            if s.generation == generation {
+                                s.more_failed = true;
+                            }
                             cx.emit(ChatListEvent::Failed {
                                 action: ChatAction::LoadMore,
                                 error,
@@ -434,6 +445,13 @@ impl ChatListStore {
 
     pub fn query(&self) -> &str {
         &self.query
+    }
+
+    /// Sets the query and the query answered, without searching.
+    #[cfg(test)]
+    pub fn set_query_for_test(&mut self, searched: &str, query: &str) {
+        self.searched = searched.into();
+        self.query = query.into();
     }
 
     /// The query whose answer [`Self::results`] holds.
@@ -1231,6 +1249,37 @@ mod tests {
         store.read_with(cx, |s, _| {
             assert_eq!(s.list.as_ref().unwrap().chats.len(), 1)
         });
+    }
+
+    #[gpui_kit::test]
+    fn a_failed_page_is_not_asked_for_again_until_the_user_does(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let mut first = list(vec![chat("a", None)], vec![]);
+        first.has_more = true;
+        daemon.returns::<methods::ChatsList>(first);
+        daemon.once::<methods::ChatsLoadMore>(Err(conduit_daemon::protocol::error(
+            "net.offline",
+            "offline",
+        )));
+        let store = cx.new(|_| ChatListStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.load_more(cx));
+        cx.run_until_parked();
+        assert!(store.read_with(cx, |s, _| s.more_failed && !s.loading_more));
+
+        // A page that fails after a newer list came does not stop its paging.
+        let held = daemon.hold::<methods::ChatsLoadMore>();
+        daemon.once::<methods::ChatsLoadMore>(Err(conduit_daemon::protocol::error(
+            "net.offline",
+            "offline",
+        )));
+        store.update(cx, |s, cx| s.load_more(cx));
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+        held.release();
+        cx.run_until_parked();
+        assert!(store.read_with(cx, |s, _| !s.more_failed));
     }
 
     #[gpui_kit::test]
