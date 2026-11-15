@@ -195,6 +195,47 @@ void main() {
     );
   });
 
+  test("a new chat's settings checked for one account are never sent under "
+      'the next', () async {
+    var account = Object();
+    final rights = Completer<OpenWebUiChatSettingsAccess>();
+    final asked = Completer<void>();
+    final container = ProviderContainer(
+      overrides: [
+        modelsProvider.overrideWith(_Listed.new),
+        openWebUiAuthSessionEpochProvider.overrideWith((ref) => account),
+        openWebUiChatSettingsAccessProvider.overrideWith((ref) {
+          if (!asked.isCompleted) asked.complete();
+          return rights.future;
+        }),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAuthSessionEpochProvider);
+    final turns = TurnsService(container, EventBus());
+    addTearDown(turns.dispose);
+    final sending = turns.send(
+      const SendTurn(
+        model: 'first-model',
+        text: 'Hello',
+        chatParams: <String, dynamic>{'system': 'Answer in riddles.'},
+      ),
+    );
+    // Another account signs in while the rights are read.
+    await asked.future;
+    account = Object();
+    container.invalidate(openWebUiAuthSessionEpochProvider);
+    container.read(openWebUiAuthSessionEpochProvider);
+    rights.complete(
+      const OpenWebUiChatSettingsAccess(
+        canEditSystemPrompt: true,
+        canEditParameters: true,
+      ),
+    );
+    await expectLater(sending, refused(ConduitErrorCodes.sessionExpired));
+  });
+
   test('a pin asked for under one account is not made under the next',
       () async {
     var account = Object();

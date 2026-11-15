@@ -43,6 +43,7 @@ import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_core/models/openwebui_chat_settings.dart'
     show OpenWebUiChatSettingsAccess, kChatParamSystem;
 import 'package:conduit_core/ports/ui_request_port.dart';
+import 'package:conduit_core/persistence/account_scoped_preferences.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/message_rating.dart';
@@ -379,6 +380,10 @@ final class TurnsService {
         _container.read(directModelRegistryProvider).resolve(model) != null) {
       return;
     }
+    // The rights are the asking account's: another one signed in or made
+    // active while they load gets nothing stored or sent.
+    final session = _container.read(openWebUiAuthSessionEpochProvider);
+    final accountId = currentPreferenceAccountId();
     OpenWebUiChatSettingsAccess access;
     try {
       access = await readSettled(
@@ -387,6 +392,13 @@ final class TurnsService {
       );
     } on Object {
       access = OpenWebUiChatSettingsAccess.denied;
+    }
+    if (!identical(session, _container.read(openWebUiAuthSessionEpochProvider)) ||
+        accountId != currentPreferenceAccountId()) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed while its chat rights were read',
+      );
     }
     for (final key in params.keys) {
       final allowed = key == kChatParamSystem
