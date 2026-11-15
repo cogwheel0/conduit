@@ -500,6 +500,14 @@ impl Keymap {
         apply_overrides(&self.overrides)
     }
 
+    /// `action`'s default chord.
+    pub fn defaults_stroke(&self, action: ShortcutAction) -> Option<KeyStroke> {
+        default_shortcuts()
+            .into_iter()
+            .find(|s| s.action == action)
+            .map(|s| s.stroke)
+    }
+
     pub fn stroke(&self, action: ShortcutAction) -> KeyStroke {
         self.table()
             .into_iter()
@@ -526,8 +534,19 @@ impl Keymap {
         Ok(())
     }
 
-    pub fn reset(&mut self, action: ShortcutAction) {
+    /// Puts `action` back on its default, unless another action has taken
+    /// that chord since (the conflict is that action).
+    pub fn reset(&mut self, action: ShortcutAction) -> Result<(), ShortcutAction> {
+        if let Some(default) = default_shortcuts()
+            .into_iter()
+            .find(|s| s.action == action)
+            .map(|s| s.stroke)
+            && let Some(other) = conflict(&self.table(), action, &default)
+        {
+            return Err(other);
+        }
         self.overrides.remove(action.name());
+        Ok(())
     }
 
     pub fn reset_all(&mut self) {
@@ -790,8 +809,19 @@ mod tests {
         // The freed chord can be taken by another action.
         k.set(A::ToggleSidebar, KeyStroke::new("b").primary())
             .unwrap();
-        k.reset(A::ToggleSidebar);
+        k.reset(A::ToggleSidebar).unwrap();
         assert!(k.overrides.is_empty());
+        // A reset never takes back a default another action has since.
+        k.set(A::NewChat, KeyStroke::new("j").primary()).unwrap();
+        k.set(A::OpenPalette, KeyStroke::new("n").primary())
+            .unwrap();
+        assert_eq!(k.reset(A::NewChat), Err(A::OpenPalette));
+        assert_eq!(k.stroke(A::NewChat), KeyStroke::new("j").primary());
+        assert_eq!(
+            resolve(&k.table(), &KeyStroke::new("n").primary(), false),
+            Some(A::OpenPalette)
+        );
+        k.reset_all();
         k.set(A::Dictate, KeyStroke::new("d").primary()).unwrap();
         k.reset_all();
         assert_eq!(k, Keymap::default());

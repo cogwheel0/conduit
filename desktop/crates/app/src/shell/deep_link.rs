@@ -63,7 +63,12 @@ pub fn parse(url: &str) -> Option<OpenRequest> {
     // A URL parser would resolve dot segments into some other, valid-looking
     // link; one that needs them is not one to open.
     let before_query = url.split(['?', '#']).next().unwrap_or_default();
-    if before_query.split('/').any(|s| s == "." || s == "..") {
+    let is_dot = |segment: &str| {
+        // `%2e` is a dot to the URL parser too (`.%2E`, `%2e%2e`).
+        let decoded = segment.to_ascii_lowercase().replace("%2e", ".");
+        decoded == "." || decoded == ".."
+    };
+    if before_query.split('/').any(is_dot) {
         return None;
     }
     let parsed = url::Url::parse(url).ok()?;
@@ -184,11 +189,14 @@ pub fn classify(urls: &[String]) -> Incoming {
 pub fn redacted(url: &str) -> String {
     match url::Url::parse(url) {
         Ok(u) if u.scheme() == SCHEME => {
+            // Only a kind this app knows is named; anything else in its place
+            // could be private (`conduit://<some id>`).
             let kind = u
                 .host_str()
                 .map(str::to_string)
                 .or_else(|| u.path().split('/').next().map(str::to_string))
-                .unwrap_or_default();
+                .filter(|k| matches!(k.as_str(), "chat" | "new" | "settings"))
+                .unwrap_or_else(|| "?".into());
             format!("{SCHEME}://{kind}/…")
         }
         Ok(u) => format!("{}:…", u.scheme()),
@@ -342,5 +350,18 @@ mod tests {
         assert_eq!(redacted("conduit://new?q=private"), "conduit://new/…");
         assert_eq!(redacted("https://example.org/x"), "https:…");
         assert_eq!(redacted("nope"), "(not a URL)");
+        assert_eq!(
+            redacted("conduit://private-conversation-id"),
+            "conduit://?/…"
+        );
+        assert_eq!(redacted("conduit:private-note/x"), "conduit://?/…");
+        // Encoded dot segments are dot segments.
+        for link in [
+            "conduit://chat/old/%2e%2e/new",
+            "conduit://chat/old/.%2E/new",
+            "conduit://chat/%2E/new",
+        ] {
+            assert_eq!(parse(link), None, "{link}");
+        }
     }
 }

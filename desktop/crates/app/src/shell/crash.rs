@@ -52,12 +52,6 @@ pub fn write_report(
         .map(|d| d.as_secs())
         .unwrap_or_default();
     let stamp = format_utc(secs);
-    let mut path = dir.join(format!("crash-{stamp}.txt"));
-    let mut n = 2;
-    while path.exists() {
-        path = dir.join(format!("crash-{stamp}-{n}.txt"));
-        n += 1;
-    }
     let thread = std::thread::current();
     let report = format!(
         "Conduit Desktop {version} crashed at {stamp} UTC\n\
@@ -70,8 +64,52 @@ pub fn write_report(
         std::env::consts::OS,
         std::env::consts::ARCH,
     );
-    std::fs::write(&path, report)?;
+    // The name is taken as the file is made (create_new): two threads that
+    // crash in one second never write over each other's report.
+    let mut n = 1;
+    let (path, mut file) = loop {
+        let path = if n == 1 {
+            dir.join(format!("crash-{stamp}.txt"))
+        } else {
+            dir.join(format!("crash-{stamp}-{n}.txt"))
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => break (path, file),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => n += 1,
+            Err(e) => return Err(e),
+        }
+    };
+    std::io::Write::write_all(&mut file, report.as_bytes())?;
+    prune(dir, KEEP_REPORTS);
     Ok(path)
+}
+
+/// How many crash reports are kept, the newest (as the logs rotate).
+pub const KEEP_REPORTS: usize = 10;
+
+/// Removes all but the newest `keep` crash reports in `dir`.
+fn prune(dir: &Path, keep: usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut reports: Vec<(SystemTime, PathBuf)> = entries
+        .flatten()
+        .filter(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            name.starts_with("crash-") && name.ends_with(".txt")
+        })
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .collect();
+    reports.sort();
+    let extra = reports.len().saturating_sub(keep);
+    for (_, path) in reports.into_iter().take(extra) {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 #[cfg(test)]
@@ -94,5 +132,46 @@ mod tests {
                 .to_string_lossy()
                 .starts_with("crash-2026-11-08")
         );
+    }
+
+    #[test]
+    fn threads_crashing_together_each_keep_their_report() {
+        let dir = std::env::temp_dir().join(format!("conduit-crash-race-{}", std::process::id()));
+        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_794_141_296);
+        let paths: Vec<PathBuf> = (0..8)
+            .map(|i| {
+                let dir = dir.clone();
+                std::thread::spawn(move || {
+                    write_report(&dir, "0.0.0", &format!("thread {i}"), "x", "bt", now).unwrap()
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|t| t.join().unwrap())
+            .collect();
+        let mut messages: Vec<String> = paths
+            .iter()
+            .map(|p| {
+                let text = std::fs::read_to_string(p).unwrap();
+                text.lines()
+                    .find(|l| l.starts_with("message:"))
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        messages.sort();
+        messages.dedup();
+        assert_eq!(messages.len(), 8, "{messages:?}");
+    }
+
+    #[test]
+    fn only_the_newest_reports_are_kept() {
+        let dir = std::env::temp_dir().join(format!("conduit-crash-keep-{}", std::process::id()));
+        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_794_141_296);
+        for i in 0..(KEEP_REPORTS + 3) {
+            write_report(&dir, "0.0.0", &format!("n{i}"), "x", "bt", now).unwrap();
+        }
+        let left = std::fs::read_dir(&dir).unwrap().count();
+        assert_eq!(left, KEEP_REPORTS);
     }
 }

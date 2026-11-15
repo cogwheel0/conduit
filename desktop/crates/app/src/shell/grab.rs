@@ -277,8 +277,17 @@ impl Frame {
                 path_str.len() as isize,
                 false,
             );
+            // A path that names no file gives no URL: never hand ImageIO, or
+            // CFRelease, a null.
+            if url.is_null() {
+                return Err(format!("cannot write {path_str}"));
+            }
             let ty = CString::new("public.png").unwrap_or_default();
             let ty = CFStringCreateWithCString(std::ptr::null(), ty.as_ptr(), 0x0800_0100);
+            if ty.is_null() {
+                CFRelease(url);
+                return Err("no PNG type".into());
+            }
             let dest = CGImageDestinationCreateWithURL(url, ty, 1, std::ptr::null());
             if dest.is_null() {
                 CFRelease(url);
@@ -296,5 +305,44 @@ impl Frame {
                 Err("PNG finalize failed".into())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A 1×1 image, as a capture would return.
+    fn tiny() -> Frame {
+        #[link(name = "CoreGraphics", kind = "framework")]
+        unsafe extern "C" {
+            fn CGColorSpaceCreateDeviceRGB() -> *mut c_void;
+            fn CGColorSpaceRelease(cs: *mut c_void);
+            fn CGBitmapContextCreate(
+                data: *mut c_void,
+                width: usize,
+                height: usize,
+                bits: usize,
+                row: usize,
+                cs: *mut c_void,
+                info: u32,
+            ) -> *mut c_void;
+            fn CGBitmapContextCreateImage(ctx: *mut c_void) -> *mut c_void;
+            fn CGContextRelease(ctx: *mut c_void);
+        }
+        // SAFETY: a fresh bitmap context, released once its image is made.
+        unsafe {
+            let cs = CGColorSpaceCreateDeviceRGB();
+            let ctx = CGBitmapContextCreate(std::ptr::null_mut(), 1, 1, 8, 0, cs, 1);
+            let img = CGBitmapContextCreateImage(ctx);
+            CGContextRelease(ctx);
+            CGColorSpaceRelease(cs);
+            Frame(img)
+        }
+    }
+
+    #[test]
+    fn a_path_that_names_no_file_is_an_error() {
+        assert!(tiny().write_png(Path::new("")).is_err());
     }
 }

@@ -248,10 +248,24 @@ impl SettingsStore {
         Ok(())
     }
 
+    /// Puts `action` back on its default. When another action has taken
+    /// that chord since, nothing changes: the row records instead, and says
+    /// which action has it.
     pub fn reset_shortcut(&mut self, action: ShortcutAction, cx: &mut Context<Self>) {
         let mut keymap = self.keymap();
-        keymap.reset(action);
-        self.store_keymap(keymap, cx);
+        match keymap.reset(action) {
+            Ok(()) => self.store_keymap(keymap, cx),
+            Err(other) => {
+                self.record_for(Some(action), cx);
+                self.record_message = Some(RecordMessage::Conflict {
+                    stroke: keymap
+                        .defaults_stroke(action)
+                        .unwrap_or_else(|| keymap.stroke(action)),
+                    other,
+                });
+                cx.notify();
+            }
+        }
     }
 
     pub fn reset_all_shortcuts(&mut self, cx: &mut Context<Self>) {
