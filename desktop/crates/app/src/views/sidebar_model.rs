@@ -356,6 +356,8 @@ impl AreaRow {
 pub enum AreaHint {
     Loading,
     Empty,
+    /// Its list could not be read: Try Again.
+    Failed,
 }
 
 /// What the areas other than Chats list (`None`: not listed yet).
@@ -365,6 +367,8 @@ pub struct AreaLists<'a> {
     pub channels: Option<&'a [ChannelSummary]>,
     pub hermes: Option<&'a HermesSessions>,
     pub terminals: Option<&'a [TerminalServerDto]>,
+    /// The areas whose list could not be read.
+    pub failed: &'a [Area],
     /// The workspace sections the account may manage.
     pub workspace: &'a [WorkspaceSection],
 }
@@ -508,16 +512,24 @@ impl SidebarItem {
 /// archived sessions under it while `archived` is open. Chats are not here:
 /// their rows are [`flatten`]'s.
 pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Vec<SidebarItem> {
+    let missing = |area: Area| {
+        if lists.failed.contains(&area) {
+            AreaHint::Failed
+        } else {
+            AreaHint::Loading
+        }
+    };
     fn listed<T>(
         area: Area,
         items: Option<&[T]>,
         all: bool,
+        missing: AreaHint,
         row: impl Fn(&T) -> AreaRow,
     ) -> Vec<SidebarItem> {
         let Some(items) = items else {
             return vec![SidebarItem::AreaHint {
                 area,
-                hint: AreaHint::Loading,
+                hint: missing,
             }];
         };
         if items.is_empty() {
@@ -548,18 +560,18 @@ pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Ve
     };
     match area {
         Area::Chats => vec![],
-        Area::Notes => listed(area, lists.notes, all, |n| AreaRow {
+        Area::Notes => listed(area, lists.notes, all, missing(area), |n| AreaRow {
             title: n.title.clone(),
             updated_at_ms: Some(n.updated_at_ms),
             pinned: n.pinned,
             ..AreaRow::of(AreaItem::Note(n.id.clone()))
         }),
-        Area::Channels => listed(area, lists.channels, all, |c| AreaRow {
+        Area::Channels => listed(area, lists.channels, all, missing(area), |c| AreaRow {
             title: c.name.clone(),
             unread: c.unread,
             ..AreaRow::of(AreaItem::Channel(c.id.clone()))
         }),
-        Area::Terminal => listed(area, lists.terminals, all, |t| AreaRow {
+        Area::Terminal => listed(area, lists.terminals, all, missing(area), |t| AreaRow {
             title: if t.name.trim().is_empty() {
                 t.id.clone()
             } else {
@@ -571,13 +583,13 @@ pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Ve
             let Some(hermes) = lists.hermes else {
                 return vec![SidebarItem::AreaHint {
                     area,
-                    hint: AreaHint::Loading,
+                    hint: missing(area),
                 }];
             };
             let mut out = if hermes.sessions.is_empty() && !hermes.archived.is_empty() {
                 vec![]
             } else {
-                listed(area, Some(&hermes.sessions), all, session)
+                listed(area, Some(&hermes.sessions), all, AreaHint::Empty, session)
             };
             if !hermes.archived.is_empty() {
                 out.push(SidebarItem::HermesArchived {
@@ -1413,6 +1425,31 @@ mod tests {
         };
         assert_eq!(
             labels(&area_rows(Area::Channels, &none, false, false)),
+            ["Empty"]
+        );
+    }
+
+    #[test]
+    fn an_area_whose_list_failed_offers_try_again() {
+        let failed = AreaLists {
+            failed: &[Area::Channels, Area::Hermes],
+            ..Default::default()
+        };
+        for area in [Area::Channels, Area::Hermes] {
+            assert_eq!(labels(&area_rows(area, &failed, false, false)), ["Failed"]);
+        }
+        assert_eq!(
+            labels(&area_rows(Area::Notes, &failed, false, false)),
+            ["Loading"]
+        );
+        // A list still held shows, whatever the last read did.
+        let held = AreaLists {
+            channels: Some(&[]),
+            failed: &[Area::Channels],
+            ..Default::default()
+        };
+        assert_eq!(
+            labels(&area_rows(Area::Channels, &held, false, false)),
             ["Empty"]
         );
     }

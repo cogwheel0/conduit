@@ -84,6 +84,9 @@ pub struct AreasStore {
     pub channels: Option<Vec<ChannelSummary>>,
     pub hermes: Option<HermesSessions>,
     pub terminals: Option<Vec<TerminalServerDto>>,
+    /// The areas whose list could not be read (and none is held): the
+    /// sidebar offers Try Again instead of a loading line.
+    pub failed: BTreeSet<Area>,
     /// The areas shown, whose lists are kept.
     wanted: BTreeSet<Area>,
     /// Bumped whenever a list changes (the sidebar's rows cache).
@@ -147,6 +150,7 @@ impl AreasStore {
     }
 
     fn clear(&mut self, area: Area) {
+        self.failed.remove(&area);
         match area {
             Area::Notes => self.notes = None,
             Area::Channels => self.channels = None,
@@ -182,6 +186,9 @@ impl AreasStore {
         let Some(rpc) = self.rpc.clone() else {
             return;
         };
+        if self.failed.remove(&area) {
+            self.changed(cx);
+        }
         let generation = self.generation;
         let task = match area {
             Area::Notes => {
@@ -192,7 +199,10 @@ impl AreasStore {
                         if s.generation == generation {
                             match result {
                                 Ok(list) => s.notes = Some(list.notes),
-                                Err(e) => log::warn!("notes.list: {e}"),
+                                Err(e) => {
+                                    log::warn!("notes.list: {e}");
+                                    s.failed.insert(Area::Notes);
+                                }
                             }
                             s.changed(cx);
                         }
@@ -208,7 +218,10 @@ impl AreasStore {
                         if s.generation == generation {
                             match result {
                                 Ok(list) => s.channels = Some(list.channels),
-                                Err(e) => log::warn!("channels.list: {e}"),
+                                Err(e) => {
+                                    log::warn!("channels.list: {e}");
+                                    s.failed.insert(Area::Channels);
+                                }
                             }
                             s.changed(cx);
                         }
@@ -224,7 +237,10 @@ impl AreasStore {
                         if s.generation == generation {
                             match result {
                                 Ok(sessions) => s.hermes = Some(sessions),
-                                Err(e) => log::warn!("hermes.sessions: {e}"),
+                                Err(e) => {
+                                    log::warn!("hermes.sessions: {e}");
+                                    s.failed.insert(Area::Hermes);
+                                }
                             }
                             s.changed(cx);
                         }
@@ -240,7 +256,10 @@ impl AreasStore {
                         if s.generation == generation {
                             match result {
                                 Ok(list) => s.terminals = Some(list.servers),
-                                Err(e) => log::warn!("terminal.servers: {e}"),
+                                Err(e) => {
+                                    log::warn!("terminal.servers: {e}");
+                                    s.failed.insert(Area::Terminal);
+                                }
                             }
                             s.changed(cx);
                         }
@@ -421,5 +440,34 @@ mod tests {
         });
         cx.run_until_parked();
         store.read_with(cx, |s, _| assert!(s.channels.is_none()));
+    }
+    #[gpui_kit::test]
+    fn a_list_that_fails_says_so_until_it_is_asked_again(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.once::<methods::NotesList>(Err(conduit_daemon::protocol::error(
+            "rpc.daemonUnavailable",
+            "offline",
+        )));
+        daemon.returns::<methods::NotesList>(conduit_protocol::NoteList {
+            notes: vec![note("n1", false)],
+        });
+        let store = cx.new(|_| AreasStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.set_wanted(&[Area::Chats, Area::Notes], cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.notes.is_none());
+            assert!(
+                s.failed.contains(&Area::Notes),
+                "a failed list is not loading"
+            );
+        });
+        // Try Again: loading while asked, then the list.
+        store.update(cx, |s, cx| s.refresh(Area::Notes, cx));
+        store.read_with(cx, |s, _| assert!(s.failed.is_empty()));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.notes.as_ref().map(Vec::len), Some(1));
+            assert!(s.failed.is_empty());
+        });
     }
 }

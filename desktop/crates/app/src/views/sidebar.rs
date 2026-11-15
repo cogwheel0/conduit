@@ -790,11 +790,13 @@ impl SidebarView {
             chats
         } else {
             let lists = self.stores.areas.read(cx);
+            let failed: Vec<Area> = lists.failed.iter().copied().collect();
             let area_lists = AreaLists {
                 notes: lists.notes.as_deref(),
                 channels: lists.channels.as_deref(),
                 hermes: lists.hermes.as_ref(),
                 terminals: lists.terminals.as_deref(),
+                failed: &failed,
                 workspace: &workspace,
             };
             compose(
@@ -870,7 +872,14 @@ impl SidebarView {
             .update(cx, |s, cx| s.set_collapsed(area.id(), false, cx));
         match self.rows.iter().position(|r| r.area_item() == Some(&item)) {
             Some(ix) => self.scroll.scroll_to_item(ix, ScrollStrategy::Nearest),
-            None => self.pending_reveal_item = Some(item),
+            None => {
+                // Past the area's first rows (or not listed yet): all of
+                // them, so the row is there to scroll to.
+                self.stores
+                    .sections
+                    .update(cx, |s, cx| s.set_show_all(area.id(), true, cx));
+                self.pending_reveal_item = Some(item);
+            }
         }
         cx.notify();
     }
@@ -1039,17 +1048,36 @@ impl SidebarView {
             }
             SidebarItem::AreaHint { area, hint } => {
                 let text = area_hint_text(*area, *hint, &l);
+                let retry = matches!(hint, AreaHint::Failed);
+                let area = *area;
                 div()
-                    .id(ElementId::Name(format!("hint-{}", area.id()).into()))
+                    .id(ElementId::Name(
+                        format!("hint-{}-{}", area.id(), format!("{hint:?}").to_lowercase()).into(),
+                    ))
                     .role(Role::Status)
                     .aria_label(SharedString::from(text.clone()))
                     .h(px(t.metrics.row_height))
                     .pl(px(ROW_CONTENT_INSET + ROW_STATUS_GUTTER))
+                    .pr(px(ROW_CONTENT_INSET))
                     .flex()
                     .items_center()
+                    .gap(px(6.))
                     .text_size(px(t.metrics.small))
                     .text_color(r.sidebar_text_subtle)
-                    .child(text)
+                    .child(div().flex_1().min_w_0().truncate().child(text))
+                    .when(retry, |d| {
+                        let areas = self.stores.areas.downgrade();
+                        d.child(
+                            conduit_components::views::kit::Button::new(
+                                ElementId::Name(format!("retry-{}", area.id()).into()),
+                                l.desktop_try_again(),
+                            )
+                            .ghost()
+                            .on_click(Rc::new(move |_, _, cx| {
+                                let _ = areas.update(cx, |a, cx| a.refresh(area, cx));
+                            })),
+                        )
+                    })
                     .into_any_element()
             }
             SidebarItem::NewFolder { parent, depth } => {
@@ -3294,6 +3322,9 @@ fn area_hint_text(area: Area, hint: AreaHint, l: &L10n) -> String {
         (Area::Channels, AreaHint::Empty) => l.channel_empty_state(),
         (Area::Hermes, AreaHint::Empty) => l.hermes_no_conversations_message(),
         (_, AreaHint::Empty) => l.terminal_no_servers_configured(),
+        (Area::Notes, AreaHint::Failed) => l.failed_to_load_notes(),
+        (Area::Channels, AreaHint::Failed) => l.channel_load_error(),
+        (_, AreaHint::Failed) => l.desktop_action_failed(),
     }
 }
 
@@ -3578,6 +3609,27 @@ mod selection_tests {
         view.update(vcx, |s, cx| s.end_selection(cx));
         view.read_with(vcx, |s, _| {
             assert_eq!(s.on_selection(&ChatCommand::Delete), None)
+        });
+    }
+
+    #[gpui_kit::test]
+    fn an_item_opened_past_its_areas_first_rows_shows_them_all(cx: &mut TestAppContext) {
+        let (stores, view, vcx) = bench(cx);
+        stores
+            .sections
+            .update(vcx, |s, cx| s.set_show_all(Area::Notes.id(), false, cx));
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n7".into()), cx));
+        vcx.run_until_parked();
+        stores.sections.read_with(vcx, |s, _| {
+            assert!(
+                s.shows_all(Area::Notes.id()),
+                "the opened note's row is not drawn"
+            );
+        });
+        view.read_with(vcx, |s, _| {
+            assert_eq!(s.pending_reveal_item, Some(AreaItem::Note("n7".into())));
         });
     }
 
