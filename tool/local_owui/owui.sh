@@ -128,6 +128,16 @@ port_free() {
   [ "$rc" = 7 ]
 }
 
+# Waits (30 s at most) until something answers on PORT, for NAME.
+wait_listening() {
+  for _ in $(seq 1 60); do
+    port_free "$2" || return 0
+    sleep 0.5
+  done
+  echo "the $1 did not start listening on $2; see $STATE" >&2
+  return 1
+}
+
 # Refuses to start NAME on PORT when something else already listens there.
 need_free_port() {
   if ! port_free "$2"; then
@@ -178,6 +188,7 @@ start() {
     echo "already running at $(cat "$STATE/url")"
     return
   fi
+  local started_model= started_hermes=
   need_free_port server "$PORT"
   alive fake_model || need_free_port 'fake model' "$MODEL_PORT"
   if command -v dart >/dev/null 2>&1; then
@@ -201,6 +212,7 @@ start() {
       --port "$MODEL_PORT" --log "$STATE/requests.jsonl" \
       > "$STATE/fake_model.log" 2>&1 &
     pid_record "$STATE/fake_model.pid" $!
+    started_model=1
   fi
 
   # The daemon tests' fake Hermes API server, for the desktop app's Hermes
@@ -213,6 +225,7 @@ start() {
         --port "$HERMES_PORT" --key "$(cat "$STATE/hermes_key")" \
         > "$STATE/fake_hermes.log" 2>&1 &
       pid_record "$STATE/fake_hermes.pid" $!
+      started_hermes=1
     else
       echo "no dart on PATH: the fake Hermes server is not started" >&2
     fi
@@ -264,7 +277,30 @@ start() {
     echo "the server did not come up (health $code); see $STATE/server.log" >&2
     exit 1
   fi
-  echo "running at $URL (fake model on $MODEL_PORT)"
+  # A program started through a launcher (Homebrew's `dart` is a script)
+  # may hand over after its pid file was written. Once it answers on its
+  # port it has, so what this start launched is recorded again then.
+  pid_refresh "$STATE/server.pid"
+  local silent=
+  if [ -n "$started_model" ]; then
+    if wait_listening 'fake model' "$MODEL_PORT"; then
+      pid_refresh "$STATE/fake_model.pid"
+    else
+      silent="fake model on $MODEL_PORT"
+    fi
+  fi
+  if [ -n "$started_hermes" ]; then
+    if wait_listening 'fake Hermes' "$HERMES_PORT"; then
+      pid_refresh "$STATE/fake_hermes.pid"
+    else
+      silent="${silent:+$silent, }fake Hermes on $HERMES_PORT"
+    fi
+  fi
+  if [ -n "$silent" ]; then
+    echo "running at $URL, but not listening: $silent (see $STATE)"
+  else
+    echo "running at $URL (fake model on $MODEL_PORT)"
+  fi
 }
 
 seed() {
