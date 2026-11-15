@@ -113,8 +113,9 @@ impl E2eInputs {
             .unwrap_or_default();
         // The passes sign in with these credentials and photograph what
         // the server shows: only ever on this Mac's own test server.
-        if let Some(url) = env.get("OWUI_URL").filter(|u| !is_local_url(u)) {
-            println!("SMOKE FAILED e2e OWUI_URL {url} is not a local address");
+        // The address itself is never logged: it may be private.
+        if env.get("OWUI_URL").is_some_and(|u| !is_local_url(u)) {
+            println!("SMOKE FAILED e2e OWUI_URL is not a local (loopback) address");
             env.clear();
         }
         Some(Self { scenario, env })
