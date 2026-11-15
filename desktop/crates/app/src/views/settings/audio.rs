@@ -254,6 +254,8 @@ impl AudioPane {
             }
             "audio-tts-voice" => self.choose_voice(value, cx),
             "audio-voice-provider" => {
+                // A choice made (None too): the saved one never replaces it.
+                self.provider_filled = true;
                 self.provider = (!value.is_empty()).then(|| value.to_string());
                 self.provider_saved = None;
                 cx.notify();
@@ -936,6 +938,42 @@ mod tests {
                 "the choice was replaced"
             );
             assert_eq!(p.speech_model.read(cx).value(), "my-speech-model");
+        });
+    }
+
+    #[gpui_kit::test]
+    fn none_chosen_before_settings_load_stays_none(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-provider-none-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let s = stores.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| AudioPane::new(s, window, cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |p, window, cx| {
+            p.choose("audio-voice-provider", "dc-mine", window, cx);
+            p.choose("audio-voice-provider", "", window, cx);
+        });
+        let mut loaded = stores
+            .app_settings
+            .read_with(vcx, |s, _| s.settings().clone());
+        loaded.direct_voice_provider = Some(DirectVoiceProviderDto {
+            profile_id: "dc-stored".into(),
+            transcription_model: None,
+            speech_model: None,
+            speech_voice: None,
+            realtime_model: None,
+            realtime_voice: None,
+            realtime_instructions: None,
+        });
+        stores.app_settings.update(vcx, |s, cx| s.adopt(loaded, cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |p, _| {
+            assert_eq!(p.provider, None, "None was replaced by the saved provider");
         });
     }
 }

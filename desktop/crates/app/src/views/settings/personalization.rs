@@ -47,6 +47,8 @@ pub struct PersonalizationPane {
     pub memory_input: Entity<TextareaState>,
     pub memory_path: Entity<InputState>,
     pub editor: Option<MemoryEditor>,
+    /// What the editor's last Save sent.
+    editor_saved: Option<String>,
     pub busy: bool,
     /// Saved, or failed, under the system prompt.
     pub prompt_note: Option<bool>,
@@ -101,6 +103,7 @@ impl PersonalizationPane {
             memory_input,
             memory_path,
             editor: None,
+            editor_saved: None,
             image_filled: false,
             busy: false,
             prompt_note: None,
@@ -262,7 +265,14 @@ impl PersonalizationPane {
                         Ok(list) => {
                             s.memories = Some(list);
                             if closes_editor {
-                                s.editor = None;
+                                // Typed on while the save was out: the editor
+                                // stays with it, to be saved again.
+                                let typed = s.memory_input.read(cx).value().trim().to_string();
+                                if s.editor_saved.as_deref() == Some(typed.as_str()) {
+                                    s.editor = None;
+                                } else if let Some(editor) = s.editor.as_mut() {
+                                    editor.saving = false;
+                                }
                             }
                         }
                         Err(e) => {
@@ -336,6 +346,7 @@ impl PersonalizationPane {
             r#type: advanced.then(|| editor.kind.clone()),
             path: advanced.then(|| forms::text(&self.memory_path, cx)),
         };
+        self.editor_saved = Some(edit.content.clone());
         let rpc = self.rpc(cx);
         if edit.id.is_some() {
             let call = rpc.call::<methods::MemoriesUpdate>(&edit);
@@ -853,6 +864,38 @@ mod tests {
         vcx.run_until_parked();
         view.read_with(vcx, |p, _| assert!(p.editor.is_none()));
         assert_eq!(daemon.calls::<methods::MemoriesAdd>().len(), 1);
+    }
+
+    #[gpui_kit::test]
+    fn a_memory_typed_on_while_its_save_is_out_is_kept(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let list = serde_json::json!({"available": true, "enabled": true, "memories": []});
+        for_methods(&daemon, list);
+        let held = daemon.hold::<methods::MemoriesAdd>();
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-memory-typed-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| PersonalizationPane::new(stores, window, cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |p, window, cx| {
+            p.open_editor(None, window, cx);
+            p.memory_input
+                .update(cx, |i, cx| i.set_value("Prefers tea", window, cx));
+            p.save_memory(window, cx);
+            p.memory_input
+                .update(cx, |i, cx| i.set_value("Prefers green tea", window, cx));
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        view.read_with(vcx, |p, cx| {
+            assert!(p.editor.is_some(), "the editor closed over what was typed");
+            assert_eq!(p.memory_input.read(cx).value(), "Prefers green tea");
+        });
     }
 
     fn for_methods(daemon: &FakeDaemon, list: serde_json::Value) {
