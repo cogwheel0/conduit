@@ -301,14 +301,14 @@ void main() {
           final rest = _TokenRest();
           final saved = <HermesDesktopCredentials>[];
           final lifecycle = _Lifecycle();
-          service(
+          final gateway = service(
             rest,
             expiresAt: now.add(expiresIn),
             saved: saved,
-          ).startLifecycleObservation(lifecycle);
+          )..startLifecycleObservation(lifecycle);
 
           lifecycle.emit(AppLifecyclePhase.resumed);
-          await pumpEventQueue();
+          await gateway.resumeRenewal;
 
           check(rest.paths.contains('/auth/native/refresh')).equals(renews);
           check(saved.length).equals(renews ? 1 : 0);
@@ -338,11 +338,11 @@ void main() {
           )..startLifecycleObservation(lifecycle);
 
           lifecycle.emit(AppLifecyclePhase.resumed);
-          await pumpEventQueue();
+          await rest.refreshArrived.future;
           check(rest.refreshTokensSent).deepEquals(['refresh']);
           check(await gateway.signInNative()).isNotNull();
           held.complete();
-          await pumpEventQueue();
+          await gateway.resumeRenewal;
 
           check(
             saved.single.nativeTokens?.refreshToken,
@@ -381,7 +381,7 @@ void main() {
           )..startLifecycleObservation(lifecycle);
 
           lifecycle.emit(AppLifecyclePhase.resumed);
-          await pumpEventQueue();
+          await gateway.resumeRenewal;
           await gateway.listJobs();
 
           check(
@@ -751,6 +751,9 @@ final class _TokenRest implements HttpClientAdapter {
   /// The refresh tokens renewals sent.
   final refreshTokensSent = <Object?>[];
 
+  /// Completes once a renewal reaches the gateway.
+  final refreshArrived = Completer<void>();
+
   /// The `Authorization` each `/api/cron/jobs` request carried.
   final jobsAuthorizations = <Object?>[];
 
@@ -769,6 +772,7 @@ final class _TokenRest implements HttpClientAdapter {
       final data = options.data;
       final body = data is String ? jsonDecode(data) : data;
       refreshTokensSent.add((body as Map)['refresh_token']);
+      if (!refreshArrived.isCompleted) refreshArrived.complete();
       await refreshGate;
     }
     if (path == '/api/cron/jobs') {
@@ -816,7 +820,8 @@ final class _TokenRest implements HttpClientAdapter {
 }
 
 final class _Lifecycle implements AppLifecyclePort {
-  final _changes = StreamController<AppLifecyclePhase>.broadcast();
+  // Delivered at once, so the service has acted on it when [emit] returns.
+  final _changes = StreamController<AppLifecyclePhase>.broadcast(sync: true);
 
   void emit(AppLifecyclePhase phase) => _changes.add(phase);
 

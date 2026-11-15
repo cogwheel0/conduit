@@ -418,6 +418,10 @@ final class HermesDesktopApiService
   Future<void>? _connecting;
   Future<HermesDesktopTokenSet?>? _refreshing;
   Future<void>? _foregroundReconciliation;
+
+  /// The token renewal the last return to the foreground started.
+  @visibleForTesting
+  Future<void>? resumeRenewal;
   StreamSubscription<HermesDesktopEvent>? _stateSubscription;
   bool _authoritativeRunning = true;
   bool _supportsMcpRpcLifecycle = true;
