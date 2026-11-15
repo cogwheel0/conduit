@@ -198,10 +198,17 @@ jobs:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A failed lookup stops the release (set -e): only a history known
+          # to hold no earlier desktop release may start a new feed.
           allow=()
-          earlier="$(gh release list --limit 200 --json tagName --jq '.[].tagName' |
-            grep '^desktop-v' | grep -vx "$GITHUB_REF_NAME" || true)"
-          [ -z "$earlier" ] && allow=(--allow-new)
+          tags="$(gh release list --limit 200 --json tagName --jq '.[].tagName')"
+          earlier=0
+          while IFS= read -r tag; do
+            case "$tag" in
+              desktop-v*) [ "$tag" = "$GITHUB_REF_NAME" ] || earlier=1 ;;
+            esac
+          done <<< "$tags"
+          [ "$earlier" = 1 ] || allow=(--allow-new)
           desktop/packaging/macos/appcast.sh --dmg "$OUT/Conduit-$VERSION.dmg" \
             --version "$VERSION" "${allow[@]}"
 
