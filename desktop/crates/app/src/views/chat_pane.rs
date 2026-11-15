@@ -104,7 +104,35 @@ pub struct ChatPane {
     /// The open new chat's temporary switch was moved by hand, so a later
     /// change to the default leaves it alone (until another chat opens).
     temporary_hand_chosen: bool,
+    /// What the Chat and More menus offer for this chat: Chat Settings
+    /// (Open WebUI chats with something to show or edit) and Tool Settings
+    /// (the tools, filters and pipe with personal valves).
+    pub settings_offer: SettingsOffer,
+    settings_key: Option<OfferKey>,
+    _offer: Option<gpui_kit::Task<()>>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// What [`ChatPane::settings_offer`] holds.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SettingsOffer {
+    pub chat_settings: bool,
+    /// Offered with Settings › Chat › Advanced on, as on the phone.
+    pub tool_targets: Vec<conduit_protocol::ValveTarget>,
+}
+
+/// What the offer depends on: asked again when it changes.
+#[derive(Clone, Debug, PartialEq)]
+struct OfferKey {
+    /// The account (the composer's scope): another one asks again, even
+    /// for the same chat and model ids.
+    scope: u64,
+    chat_id: Option<String>,
+    model_id: Option<String>,
+    tool_ids: Vec<String>,
+    filter_ids: Vec<String>,
+    advanced: bool,
+    has_draft: bool,
 }
 
 /// A new chat's first send, as Messages hands over: the greeting fades out
@@ -242,7 +270,10 @@ impl ChatPane {
                 }
             }),
             // Settings › Chat changes the composer as it changes.
-            cx.observe(&stores.app_settings, |this, _, cx| this.adopt_prefs(cx)),
+            cx.observe(&stores.app_settings, |this, _, cx| {
+                this.adopt_prefs(cx);
+                this.sync_settings_offer(cx);
+            }),
             cx.observe(&layout, |_, _, cx| cx.notify()),
             cx.observe(&approvals, |_, _, cx| cx.notify()),
             follow_daemon_http(&stores.connection, cx),
@@ -289,8 +320,12 @@ impl ChatPane {
                     ChatComposerEvent::CompareModels => {}
                 },
             ),
-            // The title capsule shows the selected model.
-            cx.observe(&composer_store, |_, _, cx| cx.notify()),
+            // The title capsule shows the selected model; the menus follow
+            // what the chat's settings offer.
+            cx.observe(&composer_store, |this, _, cx| {
+                this.sync_settings_offer(cx);
+                cx.notify()
+            }),
             // Toasts dock above the composer.
             cx.observe(&stores.toasts, |_, _, cx| cx.notify()),
             cx.subscribe(&composer_store, |this, _, event, cx| {
@@ -326,6 +361,9 @@ impl ChatPane {
             queue_noted: false,
             temporary_chosen: false,
             temporary_hand_chosen: false,
+            settings_offer: SettingsOffer::default(),
+            settings_key: None,
+            _offer: None,
             _subscriptions: subscriptions,
         };
         // The composer follows the models on offer and the network.
@@ -634,6 +672,8 @@ impl ChatPane {
             files,
             ..PendingMessage::new(text.clone())
         };
+        // Whose settings the first message carries (not their values).
+        let sent_params = self.composer_store.read(cx).params_owner();
         if let Some(chat) = &self.chat {
             let turn = options.into_turn(text.clone(), None, false);
             let task = chat.store.update(cx, |s, cx| {
@@ -666,17 +706,21 @@ impl ChatPane {
             .read(cx)
             .rpc()
             .call::<methods::TurnsSend>(&turn);
-        // "New Chat in Folder": the chat goes in the folder once it exists.
-        let folder = self
-            .stores
-            .navigation
-            .read(cx)
-            .new_chat_folder()
-            .map(str::to_string);
+        // "New Chat in Folder": the daemon makes the chat in the folder (its
+        // draft key says which), so the folder's prompt and knowledge apply
+        // to the first answer.
         self.starting = true;
         // The new chat this send came from: if the user has gone elsewhere
         // by the reply, the chat is made but not opened over their choice.
-        let origin = self.stores.navigation.read(cx).selection().clone();
+        // A new chat in a folder is the same selection in another folder:
+        // the folder counts too.
+        let place = |n: &crate::stores::navigation::NavigationStore| {
+            (
+                n.selection().clone(),
+                n.new_chat_folder().map(str::to_string),
+            )
+        };
+        let origin = place(self.stores.navigation.read(cx));
         let account = self.account.clone();
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
@@ -689,25 +733,17 @@ impl ChatPane {
                     return;
                 }
                 this.starting = false;
-                let still_here = *this.stores.navigation.read(cx).selection() == origin;
+                let still_here = place(this.stores.navigation.read(cx)) == origin;
                 match result {
-                    Ok(accepted) if !still_here => {
-                        if let Some(folder) = folder.as_deref() {
-                            let id = accepted.chat_id.clone();
-                            this.stores
-                                .chat_list
-                                .update(cx, |c, cx| c.move_to(&id, Some(folder), cx))
-                                .detach();
-                        }
+                    // Made (in its folder, by the daemon), but not opened over
+                    // where the user went since. Its settings went with it.
+                    Ok(_) if !still_here => {
+                        this.composer_store
+                            .update(cx, |m, cx| m.forget_sent_params(sent_params.as_ref(), cx));
                     }
                     Ok(accepted) => {
-                        if let Some(folder) = folder.as_deref() {
-                            let id = accepted.chat_id.clone();
-                            this.stores
-                                .chat_list
-                                .update(cx, |c, cx| c.move_to(&id, Some(folder), cx))
-                                .detach();
-                        }
+                        // Its folder's model and its own settings went with it.
+                        this.composer_store.update(cx, |m, cx| m.new_chat_sent(cx));
                         let greeting = this.greeting(cx);
                         let store = this.open_chat(accepted.chat_id.clone(), cx);
                         this.handoff = Some(Handoff {
@@ -1024,6 +1060,178 @@ impl ChatPane {
 
     pub fn open_model_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.composer.update(cx, |c, cx| c.open_picker(window, cx));
+    }
+
+    // ── Chat Settings and Tool Settings ─────────────────────────────────
+
+    /// The open chat's id (None for a new chat).
+    fn open_chat_id(&self, cx: &App) -> Option<String> {
+        self.chat
+            .as_ref()
+            .map(|c| c.store.read(cx).chat_id().to_string())
+    }
+
+    /// Asks the daemon again what the menus offer, when what that depends
+    /// on changed.
+    pub fn sync_settings_offer(&mut self, cx: &mut Context<Self>) {
+        let composer = self.composer_store.read(cx);
+        let key = OfferKey {
+            scope: composer.scope(),
+            chat_id: self.open_chat_id(cx),
+            model_id: composer.selected_model().map(|m| m.id.clone()),
+            tool_ids: composer.tool_ids.iter().cloned().collect(),
+            filter_ids: composer.filter_ids.iter().cloned().collect(),
+            advanced: self
+                .stores
+                .app_settings
+                .read(cx)
+                .settings()
+                .advanced_features_enabled,
+            has_draft: composer
+                .draft_params
+                .as_object()
+                .is_some_and(|o| !o.is_empty()),
+        };
+        if self.settings_key.as_ref() == Some(&key) {
+            return;
+        }
+        // Nothing to ask before the models are known, and nothing offered
+        // meanwhile (not the last account's or model's).
+        if key.model_id.is_none() {
+            self.settings_key = None;
+            self._offer = None;
+            if self.settings_offer != SettingsOffer::default() {
+                self.settings_offer = SettingsOffer::default();
+                cx.defer(crate::menus::refresh_menus);
+                cx.notify();
+            }
+            return;
+        }
+        self.settings_key = Some(key.clone());
+        let rpc = self.stores.connection.read(cx).rpc();
+        let draft = composer.draft_params.clone();
+        let settings = rpc.call::<methods::ChatSettingsGet>(&conduit_protocol::ChatSettingsQuery {
+            chat_id: key.chat_id.clone(),
+            model_id: key.model_id.clone(),
+            draft: if draft.is_null() {
+                serde_json::json!({})
+            } else {
+                draft
+            },
+        });
+        let targets = rpc.call::<methods::ValvesTargets>(&conduit_protocol::ValveTargetsQuery {
+            model_id: key.model_id.clone(),
+            tool_ids: key.tool_ids.clone(),
+            filter_ids: key.filter_ids.clone(),
+        });
+        self._offer = Some(cx.spawn(async move |this: gpui_kit::WeakEntity<Self>, cx| {
+            let settings = settings.await;
+            let targets = targets.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.settings_key.as_ref() != Some(&key) {
+                    return;
+                }
+                // A failed question is asked again the next time the
+                // composer changes (a reconnect lists the models again).
+                if settings.is_err() || targets.is_err() {
+                    this.settings_key = None;
+                }
+                let offer = SettingsOffer {
+                    chat_settings: settings
+                        .map(|s| s.entry != conduit_protocol::ChatSettingsEntry::None)
+                        .unwrap_or(false),
+                    tool_targets: targets
+                        .ok()
+                        .filter(|t| t.advanced)
+                        .map(|t| t.targets)
+                        .unwrap_or_default(),
+                };
+                if this.settings_offer != offer {
+                    this.settings_offer = offer;
+                    // After this update: the menus read the pane.
+                    cx.defer(crate::menus::refresh_menus);
+                    cx.notify();
+                }
+                let _ = cx;
+            });
+        }));
+    }
+
+    /// Chat › Chat Settings… (⌘I): the open chat's settings, or the new
+    /// chat's (kept for its first message).
+    pub fn open_chat_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.settings_offer.chat_settings {
+            return;
+        }
+        // A new chat whose first message is on its way: its settings went
+        // with it, and the chat it makes is not open yet.
+        if self.starting && self.open_chat_id(cx).is_none() {
+            return;
+        }
+        let composer = self.composer_store.read(cx);
+        let mark = composer.draft_mark();
+        let target = crate::views::chat_settings::ChatSettingsTarget {
+            chat_id: self.open_chat_id(cx),
+            model_id: composer.selected_model().map(|m| m.id.clone()),
+            draft: if composer.draft_params.is_null() {
+                serde_json::json!({})
+            } else {
+                composer.draft_params.clone()
+            },
+        };
+        let store = self.composer_store.downgrade();
+        // Saved to the draft it was opened for only: once that draft's chat
+        // is made (or another opens), nothing lands on the next new chat.
+        let sink: crate::views::chat_settings::DraftSink = Rc::new(move |params, cx| {
+            let _ = store.update(cx, |s, cx| s.set_draft_params_for(&mark, params, cx));
+        });
+        let stores = self.stores.clone();
+        crate::views::sheet::open(
+            window,
+            crate::views::chat_settings::WIDTH,
+            cx,
+            move |w, cx| {
+                crate::views::chat_settings::ChatSettingsSheet::new(
+                    stores,
+                    target,
+                    Some(sink),
+                    w,
+                    cx,
+                )
+            },
+        );
+    }
+
+    /// Chat › Tool Settings…: the user's own settings for the tools,
+    /// filters and pipe this chat uses.
+    pub fn open_tool_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let targets = self.settings_offer.tool_targets.clone();
+        if targets.is_empty() {
+            return;
+        }
+        let stores = self.stores.clone();
+        crate::views::sheet::open(window, crate::views::valves::WIDTH, cx, move |w, cx| {
+            crate::views::valves::ValvesSheet::new(stores, targets, w, cx)
+        });
+    }
+
+    /// The More menu's leading items: Chat Settings… and Tool Settings…
+    pub fn more_menu_items(&self, cx: &App) -> Vec<(String, Box<dyn gpui_kit::Action>)> {
+        let l10n = cx.l10n();
+        let mut items: Vec<(String, Box<dyn gpui_kit::Action>)> = vec![];
+        if self.settings_offer.chat_settings {
+            items.push((
+                l10n.desktop_chat_settings_menu(),
+                Box::new(crate::actions::ChatSettings),
+            ));
+        }
+        if !self.settings_offer.tool_targets.is_empty() {
+            items.push((
+                l10n.desktop_tool_settings_menu(),
+                Box::new(crate::actions::ToolSettings),
+            ));
+        }
+        items
     }
 
     /// Ask Conduit: the text selected in an answer goes into the composer,
@@ -1448,6 +1656,14 @@ pub fn register_actions(cx: &mut App) {
     cx.on_action(|_: &crate::actions::CopySelection, cx| {
         with_pane(cx, |p, _, cx| p.copy_selection(cx))
     });
+    // ⌘I is Get Info: the chat's settings (the sidebar's list takes it
+    // first for a folder its keyboard is on).
+    cx.on_action(|_: &crate::actions::ChatSettings, cx| {
+        with_pane(cx, |p, w, cx| p.open_chat_settings(w, cx))
+    });
+    cx.on_action(|_: &crate::actions::ToolSettings, cx| {
+        with_pane(cx, |p, w, cx| p.open_tool_settings(w, cx))
+    });
     cx.on_action(|_: &crate::actions::ExpandEditor, cx| {
         with_pane(cx, |p, w, cx| {
             p.composer.update(cx, |c, cx| {
@@ -1858,7 +2074,10 @@ fn show_chat_menu(
         return;
     };
     let sidebar = view.read(cx).sidebar.clone();
-    sidebar.update(cx, |s, cx| s.context_menu(&chat_id, position, window, cx));
+    let leading = view.read(cx).chat_pane.read(cx).more_menu_items(cx);
+    sidebar.update(cx, |s, cx| {
+        s.context_menu_with(&chat_id, leading, position, window, cx)
+    });
 }
 
 #[cfg(test)]
@@ -2028,6 +2247,279 @@ mod tests {
             );
             vcx.run_until_parked();
             assert_eq!(attachment_names(&pane, vcx), vec!["plan.pdf".to_string()]);
+        }
+
+        #[gpui_kit::test]
+        fn the_settings_offer_is_asked_again_after_a_failure_and_per_account(
+            cx: &mut TestAppContext,
+        ) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::ModelsList>(
+                serde_json::from_value(serde_json::json!({
+                    "models": [{"id": "m", "name": "M"}], "selectedId": "m"
+                }))
+                .unwrap(),
+            );
+            daemon.returns::<methods::ComposerOptions>(Default::default());
+            daemon.once::<methods::ChatSettingsGet>(Err(conduit_daemon::protocol::error(
+                "rpc.daemonUnavailable",
+                "reconnecting",
+            )));
+            daemon.returns::<methods::ChatSettingsGet>(
+                serde_json::from_value(serde_json::json!({
+                    "entry": "editor",
+                    "systemPrompt": {"key": "system", "kind": "text"}
+                }))
+                .unwrap(),
+            );
+            daemon.returns::<methods::ValvesTargets>(Default::default());
+            pane.update(vcx, |p, cx| {
+                p.composer_store.update(cx, |c, cx| c.refresh_models(cx))
+            });
+            vcx.run_until_parked();
+            assert!(!pane.read_with(vcx, |p, _| p.settings_offer.chat_settings));
+            // The composer changes again (a reconnect lists the models): the
+            // failed question is asked again.
+            pane.update(vcx, |p, cx| {
+                p.composer_store.update(cx, |_, cx| cx.notify())
+            });
+            vcx.run_until_parked();
+            assert!(pane.read_with(vcx, |p, _| p.settings_offer.chat_settings));
+            let asked = daemon.calls::<methods::ChatSettingsGet>().len();
+            // Another account with the same model id: asked again, for it.
+            switch_account(&stores, vcx);
+            vcx.run_until_parked();
+            assert!(daemon.calls::<methods::ChatSettingsGet>().len() > asked);
+        }
+
+        #[gpui_kit::test]
+        fn a_first_send_made_after_moving_on_takes_its_settings_with_it(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "c1", "userMessageId": "m1", "assistantMessageId": "a1"
+                }))
+                .unwrap(),
+            );
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer_store.update(cx, |c, cx| {
+                    c.set_draft_params(serde_json::json!({"temperature": 0.3}), cx)
+                });
+                p.send_text("Plan the trip".into(), vec![], window, cx);
+            });
+            // The user goes to a temporary chat before the chat is made.
+            stores.navigation.update(vcx, |n, cx| n.new_chat(true, cx));
+            vcx.run_until_parked();
+            drop(held);
+            vcx.run_until_parked();
+            assert!(
+                pane.read_with(vcx, |p, cx| p
+                    .composer_store
+                    .read(cx)
+                    .draft_params
+                    .is_null()),
+                "the next new chat takes the made one's settings"
+            );
+        }
+
+        #[gpui_kit::test]
+        fn a_temporary_chats_settings_saved_after_it_was_made_reach_no_next_chat(
+            cx: &mut TestAppContext,
+        ) {
+            use crate::views::chat_settings::ChatSettingsSheet;
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::ModelsList>(
+                serde_json::from_value(serde_json::json!({
+                    "models": [{"id": "m", "name": "M"}], "selectedId": "m"
+                }))
+                .unwrap(),
+            );
+            daemon.returns::<methods::ComposerOptions>(Default::default());
+            daemon.returns::<methods::ValvesTargets>(Default::default());
+            let state: conduit_protocol::ChatSettingsState =
+                serde_json::from_value(serde_json::json!({
+                    "entry": "editor", "advanced": true,
+                    "canEditSystemPrompt": true, "canEditParameters": true,
+                    "systemPrompt": {"key": "system", "kind": "text", "mode": "inherit"},
+                    "parameters": [{"key": "temperature", "kind": "decimal", "mode": "custom",
+                                    "text": "0.3", "min": 0.0, "max": 2.0}],
+                    "saved": true, "params": {"top_k": 5}
+                }))
+                .unwrap();
+            daemon.returns::<methods::ChatSettingsGet>(state.clone());
+            daemon.returns::<methods::ChatSettingsCheck>(state.clone());
+            daemon.returns::<methods::ChatSettingsSave>(state);
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "local:t1", "userMessageId": "m1", "assistantMessageId": "a1"
+                }))
+                .unwrap(),
+            );
+            pane.update(vcx, |p, cx| {
+                p.composer_store.update(cx, |c, cx| c.refresh_models(cx))
+            });
+            stores.navigation.update(vcx, |n, cx| n.new_chat(true, cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| p.open_chat_settings(window, cx));
+            vcx.run_until_parked();
+            let sheet = vcx
+                .update(|_, cx| crate::views::sheet::current::<ChatSettingsSheet>(cx))
+                .expect("Chat Settings opens on a temporary new chat");
+            vcx.update(|window, cx| sheet.update(cx, |s, cx| s.inherit("temperature", window, cx)));
+            vcx.executor()
+                .advance_clock(std::time::Duration::from_millis(200));
+            vcx.run_until_parked();
+            // Its first message goes and the temporary chat is made.
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Plan the trip".into(), vec![], window, cx)
+            });
+            drop(held);
+            vcx.run_until_parked();
+            // Saved now, then another temporary new chat.
+            vcx.update(|window, cx| sheet.update(cx, |s, cx| s.save(window, cx)));
+            vcx.run_until_parked();
+            vcx.update(|_, cx| crate::views::sheet::dismiss(cx));
+            stores.navigation.update(vcx, |n, cx| n.new_chat(true, cx));
+            vcx.run_until_parked();
+            assert!(
+                pane.read_with(vcx, |p, cx| p
+                    .composer_store
+                    .read(cx)
+                    .draft_params
+                    .is_null()),
+                "the made chat's settings went out with the next new chat"
+            );
+        }
+
+        #[gpui_kit::test]
+        fn chat_settings_saved_after_the_chat_was_made_land_on_no_other_draft(
+            cx: &mut TestAppContext,
+        ) {
+            use crate::views::chat_settings::ChatSettingsSheet;
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::ModelsList>(
+                serde_json::from_value(serde_json::json!({
+                    "models": [{"id": "m", "name": "M"}], "selectedId": "m"
+                }))
+                .unwrap(),
+            );
+            daemon.returns::<methods::ComposerOptions>(Default::default());
+            daemon.returns::<methods::ValvesTargets>(Default::default());
+            let state: conduit_protocol::ChatSettingsState =
+                serde_json::from_value(serde_json::json!({
+                    "entry": "editor", "advanced": true,
+                    "canEditSystemPrompt": true, "canEditParameters": true,
+                    "systemPrompt": {"key": "system", "kind": "text", "mode": "inherit"},
+                    "parameters": [{"key": "temperature", "kind": "decimal", "mode": "custom",
+                                    "text": "0.3", "min": 0.0, "max": 2.0}],
+                    "saved": true, "params": {"top_k": 5}
+                }))
+                .unwrap();
+            daemon.returns::<methods::ChatSettingsGet>(state.clone());
+            daemon.returns::<methods::ChatSettingsCheck>(state.clone());
+            daemon.returns::<methods::ChatSettingsSave>(state);
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "c1", "userMessageId": "m1", "assistantMessageId": "a1"
+                }))
+                .unwrap(),
+            );
+            pane.update(vcx, |p, cx| {
+                p.composer_store.update(cx, |c, cx| c.refresh_models(cx))
+            });
+            vcx.run_until_parked();
+            let open_sheet = |vcx: &mut VisualTestContext| {
+                pane.update_in(vcx, |p, window, cx| p.open_chat_settings(window, cx));
+                vcx.run_until_parked();
+                vcx.update(|_, cx| crate::views::sheet::current::<ChatSettingsSheet>(cx))
+            };
+            // Chat Settings on the new chat, with an edit to save.
+            let sheet = open_sheet(vcx).expect("Chat Settings opens on a new chat");
+            vcx.update(|window, cx| sheet.update(cx, |s, cx| s.inherit("temperature", window, cx)));
+            vcx.executor()
+                .advance_clock(std::time::Duration::from_millis(200));
+            vcx.run_until_parked();
+            // The first message goes and its chat is made and opened.
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Plan the trip".into(), vec![], window, cx)
+            });
+            drop(held);
+            vcx.run_until_parked();
+            // Saved now: the draft it was opened for is gone.
+            vcx.update(|window, cx| sheet.update(cx, |s, cx| s.save(window, cx)));
+            vcx.run_until_parked();
+            vcx.update(|_, cx| crate::views::sheet::dismiss(cx));
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+            assert!(
+                pane.read_with(vcx, |p, cx| p
+                    .composer_store
+                    .read(cx)
+                    .draft_params
+                    .is_null()),
+                "the settings went out with the next, unrelated new chat"
+            );
+            // While a first send is starting, Chat Settings does not open on
+            // its draft.
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Pack the bags".into(), vec![], window, cx)
+            });
+            assert!(
+                open_sheet(vcx).is_none(),
+                "opened while the first send was starting"
+            );
+            drop(held);
+            vcx.run_until_parked();
+        }
+
+        #[gpui_kit::test]
+        fn a_first_send_from_one_folder_leaves_anothers_draft_alone(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "c1", "userMessageId": "m1", "assistantMessageId": "a1"
+                }))
+                .unwrap(),
+            );
+            let settings = serde_json::json!({"temperature": 0.3});
+            stores
+                .navigation
+                .update(vcx, |n, cx| n.new_chat_in_folder("f1".into(), cx));
+            vcx.run_until_parked();
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer_store
+                    .update(cx, |c, cx| c.set_draft_params(settings.clone(), cx));
+                p.send_text("Plan the trip".into(), vec![], window, cx);
+            });
+            // Another folder's new chat, given the same settings, before
+            // the first one is made.
+            stores
+                .navigation
+                .update(vcx, |n, cx| n.new_chat_in_folder("f2".into(), cx));
+            vcx.run_until_parked();
+            pane.update(vcx, |p, cx| {
+                p.composer_store
+                    .update(cx, |c, cx| c.set_draft_params(settings.clone(), cx))
+            });
+            drop(held);
+            vcx.run_until_parked();
+            assert_eq!(
+                stores
+                    .navigation
+                    .read_with(vcx, |n, _| n.new_chat_folder().map(str::to_string)),
+                Some("f2".to_string()),
+                "the chat made in Trips opened over the new chat in the other folder"
+            );
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer_store.read(cx).draft_params.clone()),
+                settings,
+                "the other folder's settings went with the first chat"
+            );
         }
 
         fn switch_account(stores: &Stores, vcx: &mut VisualTestContext) {

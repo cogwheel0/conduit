@@ -2493,6 +2493,168 @@
   "@desktopDeleteFolderWithSubfolders": {
     "description": "Message of the sheet that asks before a desktop sidebar folder with subfolders is deleted: the subfolders go too, their chats are kept."
   },
+  "desktopChatSettingsMenu": "Chat Settings…",
+  "@desktopChatSettingsMenu": {
+    "description": "Menu item (Chat menu, the chat's More menu) that opens the chat's own settings sheet: its system prompt and parameters (⌘I). Title Case with an ellipsis: it opens a sheet."
+  },
+  "desktopToolSettingsMenu": "Tool Settings…",
+  "@desktopToolSettingsMenu": {
+    "description": "Menu item (Chat menu, the chat's More menu) that opens the user's own settings for the tools, filters and pipe the chat uses. Title Case with an ellipsis."
+  },
+  "desktopFolderSettingsMenu": "Folder Settings…",
+  "@desktopFolderSettingsMenu": {
+    "description": "A folder's context menu item that opens its settings sheet: name, icon, system prompt, default models and knowledge. Title Case with an ellipsis."
+  },
+  "desktopFolderSettingsTitle": "Folder Settings",
+  "@desktopFolderSettingsTitle": {
+    "description": "Title of a folder's settings sheet."
+  },
+  "desktopShareFolderMenu": "Share Folder…",
+  "@desktopShareFolderMenu": {
+    "description": "A folder's context menu item and button that open the sheet of who may read or edit the folder. Title Case with an ellipsis."
+  },
+  "desktopCustomEllipsis": "Custom…",
+  "@desktopCustomEllipsis": {
+    "description": "Last item of the reasoning effort menu: type a value of your own. Title Case with an ellipsis."
+  },
+  "desktopPinModel": "Pin {name}",
+  "@desktopPinModel": {
+    "description": "Tooltip and accessible name of the pin button on a model in the model picker. {name} is the model's name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopUnpinModel": "Unpin {name}",
+  "@desktopUnpinModel": {
+    "description": "Tooltip and accessible name of the button that unpins a pinned model in the model picker. {name} is the model's name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopMoreModels": "More Models",
+  "@desktopMoreModels": {
+    "description": "Row at the end of the model picker's short list that shows every other model. Title Case."
+  },
+  "desktopFewerModels": "Fewer Models",
+  "@desktopFewerModels": {
+    "description": "The same row once every model shows: back to the short list. Title Case."
+  },
+  "desktopKnowledgeBasesHeading": "Knowledge Bases",
+  "@desktopKnowledgeBasesHeading": {
+    "description": "Heading of the knowledge bases in a folder's Add Knowledge menu, above Files."
+  },
+  "desktopToolSettingsFor": "Settings For",
+  "@desktopToolSettingsFor": {
+    "description": "Label of the pop-up button in Tool Settings that picks which tool, filter or model the settings are for."
+  },
+  "desktopReasoningEffort": "Reasoning Effort",
+  "@desktopReasoningEffort": {
+    "description": "Label of the reasoning effort row in the model picker and in Chat Settings: how much the model reasons before it answers. Title Case."
+  },
+  "desktopEffortAutomatic": "Automatic",
+  "@desktopEffortAutomatic": {
+    "description": "Reasoning effort choice: the server or model decides."
+  },
+  "desktopEffortNone": "None",
+  "@desktopEffortNone": {
+    "description": "Reasoning effort choice: no reasoning."
+  },
+  "desktopEffortMinimal": "Minimal",
+  "@desktopEffortMinimal": {
+    "description": "Reasoning effort choice: as little reasoning as possible."
+  },
+  "desktopEffortLow": "Low",
+  "@desktopEffortLow": {
+    "description": "Reasoning effort choice."
+  },
+  "desktopEffortMedium": "Medium",
+  "@desktopEffortMedium": {
+    "description": "Reasoning effort choice."
+  },
+  "desktopEffortHigh": "High",
+  "@desktopEffortHigh": {
+    "description": "Reasoning effort choice."
+  },
+  "desktopEffortExtraHigh": "Extra High",
+  "@desktopEffortExtraHigh": {
+    "description": "Reasoning effort choice, above High."
+  },
+  "desktopEffortMaximum": "Maximum",
+  "@desktopEffortMaximum": {
+    "description": "Reasoning effort choice: as much reasoning as the model allows."
+  },
+  "desktopThinking": "Thinking",
+  "@desktopThinking": {
+    "description": "Label of the reasoning row in the model picker for an Ollama model, whose reasoning is its thinking level. Title Case."
+  },
+  "desktopCustomEffortHint": "An effort your provider supports",
+  "@desktopCustomEffortHint": {
+    "description": "Placeholder of the field where a custom reasoning effort is typed."
+  },
+  "desktopToolCallingNative": "Native",
+  "@desktopToolCallingNative": {
+    "description": "Tool calling choice in Chat Settings: the model's own tool calls."
+  },
+  "desktopToolCallingLegacy": "Legacy",
+  "@desktopToolCallingLegacy": {
+    "description": "Tool calling choice in Chat Settings: the older prompt-based tool calls."
+  },
+  "desktopChatSettingsParameters": "Parameters",
+  "@desktopChatSettingsParameters": {
+    "description": "Heading of the parameters (temperature, top P, ...) in Chat Settings."
+  },
+  "desktopAccessEmpty": "Not shared with anyone yet.",
+  "@desktopAccessEmpty": {
+    "description": "The Share Folder sheet when no one else has access."
+  },
+  "desktopAccessGroupBadge": "Group",
+  "@desktopAccessGroupBadge": {
+    "description": "Second line of a group in the Share Folder sheet, beside its name."
+  },
+  "desktopAccessSearchHint": "Add people or groups",
+  "@desktopAccessSearchHint": {
+    "description": "Placeholder of the field in the Share Folder sheet that finds people and groups to add."
+  },
+  "desktopAccessNoResults": "No matches found.",
+  "@desktopAccessNoResults": {
+    "description": "The Share Folder sheet's search when nothing matches."
+  },
+  "desktopDiscardChangesTitle": "Discard your changes?",
+  "@desktopDiscardChangesTitle": {
+    "description": "Title of the alert when a settings sheet with unsaved edits is closed."
+  },
+  "desktopDiscardChangesMessage": "Your unsaved changes will be lost.",
+  "@desktopDiscardChangesMessage": {
+    "description": "Body of the same alert."
+  },
+  "desktopDiscard": "Discard",
+  "@desktopDiscard": {
+    "description": "The alert's button that throws the edits away."
+  },
+  "desktopKnowledge": "Knowledge",
+  "@desktopKnowledge": {
+    "description": "Heading of a folder's knowledge (knowledge bases, files and notes every chat in it draws on) in Folder Settings."
+  },
+  "desktopValveDefault": "Default",
+  "@desktopValveDefault": {
+    "description": "Tool Settings: the value stays at the tool's default (a pop-up choice beside each setting)."
+  },
+  "desktopValveCustom": "Custom",
+  "@desktopValveCustom": {
+    "description": "Tool Settings: a value of your own (the same pop-up's other choice)."
+  },
+  "desktopValveNone": "None",
+  "@desktopValveNone": {
+    "description": "Tool Settings: what a setting with no default of its own shows while it uses the default."
+  },
+  "desktopValveRequired": "Required",
+  "@desktopValveRequired": {
+    "description": "Tool Settings: after a setting's name when it must have a value."
+  },
   "desktopFolderNameTaken": "The name “{name}” is already taken.",
   "@desktopFolderNameTaken": {
     "description": "Title of the alert when a desktop sidebar folder is given a name another folder beside it has. {name} is that name.",

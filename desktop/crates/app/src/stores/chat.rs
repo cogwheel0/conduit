@@ -1495,6 +1495,10 @@ pub struct TurnOptions {
     pub file_ids: Vec<String>,
     /// Compare Models: the two models to answer side by side.
     pub compare_models: Vec<String>,
+    /// A new chat made in this folder (New Chat in Folder).
+    pub folder_id: Option<String>,
+    /// A new chat's own settings (Chat Settings on a new chat).
+    pub chat_params: Option<serde_json::Value>,
 }
 
 /// A chat's queue with nothing in it.
@@ -1525,8 +1529,8 @@ impl TurnOptions {
             filter_ids: self.filter_ids,
             compare_models: self.compare_models,
             temporary,
-            folder_id: None,
-            chat_params: None,
+            folder_id: self.folder_id,
+            chat_params: self.chat_params,
         }
     }
 

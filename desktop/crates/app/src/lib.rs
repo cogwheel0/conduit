@@ -517,7 +517,7 @@ fn install_menu_observers(cx: &mut App) {
 }
 
 fn register_actions(cx: &mut App) {
-    cx.on_action(|_: &Quit, cx| cx.quit());
+    cx.on_action(|_: &Quit, cx| crate::views::sheet::quit(cx));
     cx.on_action(|_: &About, cx| open_settings(Some(Tab::About), cx));
     cx.on_action(|_: &Hide, cx| cx.hide());
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());

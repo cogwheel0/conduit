@@ -73,10 +73,7 @@ impl Daemon for FixtureDaemon {
                     },
                 ],
                 selected_id: Some("fixture-model".into()),
-                featured_ids: Default::default(),
-                more_sections: Default::default(),
-                can_pin: false,
-                default_id: None,
+                ..Default::default()
             })
             .unwrap()),
             "composer.options" => Ok(serde_json::to_value(ComposerOptions {

@@ -43,6 +43,11 @@ actions!(conduit, [ChooseModel]);
 // an answer, into the composer (⇧⌘A).
 actions!(conduit, [ExpandEditor, AskConduit, CopySelection]);
 
+// Chat › Chat Settings… (⌘I, as Get Info: on a folder selected in the
+// sidebar it opens Folder Settings) and Tool Settings…: sheets on the main
+// window.
+actions!(conduit, [ChatSettings, ToolSettings]);
+
 // Window › Quick Ask (also the global shortcut and the menu-bar item).
 actions!(conduit, [ToggleQuickAsk]);
 

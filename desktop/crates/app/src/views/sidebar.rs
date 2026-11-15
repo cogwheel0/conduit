@@ -149,6 +149,10 @@ pub enum FolderCommand {
     Rename,
     /// Delete it (and its subfolders), after asking; the chats are kept.
     Delete,
+    /// Its settings sheet: name, icon, prompt, models, knowledge.
+    Settings,
+    /// Who may read or edit it.
+    Share,
 }
 
 /// A folder's context menu action: `command` on `folder_id`.
@@ -1403,6 +1407,7 @@ impl SidebarView {
                 count_label: l.desktop_chat_count(count as i64).into(),
                 expanded,
                 badge: folder.shared.then(|| l.shared_badge().into()),
+                emoji: folder.icon.clone().map(Into::into),
             },
             depth as f32 * NEST_INDENT,
             state,
@@ -1512,6 +1517,7 @@ impl SidebarView {
                 count_label: SharedString::default(),
                 expanded: false,
                 badge: None,
+                emoji: None,
             },
             depth as f32 * NEST_INDENT,
             RowState::default(),
@@ -2064,6 +2070,21 @@ impl SidebarView {
             }
             items.push(None);
         }
+        // Its settings: the owner's name and icon, a writer's project
+        // defaults (as mobile's folder page); sharing for the owner (the
+        // sheet says when the server allows none).
+        if own || folder.can_write {
+            items.push(Some((
+                l.desktop_folder_settings_menu(),
+                FolderCommand::Settings,
+            )));
+        }
+        if own && self.has_server(cx) {
+            items.push(Some((l.desktop_share_folder_menu(), FolderCommand::Share)));
+        }
+        if own || folder.can_write {
+            items.push(None);
+        }
         if own {
             items.push(Some((l.desktop_rename_ellipsis(), FolderCommand::Rename)));
         }
@@ -2152,6 +2173,25 @@ impl SidebarView {
             }
             FolderCommand::Rename => self.start_rename_folder(folder_id, window, cx),
             FolderCommand::Delete => self.confirm_delete_folder(folder_id, window, cx),
+            FolderCommand::Settings => {
+                crate::views::folder_settings::open(self.stores.clone(), folder_id, window, cx)
+            }
+            FolderCommand::Share => {
+                let name = self
+                    .stores
+                    .chat_list
+                    .read(cx)
+                    .folder(folder_id)
+                    .map(|f| f.name.clone())
+                    .unwrap_or_default();
+                crate::views::access_sheet::open_for_folder(
+                    self.stores.clone(),
+                    folder_id,
+                    name,
+                    window,
+                    cx,
+                )
+            }
         }
     }
 
@@ -2230,6 +2270,18 @@ impl SidebarView {
         cx.notify();
     }
 
+    /// The folder the keyboard is on while the list has focus: what ⌘I
+    /// (Get Info) opens the settings of.
+    pub fn focused_folder(&self, window: &Window) -> Option<String> {
+        if !self.list_focus.is_focused(window) {
+            return None;
+        }
+        match &self.cursor {
+            Some(KeyRow::Folder(id)) => Some(id.clone()),
+            _ => None,
+        }
+    }
+
     /// Whether several chats are selected as rows (⌘- or ⇧-click), not by
     /// checkboxes.
     pub fn has_multiple_selection(&self) -> bool {
@@ -2280,6 +2332,19 @@ impl SidebarView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.context_menu_with(chat_id, vec![], position, window, cx)
+    }
+
+    /// [`Self::context_menu`] with `leading` items first (the chat's More
+    /// menu adds Chat Settings… and Tool Settings…).
+    pub fn context_menu_with(
+        &mut self,
+        chat_id: &str,
+        leading: Vec<(String, Box<dyn Action>)>,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(chat) = self.stores.chat_list.read(cx).find(chat_id).cloned() else {
             return;
         };
@@ -2297,7 +2362,15 @@ impl SidebarView {
             }
             self.end_selection(cx);
         }
-        let menu = self.menu_for(&chat, cx);
+        let mut menu = NativeMenu::new();
+        let lead = !leading.is_empty();
+        for (label, action) in leading {
+            menu = menu.menu(label, action);
+        }
+        if lead {
+            menu = menu.separator();
+        }
+        let menu = self.menu_for(menu, &chat, cx);
         self.context_target = Some(chat_id.to_string());
         cx.notify();
         menu.show(position, window, cx);
@@ -2352,7 +2425,7 @@ impl SidebarView {
         items
     }
 
-    fn menu_for(&self, chat: &ChatSummary, cx: &App) -> NativeMenu {
+    fn menu_for(&self, menu: NativeMenu, chat: &ChatSummary, cx: &App) -> NativeMenu {
         let l = cx.l10n();
         let action = |command: ChatCommand| -> Box<dyn Action> {
             Box::new(ChatMenu {
@@ -2368,7 +2441,7 @@ impl SidebarView {
             .as_ref()
             .map(|l| l.folders.clone())
             .unwrap_or_default();
-        let mut menu = NativeMenu::new();
+        let mut menu = menu;
         let mut filed = folders.is_empty();
         for (label, command) in self.menu_items(chat, cx) {
             // Move To takes its place in the shared order: after Share,
@@ -3441,6 +3514,21 @@ impl Render for SidebarView {
             .aria_label(SharedString::from(l.desktop_chats_label()))
             .key_context(SIDEBAR_LIST_CONTEXT)
             .track_focus(&self.list_focus)
+            // ⌘I (Get Info) on a folder: its settings. On anything else the
+            // chat's settings, as from anywhere.
+            .on_action(
+                cx.listener(|this, _: &crate::actions::ChatSettings, window, cx| {
+                    match this.focused_folder(window) {
+                        Some(id) => crate::views::folder_settings::open(
+                            this.stores.clone(),
+                            &id,
+                            window,
+                            cx,
+                        ),
+                        None => cx.propagate(),
+                    }
+                }),
+            )
             // A click opens a row without taking focus from the composer;
             // Tab is the way in, as in a source list.
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())

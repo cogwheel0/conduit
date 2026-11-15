@@ -371,6 +371,9 @@ pub struct FolderLine {
     pub expanded: bool,
     /// A short badge after the name, also spoken after it ("Shared").
     pub badge: Option<SharedString>,
+    /// The folder's own icon (an emoji, from its settings), drawn in place
+    /// of the folder glyph.
+    pub emoji: Option<SharedString>,
 }
 
 /// A folder row as the phone draws it: the outline folder glyph in the
@@ -394,6 +397,7 @@ pub fn folder_row(
         count_label,
         expanded,
         badge,
+        emoji,
     } = folder.clone();
     let r = t.roles;
     let m = t.metrics;
@@ -434,7 +438,20 @@ pub fn folder_row(
             d.hover(|s| s.bg(r.hover))
         })
         .active(|s| s.bg(pressed_fill(row_bg_hovered(state, t), t)))
-        .child(icon(IconName::Folder, FOLDER_GLYPH, glyph))
+        .child(match emoji {
+            // The same box as the glyph, so names line up either way.
+            Some(e) => div()
+                .size(px(FOLDER_GLYPH))
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .text_size(px(FOLDER_GLYPH - 1.))
+                .line_height(px(FOLDER_GLYPH))
+                .child(e)
+                .into_any_element(),
+            None => icon(IconName::Folder, FOLDER_GLYPH, glyph).into_any_element(),
+        })
         .child(match name_field {
             Some(field) => div()
                 .flex_1()
@@ -1272,6 +1289,7 @@ fn gallery_folder_row(folder: &FolderRow, t: &ConduitTheme) -> Stateful<Div> {
             count_label: SharedString::from(format!("{} chats", folder.chats.len())),
             expanded: folder.expanded,
             badge: None,
+            emoji: None,
         },
         0.,
         RowState::default(),

@@ -201,6 +201,8 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
         // Chat › Expand Editor and Ask Conduit, from the message field too.
         KeyBinding::new("shift-cmd-e", crate::actions::ExpandEditor, None),
         KeyBinding::new("shift-cmd-a", crate::actions::AskConduit, None),
+        // Chat › Chat Settings… (Get Info's chord).
+        KeyBinding::new("cmd-i", crate::actions::ChatSettings, None),
         // Chat › Previous Chat and Next Chat, as ⌃⇥ steps through Safari's
         // tabs (from a text field too).
         KeyBinding::new("ctrl-shift-tab", PreviousChat, None),
@@ -351,6 +353,9 @@ pub struct MenuState {
     pub folders: Vec<(String, String)>,
     /// The View menu's zoom items.
     pub zoom: ZoomState,
+    /// Chat › Chat Settings… and Tool Settings… have something to show.
+    pub chat_settings: bool,
+    pub tool_settings: bool,
 }
 
 impl Default for MenuState {
@@ -364,6 +369,8 @@ impl Default for MenuState {
             chat: None,
             folders: vec![],
             zoom: ZoomState::default(),
+            chat_settings: false,
+            tool_settings: false,
         }
     }
 }
@@ -441,6 +448,12 @@ pub fn menu_state(cx: &App) -> MenuState {
         main && navigation.can_go_back(usable),
         main && navigation.can_go_forward(usable),
     );
+    let offer = state
+        .main_view
+        .as_ref()
+        .filter(|_| main)
+        .map(|v| v.read(cx).chat_pane.read(cx).settings_offer.clone())
+        .unwrap_or_default();
     MenuState {
         areas,
         can_go_back,
@@ -450,6 +463,8 @@ pub fn menu_state(cx: &App) -> MenuState {
         chat,
         folders,
         zoom,
+        chat_settings: offer.chat_settings,
+        tool_settings: !offer.tool_targets.is_empty(),
     }
 }
 
@@ -700,6 +715,16 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
         MenuItem::action(l10n.desktop_menu_next_chat(), NextChat),
         MenuItem::separator(),
         MenuItem::action(l10n.desktop_menu_choose_model(), FocusModelPicker),
+        MenuItem::action(
+            l10n.desktop_chat_settings_menu(),
+            crate::actions::ChatSettings,
+        )
+        .disabled(!state.chat_settings),
+        MenuItem::action(
+            l10n.desktop_tool_settings_menu(),
+            crate::actions::ToolSettings,
+        )
+        .disabled(!state.tool_settings),
         MenuItem::action(l10n.desktop_shortcut_focus_composer(), FocusComposer),
         MenuItem::action(l10n.desktop_expand_editor(), crate::actions::ExpandEditor),
         MenuItem::action(l10n.ask_conduit_action(), crate::actions::AskConduit).disabled(no_chat),
@@ -867,7 +892,8 @@ mod tests {
         let l = L10n::new("en");
         let none = build_menus(&l, &MenuState::default());
         let chat_menu = menu(&none, "Chat");
-        // Every item that changes the chat is off without one.
+        // Every item that changes the chat is off without one, and the
+        // settings sheets while there is nothing to show in them.
         for name in [
             "Rename…",
             "Delete…",
@@ -875,9 +901,21 @@ mod tests {
             "Share Chat",
             "Pin",
             "Ask Conduit",
+            "Chat Settings…",
+            "Tool Settings…",
         ] {
             assert!(disabled(chat_menu, name), "{name}");
         }
+        let offered = build_menus(
+            &l,
+            &MenuState {
+                chat_settings: true,
+                tool_settings: true,
+                ..open_chat(None)
+            },
+        );
+        assert!(!disabled(menu(&offered, "Chat"), "Chat Settings…"));
+        assert!(!disabled(menu(&offered, "Chat"), "Tool Settings…"));
         // Move to too (AppKit is told again after the bar is installed,
         // since it enables any item holding a submenu).
         assert!(move_to_disabled(&MenuState::default()));
@@ -910,6 +948,8 @@ mod tests {
                 "Next Chat",
                 "—",
                 "Choose a Model…",
+                "Chat Settings…",
+                "Tool Settings…",
                 "Go to Message Field",
                 "Expand Editor",
                 "Ask Conduit",
@@ -1097,6 +1137,7 @@ mod tests {
             F::Regenerate => Box::new(RegenerateLastAnswer),
             F::ExpandEditor => Box::new(crate::actions::ExpandEditor),
             F::AskConduit => Box::new(crate::actions::AskConduit),
+            F::ChatSettings => Box::new(crate::actions::ChatSettings),
             F::FindInChat => Box::new(FindInChat),
             F::FindNext => Box::new(FindNext),
             F::FindPrevious => Box::new(FindPrevious),
