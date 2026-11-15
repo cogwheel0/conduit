@@ -237,7 +237,24 @@ final class ModelsService {
   /// and Hermes' Fast tier for one model.
   Future<ModelOptionsDto> options(ModelOptionsQuery query) async {
     final model = await _model(query.modelId);
-    return _options(model);
+    final options = await _options(model);
+    // A chat's own saved effort is what its next turn sends: shown for it
+    // over the model's pick.
+    final chatId = query.chatId;
+    if (chatId == null || model == null || !_savedOnChat(model)) {
+      return options;
+    }
+    final params = (await _conversation(chatId))?.chatParams;
+    if (params == null || !params.containsKey(kChatParamReasoningEffort)) {
+      return options;
+    }
+    final saved = params[kChatParamReasoningEffort];
+    final current = saved is String && saved.trim().isNotEmpty
+        ? saved.trim().toLowerCase()
+        : kAutomaticReasoningEffort;
+    return options.copyWith(
+      reasoning: options.reasoning.copyWith(current: current),
+    );
   }
 
   /// `models.setReasoningEffort`: the picker's pick, through the core's one
