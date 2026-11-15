@@ -49,6 +49,8 @@ pub struct PersonalizationPane {
     pub editor: Option<MemoryEditor>,
     /// What the editor's last Save sent.
     editor_saved: Option<String>,
+    /// The memory ids listed when a new memory's Save started.
+    editor_known: Option<std::collections::HashSet<String>>,
     pub busy: bool,
     /// Saved, or failed, under the system prompt.
     pub prompt_note: Option<bool>,
@@ -104,6 +106,7 @@ impl PersonalizationPane {
             memory_path,
             editor: None,
             editor_saved: None,
+            editor_known: None,
             image_filled: false,
             busy: false,
             prompt_note: None,
@@ -263,14 +266,17 @@ impl PersonalizationPane {
                     s.busy = false;
                     match result {
                         Ok(list) => {
-                            // The memory this save made: what a kept editor
+                            // The memory this add made (the one id the list
+                            // did not have before it): what a kept editor
                             // updates from now on, rather than adding another.
-                            let made = s.editor_saved.as_deref().and_then(|sent| {
-                                list.items
-                                    .iter()
-                                    .rev()
-                                    .find(|m| m.content.trim() == sent)
-                                    .map(|m| m.id.clone())
+                            // Not exactly one new id: none, so nothing else
+                            // is ever overwritten.
+                            let made = s.editor_known.take().and_then(|known| {
+                                let mut new = list.items.iter().filter(|m| !known.contains(&m.id));
+                                match (new.next(), new.next()) {
+                                    (Some(m), None) => Some(m.id.clone()),
+                                    _ => None,
+                                }
                             });
                             s.memories = Some(list);
                             if closes_editor {
@@ -359,6 +365,12 @@ impl PersonalizationPane {
             path: advanced.then(|| forms::text(&self.memory_path, cx)),
         };
         self.editor_saved = Some(edit.content.clone());
+        self.editor_known = edit.id.is_none().then(|| {
+            self.memories
+                .iter()
+                .flat_map(|l| l.items.iter().map(|m| m.id.clone()))
+                .collect()
+        });
         let rpc = self.rpc(cx);
         if edit.id.is_some() {
             let call = rpc.call::<methods::MemoriesUpdate>(&edit);
@@ -971,5 +983,61 @@ mod tests {
         assert_eq!(updates[0]["id"], "m1");
         assert_eq!(updates[0]["content"], "Prefers green tea");
         view.read_with(vcx, |p, _| assert!(p.editor.is_none()));
+    }
+
+    #[gpui_kit::test]
+    fn a_kept_new_memory_updates_itself_not_an_older_one_with_the_same_text(
+        cx: &mut TestAppContext,
+    ) {
+        let daemon = FakeDaemon::new();
+        let one = serde_json::json!({"available": true, "enabled": true, "items": [
+            {"id": "m0", "content": "x", "updatedAt": 1}
+        ]});
+        let o = one.clone();
+        daemon.on::<methods::MemoriesList>(move |_| Ok(o.clone()));
+        // Newest first, as the daemon sorts them: the new "x" before the old.
+        daemon.on::<methods::MemoriesAdd>(|_| {
+            Ok(
+                serde_json::json!({"available": true, "enabled": true, "items": [
+                    {"id": "m1", "content": "x", "updatedAt": 2},
+                    {"id": "m0", "content": "x", "updatedAt": 1}
+                ]}),
+            )
+        });
+        daemon.on::<methods::MemoriesUpdate>(|p| {
+            Ok(
+                serde_json::json!({"available": true, "enabled": true, "items": [
+                    {"id": p["id"], "content": p["content"], "updatedAt": 3}
+                ]}),
+            )
+        });
+        let held = daemon.hold::<methods::MemoriesAdd>();
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-memory-same-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| PersonalizationPane::new(stores, window, cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |p, window, cx| {
+            p.open_editor(None, window, cx);
+            p.memory_input
+                .update(cx, |i, cx| i.set_value("x", window, cx));
+            p.save_memory(window, cx);
+            p.memory_input
+                .update(cx, |i, cx| i.set_value("x and more", window, cx));
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        view.update_in(vcx, |p, window, cx| p.save_memory(window, cx));
+        vcx.run_until_parked();
+        let updates = daemon.calls::<methods::MemoriesUpdate>();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0]["id"], "m1", "the older memory was overwritten");
+        assert_eq!(updates[0]["content"], "x and more");
+        assert_eq!(daemon.calls::<methods::MemoriesAdd>().len(), 1);
     }
 }
