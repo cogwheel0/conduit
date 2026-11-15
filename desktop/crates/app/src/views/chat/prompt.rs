@@ -169,6 +169,13 @@ impl PromptCard {
         self.store.as_ref()?.read(cx).prompt.clone()
     }
 
+    /// The waiting prompt, only while it is the one last drawn: a key
+    /// answers what the user sees, never a prompt that replaced it since.
+    fn drawn(&self, cx: &App) -> Option<ChatPromptDto> {
+        self.prompt(cx)
+            .filter(|p| self.for_prompt.as_deref() == Some(p.id.as_str()))
+    }
+
     pub fn has_prompt(&self, cx: &App) -> bool {
         self.prompt(cx).is_some()
     }
@@ -240,7 +247,7 @@ impl PromptCard {
     /// ⌥⌘↩ (and Return in the Other field): Submit, Next, Approve or
     /// Confirm. Whether the card acted.
     pub fn primary(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(prompt) = self.prompt(cx) else {
+        let Some(prompt) = self.drawn(cx) else {
             return false;
         };
         if self.busy(cx) {
@@ -274,7 +281,7 @@ impl PromptCard {
 
     /// ⌥⌘⌫: Cancel or Deny. Whether the card acted.
     pub fn secondary(&mut self, cx: &mut Context<Self>) -> bool {
-        if self.prompt(cx).is_none() {
+        if self.drawn(cx).is_none() {
             return false;
         }
         if self.busy(cx) {
@@ -617,5 +624,71 @@ mod tests {
             text: String::new(),
         };
         assert!(picked.answered());
+    }
+
+    #[gpui_kit::test]
+    fn a_key_never_answers_a_prompt_that_replaced_the_one_on_screen(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use std::rc::Rc;
+
+        use gpui_kit::AppContext as _;
+
+        use crate::stores::chat::{ChatStore, Subscribe};
+        use crate::stores::rpc::fake::FakeDaemon;
+
+        cx.update(crate::views::test_globals);
+        let daemon = FakeDaemon::new();
+        let confirmation = |id: &str| serde_json::json!({"id": id, "chatId": "c1", "kind": "confirmation", "title": "Proceed?"});
+        daemon.on::<conduit_protocol::methods::ChatPromptsGet>(move |_| {
+            Ok(serde_json::json!({"chatId": "c1", "prompt": confirmation("p1")}))
+        });
+        daemon.on::<conduit_protocol::methods::ChatPromptsDecide>(|_| {
+            Ok(serde_json::json!({"accepted": true}))
+        });
+        let subscribe: Subscribe = Rc::new(|_, _| {});
+        let rpc = daemon.rpc();
+        let store = cx.new(|cx| ChatStore::new(rpc, subscribe, "c1".into(), cx));
+        cx.run_until_parked();
+        let s = store.clone();
+        let (card, vcx) = cx.add_window_view(move |window, cx| {
+            let mut card = PromptCard::new(window, cx);
+            card.set_store(Some(s), cx);
+            card
+        });
+        vcx.run_until_parked();
+        // p1 is on screen; p2 replaces it, and a key comes before the card
+        // is drawn again.
+        vcx.update(|_, cx| {
+            store.update(cx, |s, cx| {
+                s.on_event(
+                    &conduit_protocol::Event::ChatPromptsChanged(
+                        serde_json::from_value(serde_json::json!({
+                            "chatId": "c1",
+                            "prompt": {"id": "p2", "chatId": "c1", "kind": "confirmation"},
+                        }))
+                        .unwrap(),
+                    ),
+                    cx,
+                )
+            });
+            card.update(cx, |c, cx| {
+                assert!(!c.primary(cx), "approved a prompt never shown");
+                assert!(!c.secondary(cx), "cancelled a prompt never shown");
+            });
+        });
+        assert!(
+            daemon
+                .calls::<conduit_protocol::methods::ChatPromptsDecide>()
+                .is_empty()
+        );
+        // Once drawn, its keys answer it.
+        vcx.run_until_parked();
+        card.update(vcx, |c, cx| assert!(c.primary(cx)));
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<conduit_protocol::methods::ChatPromptsDecide>()[0]["promptId"],
+            "p2"
+        );
     }
 }
