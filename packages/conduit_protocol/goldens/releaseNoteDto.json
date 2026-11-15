@@ -1,0 +1,10 @@
+{
+  "version": "0.9.0",
+  "title": "What is new",
+  "intro": "A first look.",
+  "bullets": [
+    {
+      "text": "Release notes."
+    }
+  ]
+}

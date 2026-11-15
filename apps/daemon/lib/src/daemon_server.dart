@@ -44,6 +44,11 @@ import 'workspace_service.dart';
 import 'terminals_service.dart';
 import 'hermes_service.dart';
 import 'voice_service.dart';
+import 'core_settings_service.dart';
+import 'data_service.dart';
+import 'memories_service.dart';
+import 'profile_service.dart';
+import 'release_notes_rpc_service.dart';
 
 /// The loopback server the desktop app talks to.
 ///
@@ -105,6 +110,11 @@ class DaemonServer {
   HermesService? _hermes;
   VoiceService? _voice;
   CapabilitiesService? _capabilities;
+  CoreSettingsService? _coreSettings;
+  ProfileService? _profile;
+  MemoriesService? _memories;
+  ReleaseNotesRpcService? _releaseNotes;
+  DataService? _data;
 
   /// What sessions see of the services above: none until [attachCore].
   CoreServices _coreServices = const CoreServices();
@@ -196,6 +206,11 @@ class DaemonServer {
         p.join(core.directories.paths.userData, 'whisper'),
       ),
     );
+    _coreSettings = CoreSettingsService(core.container, events: events);
+    _profile = ProfileService(core.container, accounts: _accounts);
+    _memories = MemoriesService(core.container);
+    _releaseNotes = ReleaseNotesRpcService(core.container);
+    _data = DataService(core.container, events: events);
     // Every session reads this, including one that connected before now.
     _coreServices = CoreServices(
       accounts: _accounts,
@@ -216,6 +231,11 @@ class DaemonServer {
       terminals: _terminals,
       hermes: _hermes,
       voice: _voice,
+      coreSettings: _coreSettings,
+      profile: _profile,
+      memories: _memories,
+      releaseNotes: _releaseNotes,
+      data: _data,
     );
     // What the active account can use: answered by `system.capabilities`
     // and the handshake, announced on change.
@@ -840,6 +860,7 @@ class DaemonServer {
     }
     _sessions.clear();
     await _terminals?.dispose();
+    await _data?.dispose();
     _terminals = null;
     await _server?.close(force: true);
     _server = null;

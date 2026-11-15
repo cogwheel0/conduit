@@ -255,6 +255,9 @@ start() {
       ENABLE_DIRECT_CONNECTIONS=true \
       ENABLE_CHANNELS=true \
       BYPASS_EMBEDDING_AND_RETRIEVAL=true \
+      RAG_EMBEDDING_ENGINE=openai RAG_EMBEDDING_MODEL=fake-embedding \
+      RAG_OPENAI_API_BASE_URL="http://127.0.0.1:$MODEL_PORT/v1" \
+      RAG_OPENAI_API_KEY=sk-local-fake \
       AUDIO_STT_ENGINE=openai AUDIO_STT_MODEL=whisper-1 \
       AUDIO_STT_OPENAI_API_BASE_URL="http://127.0.0.1:$MODEL_PORT/v1" \
       AUDIO_STT_OPENAI_API_KEY=sk-local-fake \

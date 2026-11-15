@@ -361,6 +361,107 @@ abstract final class ConduitMethods {
   /// Patches them. Fields left null keep their value.
   static const String settingsSetApp = 'settings.setApp';
 
+  /// Core's `AppSettings` (the Chats, Personalization, Data & Connection,
+  /// Audio and Voice Provider settings); `settings.changed` follows them.
+  static const String settingsGet = 'settings.get';
+
+  /// Patches them; null fields keep their value, `clear` resets nullable
+  /// ones.
+  static const String settingsSet = 'settings.set';
+
+  /// The Open WebUI account's own settings kept on its server ("Your system
+  /// prompt").
+  static const String settingsGetAccount = 'settings.getAccount';
+  static const String settingsSetAccount = 'settings.setAccount';
+
+  /// A model's own system prompt on the server (Prompt Overrides).
+  static const String settingsModelPrompt = 'settings.modelPrompt';
+  static const String settingsSetModelPrompt = 'settings.setModelPrompt';
+
+  /// The quick pills Settings › Chats offers.
+  static const String settingsQuickPills = 'settings.quickPills';
+
+  /// The Direct connections the Voice Provider can use.
+  static const String settingsVoiceProviders = 'settings.voiceProviders';
+
+  /// About's server rows and Conduit's links.
+  static const String settingsAbout = 'settings.about';
+
+  // ---------------------------------------------------------------------
+  // profile.* -- the Open WebUI account's profile.
+  // ---------------------------------------------------------------------
+
+  static const String profileGet = 'profile.get';
+
+  /// Name, bio, gender and birth date.
+  static const String profileUpdate = 'profile.update';
+
+  /// Uses an image file as the photo.
+  static const String profileSetImage = 'profile.setImage';
+
+  /// Removes the photo (the initials show).
+  static const String profileRemoveImage = 'profile.removeImage';
+  static const String profileChangePassword = 'profile.changePassword';
+
+  /// Signs out of every account (Settings' "Sign Out of All Accounts").
+  static const String profileSignOutAll = 'profile.signOutAll';
+
+  // ---------------------------------------------------------------------
+  // memories.* -- the account's memories on its Open WebUI server.
+  // ---------------------------------------------------------------------
+
+  static const String memoriesList = 'memories.list';
+  static const String memoriesAdd = 'memories.add';
+  static const String memoriesUpdate = 'memories.update';
+  static const String memoriesDelete = 'memories.delete';
+
+  /// Deletes every memory.
+  static const String memoriesClear = 'memories.clear';
+
+  /// The account's "Memory" setting.
+  static const String memoriesSetEnabled = 'memories.setEnabled';
+
+  // ---------------------------------------------------------------------
+  // releaseNotes.* -- core's release-notes decision over the app's catalog.
+  // ---------------------------------------------------------------------
+
+  /// At launch: whether the after-update banner shows, and its notes. Marks
+  /// the version seen.
+  static const String releaseNotesCheck = 'releaseNotes.check';
+
+  /// The notes About › Release Notes shows: the newest at or before this
+  /// version.
+  static const String releaseNotesLatest = 'releaseNotes.latest';
+
+  /// Dismisses the banner for this update.
+  static const String releaseNotesDismiss = 'releaseNotes.dismiss';
+
+  // ---------------------------------------------------------------------
+  // data.* -- Chat Data Controls and the connection's health.
+  // ---------------------------------------------------------------------
+
+  /// What the server-wide actions reach: local-only and unsent chats.
+  static const String dataSummary = 'data.summary';
+
+  /// Writes the whole library to a file (Open WebUI-compatible JSON).
+  static const String dataExport = 'data.export';
+
+  /// Reads a backup file and counts its chats and messages, sending nothing.
+  static const String dataPreviewImport = 'data.previewImport';
+
+  /// Sends a backup file's chats to the server.
+  static const String dataImport = 'data.import';
+
+  /// Sends what this computer has that the server lacks, then pulls.
+  static const String dataSync = 'data.sync';
+  static const String dataArchiveAll = 'data.archiveAll';
+  static const String dataUnarchiveAll = 'data.unarchiveAll';
+  static const String dataUnshareAll = 'data.unshareAll';
+  static const String dataDeleteAll = 'data.deleteAll';
+
+  /// The realtime socket's health; `socket.health` says when it changed.
+  static const String dataConnection = 'data.connection';
+
   // ---------------------------------------------------------------------
   // Namespace prefixes.
   // ---------------------------------------------------------------------
@@ -599,6 +700,10 @@ abstract final class ConduitMethods {
   static const String settingsPrefix = 'settings.';
   static const String syncPrefix = 'sync.';
   static const String socketPrefix = 'socket.';
+  static const String profilePrefix = 'profile.';
+  static const String memoriesPrefix = 'memories.';
+  static const String releaseNotesPrefix = 'releaseNotes.';
+  static const String dataPrefix = 'data.';
 
   /// Every namespace the protocol reserves. A method outside these prefixes
   /// is a typo, and the daemon's fallback handler says so.
@@ -628,6 +733,10 @@ abstract final class ConduitMethods {
     settingsPrefix,
     syncPrefix,
     socketPrefix,
+    profilePrefix,
+    memoriesPrefix,
+    releaseNotesPrefix,
+    dataPrefix,
   };
 
   /// Whether [method] sits in a namespace this protocol version defines.

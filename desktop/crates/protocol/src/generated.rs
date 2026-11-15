@@ -1536,6 +1536,156 @@ pub struct KnowledgeList {
     pub items: Vec<KnowledgeSummary>,
 }
 
+/// Reply to `data.summary`: what Chat Data Controls' server-wide actions
+/// would reach, as core's `ServerChatBulkScope` counts it, for the signed-in
+/// Open WebUI account.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatDataSummary {
+    /// Chat Data Controls apply: an Open WebUI account is signed in.
+    #[serde(default)]
+    pub available: bool,
+    /// Stored chats an action reaches (the account's server chats).
+    #[serde(default)]
+    pub server_chats: i64,
+    /// Chats that exist only on this computer; no action reaches them, and
+    /// a library export leaves them out.
+    #[serde(default)]
+    pub local_only: i64,
+    /// Reached chats with an edit or a reply the server does not have yet.
+    #[serde(default)]
+    pub unsent: i64,
+    /// Of those, replies being sent or written now.
+    #[serde(default)]
+    pub running: i64,
+    /// The account may export, import and delete its chats (an admin, or
+    /// the server's `chat` permissions allow it).
+    #[serde(default)]
+    pub can_export: bool,
+    #[serde(default)]
+    pub can_import: bool,
+    #[serde(default)]
+    pub can_delete: bool,
+}
+
+/// Params for `data.export`: the file the whole library is written to (an
+/// Open WebUI-compatible JSON array). Written only once every chat arrived;
+/// a failed or cut-off export leaves no file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DataExportRequest {
+    pub path: String,
+}
+
+/// Params for `data.import`: a backup file to send to the server.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DataImportRequest {
+    pub path: String,
+}
+
+/// Params for `data.deleteAll`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DataDeleteAll {
+    /// Discard edits and replies the server does not have yet; without it
+    /// their presence refuses the action (failure `pendingWork`).
+    #[serde(default)]
+    pub discard_unsent: bool,
+}
+
+/// Reply to the `data.*` actions. `failure` is null when the action did what
+/// it says, else core's reason, by name: for a backup or restore one of
+/// `ChatBackupFailure` (`malformedExport`, `notJson`, `notAList`,
+/// `emptyImport`, `fileTooLarge`, `unrecognizedChat`, `invalidField`,
+/// `cancelled`, `ownerChanged`), for the rest one of
+/// `ChatDataControlsFailure` (`forbidden`, `pendingWork`, `responseRunning`,
+/// `localWorkChanged`, `serverRefused`, `outcomeUnknown`, `ownerChanged`,
+/// `accountUnknown`), or `failed` for anything else.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DataActionResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+    /// Chats exported, imported, or changed on this computer.
+    #[serde(default)]
+    pub count: i64,
+    /// For an import: of `count`, those stored here already (the rest come
+    /// with the next sync).
+    #[serde(default)]
+    pub stored: i64,
+    /// For an import's preview: the messages in the file's chats.
+    #[serde(default)]
+    pub messages: i64,
+    /// The 0-based position of the chat a restore refused, when it names one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<i64>,
+}
+
+/// Reply to `data.connection`: the server's realtime socket, as core's
+/// `SocketHealth` reports it. `socket.health` says when it changed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionHealth {
+    /// An Open WebUI server's socket applies (none for Direct or Hermes).
+    #[serde(default)]
+    pub available: bool,
+    #[serde(default)]
+    pub connected: bool,
+    /// `websocket`, `polling` or `unknown`.
+    #[serde(default = "default_connection_health_transport")]
+    pub transport: String,
+    /// The last heartbeat's round trip, or null before one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<i64>,
+    /// `excellent`, `good`, `fair`, `poor` or `unknown`.
+    #[serde(default = "default_connection_health_quality")]
+    pub quality: String,
+    /// When the last heartbeat answered, in ms since the epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_heartbeat_ms: Option<i64>,
+    #[serde(default)]
+    pub reconnects: i64,
+    /// The transports the server allows; Settings offers a choice only when
+    /// it allows both.
+    #[serde(default = "default_connection_health_allow_polling")]
+    pub allow_polling: bool,
+    #[serde(default = "default_connection_health_allow_websocket")]
+    pub allow_websocket: bool,
+}
+
+impl Default for ConnectionHealth {
+    fn default() -> Self {
+        Self {
+            available: Default::default(),
+            connected: Default::default(),
+            transport: default_connection_health_transport(),
+            latency_ms: None,
+            quality: default_connection_health_quality(),
+            last_heartbeat_ms: None,
+            reconnects: Default::default(),
+            allow_polling: default_connection_health_allow_polling(),
+            allow_websocket: default_connection_health_allow_websocket(),
+        }
+    }
+}
+
+fn default_connection_health_transport() -> String {
+    "unknown".to_owned()
+}
+
+fn default_connection_health_quality() -> String {
+    "unknown".to_owned()
+}
+
+fn default_connection_health_allow_polling() -> bool {
+    true
+}
+
+fn default_connection_health_allow_websocket() -> bool {
+    true
+}
+
 /// Which kind of server a direct connection talks to.
 ///
 /// OpenRouter, Azure and LM Studio are OpenAI-compatible servers, not kinds
@@ -2515,6 +2665,69 @@ pub struct CancelledResult {
     pub cancelled: bool,
 }
 
+/// One of the account's memories on its Open WebUI server.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryDto {
+    pub id: String,
+    #[serde(default)]
+    pub content: String,
+    /// `user` (written by the user) or `context` (learned from chats), as
+    /// the server says it; null when the server predates the distinction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<String>,
+    /// A slash-separated path the server files it under, or null.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// When it last changed, in seconds since the epoch.
+    #[serde(default)]
+    pub updated_at: i64,
+}
+
+/// Reply to `memories.list` and every `memories.*` change: the memories,
+/// newest first, and whether the account uses them in chats.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryList {
+    /// Memory applies: an Open WebUI account is signed in.
+    #[serde(default)]
+    pub available: bool,
+    /// The account's own "Memory" setting (Open WebUI's `ui.memory`).
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub items: Vec<MemoryDto>,
+}
+
+/// Params for `memories.add` (no `id`) and `memories.update` (with one).
+/// `type` defaults to `user` for a new memory and is left alone on an
+/// edit when null; an empty `path` clears it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryEdit {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+/// Params for `memories.delete`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryRef {
+    pub id: String,
+}
+
+/// Params for `memories.setEnabled`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryToggle {
+    pub enabled: bool,
+}
+
 /// A model the active server offers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -2717,6 +2930,119 @@ pub struct DeletedResult {
     pub deleted: bool,
 }
 
+/// The signed-in Open WebUI account's profile, as Settings › Profile shows
+/// it. Reply to `profile.get` and the `profile.*` edits.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileDto {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub email: String,
+    /// `admin`, `user` or `pending`, as the server says it.
+    #[serde(default = "default_profile_dto_role")]
+    pub role: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    /// The photo as a `data:` URL, or null when the account shows its
+    /// initials (no photo, or the server's stock one).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bio: Option<String>,
+    /// `male`, `female`, or the user's own words; null when not said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gender: Option<String>,
+    /// `yyyy-MM-dd`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date_of_birth: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_emoji: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_message: Option<String>,
+    #[serde(default = "default_profile_dto_is_active")]
+    pub is_active: bool,
+    /// The server lets accounts change their password here (Open WebUI's
+    /// `enable_password_change_form`).
+    #[serde(default = "default_profile_dto_password_change_allowed")]
+    pub password_change_allowed: bool,
+}
+
+fn default_profile_dto_role() -> String {
+    "user".to_owned()
+}
+
+fn default_profile_dto_is_active() -> bool {
+    true
+}
+
+fn default_profile_dto_password_change_allowed() -> bool {
+    true
+}
+
+/// Params for `profile.update`: a null field is left alone, `clear` names
+/// the ones to empty (`bio`, `gender`, `dateOfBirth`). The name may not be
+/// empty.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileEdit {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bio: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gender: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date_of_birth: Option<String>,
+    #[serde(default)]
+    pub clear: Vec<String>,
+}
+
+/// Params for `profile.setImage`: an image file to use as the photo (scaled
+/// to fit 250 pt, as the phone sends it), or, with `initials`, a picture of
+/// the name's initials.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileImageEdit {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub initials: bool,
+}
+
+/// Params for `profile.changePassword`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PasswordChange {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+/// Reply to `profile.changePassword`. `failure` is null when the password
+/// changed (and, as on the phone, the account was signed out to sign in
+/// again with it), else `wrongPassword` (the current one did not match),
+/// `refused` (the server would not take the new one) or `failed`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PasswordChangeResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+}
+
+/// Params for `profile.signOutAll`: signs out of every saved Open WebUI
+/// account (the phone's "Sign Out of All Accounts"), each as Sign Out signs
+/// out of one: its chats on this computer go with it. Direct and Hermes
+/// connections stay; Settings › Data › Clear Local Data removes those too.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SignOutAll {
+    /// Stops an answer being written, which otherwise refuses the sign-out
+    /// (`blockedByActiveReply`).
+    #[serde(default)]
+    pub force: bool,
+}
+
 /// A saved prompt, as the `/` menu lists it.
 ///
 /// Without its content: the menu shows what a prompt is called, and the
@@ -2796,6 +3122,65 @@ pub struct RenderedPrompt {
     pub content: String,
     #[serde(default)]
     pub inputs: Vec<PromptInput>,
+}
+
+/// One version's release note, as core's catalog reads it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseNoteDto {
+    pub version: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub intro: String,
+    #[serde(default)]
+    pub bullets: Vec<ReleaseNoteBullet>,
+}
+
+/// A line of a release note, with core's icon name (`local`, `hermes`,
+/// `direct`, `polish`) or none.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseNoteBullet {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+}
+
+/// Params for `releaseNotes.check` and `releaseNotes.latest`.
+///
+/// The notes describe the app that shows them, so the app ships its own
+/// catalog and hands it over: `catalogs` maps a catalog name (`en`, `de`,
+/// `zh_Hant`) to its JSON document, in core's format. `languageCode`,
+/// `scriptCode` and `countryCode` pick one the way core's catalog does
+/// (most specific first, then English). `currentVersion` is the app's
+/// version; a pre-release or build suffix (`-beta.2`, `+5`) is ignored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseNotesQuery {
+    pub current_version: String,
+    pub language_code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub country_code: Option<String>,
+    #[serde(default)]
+    pub catalogs: BTreeMap<String, String>,
+}
+
+/// Reply to `releaseNotes.check` and `releaseNotes.latest`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseNotesState {
+    /// The version the notes were evaluated for, as core read it.
+    pub current_version: String,
+    /// The after-update banner shows: this launch is the first since an
+    /// update with notes, or the banner was not dismissed yet.
+    #[serde(default)]
+    pub banner: bool,
+    /// What the banner or the Release Notes sheet shows, oldest first.
+    #[serde(default)]
+    pub notes: Vec<ReleaseNoteDto>,
 }
 
 /// A configured server, as the renderer is allowed to see it.
@@ -3033,6 +3418,372 @@ pub struct AppPreferencesPatch {
     pub locale_code: Option<String>,
     #[serde(default)]
     pub clear_locale_code: bool,
+}
+
+/// The Direct connection that speaks and listens for Direct and Apple chats
+/// (core's `DirectVoiceProviderSettings`, Settings › Voice Provider).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectVoiceProviderDto {
+    /// The Direct connection's id.
+    pub profile_id: String,
+    /// The speech-to-text model, as for `POST audio/transcriptions`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcription_model: Option<String>,
+    /// The text-to-speech model, as for `POST audio/speech`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speech_model: Option<String>,
+    /// The voice `speechModel` speaks with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speech_voice: Option<String>,
+    /// The model a realtime call talks to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub realtime_model: Option<String>,
+    /// The voice `realtimeModel` speaks with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub realtime_voice: Option<String>,
+    /// Instructions that replace Conduit's own for a realtime call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub realtime_instructions: Option<String>,
+}
+
+/// The settings core keeps in `AppSettings` that the phone's Settings pages
+/// expose (Chats, Personalization, Data & Connection, Audio, Voice
+/// Provider), named as core names them so a host reads them by the same
+/// names. Reply to `settings.get` and `settings.set`. `settings.changed`
+/// carries no payload: read them again with `settings.get`.
+///
+/// The enumerations are core's enum names as strings: `voiceCallMode` is
+/// `auto` or `standard`, `sttPreference` `deviceOnly` or `serverOnly`,
+/// `ttsEngine` `device` or `server`, `socketTransportMode` `ws` or
+/// `polling`. Defaults are core's.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettingsDto {
+    /// The chat's Computer (Open Terminal's screen) is offered.
+    #[serde(default = "default_app_settings_dto_computer_enabled")]
+    pub computer_enabled: bool,
+    /// The composer's one-tap toggles: `web`, `image`, and tool or filter
+    /// ids.
+    #[serde(default)]
+    pub quick_pills: Vec<String>,
+    /// The message actions shown inline, in order; null keeps the default
+    /// layout, and an empty list puts every action in More.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline_message_actions: Option<Vec<String>>,
+    #[serde(default)]
+    pub send_on_enter: bool,
+    /// The composer's Save as Note button shows.
+    #[serde(default = "default_app_settings_dto_show_composer_notes_button")]
+    pub show_composer_notes_button: bool,
+    #[serde(default)]
+    pub temporary_chat_by_default: bool,
+    /// Inline citations show the source's title, not only its number.
+    #[serde(default)]
+    pub citation_show_titles: bool,
+    /// Inline citations sit on a filled badge.
+    #[serde(default = "default_app_settings_dto_citation_background")]
+    pub citation_background: bool,
+    /// Shows the Advanced settings (Chat Data Controls and the rest).
+    #[serde(default)]
+    pub advanced_features_enabled: bool,
+    /// The model new chats start with; null picks one automatically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<String>,
+    /// The model OpenRouter generates images with; null is the default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_router_image_generation_model: Option<String>,
+    #[serde(default = "default_app_settings_dto_socket_transport_mode")]
+    pub socket_transport_mode: String,
+    #[serde(default = "default_app_settings_dto_voice_call_mode")]
+    pub voice_call_mode: String,
+    #[serde(default = "default_app_settings_dto_stt_preference")]
+    pub stt_preference: String,
+    /// The device recognizer's language (`en_US`), or null for the
+    /// system's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_locale_id: Option<String>,
+    /// The language the server transcribes, or null to let it guess.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stt_language_code: Option<String>,
+    /// How long a pause ends dictation, in milliseconds.
+    #[serde(default = "default_app_settings_dto_voice_silence_duration")]
+    pub voice_silence_duration: i64,
+    #[serde(default)]
+    pub voice_barge_in_enabled: bool,
+    #[serde(default = "default_app_settings_dto_tts_engine")]
+    pub tts_engine: String,
+    /// The device voice, by identifier and name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tts_voice: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tts_voice_name: Option<String>,
+    /// The server voice, by id and name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tts_server_voice_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tts_server_voice_name: Option<String>,
+    /// One of core's `ttsSpeedPresets`.
+    #[serde(default = "default_app_settings_dto_tts_speed")]
+    pub tts_speed: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_voice_provider: Option<DirectVoiceProviderDto>,
+    /// Every message action, by id, in the order Settings lists them
+    /// (core's catalog: `copy`, `tts`, `regenerate`, ...). Not a setting.
+    #[serde(default)]
+    pub message_actions: Vec<String>,
+    /// What `inlineMessageActions` means while it is null (Automatic).
+    #[serde(default)]
+    pub default_inline_message_actions: Vec<String>,
+}
+
+impl Default for AppSettingsDto {
+    fn default() -> Self {
+        Self {
+            computer_enabled: default_app_settings_dto_computer_enabled(),
+            quick_pills: Default::default(),
+            inline_message_actions: None,
+            send_on_enter: Default::default(),
+            show_composer_notes_button: default_app_settings_dto_show_composer_notes_button(),
+            temporary_chat_by_default: Default::default(),
+            citation_show_titles: Default::default(),
+            citation_background: default_app_settings_dto_citation_background(),
+            advanced_features_enabled: Default::default(),
+            default_model: None,
+            open_router_image_generation_model: None,
+            socket_transport_mode: default_app_settings_dto_socket_transport_mode(),
+            voice_call_mode: default_app_settings_dto_voice_call_mode(),
+            stt_preference: default_app_settings_dto_stt_preference(),
+            voice_locale_id: None,
+            stt_language_code: None,
+            voice_silence_duration: default_app_settings_dto_voice_silence_duration(),
+            voice_barge_in_enabled: Default::default(),
+            tts_engine: default_app_settings_dto_tts_engine(),
+            tts_voice: None,
+            tts_voice_name: None,
+            tts_server_voice_id: None,
+            tts_server_voice_name: None,
+            tts_speed: default_app_settings_dto_tts_speed(),
+            direct_voice_provider: None,
+            message_actions: Default::default(),
+            default_inline_message_actions: Default::default(),
+        }
+    }
+}
+
+fn default_app_settings_dto_computer_enabled() -> bool {
+    true
+}
+
+fn default_app_settings_dto_show_composer_notes_button() -> bool {
+    true
+}
+
+fn default_app_settings_dto_citation_background() -> bool {
+    true
+}
+
+fn default_app_settings_dto_socket_transport_mode() -> String {
+    "ws".to_owned()
+}
+
+fn default_app_settings_dto_voice_call_mode() -> String {
+    "auto".to_owned()
+}
+
+fn default_app_settings_dto_stt_preference() -> String {
+    "deviceOnly".to_owned()
+}
+
+fn default_app_settings_dto_voice_silence_duration() -> i64 {
+    2000
+}
+
+fn default_app_settings_dto_tts_engine() -> String {
+    "device".to_owned()
+}
+
+fn default_app_settings_dto_tts_speed() -> f64 {
+    1.0
+}
+
+/// Params for `settings.set`: a null field is left alone, and `clear`
+/// names the nullable fields to set back to null (`defaultModel` picks a
+/// model automatically again, `inlineMessageActions` restores the default
+/// layout). A field both set and cleared is cleared.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettingsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub computer_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quick_pills: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline_message_actions: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_on_enter: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_composer_notes_button: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temporary_chat_by_default: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub citation_show_titles: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub citation_background: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub advanced_features_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_router_image_generation_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub socket_transport_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_call_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stt_preference: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_locale_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stt_language_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_silence_duration: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_barge_in_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tts_engine: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tts_voice: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tts_voice_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tts_server_voice_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tts_server_voice_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tts_speed: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_voice_provider: Option<DirectVoiceProviderDto>,
+    /// `AppSettingsDto` field names to set back to null.
+    #[serde(default)]
+    pub clear: Vec<String>,
+}
+
+/// The signed-in Open WebUI account's own settings that Settings shows, kept
+/// on its server: "Your system prompt" (Open WebUI's `ui.system`). Reply to
+/// `settings.getAccount` and `settings.setAccount`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountSettingsDto {
+    /// An Open WebUI account is signed in, so these apply.
+    #[serde(default)]
+    pub available: bool,
+    /// Sent before every chat's own system prompt; null for none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
+}
+
+/// Params for `settings.setAccount`. An empty `systemPrompt` removes it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountSettingsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
+}
+
+/// Params for `settings.modelPrompt`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelPromptRef {
+    pub model_id: String,
+}
+
+/// A model's own system prompt on the server (Settings › Chats › Prompt
+/// Overrides). Reply to `settings.modelPrompt` and `settings.setModelPrompt`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelPrompt {
+    pub model_id: String,
+    /// The server has a record for the model to hold a prompt (a base model
+    /// with no saved settings has none).
+    #[serde(default)]
+    pub editable: bool,
+    /// This account may change it.
+    #[serde(default)]
+    pub writable: bool,
+    #[serde(default)]
+    pub prompt: String,
+}
+
+/// Params for `settings.setModelPrompt`. An empty `prompt` removes it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelPromptEdit {
+    pub model_id: String,
+    #[serde(default)]
+    pub prompt: String,
+}
+
+/// One of the composer's quick pills Settings › Chats can turn on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickPillOption {
+    /// `web`, `image`, a tool id, or `filter:<id>`.
+    pub id: String,
+    /// `web`, `image`, `tool` or `filter`.
+    pub kind: String,
+    /// The tool's or filter's name (empty for `web` and `image`, which the
+    /// window names itself).
+    #[serde(default)]
+    pub name: String,
+}
+
+/// Reply to `settings.quickPills`: the pills on offer, in core's order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickPillOptions {
+    #[serde(default)]
+    pub options: Vec<QuickPillOption>,
+}
+
+/// A Direct connection the Voice Provider can use.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceProviderOption {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+/// Reply to `settings.voiceProviders`: the Direct connections that can speak
+/// and listen (usable, OpenAI-compatible).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceProviderOptions {
+    #[serde(default)]
+    pub connections: Vec<VoiceProviderOption>,
+}
+
+/// Reply to `settings.about`: About's server rows and Conduit's links.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AboutInfo {
+    /// An Open WebUI server is signed in to, so its rows apply.
+    #[serde(default)]
+    pub server: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_version: Option<String>,
+    /// The newest version the server's maker has released, when it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_version: Option<String>,
+    #[serde(default)]
+    pub repository_url: String,
+    #[serde(default)]
+    pub buy_me_a_coffee_url: String,
+    #[serde(default)]
+    pub github_sponsors_url: String,
 }
 
 /// Reply to `system.ping`.
@@ -5149,6 +5900,395 @@ pub mod methods {
         type Result = super::AppPreferences;
     }
 
+    /// Core's `AppSettings` (the Chats, Personalization, Data & Connection,
+    /// Audio and Voice Provider settings); `settings.changed` follows them.
+    ///
+    /// `settings.get`: no params -> AppSettingsDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SettingsGet;
+
+    impl RpcMethod for SettingsGet {
+        const NAME: &'static str = "settings.get";
+        type Params = NoParams;
+        type Result = super::AppSettingsDto;
+    }
+
+    /// Patches them; null fields keep their value, `clear` resets nullable
+    /// ones.
+    ///
+    /// `settings.set`: AppSettingsPatch -> AppSettingsDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SettingsSet;
+
+    impl RpcMethod for SettingsSet {
+        const NAME: &'static str = "settings.set";
+        type Params = super::AppSettingsPatch;
+        type Result = super::AppSettingsDto;
+    }
+
+    /// The Open WebUI account's own settings kept on its server ("Your system
+    /// prompt").
+    ///
+    /// `settings.getAccount`: no params -> AccountSettingsDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SettingsGetAccount;
+
+    impl RpcMethod for SettingsGetAccount {
+        const NAME: &'static str = "settings.getAccount";
+        type Params = NoParams;
+        type Result = super::AccountSettingsDto;
+    }
+
+    /// `settings.setAccount`: AccountSettingsPatch -> AccountSettingsDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SettingsSetAccount;
+
+    impl RpcMethod for SettingsSetAccount {
+        const NAME: &'static str = "settings.setAccount";
+        type Params = super::AccountSettingsPatch;
+        type Result = super::AccountSettingsDto;
+    }
+
+    /// A model's own system prompt on the server (Prompt Overrides).
+    ///
+    /// `settings.modelPrompt`: ModelPromptRef -> ModelPrompt.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SettingsModelPrompt;
+
+    impl RpcMethod for SettingsModelPrompt {
+        const NAME: &'static str = "settings.modelPrompt";
+        type Params = super::ModelPromptRef;
+        type Result = super::ModelPrompt;
+    }
+
+    /// `settings.setModelPrompt`: ModelPromptEdit -> ModelPrompt.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SettingsSetModelPrompt;
+
+    impl RpcMethod for SettingsSetModelPrompt {
+        const NAME: &'static str = "settings.setModelPrompt";
+        type Params = super::ModelPromptEdit;
+        type Result = super::ModelPrompt;
+    }
+
+    /// The quick pills Settings › Chats offers.
+    ///
+    /// `settings.quickPills`: no params -> QuickPillOptions.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SettingsQuickPills;
+
+    impl RpcMethod for SettingsQuickPills {
+        const NAME: &'static str = "settings.quickPills";
+        type Params = NoParams;
+        type Result = super::QuickPillOptions;
+    }
+
+    /// The Direct connections the Voice Provider can use.
+    ///
+    /// `settings.voiceProviders`: no params -> VoiceProviderOptions.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SettingsVoiceProviders;
+
+    impl RpcMethod for SettingsVoiceProviders {
+        const NAME: &'static str = "settings.voiceProviders";
+        type Params = NoParams;
+        type Result = super::VoiceProviderOptions;
+    }
+
+    /// About's server rows and Conduit's links.
+    ///
+    /// `settings.about`: no params -> AboutInfo.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct SettingsAbout;
+
+    impl RpcMethod for SettingsAbout {
+        const NAME: &'static str = "settings.about";
+        type Params = NoParams;
+        type Result = super::AboutInfo;
+    }
+
+    /// `profile.get`: no params -> ProfileDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ProfileGet;
+
+    impl RpcMethod for ProfileGet {
+        const NAME: &'static str = "profile.get";
+        type Params = NoParams;
+        type Result = super::ProfileDto;
+    }
+
+    /// Name, bio, gender and birth date.
+    ///
+    /// `profile.update`: ProfileEdit -> ProfileDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ProfileUpdate;
+
+    impl RpcMethod for ProfileUpdate {
+        const NAME: &'static str = "profile.update";
+        type Params = super::ProfileEdit;
+        type Result = super::ProfileDto;
+    }
+
+    /// Uses an image file as the photo.
+    ///
+    /// `profile.setImage`: ProfileImageEdit -> ProfileDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ProfileSetImage;
+
+    impl RpcMethod for ProfileSetImage {
+        const NAME: &'static str = "profile.setImage";
+        type Params = super::ProfileImageEdit;
+        type Result = super::ProfileDto;
+    }
+
+    /// Removes the photo (the initials show).
+    ///
+    /// `profile.removeImage`: no params -> ProfileDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ProfileRemoveImage;
+
+    impl RpcMethod for ProfileRemoveImage {
+        const NAME: &'static str = "profile.removeImage";
+        type Params = NoParams;
+        type Result = super::ProfileDto;
+    }
+
+    /// `profile.changePassword`: PasswordChange -> PasswordChangeResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ProfileChangePassword;
+
+    impl RpcMethod for ProfileChangePassword {
+        const NAME: &'static str = "profile.changePassword";
+        type Params = super::PasswordChange;
+        type Result = super::PasswordChangeResult;
+    }
+
+    /// Signs out of every account (Settings' "Sign Out of All Accounts").
+    ///
+    /// `profile.signOutAll`: SignOutAll -> AccountChangeResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ProfileSignOutAll;
+
+    impl RpcMethod for ProfileSignOutAll {
+        const NAME: &'static str = "profile.signOutAll";
+        type Params = super::SignOutAll;
+        type Result = super::AccountChangeResult;
+    }
+
+    /// `memories.list`: no params -> MemoryList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct MemoriesList;
+
+    impl RpcMethod for MemoriesList {
+        const NAME: &'static str = "memories.list";
+        type Params = NoParams;
+        type Result = super::MemoryList;
+    }
+
+    /// `memories.add`: MemoryEdit -> MemoryList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct MemoriesAdd;
+
+    impl RpcMethod for MemoriesAdd {
+        const NAME: &'static str = "memories.add";
+        type Params = super::MemoryEdit;
+        type Result = super::MemoryList;
+    }
+
+    /// `memories.update`: MemoryEdit -> MemoryList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct MemoriesUpdate;
+
+    impl RpcMethod for MemoriesUpdate {
+        const NAME: &'static str = "memories.update";
+        type Params = super::MemoryEdit;
+        type Result = super::MemoryList;
+    }
+
+    /// `memories.delete`: MemoryRef -> MemoryList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct MemoriesDelete;
+
+    impl RpcMethod for MemoriesDelete {
+        const NAME: &'static str = "memories.delete";
+        type Params = super::MemoryRef;
+        type Result = super::MemoryList;
+    }
+
+    /// Deletes every memory.
+    ///
+    /// `memories.clear`: no params -> MemoryList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct MemoriesClear;
+
+    impl RpcMethod for MemoriesClear {
+        const NAME: &'static str = "memories.clear";
+        type Params = NoParams;
+        type Result = super::MemoryList;
+    }
+
+    /// The account's "Memory" setting.
+    ///
+    /// `memories.setEnabled`: MemoryToggle -> MemoryList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct MemoriesSetEnabled;
+
+    impl RpcMethod for MemoriesSetEnabled {
+        const NAME: &'static str = "memories.setEnabled";
+        type Params = super::MemoryToggle;
+        type Result = super::MemoryList;
+    }
+
+    /// At launch: whether the after-update banner shows, and its notes. Marks
+    /// the version seen.
+    ///
+    /// `releaseNotes.check`: ReleaseNotesQuery -> ReleaseNotesState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ReleaseNotesCheck;
+
+    impl RpcMethod for ReleaseNotesCheck {
+        const NAME: &'static str = "releaseNotes.check";
+        type Params = super::ReleaseNotesQuery;
+        type Result = super::ReleaseNotesState;
+    }
+
+    /// The notes About › Release Notes shows: the newest at or before this
+    /// version.
+    ///
+    /// `releaseNotes.latest`: ReleaseNotesQuery -> ReleaseNotesState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ReleaseNotesLatest;
+
+    impl RpcMethod for ReleaseNotesLatest {
+        const NAME: &'static str = "releaseNotes.latest";
+        type Params = super::ReleaseNotesQuery;
+        type Result = super::ReleaseNotesState;
+    }
+
+    /// Dismisses the banner for this update.
+    ///
+    /// `releaseNotes.dismiss`: no params -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ReleaseNotesDismiss;
+
+    impl RpcMethod for ReleaseNotesDismiss {
+        const NAME: &'static str = "releaseNotes.dismiss";
+        type Params = NoParams;
+        type Result = super::OkResult;
+    }
+
+    /// What the server-wide actions reach: local-only and unsent chats.
+    ///
+    /// `data.summary`: no params -> ChatDataSummary.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DataSummary;
+
+    impl RpcMethod for DataSummary {
+        const NAME: &'static str = "data.summary";
+        type Params = NoParams;
+        type Result = super::ChatDataSummary;
+    }
+
+    /// Writes the whole library to a file (Open WebUI-compatible JSON).
+    ///
+    /// `data.export`: DataExportRequest -> DataActionResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DataExport;
+
+    impl RpcMethod for DataExport {
+        const NAME: &'static str = "data.export";
+        type Params = super::DataExportRequest;
+        type Result = super::DataActionResult;
+    }
+
+    /// Reads a backup file and counts its chats and messages, sending nothing.
+    ///
+    /// `data.previewImport`: DataImportRequest -> DataActionResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DataPreviewImport;
+
+    impl RpcMethod for DataPreviewImport {
+        const NAME: &'static str = "data.previewImport";
+        type Params = super::DataImportRequest;
+        type Result = super::DataActionResult;
+    }
+
+    /// Sends a backup file's chats to the server.
+    ///
+    /// `data.import`: DataImportRequest -> DataActionResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DataImport;
+
+    impl RpcMethod for DataImport {
+        const NAME: &'static str = "data.import";
+        type Params = super::DataImportRequest;
+        type Result = super::DataActionResult;
+    }
+
+    /// Sends what this computer has that the server lacks, then pulls.
+    ///
+    /// `data.sync`: no params -> ChatDataSummary.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DataSync;
+
+    impl RpcMethod for DataSync {
+        const NAME: &'static str = "data.sync";
+        type Params = NoParams;
+        type Result = super::ChatDataSummary;
+    }
+
+    /// `data.archiveAll`: no params -> DataActionResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DataArchiveAll;
+
+    impl RpcMethod for DataArchiveAll {
+        const NAME: &'static str = "data.archiveAll";
+        type Params = NoParams;
+        type Result = super::DataActionResult;
+    }
+
+    /// `data.unarchiveAll`: no params -> DataActionResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DataUnarchiveAll;
+
+    impl RpcMethod for DataUnarchiveAll {
+        const NAME: &'static str = "data.unarchiveAll";
+        type Params = NoParams;
+        type Result = super::DataActionResult;
+    }
+
+    /// `data.unshareAll`: no params -> DataActionResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DataUnshareAll;
+
+    impl RpcMethod for DataUnshareAll {
+        const NAME: &'static str = "data.unshareAll";
+        type Params = NoParams;
+        type Result = super::DataActionResult;
+    }
+
+    /// `data.deleteAll`: DataDeleteAll -> DataActionResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DataDeleteAll;
+
+    impl RpcMethod for DataDeleteAll {
+        const NAME: &'static str = "data.deleteAll";
+        type Params = super::DataDeleteAll;
+        type Result = super::DataActionResult;
+    }
+
+    /// The realtime socket's health; `socket.health` says when it changed.
+    ///
+    /// `data.connection`: no params -> ConnectionHealth.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DataConnection;
+
+    impl RpcMethod for DataConnection {
+        const NAME: &'static str = "data.connection";
+        type Params = NoParams;
+        type Result = super::ConnectionHealth;
+    }
+
     /// The first page of conversations, plus the archived count.
     ///
     /// `chats.list`: no params -> ChatList.
@@ -6909,6 +8049,176 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("AppPreferences"),
     },
     MethodSpec {
+        name: "settings.get",
+        params: None,
+        result: Some("AppSettingsDto"),
+    },
+    MethodSpec {
+        name: "settings.set",
+        params: Some("AppSettingsPatch"),
+        result: Some("AppSettingsDto"),
+    },
+    MethodSpec {
+        name: "settings.getAccount",
+        params: None,
+        result: Some("AccountSettingsDto"),
+    },
+    MethodSpec {
+        name: "settings.setAccount",
+        params: Some("AccountSettingsPatch"),
+        result: Some("AccountSettingsDto"),
+    },
+    MethodSpec {
+        name: "settings.modelPrompt",
+        params: Some("ModelPromptRef"),
+        result: Some("ModelPrompt"),
+    },
+    MethodSpec {
+        name: "settings.setModelPrompt",
+        params: Some("ModelPromptEdit"),
+        result: Some("ModelPrompt"),
+    },
+    MethodSpec {
+        name: "settings.quickPills",
+        params: None,
+        result: Some("QuickPillOptions"),
+    },
+    MethodSpec {
+        name: "settings.voiceProviders",
+        params: None,
+        result: Some("VoiceProviderOptions"),
+    },
+    MethodSpec {
+        name: "settings.about",
+        params: None,
+        result: Some("AboutInfo"),
+    },
+    MethodSpec {
+        name: "profile.get",
+        params: None,
+        result: Some("ProfileDto"),
+    },
+    MethodSpec {
+        name: "profile.update",
+        params: Some("ProfileEdit"),
+        result: Some("ProfileDto"),
+    },
+    MethodSpec {
+        name: "profile.setImage",
+        params: Some("ProfileImageEdit"),
+        result: Some("ProfileDto"),
+    },
+    MethodSpec {
+        name: "profile.removeImage",
+        params: None,
+        result: Some("ProfileDto"),
+    },
+    MethodSpec {
+        name: "profile.changePassword",
+        params: Some("PasswordChange"),
+        result: Some("PasswordChangeResult"),
+    },
+    MethodSpec {
+        name: "profile.signOutAll",
+        params: Some("SignOutAll"),
+        result: Some("AccountChangeResult"),
+    },
+    MethodSpec {
+        name: "memories.list",
+        params: None,
+        result: Some("MemoryList"),
+    },
+    MethodSpec {
+        name: "memories.add",
+        params: Some("MemoryEdit"),
+        result: Some("MemoryList"),
+    },
+    MethodSpec {
+        name: "memories.update",
+        params: Some("MemoryEdit"),
+        result: Some("MemoryList"),
+    },
+    MethodSpec {
+        name: "memories.delete",
+        params: Some("MemoryRef"),
+        result: Some("MemoryList"),
+    },
+    MethodSpec {
+        name: "memories.clear",
+        params: None,
+        result: Some("MemoryList"),
+    },
+    MethodSpec {
+        name: "memories.setEnabled",
+        params: Some("MemoryToggle"),
+        result: Some("MemoryList"),
+    },
+    MethodSpec {
+        name: "releaseNotes.check",
+        params: Some("ReleaseNotesQuery"),
+        result: Some("ReleaseNotesState"),
+    },
+    MethodSpec {
+        name: "releaseNotes.latest",
+        params: Some("ReleaseNotesQuery"),
+        result: Some("ReleaseNotesState"),
+    },
+    MethodSpec {
+        name: "releaseNotes.dismiss",
+        params: None,
+        result: Some("OkResult"),
+    },
+    MethodSpec {
+        name: "data.summary",
+        params: None,
+        result: Some("ChatDataSummary"),
+    },
+    MethodSpec {
+        name: "data.export",
+        params: Some("DataExportRequest"),
+        result: Some("DataActionResult"),
+    },
+    MethodSpec {
+        name: "data.previewImport",
+        params: Some("DataImportRequest"),
+        result: Some("DataActionResult"),
+    },
+    MethodSpec {
+        name: "data.import",
+        params: Some("DataImportRequest"),
+        result: Some("DataActionResult"),
+    },
+    MethodSpec {
+        name: "data.sync",
+        params: None,
+        result: Some("ChatDataSummary"),
+    },
+    MethodSpec {
+        name: "data.archiveAll",
+        params: None,
+        result: Some("DataActionResult"),
+    },
+    MethodSpec {
+        name: "data.unarchiveAll",
+        params: None,
+        result: Some("DataActionResult"),
+    },
+    MethodSpec {
+        name: "data.unshareAll",
+        params: None,
+        result: Some("DataActionResult"),
+    },
+    MethodSpec {
+        name: "data.deleteAll",
+        params: Some("DataDeleteAll"),
+        result: Some("DataActionResult"),
+    },
+    MethodSpec {
+        name: "data.connection",
+        params: None,
+        result: Some("ConnectionHealth"),
+    },
+    MethodSpec {
         name: "chats.list",
         params: None,
         result: Some("ChatList"),
@@ -7622,6 +8932,9 @@ pub mod events {
     /// unread count. No payload.
     pub const CHANNELS_CHANGED: &str = "channels.changed";
     pub const SYNC_STATUS: &str = "sync.status";
+    /// The realtime socket's health changed (connected, transport, latency,
+    /// reconnects). No payload; `data.connection` says what it is now.
+    ///
     /// Reserved; not published yet.
     pub const SOCKET_HEALTH: &str = "socket.health";
     /// Ask the shell to raise an OS notification.
@@ -7662,6 +8975,9 @@ pub mod events {
     /// A model's tool asked to show a file from the chat's terminal. Payload
     /// `TerminalDisplayFile`, scoped to the chat.
     pub const TERMINAL_DISPLAY_FILE: &str = "terminal.displayFile";
+    /// Core's `AppSettings` changed, from any window or the daemon itself.
+    /// No payload; `settings.get` says what they are now.
+    pub const SETTINGS_CHANGED: &str = "settings.changed";
 }
 
 /// Every event, with its payload DTO by name and whether it is scoped.
@@ -7791,6 +9107,11 @@ pub const EVENTS: &[EventSpec] = &[
         payload: Some("TerminalDisplayFile"),
         scoped: true,
     },
+    EventSpec {
+        name: "settings.changed",
+        payload: None,
+        scoped: false,
+    },
 ];
 
 /// An event the daemon pushed, decoded from its envelope by name.
@@ -7842,6 +9163,9 @@ pub enum Event {
     ChannelsChanged,
     /// `sync.status`.
     SyncStatus(SyncState),
+    /// The realtime socket's health changed (connected, transport, latency,
+    /// reconnects). No payload; `data.connection` says what it is now.
+    ///
     /// Reserved; not published yet.
     ///
     /// `socket.health`.
@@ -7906,6 +9230,11 @@ pub enum Event {
     ///
     /// `terminal.displayFile`, scoped.
     TerminalDisplayFile(TerminalDisplayFile),
+    /// Core's `AppSettings` changed, from any window or the daemon itself.
+    /// No payload; `settings.get` says what they are now.
+    ///
+    /// `settings.changed`.
+    SettingsChanged,
     /// An event this build does not know, from a newer daemon, kept as it came.
     Unknown {
         name: String,
@@ -7948,6 +9277,7 @@ impl Event {
             events::TERMINAL_DISPLAY_FILE => {
                 Self::TerminalDisplayFile(serde_json::from_value(payload)?)
             }
+            events::SETTINGS_CHANGED => Self::SettingsChanged,
             _ => Self::Unknown {
                 name: name.to_owned(),
                 payload,
@@ -7983,6 +9313,7 @@ impl Event {
             Self::HermesChanged => events::HERMES_CHANGED,
             Self::VoiceChanged(_) => events::VOICE_CHANGED,
             Self::TerminalDisplayFile(_) => events::TERMINAL_DISPLAY_FILE,
+            Self::SettingsChanged => events::SETTINGS_CHANGED,
             Self::Unknown { name, .. } => name,
         }
     }
@@ -8014,7 +9345,8 @@ impl Event {
             | Self::SocketHealth
             | Self::CapabilitiesChanged
             | Self::ModelsChanged
-            | Self::HermesChanged => Ok(serde_json::Value::Object(serde_json::Map::new())),
+            | Self::HermesChanged
+            | Self::SettingsChanged => Ok(serde_json::Value::Object(serde_json::Map::new())),
             Self::Unknown { payload, .. } => Ok(payload.clone()),
         }
     }
@@ -8031,10 +9363,13 @@ impl Event {
 pub mod conformance {
     /// Every DTO's name.
     pub const TYPE_NAMES: &[&str] = &[
+        "AboutInfo",
         "AcceptedResult",
         "AccountChangeResult",
         "AccountList",
         "AccountRef",
+        "AccountSettingsDto",
+        "AccountSettingsPatch",
         "AccountSignOut",
         "AccountSummary",
         "AccountUser",
@@ -8043,6 +9378,8 @@ pub mod conformance {
         "ApiKeyLogin",
         "AppPreferences",
         "AppPreferencesPatch",
+        "AppSettingsDto",
+        "AppSettingsPatch",
         "ArchivedVisibility",
         "AuthSnapshot",
         "AuthUser",
@@ -8069,6 +9406,7 @@ pub mod conformance {
         "ChannelTypingUsers",
         "ChannelUser",
         "ChatCurrent",
+        "ChatDataSummary",
         "ChatDetail",
         "ChatFileDto",
         "ChatList",
@@ -8089,8 +9427,13 @@ pub mod conformance {
         "ChatUsageDto",
         "ChatsChanged",
         "ComposerOptions",
+        "ConnectionHealth",
         "CreateFolder",
         "DaemonPaths",
+        "DataActionResult",
+        "DataDeleteAll",
+        "DataExportRequest",
+        "DataImportRequest",
         "DeletedResult",
         "DiagnosticsExport",
         "DirectConnectionEdit",
@@ -8101,6 +9444,7 @@ pub mod conformance {
         "DirectPreferred",
         "DirectRef",
         "DirectTestResult",
+        "DirectVoiceProviderDto",
         "EditTurn",
         "EventEnvelope",
         "EventSubscription",
@@ -8146,9 +9490,17 @@ pub mod conformance {
         "McpServerList",
         "McpServerSummary",
         "McpTestResult",
+        "MemoryDto",
+        "MemoryEdit",
+        "MemoryList",
+        "MemoryRef",
+        "MemoryToggle",
         "MessageBlockDto",
         "MessageStatusDto",
         "ModelList",
+        "ModelPrompt",
+        "ModelPromptEdit",
+        "ModelPromptRef",
         "ModelSummary",
         "MoveChat",
         "NetworkReport",
@@ -8173,14 +9525,25 @@ pub mod conformance {
         "OllamaModelList",
         "OllamaModelStatus",
         "OpenUrl",
+        "PasswordChange",
+        "PasswordChangeResult",
         "PasswordLogin",
         "PongResult",
+        "ProfileDto",
+        "ProfileEdit",
+        "ProfileImageEdit",
         "PromptInput",
         "PromptList",
         "PromptSummary",
+        "QuickPillOption",
+        "QuickPillOptions",
         "RateTurn",
         "RatedResult",
         "RegenerateTurn",
+        "ReleaseNoteBullet",
+        "ReleaseNoteDto",
+        "ReleaseNotesQuery",
+        "ReleaseNotesState",
         "RenameChat",
         "RenameFolder",
         "RenderPrompt",
@@ -8197,6 +9560,7 @@ pub mod conformance {
         "ServerSummary",
         "SetChatFlag",
         "ShutdownResult",
+        "SignOutAll",
         "StopTurn",
         "StoppedResult",
         "SyncState",
@@ -8236,6 +9600,8 @@ pub mod conformance {
         "VoiceModelRef",
         "VoiceModels",
         "VoiceOption",
+        "VoiceProviderOption",
+        "VoiceProviderOptions",
         "VoiceSettings",
         "VoiceSettingsEdit",
         "VoiceSpeak",
@@ -8299,10 +9665,13 @@ pub mod conformance {
         }
 
         Some(match type_name {
+            "AboutInfo" => roundtrip::<super::AboutInfo>(json),
             "AcceptedResult" => roundtrip::<super::AcceptedResult>(json),
             "AccountChangeResult" => roundtrip::<super::AccountChangeResult>(json),
             "AccountList" => roundtrip::<super::AccountList>(json),
             "AccountRef" => roundtrip::<super::AccountRef>(json),
+            "AccountSettingsDto" => roundtrip::<super::AccountSettingsDto>(json),
+            "AccountSettingsPatch" => roundtrip::<super::AccountSettingsPatch>(json),
             "AccountSignOut" => roundtrip::<super::AccountSignOut>(json),
             "AccountSummary" => roundtrip::<super::AccountSummary>(json),
             "AccountUser" => roundtrip::<super::AccountUser>(json),
@@ -8311,6 +9680,8 @@ pub mod conformance {
             "ApiKeyLogin" => roundtrip::<super::ApiKeyLogin>(json),
             "AppPreferences" => roundtrip::<super::AppPreferences>(json),
             "AppPreferencesPatch" => roundtrip::<super::AppPreferencesPatch>(json),
+            "AppSettingsDto" => roundtrip::<super::AppSettingsDto>(json),
+            "AppSettingsPatch" => roundtrip::<super::AppSettingsPatch>(json),
             "ArchivedVisibility" => roundtrip::<super::ArchivedVisibility>(json),
             "AuthSnapshot" => roundtrip::<super::AuthSnapshot>(json),
             "AuthUser" => roundtrip::<super::AuthUser>(json),
@@ -8337,6 +9708,7 @@ pub mod conformance {
             "ChannelTypingUsers" => roundtrip::<super::ChannelTypingUsers>(json),
             "ChannelUser" => roundtrip::<super::ChannelUser>(json),
             "ChatCurrent" => roundtrip::<super::ChatCurrent>(json),
+            "ChatDataSummary" => roundtrip::<super::ChatDataSummary>(json),
             "ChatDetail" => roundtrip::<super::ChatDetail>(json),
             "ChatFileDto" => roundtrip::<super::ChatFileDto>(json),
             "ChatList" => roundtrip::<super::ChatList>(json),
@@ -8357,8 +9729,13 @@ pub mod conformance {
             "ChatUsageDto" => roundtrip::<super::ChatUsageDto>(json),
             "ChatsChanged" => roundtrip::<super::ChatsChanged>(json),
             "ComposerOptions" => roundtrip::<super::ComposerOptions>(json),
+            "ConnectionHealth" => roundtrip::<super::ConnectionHealth>(json),
             "CreateFolder" => roundtrip::<super::CreateFolder>(json),
             "DaemonPaths" => roundtrip::<super::DaemonPaths>(json),
+            "DataActionResult" => roundtrip::<super::DataActionResult>(json),
+            "DataDeleteAll" => roundtrip::<super::DataDeleteAll>(json),
+            "DataExportRequest" => roundtrip::<super::DataExportRequest>(json),
+            "DataImportRequest" => roundtrip::<super::DataImportRequest>(json),
             "DeletedResult" => roundtrip::<super::DeletedResult>(json),
             "DiagnosticsExport" => roundtrip::<super::DiagnosticsExport>(json),
             "DirectConnectionEdit" => roundtrip::<super::DirectConnectionEdit>(json),
@@ -8369,6 +9746,7 @@ pub mod conformance {
             "DirectPreferred" => roundtrip::<super::DirectPreferred>(json),
             "DirectRef" => roundtrip::<super::DirectRef>(json),
             "DirectTestResult" => roundtrip::<super::DirectTestResult>(json),
+            "DirectVoiceProviderDto" => roundtrip::<super::DirectVoiceProviderDto>(json),
             "EditTurn" => roundtrip::<super::EditTurn>(json),
             "EventEnvelope" => roundtrip::<super::EventEnvelope>(json),
             "EventSubscription" => roundtrip::<super::EventSubscription>(json),
@@ -8414,9 +9792,17 @@ pub mod conformance {
             "McpServerList" => roundtrip::<super::McpServerList>(json),
             "McpServerSummary" => roundtrip::<super::McpServerSummary>(json),
             "McpTestResult" => roundtrip::<super::McpTestResult>(json),
+            "MemoryDto" => roundtrip::<super::MemoryDto>(json),
+            "MemoryEdit" => roundtrip::<super::MemoryEdit>(json),
+            "MemoryList" => roundtrip::<super::MemoryList>(json),
+            "MemoryRef" => roundtrip::<super::MemoryRef>(json),
+            "MemoryToggle" => roundtrip::<super::MemoryToggle>(json),
             "MessageBlockDto" => roundtrip::<super::MessageBlockDto>(json),
             "MessageStatusDto" => roundtrip::<super::MessageStatusDto>(json),
             "ModelList" => roundtrip::<super::ModelList>(json),
+            "ModelPrompt" => roundtrip::<super::ModelPrompt>(json),
+            "ModelPromptEdit" => roundtrip::<super::ModelPromptEdit>(json),
+            "ModelPromptRef" => roundtrip::<super::ModelPromptRef>(json),
             "ModelSummary" => roundtrip::<super::ModelSummary>(json),
             "MoveChat" => roundtrip::<super::MoveChat>(json),
             "NetworkReport" => roundtrip::<super::NetworkReport>(json),
@@ -8441,14 +9827,25 @@ pub mod conformance {
             "OllamaModelList" => roundtrip::<super::OllamaModelList>(json),
             "OllamaModelStatus" => roundtrip::<super::OllamaModelStatus>(json),
             "OpenUrl" => roundtrip::<super::OpenUrl>(json),
+            "PasswordChange" => roundtrip::<super::PasswordChange>(json),
+            "PasswordChangeResult" => roundtrip::<super::PasswordChangeResult>(json),
             "PasswordLogin" => roundtrip::<super::PasswordLogin>(json),
             "PongResult" => roundtrip::<super::PongResult>(json),
+            "ProfileDto" => roundtrip::<super::ProfileDto>(json),
+            "ProfileEdit" => roundtrip::<super::ProfileEdit>(json),
+            "ProfileImageEdit" => roundtrip::<super::ProfileImageEdit>(json),
             "PromptInput" => roundtrip::<super::PromptInput>(json),
             "PromptList" => roundtrip::<super::PromptList>(json),
             "PromptSummary" => roundtrip::<super::PromptSummary>(json),
+            "QuickPillOption" => roundtrip::<super::QuickPillOption>(json),
+            "QuickPillOptions" => roundtrip::<super::QuickPillOptions>(json),
             "RateTurn" => roundtrip::<super::RateTurn>(json),
             "RatedResult" => roundtrip::<super::RatedResult>(json),
             "RegenerateTurn" => roundtrip::<super::RegenerateTurn>(json),
+            "ReleaseNoteBullet" => roundtrip::<super::ReleaseNoteBullet>(json),
+            "ReleaseNoteDto" => roundtrip::<super::ReleaseNoteDto>(json),
+            "ReleaseNotesQuery" => roundtrip::<super::ReleaseNotesQuery>(json),
+            "ReleaseNotesState" => roundtrip::<super::ReleaseNotesState>(json),
             "RenameChat" => roundtrip::<super::RenameChat>(json),
             "RenameFolder" => roundtrip::<super::RenameFolder>(json),
             "RenderPrompt" => roundtrip::<super::RenderPrompt>(json),
@@ -8465,6 +9862,7 @@ pub mod conformance {
             "ServerSummary" => roundtrip::<super::ServerSummary>(json),
             "SetChatFlag" => roundtrip::<super::SetChatFlag>(json),
             "ShutdownResult" => roundtrip::<super::ShutdownResult>(json),
+            "SignOutAll" => roundtrip::<super::SignOutAll>(json),
             "StopTurn" => roundtrip::<super::StopTurn>(json),
             "StoppedResult" => roundtrip::<super::StoppedResult>(json),
             "SyncState" => roundtrip::<super::SyncState>(json),
@@ -8504,6 +9902,8 @@ pub mod conformance {
             "VoiceModelRef" => roundtrip::<super::VoiceModelRef>(json),
             "VoiceModels" => roundtrip::<super::VoiceModels>(json),
             "VoiceOption" => roundtrip::<super::VoiceOption>(json),
+            "VoiceProviderOption" => roundtrip::<super::VoiceProviderOption>(json),
+            "VoiceProviderOptions" => roundtrip::<super::VoiceProviderOptions>(json),
             "VoiceSettings" => roundtrip::<super::VoiceSettings>(json),
             "VoiceSettingsEdit" => roundtrip::<super::VoiceSettingsEdit>(json),
             "VoiceSpeak" => roundtrip::<super::VoiceSpeak>(json),

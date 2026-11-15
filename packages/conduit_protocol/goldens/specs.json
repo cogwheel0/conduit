@@ -152,6 +152,176 @@
       "result": "AppPreferences"
     },
     {
+      "name": "settings.get",
+      "params": null,
+      "result": "AppSettingsDto"
+    },
+    {
+      "name": "settings.set",
+      "params": "AppSettingsPatch",
+      "result": "AppSettingsDto"
+    },
+    {
+      "name": "settings.getAccount",
+      "params": null,
+      "result": "AccountSettingsDto"
+    },
+    {
+      "name": "settings.setAccount",
+      "params": "AccountSettingsPatch",
+      "result": "AccountSettingsDto"
+    },
+    {
+      "name": "settings.modelPrompt",
+      "params": "ModelPromptRef",
+      "result": "ModelPrompt"
+    },
+    {
+      "name": "settings.setModelPrompt",
+      "params": "ModelPromptEdit",
+      "result": "ModelPrompt"
+    },
+    {
+      "name": "settings.quickPills",
+      "params": null,
+      "result": "QuickPillOptions"
+    },
+    {
+      "name": "settings.voiceProviders",
+      "params": null,
+      "result": "VoiceProviderOptions"
+    },
+    {
+      "name": "settings.about",
+      "params": null,
+      "result": "AboutInfo"
+    },
+    {
+      "name": "profile.get",
+      "params": null,
+      "result": "ProfileDto"
+    },
+    {
+      "name": "profile.update",
+      "params": "ProfileEdit",
+      "result": "ProfileDto"
+    },
+    {
+      "name": "profile.setImage",
+      "params": "ProfileImageEdit",
+      "result": "ProfileDto"
+    },
+    {
+      "name": "profile.removeImage",
+      "params": null,
+      "result": "ProfileDto"
+    },
+    {
+      "name": "profile.changePassword",
+      "params": "PasswordChange",
+      "result": "PasswordChangeResult"
+    },
+    {
+      "name": "profile.signOutAll",
+      "params": "SignOutAll",
+      "result": "AccountChangeResult"
+    },
+    {
+      "name": "memories.list",
+      "params": null,
+      "result": "MemoryList"
+    },
+    {
+      "name": "memories.add",
+      "params": "MemoryEdit",
+      "result": "MemoryList"
+    },
+    {
+      "name": "memories.update",
+      "params": "MemoryEdit",
+      "result": "MemoryList"
+    },
+    {
+      "name": "memories.delete",
+      "params": "MemoryRef",
+      "result": "MemoryList"
+    },
+    {
+      "name": "memories.clear",
+      "params": null,
+      "result": "MemoryList"
+    },
+    {
+      "name": "memories.setEnabled",
+      "params": "MemoryToggle",
+      "result": "MemoryList"
+    },
+    {
+      "name": "releaseNotes.check",
+      "params": "ReleaseNotesQuery",
+      "result": "ReleaseNotesState"
+    },
+    {
+      "name": "releaseNotes.latest",
+      "params": "ReleaseNotesQuery",
+      "result": "ReleaseNotesState"
+    },
+    {
+      "name": "releaseNotes.dismiss",
+      "params": null,
+      "result": "OkResult"
+    },
+    {
+      "name": "data.summary",
+      "params": null,
+      "result": "ChatDataSummary"
+    },
+    {
+      "name": "data.export",
+      "params": "DataExportRequest",
+      "result": "DataActionResult"
+    },
+    {
+      "name": "data.previewImport",
+      "params": "DataImportRequest",
+      "result": "DataActionResult"
+    },
+    {
+      "name": "data.import",
+      "params": "DataImportRequest",
+      "result": "DataActionResult"
+    },
+    {
+      "name": "data.sync",
+      "params": null,
+      "result": "ChatDataSummary"
+    },
+    {
+      "name": "data.archiveAll",
+      "params": null,
+      "result": "DataActionResult"
+    },
+    {
+      "name": "data.unarchiveAll",
+      "params": null,
+      "result": "DataActionResult"
+    },
+    {
+      "name": "data.unshareAll",
+      "params": null,
+      "result": "DataActionResult"
+    },
+    {
+      "name": "data.deleteAll",
+      "params": "DataDeleteAll",
+      "result": "DataActionResult"
+    },
+    {
+      "name": "data.connection",
+      "params": null,
+      "result": "ConnectionHealth"
+    },
+    {
       "name": "chats.list",
       "params": null,
       "result": "ChatList"
@@ -962,6 +1132,11 @@
       "name": "terminal.displayFile",
       "payload": "TerminalDisplayFile",
       "scoped": true
+    },
+    {
+      "name": "settings.changed",
+      "payload": null,
+      "scoped": false
     }
   ]
 }

@@ -25,6 +25,11 @@ import 'workspace_service.dart';
 import 'terminals_service.dart';
 import 'hermes_service.dart';
 import 'voice_service.dart';
+import 'core_settings_service.dart';
+import 'data_service.dart';
+import 'memories_service.dart';
+import 'profile_service.dart';
+import 'release_notes_rpc_service.dart';
 
 /// The services that need the core. The daemon swaps in a full set when the
 /// core attaches; until then every one is null.
@@ -48,6 +53,11 @@ final class CoreServices {
     this.terminals,
     this.hermes,
     this.voice,
+    this.coreSettings,
+    this.profile,
+    this.memories,
+    this.releaseNotes,
+    this.data,
   });
 
   final AccountsService? accounts;
@@ -68,6 +78,13 @@ final class CoreServices {
   final TerminalsService? terminals;
   final HermesService? hermes;
   final VoiceService? voice;
+
+  /// The rest of `settings.*` (core's `AppSettings` and the account's own).
+  final CoreSettingsService? coreSettings;
+  final ProfileService? profile;
+  final MemoriesService? memories;
+  final ReleaseNotesRpcService? releaseNotes;
+  final DataService? data;
 }
 
 /// One connected renderer window.
@@ -134,6 +151,11 @@ class RpcSession {
   TerminalsService? get _terminals => _services().terminals;
   HermesService? get _hermes => _services().hermes;
   VoiceService? get _voice => _services().voice;
+  CoreSettingsService? get _coreSettings => _services().coreSettings;
+  ProfileService? get _profile => _services().profile;
+  MemoriesService? get _memories => _services().memories;
+  ReleaseNotesRpcService? get _releaseNotes => _services().releaseNotes;
+  DataService? get _data => _services().data;
 
   /// Where a window's `online`/`offline` events go: the connectivity port,
   /// which then tells every window. Null before the core is up.
@@ -262,6 +284,8 @@ class RpcSession {
     _registerServers();
     _registerAuth();
     _registerSettings();
+    _registerProfile();
+    _registerReleaseNotesAndData();
     _registerChats();
     _registerTurns();
     _registerModels();
@@ -342,7 +366,107 @@ class RpcSession {
       ConduitMethodSpecs.settingsSetApp,
       (patch) => _requireSettings().write(patch),
     );
+    _on(ConduitMethodSpecs.settingsGet, (_) => _need(_coreSettings).get());
+    _on(ConduitMethodSpecs.settingsSet, (p) => _need(_coreSettings).set(p));
+    _on(
+      ConduitMethodSpecs.settingsGetAccount,
+      (_) => _need(_coreSettings).getAccount(),
+    );
+    _on(
+      ConduitMethodSpecs.settingsSetAccount,
+      (p) => _need(_coreSettings).setAccount(p),
+    );
+    _on(
+      ConduitMethodSpecs.settingsModelPrompt,
+      (p) => _need(_coreSettings).modelPrompt(p),
+    );
+    _on(
+      ConduitMethodSpecs.settingsSetModelPrompt,
+      (p) => _need(_coreSettings).setModelPrompt(p),
+    );
+    _on(
+      ConduitMethodSpecs.settingsQuickPills,
+      (_) => _need(_coreSettings).quickPills(),
+    );
+    _on(
+      ConduitMethodSpecs.settingsVoiceProviders,
+      (_) => _need(_coreSettings).voiceProviders(),
+    );
+    _on(ConduitMethodSpecs.settingsAbout, (_) => _need(_coreSettings).about());
   }
+
+  void _registerProfile() {
+    _on(ConduitMethodSpecs.profileGet, (_) => _need(_profile).get());
+    _on(ConduitMethodSpecs.profileUpdate, (p) => _need(_profile).update(p));
+    _on(ConduitMethodSpecs.profileSetImage, (p) => _need(_profile).setImage(p));
+    _on(
+      ConduitMethodSpecs.profileRemoveImage,
+      (_) => _need(_profile).removeImage(),
+    );
+    _on(
+      ConduitMethodSpecs.profileChangePassword,
+      (p) => _need(_profile).changePassword(p),
+    );
+    _on(
+      ConduitMethodSpecs.profileSignOutAll,
+      (p) => _need(_profile).signOutAll(p),
+    );
+    _on(ConduitMethodSpecs.memoriesList, (_) => _need(_memories).list());
+    _on(ConduitMethodSpecs.memoriesAdd, (p) => _need(_memories).add(p));
+    _on(ConduitMethodSpecs.memoriesUpdate, (p) => _need(_memories).update(p));
+    _on(ConduitMethodSpecs.memoriesDelete, (p) => _need(_memories).delete(p));
+    _on(ConduitMethodSpecs.memoriesClear, (_) => _need(_memories).clear());
+    _on(
+      ConduitMethodSpecs.memoriesSetEnabled,
+      (p) => _need(_memories).setEnabled(p),
+    );
+  }
+
+  void _registerReleaseNotesAndData() {
+    _on(
+      ConduitMethodSpecs.releaseNotesCheck,
+      (q) => _need(_releaseNotes).check(q),
+    );
+    _on(
+      ConduitMethodSpecs.releaseNotesLatest,
+      (q) => _need(_releaseNotes).latest(q),
+    );
+    _on(
+      ConduitMethodSpecs.releaseNotesDismiss,
+      (_) => _need(_releaseNotes).dismiss(),
+    );
+    // A window's Delete All answers to the summary that window was shown.
+    _on(
+      ConduitMethodSpecs.dataSummary,
+      (_) => _need(_data).summary(caller: this),
+    );
+    _on(ConduitMethodSpecs.dataSync, (_) => _need(_data).sync(caller: this));
+    _on(ConduitMethodSpecs.dataExport, (r) => _need(_data).export(r));
+    _on(
+      ConduitMethodSpecs.dataPreviewImport,
+      (r) => _need(_data).previewImport(r),
+    );
+    _on(ConduitMethodSpecs.dataImport, (r) => _need(_data).import(r));
+    _on(ConduitMethodSpecs.dataArchiveAll, (_) => _need(_data).archiveAll());
+    _on(
+      ConduitMethodSpecs.dataUnarchiveAll,
+      (_) => _need(_data).unarchiveAll(),
+    );
+    _on(ConduitMethodSpecs.dataUnshareAll, (_) => _need(_data).unshareAll());
+    _on(
+      ConduitMethodSpecs.dataDeleteAll,
+      (r) => _need(_data).deleteAll(r, caller: this),
+    );
+    _on(ConduitMethodSpecs.dataConnection, (_) => _need(_data).connection());
+  }
+
+  /// [service], or `rpc.daemonUnavailable` while the core is coming up.
+  static T _need<T extends Object>(T? service) =>
+      service ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
 
   void _registerChats() {
     _on(ConduitMethodSpecs.chatsList, (_) => _requireChats().list());

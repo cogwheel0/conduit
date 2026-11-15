@@ -1,0 +1,15 @@
+{
+  "id": "u-ada",
+  "name": "Ada Example",
+  "email": "ada@example.com",
+  "role": "admin",
+  "username": "ada",
+  "image": "data:image/png;base64,iVBORw0KGgo=",
+  "bio": "Grows tomatoes on the balcony.",
+  "gender": "gardener",
+  "dateOfBirth": "1990-04-12",
+  "statusEmoji": "🌱",
+  "statusMessage": "Planting",
+  "isActive": true,
+  "passwordChangeAllowed": false
+}

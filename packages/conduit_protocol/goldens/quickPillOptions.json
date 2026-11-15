@@ -1,0 +1,14 @@
+{
+  "options": [
+    {
+      "id": "web",
+      "kind": "web",
+      "name": ""
+    },
+    {
+      "id": "weather",
+      "kind": "tool",
+      "name": "Weather"
+    }
+  ]
+}

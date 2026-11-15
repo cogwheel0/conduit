@@ -1825,6 +1825,179 @@ void main() {
         }
       }, timeout: const Timeout(Duration(minutes: 2)));
 
+      // Settings parity: the account's profile, its memories and
+      // system prompt, a model's prompt, the composer's pills, Chat Data
+      // Controls and the socket's health. Every change is put back.
+      group('settings parity', () {
+        test('edits the profile and puts it back', () async {
+          final profile = ProfileService(runtime.container);
+          final before = await profile.get();
+          expect(before.email, credentials!.email);
+          expect(before.name, isNotEmpty);
+          final edited = await profile.update(
+            ProfileEdit(
+              bio: 'Keeps bees on a quiet roof.',
+              gender: 'beekeeper',
+              dateOfBirth: '1991-02-03',
+            ),
+          );
+          addTearDown(() async {
+            await profile.update(
+              ProfileEdit(
+                name: before.name,
+                bio: before.bio,
+                gender: before.gender,
+                dateOfBirth: before.dateOfBirth,
+                clear: <String>[
+                  if (before.bio == null) 'bio',
+                  if (before.gender == null) 'gender',
+                  if (before.dateOfBirth == null) 'dateOfBirth',
+                ],
+              ),
+            );
+          });
+          expect(edited.bio, 'Keeps bees on a quiet roof.');
+          expect(edited.gender, 'beekeeper');
+          expect(edited.dateOfBirth, '1991-02-03');
+          await expectLater(
+            profile.update(const ProfileEdit(name: '  ')),
+            throwsA(
+              isA<RpcError>().having(
+                (e) => e.code,
+                'code',
+                ConduitErrorCodes.invalidParams,
+              ),
+            ),
+          );
+
+          // The initials as the photo, then none.
+          final withInitials = await profile.setImage(
+            const ProfileImageEdit(initials: true),
+          );
+          expect(withInitials.image, startsWith('data:image/png;base64,'));
+          final removed = await profile.removeImage();
+          expect(removed.image, isNull);
+          final restored = await profile.update(ProfileEdit(name: before.name));
+          expect(restored.name, before.name);
+        });
+
+        test('adds, edits and deletes a memory', () async {
+          final memories = MemoriesService(runtime.container);
+          final start = await memories.list();
+          expect(start.available, isTrue);
+          final added = await memories.add(
+            const MemoryEdit(content: 'Waters the ferns on Sundays.'),
+          );
+          final memory = added.items.firstWhere(
+            (m) => m.content == 'Waters the ferns on Sundays.',
+          );
+          addTearDown(() async {
+            final now = await memories.list();
+            if (now.items.any((m) => m.id == memory.id)) {
+              await memories.delete(MemoryRef(id: memory.id));
+            }
+          });
+          expect(memory.type, 'user');
+          final edited = await memories.update(
+            MemoryEdit(
+              id: memory.id,
+              content: 'Waters the ferns on Sundays and Thursdays.',
+              path: 'home/plants',
+            ),
+          );
+          final updated = edited.items.firstWhere((m) => m.id == memory.id);
+          expect(updated.content, 'Waters the ferns on Sundays and Thursdays.');
+          expect(updated.path, 'home/plants');
+          final deleted = await memories.delete(MemoryRef(id: memory.id));
+          expect(deleted.items.any((m) => m.id == memory.id), isFalse);
+          expect(deleted.items.length, start.items.length);
+
+          // The Memory setting round-trips, and is put back however the
+          // test ends.
+          addTearDown(
+            () => memories.setEnabled(MemoryToggle(enabled: start.enabled)),
+          );
+          final toggled = await memories.setEnabled(
+            MemoryToggle(enabled: !start.enabled),
+          );
+          expect(toggled.enabled, !start.enabled);
+          final back = await memories.setEnabled(
+            MemoryToggle(enabled: start.enabled),
+          );
+          expect(back.enabled, start.enabled);
+        });
+
+        test("the account's system prompt and a model's prompt", () async {
+          final settings = CoreSettingsService(runtime.container);
+          final before = await settings.getAccount();
+          expect(before.available, isTrue);
+          addTearDown(
+            () => settings.setAccount(
+              AccountSettingsPatch(systemPrompt: before.systemPrompt ?? ''),
+            ),
+          );
+          final set = await settings.setAccount(
+            const AccountSettingsPatch(systemPrompt: 'Answer like a gardener.'),
+          );
+          expect(set.systemPrompt, 'Answer like a gardener.');
+          final cleared = await settings.setAccount(
+            const AccountSettingsPatch(systemPrompt: ''),
+          );
+          expect(cleared.systemPrompt, isNull);
+
+          // The seeded admin has a saved record for the fake model.
+          final prompt = await settings.modelPrompt(
+            ModelPromptRef(modelId: turnModel),
+          );
+          expect(prompt.editable, isTrue);
+          expect(prompt.writable, isTrue);
+
+          final pills = await settings.quickPills();
+          expect(pills.options.take(2).map((o) => o.id), <String>[
+            'web',
+            'image',
+          ]);
+          final about = await settings.about();
+          expect(about.server, isTrue);
+          expect(about.serverVersion, isNotEmpty);
+        });
+
+        test(
+          'Chat Data Controls count, export and read back a backup',
+          () async {
+            final data = DataService(runtime.container);
+            // Sync first: the counts are of the chats stored here.
+            final summary = await data.sync();
+            expect(summary.available, isTrue);
+            expect(summary.serverChats, greaterThan(0));
+            expect(summary.canExport, isTrue);
+            final file = File('${temporary.path}/library.json');
+            final exported = await data.export(
+              DataExportRequest(path: file.path),
+            );
+            expect(exported.failure, isNull);
+            expect(exported.count, greaterThan(0));
+            final chats = jsonDecode(file.readAsStringSync()) as List<dynamic>;
+            expect(chats.length, exported.count);
+            // Nothing left beside it.
+            expect(
+              temporary.listSync().where((f) => f.path.contains('.partial')),
+              isEmpty,
+            );
+            final preview = await data.previewImport(
+              DataImportRequest(path: file.path),
+            );
+            expect(preview.failure, isNull);
+            expect(preview.count, exported.count);
+            expect(preview.messages, greaterThan(0));
+
+            final health = data.connection();
+            expect(health.available, isTrue);
+            expect(health.transport, isNotEmpty);
+          },
+        );
+      });
+
       // The workspace. Everything is named for this run and deleted
       // at the end, straight through the API if a step fails first.
       group('workspace', () {
