@@ -70,6 +70,8 @@ pub struct AccessSheet {
     _subscriptions: Vec<Subscription>,
     _load: Option<Task<()>>,
     _search: Option<Task<()>>,
+    /// Closes the sheet when another account becomes active.
+    _account: Subscription,
 }
 
 impl AccessSheet {
@@ -92,7 +94,9 @@ impl AccessSheet {
                     }
                 }),
             ];
+        let account = sheet::close_with_account(&stores, cx);
         let mut this = Self {
+            _account: account,
             stores,
             rpc,
             kind,
@@ -176,6 +180,29 @@ impl AccessSheet {
         self.can_edit() && !self.saving && self.is_dirty()
     }
 
+    /// Whether the server lets this account give `principal` access: users
+    /// and groups each as it allows.
+    fn may_grant(&self, principal: &AccessPrincipal) -> bool {
+        self.state.as_ref().is_some_and(|s| {
+            if principal.r#type == "group" {
+                s.allow_groups
+            } else {
+                s.allow_users
+            }
+        })
+    }
+
+    /// People and groups may be added: the account may edit, the server
+    /// allows one kind or the other, and no save is on its way (what it
+    /// sends is what the sheet then shows).
+    fn may_add(&self) -> bool {
+        !self.saving
+            && self
+                .state
+                .as_ref()
+                .is_some_and(|s| s.can_edit && (s.allow_users || s.allow_groups))
+    }
+
     /// Adds `principal` with read access (Can View).
     pub fn add(
         &mut self,
@@ -183,10 +210,12 @@ impl AccessSheet {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self
-            .grants
-            .iter()
-            .any(|g| g.principal_type == principal.r#type && g.principal_id == principal.id)
+        if !self.may_add()
+            || !self.may_grant(principal)
+            || self
+                .grants
+                .iter()
+                .any(|g| g.principal_type == principal.r#type && g.principal_id == principal.id)
         {
             return;
         }
@@ -392,7 +421,7 @@ impl AccessSheet {
         let shown: Vec<_> = self
             .results
             .iter()
-            .filter(|p| !taken(p))
+            .filter(|p| !taken(p) && self.may_grant(p))
             .take(8)
             .cloned()
             .collect();
@@ -500,6 +529,10 @@ fn failure_text(e: &conduit_protocol::RpcError, l10n: &L10n) -> String {
 }
 
 impl SheetBody for AccessSheet {
+    fn unsaved(&self, _: &App) -> bool {
+        AccessSheet::is_dirty(self)
+    }
+
     fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let l10n = cx.l10n().clone();
         let view = cx.entity().downgrade();
@@ -626,7 +659,7 @@ impl Render for AccessSheet {
                     )
                     .into_any_element(),
                 );
-                if state.can_edit {
+                if self.may_add() {
                     let mut add = vec![
                         div()
                             .p(px(4.))
@@ -659,5 +692,67 @@ impl Render for AccessSheet {
             .gap(px(16.))
             .on_action(cx.listener(|this, a: &SettingsChoice, _, cx| this.on_choice(a, cx)))
             .children(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::views::sheet::bench::bench;
+
+    fn principal(kind: &str, id: &str) -> AccessPrincipal {
+        serde_json::from_value(serde_json::json!({"type": kind, "id": id, "name": id})).unwrap()
+    }
+
+    #[gpui_kit::test]
+    fn only_what_the_server_allows_can_be_added(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::AccessGet>(
+            serde_json::from_value(serde_json::json!({
+                "kind": "folder", "id": "f1", "canEdit": true,
+                "allowUsers": true, "allowGroups": false
+            }))
+            .unwrap(),
+        );
+        let s = stores.clone();
+        let sheet = vcx
+            .update(|window, cx| {
+                sheet::open(window, WIDTH, cx, move |w, cx| {
+                    AccessSheet::new(
+                        s,
+                        AccessResourceKind::Folder,
+                        "f1".into(),
+                        "Trips".into(),
+                        w,
+                        cx,
+                    )
+                })
+            })
+            .unwrap();
+        vcx.run_until_parked();
+        vcx.update(|window, cx| {
+            sheet.update(cx, |s, cx| {
+                s.add(&principal("group", "hikers"), window, cx);
+                s.add(&principal("user", "robin"), window, cx);
+            })
+        });
+        sheet.read_with(vcx, |s, _| {
+            let added: Vec<&str> = s.grants.iter().map(|g| g.principal_id.as_str()).collect();
+            assert_eq!(
+                added,
+                ["robin"],
+                "a group was added on a server that forbids it"
+            );
+        });
+        // While a save is on its way, nobody more is added.
+        let held = daemon.hold::<methods::AccessSet>();
+        vcx.update(|window, cx| {
+            sheet.update(cx, |s, cx| {
+                s.save(window, cx);
+                s.add(&principal("user", "sam"), window, cx);
+            })
+        });
+        sheet.read_with(vcx, |s, _| assert_eq!(s.grants.len(), 1));
+        drop(held);
     }
 }

@@ -19,8 +19,8 @@ use conduit_components::views::kit::grouped_tones;
 use gpui_kit::prelude::*;
 use gpui_kit::{
     AnyElement, AnyEntity, AnyWindowHandle, App, Bounds, Context, Entity, FocusHandle, Focusable,
-    Global, Pixels, Role, SharedString, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowKind, WindowOptions, div, point, px, size,
+    Global, Pixels, Role, SharedString, Subscription, Window, WindowBackgroundAppearance,
+    WindowBounds, WindowKind, WindowOptions, div, point, px, size,
 };
 
 use crate::actions::CloseWindow;
@@ -39,6 +39,12 @@ pub trait SheetBody: Render + Sized + 'static {
 
     /// What VoiceOver calls the sheet ("Chat Settings").
     fn label(&self, cx: &App) -> SharedString;
+
+    /// Edits not saved yet: Quit asks through [`Self::cancel`] first.
+    fn unsaved(&self, cx: &App) -> bool {
+        let _ = cx;
+        false
+    }
 
     /// The buttons along the sheet's bottom edge, which stay put while the
     /// body scrolls (as a Mac sheet's).
@@ -67,6 +73,20 @@ pub struct SheetHost<V: SheetBody> {
 struct OpenSheet(Option<(AnyWindowHandle, AnyEntity)>);
 
 impl Global for OpenSheet {}
+
+/// Whether the sheet down now holds unsaved edits, and its body's
+/// [`SheetBody::cancel`] (which asks before throwing them away).
+#[derive(Clone)]
+struct Unsaved {
+    edits: Rc<dyn Fn(&App) -> bool>,
+    ask: Rc<dyn Fn(&mut App)>,
+}
+
+/// The [`Unsaved`] of the sheet down now (one opened by [`open`]).
+#[derive(Default)]
+struct OpenUnsaved(Option<Unsaved>);
+
+impl Global for OpenUnsaved {}
 
 fn window_options(width: f32) -> WindowOptions {
     WindowOptions {
@@ -130,6 +150,17 @@ pub fn open<V: SheetBody>(
     };
     let body = host.read(cx).body.clone();
     cx.global_mut::<OpenSheet>().0 = Some((handle, body.clone().into_any()));
+    let (weak, asked) = (body.downgrade(), body.downgrade());
+    cx.default_global::<OpenUnsaved>().0 = Some(Unsaved {
+        edits: Rc::new(move |cx: &App| weak.upgrade().is_some_and(|b| b.read(cx).unsaved(cx))),
+        ask: Rc::new(move |cx: &mut App| {
+            let Some(body) = asked.upgrade() else { return };
+            let _ = handle.update(cx, |_, window, cx| {
+                window.activate_window();
+                body.update(cx, |b, cx| b.cancel(window, cx));
+            });
+        }),
+    });
     #[cfg(target_os = "macos")]
     {
         let parent = crate::shell::macos::ns_window(parent);
@@ -144,17 +175,21 @@ pub fn open<V: SheetBody>(
             // begun before then is queued by AppKit and never drawn, so the
             // new one waits for the window to be free (a second at most).
             let executor = cx.background_executor().clone();
-            cx.foreground_executor()
-                .spawn(async move {
-                    for _ in 0..60 {
-                        if parent.attachedSheet().is_none() {
-                            break;
-                        }
-                        executor.timer(std::time::Duration::from_millis(16)).await;
+            cx.spawn(async move |cx| {
+                for _ in 0..60 {
+                    if parent.attachedSheet().is_none() {
+                        break;
                     }
-                    crate::shell::macos::begin_sheet(&parent, &sheet)
-                })
-                .detach();
+                    executor.timer(std::time::Duration::from_millis(16)).await;
+                }
+                // Dismissed while it waited: its window is going, and
+                // nothing would end it once hung.
+                if cx.update(|cx| current_window(cx)) != Some(handle) {
+                    return;
+                }
+                crate::shell::macos::begin_sheet(&parent, &sheet)
+            })
+            .detach();
         }
     }
     #[cfg(not(target_os = "macos"))]
@@ -178,6 +213,13 @@ pub fn current_window(cx: &App) -> Option<AnyWindowHandle> {
     cx.try_global::<OpenSheet>()?.0.as_ref().map(|(h, _)| *h)
 }
 
+/// Whether the sheet down now holds edits not saved yet.
+pub fn has_unsaved(cx: &App) -> bool {
+    cx.try_global::<OpenUnsaved>()
+        .and_then(|s| s.0.clone())
+        .is_some_and(|unsaved| (unsaved.edits)(cx))
+}
+
 /// Whether a sheet is down on the main window.
 pub fn is_open(cx: &App) -> bool {
     cx.try_global::<OpenSheet>().is_some_and(|s| s.0.is_some())
@@ -190,6 +232,14 @@ pub fn quit(cx: &mut App) {
         cx.quit();
         return;
     }
+    // Unsaved edits: the sheet comes forward and asks, as Esc does; Quit
+    // again once it has gone.
+    if has_unsaved(cx) {
+        if let Some(unsaved) = cx.try_global::<OpenUnsaved>().and_then(|s| s.0.clone()) {
+            cx.defer(move |cx| (unsaved.ask)(cx));
+        }
+        return;
+    }
     dismiss(cx);
     cx.spawn(async move |cx| {
         cx.background_executor()
@@ -200,11 +250,35 @@ pub fn quit(cx: &mut App) {
     .detach();
 }
 
+/// Closes the sheet whose body `cx` is once another account is active (a
+/// switch in Settings, which has its own window): what it shows and would
+/// save belongs to the account it opened for, never to the next one. Edits
+/// go with it.
+pub fn close_with_account<V: SheetBody>(
+    stores: &crate::stores::Stores,
+    cx: &mut Context<V>,
+) -> Subscription {
+    let opened = stores.accounts.read(cx).active().map(|a| a.id.clone());
+    cx.observe(&stores.accounts, move |_, accounts, cx| {
+        // A list being read again (a reconnect) names nobody: no change.
+        let Some(now) = accounts.read(cx).active().map(|a| a.id.clone()) else {
+            return;
+        };
+        if Some(&now) == opened.as_ref() {
+            return;
+        }
+        if current::<V>(cx).is_some_and(|body| body == cx.entity()) {
+            dismiss(cx);
+        }
+    })
+}
+
 /// Closes the sheet down now (it slides up), from its body or anywhere.
 pub fn dismiss(cx: &mut App) {
     let Some((handle, _)) = cx.default_global::<OpenSheet>().0.take() else {
         return;
     };
+    cx.default_global::<OpenUnsaved>().0 = None;
     // The main window takes the keyboard back as AppKit ends the sheet, its
     // focus where it was.
     crate::views::settings::end_sheet_window(handle, cx);
@@ -362,5 +436,57 @@ mod tests {
         assert!(needs_fit(None, 310.));
         assert!(!needs_fit(Some(310.), 310.3));
         assert!(needs_fit(Some(310.), 512.));
+    }
+}
+
+/// A main window with stores for sheet tests, an account signed in.
+#[cfg(test)]
+pub mod bench {
+    use gpui_kit::{TestAppContext, VisualTestContext};
+
+    use crate::stores::Stores;
+    use crate::stores::accounts::tests::{account, list};
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    struct Parent;
+
+    impl gpui_kit::Render for Parent {
+        fn render(
+            &mut self,
+            _: &mut gpui_kit::Window,
+            _: &mut gpui_kit::Context<Self>,
+        ) -> impl gpui_kit::IntoElement {
+            gpui_kit::div()
+        }
+    }
+
+    pub fn bench(cx: &mut TestAppContext) -> (FakeDaemon, Stores, &mut VisualTestContext) {
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-sheet-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            // Questions answer "no" (keep editing) unless a test says.
+            cx.set_global(crate::shell::sheet::AutoAnswer(Some(false)));
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        let (_, vcx) = cx.add_window_view(|_, _| Parent);
+        (daemon, stores, vcx)
+    }
+
+    /// Settings makes Blake's account the active one.
+    pub fn switch_account(stores: &Stores, vcx: &mut VisualTestContext) {
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blake", true, true),
+                ]),
+                cx,
+            )
+        });
+        vcx.run_until_parked();
     }
 }

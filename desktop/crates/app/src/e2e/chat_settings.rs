@@ -65,11 +65,14 @@ fn system_text(request: &Option<Value>) -> String {
         .unwrap_or_default()
 }
 
-/// Sends `text` and waits for the answer and for its request in the log.
+/// Sends `text` and waits for the answer and for its request in the log:
+/// `None` when either never came (no check passes on an earlier request).
 async fn turn(text: &str, log: &Path, cx: &mut AsyncApp) -> Option<Value> {
     let before = std::fs::read_to_string(log).map(|t| t.len()).unwrap_or(0);
     send(text, cx).await;
-    wait_answer(cx, Duration::from_secs(60)).await;
+    if !wait_answer(cx, Duration::from_secs(60)).await {
+        return None;
+    }
     let want = text.to_string();
     for _ in 0..40 {
         let grown = std::fs::read_to_string(log).map(|t| t.len()).unwrap_or(0) > before;
@@ -84,7 +87,7 @@ async fn turn(text: &str, log: &Path, cx: &mut AsyncApp) -> Option<Value> {
         }
         settle(cx, 250).await;
     }
-    last_request(log)
+    None
 }
 
 fn navigation(cx: &mut App) -> Entity<crate::stores::navigation::NavigationStore> {
@@ -346,7 +349,8 @@ async fn chat_settings(log: &Path, dir: &Path, cx: &mut AsyncApp) -> bool {
     let request = turn("Say the word: bravo", log, cx).await;
     pass &= ok(
         "the seed inherits again; the temperature stays",
-        param(&request, "seed").is_none()
+        request.is_some()
+            && param(&request, "seed").is_none()
             && param(&request, "temperature").and_then(|v| v.as_f64()) == Some(0.3),
     );
 
@@ -360,7 +364,9 @@ async fn chat_settings(log: &Path, dir: &Path, cx: &mut AsyncApp) -> bool {
     let request = turn("Say the word: charlie", log, cx).await;
     pass &= ok(
         "after Reset All the request has neither the prompt nor the temperature",
-        !system_text(&request).contains("ship captain") && param(&request, "temperature").is_none(),
+        request.is_some()
+            && !system_text(&request).contains("ship captain")
+            && param(&request, "temperature").is_none(),
     );
 
     // Cancel with an edit asks first (answered Discard here): nothing saved.
@@ -507,7 +513,7 @@ async fn reasoning_and_pins(model: &str, log: &Path, dir: &Path, cx: &mut AsyncA
     let request = turn("Say the word: echo", log, cx).await;
     pass &= ok(
         "with Automatic again, no reasoning_effort is sent",
-        param(&request, "reasoning_effort").is_none(),
+        request.is_some() && param(&request, "reasoning_effort").is_none(),
     );
     pass
 }

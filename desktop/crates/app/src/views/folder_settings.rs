@@ -88,6 +88,8 @@ pub struct FolderSettingsSheet {
     pub failure: Option<String>,
     _subscriptions: Vec<Subscription>,
     _load: Option<Task<()>>,
+    /// Closes the sheet when another account becomes active.
+    _account: Subscription,
 }
 
 impl FolderSettingsSheet {
@@ -127,7 +129,9 @@ impl FolderSettingsSheet {
                 }
             }),
         ];
+        let account = sheet::close_with_account(&stores, cx);
         let mut this = Self {
+            _account: account,
             stores,
             rpc,
             folder_id,
@@ -257,6 +261,7 @@ impl FolderSettingsSheet {
         self.saving = true;
         self.failure = None;
         cx.notify();
+        let sent = self.edit.clone();
         let call = self
             .rpc
             .call::<methods::FoldersUpdate>(&self.update_request());
@@ -269,13 +274,21 @@ impl FolderSettingsSheet {
                     let l10n = cx.l10n().clone();
                     match result {
                         Ok(settings) => {
-                            s.adopt(settings, window, cx);
                             s.stores
                                 .toasts
                                 .update(cx, |t, cx| t.show(NoticeLevel::Info, l10n.saved(), cx));
                             // The sidebar shows the new name and icon.
                             s.stores.chat_list.update(cx, |c, cx| c.refresh(cx));
-                            sheet::dismiss(cx);
+                            if s.edit == sent {
+                                s.adopt(settings, window, cx);
+                                sheet::dismiss(cx);
+                            } else {
+                                // Changed again while it saved: what was
+                                // saved is the new start, the rest stays to
+                                // be saved.
+                                s.initial = FolderEdit::of(&settings);
+                                s.settings = Some(settings);
+                            }
                         }
                         Err(e) => {
                             log::warn!("folders.update: {e}");
@@ -347,13 +360,49 @@ impl FolderSettingsSheet {
         cx.notify();
     }
 
+    /// Leaves the sheet for `then` (New Chat, Share): unsaved edits are
+    /// thrown away only once the user says so, as Cancel asks; not while a
+    /// save is on its way.
+    fn leave_then(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        then: fn(&mut Self, &mut Context<Self>),
+    ) {
+        if self.saving {
+            return;
+        }
+        if !self.is_dirty() {
+            then(self, cx);
+            return;
+        }
+        let l10n = cx.l10n().clone();
+        let spec = SheetSpec::new(
+            l10n.desktop_discard_changes_title(),
+            l10n.desktop_discard_changes_message(),
+            l10n.desktop_discard(),
+            l10n.cancel(),
+        )
+        .destructive();
+        let ask = present_sheet(window, spec, cx);
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            if ask.await {
+                let _ = this.update(cx, then);
+            }
+        })
+        .detach();
+    }
+
     /// New Chat in Folder, from the sheet: it closes, and the new chat opens.
     fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.leave_then(window, cx, Self::start_new_chat);
+    }
+
+    fn start_new_chat(&mut self, cx: &mut Context<Self>) {
         let folder = self.folder_id.clone();
         let navigation = self.stores.navigation.clone();
         sheet::dismiss(cx);
         navigation.update(cx, |n, cx| n.new_chat_in_folder(folder, cx));
-        let _ = window;
         cx.defer(|cx| {
             if let Some(handle) = cx
                 .try_global::<crate::AppState>()
@@ -367,14 +416,18 @@ impl FolderSettingsSheet {
     }
 
     fn share(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.leave_then(window, cx, Self::open_share);
+    }
+
+    fn open_share(&mut self, cx: &mut Context<Self>) {
+        // The folder's saved name: edits not saved went with the sheet.
         let (stores, id, name) = (
             self.stores.clone(),
             self.folder_id.clone(),
-            self.edit.name.clone(),
+            self.initial.name.clone(),
         );
         // One sheet at a time: this one goes, then Share Folder comes.
         sheet::dismiss(cx);
-        let _ = window;
         cx.defer(move |cx| {
             if let Some(handle) = cx
                 .try_global::<crate::AppState>()
@@ -788,6 +841,10 @@ fn failure_text(e: &conduit_protocol::RpcError, l10n: &L10n) -> String {
 }
 
 impl SheetBody for FolderSettingsSheet {
+    fn unsaved(&self, _: &App) -> bool {
+        FolderSettingsSheet::is_dirty(self)
+    }
+
     fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let settings = self.settings.clone()?;
         let l10n = cx.l10n().clone();
@@ -978,5 +1035,64 @@ impl Render for FolderSettingsSheet {
             }))
             .on_action(cx.listener(|this, a: &SettingsChoice, _, cx| this.on_choice(a, cx)))
             .children(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::views::sheet::bench::bench;
+
+    #[gpui_kit::test]
+    fn new_chat_asks_before_throwing_edits_away(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::FoldersGet>(
+            serde_json::from_value(serde_json::json!({
+                "id": "f1", "name": "Trips", "systemPrompt": "Plan trips.",
+                "canRename": true, "canWrite": true, "canEditSystemPrompt": true
+            }))
+            .unwrap(),
+        );
+        let s = stores.clone();
+        let sheet = vcx
+            .update(|window, cx| {
+                sheet::open(window, WIDTH, cx, move |w, cx| {
+                    FolderSettingsSheet::new(s, "f1".into(), w, cx)
+                })
+            })
+            .unwrap();
+        vcx.run_until_parked();
+        vcx.update(|window, cx| {
+            sheet.update(cx, |s, cx| {
+                s.type_prompt("Plan trips by train.", window, cx);
+                s.new_chat(window, cx);
+            })
+        });
+        vcx.run_until_parked();
+        // Asked, and kept editing (the bench answers no).
+        assert!(
+            vcx.update(|_, cx| sheet::current::<FolderSettingsSheet>(cx))
+                .is_some()
+        );
+        assert_eq!(
+            stores
+                .navigation
+                .read_with(vcx, |n, _| n.new_chat_folder().map(str::to_string)),
+            None
+        );
+        // Yes: the edits go, the new chat opens in the folder.
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        vcx.update(|window, cx| sheet.update(cx, |s, cx| s.new_chat(window, cx)));
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<FolderSettingsSheet>(cx))
+                .is_none()
+        );
+        assert_eq!(
+            stores
+                .navigation
+                .read_with(vcx, |n, _| n.new_chat_folder().map(str::to_string)),
+            Some("f1".to_string())
+        );
     }
 }

@@ -54,6 +54,8 @@ pub struct ValvesSheet {
     pub failure: Option<String>,
     _subscriptions: Vec<Subscription>,
     _load: Option<Task<()>>,
+    /// Closes the sheet when another account becomes active.
+    _account: Subscription,
 }
 
 impl ValvesSheet {
@@ -64,7 +66,9 @@ impl ValvesSheet {
         cx: &mut Context<Self>,
     ) -> Self {
         let rpc = stores.connection.read(cx).rpc();
+        let account = sheet::close_with_account(&stores, cx);
         let mut this = Self {
+            _account: account,
             stores,
             rpc,
             targets,
@@ -219,11 +223,12 @@ impl ValvesSheet {
         self.saving = true;
         self.failure = None;
         cx.notify();
+        let sent = self.edits.clone();
         let call = self.rpc.call::<methods::ValvesSave>(&ValvesSave {
             kind: target.kind,
             id: target.id,
             label: target.label,
-            values: self.edits.clone(),
+            values: sent.clone(),
         });
         let handle = window.window_handle();
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -233,13 +238,33 @@ impl ValvesSheet {
                     s.saving = false;
                     let l10n = cx.l10n().clone();
                     match result {
+                        // Answered, but nothing was written (the editor was
+                        // not ready, the tool went, the owner changed): the
+                        // edits stay, with why.
+                        Ok(doc) if doc.phase != ValvesPhase::Ready => {
+                            s.failure = Some(match doc.phase {
+                                ValvesPhase::OwnerChanged => {
+                                    l10n.personal_tool_settings_owner_changed()
+                                }
+                                ValvesPhase::Unavailable => {
+                                    l10n.personal_tool_settings_unavailable()
+                                }
+                                _ => l10n.personal_tool_settings_save_failed(),
+                            });
+                        }
                         Ok(doc) => {
-                            s.adopt(doc, window, cx);
                             let text = l10n.personal_tool_settings_saved();
                             s.stores
                                 .toasts
                                 .update(cx, |t, cx| t.show(NoticeLevel::Info, text, cx));
-                            sheet::dismiss(cx);
+                            if s.edits == sent {
+                                s.adopt(doc, window, cx);
+                                sheet::dismiss(cx);
+                            } else {
+                                // Changed again while it saved: the rest
+                                // stays to be saved.
+                                s.initial = sent;
+                            }
                         }
                         Err(e) => {
                             log::warn!("valves.save: {e}");
@@ -436,6 +461,10 @@ impl ValvesSheet {
 }
 
 impl SheetBody for ValvesSheet {
+    fn unsaved(&self, _: &App) -> bool {
+        ValvesSheet::is_dirty(self)
+    }
+
     fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let l10n = cx.l10n().clone();
         let view = cx.entity().downgrade();
@@ -586,5 +615,124 @@ impl Render for ValvesSheet {
                 cx.listener(|this, a: &SettingsChoice, window, cx| this.on_choice(a, window, cx)),
             )
             .children(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use conduit_protocol::ValveTargetKind;
+    use gpui_kit::VisualTestContext;
+
+    use super::*;
+    use crate::views::sheet::bench::{bench, switch_account};
+
+    fn doc(phase: &str) -> ValvesDocument {
+        serde_json::from_value(serde_json::json!({
+            "kind": "tool", "id": "weather", "label": "Weather", "phase": phase,
+            "fields": [{"key": "units", "title": "Units", "type": "text",
+                        "isDefault": false, "text": "metric"}]
+        }))
+        .unwrap()
+    }
+
+    fn open(stores: &Stores, vcx: &mut VisualTestContext) -> Entity<ValvesSheet> {
+        let stores = stores.clone();
+        let target = ValveTarget {
+            kind: ValveTargetKind::Tool,
+            id: "weather".into(),
+            label: "Weather".into(),
+        };
+        let sheet = vcx
+            .update(|window, cx| {
+                sheet::open(window, WIDTH, cx, move |w, cx| {
+                    ValvesSheet::new(stores, vec![target], w, cx)
+                })
+            })
+            .unwrap();
+        vcx.run_until_parked();
+        sheet
+    }
+
+    fn typed(sheet: &Entity<ValvesSheet>, text: &str, vcx: &mut VisualTestContext) {
+        sheet.update(vcx, |s, cx| s.set_text("units", text.into(), cx));
+    }
+
+    #[gpui_kit::test]
+    fn another_account_never_gets_these_settings(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::ValvesGet>(doc("ready"));
+        let sheet = open(&stores, vcx);
+        typed(&sheet, "imperial", vcx);
+        switch_account(&stores, vcx);
+        assert!(
+            vcx.update(|_, cx| sheet::current::<ValvesSheet>(cx))
+                .is_none(),
+            "Avery's sheet stayed open over Blake's account"
+        );
+        assert!(daemon.calls::<methods::ValvesSave>().is_empty());
+    }
+
+    #[gpui_kit::test]
+    fn quit_asks_before_throwing_edits_away(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::ValvesGet>(doc("ready"));
+        let _sheet = open(&stores, vcx);
+        typed(&_sheet, "imperial", vcx);
+        vcx.update(|_, cx| sheet::quit(cx));
+        vcx.run_until_parked();
+        // Asked (the bench answers keep editing): still there, not quitting.
+        assert!(
+            vcx.update(|_, cx| sheet::current::<ValvesSheet>(cx))
+                .is_some(),
+            "Quit closed a sheet with unsaved edits"
+        );
+    }
+
+    #[gpui_kit::test]
+    fn a_save_that_wrote_nothing_keeps_the_edits(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::ValvesGet>(doc("ready"));
+        daemon.returns::<methods::ValvesSave>(doc("ownerChanged"));
+        let sheet = open(&stores, vcx);
+        typed(&sheet, "imperial", vcx);
+        vcx.update(|window, cx| sheet.update(cx, |s, cx| s.save(window, cx)));
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<ValvesSheet>(cx))
+                .is_some()
+        );
+        sheet.read_with(vcx, |s, cx| {
+            assert_eq!(
+                s.failure,
+                Some(cx.l10n().personal_tool_settings_owner_changed())
+            );
+            assert_eq!(s.edits[0].text, "imperial");
+        });
+    }
+
+    #[gpui_kit::test]
+    fn edits_made_while_saving_stay_to_be_saved(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::ValvesGet>(doc("ready"));
+        let mut saved = doc("ready");
+        saved.fields[0].text = "imperial".into();
+        daemon.returns::<methods::ValvesSave>(saved);
+        let sheet = open(&stores, vcx);
+        typed(&sheet, "imperial", vcx);
+        let held = daemon.hold::<methods::ValvesSave>();
+        vcx.update(|window, cx| sheet.update(cx, |s, cx| s.save(window, cx)));
+        vcx.run_until_parked();
+        typed(&sheet, "kelvin", vcx);
+        drop(held);
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<ValvesSheet>(cx))
+                .is_some(),
+            "closed with the later edit unsaved"
+        );
+        sheet.read_with(vcx, |s, _| {
+            assert_eq!(s.edits[0].text, "kelvin");
+            assert!(s.is_dirty());
+        });
     }
 }

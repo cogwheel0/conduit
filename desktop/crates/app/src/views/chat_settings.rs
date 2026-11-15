@@ -91,6 +91,8 @@ pub struct ChatSettingsSheet {
     _subscriptions: Vec<Subscription>,
     _load: Option<Task<()>>,
     _check: Option<Task<()>>,
+    /// Closes the sheet when another account becomes active.
+    _account: Subscription,
 }
 
 impl ChatSettingsSheet {
@@ -117,7 +119,9 @@ impl ChatSettingsSheet {
                     }
                 }),
             ];
+        let account = sheet::close_with_account(&stores, cx);
         let mut this = Self {
+            _account: account,
             stores,
             rpc,
             target,
@@ -310,10 +314,16 @@ impl ChatSettingsSheet {
                     if s.generation != generation {
                         return;
                     }
-                    if let Ok(state) = result {
-                        s.errors = errors_of(&state);
-                        cx.notify();
-                    }
+                    // A check that could not run holds nothing against the
+                    // fields: Save asks the daemon, which checks again.
+                    s.errors = match result {
+                        Ok(state) => errors_of(&state),
+                        Err(e) => {
+                            log::info!("chatSettings.check: {e}");
+                            BTreeMap::new()
+                        }
+                    };
+                    cx.notify();
                 });
             }),
         );
@@ -349,20 +359,24 @@ impl ChatSettingsSheet {
         cx.notify();
         // A check on its way answers for older text.
         self.generation += 1;
+        let sent = self.edits.clone();
         let call = self.rpc.call::<methods::ChatSettingsSave>(&self.request());
         let window_handle = window.window_handle();
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = window_handle.update(cx, |_, _, cx| {
-                let _ = this.update(cx, |s, cx| s.saved(result, cx));
+                let _ = this.update(cx, |s, cx| s.saved(result, sent, cx));
             });
         })
         .detach();
     }
 
+    /// `sent`: the fields the save carried. Edits made while it was on its
+    /// way stay in the sheet, to be saved.
     fn saved(
         &mut self,
         result: Result<ChatSettingsState, conduit_protocol::RpcError>,
+        sent: Vec<ChatSettingFieldEdit>,
         cx: &mut Context<Self>,
     ) {
         self.saving = false;
@@ -379,8 +393,11 @@ impl ChatSettingsSheet {
                     .update(cx, |t, cx| t.show(NoticeLevel::Info, l10n.saved(), cx));
                 // The chat's More menu and the Chat menu follow.
                 cx.defer(crate::menus::refresh_menus);
-                self.initial = self.edits.clone();
-                sheet::dismiss(cx);
+                let changed_since = self.edits != sent;
+                self.initial = sent;
+                if !changed_since {
+                    sheet::dismiss(cx);
+                }
             }
             Ok(state) => {
                 self.errors = errors_of(&state);
@@ -850,6 +867,10 @@ impl ChatSettingsSheet {
 }
 
 impl SheetBody for ChatSettingsSheet {
+    fn unsaved(&self, _: &App) -> bool {
+        ChatSettingsSheet::is_dirty(self)
+    }
+
     fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let state = self.state.clone()?;
         let l10n = cx.l10n().clone();
@@ -1079,5 +1100,96 @@ mod tests {
             error_text(ChatSettingError::OutOfRange, &field, &l10n),
             "Enter a value from 0 to 2."
         );
+    }
+
+    mod sheet_tests {
+        use gpui_kit::VisualTestContext;
+
+        use super::super::*;
+        use crate::views::sheet::bench::bench;
+
+        fn state(temperature: &str) -> ChatSettingsState {
+            serde_json::from_value(serde_json::json!({
+                "chatId": "c1", "entry": "editor", "advanced": true,
+                "canEditSystemPrompt": true, "canEditParameters": true,
+                "systemPrompt": {"key": "system", "kind": "text", "mode": "inherit"},
+                "parameters": [{"key": "temperature", "kind": "decimal", "mode": "custom",
+                                "text": temperature, "min": 0.0, "max": 2.0}],
+                "saved": true
+            }))
+            .unwrap()
+        }
+
+        fn open(stores: &Stores, vcx: &mut VisualTestContext) -> Entity<ChatSettingsSheet> {
+            let stores = stores.clone();
+            let target = ChatSettingsTarget {
+                chat_id: Some("c1".into()),
+                model_id: Some("m".into()),
+                draft: serde_json::json!({}),
+            };
+            let sheet = vcx
+                .update(|window, cx| {
+                    sheet::open(window, WIDTH, cx, move |w, cx| {
+                        ChatSettingsSheet::new(stores, target, None, w, cx)
+                    })
+                })
+                .unwrap();
+            vcx.run_until_parked();
+            sheet
+        }
+
+        #[gpui_kit::test]
+        fn a_failed_check_never_holds_save_back(cx: &mut gpui_kit::TestAppContext) {
+            let (daemon, stores, vcx) = bench(cx);
+            daemon.returns::<methods::ChatSettingsGet>(state("0.3"));
+            daemon.on::<methods::ChatSettingsCheck>(|_| {
+                Err(conduit_daemon::protocol::error(
+                    "rpc.daemonUnavailable",
+                    "away",
+                ))
+            });
+            let sheet = open(&stores, vcx);
+            sheet.update(vcx, |s, cx| {
+                s.errors
+                    .insert("temperature".into(), ChatSettingError::OutOfRange);
+                s.set_edit("temperature", ChatSettingMode::Custom, "0.4".into(), cx);
+            });
+            vcx.executor().advance_clock(CHECK_DELAY);
+            vcx.run_until_parked();
+            sheet.read_with(vcx, |s, _| {
+                assert!(
+                    s.errors.is_empty(),
+                    "the old error stayed after a check that failed"
+                );
+                assert!(s.can_save());
+            });
+        }
+
+        #[gpui_kit::test]
+        fn edits_made_while_saving_stay_to_be_saved(cx: &mut gpui_kit::TestAppContext) {
+            let (daemon, stores, vcx) = bench(cx);
+            daemon.returns::<methods::ChatSettingsGet>(state("0.3"));
+            daemon.returns::<methods::ChatSettingsCheck>(state("0.4"));
+            daemon.returns::<methods::ChatSettingsSave>(state("0.4"));
+            let sheet = open(&stores, vcx);
+            sheet.update(vcx, |s, cx| {
+                s.set_edit("temperature", ChatSettingMode::Custom, "0.4".into(), cx)
+            });
+            vcx.executor().advance_clock(CHECK_DELAY);
+            vcx.run_until_parked();
+            let held = daemon.hold::<methods::ChatSettingsSave>();
+            vcx.update(|window, cx| sheet.update(cx, |s, cx| s.save(window, cx)));
+            sheet.update(vcx, |s, cx| {
+                s.set_edit("temperature", ChatSettingMode::Custom, "0.5".into(), cx)
+            });
+            drop(held);
+            vcx.run_until_parked();
+            assert!(
+                vcx.update(|_, cx| sheet::current::<ChatSettingsSheet>(cx))
+                    .is_some(),
+                "closed with 0.5 unsaved"
+            );
+            sheet.read_with(vcx, |s, _| assert!(s.is_dirty()));
+        }
     }
 }
