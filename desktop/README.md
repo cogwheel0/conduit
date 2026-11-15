@@ -107,7 +107,7 @@ CONDUIT_USER_DATA=/tmp/p-1 CONDUIT_LOGS=/tmp/l-1 \
 
 It signs in (`offline-setup`) and quits, makes a chat on the server
 (`owui.sh chat`) and stops the server. Then it launches again (`offline`):
-conduitd is killed once while the window opens, the main frame must open
+conduitd is restarted once while the window opens, the main frame must open
 from what the daemon stored, with the offline banner, and once the pass
 starts the server again the banner must go and the new chat must appear.
 
