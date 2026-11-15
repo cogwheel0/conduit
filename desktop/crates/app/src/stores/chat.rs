@@ -1525,6 +1525,8 @@ impl TurnOptions {
             filter_ids: self.filter_ids,
             compare_models: self.compare_models,
             temporary,
+            folder_id: None,
+            chat_params: None,
         }
     }
 

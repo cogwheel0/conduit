@@ -1,0 +1,10 @@
+{
+  "key": "temperature",
+  "kind": "decimal",
+  "mode": "custom",
+  "text": "0.4",
+  "choices": [],
+  "allowsCustom": false,
+  "min": 0.0,
+  "max": 2.0
+}

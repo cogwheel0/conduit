@@ -1,0 +1,7 @@
+{
+  "principalType": "user",
+  "principalId": "user-2",
+  "write": true,
+  "name": "Rowan Vale",
+  "email": "rowan@example.test"
+}

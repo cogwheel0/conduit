@@ -14,5 +14,8 @@
       "connection": "Home Ollama"
     }
   ],
-  "selectedId": "gpt-4o"
+  "selectedId": "gpt-4o",
+  "featuredIds": [],
+  "moreSections": [],
+  "canPin": false
 }

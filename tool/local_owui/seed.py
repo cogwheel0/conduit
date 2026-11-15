@@ -19,6 +19,8 @@ Usage (owui.sh seed runs it):
   markdown, for the sidebar's Notes and the composer's `#`.
 - For the composer's `$` and `#`: an active skill, and a knowledge base
   with a file of its own.
+- For a chat's Tool Settings and Share Folder: a public tool with personal
+  valves (a choice, a switch and a text), and a group with the second user.
 
 Writes the env file (mode 600) the daemon's live tests and the desktop
 E2E read. Every name, address, password and text is invented. Prints only
@@ -114,6 +116,41 @@ SKILL = {
     'description': 'Short sentences and everyday words.',
     'content': 'Answer in plain English: short sentences, everyday words.',
 }
+
+# A tool with personal valves (the user's own settings for it), for the
+# chat's Tool Settings, and a group the second user is in, for sharing.
+VALVE_TOOL = {
+    'id': 'trail_weather',
+    'name': 'Trail weather',
+    'meta': {'description': 'Invented forecasts for the trails.'},
+    'content': '''"""
+title: Trail weather
+"""
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class Tools:
+    class Valves(BaseModel):
+        days: int = Field(default=3, description="Days to forecast")
+
+    class UserValves(BaseModel):
+        units: Literal["metric", "imperial"] = Field(
+            default="metric", description="How temperatures are given"
+        )
+        show_wind: bool = Field(default=False, description="Add the wind")
+        greeting: str = Field(default="", description="Said before the forecast")
+
+    def __init__(self):
+        self.valves = self.Valves()
+
+    def forecast(self, trail: str) -> str:
+        """An invented forecast for a trail."""
+        return f"Dry and mild on {trail}."
+''',
+}
+GROUP = ('Trail crew', 'Hikers who share trip folders.')
 
 FILE_NAME = 'field-notes.txt'
 FILE_TEXT = (
@@ -367,6 +404,14 @@ def main():
     server.ok('POST', '/api/v1/skills/create', SKILL, token)
     print('knowledge 1 (1 file) skill 1')
 
+    server.ok('POST', '/api/v1/tools/create', {
+        **VALVE_TOOL,
+        'access_grants': [{'principal_type': 'user', 'principal_id': '*', 'permission': 'read'}],
+    }, token)
+    group = server.ok('POST', '/api/v1/groups/create', {'name': GROUP[0], 'description': GROUP[1]}, token)
+    server.ok('POST', f"/api/v1/groups/id/{group['id']}/users/add", {'user_ids': [second_id]}, token)
+    print('valve tool', VALVE_TOOL['id'], 'group', group['id'])
+
     private_file(args.env_file, '\n'.join([
         '# A throwaway local Open WebUI, made by tool/local_owui/owui.sh.',
         '# Every account and password here is synthetic and local to this machine.',
@@ -376,6 +421,7 @@ def main():
         f'OWUI_MODEL={MODEL}',
         f'OWUI_REFUSED_MODEL={REFUSED_MODEL}',
         f"OWUI_SECOND_EMAIL={SECOND['email']}",
+        f"OWUI_SECOND_NAME={SECOND['name']}",
         f'OWUI_SECOND_PASSWORD={second_password}',
         f'OWUI_SHARED_FOLDER={shared}',
         f'OWUI_SHARED_CHAT={shared_chats[0]}',
@@ -383,6 +429,9 @@ def main():
         f"OWUI_NOTE={notes['Garden plan for spring']}",
         f'OWUI_NOTE_COUNT={len(notes)}',
         f"OWUI_CHANNEL={channels['trail-crew']}",
+        f"OWUI_VALVE_TOOL={VALVE_TOOL['id']}",
+        f"OWUI_GROUP={group['id']}",
+        f'OWUI_GROUP_NAME={GROUP[0]}',
         f'OWUI_CHANNEL_UNREAD={len(TRAIL_MESSAGES)}',
         f'FAKE_OPENAI_URL={args.fake_model_url}',
         # Each request the fake model saw (its tool names, for instance).

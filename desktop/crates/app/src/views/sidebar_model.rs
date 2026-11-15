@@ -838,6 +838,7 @@ mod tests {
             shared: false,
             owner_name: None,
             can_write: true,
+            icon: None,
         }
     }
 

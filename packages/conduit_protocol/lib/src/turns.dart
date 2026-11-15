@@ -55,6 +55,14 @@ abstract class SendTurn with _$SendTurn {
     /// memory for as long as it runs. It never reaches the sidebar, the
     /// database or another device.
     @Default(false) bool temporary,
+
+    /// A new chat made in this folder ("New Chat in Folder"), so the
+    /// folder's system prompt and knowledge apply from its first answer.
+    String? folderId,
+
+    /// A new chat's own settings (`chatSettings.*` keeps them for the
+    /// window until the chat exists): its system prompt and parameters.
+    Map<String, dynamic>? chatParams,
   }) = _SendTurn;
 
   factory SendTurn.fromJson(Map<String, dynamic> json) =>

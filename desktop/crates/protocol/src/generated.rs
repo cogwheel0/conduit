@@ -16,7 +16,162 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.58.0";
+pub const PROTOCOL_VERSION: &str = "1.59.0";
+
+/// A resource whose access grants the everyday UI edits. Generic on
+/// purpose: folders now, notes and Workspace items reuse it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AccessResourceKind {
+    #[serde(rename = "chat")]
+    Chat,
+    #[serde(rename = "folder")]
+    Folder,
+    #[serde(rename = "note")]
+    Note,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Who a resource is open to beyond named users and groups, as Open
+/// WebUI's access editor shows it: nobody else, every user on the server,
+/// or anyone with the link (chats only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AccessAudience {
+    #[serde(rename = "private")]
+    Private,
+    #[serde(rename = "public")]
+    Public,
+    #[serde(rename = "open")]
+    Open,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Names a resource for `access.get`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessRef {
+    pub kind: AccessResourceKind,
+    pub id: String,
+}
+
+/// One user or group who may read, or read and write, a resource.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessGrantDto {
+    /// `user` or `group`.
+    #[serde(default = "default_access_grant_dto_principal_type")]
+    pub principal_type: String,
+    pub principal_id: String,
+    #[serde(default)]
+    pub write: bool,
+    /// The person's or group's name, when the server describes it. Empty
+    /// for one it will not describe to this account.
+    #[serde(default)]
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+}
+
+fn default_access_grant_dto_principal_type() -> String {
+    "user".to_owned()
+}
+
+/// Reply to `access.get` and `access.set`: who can reach the resource now,
+/// as the server answers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessState {
+    pub kind: AccessResourceKind,
+    pub id: String,
+    /// The named users and groups.
+    #[serde(default)]
+    pub grants: Vec<AccessGrantDto>,
+    #[serde(default = "default_access_state_audience")]
+    pub audience: AccessAudience,
+    /// The account may change these grants.
+    #[serde(default)]
+    pub can_edit: bool,
+    /// The server lets this account grant access to single users.
+    #[serde(default = "default_access_state_allow_users")]
+    pub allow_users: bool,
+    /// The server lets this account grant access to groups.
+    #[serde(default = "default_access_state_allow_groups")]
+    pub allow_groups: bool,
+    /// A recipient may be given write access (chats' audiences read only).
+    #[serde(default = "default_access_state_allow_write")]
+    pub allow_write: bool,
+    /// The sheet offers an audience (private or every user): not for a
+    /// folder, which has none.
+    #[serde(default)]
+    pub allow_public: bool,
+    /// Who owns the resource, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_name: Option<String>,
+}
+
+fn default_access_state_audience() -> AccessAudience {
+    AccessAudience::Private
+}
+
+fn default_access_state_allow_users() -> bool {
+    true
+}
+
+fn default_access_state_allow_groups() -> bool {
+    true
+}
+
+fn default_access_state_allow_write() -> bool {
+    true
+}
+
+/// Params for `access.set`: the named grants as the sheet holds them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessEdit {
+    pub kind: AccessResourceKind,
+    pub id: String,
+    #[serde(default)]
+    pub grants: Vec<AccessGrantDto>,
+    /// Set only when the user picked an audience on purpose; null keeps
+    /// the one the resource has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<AccessAudience>,
+}
+
+/// A user or group access can be granted to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessPrincipal {
+    /// `user` or `group`.
+    pub r#type: String,
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+}
+
+/// Params for `access.principals`: users and groups matching `query`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessPrincipalQuery {
+    #[serde(default)]
+    pub query: String,
+}
+
+/// Reply to `access.principals`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessPrincipals {
+    #[serde(default)]
+    pub items: Vec<AccessPrincipal>,
+}
 
 /// Who an account is, as the account list shows it: the name, email and
 /// avatar recorded the last time it signed in. Never a token or a password.
@@ -851,6 +1006,249 @@ pub struct ChannelMembers {
     pub users: Vec<ChannelUser>,
 }
 
+/// What a chat's More menu offers for its own settings (Open WebUI only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ChatSettingsEntry {
+    /// Nothing: not an Open WebUI chat, or nothing to show.
+    #[serde(rename = "none")]
+    None,
+    /// The editor: Settings › Chat › Advanced is on and the account may edit.
+    #[serde(rename = "editor")]
+    Editor,
+    /// A read-only summary of the settings that apply.
+    #[serde(rename = "applied")]
+    Applied,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// How one setting stands relative to the user's own defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ChatSettingMode {
+    /// No override: the user's default applies ("Your Default").
+    #[serde(rename = "inherit")]
+    Inherit,
+    /// An explicit null: the model's own default ("Model Default").
+    #[serde(rename = "modelDefault")]
+    ModelDefault,
+    /// A value of its own.
+    #[serde(rename = "custom")]
+    Custom,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// What kind of value a setting takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ChatSettingKind {
+    #[serde(rename = "text")]
+    Text,
+    #[serde(rename = "decimal")]
+    Decimal,
+    #[serde(rename = "integer")]
+    Integer,
+    #[serde(rename = "stopList")]
+    StopList,
+    #[serde(rename = "responseFormat")]
+    ResponseFormat,
+    #[serde(rename = "choice")]
+    Choice,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Why a typed value is not accepted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ChatSettingError {
+    #[serde(rename = "required")]
+    Required,
+    #[serde(rename = "notANumber")]
+    NotANumber,
+    #[serde(rename = "notAWholeNumber")]
+    NotAWholeNumber,
+    #[serde(rename = "outOfRange")]
+    OutOfRange,
+    #[serde(rename = "notJson")]
+    NotJson,
+    #[serde(rename = "notAChoice")]
+    NotAChoice,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Params for `chatSettings.get`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSettingsQuery {
+    /// Null for a new chat, whose settings the window keeps in `draft`
+    /// until the chat is created (`turns.send` takes them).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+    /// The model the chat runs on, which decides the reasoning choices;
+    /// null for the account's selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    /// A new chat's settings so far, as the last answer returned them.
+    #[serde(default = "default_chat_settings_query_draft")]
+    pub draft: serde_json::Value,
+}
+
+impl Default for ChatSettingsQuery {
+    fn default() -> Self {
+        Self {
+            chat_id: None,
+            model_id: None,
+            draft: default_chat_settings_query_draft(),
+        }
+    }
+}
+
+fn default_chat_settings_query_draft() -> serde_json::Value {
+    serde_json::Value::Object(serde_json::Map::new())
+}
+
+/// One field of the editor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSettingField {
+    /// The `chat.params` key (`system`, `temperature`, `stop`, ...).
+    pub key: String,
+    pub kind: ChatSettingKind,
+    #[serde(default = "default_chat_setting_field_mode")]
+    pub mode: ChatSettingMode,
+    /// What the field holds as text (a choice's value for a choice).
+    #[serde(default)]
+    pub text: String,
+    /// A choice field's values, without "Your Default" and the model's
+    /// default, which every choice has.
+    #[serde(default)]
+    pub choices: Vec<String>,
+    /// A value outside `choices` may be typed (a custom reasoning effort).
+    #[serde(default)]
+    pub allows_custom: bool,
+    /// The range a number must fall in, when it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
+    /// Why what is typed cannot be saved; null when it can.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<ChatSettingError>,
+}
+
+fn default_chat_setting_field_mode() -> ChatSettingMode {
+    ChatSettingMode::Inherit
+}
+
+/// One row of the read-only summary.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSettingApplied {
+    pub key: String,
+    /// Null: the model's own default was chosen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+}
+
+/// Reply to `chatSettings.get`, `chatSettings.check` and
+/// `chatSettings.save`: the form as it stands.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSettingsState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+    #[serde(default = "default_chat_settings_state_entry")]
+    pub entry: ChatSettingsEntry,
+    /// Settings › Chat › Advanced.
+    #[serde(default)]
+    pub advanced: bool,
+    #[serde(default)]
+    pub can_edit_system_prompt: bool,
+    #[serde(default)]
+    pub can_edit_parameters: bool,
+    /// The `system` field.
+    pub system_prompt: ChatSettingField,
+    /// The parameters the editor offers, in order.
+    #[serde(default)]
+    pub parameters: Vec<ChatSettingField>,
+    /// Saved keys the editor does not offer, which are kept as they are.
+    #[serde(default)]
+    pub other_kept: bool,
+    /// What applies, for the read-only summary.
+    #[serde(default)]
+    pub applied: Vec<ChatSettingApplied>,
+    /// The chat's settings as saved. For a new chat, what the window keeps
+    /// and sends with its first message.
+    #[serde(default = "default_chat_settings_state_params")]
+    pub params: serde_json::Value,
+    /// The edit changes something.
+    #[serde(default)]
+    pub dirty: bool,
+    /// Some field of the edit cannot be saved.
+    #[serde(default)]
+    pub has_errors: bool,
+    /// `chatSettings.save` wrote the edit.
+    #[serde(default)]
+    pub saved: bool,
+}
+
+fn default_chat_settings_state_entry() -> ChatSettingsEntry {
+    ChatSettingsEntry::None
+}
+
+fn default_chat_settings_state_params() -> serde_json::Value {
+    serde_json::Value::Object(serde_json::Map::new())
+}
+
+/// One field as the editor holds it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSettingFieldEdit {
+    pub key: String,
+    pub mode: ChatSettingMode,
+    #[serde(default)]
+    pub text: String,
+}
+
+/// Params for `chatSettings.check` and `chatSettings.save`: every field
+/// the editor shows, as it holds them. Only what differs from what is saved
+/// is written; the rest stays exactly as stored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSettingsEdit {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(default = "default_chat_settings_edit_draft")]
+    pub draft: serde_json::Value,
+    #[serde(default)]
+    pub fields: Vec<ChatSettingFieldEdit>,
+}
+
+impl Default for ChatSettingsEdit {
+    fn default() -> Self {
+        Self {
+            chat_id: None,
+            model_id: None,
+            draft: default_chat_settings_edit_draft(),
+            fields: Default::default(),
+        }
+    }
+}
+
+fn default_chat_settings_edit_draft() -> serde_json::Value {
+    serde_json::Value::Object(serde_json::Map::new())
+}
+
 /// A conversation as the sidebar shows it.
 ///
 /// Deliberately without messages. The sidebar renders hundreds of these and
@@ -912,6 +1310,10 @@ pub struct FolderSummary {
     /// and for a `shared` one only with a write grant.
     #[serde(default = "default_folder_summary_can_write")]
     pub can_write: bool,
+    /// Its icon as the sidebar draws it (an emoji), from the folder's
+    /// settings; null draws the plain folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 fn default_folder_summary_can_write() -> bool {
@@ -1156,6 +1558,121 @@ pub struct ChatCurrent {
 #[serde(rename_all = "camelCase")]
 pub struct FolderRef {
     pub folder_id: String,
+}
+
+/// One of the icons a folder may take.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderIconChoice {
+    /// The shortcode alias the folder saves.
+    pub alias: String,
+    /// What it draws as.
+    pub emoji: String,
+}
+
+/// A model a folder may start its chats on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderModelChoice {
+    pub id: String,
+    pub name: String,
+}
+
+/// One item of a folder's project knowledge.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderKnowledgeItem {
+    /// `collection`, `file` or `note`.
+    #[serde(default = "default_folder_knowledge_item_type")]
+    pub r#type: String,
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    /// The server says the file is gone.
+    #[serde(default)]
+    pub missing: bool,
+}
+
+fn default_folder_knowledge_item_type() -> String {
+    "file".to_owned()
+}
+
+/// Reply to `folders.get` and `folders.update`: a folder's settings, as
+/// its page and settings sheet edit them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderSettings {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// Applied by the server to every chat in the folder.
+    #[serde(default)]
+    pub system_prompt: String,
+    /// The models new chats in the folder start on, in slot order.
+    #[serde(default)]
+    pub model_ids: Vec<String>,
+    /// Knowledge applied to every chat in the folder.
+    #[serde(default)]
+    pub knowledge: Vec<FolderKnowledgeItem>,
+    /// Owned by another user and shared with this account.
+    #[serde(default)]
+    pub shared: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_name: Option<String>,
+    /// The name and icon may be changed (the account owns the folder).
+    #[serde(default)]
+    pub can_rename: bool,
+    /// The system prompt, models and knowledge may be changed (the owner, or
+    /// a write grant).
+    #[serde(default)]
+    pub can_write: bool,
+    /// The system prompt may be changed too (a write grant, and the
+    /// account's chat permissions allow system prompts).
+    #[serde(default)]
+    pub can_edit_system_prompt: bool,
+    /// Its access may be changed (Share Folder).
+    #[serde(default)]
+    pub can_share: bool,
+    /// The icons to choose from.
+    #[serde(default)]
+    pub icon_choices: Vec<FolderIconChoice>,
+    /// The models a folder may start its chats on: the server's own, not
+    /// this computer's Direct or Hermes ones.
+    #[serde(default)]
+    pub model_choices: Vec<FolderModelChoice>,
+}
+
+/// Params for `folders.update`: what changed; a null field stays as it is.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderUpdate {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// An empty alias clears the icon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge: Option<Vec<FolderKnowledgeItem>>,
+}
+
+/// Reply to `folders.draftModel`: what a new chat in the folder starts on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderDraftModel {
+    pub folder_id: String,
+    /// The folder's default models this server offers, in slot order; the
+    /// first is the new chat's. Empty: the account's own default applies.
+    #[serde(default)]
+    pub model_ids: Vec<String>,
+    /// The folder saved models, but the server offers none of them.
+    #[serde(default)]
+    pub missing: bool,
 }
 
 /// Reply to `chats.folder`: every conversation in a folder, newest first.
@@ -3067,6 +3584,20 @@ pub struct ModelList {
     /// discovering at send time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_id: Option<String>,
+    /// The picker's first list, as mobile's: the pinned models, or with
+    /// none pinned the first few, the default and the selected one.
+    #[serde(default)]
+    pub featured_ids: Vec<String>,
+    /// The rest, under "More Models": an untitled group first, then the
+    /// titled ones.
+    #[serde(default)]
+    pub more_sections: Vec<ModelSection>,
+    /// Models may be pinned and unpinned (`models.setPinned`).
+    #[serde(default)]
+    pub can_pin: bool,
+    /// The account's default model (Settings › Personalization).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_id: Option<String>,
 }
 
 /// Params for `models.select`.
@@ -3074,6 +3605,121 @@ pub struct ModelList {
 #[serde(rename_all = "camelCase")]
 pub struct SelectModel {
     pub id: String,
+}
+
+/// A group of models under "More Models"; `label` is empty for the
+/// untitled one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelSection {
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub ids: Vec<String>,
+}
+
+/// Params for `models.setPinned`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetModelPinned {
+    pub id: String,
+    pub pinned: bool,
+}
+
+/// Params for `models.options`: the model a chat runs on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelOptionsQuery {
+    /// Null for the account's selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    /// The chat a reasoning pick is saved on; null for a new chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+}
+
+/// How the picker offers reasoning effort for one model.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReasoningOptions {
+    /// The model takes a reasoning effort at all.
+    #[serde(default)]
+    pub visible: bool,
+    /// The efforts to offer, `automatic` first.
+    #[serde(default)]
+    pub options: Vec<String>,
+    /// Another value may be typed.
+    #[serde(default)]
+    pub allows_custom: bool,
+    /// What the next turn would send (`automatic` for the server's own).
+    #[serde(default = "default_reasoning_options_current")]
+    pub current: String,
+    /// The model is an Ollama model, whose effort is its thinking level.
+    #[serde(default)]
+    pub ollama: bool,
+}
+
+impl Default for ReasoningOptions {
+    fn default() -> Self {
+        Self {
+            visible: Default::default(),
+            options: Default::default(),
+            allows_custom: Default::default(),
+            current: default_reasoning_options_current(),
+            ollama: Default::default(),
+        }
+    }
+}
+
+fn default_reasoning_options_current() -> String {
+    "automatic".to_owned()
+}
+
+/// Reply to `models.options`, `models.setReasoningEffort` and
+/// `models.setFastTier`: the picker's extras for one model.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelOptionsDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(default)]
+    pub reasoning: ReasoningOptions,
+    /// Hermes' Fast tier: null when the model has none, else whether it is
+    /// on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast_tier: Option<bool>,
+    /// A new chat's settings after a reasoning pick (it is saved on the
+    /// chat as mobile saves it); null when the pick is not for a new chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft: Option<serde_json::Value>,
+}
+
+/// Params for `models.setReasoningEffort`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetReasoningEffort {
+    pub model_id: String,
+    /// The chat the pick is saved on; null for a new chat, whose settings
+    /// are `draft`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+    #[serde(default = "default_set_reasoning_effort_draft")]
+    pub draft: serde_json::Value,
+    /// A preset (`automatic`, `low`, ...) or a custom value.
+    pub effort: String,
+}
+
+fn default_set_reasoning_effort_draft() -> serde_json::Value {
+    serde_json::Value::Object(serde_json::Map::new())
+}
+
+/// Params for `models.setFastTier`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetFastTier {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    pub on: bool,
 }
 
 /// A note, as the list shows it.
@@ -4726,6 +5372,14 @@ pub struct SendTurn {
     /// database or another device.
     #[serde(default)]
     pub temporary: bool,
+    /// A new chat made in this folder ("New Chat in Folder"), so the
+    /// folder's system prompt and knowledge apply from its first answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_id: Option<String>,
+    /// A new chat's own settings (`chatSettings.*` keeps them for the
+    /// window until the chat exists): its system prompt and parameters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_params: Option<serde_json::Value>,
 }
 
 /// Reply to `turns.send`.
@@ -4932,6 +5586,191 @@ pub struct SteerResult {
     /// the text and says so, without sending it again.
     #[serde(default)]
     pub uncertain: bool,
+}
+
+/// What a valve set belongs to: a tool, or a function (a filter or the
+/// pipe behind a model).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ValveTargetKind {
+    #[serde(rename = "tool")]
+    Tool,
+    #[serde(rename = "function")]
+    Function,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// One tool, filter or pipe whose personal valves the user may set.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValveTarget {
+    pub kind: ValveTargetKind,
+    /// The server resource the valves belong to (for a pipe, the function
+    /// behind the model).
+    pub id: String,
+    #[serde(default)]
+    pub label: String,
+}
+
+/// Params for `valves.targets`: the chat's model and the tools and filters
+/// its composer has on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ValveTargetsQuery {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(default)]
+    pub tool_ids: Vec<String>,
+    #[serde(default)]
+    pub filter_ids: Vec<String>,
+}
+
+/// Reply to `valves.targets`. Empty when there is nothing to set, or the
+/// account's `chat.valves` permission is off.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ValveTargets {
+    #[serde(default)]
+    pub targets: Vec<ValveTarget>,
+    /// Settings › Chat › Advanced, which offers the command.
+    #[serde(default)]
+    pub advanced: bool,
+}
+
+/// Names a valve set for `valves.get`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValvesRef {
+    pub kind: ValveTargetKind,
+    pub id: String,
+    #[serde(default)]
+    pub label: String,
+}
+
+/// What a valve's value is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ValveFieldType {
+    #[serde(rename = "text")]
+    Text,
+    #[serde(rename = "number")]
+    Number,
+    #[serde(rename = "integer")]
+    Integer,
+    #[serde(rename = "boolean")]
+    Boolean,
+    #[serde(rename = "choice")]
+    Choice,
+    #[serde(rename = "list")]
+    List,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// One valve, as the form draws it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValveField {
+    pub key: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default = "default_valve_field_type")]
+    pub r#type: ValveFieldType,
+    #[serde(default)]
+    pub is_required: bool,
+    /// A secret: drawn masked.
+    #[serde(default)]
+    pub password: bool,
+    /// A choice's options, as text.
+    #[serde(default)]
+    pub options: Vec<String>,
+    /// At the server's default (no value of its own).
+    #[serde(default = "default_valve_field_is_default")]
+    pub is_default: bool,
+    /// The schema declares a default (else "None" stands for it).
+    #[serde(default)]
+    pub has_default: bool,
+    /// The value as text (`true`/`false` for a switch; a list joined with
+    /// commas).
+    #[serde(default)]
+    pub text: String,
+    /// What the field starts at when it stops using the default.
+    #[serde(default)]
+    pub seed: String,
+}
+
+fn default_valve_field_type() -> ValveFieldType {
+    ValveFieldType::Text
+}
+
+fn default_valve_field_is_default() -> bool {
+    true
+}
+
+/// Where a valve set's loading ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ValvesPhase {
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "unavailable")]
+    Unavailable,
+    #[serde(rename = "loadFailed")]
+    LoadFailed,
+    #[serde(rename = "ownerChanged")]
+    OwnerChanged,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Reply to `valves.get` and `valves.save`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValvesDocument {
+    pub kind: ValveTargetKind,
+    pub id: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default = "default_valves_document_phase")]
+    pub phase: ValvesPhase,
+    #[serde(default)]
+    pub fields: Vec<ValveField>,
+}
+
+fn default_valves_document_phase() -> ValvesPhase {
+    ValvesPhase::Ready
+}
+
+/// One valve as the form holds it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValveEdit {
+    pub key: String,
+    #[serde(default = "default_valve_edit_is_default")]
+    pub is_default: bool,
+    #[serde(default)]
+    pub text: String,
+}
+
+fn default_valve_edit_is_default() -> bool {
+    true
+}
+
+/// Params for `valves.save`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValvesSave {
+    pub kind: ValveTargetKind,
+    pub id: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub values: Vec<ValveEdit>,
 }
 
 /// Dictation, read aloud and call mode settings, with what the active
@@ -7010,6 +7849,44 @@ pub mod methods {
         type Result = super::ChatList;
     }
 
+    /// A folder's settings: name, icon, system prompt, default models and
+    /// project knowledge, read from the server as its page shows them.
+    ///
+    /// `folders.get`: FolderRef -> FolderSettings.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct FoldersGet;
+
+    impl RpcMethod for FoldersGet {
+        const NAME: &'static str = "folders.get";
+        type Params = super::FolderRef;
+        type Result = super::FolderSettings;
+    }
+
+    /// Changes what `FolderUpdate` names; answers with the settings after.
+    ///
+    /// `folders.update`: FolderUpdate -> FolderSettings.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct FoldersUpdate;
+
+    impl RpcMethod for FoldersUpdate {
+        const NAME: &'static str = "folders.update";
+        type Params = super::FolderUpdate;
+        type Result = super::FolderSettings;
+    }
+
+    /// What a new chat in the folder starts on: its default models this
+    /// server offers. Selects nothing.
+    ///
+    /// `folders.draftModel`: FolderRef -> FolderDraftModel.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct FoldersDraftModel;
+
+    impl RpcMethod for FoldersDraftModel {
+        const NAME: &'static str = "folders.draftModel";
+        type Params = super::FolderRef;
+        type Result = super::FolderDraftModel;
+    }
+
     /// Pins or unpins it.
     ///
     /// `chats.setPinned`: SetChatFlag -> ChatList.
@@ -7116,6 +7993,163 @@ pub mod methods {
         const NAME: &'static str = "models.select";
         type Params = super::SelectModel;
         type Result = super::ModelList;
+    }
+
+    /// Pins a model to the top of the picker, or unpins it, in the account's
+    /// settings (as mobile's picker does).
+    ///
+    /// `models.setPinned`: SetModelPinned -> ModelList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ModelsSetPinned;
+
+    impl RpcMethod for ModelsSetPinned {
+        const NAME: &'static str = "models.setPinned";
+        type Params = super::SetModelPinned;
+        type Result = super::ModelList;
+    }
+
+    /// The picker's extras for one model: reasoning effort (an Ollama
+    /// model's thinking level) and Hermes' Fast tier.
+    ///
+    /// `models.options`: ModelOptionsQuery -> ModelOptionsDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ModelsOptions;
+
+    impl RpcMethod for ModelsOptions {
+        const NAME: &'static str = "models.options";
+        type Params = super::ModelOptionsQuery;
+        type Result = super::ModelOptionsDto;
+    }
+
+    /// Picks a reasoning effort for a model. For an Open WebUI model it is
+    /// also saved on the chat, as mobile's picker saves it.
+    ///
+    /// `models.setReasoningEffort`: SetReasoningEffort -> ModelOptionsDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ModelsSetReasoningEffort;
+
+    impl RpcMethod for ModelsSetReasoningEffort {
+        const NAME: &'static str = "models.setReasoningEffort";
+        type Params = super::SetReasoningEffort;
+        type Result = super::ModelOptionsDto;
+    }
+
+    /// Turns Hermes' Fast tier on or off.
+    ///
+    /// `models.setFastTier`: SetFastTier -> ModelOptionsDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ModelsSetFastTier;
+
+    impl RpcMethod for ModelsSetFastTier {
+        const NAME: &'static str = "models.setFastTier";
+        type Params = super::SetFastTier;
+        type Result = super::ModelOptionsDto;
+    }
+
+    /// The form for a chat, or for a new chat's draft.
+    ///
+    /// `chatSettings.get`: ChatSettingsQuery -> ChatSettingsState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChatSettingsGet;
+
+    impl RpcMethod for ChatSettingsGet {
+        const NAME: &'static str = "chatSettings.get";
+        type Params = super::ChatSettingsQuery;
+        type Result = super::ChatSettingsState;
+    }
+
+    /// The form with an edit applied, its errors marked; writes nothing.
+    ///
+    /// `chatSettings.check`: ChatSettingsEdit -> ChatSettingsState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChatSettingsCheck;
+
+    impl RpcMethod for ChatSettingsCheck {
+        const NAME: &'static str = "chatSettings.check";
+        type Params = super::ChatSettingsEdit;
+        type Result = super::ChatSettingsState;
+    }
+
+    /// Saves an edit: only what changed is written.
+    ///
+    /// `chatSettings.save`: ChatSettingsEdit -> ChatSettingsState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChatSettingsSave;
+
+    impl RpcMethod for ChatSettingsSave {
+        const NAME: &'static str = "chatSettings.save";
+        type Params = super::ChatSettingsEdit;
+        type Result = super::ChatSettingsState;
+    }
+
+    /// What a chat's model, tools and filters offer personal valves for.
+    ///
+    /// `valves.targets`: ValveTargetsQuery -> ValveTargets.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ValvesTargets;
+
+    impl RpcMethod for ValvesTargets {
+        const NAME: &'static str = "valves.targets";
+        type Params = super::ValveTargetsQuery;
+        type Result = super::ValveTargets;
+    }
+
+    /// One tool's or function's personal valves.
+    ///
+    /// `valves.get`: ValvesRef -> ValvesDocument.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ValvesGet;
+
+    impl RpcMethod for ValvesGet {
+        const NAME: &'static str = "valves.get";
+        type Params = super::ValvesRef;
+        type Result = super::ValvesDocument;
+    }
+
+    /// Saves them; answers with what the server stored.
+    ///
+    /// `valves.save`: ValvesSave -> ValvesDocument.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ValvesSave;
+
+    impl RpcMethod for ValvesSave {
+        const NAME: &'static str = "valves.save";
+        type Params = super::ValvesSave;
+        type Result = super::ValvesDocument;
+    }
+
+    /// `access.get`: AccessRef -> AccessState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AccessGet;
+
+    impl RpcMethod for AccessGet {
+        const NAME: &'static str = "access.get";
+        type Params = super::AccessRef;
+        type Result = super::AccessState;
+    }
+
+    /// Replaces the named grants; answers with the server's own result.
+    ///
+    /// `access.set`: AccessEdit -> AccessState.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AccessSet;
+
+    impl RpcMethod for AccessSet {
+        const NAME: &'static str = "access.set";
+        type Params = super::AccessEdit;
+        type Result = super::AccessState;
+    }
+
+    /// Users and groups to grant access to.
+    ///
+    /// `access.principals`: AccessPrincipalQuery -> AccessPrincipals.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AccessPrincipals;
+
+    impl RpcMethod for AccessPrincipals {
+        const NAME: &'static str = "access.principals";
+        type Params = super::AccessPrincipalQuery;
+        type Result = super::AccessPrincipals;
     }
 
     /// What the composer may offer: web search, image generation, the
@@ -8986,6 +10020,21 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("ChatList"),
     },
     MethodSpec {
+        name: "folders.get",
+        params: Some("FolderRef"),
+        result: Some("FolderSettings"),
+    },
+    MethodSpec {
+        name: "folders.update",
+        params: Some("FolderUpdate"),
+        result: Some("FolderSettings"),
+    },
+    MethodSpec {
+        name: "folders.draftModel",
+        params: Some("FolderRef"),
+        result: Some("FolderDraftModel"),
+    },
+    MethodSpec {
         name: "chats.setPinned",
         params: Some("SetChatFlag"),
         result: Some("ChatList"),
@@ -9029,6 +10078,71 @@ pub const METHODS: &[MethodSpec] = &[
         name: "models.select",
         params: Some("SelectModel"),
         result: Some("ModelList"),
+    },
+    MethodSpec {
+        name: "models.setPinned",
+        params: Some("SetModelPinned"),
+        result: Some("ModelList"),
+    },
+    MethodSpec {
+        name: "models.options",
+        params: Some("ModelOptionsQuery"),
+        result: Some("ModelOptionsDto"),
+    },
+    MethodSpec {
+        name: "models.setReasoningEffort",
+        params: Some("SetReasoningEffort"),
+        result: Some("ModelOptionsDto"),
+    },
+    MethodSpec {
+        name: "models.setFastTier",
+        params: Some("SetFastTier"),
+        result: Some("ModelOptionsDto"),
+    },
+    MethodSpec {
+        name: "chatSettings.get",
+        params: Some("ChatSettingsQuery"),
+        result: Some("ChatSettingsState"),
+    },
+    MethodSpec {
+        name: "chatSettings.check",
+        params: Some("ChatSettingsEdit"),
+        result: Some("ChatSettingsState"),
+    },
+    MethodSpec {
+        name: "chatSettings.save",
+        params: Some("ChatSettingsEdit"),
+        result: Some("ChatSettingsState"),
+    },
+    MethodSpec {
+        name: "valves.targets",
+        params: Some("ValveTargetsQuery"),
+        result: Some("ValveTargets"),
+    },
+    MethodSpec {
+        name: "valves.get",
+        params: Some("ValvesRef"),
+        result: Some("ValvesDocument"),
+    },
+    MethodSpec {
+        name: "valves.save",
+        params: Some("ValvesSave"),
+        result: Some("ValvesDocument"),
+    },
+    MethodSpec {
+        name: "access.get",
+        params: Some("AccessRef"),
+        result: Some("AccessState"),
+    },
+    MethodSpec {
+        name: "access.set",
+        params: Some("AccessEdit"),
+        result: Some("AccessState"),
+    },
+    MethodSpec {
+        name: "access.principals",
+        params: Some("AccessPrincipalQuery"),
+        result: Some("AccessPrincipals"),
     },
     MethodSpec {
         name: "composer.options",
@@ -10135,6 +11249,13 @@ pub mod conformance {
     pub const TYPE_NAMES: &[&str] = &[
         "AboutInfo",
         "AcceptedResult",
+        "AccessEdit",
+        "AccessGrantDto",
+        "AccessPrincipal",
+        "AccessPrincipalQuery",
+        "AccessPrincipals",
+        "AccessRef",
+        "AccessState",
         "AccountChangeResult",
         "AccountList",
         "AccountRef",
@@ -10188,6 +11309,12 @@ pub mod conformance {
         "ChatSearchHit",
         "ChatSearchQuery",
         "ChatSearchResults",
+        "ChatSettingApplied",
+        "ChatSettingField",
+        "ChatSettingFieldEdit",
+        "ChatSettingsEdit",
+        "ChatSettingsQuery",
+        "ChatSettingsState",
         "ChatShare",
         "ChatSourceDto",
         "ChatSummary",
@@ -10232,8 +11359,14 @@ pub mod conformance {
         "FetchedUrl",
         "FolderContents",
         "FolderCreated",
+        "FolderDraftModel",
+        "FolderIconChoice",
+        "FolderKnowledgeItem",
+        "FolderModelChoice",
         "FolderRef",
+        "FolderSettings",
         "FolderSummary",
+        "FolderUpdate",
         "HandshakeRequest",
         "HandshakeResponse",
         "HermesCapabilitiesDto",
@@ -10281,9 +11414,12 @@ pub mod conformance {
         "MessageBlockDto",
         "MessageStatusDto",
         "ModelList",
+        "ModelOptionsDto",
+        "ModelOptionsQuery",
         "ModelPrompt",
         "ModelPromptEdit",
         "ModelPromptRef",
+        "ModelSection",
         "ModelSummary",
         "MoveChat",
         "NetworkReport",
@@ -10328,6 +11464,7 @@ pub mod conformance {
         "QuickPillOptions",
         "RateTurn",
         "RatedResult",
+        "ReasoningOptions",
         "RegenerateTurn",
         "ReleaseNoteBullet",
         "ReleaseNoteDto",
@@ -10350,6 +11487,9 @@ pub mod conformance {
         "ServerStatus",
         "ServerSummary",
         "SetChatFlag",
+        "SetFastTier",
+        "SetModelPinned",
+        "SetReasoningEffort",
         "ShutdownResult",
         "SignOutAll",
         "SkillList",
@@ -10391,6 +11531,14 @@ pub mod conformance {
         "UiResponse",
         "UiSettled",
         "UploadedFile",
+        "ValveEdit",
+        "ValveField",
+        "ValveTarget",
+        "ValveTargets",
+        "ValveTargetsQuery",
+        "ValvesDocument",
+        "ValvesRef",
+        "ValvesSave",
         "VoiceModel",
         "VoiceModelRef",
         "VoiceModels",
@@ -10462,6 +11610,13 @@ pub mod conformance {
         Some(match type_name {
             "AboutInfo" => roundtrip::<super::AboutInfo>(json),
             "AcceptedResult" => roundtrip::<super::AcceptedResult>(json),
+            "AccessEdit" => roundtrip::<super::AccessEdit>(json),
+            "AccessGrantDto" => roundtrip::<super::AccessGrantDto>(json),
+            "AccessPrincipal" => roundtrip::<super::AccessPrincipal>(json),
+            "AccessPrincipalQuery" => roundtrip::<super::AccessPrincipalQuery>(json),
+            "AccessPrincipals" => roundtrip::<super::AccessPrincipals>(json),
+            "AccessRef" => roundtrip::<super::AccessRef>(json),
+            "AccessState" => roundtrip::<super::AccessState>(json),
             "AccountChangeResult" => roundtrip::<super::AccountChangeResult>(json),
             "AccountList" => roundtrip::<super::AccountList>(json),
             "AccountRef" => roundtrip::<super::AccountRef>(json),
@@ -10515,6 +11670,12 @@ pub mod conformance {
             "ChatSearchHit" => roundtrip::<super::ChatSearchHit>(json),
             "ChatSearchQuery" => roundtrip::<super::ChatSearchQuery>(json),
             "ChatSearchResults" => roundtrip::<super::ChatSearchResults>(json),
+            "ChatSettingApplied" => roundtrip::<super::ChatSettingApplied>(json),
+            "ChatSettingField" => roundtrip::<super::ChatSettingField>(json),
+            "ChatSettingFieldEdit" => roundtrip::<super::ChatSettingFieldEdit>(json),
+            "ChatSettingsEdit" => roundtrip::<super::ChatSettingsEdit>(json),
+            "ChatSettingsQuery" => roundtrip::<super::ChatSettingsQuery>(json),
+            "ChatSettingsState" => roundtrip::<super::ChatSettingsState>(json),
             "ChatShare" => roundtrip::<super::ChatShare>(json),
             "ChatSourceDto" => roundtrip::<super::ChatSourceDto>(json),
             "ChatSummary" => roundtrip::<super::ChatSummary>(json),
@@ -10559,8 +11720,14 @@ pub mod conformance {
             "FetchedUrl" => roundtrip::<super::FetchedUrl>(json),
             "FolderContents" => roundtrip::<super::FolderContents>(json),
             "FolderCreated" => roundtrip::<super::FolderCreated>(json),
+            "FolderDraftModel" => roundtrip::<super::FolderDraftModel>(json),
+            "FolderIconChoice" => roundtrip::<super::FolderIconChoice>(json),
+            "FolderKnowledgeItem" => roundtrip::<super::FolderKnowledgeItem>(json),
+            "FolderModelChoice" => roundtrip::<super::FolderModelChoice>(json),
             "FolderRef" => roundtrip::<super::FolderRef>(json),
+            "FolderSettings" => roundtrip::<super::FolderSettings>(json),
             "FolderSummary" => roundtrip::<super::FolderSummary>(json),
+            "FolderUpdate" => roundtrip::<super::FolderUpdate>(json),
             "HandshakeRequest" => roundtrip::<super::HandshakeRequest>(json),
             "HandshakeResponse" => roundtrip::<super::HandshakeResponse>(json),
             "HermesCapabilitiesDto" => roundtrip::<super::HermesCapabilitiesDto>(json),
@@ -10608,9 +11775,12 @@ pub mod conformance {
             "MessageBlockDto" => roundtrip::<super::MessageBlockDto>(json),
             "MessageStatusDto" => roundtrip::<super::MessageStatusDto>(json),
             "ModelList" => roundtrip::<super::ModelList>(json),
+            "ModelOptionsDto" => roundtrip::<super::ModelOptionsDto>(json),
+            "ModelOptionsQuery" => roundtrip::<super::ModelOptionsQuery>(json),
             "ModelPrompt" => roundtrip::<super::ModelPrompt>(json),
             "ModelPromptEdit" => roundtrip::<super::ModelPromptEdit>(json),
             "ModelPromptRef" => roundtrip::<super::ModelPromptRef>(json),
+            "ModelSection" => roundtrip::<super::ModelSection>(json),
             "ModelSummary" => roundtrip::<super::ModelSummary>(json),
             "MoveChat" => roundtrip::<super::MoveChat>(json),
             "NetworkReport" => roundtrip::<super::NetworkReport>(json),
@@ -10655,6 +11825,7 @@ pub mod conformance {
             "QuickPillOptions" => roundtrip::<super::QuickPillOptions>(json),
             "RateTurn" => roundtrip::<super::RateTurn>(json),
             "RatedResult" => roundtrip::<super::RatedResult>(json),
+            "ReasoningOptions" => roundtrip::<super::ReasoningOptions>(json),
             "RegenerateTurn" => roundtrip::<super::RegenerateTurn>(json),
             "ReleaseNoteBullet" => roundtrip::<super::ReleaseNoteBullet>(json),
             "ReleaseNoteDto" => roundtrip::<super::ReleaseNoteDto>(json),
@@ -10677,6 +11848,9 @@ pub mod conformance {
             "ServerStatus" => roundtrip::<super::ServerStatus>(json),
             "ServerSummary" => roundtrip::<super::ServerSummary>(json),
             "SetChatFlag" => roundtrip::<super::SetChatFlag>(json),
+            "SetFastTier" => roundtrip::<super::SetFastTier>(json),
+            "SetModelPinned" => roundtrip::<super::SetModelPinned>(json),
+            "SetReasoningEffort" => roundtrip::<super::SetReasoningEffort>(json),
             "ShutdownResult" => roundtrip::<super::ShutdownResult>(json),
             "SignOutAll" => roundtrip::<super::SignOutAll>(json),
             "SkillList" => roundtrip::<super::SkillList>(json),
@@ -10718,6 +11892,14 @@ pub mod conformance {
             "UiResponse" => roundtrip::<super::UiResponse>(json),
             "UiSettled" => roundtrip::<super::UiSettled>(json),
             "UploadedFile" => roundtrip::<super::UploadedFile>(json),
+            "ValveEdit" => roundtrip::<super::ValveEdit>(json),
+            "ValveField" => roundtrip::<super::ValveField>(json),
+            "ValveTarget" => roundtrip::<super::ValveTarget>(json),
+            "ValveTargets" => roundtrip::<super::ValveTargets>(json),
+            "ValveTargetsQuery" => roundtrip::<super::ValveTargetsQuery>(json),
+            "ValvesDocument" => roundtrip::<super::ValvesDocument>(json),
+            "ValvesRef" => roundtrip::<super::ValvesRef>(json),
+            "ValvesSave" => roundtrip::<super::ValvesSave>(json),
             "VoiceModel" => roundtrip::<super::VoiceModel>(json),
             "VoiceModelRef" => roundtrip::<super::VoiceModelRef>(json),
             "VoiceModels" => roundtrip::<super::VoiceModels>(json),

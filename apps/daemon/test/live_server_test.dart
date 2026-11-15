@@ -2654,6 +2654,318 @@ void main() {
           cleanups.remove('knowledge');
         }, timeout: const Timeout(Duration(minutes: 3)));
       });
+
+      group('chat and folder settings', () {
+        late ChatsService chats;
+        late ChatSettingsService settings;
+
+        setUpAll(() async {
+          chats = ChatsService(runtime.container);
+          settings = ChatSettingsService(runtime.container);
+          // Run alone, the group can start before the first sync landed.
+          await _waitFor(() async {
+            final listed = await chats.list();
+            return listed.chats.isNotEmpty && listed.folders.isNotEmpty;
+          }, seconds: 30);
+        });
+
+        test(
+          'saves a chat\'s prompt and parameters, then inherits again',
+          () async {
+            final listed = await chats.list();
+            final chat = listed.chats.firstWhere(
+              (c) => c.folderId == null && !c.readOnly,
+            );
+            final opened = await settings.get(
+              ChatSettingsQuery(chatId: chat.id, modelId: turnModel),
+            );
+            expect(opened.canEditParameters, isTrue);
+            expect(
+              opened.parameters.map((f) => f.key),
+              containsAll(<String>['temperature', 'seed', 'stop']),
+            );
+
+            // A bad value is marked and nothing is written.
+            final bad = await settings.save(
+              ChatSettingsEdit(
+                chatId: chat.id,
+                modelId: turnModel,
+                fields: const <ChatSettingFieldEdit>[
+                  ChatSettingFieldEdit(
+                    key: 'temperature',
+                    mode: ChatSettingMode.custom,
+                    text: '9',
+                  ),
+                ],
+              ),
+            );
+            expect(bad.saved, isFalse);
+            expect(
+              bad.parameters.firstWhere((f) => f.key == 'temperature').error,
+              ChatSettingError.outOfRange,
+            );
+
+            final saved = await settings.save(
+              ChatSettingsEdit(
+                chatId: chat.id,
+                modelId: turnModel,
+                fields: const <ChatSettingFieldEdit>[
+                  ChatSettingFieldEdit(
+                    key: 'system',
+                    mode: ChatSettingMode.custom,
+                    text: 'Answer like a ship captain.',
+                  ),
+                  ChatSettingFieldEdit(
+                    key: 'temperature',
+                    mode: ChatSettingMode.custom,
+                    text: '0.3',
+                  ),
+                  ChatSettingFieldEdit(
+                    key: 'seed',
+                    mode: ChatSettingMode.custom,
+                    text: '7',
+                  ),
+                ],
+              ),
+            );
+            expect(saved.saved, isTrue);
+            expect(saved.params['temperature'], 0.3);
+            expect(saved.params['seed'], 7);
+            expect(saved.params['system'], 'Answer like a ship captain.');
+            final again = await settings.get(
+              ChatSettingsQuery(chatId: chat.id, modelId: turnModel),
+            );
+            expect(again.systemPrompt.mode, ChatSettingMode.custom);
+            expect(
+              again.parameters.firstWhere((f) => f.key == 'seed').text,
+              '7',
+            );
+
+            // Your Default for one, then Reset All.
+            final one = await settings.save(
+              ChatSettingsEdit(
+                chatId: chat.id,
+                modelId: turnModel,
+                fields: const <ChatSettingFieldEdit>[
+                  ChatSettingFieldEdit(
+                    key: 'seed',
+                    mode: ChatSettingMode.inherit,
+                  ),
+                ],
+              ),
+            );
+            expect(one.params.containsKey('seed'), isFalse);
+            expect(one.params['temperature'], 0.3);
+            final reset = await settings.save(
+              ChatSettingsEdit(
+                chatId: chat.id,
+                modelId: turnModel,
+                fields: <ChatSettingFieldEdit>[
+                  const ChatSettingFieldEdit(
+                    key: 'system',
+                    mode: ChatSettingMode.inherit,
+                  ),
+                  for (final field in opened.parameters)
+                    ChatSettingFieldEdit(
+                      key: field.key,
+                      mode: ChatSettingMode.inherit,
+                    ),
+                ],
+              ),
+            );
+            expect(reset.params, isEmpty);
+          },
+          timeout: const Timeout(Duration(minutes: 2)),
+        );
+
+        test('keeps a new chat\'s settings in its draft', () async {
+          final draft = await settings.save(
+            ChatSettingsEdit(
+              modelId: turnModel,
+              fields: const <ChatSettingFieldEdit>[
+                ChatSettingFieldEdit(
+                  key: 'max_tokens',
+                  mode: ChatSettingMode.custom,
+                  text: '64',
+                ),
+              ],
+            ),
+          );
+          expect(draft.chatId, isNull);
+          expect(draft.params, <String, dynamic>{'max_tokens': 64});
+          final reopened = await settings.get(
+            ChatSettingsQuery(modelId: turnModel, draft: draft.params),
+          );
+          expect(
+            reopened.parameters.firstWhere((f) => f.key == 'max_tokens').mode,
+            ChatSettingMode.custom,
+          );
+        });
+
+        test('pins a model and offers reasoning effort', () async {
+          final pinned = await models.setPinned(
+            SetModelPinned(id: turnModel, pinned: true),
+          );
+          expect(
+            pinned.models.firstWhere((m) => m.id == turnModel).pinned,
+            isTrue,
+          );
+          expect(pinned.featuredIds, contains(turnModel));
+          final unpinned = await models.setPinned(
+            SetModelPinned(id: turnModel, pinned: false),
+          );
+          expect(
+            unpinned.models.firstWhere((m) => m.id == turnModel).pinned,
+            isFalse,
+          );
+
+          final options = await models.options(
+            ModelOptionsQuery(modelId: turnModel),
+          );
+          expect(options.reasoning.visible, isTrue);
+          expect(options.reasoning.options.first, 'automatic');
+          final picked = await models.setReasoningEffort(
+            SetReasoningEffort(modelId: turnModel, effort: 'high'),
+          );
+          expect(picked.reasoning.current, 'high');
+          expect(picked.draft, <String, dynamic>{'reasoning_effort': 'high'});
+          final back = await models.setReasoningEffort(
+            SetReasoningEffort(modelId: turnModel, effort: 'automatic'),
+          );
+          expect(back.reasoning.current, 'automatic');
+        });
+
+        test('reads and writes a tool\'s personal valves', () async {
+          final toolId = credentials!.values['OWUI_VALVE_TOOL'];
+          if (toolId == null) {
+            markTestSkipped('the seed has no valve tool (owui.sh reset)');
+            return;
+          }
+          final valves = ValvesService(runtime.container);
+          final targets = await valves.targets(
+            ValveTargetsQuery(modelId: turnModel, toolIds: <String>[toolId]),
+          );
+          final target = targets.targets.single;
+          expect(target.kind, ValveTargetKind.tool);
+          final doc = await valves.get(
+            ValvesRef(kind: target.kind, id: target.id, label: target.label),
+          );
+          expect(doc.phase, ValvesPhase.ready);
+          final units = doc.fields.firstWhere((f) => f.key == 'units');
+          expect(units.type, ValveFieldType.choice);
+          expect(units.options, <String>['metric', 'imperial']);
+          expect(
+            doc.fields.firstWhere((f) => f.key == 'show_wind').type,
+            ValveFieldType.boolean,
+          );
+          final saved = await valves.save(
+            ValvesSave(
+              kind: target.kind,
+              id: target.id,
+              values: const <ValveEdit>[
+                ValveEdit(key: 'units', isDefault: false, text: 'imperial'),
+                ValveEdit(key: 'show_wind', isDefault: false, text: 'true'),
+              ],
+            ),
+          );
+          expect(
+            saved.fields.firstWhere((f) => f.key == 'units').text,
+            'imperial',
+          );
+          expect(
+            saved.fields.firstWhere((f) => f.key == 'show_wind').text,
+            'true',
+          );
+          final cleared = await valves.save(
+            ValvesSave(
+              kind: target.kind,
+              id: target.id,
+              values: const <ValveEdit>[
+                ValveEdit(key: 'units'),
+                ValveEdit(key: 'show_wind'),
+              ],
+            ),
+          );
+          expect(
+            cleared.fields.firstWhere((f) => f.key == 'units').isDefault,
+            isTrue,
+          );
+        }, timeout: const Timeout(Duration(minutes: 2)));
+
+        test('a folder: prompt, models, icon and sharing', () async {
+          final folders = FolderSettingsService(runtime.container);
+          final access = AccessService(runtime.container);
+          final listed = await chats.list();
+          final folder = listed.folders.firstWhere(
+            (f) => !f.shared && f.name == 'Recipes',
+          );
+          final before = await folders.get(folder.id);
+          expect(before.canWrite, isTrue);
+          expect(before.iconChoices, isNotEmpty);
+
+          final updated = await folders.update(
+            FolderUpdate(
+              id: folder.id,
+              icon: 'books',
+              systemPrompt: 'Give quantities in grams.',
+              modelIds: <String>[turnModel],
+            ),
+          );
+          expect(updated.icon, 'books');
+          expect(updated.systemPrompt, 'Give quantities in grams.');
+          expect(updated.modelIds, <String>[turnModel]);
+          final draft = await folders.draftModel(folder.id);
+          expect(draft.modelIds, <String>[turnModel]);
+          expect(
+            (await chats.list()).folders
+                .firstWhere((f) => f.id == folder.id)
+                .icon,
+            '📚',
+          );
+
+          // Shared with the second user, who may edit it, then not.
+          final second = credentials!.values['OWUI_SECOND_NAME'];
+          if (second != null) {
+            final people = await access.principals(
+              AccessPrincipalQuery(query: second.split(' ').first),
+            );
+            final riley = people.items.firstWhere((p) => p.type == 'user');
+            var state = await access.get(
+              AccessRef(kind: AccessResourceKind.folder, id: folder.id),
+            );
+            expect(state.canEdit, isTrue);
+            expect(state.allowPublic, isFalse);
+            state = await access.set(
+              AccessEdit(
+                kind: AccessResourceKind.folder,
+                id: folder.id,
+                grants: <AccessGrantDto>[
+                  AccessGrantDto(principalId: riley.id, write: true),
+                ],
+              ),
+            );
+            final grant = state.grants.single;
+            expect(grant.principalId, riley.id);
+            expect(grant.write, isTrue);
+            expect(grant.name, second);
+            state = await access.set(
+              AccessEdit(kind: AccessResourceKind.folder, id: folder.id),
+            );
+            expect(state.grants, isEmpty);
+          }
+
+          final restored = await folders.update(
+            FolderUpdate(
+              id: folder.id,
+              icon: '',
+              systemPrompt: before.systemPrompt,
+              modelIds: before.modelIds,
+            ),
+          );
+          expect(restored.icon, isNull);
+          expect(restored.systemPrompt, before.systemPrompt);
+        }, timeout: const Timeout(Duration(minutes: 2)));
+      });
     },
   );
 }

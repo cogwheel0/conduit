@@ -1,0 +1,38 @@
+{
+  "chatId": "chat-1",
+  "entry": "editor",
+  "advanced": true,
+  "canEditSystemPrompt": true,
+  "canEditParameters": true,
+  "systemPrompt": {
+    "key": "system",
+    "kind": "text",
+    "mode": "custom",
+    "text": "Answer in haiku.",
+    "choices": [],
+    "allowsCustom": false
+  },
+  "parameters": [
+    {
+      "key": "seed",
+      "kind": "integer",
+      "mode": "inherit",
+      "text": "",
+      "choices": [],
+      "allowsCustom": false
+    }
+  ],
+  "otherKept": false,
+  "applied": [
+    {
+      "key": "system",
+      "value": "Answer in haiku."
+    }
+  ],
+  "params": {
+    "system": "Answer in haiku."
+  },
+  "dirty": false,
+  "hasErrors": false,
+  "saved": true
+}

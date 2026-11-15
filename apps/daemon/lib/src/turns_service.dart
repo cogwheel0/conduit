@@ -40,7 +40,10 @@ import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
+import 'package:conduit_core/models/openwebui_chat_settings.dart'
+    show OpenWebUiChatSettingsAccess, kChatParamSystem;
 import 'package:conduit_core/ports/ui_request_port.dart';
+import 'package:conduit_core/persistence/account_scoped_preferences.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/message_rating.dart';
@@ -300,6 +303,9 @@ final class TurnsService {
           ? request.compareModels.first
           : request.model,
     );
+    final paramsOwner = request.chatId == null
+        ? await _requireChatParamsAccess(model, request)
+        : null;
     await _requireBackendFor(model);
     final session = await _sessionFor(request.chatId);
     try {
@@ -317,6 +323,26 @@ final class TurnsService {
             ? request.temporary
             : temporary.contains(request.chatId!),
       );
+      if (request.chatId == null) {
+        // A new chat: made in its folder ("New Chat in Folder"), so the
+        // folder's prompt and knowledge apply from the first answer, and
+        // with the settings its window kept for it (`chatSettings.*`).
+        // Checked again here, as they are stored: the rights were the
+        // asking account's, and the waits since could have let another in.
+        if (paramsOwner != null && !_stillOwner(paramsOwner)) {
+          throw _accountChanged;
+        }
+        final folderId = request.folderId;
+        if (folderId != null && folderId.isNotEmpty) {
+          scope.read(pendingFolderIdProvider.notifier).set(folderId);
+        }
+        final params = request.chatParams;
+        if (params != null && params.isNotEmpty) {
+          scope
+              .read(pendingOpenWebUiChatSettingsProvider.notifier)
+              .replace(params);
+        }
+      }
       // Knowledge bases chosen with `#`: the composer's context attachments,
       // which the core sends as Open WebUI's own client does.
       final knowledge = <ChatContextAttachment>[
@@ -349,6 +375,72 @@ final class TurnsService {
       _release(session);
     }
   }
+
+  /// A new Open WebUI chat's settings ([SendTurn.chatParams]) are saved as
+  /// it is made: held to the rule `chatSettings.save` keeps, the system
+  /// prompt by the account's prompt right and the rest by its parameters
+  /// right. A Direct or Hermes chat keeps no Open WebUI settings.
+  ///
+  /// Returns the account the rights were read for, to check again as the
+  /// settings are stored; null when nothing needs them.
+  Future<_ParamsOwner?> _requireChatParamsAccess(
+    Model model,
+    SendTurn request,
+  ) async {
+    final params = request.chatParams;
+    if (params == null || params.isEmpty) return null;
+    // Only a chat this device runs keeps no Open WebUI settings: Hermes, or
+    // a Direct connection of its own. A server's own connection is still
+    // the server's chat, held to its rights.
+    if (isHermesModel(model) ||
+        _container.read(directModelRegistryProvider).resolve(model)?.source ==
+            DirectModelSource.device) {
+      return null;
+    }
+    // The rights are the asking account's: another one signed in or made
+    // active while they load gets nothing stored or sent.
+    final owner = (
+      session: _container.read(openWebUiAuthSessionEpochProvider),
+      accountId: currentPreferenceAccountId(),
+    );
+    OpenWebUiChatSettingsAccess access;
+    try {
+      access = await readSettled(
+        _container,
+        openWebUiChatSettingsAccessProvider.future,
+      );
+    } on Object {
+      access = OpenWebUiChatSettingsAccess.denied;
+    }
+    if (!_stillOwner(owner)) throw _accountChanged;
+    for (final key in params.keys) {
+      final allowed = key == kChatParamSystem
+          ? access.canEditSystemPrompt
+          : access.canEditParameters;
+      if (!allowed) {
+        throw RpcError(
+          code: ConduitErrorCodes.unauthorized,
+          args: const <String, String>{'reason': 'permissionDenied'},
+          debugMessage: 'this account may not set "$key" on a chat',
+        );
+      }
+    }
+    return owner;
+  }
+
+  /// The session (the signed-in user's, by its epoch) and account the rights
+  /// were read for, still the current ones.
+  bool _stillOwner(_ParamsOwner owner) =>
+      identical(
+        owner.session,
+        _container.read(openWebUiAuthSessionEpochProvider),
+      ) &&
+      owner.accountId == currentPreferenceAccountId();
+
+  static const _accountChanged = RpcError(
+    code: ConduitErrorCodes.sessionExpired,
+    debugMessage: 'the account changed after its chat rights were read',
+  );
 
   /// Compare Models: one message to two models, as one durable Open WebUI
   /// turn (the core's [durableCompareSend]); the server answers each under
@@ -1875,6 +1967,20 @@ final class TurnsService {
     if (temporary != null) {
       scope.read(temporaryChatEnabledProvider.notifier).set(temporary);
     }
+    // Hermes' Fast tier, as the window's picker last set it
+    // (`models.setFastTier`): the scope's own resets with its model.
+    scope
+        .read(hermesFastTierSelectionProvider.notifier)
+        .set(_container.read(hermesFastTierSelectionProvider));
+  }
+
+  /// The container [chatId]'s live scope runs in, or null when the chat has
+  /// none open: `chatSettings.*` saves there, so the open chat follows.
+  ProviderContainer? scopeOf(String chatId) {
+    final session = _sessionOf(chatId);
+    return session == null || session.scope.isDisposed
+        ? null
+        : session.scope.container;
   }
 
   /// The model a turn runs with.
@@ -2298,3 +2404,6 @@ final class _Ended {
   final TurnCompleted? completed;
   final TurnFailed? failed;
 }
+
+/// Who a new chat's settings were checked for.
+typedef _ParamsOwner = ({Object session, String? accountId});

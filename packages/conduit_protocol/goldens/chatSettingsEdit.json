@@ -1,0 +1,11 @@
+{
+  "chatId": "chat-1",
+  "draft": {},
+  "fields": [
+    {
+      "key": "system",
+      "mode": "inherit",
+      "text": ""
+    }
+  ]
+}

@@ -21,6 +21,7 @@ import 'servers_service.dart';
 import 'settings_service.dart';
 import 'system_service.dart';
 import 'turns_service.dart';
+import 'valves_service.dart';
 import 'ui_requests_service.dart';
 import 'workspace_service.dart';
 import 'terminals_service.dart';
@@ -28,6 +29,9 @@ import 'hermes_service.dart';
 import 'voice_service.dart';
 import 'core_settings_service.dart';
 import 'data_service.dart';
+import 'access_service.dart';
+import 'chat_settings_service.dart';
+import 'folder_settings_service.dart';
 import 'memories_service.dart';
 import 'profile_service.dart';
 import 'release_notes_rpc_service.dart';
@@ -60,6 +64,10 @@ final class CoreServices {
     this.releaseNotes,
     this.data,
     this.drafts,
+    this.chatSettings,
+    this.valves,
+    this.access,
+    this.folderSettings,
   });
 
   final AccountsService? accounts;
@@ -88,6 +96,10 @@ final class CoreServices {
   final ReleaseNotesRpcService? releaseNotes;
   final DataService? data;
   final DraftsService? drafts;
+  final ChatSettingsService? chatSettings;
+  final ValvesService? valves;
+  final AccessService? access;
+  final FolderSettingsService? folderSettings;
 }
 
 /// One connected renderer window.
@@ -160,6 +172,10 @@ class RpcSession {
   MemoriesService? get _memories => _services().memories;
   ReleaseNotesRpcService? get _releaseNotes => _services().releaseNotes;
   DataService? get _data => _services().data;
+  ChatSettingsService? get _chatSettings => _services().chatSettings;
+  ValvesService? get _valves => _services().valves;
+  AccessService? get _access => _services().access;
+  FolderSettingsService? get _folderSettings => _services().folderSettings;
 
   /// Where a window's `online`/`offline` events go: the connectivity port,
   /// which then tells every window. Null before the core is up.
@@ -534,6 +550,18 @@ class RpcSession {
     _on(
       ConduitMethodSpecs.foldersDelete,
       (r) => _requireChats().deleteFolder(r.folderId),
+    );
+    _on(
+      ConduitMethodSpecs.foldersGet,
+      (r) => _need(_folderSettings).get(r.folderId),
+    );
+    _on(
+      ConduitMethodSpecs.foldersUpdate,
+      (r) => _need(_folderSettings).update(r),
+    );
+    _on(
+      ConduitMethodSpecs.foldersDraftModel,
+      (r) => _need(_folderSettings).draftModel(r.folderId),
     );
     _on(ConduitMethodSpecs.chatsTagsAll, (_) => _requireChats().allTags());
     _on(ConduitMethodSpecs.chatsTagsAdd, (r) => _requireChats().addTag(r));
@@ -934,6 +962,40 @@ class RpcSession {
     _on(ConduitMethodSpecs.promptsRender, (r) => _requirePrompts().render(r));
     _on(ConduitMethodSpecs.modelsList, (_) => _requireModels().list());
     _on(ConduitMethodSpecs.modelsSelect, (r) => _requireModels().select(r.id));
+    _on(
+      ConduitMethodSpecs.modelsSetPinned,
+      (r) => _requireModels().setPinned(r),
+    );
+    _on(ConduitMethodSpecs.modelsOptions, (r) => _requireModels().options(r));
+    _on(
+      ConduitMethodSpecs.modelsSetReasoningEffort,
+      (r) => _requireModels().setReasoningEffort(r),
+    );
+    _on(
+      ConduitMethodSpecs.modelsSetFastTier,
+      (r) => _requireModels().setFastTier(r),
+    );
+    // chatSettings.*, valves.*, access.*: a chat's own settings, the user's
+    // valves for its tools, and who may reach a folder (later a note or a
+    // Workspace item).
+    _on(ConduitMethodSpecs.chatSettingsGet, (r) => _need(_chatSettings).get(r));
+    _on(
+      ConduitMethodSpecs.chatSettingsCheck,
+      (r) => _need(_chatSettings).check(r),
+    );
+    _on(
+      ConduitMethodSpecs.chatSettingsSave,
+      (r) => _need(_chatSettings).save(r),
+    );
+    _on(ConduitMethodSpecs.valvesTargets, (r) => _need(_valves).targets(r));
+    _on(ConduitMethodSpecs.valvesGet, (r) => _need(_valves).get(r));
+    _on(ConduitMethodSpecs.valvesSave, (r) => _need(_valves).save(r));
+    _on(ConduitMethodSpecs.accessGet, (r) => _need(_access).get(r));
+    _on(ConduitMethodSpecs.accessSet, (r) => _need(_access).set(r));
+    _on(
+      ConduitMethodSpecs.accessPrincipals,
+      (r) => _need(_access).principals(r),
+    );
   }
 
   ChannelsService _requireChannels() =>
