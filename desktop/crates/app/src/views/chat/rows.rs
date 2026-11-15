@@ -471,6 +471,9 @@ struct Leaving {
     texts: HashMap<String, (String, Entity<TextViewState>)>,
     /// Its disclosures that were open.
     expanded: HashSet<String>,
+    /// Its pages and MCP Apps, its own while it fades (the new answer's
+    /// embeds may have the same keys).
+    embeds: HashMap<String, Entity<super::embed::EmbedView>>,
     follow_ups: Option<Vec<String>>,
     start: Instant,
 }
@@ -541,6 +544,7 @@ impl AssistantRow {
                 item: old,
                 texts: std::mem::take(&mut self.texts),
                 expanded: std::mem::take(&mut self.expanded),
+                embeds: std::mem::take(&mut self.embeds),
                 follow_ups: self.stale_follow_ups.take(),
                 start: now,
             });
@@ -550,12 +554,9 @@ impl AssistantRow {
         self.item = item;
         self.flags = flags;
         // An embed the answer no longer has (a new version, a replaced
-        // answer) goes, its page and MCP App with it; the leaving answer's
-        // stay while it fades.
-        let mut keep = super::blocks::embed_ids(&self.item.blocks);
-        if let Some(leaving) = &self.leaving {
-            keep.extend(super::blocks::embed_ids(&leaving.item.blocks));
-        }
+        // answer) goes, its page and MCP App with it; a leaving answer keeps
+        // its own until it has faded.
+        let keep = super::blocks::embed_ids(&self.item.blocks);
         self.embeds.retain(|id, _| keep.contains(id));
         cx.notify();
     }
@@ -1636,6 +1637,7 @@ impl AssistantRow {
         std::mem::swap(&mut self.item, &mut l.item);
         std::mem::swap(&mut self.texts, &mut l.texts);
         std::mem::swap(&mut self.expanded, &mut l.expanded);
+        std::mem::swap(&mut self.embeds, &mut l.embeds);
         let opening = std::mem::take(&mut self.opening);
         self.leaving = Some(l);
         let column = self.column(true, now, window, cx);
@@ -1643,6 +1645,7 @@ impl AssistantRow {
         std::mem::swap(&mut self.item, &mut l.item);
         std::mem::swap(&mut self.texts, &mut l.texts);
         std::mem::swap(&mut self.expanded, &mut l.expanded);
+        std::mem::swap(&mut self.embeds, &mut l.embeds);
         self.opening = opening;
         self.leaving = Some(l);
         Some(column)
@@ -2735,6 +2738,58 @@ mod embed_tests {
                 cx,
             );
             assert!(r.embeds.is_empty(), "the old page kept running");
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_regenerated_answer_and_the_one_it_replaces_keep_their_own_embeds(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let subscribe: Subscribe = Rc::new(|_, _| {});
+        let rpc = daemon.rpc();
+        let store = cx.new(|cx| ChatStore::new(rpc, subscribe, "c1".into(), cx));
+        let host = RowHost {
+            store: store.downgrade(),
+            pane: RowSink::None,
+            server_id: None,
+            composer: None,
+        };
+        let old = RowItem {
+            key: "a1".into(),
+            blocks: embeds(&["<p>old</p>"]),
+            ..Default::default()
+        };
+        let row = cx.new(|_| AssistantRow::new(host, old.clone(), RowFlags::default()));
+        row.update(cx, |r, cx| {
+            let first = r.embed_view("e0.0", &page("<p>old</p>"), false, cx);
+            // Regenerate: stale, then its first words with an embed of the
+            // same key.
+            r.set(
+                RowItem {
+                    stale: true,
+                    ..old.clone()
+                },
+                RowFlags::default(),
+                cx,
+            );
+            r.set(
+                RowItem {
+                    blocks: embeds(&["<p>new</p>"]),
+                    ..old.clone()
+                },
+                RowFlags::default(),
+                cx,
+            );
+            let second = r.embed_view("e0.0", &page("<p>new</p>"), false, cx);
+            assert_ne!(
+                first.entity_id(),
+                second.entity_id(),
+                "both answers share one page"
+            );
+            assert_eq!(first.read(cx).embed().source.as_deref(), Some("<p>old</p>"));
+            assert_eq!(
+                second.read(cx).embed().source.as_deref(),
+                Some("<p>new</p>")
+            );
         });
     }
 }
