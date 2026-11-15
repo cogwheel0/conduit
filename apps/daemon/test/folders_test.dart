@@ -120,10 +120,24 @@ final class _Folders extends Folders {
   /// When given, the list answers once it completes.
   final Future<void>? listed;
 
+  /// The prompts each project save sent; null where it sent none.
+  final savedPrompts = <String?>[];
+
   @override
   Future<List<Folder>> build() async {
     await listed;
     return initial;
+  }
+
+  @override
+  Future<void> saveProjectDefaults(
+    FolderProjectOwner owner,
+    String folderId, {
+    List<Object?>? files,
+    List<Object?>? modelIds,
+    String? systemPrompt,
+  }) async {
+    savedPrompts.add(systemPrompt);
   }
 }
 
@@ -436,6 +450,37 @@ void main() {
       container.invalidate(openWebUiAuthSessionEpochProvider);
       gate.complete();
       await expectLater(reading, refused(ConduitErrorCodes.conflict));
+    });
+
+    // The prompt the form shows, unchanged, goes as no prompt: another
+    // writer's newer one stands.
+    test('a models change leaves the prompt as it was saved', () async {
+      final folders = settings(const <Folder>[
+        Folder(
+          id: 'work',
+          name: 'Work',
+          permission: 'write',
+          data: <String, dynamic>{'system_prompt': 'Answer briefly.'},
+        ),
+      ]);
+      await container.read(activeServerProvider.future);
+      listed.complete();
+      try {
+        await folders.update(
+          const FolderUpdate(
+            id: 'work',
+            systemPrompt: 'Answer briefly.',
+            modelIds: <String>['first-model'],
+          ),
+        );
+      } on RpcError {
+        // Read back from a server this test does not run; the save is what
+        // is checked.
+      }
+      expect(
+        (container.read(foldersProvider.notifier) as _Folders).savedPrompts,
+        <String?>[null],
+      );
     });
 
     test('a new system prompt needs the right to edit prompts', () async {

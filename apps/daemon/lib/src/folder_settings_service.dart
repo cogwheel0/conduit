@@ -91,8 +91,12 @@ final class FolderSettingsService {
     }
 
     final folder = await _listed(request.id);
-    if (request.systemPrompt case final prompt?
-        when prompt.trim() != folder.projectSystemPrompt.trim()) {
+    // A prompt sent as the folder has it is no change: it is not written,
+    // so a newer one another writer saved stands, and it asks no right.
+    final prompt = request.systemPrompt?.trim();
+    final promptChanged =
+        prompt != null && prompt != folder.projectSystemPrompt.trim();
+    if (promptChanged) {
       // As a chat's own prompt: the account's right to edit system prompts.
       await _requirePromptAccess();
     }
@@ -140,7 +144,7 @@ final class FolderSettingsService {
       );
     }
     final edits =
-        request.systemPrompt != null ||
+        promptChanged ||
         request.modelIds != null ||
         request.knowledge != null;
     if (edits) {
@@ -160,7 +164,7 @@ final class FolderSettingsService {
                   for (final id in request.modelIds!)
                     if (id.trim().isNotEmpty) id,
                 ],
-          systemPrompt: request.systemPrompt?.trim(),
+          systemPrompt: promptChanged ? prompt : null,
         );
       } on FolderProjectWriteException catch (error) {
         throw _failure(error.reason);
