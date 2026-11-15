@@ -129,7 +129,13 @@ fn messages_are_labelled_articles_and_the_composer_is_operable() {
             .unwrap()
             .iter()
             .filter(|o| o["toggled"].as_str() == Some("True"))
+            .map(|o| o["label"].as_str().unwrap_or_default())
             .collect();
-        assert_eq!(checked.len(), 1, "the model in use is checked: {step:?}");
+        // Moving the highlight never moves the check.
+        assert_eq!(
+            checked,
+            vec!["Fixture model"],
+            "the model in use is checked: {step:?}"
+        );
     }
 }

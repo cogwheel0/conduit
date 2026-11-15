@@ -390,6 +390,10 @@ fn ticker(store: Entity<ChatStore>, cx: &mut App) {
 
 /// Runs the fixture: `mode` is `perf` or `a11y`.
 pub fn run(mode: String, shots: Option<PathBuf>, cx: &mut App) {
+    // English labels whatever the Mac's languages: the AccessKit test reads
+    // them, as the shell fixture's does.
+    cx.set_global(crate::l10n::L10n::new("en"));
+    crate::install_component_strings(cx);
     let rpc = Rpc::new(FixtureDaemon { chat: chat_value() });
     let subscribe: Subscribe = Rc::new(|_, _| {});
     let store = cx.new(|cx| ChatStore::new(rpc.clone(), subscribe, "fixture".into(), cx));
