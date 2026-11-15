@@ -870,6 +870,18 @@ impl SidebarView {
         self.stores
             .sections
             .update(cx, |s, cx| s.set_collapsed(area.id(), false, cx));
+        // An archived Hermes session shows under its Archived row.
+        if let AreaItem::HermesSession(id) = &item
+            && self
+                .stores
+                .areas
+                .read(cx)
+                .hermes
+                .as_ref()
+                .is_some_and(|h| h.archived.iter().any(|s| &s.id == id))
+        {
+            self.hermes_archived = true;
+        }
         match self.rows.iter().position(|r| r.area_item() == Some(&item)) {
             Some(ix) => self.scroll.scroll_to_item(ix, ScrollStrategy::Nearest),
             None => {
@@ -888,6 +900,11 @@ impl SidebarView {
     /// focused with the keyboard on its heading (on its first row when the
     /// sidebar shows no headings).
     pub fn go_to_area(&mut self, area: Area, window: &mut Window, cx: &mut Context<Self>) {
+        // Search lists chats alone: the sections come back first.
+        if !self.search.read(cx).value().is_empty() || self.stores.chat_list.read(cx).is_searching()
+        {
+            self.clear_search(window, cx);
+        }
         self.stores
             .sections
             .update(cx, |s, cx| s.set_collapsed(area.id(), false, cx));
@@ -951,6 +968,9 @@ impl SidebarView {
 
     /// Opens the folders around `chat_id` and scrolls to it.
     fn reveal(&mut self, chat_id: String, cx: &mut Context<Self>) {
+        self.stores
+            .sections
+            .update(cx, |s, cx| s.set_collapsed(Area::Chats.id(), false, cx));
         self.stores
             .chat_list
             .update(cx, |c, cx| c.reveal_chat(&chat_id, cx));
@@ -3609,6 +3629,34 @@ mod selection_tests {
         view.update(vcx, |s, cx| s.end_selection(cx));
         view.read_with(vcx, |s, _| {
             assert_eq!(s.on_selection(&ChatCommand::Delete), None)
+        });
+    }
+
+    #[gpui_kit::test]
+    fn go_to_a_section_ends_a_search_and_opening_a_chat_opens_chats(cx: &mut TestAppContext) {
+        let (stores, view, vcx) = bench(cx);
+        view.update_in(vcx, |s, window, cx| {
+            s.search
+                .update(cx, |i, cx| i.set_value("bread", window, cx));
+        });
+        stores
+            .chat_list
+            .update(vcx, |c, cx| c.set_query("bread", cx));
+        view.update_in(vcx, |s, window, cx| s.go_to_area(Area::Notes, window, cx));
+        stores.chat_list.read_with(vcx, |c, _| {
+            assert!(!c.is_searching(), "Go stayed on the search's chats");
+        });
+        view.read_with(vcx, |s, cx| assert!(s.search.read(cx).value().is_empty()));
+        stores
+            .sections
+            .update(vcx, |s, cx| s.set_collapsed(Area::Chats.id(), true, cx));
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+        stores.sections.read_with(vcx, |s, _| {
+            assert!(
+                !s.is_collapsed(Area::Chats.id()),
+                "the opened chat's row is hidden"
+            );
         });
     }
 
