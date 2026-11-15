@@ -263,6 +263,15 @@ impl PersonalizationPane {
                     s.busy = false;
                     match result {
                         Ok(list) => {
+                            // The memory this save made: what a kept editor
+                            // updates from now on, rather than adding another.
+                            let made = s.editor_saved.as_deref().and_then(|sent| {
+                                list.items
+                                    .iter()
+                                    .rev()
+                                    .find(|m| m.content.trim() == sent)
+                                    .map(|m| m.id.clone())
+                            });
                             s.memories = Some(list);
                             if closes_editor {
                                 // Typed on while the save was out: the editor
@@ -272,6 +281,9 @@ impl PersonalizationPane {
                                     s.editor = None;
                                 } else if let Some(editor) = s.editor.as_mut() {
                                     editor.saving = false;
+                                    if editor.id.is_none() {
+                                        editor.id = made;
+                                    }
                                 }
                             }
                         }
@@ -904,5 +916,60 @@ mod tests {
         let a = list.clone();
         daemon.on::<methods::MemoriesAdd>(move |_| Ok(a.clone()));
         daemon.on::<methods::MemoriesSetEnabled>(move |_| Ok(list.clone()));
+    }
+
+    #[gpui_kit::test]
+    fn a_new_memory_kept_open_after_its_save_is_updated_not_added_again(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let empty = serde_json::json!({"available": true, "enabled": true, "items": []});
+        let e = empty.clone();
+        daemon.on::<methods::MemoriesList>(move |_| Ok(e.clone()));
+        daemon.on::<methods::MemoriesAdd>(|p| {
+            Ok(
+                serde_json::json!({"available": true, "enabled": true, "items": [
+                    {"id": "m1", "content": p["content"], "updatedAt": 1}
+                ]}),
+            )
+        });
+        daemon.on::<methods::MemoriesUpdate>(|p| {
+            Ok(
+                serde_json::json!({"available": true, "enabled": true, "items": [
+                    {"id": p["id"], "content": p["content"], "updatedAt": 2}
+                ]}),
+            )
+        });
+        let held = daemon.hold::<methods::MemoriesAdd>();
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-memory-id-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| PersonalizationPane::new(stores, window, cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |p, window, cx| {
+            p.open_editor(None, window, cx);
+            p.memory_input
+                .update(cx, |i, cx| i.set_value("Prefers tea", window, cx));
+            p.save_memory(window, cx);
+            p.memory_input
+                .update(cx, |i, cx| i.set_value("Prefers green tea", window, cx));
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        view.update_in(vcx, |p, window, cx| p.save_memory(window, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::MemoriesAdd>().len(),
+            1,
+            "a second memory was added"
+        );
+        let updates = daemon.calls::<methods::MemoriesUpdate>();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0]["id"], "m1");
+        assert_eq!(updates[0]["content"], "Prefers green tea");
+        view.read_with(vcx, |p, _| assert!(p.editor.is_none()));
     }
 }
