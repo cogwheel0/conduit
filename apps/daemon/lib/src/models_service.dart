@@ -217,7 +217,19 @@ final class ModelsService {
 
   /// `models.setPinned`: in the account's settings, as mobile's picker pins.
   Future<ModelList> setPinned(SetModelPinned request) async {
+    // Pinned for the account that asked: once another is in use, its pins
+    // are not changed.
+    final session = _container.read(openWebUiAuthSessionEpochProvider);
     await _accountSettings();
+    if (!identical(
+      session,
+      _container.read(openWebUiAuthSessionEpochProvider),
+    )) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed',
+      );
+    }
     final pinned = _container.read(effectivePinnedModelIdsProvider);
     if (pinned.contains(request.id) != request.pinned) {
       if (!_container.read(canTogglePinnedModelsProvider)) {

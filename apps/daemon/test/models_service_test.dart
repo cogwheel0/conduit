@@ -1,6 +1,7 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
@@ -10,6 +11,10 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
 import 'package:conduit_core/models/model.dart' as core;
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/server_user_settings.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:riverpod/riverpod.dart';
@@ -47,6 +52,26 @@ final class _Fast extends Models {
     core.Model(id: 'fast-a', name: 'Fast A', metadata: {'hermesFast': true}),
     core.Model(id: 'fast-b', name: 'Fast B', metadata: {'hermesFast': true}),
   ];
+}
+
+/// The account's settings on its server, loaded once [loaded] completes.
+final class _Personal extends PersonalizationSettings {
+  _Personal(this.loaded);
+
+  final Future<void> loaded;
+  final toggled = <String>[];
+
+  @override
+  Future<ServerUserSettings> build() async {
+    await loaded;
+    return const ServerUserSettings();
+  }
+
+  @override
+  Future<ServerUserSettings> togglePinnedModel(String modelId) async {
+    toggled.add(modelId);
+    return const ServerUserSettings();
+  }
 }
 
 /// Signed out, or never signed in: there is no list to fall back on.
@@ -168,6 +193,44 @@ void main() {
       ),
       refused(ConduitErrorCodes.unauthorized),
     );
+  });
+
+  test('a pin asked for under one account is not made under the next',
+      () async {
+    var account = Object();
+    final loaded = Completer<void>();
+    final settings = _Personal(loaded.future);
+    final container = ProviderContainer(
+      overrides: [
+        modelsProvider.overrideWith(_Listed.new),
+        apiServiceProvider.overrideWithValue(
+          ApiService(
+            serverConfig: const ServerConfig(
+              id: 'server',
+              name: 'Home server',
+              url: 'https://home.invalid',
+            ),
+            workerManager: WorkerManager(),
+          ),
+        ),
+        openWebUiAuthSessionEpochProvider.overrideWith((ref) => account),
+        personalizationSettingsProvider.overrideWith(() => settings),
+        effectivePinnedModelIdsProvider.overrideWithValue(const <String>[]),
+        canTogglePinnedModelsProvider.overrideWithValue(true),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    container.listen(personalizationSettingsProvider, (_, _) {});
+    final pinning = ModelsService(
+      container,
+    ).setPinned(const SetModelPinned(id: 'first-model', pinned: true));
+    // Another account signs in while the account's settings load.
+    account = Object();
+    container.invalidate(openWebUiAuthSessionEpochProvider);
+    loaded.complete();
+    await expectLater(pinning, refused(ConduitErrorCodes.sessionExpired));
+    expect(settings.toggled, isEmpty);
   });
 
   test("another model's Fast tier request changes nothing", () async {
