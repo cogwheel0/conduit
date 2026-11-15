@@ -59,7 +59,12 @@ final class McpAppsService {
 
   /// `mcpApps.open`.
   Future<McpAppSession> open(McpAppOpen request) async {
+    // The account the app runs for, before any await.
+    final session = _container.read(openWebUiAuthSessionEpochProvider);
     final api = _container.read(apiServiceProvider);
+    bool current() =>
+        identical(api, _container.read(apiServiceProvider)) &&
+        identical(session, _container.read(openWebUiAuthSessionEpochProvider));
     if (api == null) {
       throw const RpcError(
         code: ConduitErrorCodes.unauthenticated,
@@ -87,6 +92,14 @@ final class McpAppsService {
         debugMessage: error.message,
       );
     }
+    // Read under one account, it is never started under the next: that
+    // account's apps were closed when it changed.
+    if (!current()) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed while the app was read',
+      );
+    }
     final appId = _uuid.v4();
     final running = _Running(
       chatId: request.chatId,
@@ -109,9 +122,13 @@ final class McpAppsService {
           ) ??
           false,
       openLink: (url) async {
-        final allowed =
+        final asked =
             await _uiRequests?.askMcpAppOpenLink(url: url.toString()) ??
             false;
+        // Allowed after the app closed or the account changed: nothing
+        // opens.
+        final allowed =
+            asked && identical(_running[appId], running) && current();
         if (allowed) {
           _events.emit(
             ConduitEventSpecs.openUrl,
@@ -225,9 +242,12 @@ final class McpAppsService {
   }
 
   void _stop(String appId) {
-    final running = _running.remove(appId);
-    running?.startTimer?.cancel();
-    running?.host?.teardown();
+    final running = _running[appId];
+    if (running == null) return;
+    running.startTimer?.cancel();
+    // Torn down while still listed, so its teardown notice finds its chat.
+    running.host?.teardown();
+    _running.remove(appId);
   }
 
   void _emit(
