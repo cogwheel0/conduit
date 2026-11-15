@@ -41,6 +41,12 @@ void main() {
         'password=correct-horse': 'correct-horse',
         'https://someone:pa55word@example.com/x': 'pa55word',
         'refresh_token: r-made-up-789': 'r-made-up-789',
+        '{"Cookie":"sid=made-up-session-value"}': 'made-up-session-value',
+        '{"Authorization": "Bearer short"}': 'short',
+        '{"password":";made-up-horse"}': 'made-up-horse',
+        '{"passphrase": "made up words here"}': 'up words here',
+        r'{"secret": "made-\"up\"-value"}': 'up',
+        "{'token': 'made-up single'}": 'single',
       };
       cases.forEach((input, secret) {
         expect(redactSecrets(input), isNot(contains(secret)), reason: input);
