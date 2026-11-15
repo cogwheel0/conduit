@@ -69,6 +69,10 @@ pub enum UploadState {
 /// What one message uses up ([`ComposerStore::one_shot`]).
 #[derive(Clone, Debug, Default)]
 pub struct OneShot {
+    /// The account scope and the draft it was taken from: it is given back
+    /// only to the same ones ([`ComposerStore::give_back`]).
+    scope: u64,
+    draft: u64,
     pub attachments: Vec<Attachment>,
     pub knowledge: Vec<KnowledgeSummary>,
     pub mention: Option<ModelSummary>,
@@ -138,6 +142,9 @@ pub struct ComposerStore {
     next_id: u64,
     /// Bumped by [`Self::reset`]: answers to an older account are dropped.
     scope: u64,
+    /// Bumped whenever the draft starts over ([`Self::start_over`], or
+    /// another account): a failed send's message is not given back to it.
+    draft: u64,
     _models: Option<Task<()>>,
     _options: Option<Task<()>>,
     _knowledge: Option<Task<()>>,
@@ -164,6 +171,7 @@ impl ComposerStore {
             knowledge: vec![],
             next_id: 0,
             scope: 0,
+            draft: 0,
             _models: None,
             _options: None,
             _knowledge: None,
@@ -330,6 +338,11 @@ impl ComposerStore {
     }
 
     /// `prompts.render`: the text, or the fields to ask for.
+    /// The account scope: [`Self::reset`] moves it on.
+    pub fn scope(&self) -> u64 {
+        self.scope
+    }
+
     pub fn render_prompt(
         &self,
         request: RenderPrompt,
@@ -606,6 +619,8 @@ impl ComposerStore {
     /// uploaded attachments, the chosen knowledge and the `@` model.
     pub fn one_shot(&self) -> OneShot {
         OneShot {
+            scope: self.scope,
+            draft: self.draft,
             attachments: self
                 .attachments
                 .iter()
@@ -619,7 +634,12 @@ impl ComposerStore {
 
     /// Puts back what a message that was not sent used up: its attachments
     /// before any added since, its knowledge and model unless chosen anew.
-    pub fn give_back(&mut self, used: OneShot, cx: &mut Context<Self>) {
+    /// Only to the account and draft it was taken from: after another
+    /// account or a new draft it is dropped (false).
+    pub fn give_back(&mut self, used: OneShot, cx: &mut Context<Self>) -> bool {
+        if used.scope != self.scope || used.draft != self.draft {
+            return false;
+        }
         let mut attachments = used.attachments;
         attachments.retain(|a| !self.attachments.iter().any(|b| b.local_id == a.local_id));
         attachments.append(&mut self.attachments);
@@ -631,12 +651,25 @@ impl ComposerStore {
             self.mention = used.mention;
         }
         cx.notify();
+        true
+    }
+
+    /// A new draft: what one message would use goes (attachments,
+    /// knowledge, the `@` model), and a send still on its way gives nothing
+    /// back to it.
+    pub fn start_over(&mut self, cx: &mut Context<Self>) {
+        self.draft += 1;
+        self.attachments.clear();
+        self.knowledge.clear();
+        self.mention = None;
+        cx.notify();
     }
 
     /// Another account: start over. Answers to what the last account
     /// asked are dropped when they arrive.
     pub fn reset(&mut self, cx: &mut Context<Self>) {
         self.scope += 1;
+        self.draft += 1;
         self._knowledge = None;
         self._options = None;
         self.code_interpreter = false;

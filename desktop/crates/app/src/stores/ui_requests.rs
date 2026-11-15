@@ -260,6 +260,10 @@ impl UiRequestsStore {
         remember: bool,
         cx: &mut Context<Self>,
     ) {
+        // Settled (or never here): there is nothing to answer.
+        if !self.queue.iter().any(|r| r.request_id == request_id) {
+            return;
+        }
         if !self.answering.insert(request_id.to_string()) {
             return;
         }
