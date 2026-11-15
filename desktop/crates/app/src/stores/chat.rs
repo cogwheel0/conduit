@@ -813,6 +813,8 @@ impl ChatStore {
     pub fn on_reconnected(&mut self, cx: &mut Context<Self>) {
         self.resubscribe(cx);
         self.fetch(cx);
+        // A queue read that failed, or one the new daemon session holds.
+        self.refresh_queue(cx);
     }
 
     /// `route.remap`: the chat is now `to`.
@@ -1643,6 +1645,34 @@ mod tests {
         let store = cx.new(|cx| ChatStore::new(rpc, subscribe, id, cx));
         cx.run_until_parked();
         (store, seen)
+    }
+
+    #[gpui_kit::test]
+    fn a_queue_that_failed_to_load_is_asked_again_on_reconnect(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.once::<methods::QueueGet>(Err(conduit_daemon::protocol::error(
+            "rpc.daemonUnavailable",
+            "busy",
+        )));
+        daemon.returns::<methods::QueueGet>(
+            serde_json::from_value(serde_json::json!({
+                "chatId": "c1",
+                "drafts": [{"id": "q1", "text": "Waiting turn"}]
+            }))
+            .unwrap(),
+        );
+        let (store, _) = open(&daemon, "c1", cx);
+        assert!(store.read_with(cx, |s, _| s.queue.drafts.is_empty()));
+        store.update(cx, |s, cx| s.on_reconnected(cx));
+        cx.run_until_parked();
+        let texts = store.read_with(cx, |s, _| {
+            s.queue
+                .drafts
+                .iter()
+                .map(|d| d.text.clone())
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(texts, vec!["Waiting turn".to_string()]);
     }
 
     fn keys(store: &Entity<ChatStore>, cx: &mut TestAppContext) -> Vec<String> {
