@@ -3,7 +3,7 @@
 # gallery (crates/gallery).
 [workspace]
 resolver = "2"
-members = ["crates/components", "crates/gallery", "crates/protocol"]
+members = ["crates/components", "crates/gallery", "crates/protocol", "crates/daemon"]
 # Patched dependencies, not members (see [patch.crates-io] below).
 exclude = ["vendor"]
 
