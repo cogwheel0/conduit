@@ -2940,6 +2940,42 @@
   "@desktopHermesModeGatewayHelp": {
     "description": "Footer under the Hermes Agent form while Connection Type is Desktop Gateway: what that type does instead of an API key."
   },
+  "desktopHermesShowBackgroundWork": "Show Background Work",
+  "@desktopHermesShowBackgroundWork": {
+    "description": "Tooltip of the chip above the composer that names a Hermes agent's running subagents and processes; it opens the background work sheet."
+  },
+  "desktopHermesBackgroundWork": "Background Work",
+  "@desktopHermesBackgroundWork": {
+    "description": "Title of the sheet listing a Hermes agent's subagents and background processes."
+  },
+  "desktopHermesStopAgent": "Stop Agent",
+  "@desktopHermesStopAgent": {
+    "description": "Button in the background work sheet that stops a Hermes subagent."
+  },
+  "desktopHermesKillProcess": "Kill Process",
+  "@desktopHermesKillProcess": {
+    "description": "Button (and its tooltip) that kills a Hermes background process."
+  },
+  "desktopHermesKillProcessTitle": "Kill This Process?",
+  "@desktopHermesKillProcessTitle": {
+    "description": "Title of the alert asking before a Hermes background process is killed."
+  },
+  "desktopHermesLiveOutput": "Live Output",
+  "@desktopHermesLiveOutput": {
+    "description": "Label over a Hermes subagent's live output in the background work sheet."
+  },
+  "desktopHermesContextUsageMenu": "Context & Usage…",
+  "@desktopHermesContextUsageMenu": {
+    "description": "Chat menu and More menu item that opens a Hermes chat's Context & Usage sheet."
+  },
+  "desktopHermesShowChanges": "Show Changes",
+  "@desktopHermesShowChanges": {
+    "description": "Tooltip of a changed file's row on a Hermes reply; it opens the file's coloured diff."
+  },
+  "desktopHermesDiffFile": "File",
+  "@desktopHermesDiffFile": {
+    "description": "Accessible name of the pop-up that picks which changed file the diff sheet shows."
+  },
   "desktopSendWaitsReconnecting": "You can send once Conduit reconnects.",
   "@desktopSendWaitsReconnecting": {
     "description": "Tooltip of the dimmed Send button while the window reconnects to Conduit's background service (the toolbar pill says Reconnecting…)."

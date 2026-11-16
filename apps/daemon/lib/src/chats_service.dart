@@ -49,6 +49,12 @@ import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/utils/usage_summary.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
+    show hermesApiServiceProvider;
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart'
+    show isNativeHermesConversation;
+import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart'
+    show kHermesTransport;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/misc.dart' show ProviderListenable;
 import 'package:riverpod/riverpod.dart';
@@ -444,6 +450,8 @@ final class ChatsService {
           updatedAtMs: DateTime.now().millisecondsSinceEpoch,
         ),
         messages: _messages(messages),
+        // Its history's actions, its agent's work, and its context
+        // window and usage.
         abilities: hermes.abilities(sessionId),
         hermes: hermes.chatState(sessionId),
       );
@@ -546,6 +554,17 @@ final class ChatsService {
     Conversation conversation, {
     bool temporary = false,
   }) async {
+    // A Hermes chat (or an Open WebUI chat a Hermes turn ran in): its
+    // agent's work can be watched; a Hermes session's own context read.
+    final hermes = _container.read(hermesApiServiceProvider) != null;
+    final native = isNativeHermesConversation(conversation);
+    final hermesWork =
+        hermes &&
+        (native ||
+            conversation.messages.any(
+              (m) => m.metadata?['transport'] == kHermesTransport,
+            ));
+    final hermesContext = hermes && native;
     try {
       final offered = await chatActionAvailability(
         _container,
@@ -564,6 +583,8 @@ final class ChatsService {
         share: offered.share,
         saveTemporary: offered.saveTemporary,
         compare: offered.compare,
+        hermesWork: hermesWork,
+        hermesContext: hermesContext,
       );
     } on Object catch (error) {
       DebugLogger.error(
@@ -571,7 +592,10 @@ final class ChatsService {
         scope: 'daemon/chats',
         error: error,
       );
-      return const ChatAbilities();
+      return ChatAbilities(
+        hermesWork: hermesWork,
+        hermesContext: hermesContext,
+      );
     }
   }
 

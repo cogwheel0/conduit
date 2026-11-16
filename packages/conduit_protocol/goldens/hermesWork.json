@@ -1,0 +1,72 @@
+{
+  "chatId": "local:hermes_s-4f2a",
+  "loaded": true,
+  "subagents": [
+    {
+      "id": "sa-1",
+      "goal": "Survey the tide tables for next week",
+      "depth": 0,
+      "model": "demo-model",
+      "startedAtMs": 1762850000000,
+      "status": "running",
+      "running": true,
+      "toolCount": 3,
+      "lastTool": "web_search",
+      "acceptingSteer": true
+    },
+    {
+      "id": "sa-2",
+      "goal": "Draft the harbour notice",
+      "parentId": "sa-1",
+      "depth": 1,
+      "status": "completed",
+      "running": false,
+      "toolCount": 0,
+      "acceptingSteer": false
+    }
+  ],
+  "processes": [
+    {
+      "id": "proc-9",
+      "command": "python -m http.server 8765",
+      "running": true,
+      "startedAtMs": 1762850010000,
+      "output": "Serving HTTP on 127.0.0.1 port 8765"
+    }
+  ],
+  "plan": {
+    "items": [
+      {
+        "id": "1",
+        "content": "Read the tide tables",
+        "status": "completed",
+        "depth": 0
+      },
+      {
+        "id": "2",
+        "content": "Draft the notice",
+        "status": "in_progress",
+        "depth": 0
+      },
+      {
+        "id": "3",
+        "content": "Check the wording",
+        "status": "pending",
+        "depth": 1
+      }
+    ],
+    "done": 1,
+    "active": true,
+    "currentId": "2",
+    "revision": 4
+  },
+  "output": {
+    "subagentId": "sa-2",
+    "loaded": true,
+    "failed": false,
+    "available": true,
+    "text": "Notice drafted: the pier closes at six.",
+    "truncated": true
+  },
+  "workingDirectory": "/home/u/projects/harbour"
+}

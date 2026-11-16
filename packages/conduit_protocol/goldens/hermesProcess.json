@@ -1,0 +1,6 @@
+{
+  "id": "proc-2",
+  "command": "sleep 120",
+  "running": false,
+  "exitCode": 0
+}

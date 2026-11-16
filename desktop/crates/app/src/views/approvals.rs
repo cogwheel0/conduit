@@ -6,8 +6,11 @@
 //! Every kind is answered here ([`card`]): confirmations and tool
 //! approvals (Allow / Deny), prompts (text, password, select), MCP tool
 //! approvals (once / session / always, "always" asked twice as on mobile),
-//! and Hermes decisions with the agent's own choices. A kind this window
-//! cannot answer says to answer it on another device and only dismisses.
+//! Hermes decisions with the agent's own choices (and a paid tool's cost
+//! chips), and what a Hermes agent asks: a clarify form, a sudo password or
+//! a secret (typed masked, cleared once sent), an MCP set-up. A kind this
+//! window cannot answer says to answer it on another device and only
+//! dismisses.
 //! ⌥⌘↩ and ⌥⌘⌫ answer the card on screen ([`ApprovalsView::allow`],
 //! [`ApprovalsView::deny`]). Every button and shortcut answers the request
 //! its card was drawn for, and only while that request still waits.
@@ -19,6 +22,7 @@
 //! buttons are never cut. The last card drawn stays, taking nothing, while
 //! it goes. Under Reduce Motion it only crossfades.
 
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use conduit_components::assets::IconName;
@@ -35,9 +39,10 @@ use gpui_kit::{
 
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::stores::Stores;
-use crate::stores::ui_requests::{Answer, Card, InputKind, allow, card, deny};
+use crate::stores::ui_requests::{Answer, Card, InputKind, UiRequestsEvent, allow, card, deny};
 use crate::views::chat::blocks::{is_tool_id, tool_display_name};
 use crate::views::forms;
+use crate::views::hermes_cards::{self, ClarifyDraft, FormQuestion};
 
 pub struct ApprovalsView {
     stores: Stores,
@@ -48,6 +53,11 @@ pub struct ApprovalsView {
     selected: usize,
     /// MCP "Always allow" asks once more.
     confirming_always: bool,
+    /// A Hermes form's answers so far, by question id, and each open
+    /// question's own-words field.
+    clarify: HashMap<String, ClarifyDraft>,
+    clarify_inputs: HashMap<String, Entity<InputState>>,
+    _clarify_subscriptions: Vec<Subscription>,
     /// The last request drawn, shown while its card leaves.
     last: Option<UiRequest>,
     _subscriptions: Vec<Subscription>,
@@ -66,10 +76,20 @@ impl ApprovalsView {
                 this.allow(cx);
             }
         };
+        let toasts = stores.toasts.clone();
         let subscriptions = vec![
             cx.observe(&stores.ui_requests, |_, _, cx| cx.notify()),
             cx.subscribe_in(&input, window, enter),
             cx.subscribe_in(&secret, window, enter),
+            // Sent too late: Hermes had its answer from elsewhere, or gave up.
+            cx.subscribe(&stores.ui_requests, move |_, _, e, cx| {
+                if let UiRequestsEvent::HermesSettledElsewhere = e {
+                    let text = cx.l10n().hermes_clarify_already_settled();
+                    toasts.update(cx, |t, cx| {
+                        t.show(conduit_protocol::NoticeLevel::Info, text, cx)
+                    });
+                }
+            }),
         ];
         Self {
             stores,
@@ -78,6 +98,9 @@ impl ApprovalsView {
             secret,
             selected: 0,
             confirming_always: false,
+            clarify: HashMap::new(),
+            clarify_inputs: HashMap::new(),
+            _clarify_subscriptions: vec![],
             last: None,
             _subscriptions: subscriptions,
         }
@@ -106,6 +129,54 @@ impl ApprovalsView {
             _ => 0,
         };
         self.confirming_always = false;
+        self.clarify.clear();
+        self.clarify_inputs.clear();
+        self._clarify_subscriptions.clear();
+        match card(top) {
+            Card::HermesClarify { questions, .. } => {
+                let hint = cx.l10n().hermes_clarify_other_answer();
+                let response = cx.l10n().hermes_response();
+                for q in questions.iter().filter(|q| !q.locked) {
+                    let placeholder = if q.choices.is_empty() {
+                        response.clone()
+                    } else {
+                        hint.clone()
+                    };
+                    let state = forms::input(placeholder.clone(), false, window, cx);
+                    state.update(cx, |i, cx| i.set_placeholder(placeholder, window, cx));
+                    let question = q.clone();
+                    self._clarify_subscriptions.push(cx.subscribe_in(
+                        &state,
+                        window,
+                        move |this: &mut Self, state, e: &InputEvent, _, cx| match e {
+                            InputEvent::Change => {
+                                let typed = forms::raw(state, cx);
+                                this.clarify
+                                    .entry(question.id.clone())
+                                    .or_default()
+                                    .typed(&question, &typed);
+                                cx.notify();
+                            }
+                            InputEvent::PressEnter { .. } => {
+                                this.allow(cx);
+                            }
+                            _ => {}
+                        },
+                    ));
+                    self.clarify_inputs.insert(q.id.clone(), state);
+                }
+            }
+            Card::HermesSecret { .. } => {
+                let hint = cx.l10n().hermes_sensitive_response();
+                self.input.update(cx, |i, cx| i.set_value("", window, cx));
+                self.secret.update(cx, |i, cx| {
+                    i.set_value("", window, cx);
+                    i.set_placeholder(hint, window, cx);
+                    i.focus(window, cx);
+                });
+            }
+            _ => {}
+        }
         if let Card::Input {
             initial,
             placeholder,
@@ -177,6 +248,126 @@ impl ApprovalsView {
         cx.notify();
     }
 
+    /// A form question's own-words field (for a test to type in).
+    #[cfg(feature = "harness")]
+    pub(crate) fn clarify_input(&self, question: &str) -> Option<Entity<InputState>> {
+        self.clarify_inputs.get(question).cloned()
+    }
+
+    /// The masked field a password or secret is typed in.
+    #[cfg(feature = "harness")]
+    pub(crate) fn secret_input(&self) -> Entity<InputState> {
+        self.secret.clone()
+    }
+
+    /// A Hermes question's answer to `request_id`, through
+    /// `hermes.decisions.answer`, and only while it waits.
+    fn answer_hermes(
+        &mut self,
+        request_id: &str,
+        answers: Vec<conduit_protocol::HermesClarifyAnswer>,
+        value: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.waiting(request_id, cx).is_none() {
+            return;
+        }
+        self.stores
+            .ui_requests
+            .update(cx, |u, cx| u.answer_hermes(request_id, answers, value, cx));
+        cx.notify();
+    }
+
+    /// The request the card on screen was drawn for, while it waits.
+    fn drawn(&self, cx: &App) -> Option<UiRequest> {
+        self.waiting(self.for_request.as_deref()?, cx)
+    }
+
+    /// A form question's answer so far and its own words.
+    fn draft_of(
+        &self,
+        q: &crate::stores::ui_requests::ClarifyQuestion,
+        cx: &App,
+    ) -> (ClarifyDraft, String) {
+        (
+            self.clarify.get(&q.id).cloned().unwrap_or_default(),
+            hermes_cards::typed(self.clarify_inputs.get(&q.id), cx),
+        )
+    }
+
+    /// Picks a form choice: question index, choice value.
+    pub(crate) fn pick(
+        &mut self,
+        question: usize,
+        value: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(top) = self.drawn(cx) else { return };
+        let Card::HermesClarify { questions, .. } = card(&top) else {
+            return;
+        };
+        let Some(q) = questions.get(question) else {
+            return;
+        };
+        let clear = self
+            .clarify
+            .entry(q.id.clone())
+            .or_default()
+            .pick(q, &value);
+        if clear && let Some(input) = self.clarify_inputs.get(&q.id) {
+            input.update(cx, |i, cx| i.set_value("", window, cx));
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn skip(&mut self, question: usize, cx: &mut Context<Self>) {
+        let Some(top) = self.drawn(cx) else { return };
+        let Card::HermesClarify { questions, .. } = card(&top) else {
+            return;
+        };
+        if let Some(q) = questions.get(question) {
+            let draft = self.clarify.entry(q.id.clone()).or_default();
+            draft.skipped = !draft.skipped;
+            cx.notify();
+        }
+    }
+
+    /// ⌥⌘↩ on a Hermes question: Send Response (once every question is
+    /// answered or skipped), the typed password or secret, or Set Up. The
+    /// answers and fields are the card's drawn last: for another request
+    /// there is nothing to send.
+    fn allow_hermes(&mut self, top: &UiRequest, cx: &mut Context<Self>) -> bool {
+        let id = top.request_id.clone();
+        if self.for_request.as_deref() != Some(id.as_str()) {
+            return false;
+        }
+        match card(top) {
+            Card::HermesClarify { questions, .. } => {
+                let (_, _, ready) = hermes_cards::progress(&questions, |q| self.draft_of(q, cx));
+                if !ready {
+                    return false;
+                }
+                let answers = hermes_cards::answers(&questions, |q| self.draft_of(q, cx));
+                self.answer_hermes(&id, answers, None, cx);
+                true
+            }
+            Card::HermesSecret { .. } => {
+                let value = forms::raw(&self.secret, cx);
+                if value.is_empty() {
+                    return false;
+                }
+                self.answer_hermes(&id, vec![], Some(value), cx);
+                true
+            }
+            Card::HermesSetup { .. } => {
+                self.answer_hermes(&id, vec![], Some("approve".into()), cx);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// ⌥⌘↩: the primary answer of the card on screen.
     pub fn allow(&mut self, cx: &mut Context<Self>) -> bool {
         match self.for_request.clone() {
@@ -197,6 +388,9 @@ impl ApprovalsView {
         let Some(request) = self.waiting(request_id, cx) else {
             return false;
         };
+        if crate::stores::ui_requests::is_hermes_question(&request) {
+            return self.allow_hermes(&request, cx);
+        }
         // The fields hold the text of the card drawn last.
         let text = if self.for_request.as_deref() == Some(request_id) {
             self.typed(&request, cx)
@@ -212,10 +406,25 @@ impl ApprovalsView {
         }
     }
 
+    /// Deny, cancel, or dismiss. On a Hermes password or secret it skips
+    /// (Hermes goes on without one), on a set-up it says Not Now; a form has
+    /// no such answer (each question has its own Skip).
     fn deny_request(&mut self, request_id: &str, cx: &mut Context<Self>) -> bool {
         let Some(request) = self.waiting(request_id, cx) else {
             return false;
         };
+        match card(&request) {
+            Card::HermesSecret { .. } => {
+                self.answer_hermes(request_id, vec![], Some(String::new()), cx);
+                return true;
+            }
+            Card::HermesSetup { .. } => {
+                self.answer_hermes(request_id, vec![], Some("decline".into()), cx);
+                return true;
+            }
+            Card::HermesClarify { .. } => return false,
+            _ => {}
+        }
         self.answer(request_id, deny(&request), false, cx);
         true
     }
@@ -240,8 +449,14 @@ impl ApprovalsView {
         ))
     }
 
-    fn card_for(&mut self, top: &UiRequest, l10n: &L10n, cx: &mut Context<Self>) -> ApprovalCard {
-        let (card, actions) = self.card_parts(top, l10n, cx);
+    fn card_for(
+        &mut self,
+        top: &UiRequest,
+        l10n: &L10n,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> ApprovalCard {
+        let (card, actions) = self.card_parts(top, l10n, window, cx);
         card.actions(actions)
     }
 
@@ -250,6 +465,7 @@ impl ApprovalsView {
         &mut self,
         top: &UiRequest,
         l10n: &L10n,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> (ApprovalCard, Vec<ApprovalAction>) {
         let id = top.request_id.clone();
@@ -451,7 +667,11 @@ impl ApprovalsView {
                 };
                 (card, actions)
             }
-            Card::Hermes { summary, choices } => {
+            Card::Hermes {
+                summary,
+                choices,
+                cost,
+            } => {
                 let label = |c: &str| match c {
                     "once" => l10n.desktop_allow_once(),
                     "session" => l10n.desktop_allow_for_session(),
@@ -477,16 +697,127 @@ impl ApprovalsView {
                 if choices.iter().any(|c| c == "once") {
                     actions.push(primary(label("once")));
                 }
+                let card = ApprovalCard::new(
+                    id.clone(),
+                    l10n.desktop_approval_required(),
+                    or(summary, l10n.hermes_approval_fallback()),
+                    l10n.desktop_hermes_agent(),
+                    ApprovalKind::Message,
+                )
+                .tile(IconName::Bot);
+                // A paid tool: what it costs, and what the chat has spent.
+                let card = match cost {
+                    Some(cost) => card.body(hermes_cards::cost_chips(&cost, l10n, cx)),
+                    None => card,
+                };
+                (card, actions)
+            }
+            Card::HermesClarify { questions, .. } => {
+                let (settled, total, ready) =
+                    hermes_cards::progress(&questions, |q| self.draft_of(q, cx));
+                let drawn: Vec<FormQuestion<'_>> = questions
+                    .iter()
+                    .map(|q| FormQuestion {
+                        question: q,
+                        draft: self.clarify.get(&q.id).cloned().unwrap_or_default(),
+                        input: self.clarify_inputs.get(&q.id).cloned(),
+                    })
+                    .collect();
+                let on_pick: hermes_cards::OnPick = {
+                    let this = this.clone();
+                    Rc::new(move |q, value, window, cx| {
+                        let _ = this.update(cx, |s, cx| s.pick(q, value, window, cx));
+                    })
+                };
+                let on_skip: hermes_cards::OnSkip = {
+                    let this = this.clone();
+                    Rc::new(move |q, _, cx| {
+                        let _ = this.update(cx, |s, cx| s.skip(q, cx));
+                    })
+                };
+                let form = hermes_cards::clarify_form(
+                    &id, drawn, !answering, on_pick, on_skip, l10n, window, cx,
+                );
+                // Hermes' prompt repeats the first question: the line under
+                // the title is the progress, as on the phone.
+                let detail = l10n.hermes_clarify_progress(settled as i64, total as i64);
+                let card = ApprovalCard::new(
+                    id.clone(),
+                    l10n.hermes_clarification_title(),
+                    detail,
+                    l10n.desktop_hermes_agent(),
+                    ApprovalKind::Message,
+                )
+                .tile(IconName::MessageSquare)
+                .body(form);
+                let card = if ready || answering {
+                    card
+                } else {
+                    card.note(l10n.hermes_clarify_answer_or_skip())
+                };
+                (
+                    card,
+                    vec![
+                        ApprovalAction::new(format!("allow-{id}"), l10n.hermes_send_response())
+                            .primary()
+                            .shortcut(ALLOW_KEYS)
+                            .disabled(answering || !ready)
+                            .on_click(allow_cb.clone()),
+                    ],
+                )
+            }
+            Card::HermesSecret { prompt, sudo } => {
+                let typed = !forms::raw(&self.secret, cx).is_empty();
+                let label: SharedString = l10n.hermes_sensitive_response().into();
                 (
                     ApprovalCard::new(
                         id.clone(),
-                        l10n.desktop_approval_required(),
-                        or(summary, l10n.hermes_approval_fallback()),
+                        if sudo {
+                            l10n.hermes_sudo_title()
+                        } else {
+                            l10n.hermes_secret_title()
+                        },
+                        prompt,
+                        l10n.desktop_hermes_agent(),
+                        ApprovalKind::Input {
+                            state: self.secret.clone(),
+                            label,
+                        },
+                    )
+                    .tile(if sudo {
+                        IconName::Lock
+                    } else {
+                        IconName::KeyRound
+                    }),
+                    vec![
+                        secondary(l10n.hermes_clarify_skip()),
+                        ApprovalAction::new(format!("allow-{id}"), l10n.hermes_send_response())
+                            .primary()
+                            .shortcut(ALLOW_KEYS)
+                            .disabled(answering || !typed)
+                            .on_click(allow_cb.clone()),
+                    ],
+                )
+            }
+            Card::HermesSetup { server, action } => {
+                let detail = [action, server]
+                    .into_iter()
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                (
+                    ApprovalCard::new(
+                        id.clone(),
+                        l10n.hermes_mcp_setup_title(),
+                        detail,
                         l10n.desktop_hermes_agent(),
                         ApprovalKind::Message,
                     )
-                    .tile(IconName::Bot),
-                    actions,
+                    .tile(IconName::Server),
+                    vec![
+                        secondary(l10n.hermes_not_now()),
+                        primary(l10n.hermes_set_up()),
+                    ],
                 )
             }
             Card::Unsupported => (
@@ -657,6 +988,27 @@ fn dock_motion(shown: motion::Appear, reduce: bool) -> Dock {
 impl Render for ApprovalsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let top = self.top(cx);
+        // A password or secret is kept in the field only while its card waits
+        // for it: once sent (or the card has gone) the field is emptied.
+        let typing_secret = top.as_ref().is_some_and(|r| {
+            !self
+                .stores
+                .ui_requests
+                .read(cx)
+                .answering
+                .contains(&r.request_id)
+                && matches!(
+                    card(r),
+                    Card::HermesSecret { .. }
+                        | Card::Input {
+                            input: InputKind::Password,
+                            ..
+                        }
+                )
+        });
+        if !typing_secret && !forms::raw(&self.secret, cx).is_empty() {
+            self.secret.update(cx, |i, cx| i.set_value("", window, cx));
+        }
         let shown = motion::appear(
             "approval-card",
             top.is_some(),
@@ -673,7 +1025,7 @@ impl Render for ApprovalsView {
                 && let Some(last) = self.last.clone()
             {
                 let l10n = cx.l10n().clone();
-                let card = self.card_for(&last, &l10n, cx);
+                let card = self.card_for(&last, &l10n, window, cx);
                 // A shield over it: its buttons would answer the next card.
                 let card = div()
                     .relative()
@@ -689,20 +1041,27 @@ impl Render for ApprovalsView {
         self.last = Some(top.clone());
         self.sync(&top, window, cx);
         let l10n = cx.l10n().clone();
-        let (count, answering, error) = {
+        let (count, answering, error, hermes_failed) = {
             let u = self.stores.ui_requests.read(cx);
             (
                 u.queue.len(),
                 u.answering.contains(&top.request_id),
                 u.error.clone(),
+                u.hermes_failed.contains(&top.request_id),
             )
         };
-        let mut card = self.card_for(&top, &l10n, cx);
+        let card_kind = card(&top);
+        let mut card = self.card_for(&top, &l10n, window, cx);
         if count > 1 {
             card = card.queue(1, count);
         }
         if answering {
             card = card.note(l10n.desktop_answering());
+        } else if hermes_failed {
+            card = card.note(match card_kind {
+                Card::HermesClarify { .. } => l10n.hermes_clarify_send_failed(),
+                _ => l10n.desktop_approval_failed(),
+            });
         } else if error.is_some() {
             card = card.note(l10n.desktop_approval_failed());
         }
@@ -859,12 +1218,12 @@ mod answer_tests {
             );
         });
         // A's card, as drawn; A's Allow pressed.
-        let actions = vcx.update(|_, cx| {
+        let actions = vcx.update(|window, cx| {
             b.view.update(cx, |v, cx| {
                 let top = v.top(cx).unwrap();
                 v.for_request = Some(top.request_id.clone());
                 let l10n = cx.l10n().clone();
-                v.card_parts(&top, &l10n, cx).1
+                v.card_parts(&top, &l10n, window, cx).1
             })
         });
         let allow_a = actions
@@ -914,13 +1273,13 @@ mod answer_tests {
         });
         let parts = |id: &str, vcx: &mut VisualTestContext| {
             let id = id.to_string();
-            vcx.update(|_, cx| {
+            vcx.update(|window, cx| {
                 b.view.update(cx, |v, cx| {
                     let top = v.top(cx).unwrap();
                     assert_eq!(top.request_id, id);
                     v.for_request = Some(id.clone());
                     let l10n = cx.l10n().clone();
-                    v.card_parts(&top, &l10n, cx).1
+                    v.card_parts(&top, &l10n, window, cx).1
                 })
             })
         };
@@ -955,12 +1314,12 @@ mod answer_tests {
                 cx,
             );
         });
-        let actions = vcx.update(|_, cx| {
+        let actions = vcx.update(|window, cx| {
             b.view.update(cx, |v, cx| {
                 let top = v.top(cx).unwrap();
                 v.for_request = Some(top.request_id.clone());
                 let l10n = cx.l10n().clone();
-                v.card_parts(&top, &l10n, cx).1
+                v.card_parts(&top, &l10n, window, cx).1
             })
         });
         let retry = actions

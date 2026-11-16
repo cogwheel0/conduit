@@ -697,6 +697,15 @@ impl Render for MainWindow {
                         this.go_to_section(a.index, window, cx)
                     }))
                     .on_action(cx.listener(|this, _: &FindChats, window, cx| this.find(window, cx)))
+                    // A Hermes session is no stored chat (no Chat menu
+                    // gate): the pane checks it has a context window.
+                    .on_action(cx.listener(
+                        |this, _: &crate::actions::ShowContextUsage, window, cx| {
+                            this.chat_pane.update(cx, |p, cx| {
+                                p.show_context_usage(window, cx);
+                            });
+                        },
+                    ))
                     .on_action(cx.listener(|this, _: &NextChat, _, cx| this.step_chat(true, cx)))
                     .on_action(
                         cx.listener(|this, _: &PreviousChat, _, cx| this.step_chat(false, cx)),

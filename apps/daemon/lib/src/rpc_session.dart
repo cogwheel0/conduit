@@ -28,6 +28,7 @@ import 'ui_requests_service.dart';
 import 'workspace_service.dart';
 import 'terminals_service.dart';
 import 'handoff_service.dart';
+import 'hermes_cards_service.dart';
 import 'hermes_service.dart';
 import 'speech_service.dart';
 import 'voice_service.dart';
@@ -56,6 +57,7 @@ final class CoreServices {
     this.uiRequests,
     this.chatPrompts,
     this.mcpApps,
+    this.hermesCards,
     this.composer,
     this.prompts,
     this.direct,
@@ -92,6 +94,7 @@ final class CoreServices {
   final UiRequestsService? uiRequests;
   final ChatPromptsService? chatPrompts;
   final McpAppsService? mcpApps;
+  final HermesCardsService? hermesCards;
   final ComposerService? composer;
   final PromptsService? prompts;
   final DirectService? direct;
@@ -196,6 +199,7 @@ class RpcSession {
   MemoriesService? get _memories => _services().memories;
   ChatPromptsService? get _chatPrompts => _services().chatPrompts;
   McpAppsService? get _mcpApps => _services().mcpApps;
+  HermesCardsService? get _hermesCards => _services().hermesCards;
   SpeechService? get _speech => _services().speech;
   ReleaseNotesRpcService? get _releaseNotes => _services().releaseNotes;
   DataService? get _data => _services().data;
@@ -218,6 +222,8 @@ class RpcSession {
     // the turn that asked them.
     _uiRequests?.onWindowsChanged();
     _handoff?.onWindowsChanged();
+    // The Hermes chats it watched are no longer shown here.
+    _hermesCards?.forgetWindow(sessionId);
     // What this window was recording is kept for its next launch.
     await _recordings?.closeOwnedBy(sessionId);
     await _peer.close();
@@ -881,6 +887,35 @@ class RpcSession {
       (p) => _requireHermes().deleteJob(p.id),
     );
     _on(ConduitMethodSpecs.hermesCatalog, (_) => _requireHermes().catalog());
+
+    // hermes.work.*, hermes.context.*, hermes.decisions.*: a Hermes chat's
+    // agent at work, its context window, and what it asks.
+    _on(
+      ConduitMethodSpecs.hermesWorkWatch,
+      (r) => _need(_hermesCards).watch(sessionId, r),
+    );
+    _on(
+      ConduitMethodSpecs.hermesWorkUnwatch,
+      (r) => _need(_hermesCards).unwatch(sessionId, r.chatId),
+    );
+    _on(
+      ConduitMethodSpecs.hermesWorkSteer,
+      (r) => _need(_hermesCards).steer(r),
+    );
+    _on(ConduitMethodSpecs.hermesWorkStop, (r) => _need(_hermesCards).stop(r));
+    _on(ConduitMethodSpecs.hermesWorkKill, (r) => _need(_hermesCards).kill(r));
+    _on(
+      ConduitMethodSpecs.hermesContextGet,
+      (r) => _need(_hermesCards).context(r),
+    );
+    _on(
+      ConduitMethodSpecs.hermesContextCompact,
+      (r) => _need(_hermesCards).compact(r),
+    );
+    _on(
+      ConduitMethodSpecs.hermesDecisionsAnswer,
+      (r) => _need(_hermesCards).answer(r),
+    );
 
     // voice.*.
     _on(ConduitMethodSpecs.voiceSettings, (_) => _requireVoice().settings());

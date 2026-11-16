@@ -10,5 +10,7 @@
   "saveTemporary": true,
   "compare": true,
   "branchFromHere": true,
-  "undoLastTurn": true
+  "undoLastTurn": true,
+  "hermesWork": false,
+  "hermesContext": false
 }

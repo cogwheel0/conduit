@@ -5,6 +5,10 @@ import 'package:collection/collection.dart';
 import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart';
 import 'package:conduit_core/features/chat/utils/openwebui_tasks.dart';
 import 'package:conduit_core/features/chat/views/chat_status_display.dart';
+import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
+import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart'
+    show hermesDesktopModel;
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 import 'package:conduit_core/models/chat_message.dart' as core;
 import 'package:conduit_core/services/structured_output.dart'
@@ -127,6 +131,14 @@ final class MessageBlocks {
       kind: MessageBlockKind.error,
       error: block.text,
       type: block.toolsUnsupported ? 'directToolsUnsupported' : null,
+      hermesError: switch (block.hermes) {
+        final surface? => hermesErrorDto(surface),
+        null => null,
+      },
+    ),
+    AssistantChangedFilesBlock(:final files) => MessageBlockDto(
+      kind: MessageBlockKind.changedFiles,
+      changedFiles: changedFileDtos(files),
     ),
     AssistantCodeExecutionBlock(:final execution) => MessageBlockDto(
       kind: MessageBlockKind.codeExecution,
@@ -144,12 +156,6 @@ final class MessageBlocks {
             in execution.result?.files ?? <core.ChatExecutionFile>[])
           <String, dynamic>{'name': ?file.name, 'url': ?file.url},
       ]),
-    ),
-    // No changed-files block on the wire yet: a Hermes answer's changed
-    // files show as nothing.
-    AssistantChangedFilesBlock() => MessageBlockDto(
-      kind: MessageBlockKind.text,
-      markdown: '',
     ),
     AssistantSourcesBlock(:final sources) => MessageBlockDto(
       kind: MessageBlockKind.sources,
@@ -262,6 +268,8 @@ int messageBlockInputsHash(core.ChatMessage message) => Object.hash(
   _deep.hash(message.codeExecutions),
   _deep.hash(message.sources),
   _deep.hash(message.followUps),
+  // A Hermes failure's card.
+  _deep.hash(message.metadata?[kHermesErrorSurfaceMeta]),
 );
 
 int _versionInputsHash(core.ChatMessageVersion version) => Object.hash(
@@ -391,3 +399,64 @@ List<ChatTaskDto> chatTaskDtos(Map<String, dynamic>? metadata) => <ChatTaskDto>[
   for (final task in openWebUiTasksOf(metadata))
     ChatTaskDto(id: task.id, content: task.content, status: task.status),
 ];
+
+/// A Hermes failure's card, as [now] sees it: the fixes the desktop can
+/// perform, best first (Use Credits is left to a phone or the web, so the
+/// next fix shows instead, as mobile does where it cannot perform one).
+HermesErrorDto hermesErrorDto(HermesErrorSurface surface, {DateTime? now}) {
+  final at = now ?? DateTime.now();
+  final suggestion = surface.suggestions.firstOrNull;
+  return HermesErrorDto(
+    kind: surface.kind.name,
+    blocking: surface.severityAt(at) == HermesErrorSeverity.blocking,
+    message: surface.message,
+    provider: surface.providerName,
+    model: surface.model,
+    resetsAtMs: surface.resetsAt?.millisecondsSinceEpoch,
+    partial: surface.partial,
+    actions: <String>[
+      for (final action in surface.actionsAt(at))
+        if (action != HermesErrorAction.useCredits) action.name,
+    ],
+    switchTo: suggestion == null
+        ? null
+        : HermesModelChoiceDto(
+            modelId: hermesDesktopModel(
+              modelId: suggestion.model,
+              name: suggestion.label,
+              provider: suggestion.provider,
+            ).id,
+            label: suggestion.label,
+          ),
+    billingUrl: surface.billingPageUrl,
+    providerSettingsUrl: surface.providerSettingsUrl,
+  );
+}
+
+/// The files a Hermes reply changed, each with its lines, under the full
+/// path Hermes sent (the window shortens it against the chat's working
+/// directory, `HermesWork.workingDirectory`).
+List<ChangedFileDto> changedFileDtos(List<HermesDiffFile> files) =>
+    <ChangedFileDto>[
+      for (final file in files)
+        ChangedFileDto(
+          path: file.path,
+          added: file.added,
+          removed: file.removed,
+          lines: <DiffLineDto>[
+            for (final line in file.lines)
+              DiffLineDto(
+                kind: switch (line.kind) {
+                  HermesDiffLineKind.context => DiffLineKind.context,
+                  HermesDiffLineKind.added => DiffLineKind.added,
+                  HermesDiffLineKind.removed => DiffLineKind.removed,
+                  HermesDiffLineKind.hunk => DiffLineKind.hunk,
+                  HermesDiffLineKind.note => DiffLineKind.note,
+                },
+                text: line.text,
+                oldNumber: line.oldNumber,
+                newNumber: line.newNumber,
+              ),
+          ],
+        ),
+    ];

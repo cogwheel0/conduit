@@ -14,6 +14,7 @@ import 'events.dart';
 import 'handoff.dart';
 import 'handshake.dart';
 import 'hermes.dart';
+import 'hermes_work.dart';
 import 'mcp.dart';
 import 'mcp_apps.dart';
 import 'memories.dart';
@@ -571,12 +572,11 @@ abstract final class ConduitMethodSpecs {
     params: ExportChat.fromJson,
     result: ChatExportFile.fromJson,
   );
-  static const chatsGenerateTitle =
-      ConduitMethodSpec<ChatRef, GeneratedTitle>(
-        ConduitMethods.chatsGenerateTitle,
-        params: ChatRef.fromJson,
-        result: GeneratedTitle.fromJson,
-      );
+  static const chatsGenerateTitle = ConduitMethodSpec<ChatRef, GeneratedTitle>(
+    ConduitMethods.chatsGenerateTitle,
+    params: ChatRef.fromJson,
+    result: GeneratedTitle.fromJson,
+  );
   static const chatsMarkUnread = ConduitMethodSpec<MarkUnread, ChatList>(
     ConduitMethods.chatsMarkUnread,
     params: MarkUnread.fromJson,
@@ -1424,6 +1424,54 @@ abstract final class ConduitMethodSpecs {
     result: HermesCatalog.fromJson,
   );
 
+  // hermes.work.*, hermes.context.*, hermes.decisions.*
+
+  static const hermesWorkWatch = ConduitMethodSpec<HermesWorkWatch, HermesWork>(
+    ConduitMethods.hermesWorkWatch,
+    params: HermesWorkWatch.fromJson,
+    result: HermesWork.fromJson,
+  );
+  static const hermesWorkUnwatch = ConduitMethodSpec<HermesWorkChat, OkResult>(
+    ConduitMethods.hermesWorkUnwatch,
+    params: HermesWorkChat.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const hermesWorkSteer =
+      ConduitMethodSpec<HermesSteerSubagent, OkResult>(
+        ConduitMethods.hermesWorkSteer,
+        params: HermesSteerSubagent.fromJson,
+        result: OkResult.fromJson,
+      );
+  static const hermesWorkStop = ConduitMethodSpec<HermesSubagentRef, OkResult>(
+    ConduitMethods.hermesWorkStop,
+    params: HermesSubagentRef.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const hermesWorkKill =
+      ConduitMethodSpec<HermesProcessRef, HermesProcessKill>(
+        ConduitMethods.hermesWorkKill,
+        params: HermesProcessRef.fromJson,
+        result: HermesProcessKill.fromJson,
+      );
+  static const hermesContextGet =
+      ConduitMethodSpec<HermesContextRef, HermesContextReportDto>(
+        ConduitMethods.hermesContextGet,
+        params: HermesContextRef.fromJson,
+        result: HermesContextReportDto.fromJson,
+      );
+  static const hermesContextCompact =
+      ConduitMethodSpec<HermesCompact, HermesCompactResultDto>(
+        ConduitMethods.hermesContextCompact,
+        params: HermesCompact.fromJson,
+        result: HermesCompactResultDto.fromJson,
+      );
+  static const hermesDecisionsAnswer =
+      ConduitMethodSpec<HermesDecisionAnswer, HermesDecisionResult>(
+        ConduitMethods.hermesDecisionsAnswer,
+        params: HermesDecisionAnswer.fromJson,
+        result: HermesDecisionResult.fromJson,
+      );
+
   // terminal.*
 
   static const terminalServers =
@@ -1808,6 +1856,14 @@ abstract final class ConduitMethodSpecs {
         hermesRunJob,
         hermesDeleteJob,
         hermesCatalog,
+        hermesWorkWatch,
+        hermesWorkUnwatch,
+        hermesWorkSteer,
+        hermesWorkStop,
+        hermesWorkKill,
+        hermesContextGet,
+        hermesContextCompact,
+        hermesDecisionsAnswer,
         terminalServers,
         terminalSelect,
         terminalAttach,
@@ -2024,6 +2080,12 @@ abstract final class ConduitEventSpecs {
     scoped: false,
   );
 
+  static const hermesWorkChanged = ConduitEventSpec<HermesWork>(
+    ConduitEvents.hermesWorkChanged,
+    payload: HermesWork.fromJson,
+    scoped: true,
+  );
+
   /// Every event, once.
   static const List<ConduitEventSpec<Object?>> all =
       <ConduitEventSpec<Object?>>[
@@ -2061,6 +2123,7 @@ abstract final class ConduitEventSpecs {
         mcpAppsEvent,
         speechChanged,
         speechCommand,
+        hermesWorkChanged,
       ];
 
   static final Map<String, ConduitEventSpec<Object?>> _byName =

@@ -505,7 +505,8 @@ pub enum MessageBlockKind {
     #[serde(rename = "status")]
     Status,
     /// The error banner under the content: `MessageBlockDto.error` and
-    /// `MessageBlockDto.type`.
+    /// `MessageBlockDto.type`. A Hermes turn that Hermes classified also
+    /// carries `MessageBlockDto.hermesError`, drawn as its error card.
     #[serde(rename = "error")]
     Error,
     /// One code execution, a header that opens to its code and result:
@@ -537,6 +538,11 @@ pub enum MessageBlockKind {
     /// user opens it.
     #[serde(rename = "embeds")]
     Embeds,
+    /// The files a Hermes reply's tools changed, with their added and removed
+    /// lines (`MessageBlockDto.changedFiles`): a card that opens each file's
+    /// coloured diff.
+    #[serde(rename = "changedFiles")]
+    ChangedFiles,
     /// A value this build does not know, from a newer daemon. It decodes
     /// only: it encodes as `"unknown"`, which the daemon refuses.
     #[serde(other, rename = "unknown")]
@@ -690,6 +696,13 @@ pub struct MessageBlockDto {
     /// `embeds`: what the answer carries, in order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embeds: Option<Vec<EmbedDto>>,
+    /// `changedFiles`: each changed file, in the order the tools changed
+    /// them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed_files: Option<Vec<ChangedFileDto>>,
+    /// `error`: a Hermes failure as Hermes classified it, for its card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hermes_error: Option<HermesErrorDto>,
 }
 
 /// One tool call in a `toolCalls` block.
@@ -1876,6 +1889,14 @@ pub struct ChatAbilities {
     /// session, whose transcript the gateway keeps (`hermes.history.undo`).
     #[serde(default)]
     pub undo_last_turn: bool,
+    /// A Hermes agent works in this chat: its subagents, processes and plan
+    /// can be watched (`hermes.work.watch`).
+    #[serde(default)]
+    pub hermes_work: bool,
+    /// Context & Usage: the chat is a Hermes session whose context window
+    /// and usage can be read (`hermes.context.get`).
+    #[serde(default)]
+    pub hermes_context: bool,
 }
 
 /// What a queued answer is waiting for.
@@ -3967,6 +3988,620 @@ pub struct HermesCatalog {
     pub skills: Vec<HermesSkillDto>,
     #[serde(default)]
     pub toolsets: Vec<HermesToolsetDto>,
+}
+
+/// Params for `hermes.work.watch`: the window shows `chatId` and wants its
+/// agent's work, live, as `hermes.work.changed` events scoped to the chat.
+///
+/// Watching again with another `subagentId` changes whose output comes
+/// with the work; without one, none does. `hermes.work.unwatch` (or the
+/// window's connection closing) stops it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesWorkWatch {
+    pub chat_id: String,
+    /// The subagent whose output the window shows, read every 2 s while it
+    /// runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent_id: Option<String>,
+}
+
+/// A chat's agent at work: its subagents, its background processes and its
+/// plan. Reply to `hermes.work.watch` and payload of `hermes.work.changed`.
+///
+/// Only a Hermes Desktop Gateway reports subagents, processes and a plan;
+/// any other chat has none of them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesWork {
+    pub chat_id: String,
+    /// False until the first list arrives (and for a chat with no Hermes
+    /// session to list).
+    #[serde(default)]
+    pub loaded: bool,
+    #[serde(default)]
+    pub subagents: Vec<HermesSubagentDto>,
+    /// Every process Hermes lists, finished ones too; a chip counts the
+    /// running ones.
+    #[serde(default)]
+    pub processes: Vec<HermesProcessDto>,
+    /// The agent's task list, when it keeps one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<HermesPlanDto>,
+    /// The output of the subagent the watch named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<HermesSubagentOutputDto>,
+    /// The directory the chat runs its tools in, when Hermes said: changed
+    /// files inside it are listed by their path from there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_directory: Option<String>,
+}
+
+/// A child agent the chat's agent delegated a task to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesSubagentDto {
+    pub id: String,
+    /// What it was asked to do; empty when Hermes did not say.
+    #[serde(default)]
+    pub goal: String,
+    /// The subagent that started this one, when it is nested.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    /// How deep it is nested (0 at the top).
+    #[serde(default)]
+    pub depth: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// When it started, in milliseconds since the epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at_ms: Option<i64>,
+    /// Hermes' word for where it is: `queued`, `running`, `completed`…
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    /// Queued or running.
+    #[serde(default = "default_hermes_subagent_dto_running")]
+    pub running: bool,
+    #[serde(default)]
+    pub tool_count: i64,
+    /// The tool it used last, by its id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_tool: Option<String>,
+    /// Whether Hermes still passes new instructions on to it.
+    #[serde(default = "default_hermes_subagent_dto_accepting_steer")]
+    pub accepting_steer: bool,
+}
+
+fn default_hermes_subagent_dto_running() -> bool {
+    true
+}
+
+fn default_hermes_subagent_dto_accepting_steer() -> bool {
+    true
+}
+
+/// A command the agent left running: a dev server, a watcher, a build.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesProcessDto {
+    pub id: String,
+    /// Its first line, shortened.
+    pub command: String,
+    #[serde(default = "default_hermes_process_dto_running")]
+    pub running: bool,
+    /// When it started, in milliseconds since the epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i64>,
+    /// The end of what it printed, when Hermes sent it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+}
+
+fn default_hermes_process_dto_running() -> bool {
+    true
+}
+
+/// The agent's task list, as Hermes last reported it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesPlanDto {
+    #[serde(default)]
+    pub items: Vec<HermesPlanItemDto>,
+    /// How many are completed.
+    #[serde(default)]
+    pub done: i64,
+    /// Whether anything is still to do or under way.
+    #[serde(default)]
+    pub active: bool,
+    /// The item under way, else the next to do.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_id: Option<String>,
+    /// Only grows; a later empty list is a cleared plan.
+    #[serde(default)]
+    pub revision: i64,
+}
+
+/// One item of the agent's task list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesPlanItemDto {
+    pub id: String,
+    pub content: String,
+    /// `pending`, `in_progress`, `completed` or `cancelled`.
+    #[serde(default = "default_hermes_plan_item_dto_status")]
+    pub status: String,
+    /// How deep it is nested under other items (0 at the top, at most 3).
+    #[serde(default)]
+    pub depth: i64,
+}
+
+fn default_hermes_plan_item_dto_status() -> String {
+    "pending".to_owned()
+}
+
+/// The end of a subagent's live output.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesSubagentOutputDto {
+    pub subagent_id: String,
+    /// False until the first read answers.
+    #[serde(default)]
+    pub loaded: bool,
+    /// Reading it failed, with nothing to show.
+    #[serde(default)]
+    pub failed: bool,
+    /// False while the subagent has no output yet, or once it is gone.
+    #[serde(default)]
+    pub available: bool,
+    #[serde(default)]
+    pub text: String,
+    /// Earlier output was cut off.
+    #[serde(default)]
+    pub truncated: bool,
+}
+
+/// Params for `hermes.work.unwatch`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesWorkChat {
+    pub chat_id: String,
+}
+
+/// Params for `hermes.work.steer`: new instructions for a running
+/// subagent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesSteerSubagent {
+    pub chat_id: String,
+    pub subagent_id: String,
+    pub text: String,
+}
+
+/// Params for `hermes.work.stop`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesSubagentRef {
+    pub chat_id: String,
+    pub subagent_id: String,
+}
+
+/// Params for `hermes.work.kill`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesProcessRef {
+    pub chat_id: String,
+    pub process_id: String,
+}
+
+/// What `hermes.work.kill` did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HermesProcessKillStatus {
+    #[serde(rename = "killed")]
+    Killed,
+    #[serde(rename = "alreadyExited")]
+    AlreadyExited,
+    #[serde(rename = "notFound")]
+    NotFound,
+    #[serde(rename = "failed")]
+    Failed,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Reply to `hermes.work.kill`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesProcessKill {
+    pub status: HermesProcessKillStatus,
+    /// The end of what the process printed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+    /// Hermes' own words for a failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Params for `hermes.context.get`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesContextRef {
+    pub chat_id: String,
+}
+
+/// Reply to `hermes.context.get`: a Hermes chat's context window, token
+/// totals and plan allowances. A Desktop Gateway reports all of it; an API
+/// server only the session's totals.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesContextReportDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Tokens in the context window now, and its size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_used: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_max: Option<i64>,
+    /// The fill is Hermes' estimate, not a measured count.
+    #[serde(default)]
+    pub context_estimated: bool,
+    /// Hermes' estimate of the next request's size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimated_total: Option<i64>,
+    /// What fills the window, as Hermes lists it.
+    #[serde(default)]
+    pub categories: Vec<HermesContextCategoryDto>,
+    #[serde(default)]
+    pub totals: HermesTokenTotalsDto,
+    /// The plan's allowances (day, week, month…).
+    #[serde(default)]
+    pub plan_gauges: Vec<HermesPlanGaugeDto>,
+    /// Hermes' own lines about credits, shown as written.
+    #[serde(default)]
+    pub credits_lines: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_bars: Option<HermesUsageBarsDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_plan: Option<HermesProviderPlanDto>,
+    /// Compact Now is offered.
+    #[serde(default)]
+    pub can_compact: bool,
+    /// A compaction is still running on the server.
+    #[serde(default)]
+    pub compacting: bool,
+}
+
+/// One part of what fills the context window.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesContextCategoryDto {
+    /// `system_prompt`, `tool_definitions`, `subagent_definitions`,
+    /// `conversation`, or another server id.
+    pub id: String,
+    /// Hermes' name for it, for an id the window has no words for.
+    #[serde(default)]
+    pub label: String,
+    pub tokens: i64,
+}
+
+/// A chat's token counters so far.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesTokenTotalsDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_hit_percent: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calls: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compressions: Option<i64>,
+    /// In US dollars.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<f64>,
+    #[serde(default)]
+    pub cost_estimated: bool,
+}
+
+/// One plan allowance.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesPlanGaugeDto {
+    /// `day`, `week`, `month`, `top_tier`, or another server id.
+    pub id: String,
+    /// Hermes' words, for an id the window has none for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// 0 (untouched) to 1 (used up).
+    pub used_fraction: f64,
+    /// In milliseconds since the epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resets_at_ms: Option<i64>,
+}
+
+/// One of Hermes' dollar bars: a plan or a top-up balance.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesUsageBarDto {
+    /// `plan` or `topup`.
+    pub kind: String,
+    /// 0 to 1.
+    pub fill: f64,
+    /// Amounts Hermes formats itself (`$4.20`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remaining: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub used_percent: Option<i64>,
+}
+
+/// The account's subscription and top-up balance.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesUsageBarsDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_name: Option<String>,
+    /// When the plan renews, in Hermes' words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renews: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<HermesUsageBarDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topup: Option<HermesUsageBarDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_spendable: Option<String>,
+}
+
+/// What the chat's provider says about its plan and limits.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesProviderPlanDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_name: Option<String>,
+    #[serde(default)]
+    pub gauges: Vec<HermesPlanGaugeDto>,
+    #[serde(default)]
+    pub rate_limited: bool,
+    /// In milliseconds since the epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate_limited_until_ms: Option<i64>,
+    /// How much the chat's model draws on the plan: `free`, `low`,
+    /// `medium` or `top_tier`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_level: Option<String>,
+}
+
+/// Params for `hermes.context.compact`: summarize the chat's older
+/// messages on the server.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesCompact {
+    pub chat_id: String,
+    /// What the summary should keep in view.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus: Option<String>,
+}
+
+/// How a compaction ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HermesCompactOutcome {
+    /// Older messages were summarized.
+    #[serde(rename = "compacted")]
+    Compacted,
+    /// Nothing could be removed (a short chat).
+    #[serde(rename = "unchanged")]
+    Unchanged,
+    /// A summary would have been longer than what it replaces.
+    #[serde(rename = "refused")]
+    Refused,
+    /// The summary failed; no messages were removed.
+    #[serde(rename = "aborted")]
+    Aborted,
+    /// Still running on the server.
+    #[serde(rename = "pending")]
+    Pending,
+    /// Another compaction holds the chat.
+    #[serde(rename = "busy")]
+    Busy,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Reply to `hermes.context.compact`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesCompactResultDto {
+    pub outcome: HermesCompactOutcome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_messages: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_messages: Option<i64>,
+}
+
+/// Params for `hermes.decisions.answer`: the answer to a `ui.request` of
+/// kind `hermesClarify`, `hermesSudo` or `hermesSecret` (or a
+/// `hermesDecision` set-up card).
+///
+/// Unlike `ui.respond`, it waits for Hermes to take the answer: the card
+/// stays up (and says so) when it did not arrive. A password or secret in
+/// `value` is passed on and never logged or kept.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesDecisionAnswer {
+    pub request_id: String,
+    /// A form's answers, one per question still open.
+    #[serde(default)]
+    pub answers: Vec<HermesClarifyAnswer>,
+    /// Any other question's answer: the password, the secret, the reply,
+    /// or a set-up card's `approve` or `decline`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+}
+
+/// One question's answer in a clarify form.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesClarifyAnswer {
+    pub question_id: String,
+    /// The choice picked or the words typed; a multi-select question's
+    /// several answers as a JSON array string. Null skips the question.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer: Option<String>,
+}
+
+/// How answering a Hermes question went.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HermesDecisionStatus {
+    /// Hermes took it; the card closes (`ui.settled` follows).
+    #[serde(rename = "answered")]
+    Answered,
+    /// Hermes had already settled it (answered elsewhere, or it expired);
+    /// the card closes and the answer was not sent.
+    #[serde(rename = "settled")]
+    Settled,
+    /// It did not arrive: the card stays, to be answered again.
+    #[serde(rename = "failed")]
+    Failed,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Reply to `hermes.decisions.answer`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesDecisionResult {
+    pub status: HermesDecisionStatus,
+}
+
+/// One file a Hermes reply's tools changed, with its lines.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangedFileDto {
+    /// Its path as Hermes sent it (`a/` and `b/` taken off); empty when
+    /// Hermes did not name it. A window lists a file inside the chat's
+    /// working directory (`HermesWork.workingDirectory`) by its path from
+    /// there.
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub added: i64,
+    #[serde(default)]
+    pub removed: i64,
+    #[serde(default)]
+    pub lines: Vec<DiffLineDto>,
+}
+
+/// What one line of a diff is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum DiffLineKind {
+    #[serde(rename = "context")]
+    Context,
+    #[serde(rename = "added")]
+    Added,
+    #[serde(rename = "removed")]
+    Removed,
+    /// A hunk header (`@@ -1,3 +1,4 @@`).
+    #[serde(rename = "hunk")]
+    Hunk,
+    /// Hermes' own remark (how many lines it left out).
+    #[serde(rename = "note")]
+    Note,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// One line of a changed file's diff.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffLineDto {
+    pub kind: DiffLineKind,
+    #[serde(default)]
+    pub text: String,
+    /// Line numbers from the hunk header, when Hermes sent one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_number: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_number: Option<i64>,
+}
+
+/// A failed Hermes turn, as Hermes classified it: what broke, whether the
+/// chat is stuck, when a limit resets, and what helps. On an `error` block
+/// (`MessageBlockDto.hermesError`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesErrorDto {
+    /// `provider`, `endpoint`, `connection`, `auth`, `billing`,
+    /// `usageLimit`, `freeTier`, `rateLimit`, `contextOverflow`, `model`,
+    /// `policy`, `truncated`, `badReply`, `workspace`, `session`, `busy`,
+    /// `gateway`, `disk` or `unknown`.
+    pub kind: String,
+    /// The chat is stuck until the cause is fixed (else it can go on).
+    #[serde(default)]
+    pub blocking: bool,
+    /// Hermes' sentence about it, when it wrote one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// The provider and model it happened on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// When the limit resets, in milliseconds since the epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resets_at_ms: Option<i64>,
+    /// What the reply wrote before it failed is kept.
+    #[serde(default)]
+    pub partial: bool,
+    /// The fixes this chat can perform, best first: `retry`,
+    /// `continueReply`, `compact`, `switchModel`, `openProviderSettings`,
+    /// `openBilling`, `newChat`. A card offers the first.
+    #[serde(default)]
+    pub actions: Vec<String>,
+    /// For `switchModel`: the model to switch to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub switch_to: Option<HermesModelChoiceDto>,
+    /// For `openBilling` and `openProviderSettings`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub billing_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_settings_url: Option<String>,
+}
+
+/// A model an error card offers to switch to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesModelChoiceDto {
+    /// The model's id in `models.list` (a Hermes model).
+    pub model_id: String,
+    pub label: String,
 }
 
 /// How the app signs in to an MCP server.
@@ -6390,7 +7025,14 @@ pub enum UiRequestKind {
     /// An MCP server is requesting authorization for a capability.
     #[serde(rename = "mcpApproval")]
     McpApproval,
-    /// A Hermes run needs a decision before it continues.
+    /// A Hermes run needs a decision before it continues. `messageCode`
+    /// says which: `hermes.approval` (run a command or write a file:
+    /// `messageArgs.summary`, `detail.choices` from `once`, `session`,
+    /// `always` and `deny`, and a paid tool's `detail.cost` `{price,
+    /// approximate, note, spent, limit, server, overLimit}`), answered with
+    /// `ui.respond`; or `hermes.mcpSetup` (set up an MCP server:
+    /// `messageArgs.server`, `messageArgs.action`), answered with
+    /// `hermes.decisions.answer` (`approve` or `decline`).
     #[serde(rename = "hermesDecision")]
     HermesDecision,
     /// A plain confirm/cancel.
@@ -6406,6 +7048,24 @@ pub enum UiRequestKind {
     /// `allow` opens it in the browser (the window does, on `openUrl`).
     #[serde(rename = "mcpAppOpenLink")]
     McpAppOpenLink,
+    /// A Hermes agent asks one or more questions as a form: `detail.chatId`,
+    /// `detail.questions` (each `{id, text, choices: [{value, label,
+    /// recommended}], multiSelect, locked, lockedAnswer}`; up to five) and
+    /// `messageArgs.prompt`. Answered with `hermes.decisions.answer`
+    /// (`answers`, one per open question, null to skip); `deny` only closes
+    /// the card here.
+    #[serde(rename = "hermesClarify")]
+    HermesClarify,
+    /// A Hermes agent needs the sudo password to run a command:
+    /// `messageArgs.prompt`, `detail.chatId`. Answered with
+    /// `hermes.decisions.answer` (`value`), which is never logged or kept.
+    #[serde(rename = "hermesSudo")]
+    HermesSudo,
+    /// A Hermes agent needs a secret (an API key, a token):
+    /// `messageArgs.prompt`, `detail.chatId`. Answered with
+    /// `hermes.decisions.answer` (`value`), which is never logged or kept.
+    #[serde(rename = "hermesSecret")]
+    HermesSecret,
     /// A value this build does not know, from a newer daemon. It decodes
     /// only: it encodes as `"unknown"`, which the daemon refuses.
     #[serde(other, rename = "unknown")]
@@ -11321,6 +11981,102 @@ pub mod methods {
         type Result = super::HermesCatalog;
     }
 
+    /// Follows a chat's agent work (subagents, processes, plan) while the
+    /// window shows it; changes come as `hermes.work.changed`.
+    ///
+    /// `hermes.work.watch`: HermesWorkWatch -> HermesWork.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesWorkWatch;
+
+    impl RpcMethod for HermesWorkWatch {
+        const NAME: &'static str = "hermes.work.watch";
+        type Params = super::HermesWorkWatch;
+        type Result = super::HermesWork;
+    }
+
+    /// `hermes.work.unwatch`: HermesWorkChat -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesWorkUnwatch;
+
+    impl RpcMethod for HermesWorkUnwatch {
+        const NAME: &'static str = "hermes.work.unwatch";
+        type Params = super::HermesWorkChat;
+        type Result = super::OkResult;
+    }
+
+    /// New instructions for a running subagent.
+    ///
+    /// `hermes.work.steer`: HermesSteerSubagent -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesWorkSteer;
+
+    impl RpcMethod for HermesWorkSteer {
+        const NAME: &'static str = "hermes.work.steer";
+        type Params = super::HermesSteerSubagent;
+        type Result = super::OkResult;
+    }
+
+    /// Stops a subagent.
+    ///
+    /// `hermes.work.stop`: HermesSubagentRef -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesWorkStop;
+
+    impl RpcMethod for HermesWorkStop {
+        const NAME: &'static str = "hermes.work.stop";
+        type Params = super::HermesSubagentRef;
+        type Result = super::OkResult;
+    }
+
+    /// Kills a background process.
+    ///
+    /// `hermes.work.kill`: HermesProcessRef -> HermesProcessKill.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesWorkKill;
+
+    impl RpcMethod for HermesWorkKill {
+        const NAME: &'static str = "hermes.work.kill";
+        type Params = super::HermesProcessRef;
+        type Result = super::HermesProcessKill;
+    }
+
+    /// A Hermes chat's context window, token totals and plan usage.
+    ///
+    /// `hermes.context.get`: HermesContextRef -> HermesContextReportDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesContextGet;
+
+    impl RpcMethod for HermesContextGet {
+        const NAME: &'static str = "hermes.context.get";
+        type Params = super::HermesContextRef;
+        type Result = super::HermesContextReportDto;
+    }
+
+    /// Summarizes a Hermes chat's older messages on the server.
+    ///
+    /// `hermes.context.compact`: HermesCompact -> HermesCompactResultDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesContextCompact;
+
+    impl RpcMethod for HermesContextCompact {
+        const NAME: &'static str = "hermes.context.compact";
+        type Params = super::HermesCompact;
+        type Result = super::HermesCompactResultDto;
+    }
+
+    /// Answers a clarify form, a sudo password, a secret or a set-up card,
+    /// and waits for Hermes to take it.
+    ///
+    /// `hermes.decisions.answer`: HermesDecisionAnswer -> HermesDecisionResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesDecisionsAnswer;
+
+    impl RpcMethod for HermesDecisionsAnswer {
+        const NAME: &'static str = "hermes.decisions.answer";
+        type Params = super::HermesDecisionAnswer;
+        type Result = super::HermesDecisionResult;
+    }
+
     /// The terminal servers usable in a scope, and the selected one.
     ///
     /// `terminal.servers`: TerminalScope -> TerminalServers.
@@ -12805,6 +13561,46 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("HermesCatalog"),
     },
     MethodSpec {
+        name: "hermes.work.watch",
+        params: Some("HermesWorkWatch"),
+        result: Some("HermesWork"),
+    },
+    MethodSpec {
+        name: "hermes.work.unwatch",
+        params: Some("HermesWorkChat"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
+        name: "hermes.work.steer",
+        params: Some("HermesSteerSubagent"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
+        name: "hermes.work.stop",
+        params: Some("HermesSubagentRef"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
+        name: "hermes.work.kill",
+        params: Some("HermesProcessRef"),
+        result: Some("HermesProcessKill"),
+    },
+    MethodSpec {
+        name: "hermes.context.get",
+        params: Some("HermesContextRef"),
+        result: Some("HermesContextReportDto"),
+    },
+    MethodSpec {
+        name: "hermes.context.compact",
+        params: Some("HermesCompact"),
+        result: Some("HermesCompactResultDto"),
+    },
+    MethodSpec {
+        name: "hermes.decisions.answer",
+        params: Some("HermesDecisionAnswer"),
+        result: Some("HermesDecisionResult"),
+    },
+    MethodSpec {
         name: "terminal.servers",
         params: Some("TerminalScope"),
         result: Some("TerminalServers"),
@@ -13020,6 +13816,10 @@ pub mod events {
     /// The daemon asks the window's speech engine to speak or play. Payload
     /// `SpeechCommand`; answered with `speech.report`.
     pub const SPEECH_COMMAND: &str = "speech.command";
+    /// A watched Hermes chat's agent work changed: its subagents, processes,
+    /// plan or the output a window reads. Payload `HermesWork`, scoped to the
+    /// chat.
+    pub const HERMES_WORK_CHANGED: &str = "hermes.work.changed";
 }
 
 /// Every event, with its payload DTO by name and whether it is scoped.
@@ -13194,6 +13994,11 @@ pub const EVENTS: &[EventSpec] = &[
         payload: Some("SpeechCommand"),
         scoped: false,
     },
+    EventSpec {
+        name: "hermes.work.changed",
+        payload: Some("HermesWork"),
+        scoped: true,
+    },
 ];
 
 /// An event the daemon pushed, decoded from its envelope by name.
@@ -13359,6 +14164,12 @@ pub enum Event {
     ///
     /// `speech.command`.
     SpeechCommand(SpeechCommand),
+    /// A watched Hermes chat's agent work changed: its subagents, processes,
+    /// plan or the output a window reads. Payload `HermesWork`, scoped to the
+    /// chat.
+    ///
+    /// `hermes.work.changed`, scoped.
+    HermesWorkChanged(HermesWork),
     /// An event this build does not know, from a newer daemon, kept as it came.
     Unknown {
         name: String,
@@ -13412,6 +14223,9 @@ impl Event {
             events::MCP_APPS_EVENT => Self::McpAppsEvent(serde_json::from_value(payload)?),
             events::SPEECH_CHANGED => Self::SpeechChanged(serde_json::from_value(payload)?),
             events::SPEECH_COMMAND => Self::SpeechCommand(serde_json::from_value(payload)?),
+            events::HERMES_WORK_CHANGED => {
+                Self::HermesWorkChanged(serde_json::from_value(payload)?)
+            }
             _ => Self::Unknown {
                 name: name.to_owned(),
                 payload,
@@ -13456,6 +14270,7 @@ impl Event {
             Self::McpAppsEvent(_) => events::MCP_APPS_EVENT,
             Self::SpeechChanged(_) => events::SPEECH_CHANGED,
             Self::SpeechCommand(_) => events::SPEECH_COMMAND,
+            Self::HermesWorkChanged(_) => events::HERMES_WORK_CHANGED,
             Self::Unknown { name, .. } => name,
         }
     }
@@ -13491,6 +14306,7 @@ impl Event {
             Self::McpAppsEvent(payload) => serde_json::to_value(payload),
             Self::SpeechChanged(payload) => serde_json::to_value(payload),
             Self::SpeechCommand(payload) => serde_json::to_value(payload),
+            Self::HermesWorkChanged(payload) => serde_json::to_value(payload),
             Self::ChannelsChanged
             | Self::SocketHealth
             | Self::CapabilitiesChanged
@@ -13545,6 +14361,7 @@ pub mod conformance {
         "BulkChatsResult",
         "CancelledResult",
         "Capabilities",
+        "ChangedFileDto",
         "ChannelEdit",
         "ChannelList",
         "ChannelMembers",
@@ -13621,6 +14438,7 @@ pub mod conformance {
         "DiagnosticsExport",
         "DictationStatus",
         "DictationTarget",
+        "DiffLineDto",
         "DirectConnectionEdit",
         "DirectConnectionList",
         "DirectConnectionSummary",
@@ -13663,11 +14481,28 @@ pub mod conformance {
         "HermesCapabilitiesDto",
         "HermesCatalog",
         "HermesChatDto",
+        "HermesClarifyAnswer",
+        "HermesCompact",
+        "HermesCompactResultDto",
+        "HermesContextCategoryDto",
+        "HermesContextRef",
+        "HermesContextReportDto",
         "HermesContinue",
+        "HermesDecisionAnswer",
+        "HermesDecisionResult",
+        "HermesErrorDto",
         "HermesJobDto",
         "HermesJobEdit",
         "HermesJobToggle",
         "HermesJobs",
+        "HermesModelChoiceDto",
+        "HermesPlanDto",
+        "HermesPlanGaugeDto",
+        "HermesPlanItemDto",
+        "HermesProcessDto",
+        "HermesProcessKill",
+        "HermesProcessRef",
+        "HermesProviderPlanDto",
         "HermesRef",
         "HermesRename",
         "HermesSessionDto",
@@ -13677,8 +14512,18 @@ pub mod conformance {
         "HermesSettingsEdit",
         "HermesSkillDto",
         "HermesStatus",
+        "HermesSteerSubagent",
+        "HermesSubagentDto",
+        "HermesSubagentOutputDto",
+        "HermesSubagentRef",
         "HermesTestResult",
+        "HermesTokenTotalsDto",
         "HermesToolsetDto",
+        "HermesUsageBarDto",
+        "HermesUsageBarsDto",
+        "HermesWork",
+        "HermesWorkChat",
+        "HermesWorkWatch",
         "KnowledgeList",
         "KnowledgeQuery",
         "KnowledgeSummary",
@@ -13965,6 +14810,7 @@ pub mod conformance {
             "BulkChatsResult" => roundtrip::<super::BulkChatsResult>(json),
             "CancelledResult" => roundtrip::<super::CancelledResult>(json),
             "Capabilities" => roundtrip::<super::Capabilities>(json),
+            "ChangedFileDto" => roundtrip::<super::ChangedFileDto>(json),
             "ChannelEdit" => roundtrip::<super::ChannelEdit>(json),
             "ChannelList" => roundtrip::<super::ChannelList>(json),
             "ChannelMembers" => roundtrip::<super::ChannelMembers>(json),
@@ -14041,6 +14887,7 @@ pub mod conformance {
             "DiagnosticsExport" => roundtrip::<super::DiagnosticsExport>(json),
             "DictationStatus" => roundtrip::<super::DictationStatus>(json),
             "DictationTarget" => roundtrip::<super::DictationTarget>(json),
+            "DiffLineDto" => roundtrip::<super::DiffLineDto>(json),
             "DirectConnectionEdit" => roundtrip::<super::DirectConnectionEdit>(json),
             "DirectConnectionList" => roundtrip::<super::DirectConnectionList>(json),
             "DirectConnectionSummary" => roundtrip::<super::DirectConnectionSummary>(json),
@@ -14083,11 +14930,28 @@ pub mod conformance {
             "HermesCapabilitiesDto" => roundtrip::<super::HermesCapabilitiesDto>(json),
             "HermesCatalog" => roundtrip::<super::HermesCatalog>(json),
             "HermesChatDto" => roundtrip::<super::HermesChatDto>(json),
+            "HermesClarifyAnswer" => roundtrip::<super::HermesClarifyAnswer>(json),
+            "HermesCompact" => roundtrip::<super::HermesCompact>(json),
+            "HermesCompactResultDto" => roundtrip::<super::HermesCompactResultDto>(json),
+            "HermesContextCategoryDto" => roundtrip::<super::HermesContextCategoryDto>(json),
+            "HermesContextRef" => roundtrip::<super::HermesContextRef>(json),
+            "HermesContextReportDto" => roundtrip::<super::HermesContextReportDto>(json),
             "HermesContinue" => roundtrip::<super::HermesContinue>(json),
+            "HermesDecisionAnswer" => roundtrip::<super::HermesDecisionAnswer>(json),
+            "HermesDecisionResult" => roundtrip::<super::HermesDecisionResult>(json),
+            "HermesErrorDto" => roundtrip::<super::HermesErrorDto>(json),
             "HermesJobDto" => roundtrip::<super::HermesJobDto>(json),
             "HermesJobEdit" => roundtrip::<super::HermesJobEdit>(json),
             "HermesJobToggle" => roundtrip::<super::HermesJobToggle>(json),
             "HermesJobs" => roundtrip::<super::HermesJobs>(json),
+            "HermesModelChoiceDto" => roundtrip::<super::HermesModelChoiceDto>(json),
+            "HermesPlanDto" => roundtrip::<super::HermesPlanDto>(json),
+            "HermesPlanGaugeDto" => roundtrip::<super::HermesPlanGaugeDto>(json),
+            "HermesPlanItemDto" => roundtrip::<super::HermesPlanItemDto>(json),
+            "HermesProcessDto" => roundtrip::<super::HermesProcessDto>(json),
+            "HermesProcessKill" => roundtrip::<super::HermesProcessKill>(json),
+            "HermesProcessRef" => roundtrip::<super::HermesProcessRef>(json),
+            "HermesProviderPlanDto" => roundtrip::<super::HermesProviderPlanDto>(json),
             "HermesRef" => roundtrip::<super::HermesRef>(json),
             "HermesRename" => roundtrip::<super::HermesRename>(json),
             "HermesSessionDto" => roundtrip::<super::HermesSessionDto>(json),
@@ -14097,8 +14961,18 @@ pub mod conformance {
             "HermesSettingsEdit" => roundtrip::<super::HermesSettingsEdit>(json),
             "HermesSkillDto" => roundtrip::<super::HermesSkillDto>(json),
             "HermesStatus" => roundtrip::<super::HermesStatus>(json),
+            "HermesSteerSubagent" => roundtrip::<super::HermesSteerSubagent>(json),
+            "HermesSubagentDto" => roundtrip::<super::HermesSubagentDto>(json),
+            "HermesSubagentOutputDto" => roundtrip::<super::HermesSubagentOutputDto>(json),
+            "HermesSubagentRef" => roundtrip::<super::HermesSubagentRef>(json),
             "HermesTestResult" => roundtrip::<super::HermesTestResult>(json),
+            "HermesTokenTotalsDto" => roundtrip::<super::HermesTokenTotalsDto>(json),
             "HermesToolsetDto" => roundtrip::<super::HermesToolsetDto>(json),
+            "HermesUsageBarDto" => roundtrip::<super::HermesUsageBarDto>(json),
+            "HermesUsageBarsDto" => roundtrip::<super::HermesUsageBarsDto>(json),
+            "HermesWork" => roundtrip::<super::HermesWork>(json),
+            "HermesWorkChat" => roundtrip::<super::HermesWorkChat>(json),
+            "HermesWorkWatch" => roundtrip::<super::HermesWorkWatch>(json),
             "KnowledgeList" => roundtrip::<super::KnowledgeList>(json),
             "KnowledgeQuery" => roundtrip::<super::KnowledgeQuery>(json),
             "KnowledgeSummary" => roundtrip::<super::KnowledgeSummary>(json),

@@ -12,6 +12,8 @@ pub mod diagram;
 pub mod dictation;
 pub mod embed;
 pub mod export;
+pub mod hermes_blocks;
+pub mod hermes_work;
 pub mod inline_web;
 pub mod markdown;
 pub mod pace;

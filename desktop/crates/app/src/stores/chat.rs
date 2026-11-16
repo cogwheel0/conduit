@@ -59,8 +59,11 @@ use conduit_protocol::{
     QueuedTurnRef, RateTurn, RegenerateTurn, SendTurn, SendTurnAccepted, SteerResult, SteerTurn,
     StopTurn, events, methods,
 };
-use gpui_kit::{App, AppContext as _, AsyncApp, Context, EventEmitter, Task, WeakEntity};
+use gpui_kit::{
+    App, AppContext as _, AsyncApp, Context, Entity, EventEmitter, Subscription, Task, WeakEntity,
+};
 
+use super::hermes_work::HermesWorkStore;
 use super::rpc::Rpc;
 
 /// The events an open chat follows (`turn.*` scoped to its id;
@@ -77,6 +80,7 @@ pub const CHAT_EVENTS: &[&str] = &[
     events::MESSAGES_MERGE,
     events::CHAT_PROMPTS_CHANGED,
     events::MCP_APPS_EVENT,
+    events::HERMES_WORK_CHANGED,
 ];
 
 /// How many of the newest messages show at first, and how many more each
@@ -207,6 +211,8 @@ pub fn empty_block(kind: MessageBlockKind) -> MessageBlockDto {
         sources: None,
         follow_ups: None,
         embeds: None,
+        changed_files: None,
+        hermes_error: None,
     }
 }
 
@@ -455,6 +461,8 @@ pub struct ChatStore {
     pub prompt_failed: bool,
     /// Open WebUI's task checklist for this chat.
     pub tasks: Vec<ChatTaskDto>,
+    /// A Hermes agent's work in this chat: subagents, processes, plan.
+    pub hermes: Entity<HermesWorkStore>,
     /// Queued answers whose Retry or Remove is on its way.
     pub queued_busy: std::collections::HashSet<String>,
     /// Bumped by every `chatPrompts.get` asked and every
@@ -468,6 +476,7 @@ pub struct ChatStore {
     _fetch: Option<Task<()>>,
     _refetch: Option<Task<()>>,
     _queue: Option<Task<()>>,
+    _hermes: Subscription,
 }
 
 impl EventEmitter<ChatStoreEvent> for ChatStore {}
@@ -475,6 +484,8 @@ impl EventEmitter<ChatStoreEvent> for ChatStore {}
 impl ChatStore {
     /// Opens `chat_id`: subscribes to its scope and fetches it.
     pub fn new(rpc: Rpc, subscribe: Subscribe, chat_id: String, cx: &mut Context<Self>) -> Self {
+        let hermes = cx.new(|_| HermesWorkStore::new(rpc.clone(), chat_id.clone()));
+        let hermes_seen = cx.observe(&hermes, |_, _, cx| cx.notify());
         let mut store = Self {
             rpc,
             subscribe,
@@ -510,11 +521,13 @@ impl ChatStore {
             prompt_round: 0,
             _prompt_fetch: None,
             tasks: vec![],
+            hermes,
             queued_busy: Default::default(),
             _prompt: None,
             _fetch: None,
             _refetch: None,
             _queue: None,
+            _hermes: hermes_seen,
         };
         store.queue.chat_id = store.chat_id.clone();
         store.resubscribe(cx);
@@ -901,6 +914,11 @@ impl ChatStore {
             Ok(result) => match result.chat {
                 Some(detail) => {
                     self.tasks = detail.tasks.clone();
+                    // A Hermes agent works here: follow its work while the
+                    // chat is open.
+                    if detail.abilities.hermes_work && !self.hermes.read(cx).watching() {
+                        self.hermes.update(cx, |h, cx| h.watch(cx));
+                    }
                     self.detail = Some(detail);
                     self.missing = false;
                     if self.settle() {
@@ -1123,6 +1141,7 @@ impl ChatStore {
                 self.set_prompt(state.clone(), cx);
             }
             Event::McpAppsEvent(event) => cx.emit(ChatStoreEvent::McpApp(event.clone())),
+            Event::HermesWorkChanged(_) => self.hermes.update(cx, |h, cx| h.on_event(event, cx)),
             _ => {}
         }
     }
@@ -1238,6 +1257,7 @@ impl ChatStore {
         self.fetch(cx);
         // A queue read that failed, or one the new daemon session holds.
         self.refresh_queue(cx);
+        self.hermes.update(cx, |h, cx| h.on_reconnected(cx));
     }
 
     /// `route.remap`: the chat is now `to`.
@@ -1247,6 +1267,7 @@ impl ChatStore {
         }
         self.chat_id = to.to_string();
         self.queue.chat_id = self.chat_id.clone();
+        self.hermes.update(cx, |h, cx| h.remap(to, cx));
         self.resubscribe(cx);
         self.fetch(cx);
         self.refresh_queue(cx);

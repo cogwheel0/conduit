@@ -1232,6 +1232,46 @@
       "result": "HermesCatalog"
     },
     {
+      "name": "hermes.work.watch",
+      "params": "HermesWorkWatch",
+      "result": "HermesWork"
+    },
+    {
+      "name": "hermes.work.unwatch",
+      "params": "HermesWorkChat",
+      "result": "OkResult"
+    },
+    {
+      "name": "hermes.work.steer",
+      "params": "HermesSteerSubagent",
+      "result": "OkResult"
+    },
+    {
+      "name": "hermes.work.stop",
+      "params": "HermesSubagentRef",
+      "result": "OkResult"
+    },
+    {
+      "name": "hermes.work.kill",
+      "params": "HermesProcessRef",
+      "result": "HermesProcessKill"
+    },
+    {
+      "name": "hermes.context.get",
+      "params": "HermesContextRef",
+      "result": "HermesContextReportDto"
+    },
+    {
+      "name": "hermes.context.compact",
+      "params": "HermesCompact",
+      "result": "HermesCompactResultDto"
+    },
+    {
+      "name": "hermes.decisions.answer",
+      "params": "HermesDecisionAnswer",
+      "result": "HermesDecisionResult"
+    },
+    {
       "name": "terminal.servers",
       "params": "TerminalScope",
       "result": "TerminalServers"
@@ -1517,6 +1557,11 @@
       "name": "speech.command",
       "payload": "SpeechCommand",
       "scoped": false
+    },
+    {
+      "name": "hermes.work.changed",
+      "payload": "HermesWork",
+      "scoped": true
     }
   ]
 }

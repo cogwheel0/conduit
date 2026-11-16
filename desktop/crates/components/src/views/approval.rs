@@ -178,6 +178,9 @@ pub struct ApprovalCard {
     on_option: Option<SelectHandler>,
     tile: Option<IconName>,
     note: Option<SharedString>,
+    /// A body the app draws itself, in place of the kind's (a form, cost
+    /// chips under an approval).
+    body: Option<AnyElement>,
 }
 
 impl ApprovalCard {
@@ -199,6 +202,7 @@ impl ApprovalCard {
             on_option: None,
             tile: None,
             note: None,
+            body: None,
         }
     }
     pub fn queue(mut self, current: usize, total: usize) -> Self {
@@ -223,6 +227,12 @@ impl ApprovalCard {
     /// A line under the body (an error, "Answered").
     pub fn note(mut self, note: impl Into<SharedString>) -> Self {
         self.note = Some(note.into());
+        self
+    }
+    /// The app's own body, drawn in place of the kind's: a Hermes form, a
+    /// paid tool's cost chips.
+    pub fn body(mut self, body: impl IntoElement) -> Self {
+        self.body = Some(body.into_any_element());
         self
     }
 }
@@ -674,11 +684,13 @@ impl RenderOnce for ApprovalCard {
         };
         // A tool called with no arguments has no input to show: no caption
         // over an empty box.
-        let has_body = match &self.kind {
-            ApprovalKind::Message => false,
-            ApprovalKind::Code { code, .. } => !code.is_empty(),
-            _ => true,
-        };
+        let has_body = self.body.is_some()
+            || match &self.kind {
+                ApprovalKind::Message => false,
+                ApprovalKind::Code { code, .. } => !code.is_empty(),
+                _ => true,
+            };
+        let body = self.body.unwrap_or(body);
         // Docked on the composer, it is drawn as the composer is: the same
         // fill, outline, corner radius and shadow (and, docked, its width),
         // so the two read as one stack. The request's glyph is neutral, as

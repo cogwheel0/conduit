@@ -48,6 +48,7 @@ import 'valves_service.dart';
 import 'workspace_service.dart';
 import 'terminals_service.dart';
 import 'handoff_service.dart';
+import 'hermes_cards_service.dart';
 import 'hermes_service.dart';
 import 'speech_service.dart';
 import 'voice_service.dart';
@@ -115,6 +116,7 @@ class DaemonServer {
   ChatPromptsService? _chatPrompts;
   QueuedCompletionsService? _queuedCompletions;
   McpAppsService? _mcpApps;
+  HermesCardsService? _hermesCards;
   ComposerService? _composer;
   DraftsService? _drafts;
   PromptsService? _prompts;
@@ -221,6 +223,15 @@ class DaemonServer {
     );
     // The list's unread dots and a chat's abilities read the turns.
     _chats!.turns = _turns;
+    // A Hermes chat's agent cards: its work, its context, its questions.
+    _hermesCards = HermesCardsService(
+      core.container,
+      events,
+      hold: (chatId) => _turns!.holdScope(chatId),
+      release: (chatId) => _turns?.releaseScope(chatId),
+      uiRequests: _uiRequests,
+    );
+    _turns!.hermesCards = _hermesCards;
     // A server's `chat:handoff` for a chat the user is in: one answering
     // here, or one a window shows.
     _handoff = HandoffService(
@@ -292,6 +303,7 @@ class DaemonServer {
       uiRequests: _uiRequests,
       chatPrompts: _chatPrompts,
       mcpApps: _mcpApps,
+      hermesCards: _hermesCards,
       composer: _composer,
       prompts: _prompts,
       direct: _direct,
@@ -1025,6 +1037,7 @@ class DaemonServer {
     await _turns?.dispose();
     _queuedCompletions?.dispose();
     _mcpApps?.dispose();
+    _hermesCards?.dispose();
     _turns = null;
     _chats?.dispose();
     _chats = null;

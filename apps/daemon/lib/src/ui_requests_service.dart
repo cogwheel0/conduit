@@ -203,21 +203,52 @@ final class UiRequestsService implements UiRequestPort {
 
   /// Asks whether a Hermes agent may go on with what it wants to do:
   /// run a command, write a file. [choices] are the agent's own -- `once`,
-  /// `session`, `always`, `deny` -- and unanswered it is denied.
+  /// `session`, `always`, `deny` -- and unanswered it is denied. A paid
+  /// tool's [cost] (`{price, approximate, note, spent, limit, server,
+  /// overLimit}`) shows as chips on the card.
   Future<String> askHermesApproval({
     required String summary,
     required List<String> choices,
+    Map<String, dynamic>? cost,
     Duration? timeout,
   }) async {
     final response = await _ask(
       UiRequestKind.hermesDecision,
       messageCode: 'hermes.approval',
       args: <String, String>{'summary': summary},
-      detail: <String, dynamic>{'choices': choices},
+      detail: <String, dynamic>{'choices': choices, 'cost': ?cost},
       timeout: timeout,
     );
     return choices.contains(response.choice) ? response.choice : 'deny';
   }
+
+  /// Asks the windows something whose answer arrives some other way (a
+  /// Hermes question answered with `hermes.decisions.answer`): the request
+  /// goes out like any other, and [settle] takes it away once answered.
+  /// The future completes with the window's dismissal, the timeout's
+  /// default, or [settle]'s choice.
+  ({String requestId, Future<UiResponse> answer}) open(
+    UiRequestKind kind, {
+    required String messageCode,
+    Map<String, String> args = const <String, String>{},
+    Map<String, dynamic> detail = const <String, dynamic>{},
+    Duration? timeout,
+    String defaultChoice = 'deny',
+    Future<void>? until,
+  }) => _open(
+    kind,
+    args: args,
+    messageCode: messageCode,
+    detail: detail,
+    defaultChoice: defaultChoice,
+    timeout: timeout,
+    until: until,
+  );
+
+  /// Settles [requestId] with [choice] and tells every window, as an answer
+  /// through `ui.respond` would. False when nothing waits for it.
+  bool settle(String requestId, {String choice = 'allow'}) =>
+      respond(UiResponse(requestId: requestId, choice: choice));
 
   @override
   void notify(UiNoticeLevel level, String message) {
@@ -248,6 +279,30 @@ final class UiRequestsService implements UiRequestPort {
     UiInputType? inputType,
     List<UiInputOption>? options,
     Future<void>? until,
+  }) => _open(
+    kind,
+    args: args,
+    messageCode: messageCode,
+    detail: detail,
+    defaultChoice: defaultChoice,
+    timeout: timeout,
+    inputType: inputType,
+    options: options,
+    until: until,
+  ).answer;
+
+  /// [until]: what asked can stop (an MCP App, a turn); once it completes
+  /// the question goes, answered with [defaultChoice].
+  ({String requestId, Future<UiResponse> answer}) _open(
+    UiRequestKind kind, {
+    required Map<String, String> args,
+    required String messageCode,
+    required Map<String, dynamic> detail,
+    required String defaultChoice,
+    Duration? timeout,
+    UiInputType? inputType,
+    List<UiInputOption>? options,
+    Future<void>? until,
   }) {
     final request = UiRequest(
       requestId: _uuid.v4(),
@@ -263,8 +318,11 @@ final class UiRequestsService implements UiRequestPort {
     // Nobody to ask means the conservative answer, now. Waiting would hang
     // the turn on a question that cannot be seen.
     if (_events.subscriberCount == 0) {
-      return Future<UiResponse>.value(
-        UiResponse(requestId: request.requestId, choice: defaultChoice),
+      return (
+        requestId: request.requestId,
+        answer: Future<UiResponse>.value(
+          UiResponse(requestId: request.requestId, choice: defaultChoice),
+        ),
       );
     }
 
@@ -284,14 +342,22 @@ final class UiRequestsService implements UiRequestPort {
       }),
     );
 
-    if (timeout == null) return answer.future;
-    return answer.future.timeout(
-      timeout,
-      onTimeout: () {
-        _pending.remove(request.requestId);
-        _publishSettled(request.requestId);
-        return UiResponse(requestId: request.requestId, choice: defaultChoice);
-      },
+    if (timeout == null) {
+      return (requestId: request.requestId, answer: answer.future);
+    }
+    return (
+      requestId: request.requestId,
+      answer: answer.future.timeout(
+        timeout,
+        onTimeout: () {
+          _pending.remove(request.requestId);
+          _publishSettled(request.requestId);
+          return UiResponse(
+            requestId: request.requestId,
+            choice: defaultChoice,
+          );
+        },
+      ),
     );
   }
 

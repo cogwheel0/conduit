@@ -30,11 +30,12 @@ import 'package:conduit_core/features/direct_connections/services/direct_model_r
 import 'package:conduit_core/features/hermes/controllers/hermes_busy_turn_controller.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_approval_cost.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart'
     show HermesSteerUncertain;
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart'
-    show kHermesTransport;
+    show kHermesApprovalMeta, kHermesTransport;
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
     show TerminalFileRequest, terminalDisplayFileProvider;
@@ -64,6 +65,7 @@ import 'chats_service.dart' show ChatTurns;
 import 'composer_wire.dart';
 import 'event_bus.dart';
 import 'files_service.dart';
+import 'hermes_cards_service.dart';
 import 'hermes_service.dart';
 import 'message_blocks.dart';
 import 'models_service.dart';
@@ -1730,7 +1732,22 @@ final class TurnsService implements ChatTurns {
     }
     _handOffQueued(session);
     final turn = current;
-    if (turn == null || turn.finished) return;
+    if (turn == null || turn.finished) {
+      // Between turns (a chat reopened while Hermes still waits on a
+      // question): the latest answer's question, if any.
+      final chatId = session.chatId;
+      final conversation = session.scope.conversation;
+      final latest = messages.lastWhereOrNull((m) => m.role == 'assistant');
+      if (chatId != null && conversation != null && latest != null) {
+        hermesCards?.project(
+          chatId,
+          session.scope.container,
+          conversation.id,
+          latest,
+        );
+      }
+      return;
+    }
     final answer = messages.where((m) => m.id == turn.messageId).lastOrNull;
     if (answer == null) return;
     if (answer.isStreaming) {
@@ -2441,7 +2458,26 @@ final class TurnsService implements ChatTurns {
     if (hermes != null &&
         session.scope.conversation != null &&
         session.asked.add('hermes:${hermes.approvalId}')) {
-      unawaited(_answerHermesApproval(session, hermes));
+      final approval = answer.metadata?[kHermesApprovalMeta];
+      unawaited(
+        _answerHermesApproval(
+          session,
+          hermes,
+          storedCost: approval is Map ? approval['cost'] : null,
+        ),
+      );
+    }
+    // A clarify form, a sudo password, a secret or an MCP set-up the agent
+    // waits on, docked above the composer until answered (or gone).
+    final conversation = session.scope.conversation;
+    final cards = hermesCards;
+    if (cards != null && conversation != null && promptChat != null) {
+      cards.project(
+        promptChat,
+        session.scope.container,
+        conversation.id,
+        answer,
+      );
     }
   }
 
@@ -2641,17 +2677,33 @@ final class TurnsService implements ChatTurns {
 
   Future<void> _answerHermesApproval(
     _ChatSession session,
-    HermesPendingApproval approval,
-  ) async {
+    HermesPendingApproval approval, {
+    Object? storedCost,
+  }) async {
     final ask = _uiRequests;
     final choices = approval.choices.isEmpty
         ? const <String>['once', 'deny']
         : approval.choices;
+    // A paid tool's price comes out of the text and shows as chips, as on
+    // mobile's approval card.
+    final shown = hermesApprovalPresentation(approval.summary, storedCost);
+    final cost = shown.cost;
     final choice = ask == null
         ? 'deny'
         : await ask.askHermesApproval(
-            summary: approval.summary ?? '',
+            summary: shown.summary ?? '',
             choices: choices,
+            cost: cost == null
+                ? null
+                : <String, dynamic>{
+                    'price': ?cost.cost,
+                    'approximate': cost.approximate,
+                    'note': ?cost.note,
+                    'spent': ?cost.spent,
+                    'limit': ?cost.limit,
+                    'server': ?cost.server,
+                    'overLimit': cost.overLimit,
+                  },
           );
     if (session.scope.isDisposed) return;
     final answered = await resolveHermesApproval(
@@ -3016,6 +3068,27 @@ final class TurnsService implements ChatTurns {
     scope
         .read(hermesFastTierSelectionProvider.notifier)
         .set(_container.read(hermesFastTierSelectionProvider));
+  }
+
+  /// The Hermes agent cards (`hermes.*` work and decisions), told about
+  /// every answer a scope projects.
+  HermesCardsService? hermesCards;
+
+  /// Opens [chatId]'s live scope, or joins the one open, and keeps it open
+  /// until [releaseScope]: a window showing a Hermes chat follows its
+  /// agent's work there between turns.
+  Future<ProviderContainer> holdScope(String chatId) async {
+    final session = await _sessionFor(chatId);
+    // Held: a turn's own hold comes and goes beside this one.
+    session.linger?.cancel();
+    return session.scope.container;
+  }
+
+  /// Lets go of a [holdScope]; the scope lingers then, as a finished
+  /// chat's does.
+  void releaseScope(String chatId) {
+    final session = _sessionOf(chatId);
+    if (session != null) _release(session);
   }
 
   /// The container [chatId]'s live scope runs in, or null when the chat has

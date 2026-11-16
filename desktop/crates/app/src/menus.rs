@@ -388,6 +388,8 @@ pub struct MenuState {
     pub tool_settings: bool,
     /// Chat › Save Chat: a temporary chat with messages is open.
     pub save_chat: bool,
+    /// The open chat is a Hermes session: Chat › Context & Usage….
+    pub hermes_context: bool,
     /// The composer is dictating: Chat › Stop Dictation.
     pub dictating: bool,
     /// Something is being read aloud (Chat › Stop Speaking).
@@ -409,6 +411,7 @@ impl Default for MenuState {
             chat_settings: false,
             tool_settings: false,
             save_chat: false,
+            hermes_context: false,
             dictating: false,
             speaking: false,
         }
@@ -524,6 +527,11 @@ pub fn menu_state(cx: &App) -> MenuState {
         chat_settings: offer.chat_settings,
         tool_settings: !offer.tool_targets.is_empty(),
         save_chat,
+        hermes_context: state
+            .main_view
+            .as_ref()
+            .filter(|_| main)
+            .is_some_and(|v| v.read(cx).chat_pane.read(cx).hermes_context(cx)),
         dictating,
         speaking: state.stores.speech.read(cx).is_active(),
     }
@@ -740,6 +748,16 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
     });
     for slot in CHAT_COMMAND_ORDER {
         if let Some((session_id, commands)) = &hermes {
+            // Its one sheet, just before Delete… as a chat's are.
+            if slot == ChatCommandSlot::Delete && state.hermes_context {
+                items.extend([
+                    MenuItem::separator(),
+                    MenuItem::action(
+                        l10n.desktop_hermes_context_usage_menu(),
+                        crate::actions::ShowContextUsage,
+                    ),
+                ]);
+            }
             for command in commands.iter().filter(|c| c.slot() == slot) {
                 if slot == ChatCommandSlot::Delete {
                     items.push(MenuItem::separator());
@@ -843,6 +861,15 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
                     .disabled(!state.tool_settings),
                     MenuItem::action(l10n.desktop_menu_show_branches(), ShowBranches)
                         .disabled(no_chat),
+                ]);
+                // Only a Hermes chat has a context window to show.
+                if state.hermes_context {
+                    items.push(MenuItem::action(
+                        l10n.desktop_hermes_context_usage_menu(),
+                        crate::actions::ShowContextUsage,
+                    ));
+                }
+                items.extend([
                     MenuItem::action(l10n.save_chat(), SaveTemporaryChat)
                         .disabled(!state.save_chat),
                     MenuItem::separator(),
@@ -1161,6 +1188,35 @@ mod tests {
             menu(&build_menus(&l, &local), "Chat"),
             "Share Chat…"
         ));
+        // A Hermes session with a context window: Context & Usage… before
+        // Delete…, as an ordinary chat's sheets are.
+        let hermes = build_menus(
+            &l,
+            &MenuState {
+                hermes: Some(conduit_protocol::HermesSessionDto {
+                    id: "s1".into(),
+                    chat_id: "local:hermes_s1".into(),
+                    title: "Pond plants".into(),
+                    preview: None,
+                    updated_at_ms: None,
+                    pinned: false,
+                    archived: false,
+                    hidden: false,
+                    source: None,
+                    running: false,
+                }),
+                hermes_context: true,
+                ..MenuState::default()
+            },
+        );
+        let items = titles(menu(&hermes, "Chat"));
+        let context = items.iter().position(|t| t == "Context & Usage…");
+        let delete = items.iter().position(|t| t == "Delete…");
+        assert!(
+            context.is_some_and(|c| delete.is_some_and(|d| c < d)),
+            "{items:?}"
+        );
+        assert!(!disabled(menu(&hermes, "Chat"), "Context & Usage…"));
     }
 
     #[test]

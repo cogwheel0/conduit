@@ -105,7 +105,9 @@ actions!(
         MarkChatUnread,
         GenerateChatTitle,
         ShowBranches,
-        SaveTemporaryChat
+        SaveTemporaryChat,
+        // Chat › Context & Usage… (a Hermes chat's context window).
+        ShowContextUsage
     ]
 );
 
