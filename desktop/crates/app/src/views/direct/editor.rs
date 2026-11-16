@@ -191,7 +191,7 @@ fn fingerprint(f: &DirectView, cx: &App) -> String {
         .map(|h| format!("{}={}", forms::text(&h.name, cx), forms::raw(&h.value, cx)))
         .collect();
     format!(
-        "{:?}|{}|{}|{}|{}|{:?}|{:?}|{}|{}|{}|{}|{:?}|{}|{}|{}|{}|{}|{}",
+        "{:?}|{}|{}|{}|{}|{:?}|{:?}|{}|{}|{}|{}|{:?}|{}|{}|{}|{}|{}|{}|{}",
         f.preset,
         f.enabled,
         forms::text(&f.name, cx),
@@ -210,6 +210,7 @@ fn fingerprint(f: &DirectView, cx: &App) -> String {
         f.clear_certificate,
         f.clear_private_key,
         f.self_signed,
+        !forms::raw(&f.key_password, cx).is_empty(),
     )
 }
 
@@ -366,5 +367,43 @@ impl Render for DirectEditorSheet {
             )
             .child(body)
             .children(self.ollama.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui_kit::TestAppContext;
+    use serde_json::json;
+
+    use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    /// Only the private key's password typed: Cancel asks before it is
+    /// thrown away.
+    #[gpui_kit::test]
+    fn a_typed_key_password_counts_as_a_change(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-editor-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let saved: DirectConnectionSummary = serde_json::from_value(json!({
+            "id": "c1", "name": "Lab", "kind": "openai", "baseUrl": "https://llm.lab.example/v1",
+            "hasApiKey": true, "customHeaderNames": [], "manualModelIds": [],
+            "allowSelfSignedCertificates": false, "openRouter": false, "ollamaCloud": false,
+            "openWebUi": false, "compatible": true, "tags": [],
+            "certificateLabel": "lab.pem", "privateKeyLabel": "lab-key.pem"
+        }))
+        .unwrap();
+        let (form, vcx) =
+            cx.add_window_view(move |window, cx| DirectView::editing(stores, saved, window, cx));
+        let before = form.read_with(vcx, fingerprint);
+        let after = form.update_in(vcx, |f, window, cx| {
+            f.key_password
+                .update(cx, |i, cx| i.set_value("synthetic-pass", window, cx));
+            fingerprint(f, cx)
+        });
+        assert_ne!(before, after, "the typed password would close unasked");
     }
 }
