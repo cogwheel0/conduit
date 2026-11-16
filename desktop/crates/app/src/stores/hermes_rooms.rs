@@ -76,6 +76,12 @@ pub struct HermesRoomsStore {
     connection: Option<String>,
     /// The bot open under way, by the generation it was asked in.
     opening_token: u64,
+    /// The account in charge, as the accounts store names it.
+    account: Option<String>,
+    /// Words typed in a room's field and not sent, by account and room:
+    /// they wait for the room while another shows (the user's own, so no
+    /// connection change drops them).
+    drafts: HashMap<(Option<String>, String), String>,
     revision: u64,
     fetches: Vec<Task<()>>,
     watch: Option<Task<()>>,
@@ -91,6 +97,30 @@ impl HermesRoomsStore {
 
     pub fn rpc(&self) -> Option<Rpc> {
         self.rpc.clone()
+    }
+
+    /// The account in charge: room drafts are its own.
+    pub fn set_account(&mut self, account: Option<String>) {
+        self.account = account;
+    }
+
+    /// Words typed in room `room_id`'s field and not sent, for the account
+    /// in charge.
+    pub fn draft(&self, room_id: &str) -> Option<&str> {
+        self.drafts
+            .get(&(self.account.clone(), room_id.to_string()))
+            .map(String::as_str)
+    }
+
+    /// Keeps what room `room_id`'s field holds while the room is not shown
+    /// (empty: nothing to keep).
+    pub fn keep_draft(&mut self, room_id: &str, text: &str) {
+        let key = (self.account.clone(), room_id.to_string());
+        if text.trim().is_empty() {
+            self.drafts.remove(&key);
+        } else {
+            self.drafts.insert(key, text.to_string());
+        }
     }
 
     /// The Hermes connection requests go out under.
@@ -603,7 +633,8 @@ pub fn wire(stores: &Stores, cx: &mut App) {
                 .borrow()
                 .as_ref()
                 .is_some_and(|last| *last != account);
-            *last_account.borrow_mut() = Some(account);
+            *last_account.borrow_mut() = Some(account.clone());
+            s.hermes_rooms.update(cx, |h, _| h.set_account(account));
             if changed {
                 s.hermes_rooms.update(cx, |h, cx| h.reset(cx));
             }

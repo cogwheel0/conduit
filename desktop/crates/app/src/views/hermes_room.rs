@@ -385,6 +385,19 @@ impl HermesRoomPane {
                 .placeholder(placeholder)
                 .submit_on_enter(send_on_enter)
         });
+        // Words typed here before and not sent come back.
+        if let Some(draft) = stores
+            .hermes_rooms
+            .read(cx)
+            .draft(&room_id)
+            .map(str::to_string)
+        {
+            let at = draft.len();
+            input.update(cx, |s, cx| {
+                s.set_value(draft, window, cx);
+                s.set_selected_range(at..at, cx);
+            });
+        }
         let list = ListState::new(0, ListAlignment::Top, px(600.));
         list.set_follow_mode(FollowMode::Tail);
         let weak = cx.entity().downgrade();
@@ -537,6 +550,7 @@ impl HermesRoomPane {
                 s.set_value(words, window, cx);
                 s.set_selected_range(at..at, cx);
             });
+            self.text_changed(cx);
         }
         self.give_up_posted(window, cx);
         cx.notify();
@@ -562,6 +576,7 @@ impl HermesRoomPane {
         };
         if self.text(cx).trim() == awaiting.text {
             self.input.update(cx, |s, cx| s.set_value("", window, cx));
+            self.text_changed(cx);
         }
     }
 
@@ -589,6 +604,10 @@ impl HermesRoomPane {
         let state = self.input.read(cx);
         let value = state.value().to_string();
         let caret = state.cursor();
+        let room = self.room_id.clone();
+        self.stores
+            .hermes_rooms
+            .update(cx, |h, _| h.keep_draft(&room, &value));
         let members = self
             .view(cx)
             .and_then(|v| v.room.as_ref())
@@ -681,6 +700,7 @@ impl HermesRoomPane {
             s.set_value(text, window, cx);
             s.set_selected_range(at..at, cx);
         });
+        self.text_changed(cx);
         self.input.read(cx).focus_handle(cx).focus(window, cx);
         cx.notify();
     }
@@ -726,6 +746,7 @@ impl HermesRoomPane {
                             p.awaiting = None;
                             if p.text(cx) == sent_text {
                                 p.input.update(cx, |s, cx| s.set_value("", window, cx));
+                                p.text_changed(cx);
                             }
                         }
                         // Nothing was posted: the words stay, to edit or send.
@@ -1712,7 +1733,9 @@ mod tests {
 
     mod pane {
         use conduit_protocol::{Event, HermesRoomSendResult, methods};
-        use gpui_kit::{Entity, Focusable as _, TestAppContext, VisualTestContext};
+        use gpui_kit::{
+            AppContext as _, Entity, Focusable as _, TestAppContext, VisualTestContext,
+        };
         use serde_json::json;
 
         use super::super::HermesRoomPane;
@@ -1845,6 +1868,37 @@ mod tests {
             pane.read_with(vcx, |p, cx| assert_eq!(p.text(cx), "hello"));
             changed(&stores, posted(None, &[(4, "hello")]), vcx);
             pane.read_with(vcx, |p, cx| assert_eq!(p.text(cx), ""));
+        }
+
+        #[gpui_kit::test]
+        fn words_typed_in_a_room_wait_for_it_while_another_shows(cx: &mut TestAppContext) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(None));
+            let (stores, pane, vcx) = open(cx, &daemon, "draft");
+            stores
+                .hermes_rooms
+                .update(vcx, |h, _| h.set_account(Some("avery".into())));
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("half a thought", window, cx)
+            });
+            // Another room or area shows: the pane goes; r1 opens again.
+            drop(pane);
+            let again = |vcx: &mut VisualTestContext| {
+                let stores = stores.clone();
+                vcx.update(|window, cx| {
+                    cx.new(|cx| HermesRoomPane::new(stores, "r1".into(), window, cx))
+                })
+            };
+            let back = again(vcx);
+            vcx.run_until_parked();
+            back.read_with(vcx, |p, cx| assert_eq!(p.text(cx), "half a thought"));
+            // Another account's r1 never shows them.
+            stores
+                .hermes_rooms
+                .update(vcx, |h, _| h.set_account(Some("blake".into())));
+            let other = again(vcx);
+            vcx.run_until_parked();
+            other.read_with(vcx, |p, cx| assert_eq!(p.text(cx), ""));
         }
 
         #[gpui_kit::test]
