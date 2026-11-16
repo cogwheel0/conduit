@@ -873,13 +873,7 @@ impl NotePane {
             Err(e) => {
                 log::warn!("notes.save: {e}");
                 self.save = SaveState::Failed;
-                // Quit waits on it: tried again soon, within Quit's wait.
-                let delay = if self.quit_waiters.is_empty() {
-                    RETRY_DELAY
-                } else {
-                    QUIT_RETRY_DELAY
-                };
-                self.retry_after(delay, cx);
+                self.retry_later(cx);
             }
         }
         cx.notify();
@@ -890,9 +884,15 @@ impl NotePane {
         }
     }
 
-    /// A failed save is tried again after a while (or on the next edit).
+    /// A failed save is tried again after a while (or on the next edit);
+    /// soon while Quit waits on it, within Quit's wait.
     fn retry_later(&mut self, cx: &mut Context<Self>) {
-        self.retry_after(RETRY_DELAY, cx);
+        let delay = if self.quit_waiters.is_empty() {
+            RETRY_DELAY
+        } else {
+            QUIT_RETRY_DELAY
+        };
+        self.retry_after(delay, cx);
     }
 
     /// [`Self::retry_later`], after `delay`. Quit waits for the retry (its
@@ -3379,6 +3379,42 @@ mod tests {
         vcx.run_until_parked();
         assert_eq!(bench::text(&pane, vcx), "Second page");
     }
+
+    /// Quit after a save conduitd refused for another account, its account
+    /// active again by the answer: the save is tried again within Quit's
+    /// wait, not after the usual pause Quit would not wait out.
+    #[gpui_kit::test]
+    fn quit_waits_for_an_account_refusals_retry(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        let mut refused = conduit_daemon::protocol::error("auth.sessionExpired", "another account");
+        refused.args.insert("reason".into(), "account".into());
+        daemon.once::<methods::NotesSave>(Err(refused));
+        daemon.on::<methods::NotesSave>(|p| {
+            let page = p["pageId"].as_str().unwrap_or("main").to_string();
+            Ok(serde_json::to_value(bench::detail("n1", &page, "kept")).unwrap())
+        });
+        let quits = Rc::new(std::cell::Cell::new(0));
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        let q = quits.clone();
+        vcx.update(|_, cx| {
+            crate::views::sheet::quit_with(cx, Rc::new(move |_| q.set(q.get() + 1)))
+        });
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::NotesSave>().len(), 1);
+        assert_eq!(quits.get(), 0);
+        vcx.executor().advance_clock(QUIT_RETRY_DELAY);
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::NotesSave>().len(),
+            2,
+            "the refused save waited longer than Quit does"
+        );
+        assert_eq!(quits.get(), 1);
+    }
+
     /// Typing while another page is read goes nowhere: the page being left
     /// takes no words until the next one shows, so nothing typed is
     /// replaced by it.
