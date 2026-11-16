@@ -260,6 +260,8 @@ impl TaskEditor {
             return;
         }
         self.typing_rule = true;
+        // A settled check's rule, not yet in the field, gives way to this.
+        self.rrule_pending = None;
         fields.schedule.kind = "custom".into();
         fields.schedule.rrule = rule;
         cx.notify();
@@ -1196,5 +1198,102 @@ impl Render for TaskEditor {
             }))
             .on_action(cx.listener(|this, a: &SettingsChoice, _, cx| this.on_choice(a, cx)))
             .children(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use conduit_protocol::methods;
+    use gpui_kit::VisualTestContext;
+
+    use super::*;
+    use crate::views::sheet::bench::bench;
+
+    fn draw_sheet(vcx: &mut VisualTestContext) {
+        vcx.update(|_, cx| {
+            if let Some(handle) = sheet::current_window(cx) {
+                let _ = handle.update(cx, |_, window, cx| window.draw(cx).clear(cx));
+            }
+        });
+        vcx.run_until_parked();
+    }
+
+    /// A rule typed after a schedule check has settled, before the rule
+    /// field took the check's rule, is the one shown and kept.
+    #[gpui_kit::test]
+    fn a_rule_typed_as_a_check_settles_stays(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::AutomationsEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "te-1",
+                "isNew": true,
+                "fields": {
+                    "name": "Allotment digest",
+                    "prompt": "List what to sow this week",
+                    "modelId": "m1",
+                    "active": true,
+                    "schedule": {
+                        "kind": "daily", "year": 0, "month": 0, "day": 0,
+                        "hour": 9, "minute": 0, "days": [],
+                        "rrule": "RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
+                    },
+                    "target": "chat"
+                },
+                "terminal": false
+            }))
+        });
+        daemon.on::<methods::AutomationsCheckDraft>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": true}))
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(s, None, window, cx));
+        vcx.run_until_parked();
+        draw_sheet(vcx);
+        let task = vcx
+            .update(|_, cx| sheet::current::<TaskEditor>(cx))
+            .expect("the editor opens");
+        // A schedule control's check settles, and before the field shows its
+        // rule (the next frame), a rule is typed.
+        let typed = "RRULE:FREQ=WEEKLY;BYDAY=MO;BYHOUR=6;BYMINUTE=30";
+        vcx.update(|_, cx| {
+            let window = sheet::current_window(cx).expect("the sheet's window");
+            let _ = window.update(cx, |_, window, cx| {
+                task.update(cx, |e, cx| {
+                    let mut settled = e.fields.clone().expect("the fields");
+                    settled.schedule.hour = 7;
+                    settled.schedule.rrule = "RRULE:FREQ=DAILY;BYHOUR=7;BYMINUTE=0".into();
+                    e.take_state(
+                        AutomationDraftState {
+                            fields: settled,
+                            issues: vec![],
+                            changed: true,
+                            saved: false,
+                            id: None,
+                            failure: None,
+                        },
+                        cx,
+                    );
+                    // Typing: the field's text, then its change.
+                    e.rrule
+                        .update(cx, |r, cx| r.set_value(typed.to_string(), window, cx));
+                    e.type_rule(typed.to_string(), cx);
+                })
+            });
+        });
+        vcx.run_until_parked();
+        draw_sheet(vcx);
+        vcx.update(|_, cx| {
+            let e = task.read(cx);
+            assert_eq!(
+                e.rrule.read(cx).value().to_string(),
+                typed,
+                "the typed rule was replaced"
+            );
+            assert_eq!(
+                e.fields.as_ref().map(|f| f.schedule.rrule.as_str()),
+                Some(typed),
+                "the rule kept is not the one typed"
+            );
+        });
     }
 }
