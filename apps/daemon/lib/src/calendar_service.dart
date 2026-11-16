@@ -291,21 +291,26 @@ final class CalendarService {
     final state = session.stateOf(draft);
     if (state.issues.isNotEmpty) return state;
     final original = draft.original;
-    await _guard(() async {
+    final saved = await _guard(() async {
       if (original == null) {
-        await _notifier.createEvent(
+        return _notifier.createEvent(
           draft.toCreateForm(zone: session.zone),
           owner: session.owner,
         );
-      } else {
-        await _notifier.updateEvent(
-          original,
-          draft.toUpdate(zone: session.zone),
-          owner: session.owner,
-        );
       }
+      return _notifier.updateEvent(
+        original,
+        draft.toUpdate(zone: session.zone),
+        owner: session.owner,
+      );
     });
-    _editors.remove(edit.token);
+    // The editor goes on as an edit of the event saved: what the window typed
+    // while this save was out is saved to it next, never made again.
+    if (_editors.containsKey(edit.token)) {
+      _editors[edit.token] = session.continued(
+        CalendarEventDraft.edit(saved, zone: session.zone),
+      );
+    }
     return state.copyWith(saved: true);
   }
 
@@ -683,6 +688,10 @@ final class _EditorSession {
 
   /// Names the editor was given for people it invited.
   final Map<String, String> names = <String, String>{};
+
+  /// The same editor, now editing [saved].
+  _EditorSession continued(CalendarEventDraft saved) =>
+      _EditorSession(owner, saved, zone)..names.addAll(names);
 
   CalendarEventFields fieldsOf(CalendarEventDraft draft) => CalendarEventFields(
     title: draft.title,

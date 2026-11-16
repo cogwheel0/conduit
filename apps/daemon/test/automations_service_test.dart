@@ -157,6 +157,36 @@ void main() {
       );
     }
   });
+
+  test(
+    "a saved task's editor saves later edits to it, not as another task",
+    () async {
+      final c = container();
+      await c.read(activeServerProvider.future);
+      final service = AutomationsService(c);
+      addTearDown(service.dispose);
+      final editor = await service.editor(const AutomationEditorOpen());
+      final first = editor.fields.copyWith(
+        name: 'Allotment digest',
+        prompt: 'List what to sow this week',
+        modelId: 'm1',
+      );
+      final saved = await service.save(
+        AutomationDraftEdit(token: editor.token, fields: first),
+      );
+      expect(saved.saved, isTrue, reason: '${saved.issues} ${saved.failure}');
+      // Words typed while that save was out go next, to the same task.
+      final again = await service.save(
+        AutomationDraftEdit(
+          token: editor.token,
+          fields: first.copyWith(prompt: 'List what to sow and to harvest'),
+        ),
+      );
+      expect(again.saved, isTrue, reason: '${again.issues} ${again.failure}');
+      expect(api.created, hasLength(1), reason: 'the task was made twice');
+      expect(api.updated, ['t1']);
+    },
+  );
 }
 
 /// The account's server, answered from memory.
@@ -204,6 +234,28 @@ final class _Api extends ApiService {
     int limit = automationRunsPageSize,
     required ApiAuthSnapshot authSnapshot,
   }) async => runsNow;
+
+  final created = <AutomationForm>[];
+  final updated = <String>[];
+
+  @override
+  Future<Automation> createAutomation(
+    AutomationForm form, {
+    required ApiAuthSnapshot authSnapshot,
+  }) async {
+    created.add(form);
+    return _task;
+  }
+
+  @override
+  Future<Automation> updateAutomation(
+    String id,
+    AutomationForm form, {
+    required ApiAuthSnapshot authSnapshot,
+  }) async {
+    updated.add(id);
+    return _task;
+  }
 
   @override
   Future<Automation> runAutomation(

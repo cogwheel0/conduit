@@ -403,7 +403,15 @@ final class AutomationsService {
               draft.toForm(),
               owner: editor.owner,
             );
-      _editors.remove(edit.token)?.close();
+      // The editor goes on as an edit of the task saved: what the window
+      // typed while this save was out is saved to it next, never made again.
+      if (_editors.containsKey(edit.token)) {
+        _editors[edit.token] = _TaskEditor(
+          editor.owner,
+          AutomationDraft.edit(saved),
+          editor.options,
+        );
+      }
       state = state.copyWith(saved: true, id: saved.id);
     } on Object catch (error) {
       state = state.copyWith(failure: _failure(error));
