@@ -28,7 +28,7 @@ void main() {
   group('an account switch', () {
     late AppDatabase first;
     late AppDatabase second;
-    late AppDatabase active;
+    late AppDatabase? active;
     late ProviderContainer container;
 
     setUp(() async {
@@ -113,6 +113,54 @@ void main() {
             ConduitErrorCodes.sessionExpired,
           ),
         ),
+      );
+
+      final refused = throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      );
+      const typed = <Map<String, dynamic>>[
+        <String, dynamic>{'insert': 'Ridge at dawn, then rain\n'},
+      ];
+      // A rename goes nowhere either.
+      await expectLater(
+        notes.save(const NoteSave(id: 'trail-log', title: 'Trail log, ridge')),
+        refused,
+      );
+      // Nor does the text into a note of account B's with the same id.
+      await second
+          .into(second.notes)
+          .insert(
+            serverToNoteRow(<String, dynamic>{
+              'id': 'trail-log',
+              'title': 'B log',
+              'data': <String, dynamic>{
+                'content': <String, dynamic>{'md': 'B text'},
+              },
+              'created_at': 1,
+              'updated_at': 1,
+            }),
+          );
+      await expectLater(
+        notes.save(
+          const NoteSave(id: 'trail-log', title: 'Trail log', ops: typed),
+        ),
+        refused,
+      );
+      final kept = await second.notesDao.getNote('trail-log');
+      expect(kept?.title, 'B log');
+      expect(kept?.data, contains('B text'));
+      // Nor, with no database at all, through the core's updater.
+      active = null;
+      container.invalidate(appDatabaseProvider);
+      await expectLater(
+        notes.save(
+          const NoteSave(id: 'trail-log', title: 'Trail log', ops: typed),
+        ),
+        refused,
       );
     });
   });

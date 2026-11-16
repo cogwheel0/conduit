@@ -164,9 +164,17 @@ final class NotesService {
 
   /// The note as the editor shows page [pageId] of it (the main page when
   /// it has no such page), remembered for a recovery.
-  NoteDetail _detail(Note note, _Access access, {String? pageId}) {
+  ///
+  /// [scope]: the account it was read or written under (the active one when
+  /// not given).
+  NoteDetail _detail(
+    Note note,
+    _Access access, {
+    String? pageId,
+    String? scope,
+  }) {
     _seen[note.id] = note;
-    _seenUnder[note.id] = currentPreferenceAccountId();
+    _seenUnder[note.id] = scope ?? currentPreferenceAccountId();
     final page = _pageOf(note, pageId);
     final markdown = _pageMarkdown(note, page);
     final files = <NoteFile>[
@@ -367,6 +375,13 @@ final class NotesService {
         : markdownFromQuillOps(request.ops!);
     final access = await _access();
     final id = request.id;
+    final scope = currentPreferenceAccountId();
+    if (id != null) {
+      // A note opened under another account is written by no path (a
+      // rename, the core's updater, the text): its draft stays with the
+      // editor, never in this account's notes.
+      _requireOpenedHere(id);
+    }
     if (id == null) {
       final created = await _container
           .read(noteCreatorProvider.notifier)
@@ -382,7 +397,7 @@ final class NotesService {
           .updateNote(id, title: title, markdownContent: markdown);
       _container.invalidate(noteByIdProvider(id));
       if (saved == null) throw _saveFailed(creating: false);
-      return _detail(saved, access, pageId: request.pageId);
+      return _detail(saved, access, pageId: request.pageId, scope: scope);
     }
     // A note deleted meanwhile -- by another device (a pull removed its
     // row) or behind this editor (its row is a tombstone) -- has nowhere
@@ -441,7 +456,7 @@ final class NotesService {
     }
     if (saved != null) {
       _container.invalidate(noteByIdProvider(id));
-      return _detail(saved, access, pageId: pageId);
+      return _detail(saved, access, pageId: pageId, scope: scope);
     }
     // Nothing was written. A note deleted while it was being written keeps
     // the text as a new note, as the phone's editor recovers it; anything
