@@ -1341,7 +1341,9 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     reachable: true,
     capabilities: HermesCapabilitiesDto(jobs: true),
     details: <String, dynamic>{'active_sessions': 2},
+    connection: 'run1:2',
   ),
+  'hermesChanged': const HermesChanged(connection: 'run1:2'),
   'hermesSessionDto': const HermesSessionDto(
     id: 's1',
     chatId: 'local:hermes_s1',
@@ -1459,7 +1461,9 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     available: true,
     canCreate: true,
     seatable: <String>['fern', 'moss'],
-    rooms: <HermesRoomDto>[HermesRoomDto(id: 'room-1', name: 'Greenhouse crew')],
+    rooms: <HermesRoomDto>[
+      HermesRoomDto(id: 'room-1', name: 'Greenhouse crew'),
+    ],
     failed: true,
   ),
   'hermesRoomsEmpty': const HermesRooms(),
@@ -4327,6 +4331,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'hermesTestResult': HermesTestResult.fromJson,
       'hermesCapabilitiesDto': HermesCapabilitiesDto.fromJson,
       'hermesStatus': HermesStatus.fromJson,
+      'hermesChanged': HermesChanged.fromJson,
       'hermesSessionDto': HermesSessionDto.fromJson,
       'hermesSessions': HermesSessions.fromJson,
       'hermesSessionsSetAside': HermesSessions.fromJson,

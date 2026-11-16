@@ -13,5 +13,6 @@
   },
   "details": {
     "active_sessions": 2
-  }
+  },
+  "connection": "run1:2"
 }

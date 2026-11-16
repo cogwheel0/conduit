@@ -5790,6 +5790,10 @@ pub struct HermesStatus {
     /// resources.
     #[serde(default = "default_hermes_status_details")]
     pub details: serde_json::Value,
+    /// The Hermes connection this answer is for: a new value whenever the
+    /// connection changes (see `HermesChanged.connection`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 impl Default for HermesStatus {
@@ -5799,12 +5803,27 @@ impl Default for HermesStatus {
             reachable: Default::default(),
             capabilities: Default::default(),
             details: default_hermes_status_details(),
+            connection: None,
         }
     }
 }
 
 fn default_hermes_status_details() -> serde_json::Value {
     serde_json::Value::Object(serde_json::Map::new())
+}
+
+/// `hermes.changed`: the connection, its settings or what it lists changed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesChanged {
+    /// The Hermes connection in use now, as the daemon names it: an opaque
+    /// value, new whenever the connection changes, never the same across two
+    /// daemon runs. A request sent with another value (`connection` on the
+    /// Hermes requests that take it) is refused with `sessionExpired`, and
+    /// an answer or event carrying another value belongs to the last
+    /// connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// A Hermes session, as the sidebar lists it. Opened as a chat with
@@ -18810,7 +18829,7 @@ pub const EVENTS: &[EventSpec] = &[
     },
     EventSpec {
         name: "hermes.changed",
-        payload: None,
+        payload: Some("HermesChanged"),
         scoped: false,
     },
     EventSpec {
@@ -19031,7 +19050,7 @@ pub enum Event {
     /// Hermes's settings, sessions or jobs changed. No payload.
     ///
     /// `hermes.changed`.
-    HermesChanged,
+    HermesChanged(HermesChanged),
     /// The whisper models changed: a download moved, finished or failed, or
     /// one was deleted. Payload `VoiceModels`.
     ///
@@ -19172,7 +19191,7 @@ impl Event {
             events::MODELS_CHANGED => Self::ModelsChanged,
             events::OPEN_URL => Self::OpenUrl(serde_json::from_value(payload)?),
             events::WORKSPACE_CHANGED => Self::WorkspaceChanged(serde_json::from_value(payload)?),
-            events::HERMES_CHANGED => Self::HermesChanged,
+            events::HERMES_CHANGED => Self::HermesChanged(serde_json::from_value(payload)?),
             events::VOICE_CHANGED => Self::VoiceChanged(serde_json::from_value(payload)?),
             events::TERMINAL_DISPLAY_FILE => {
                 Self::TerminalDisplayFile(serde_json::from_value(payload)?)
@@ -19239,7 +19258,7 @@ impl Event {
             Self::ModelsChanged => events::MODELS_CHANGED,
             Self::OpenUrl(_) => events::OPEN_URL,
             Self::WorkspaceChanged(_) => events::WORKSPACE_CHANGED,
-            Self::HermesChanged => events::HERMES_CHANGED,
+            Self::HermesChanged(_) => events::HERMES_CHANGED,
             Self::VoiceChanged(_) => events::VOICE_CHANGED,
             Self::TerminalDisplayFile(_) => events::TERMINAL_DISPLAY_FILE,
             Self::TerminalChanged(_) => events::TERMINAL_CHANGED,
@@ -19287,6 +19306,7 @@ impl Event {
             Self::UiSettled(payload) => serde_json::to_value(payload),
             Self::OpenUrl(payload) => serde_json::to_value(payload),
             Self::WorkspaceChanged(payload) => serde_json::to_value(payload),
+            Self::HermesChanged(payload) => serde_json::to_value(payload),
             Self::VoiceChanged(payload) => serde_json::to_value(payload),
             Self::TerminalDisplayFile(payload) => serde_json::to_value(payload),
             Self::TerminalChanged(payload) => serde_json::to_value(payload),
@@ -19308,7 +19328,6 @@ impl Event {
             | Self::SocketHealth
             | Self::CapabilitiesChanged
             | Self::ModelsChanged
-            | Self::HermesChanged
             | Self::SettingsChanged
             | Self::CalendarChanged
             | Self::AutomationsChanged => Ok(serde_json::Value::Object(serde_json::Map::new())),
@@ -19558,6 +19577,7 @@ pub mod conformance {
         "HermesBranch",
         "HermesCapabilitiesDto",
         "HermesCatalog",
+        "HermesChanged",
         "HermesChatDto",
         "HermesClarifyAnswer",
         "HermesCompact",
@@ -20144,6 +20164,7 @@ pub mod conformance {
             "HermesBranch" => roundtrip::<super::HermesBranch>(json),
             "HermesCapabilitiesDto" => roundtrip::<super::HermesCapabilitiesDto>(json),
             "HermesCatalog" => roundtrip::<super::HermesCatalog>(json),
+            "HermesChanged" => roundtrip::<super::HermesChanged>(json),
             "HermesChatDto" => roundtrip::<super::HermesChatDto>(json),
             "HermesClarifyAnswer" => roundtrip::<super::HermesClarifyAnswer>(json),
             "HermesCompact" => roundtrip::<super::HermesCompact>(json),

@@ -108,10 +108,31 @@ abstract class HermesStatus with _$HermesStatus {
     /// The server's detailed health, as it reports it: sessions, agents,
     /// resources.
     @Default(<String, dynamic>{}) Map<String, dynamic> details,
+
+    /// The Hermes connection this answer is for: a new value whenever the
+    /// connection changes (see [HermesChanged.connection]).
+    String? connection,
   }) = _HermesStatus;
 
   factory HermesStatus.fromJson(Map<String, dynamic> json) =>
       _$HermesStatusFromJson(json);
+}
+
+/// `hermes.changed`: the connection, its settings or what it lists changed.
+@freezed
+abstract class HermesChanged with _$HermesChanged {
+  const factory HermesChanged({
+    /// The Hermes connection in use now, as the daemon names it: an opaque
+    /// value, new whenever the connection changes, never the same across two
+    /// daemon runs. A request sent with another value (`connection` on the
+    /// Hermes requests that take it) is refused with `sessionExpired`, and
+    /// an answer or event carrying another value belongs to the last
+    /// connection.
+    String? connection,
+  }) = _HermesChanged;
+
+  factory HermesChanged.fromJson(Map<String, dynamic> json) =>
+      _$HermesChangedFromJson(json);
 }
 
 /// A Hermes session, as the sidebar lists it. Opened as a chat with

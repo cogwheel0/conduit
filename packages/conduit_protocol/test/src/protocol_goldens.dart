@@ -2685,7 +2685,13 @@ const Map<String, String> protocolGoldens = <String, String>{
   },
   "details": {
     "active_sessions": 2
-  }
+  },
+  "connection": "run1:2"
+}''',
+
+  'hermesChanged': r'''
+{
+  "connection": "run1:2"
 }''',
 
   'hermesSessionDto': r'''

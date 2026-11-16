@@ -295,7 +295,7 @@ impl Stores {
                     .update(cx, |n, cx| n.on_remap(&from, &to, cx));
                 self.router.update(cx, |r, cx| r.on_remap(from, to, cx));
             }
-            Event::HermesChanged => self.session.update(cx, |s, cx| s.refresh(cx)),
+            Event::HermesChanged(_) => self.session.update(cx, |s, cx| s.refresh(cx)),
             Event::CapabilitiesChanged => self.session.update(cx, |s, cx| {
                 s.refresh_capabilities(cx);
                 s.refresh_server(cx);

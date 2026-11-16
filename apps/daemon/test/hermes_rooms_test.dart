@@ -15,6 +15,7 @@ import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:conduitd/src/hermes_connection.dart';
 import 'package:conduitd/src/hermes_rooms_service.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -167,6 +168,32 @@ final class _Script {
   final List<String> answers = <String>[];
 }
 
+/// The Hermes service in use, switched by a test as a connection edit
+/// switches it.
+final class _Connection extends Notifier<HermesDesktopApiService?> {
+  @override
+  HermesDesktopApiService? build() => null;
+
+  void use(HermesDesktopApiService? service) => state = service;
+}
+
+final _connection = NotifierProvider<_Connection, HermesDesktopApiService?>(
+  _Connection.new,
+);
+
+HermesDesktopApiService _gateway(String address) {
+  final service = HermesDesktopApiService(
+    config: HermesConfig(
+      enabled: true,
+      baseUrl: address,
+      mode: HermesBackendMode.desktopGateway,
+      desktopCredentials: HermesDesktopCredentials(legacyToken: 'token'),
+    ),
+  );
+  addTearDown(service.close);
+  return service;
+}
+
 void main() {
   late EventBus events;
   late List<EventEnvelope> seen;
@@ -186,18 +213,9 @@ void main() {
       ),
     );
     script = _Script();
-    final service = HermesDesktopApiService(
-      config: HermesConfig(
-        enabled: true,
-        baseUrl: 'https://hermes.example',
-        mode: HermesBackendMode.desktopGateway,
-        desktopCredentials: HermesDesktopCredentials(legacyToken: 'token'),
-      ),
-    );
-    addTearDown(service.close);
     container = ProviderContainer(
       overrides: [
-        hermesApiServiceProvider.overrideWithValue(service),
+        hermesApiServiceProvider.overrideWith((ref) => ref.watch(_connection)),
         hermesBotsProvider.overrideWith(
           (ref) async => const <core.HermesBot>[
             core.HermesBot(name: 'fern', title: 'Fern', chatSessionId: 'bc-1'),
@@ -218,6 +236,9 @@ void main() {
       ],
     );
     addTearDown(container.dispose);
+    container
+        .read(_connection.notifier)
+        .use(_gateway('https://hermes.example'));
     rooms = HermesRoomsService(container, events);
     addTearDown(rooms.dispose);
   });
@@ -468,5 +489,37 @@ void main() {
       ('fern', 'bc-1'),
       ('moss', null),
     ]);
+  });
+
+  test('a connection has its own name, and a request under the last one is '
+      'refused', () {
+    final key = HermesConnectionKey(container);
+    addTearDown(key.dispose);
+    final first = key.current;
+    expect(key.current, first, reason: 'the same connection keeps its name');
+    key.require(first);
+    key.require(null);
+
+    container
+        .read(_connection.notifier)
+        .use(_gateway('https://other-hermes.example'));
+    final second = key.current;
+    expect(second, isNot(first));
+    for (final check in <void Function()>[
+      () => key.require(first),
+      () => key.stillCurrent(first),
+    ]) {
+      expect(
+        check,
+        throwsA(
+          isA<RpcError>()
+              .having((e) => e.code, 'code', ConduitErrorCodes.sessionExpired)
+              .having((e) => e.args['connection'], 'connection', first),
+        ),
+      );
+    }
+    key.require(second);
+    // Another daemon run never names a connection as this one did.
+    expect(second.split(':').first, isNotEmpty);
   });
 }

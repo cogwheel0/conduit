@@ -274,6 +274,7 @@
   "hermesBranch": "HermesBranch",
   "hermesCapabilitiesDto": "HermesCapabilitiesDto",
   "hermesCatalog": "HermesCatalog",
+  "hermesChanged": "HermesChanged",
   "hermesChatDto": "HermesChatDto",
   "hermesChatDtoBot": "HermesChatDto",
   "hermesClarifyAnswer": "HermesClarifyAnswer",

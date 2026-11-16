@@ -1822,11 +1822,12 @@ abstract final class ConduitMethodSpecs {
         params: HermesRoomContinue.fromJson,
         result: OkResult.fromJson,
       );
-  static const hermesRoomsAnswer = ConduitMethodSpec<HermesRoomAnswer, OkResult>(
-    ConduitMethods.hermesRoomsAnswer,
-    params: HermesRoomAnswer.fromJson,
-    result: OkResult.fromJson,
-  );
+  static const hermesRoomsAnswer =
+      ConduitMethodSpec<HermesRoomAnswer, OkResult>(
+        ConduitMethods.hermesRoomsAnswer,
+        params: HermesRoomAnswer.fromJson,
+        result: OkResult.fromJson,
+      );
   static const hermesRoomsRename =
       ConduitMethodSpec<HermesRoomRename, HermesRoomDto>(
         ConduitMethods.hermesRoomsRename,
@@ -1935,12 +1936,11 @@ abstract final class ConduitMethodSpecs {
     params: ComputerTabRef.fromJson,
     result: OkResult.fromJson,
   );
-  static const computerShortcut =
-      ConduitMethodSpec<ComputerShortcut, OkResult>(
-        ConduitMethods.computerShortcut,
-        params: ComputerShortcut.fromJson,
-        result: OkResult.fromJson,
-      );
+  static const computerShortcut = ConduitMethodSpec<ComputerShortcut, OkResult>(
+    ConduitMethods.computerShortcut,
+    params: ComputerShortcut.fromJson,
+    result: OkResult.fromJson,
+  );
   static const computerClose = ConduitMethodSpec<ComputerHandleRef, OkResult>(
     ConduitMethods.computerClose,
     params: ComputerHandleRef.fromJson,
@@ -2610,8 +2610,9 @@ abstract final class ConduitEventSpecs {
     payload: WorkspaceChanged.fromJson,
     scoped: false,
   );
-  static const hermesChanged = ConduitEventSpec<void>(
+  static const hermesChanged = ConduitEventSpec<HermesChanged>(
     ConduitEvents.hermesChanged,
+    payload: HermesChanged.fromJson,
     scoped: false,
   );
   static const voiceChanged = ConduitEventSpec<VoiceModels>(

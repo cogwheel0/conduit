@@ -380,7 +380,7 @@ impl HermesRoomsStore {
                     self.changed(cx);
                 }
             }
-            Event::HermesChanged => self.refresh(cx),
+            Event::HermesChanged(_) => self.refresh(cx),
             _ => {}
         }
     }

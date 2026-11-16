@@ -53,7 +53,14 @@ void main() {
 
   test('a connection is tested, saved, and reports what it can do', () async {
     final events = EventBus();
+    final changed = <HermesChanged>[];
+    events.attach('window', (envelope) {
+      if (envelope.event == ConduitEvents.hermesChanged) {
+        changed.add(HermesChanged.fromJson(envelope.payload));
+      }
+    });
     hermes = HermesService(runtime.container, events: events);
+    final before = (await hermes.status()).connection;
 
     var settings = await hermes.settings();
     expect(settings.enabled, isFalse);
@@ -78,6 +85,9 @@ void main() {
 
     final status = await hermes.status();
     expect(status.reachable, isTrue);
+    // Another connection has another name, and hermes.changed says it.
+    expect(status.connection, allOf(isNotNull, isNot(before)));
+    expect(changed.last.connection, status.connection);
     expect(status.capabilities.jobs, isTrue);
     expect(status.capabilities.runApproval, isTrue);
 
