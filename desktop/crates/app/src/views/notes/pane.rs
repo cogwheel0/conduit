@@ -192,6 +192,10 @@ pub struct NotePane {
     focus: FocusHandle,
     focus_body: bool,
     leaving: bool,
+    /// Counts page loads asked for: an answer for a page (a load, a
+    /// refresh, an upload or a file taken out) applies only while no other
+    /// page was asked for since.
+    page_asked: u64,
     saving_rev: Option<(u64, String)>,
     save_again: bool,
     waiters: Vec<futures::channel::oneshot::Sender<()>>,
@@ -311,6 +315,7 @@ impl NotePane {
             focus: cx.focus_handle(),
             focus_body,
             leaving: false,
+            page_asked: 0,
             saving_rev: None,
             save_again: false,
             waiters: vec![],
@@ -387,6 +392,8 @@ impl NotePane {
 
     /// Reads page `page` (the main page when None) and shows it.
     fn open_page(&mut self, page: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        self.page_asked += 1;
+        let asked = self.page_asked;
         let call = self.rpc.call::<methods::NotesGet>(&NoteOpen {
             id: self.id.clone(),
             page_id: page,
@@ -394,6 +401,8 @@ impl NotePane {
         cx.spawn_in(window, async move |this, cx| {
             let result = call.await;
             let _ = this.update_in(cx, |this, window, cx| match result {
+                // A later page was asked for: this answer is old.
+                _ if this.page_asked != asked => {}
                 Ok(found) => match found.note {
                     Some(detail) => this.show_detail(detail, true, window, cx),
                     None => {
@@ -483,10 +492,14 @@ impl NotePane {
             page_id: Some(self.page_id.clone()),
         });
         let revision = self.editor.read(cx).revision();
+        let asked = self.page_asked;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |this, cx| {
-                if this.editor.read(cx).revision() != revision || this.dirty(cx) {
+                if this.page_asked != asked
+                    || this.editor.read(cx).revision() != revision
+                    || this.dirty(cx)
+                {
                     return;
                 }
                 match result {
@@ -1415,10 +1428,13 @@ impl NotePane {
             };
             move || rpc.call::<methods::NotesDetach>(&request)
         };
+        let asked = self.page_asked;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             flushed.await;
             let result = call_for().await;
             let _ = this.update(cx, |this, cx| match result {
+                // Another page is shown: it reads its own files.
+                Ok(_) if this.page_asked != asked => {}
                 Ok(detail) => {
                     if let Some(d) = &mut this.detail {
                         d.files = detail.files;
@@ -1459,6 +1475,7 @@ impl NotePane {
         let rpc = self.rpc.clone();
         let note_id = self.id.clone();
         let page_id = self.page_id.clone();
+        let asked = self.page_asked;
         let flushed = self.flush(cx);
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             flushed.await;
@@ -1494,7 +1511,10 @@ impl NotePane {
                 }
             }
             let _ = this.update(cx, |this, cx| {
-                if let Some(detail) = last {
+                // The cards belong to the page they were attached to: another
+                // page shown now keeps its own (that page shows them when it
+                // is opened again).
+                if let Some(detail) = last.filter(|_| this.page_asked == asked) {
                     let links: Vec<FileLink> = Doc::from_ops(&detail.ops)
                         .blocks
                         .iter()
@@ -3011,6 +3031,47 @@ mod tests {
         assert!(
             weak.upgrade().is_none(),
             "the pane stayed once its words were in"
+        );
+    }
+
+    /// Answers for a page the pane no longer shows are let go: a refresh
+    /// of the page left, and an older page load answering after a newer
+    /// one, leave the page shown as it is.
+    #[gpui_kit::test]
+    fn a_page_left_takes_no_late_answer(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        assert_eq!(bench::text(&pane, vcx), "Ridge at dawn");
+        // The main page's refresh is held; page 2 opens meanwhile.
+        let refresh = daemon.hold_one::<methods::NotesGet>(0);
+        pane.update(vcx, |p, cx| p.changed_elsewhere(cx));
+        vcx.run_until_parked();
+        pane.update_in(vcx, |p, window, cx| p.show_page("p2".into(), window, cx));
+        vcx.run_until_parked();
+        assert_eq!(bench::text(&pane, vcx), "Second page");
+        refresh.release();
+        vcx.run_until_parked();
+        assert_eq!(
+            bench::text(&pane, vcx),
+            "Second page",
+            "the page left's refresh replaced the page shown"
+        );
+        // Page 3 is asked for, held; page 1 then answers first... the
+        // older load must not win over the newer one.
+        let older = daemon.hold_one::<methods::NotesGet>(0);
+        pane.update_in(vcx, |p, window, cx| p.show_page("p3".into(), window, cx));
+        vcx.run_until_parked();
+        pane.update_in(vcx, |p, window, cx| {
+            p.open_page(Some("main".into()), window, cx)
+        });
+        vcx.run_until_parked();
+        assert_eq!(bench::text(&pane, vcx), "Ridge at dawn");
+        older.release();
+        vcx.run_until_parked();
+        assert_eq!(
+            bench::text(&pane, vcx),
+            "Ridge at dawn",
+            "an older page load replaced the newer page"
         );
     }
 }
