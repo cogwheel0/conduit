@@ -109,7 +109,7 @@ impl DirectPane {
                 let _ = this.update(cx, |s, cx| {
                     s.reloading = false;
                     match list {
-                        Ok(l) => s.list = Some(l),
+                        Ok(l) => s.adopt_list(l),
                         Err(e) => log::warn!("direct.reload: {e}"),
                     }
                     cx.notify();
@@ -162,6 +162,19 @@ impl DirectPane {
     }
 
     /// [`Self::refresh`] without a window at hand (after a sheet).
+    /// A list the daemon read out: where chats go, as it says, is what a
+    /// refused history switch goes back to; a switch still out keeps
+    /// showing its own setting until it is answered.
+    fn adopt_list(&mut self, mut list: DirectConnectionList) {
+        self.history_confirmed = Some(list.local_history);
+        if self.history_out > 0
+            && let Some(shown) = self.list.as_ref().map(|l| l.local_history)
+        {
+            list.local_history = shown;
+        }
+        self.list = Some(list);
+    }
+
     pub fn refresh_quietly(&mut self, cx: &mut Context<Self>) {
         let rpc = self.rpc(cx);
         let list = rpc.call::<methods::DirectList>(&NoParams);
@@ -172,7 +185,7 @@ impl DirectPane {
                 let (list, mcp) = (list.await, mcp.await);
                 let _ = this.update(cx, |s, cx| {
                     if let Ok(l) = list {
-                        s.list = Some(l);
+                        s.adopt_list(l);
                     }
                     if let Ok(m) = mcp {
                         s.mcp = Some(m);
@@ -233,10 +246,7 @@ impl DirectPane {
                 let _ = this.update(cx, |s, cx| {
                     s.history_out = s.history_out.saturating_sub(1);
                     match result {
-                        Ok(l) => {
-                            s.history_confirmed = Some(l.local_history);
-                            s.list = Some(l);
-                        }
+                        Ok(l) => s.adopt_list(l),
                         Err(e) => {
                             // Where chats go is what the daemon says: the
                             // setting it last confirmed once no other switch
@@ -1284,6 +1294,27 @@ mod tests {
                 p.list.as_ref().map(|l| l.local_history),
                 Some(false),
                 "the pane says chats stay on this Mac; they still sync"
+            );
+        });
+
+        // A read after the first refusal finds the daemon keeping chats on
+        // this Mac: that is what the second refusal goes back to, though
+        // the read after it fails.
+        daemon.once::<methods::DirectList>(Ok(DirectConnectionList {
+            local_history: true,
+            ..Default::default()
+        }));
+        let second = daemon.hold_one::<methods::DirectSetHistory>(1);
+        pane.update_in(vcx, |p, window, cx| p.set_history(false, window, cx));
+        pane.update_in(vcx, |p, window, cx| p.set_history(true, window, cx));
+        vcx.run_until_parked();
+        second.release();
+        vcx.run_until_parked();
+        pane.read_with(vcx, |p, _| {
+            assert_eq!(
+                p.list.as_ref().map(|l| l.local_history),
+                Some(true),
+                "the pane went back past the setting the daemon read out since"
             );
         });
     }
