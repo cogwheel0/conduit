@@ -234,6 +234,11 @@ fn app_intents(manifest: &Path) {
     let script = manifest.join("../../packaging/macos/intents.sh");
     println!("cargo:rerun-if-changed={}", dir.display());
     println!("cargo:rerun-if-changed={}", script.display());
+    // intents.sh sources lib.sh, which reads release.env (MACOS_MIN).
+    for sourced in ["lib.sh", "release.env"] {
+        let path = manifest.join("../../packaging/macos").join(sourced);
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
     println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
     for entry in std::fs::read_dir(&dir).unwrap() {
         println!("cargo:rerun-if-changed={}", entry.unwrap().path().display());
