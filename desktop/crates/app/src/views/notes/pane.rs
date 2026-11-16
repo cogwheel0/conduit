@@ -82,6 +82,8 @@ pub const NOTE_PANE_CONTEXT: &str = "NotePane";
 const SAVE_DELAY: Duration = Duration::from_millis(800);
 /// A failed save is tried again after this.
 const RETRY_DELAY: Duration = Duration::from_secs(5);
+/// The longest a page change waits for a dictation's last words.
+const RUN_END_WAIT: Duration = Duration::from_secs(3);
 /// The text column's widest.
 const COLUMN: f32 = 720.;
 
@@ -215,6 +217,9 @@ pub struct NotePane {
     quit_waiters: Vec<futures::channel::oneshot::Sender<()>>,
     /// Recordings sent to conduitd (`notes.addRecording`) not answered yet.
     recordings_out: u32,
+    /// Told when the dictation run ends (its last words are in): a page
+    /// change waits for them.
+    run_waiters: Vec<futures::channel::oneshot::Sender<()>>,
     last_own_save: Option<Instant>,
     /// Saves wait (the E2E).
     hold: bool,
@@ -349,6 +354,7 @@ impl NotePane {
             waiters: vec![],
             quit_waiters: vec![],
             recordings_out: 0,
+            run_waiters: vec![],
             last_own_save: None,
             hold: false,
             _debounce: None,
@@ -607,7 +613,7 @@ impl NotePane {
                     .as_ref()
                     .is_some_and(|run| run.revision != self.editor.read(cx).revision())
                 {
-                    self.run = None;
+                    self.end_run();
                     if self.dictation.read(cx).is_active() {
                         self.dictation.update(cx, |d, cx| d.stop(cx));
                     }
@@ -812,6 +818,26 @@ impl NotePane {
         cx.emit(PaneEvent::Settled);
     }
 
+    /// Resolves once the dictation run has ended (at once with none).
+    fn run_ended(&mut self) -> futures::channel::oneshot::Receiver<()> {
+        let (tx, rx) = futures::channel::oneshot::channel();
+        if self.run.is_some() {
+            self.run_waiters.push(tx);
+        } else {
+            let _ = tx.send(());
+        }
+        rx
+    }
+
+    /// The dictation run is over: no later words land in the text, and those
+    /// waiting for its end hear so.
+    fn end_run(&mut self) {
+        self.run = None;
+        for waiter in self.run_waiters.drain(..) {
+            let _ = waiter.send(());
+        }
+    }
+
     /// A recording or dictation still to come in, or a recording on its way
     /// to conduitd.
     fn audio_pending(&self) -> bool {
@@ -935,8 +961,18 @@ impl NotePane {
         if self.dictation.read(cx).is_active() {
             self.dictation.update(cx, |d, cx| d.stop(cx));
         }
-        let flushed = self.flush(cx);
+        // A dictation's last words go on the page they were said on: the
+        // page changes once they are in (3 s at most), and saved.
+        let ended = self.run_ended();
+        let timer = cx.background_executor().timer(RUN_END_WAIT);
         cx.spawn_in(window, async move |this, cx| {
+            let _ = futures::future::select(ended, Box::pin(timer)).await;
+            let Ok(flushed) = this.update(cx, |this, cx| {
+                this.end_run();
+                this.flush(cx)
+            }) else {
+                return;
+            };
             flushed.await;
             let _ = this.update_in(cx, |this, window, cx| {
                 // A refused save keeps the text on its page.
@@ -1221,6 +1257,7 @@ impl NotePane {
                         e.replace_run(run.anchor, run.len, "", false, cx)
                     });
                 }
+                self.end_run();
                 // A note left while dictating goes once the words are in.
                 if self.leaving {
                     self.save_now(cx);
@@ -3359,6 +3396,64 @@ mod tests {
             "Ridge at dawn",
             "an older page load replaced the newer page"
         );
+
+        // A dictation still finishing: the page changes once its last words
+        // are in (and saved) on the page they were said on.
+        daemon.on::<methods::NotesSave>(|p| {
+            let page = p["pageId"].as_str().unwrap_or("main").to_string();
+            Ok(serde_json::to_value(bench::detail("n1", &page, "kept")).unwrap())
+        });
+        pane.update(vcx, |p, cx| {
+            let end = p.editor.read(cx).doc.plain_text().len();
+            p.run = Some(DictationRun {
+                anchor: end,
+                len: 0,
+                started: false,
+                revision: p.editor.read(cx).revision(),
+            })
+        });
+        pane.update_in(vcx, |p, window, cx| p.show_page("p2".into(), window, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            bench::text(&pane, vcx),
+            "Ridge at dawn",
+            "the page changed before the dictation's last words were in"
+        );
+        pane.update(vcx, |p, cx| {
+            p.on_dictation(
+                &DictationEvent::Text {
+                    text: "summit".into(),
+                    done: true,
+                },
+                cx,
+            );
+            p.on_dictation(&DictationEvent::Ended { restore: false }, cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(bench::text(&pane, vcx), "Second page");
+        let saves = daemon.calls::<methods::NotesSave>();
+        let last = saves.last().map(|s| s.to_string()).unwrap_or_default();
+        assert!(
+            last.contains("summit") && last.contains("\"pageId\":\"main\""),
+            "the last words were not saved on their own page: {last}"
+        );
+        // One that never ends holds the page change back 3 s at most, and
+        // says nothing more after it.
+        pane.update(vcx, |p, cx| {
+            p.run = Some(DictationRun {
+                anchor: 0,
+                len: 0,
+                started: false,
+                revision: p.editor.read(cx).revision(),
+            })
+        });
+        pane.update_in(vcx, |p, window, cx| p.show_page("p3".into(), window, cx));
+        vcx.run_until_parked();
+        assert_eq!(bench::text(&pane, vcx), "Second page");
+        vcx.executor().advance_clock(RUN_END_WAIT);
+        vcx.run_until_parked();
+        assert_eq!(bench::text(&pane, vcx), "Third page");
+        assert!(pane.read_with(vcx, |p, _| p.run.is_none()));
     }
 
     /// Typing while a dictation runs ends it: its later words never
