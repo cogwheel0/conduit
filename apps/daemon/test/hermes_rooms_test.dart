@@ -227,6 +227,10 @@ HermesDesktopApiService _gateway(String address) {
   return service;
 }
 
+/// What a read changed has gone out: the service sends a room's view from
+/// a microtask, which runs before this one.
+Future<void> _sent() => Future<void>.microtask(() {});
+
 void main() {
   late EventBus events;
   late List<EventEnvelope> seen;
@@ -348,7 +352,7 @@ void main() {
     await rooms.watch('w1', 'room-1');
     final reads = script.reads;
     await container.read(core.hermesRoomProvider('room-1').notifier).refresh();
-    await Future<void>.delayed(Duration.zero);
+    await _sent();
     expect(changes(), isEmpty, reason: 'nothing changed');
 
     script.events = [
@@ -361,7 +365,7 @@ void main() {
       ),
     ];
     await container.read(core.hermesRoomProvider('room-1').notifier).refresh();
-    await Future<void>.delayed(Duration.zero);
+    await _sent();
     final sent = changes();
     expect(sent, hasLength(1));
     expect(
@@ -380,7 +384,7 @@ void main() {
     seen.clear();
     script.events = _log;
     await container.read(core.hermesRoomProvider('room-1').notifier).refresh();
-    await Future<void>.delayed(Duration.zero);
+    await _sent();
     expect(changes(), isEmpty, reason: 'nobody shows it');
   });
 
@@ -411,7 +415,7 @@ void main() {
 
     script.state = _roomJson();
     await container.read(core.hermesRoomProvider('room-1').notifier).refresh();
-    await Future<void>.delayed(Duration.zero);
+    await _sent();
     final updates = <HermesRooms>[
       for (final e in seen)
         if (e.event == ConduitEvents.hermesRoomsListChanged)
