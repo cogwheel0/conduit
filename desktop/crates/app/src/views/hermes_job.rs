@@ -276,13 +276,6 @@ impl HermesJobSheet {
             return;
         }
         let generation = admin.generation();
-        // The jobs known before: a new one is the id the answer adds.
-        let known: Vec<String> = admin
-            .jobs
-            .as_ref()
-            .and_then(crate::stores::hermes_admin::Loaded::ready)
-            .map(|j| j.jobs.iter().map(|j| j.id.clone()).collect())
-            .unwrap_or_default();
         let (name, prompt, schedule) = self.values(cx);
         let sent = (
             name.clone(),
@@ -328,11 +321,10 @@ impl HermesJobSheet {
                     Ok(jobs) => {
                         // What was sent is saved; a new job is edited from
                         // now on, so a later Save changes it.
-                        if s.job.is_none() {
-                            let mut added = jobs.jobs.iter().filter(|j| !known.contains(&j.id));
-                            if let (Some(job), None) = (added.next(), added.next()) {
-                                s.job = Some(job.clone());
-                            }
+                        if s.job.is_none()
+                            && let Some(id) = &jobs.saved_id
+                        {
+                            s.job = jobs.jobs.iter().find(|j| &j.id == id).cloned();
                         }
                         s.initial = sent;
                         s.stores.hermes_admin.update(cx, |a, cx| {
@@ -898,6 +890,52 @@ mod tests {
         assert!(
             daemon.calls::<methods::HermesDeleteJob>().is_empty(),
             "the delete went to the connection in use now"
+        );
+    }
+
+    /// A new job saved while more was typed: the editor saves to the job
+    /// the daemon says it made, even when another app made one meanwhile,
+    /// never making a second.
+    #[gpui_kit::test]
+    fn a_new_job_saves_again_to_the_job_it_made(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        use_connection(&stores, vcx, "a");
+        daemon.returns::<methods::HermesSaveJob>(
+            serde_json::from_value(json!({
+                "jobs": [
+                    {"id": "j-other", "name": "Made elsewhere", "prompt": "x", "schedule": "0 6 * * *"},
+                    {"id": "j-new", "name": "Evening watering", "prompt": "Water", "schedule": "0 9 * * *"},
+                ],
+                "savedId": "j-new",
+            }))
+            .unwrap(),
+        );
+        let held = daemon.hold::<methods::HermesSaveJob>();
+        let s = stores.clone();
+        vcx.update(|window, cx| open(&s, None, window, cx));
+        vcx.run_until_parked();
+        let sheet = vcx
+            .update(|_, cx| sheet::current::<HermesJobSheet>(cx))
+            .expect("the editor opens");
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.name
+                .update(cx, |i, cx| i.set_value("Evening watering", w, cx));
+            s.prompt.update(cx, |i, cx| i.set_value("Water", w, cx));
+            s.save(w, cx);
+            s.prompt.update(cx, |i, cx| {
+                i.set_value("Water the seedlings at dusk", w, cx)
+            });
+        });
+        held.release();
+        vcx.run_until_parked();
+        on_sheet(vcx, &sheet, |s, w, cx| s.save(w, cx));
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::HermesSaveJob>();
+        assert_eq!(saves.len(), 2);
+        assert_eq!(
+            saves[1]["id"],
+            json!("j-new"),
+            "the second Save made another job"
         );
     }
 

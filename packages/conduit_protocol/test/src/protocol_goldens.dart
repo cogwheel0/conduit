@@ -3248,7 +3248,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   ],
   "writable": true,
   "scheduling": false,
-  "notices": []
+  "notices": [],
+  "savedId": "j2"
 }''',
 
   'hermesJobEdit': r'''

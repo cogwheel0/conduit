@@ -775,14 +775,18 @@ final class HermesAdminService {
         _container.read(hermesApiServiceProvider) is HermesDesktopApiService;
     final deliver = scheduling ? _deliverValue(edit.deliver) : null;
     final catchUp = scheduling ? _catchUp(edit.catchUp) : null;
+    // The job written, named in the answer: an editor left open saves to
+    // it from then on rather than making another.
+    final String? saved;
     if (edit.id == null) {
-      await _jobs.create(
+      final created = await _jobs.create(
         name: name,
         prompt: prompt,
         schedule: schedule,
         deliver: deliver,
         catchUp: catchUp ?? HermesJobCatchUp.hermesDefault,
       );
+      saved = created?.id;
     } else {
       await _jobs.edit(
         edit.id!,
@@ -792,9 +796,10 @@ final class HermesAdminService {
         deliver: deliver,
         catchUp: catchUp,
       );
+      saved = edit.id;
     }
     _announce();
-    return jobs();
+    return (await jobs()).copyWith(savedId: saved);
   });
 
   /// [value]'s targets as Hermes stores them, or null when the edit leaves

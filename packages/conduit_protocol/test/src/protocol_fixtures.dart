@@ -1624,7 +1624,10 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     lastRunAtMs: 1767225600000,
     nextRunAtMs: 1767312000000,
   ),
-  'hermesJobs': const HermesJobs(jobs: <HermesJobDto>[HermesJobDto(id: 'j2')]),
+  'hermesJobs': const HermesJobs(
+    jobs: <HermesJobDto>[HermesJobDto(id: 'j2')],
+    savedId: 'j2',
+  ),
   'hermesJobEdit': const HermesJobEdit(
     id: 'j1',
     name: 'Brief',

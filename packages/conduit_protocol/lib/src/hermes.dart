@@ -363,6 +363,10 @@ abstract class HermesJobs with _$HermesJobs {
     /// What happened since the last read that the window says once: a
     /// Stop that settled, a Run Now that failed.
     @Default(<HermesJobNotice>[]) List<HermesJobNotice> notices,
+
+    /// The job a save wrote (`hermes.saveJob`): a new job's id, which the
+    /// editor saves to from then on.
+    String? savedId,
   }) = _HermesJobs;
 
   factory HermesJobs.fromJson(Map<String, dynamic> json) =>

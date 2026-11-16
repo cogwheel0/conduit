@@ -6039,6 +6039,10 @@ pub struct HermesJobs {
     /// Stop that settled, a Run Now that failed.
     #[serde(default)]
     pub notices: Vec<HermesJobNotice>,
+    /// The job a save wrote (`hermes.saveJob`): a new job's id, which the
+    /// editor saves to from then on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saved_id: Option<String>,
 }
 
 impl Default for HermesJobs {
@@ -6048,6 +6052,7 @@ impl Default for HermesJobs {
             writable: default_hermes_jobs_writable(),
             scheduling: Default::default(),
             notices: Default::default(),
+            saved_id: None,
         }
     }
 }

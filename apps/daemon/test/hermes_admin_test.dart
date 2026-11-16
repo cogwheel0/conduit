@@ -198,6 +198,7 @@ void main() {
     expect(jobs.writable, isTrue);
     expect(jobs.scheduling, isFalse, reason: 'an API server');
     final job = jobs.jobs.single;
+    expect(jobs.savedId, job.id, reason: 'the save names the job it made');
     expect(job.name, 'Morning brief');
     expect(job.enabled, isTrue);
     expect(job.scheduleText, isNotNull);
@@ -227,6 +228,7 @@ void main() {
       ),
     );
     expect(jobs.jobs.single.prompt, 'Summarise the tech news');
+    expect(jobs.savedId, job.id);
     jobs = await admin.runJob(job.id);
     expect(jobs.jobs.single.lastStatus, 'ok');
     expect(jobs.jobs.single.running, isFalse);
