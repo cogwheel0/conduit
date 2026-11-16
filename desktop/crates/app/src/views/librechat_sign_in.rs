@@ -87,6 +87,9 @@ pub struct LibreChatSignInView {
     /// The session of the account in charge ended: this names its server,
     /// and the form starts there.
     pub ended: Option<String>,
+    /// Bumped each time the form starts over: an answer to an earlier
+    /// start (a probe, a sign-in) is dropped, never applied to this one.
+    round: u64,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -134,6 +137,7 @@ impl LibreChatSignInView {
             error: None,
             sheet: false,
             ended: None,
+            round: 0,
             _subscriptions: subscriptions,
         }
     }
@@ -151,6 +155,7 @@ impl LibreChatSignInView {
         self.sso = false;
         self.error = None;
         self.ended = None;
+        self.round += 1;
         cx.notify();
     }
 
@@ -214,15 +219,27 @@ impl LibreChatSignInView {
         self.busy = true;
         self.error = None;
         cx.notify();
+        let round = self.round;
         let call = self
             .rpc(cx)
-            .call::<methods::LibrechatProbe>(&LibreChatProbe { url });
+            .call::<methods::LibrechatProbe>(&LibreChatProbe { url: url.clone() });
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
                 let result = call.await;
                 let _ = this.update_in(cx, |s, window, cx| {
+                    // The form started over meanwhile: this answer is not
+                    // its.
+                    if s.round != round {
+                        return;
+                    }
                     s.busy = false;
+                    // The address changed while it was checked: the server
+                    // found is not the one now typed. Continue checks again.
+                    if forms::text(&s.address, cx) != url {
+                        cx.notify();
+                        return;
+                    }
                     match result {
                         Ok(found) => match found.outcome {
                             LibreChatProbeOutcome::Found => {
@@ -324,6 +341,7 @@ impl LibreChatSignInView {
             provider,
         });
         let title = l10n.desktop_sso_window_title(&server.title);
+        let round = self.round;
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
@@ -332,6 +350,9 @@ impl LibreChatSignInView {
                     Err(e) => {
                         log::warn!("librechat.ssoStart: {e}");
                         let _ = this.update(cx, |s, cx| {
+                            if s.round != round {
+                                return;
+                            }
                             s.busy = false;
                             s.sso = false;
                             s.error = Some(l10n.libre_chat_sso_unfinished());
@@ -348,6 +369,9 @@ impl LibreChatSignInView {
                     SsoOutcome::Captured { cookies, .. } => cookies,
                     other => {
                         let _ = this.update(cx, |s, cx| {
+                            if s.round != round {
+                                return;
+                            }
                             s.busy = false;
                             s.sso = false;
                             s.error = match other {
@@ -366,7 +390,11 @@ impl LibreChatSignInView {
                     force: false,
                 });
                 let result = call.await;
-                let _ = this.update_in(cx, |s, window, cx| s.finish(result, window, cx));
+                let _ = this.update_in(cx, |s, window, cx| {
+                    if s.round == round {
+                        s.finish(result, window, cx)
+                    }
+                });
             },
         )
         .detach();
@@ -381,11 +409,16 @@ impl LibreChatSignInView {
         self.busy = true;
         self.error = None;
         cx.notify();
+        let round = self.round;
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
                 let result = call.await;
-                let _ = this.update_in(cx, |s, window, cx| s.finish(result, window, cx));
+                let _ = this.update_in(cx, |s, window, cx| {
+                    if s.round == round {
+                        s.finish(result, window, cx)
+                    }
+                });
             },
         )
         .detach();
@@ -883,7 +916,80 @@ fn server_chip(
 
 #[cfg(test)]
 mod tests {
+    use gpui_kit::TestAppContext;
+
     use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    /// A probe of the last address, answered after the form started over
+    /// at another, never puts its server under the new address: the
+    /// password goes only to the server the form now shows.
+    #[gpui_kit::test]
+    fn an_earlier_probe_never_replaces_the_server_signed_in_to(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.on::<methods::LibrechatProbe>(|params| {
+            let url = params["url"].as_str().unwrap_or_default().to_string();
+            Ok(
+                serde_json::to_value(conduit_protocol::LibreChatProbeResult {
+                    outcome: LibreChatProbeOutcome::Found,
+                    server: Some(LibreChatServerDto {
+                        base_url: url,
+                        title: "Harbour".into(),
+                        password_sign_in: true,
+                        ldap: false,
+                        ldap_uses_username: false,
+                        sso_providers: vec![],
+                    }),
+                })
+                .unwrap(),
+            )
+        });
+        let held = daemon.hold_one::<methods::LibrechatProbe>(0);
+        let scratch = std::env::temp_dir().join(format!("conduit-lcsign-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| LibreChatSignInView::new(stores, window, cx));
+        view.update_in(vcx, |v, window, cx| {
+            v.start_at("https://old.example.org", None, window, cx)
+        });
+        vcx.run_until_parked();
+        view.update_in(vcx, |v, window, cx| {
+            v.start_at("https://new.example.org", None, window, cx)
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, _| {
+            assert_eq!(
+                v.server.as_ref().map(|s| s.base_url.as_str()),
+                Some("https://new.example.org"),
+                "the form signs in to the address it started over from"
+            );
+        });
+
+        // The address changes while it is checked: the server found is not
+        // the one now typed, so the form stays at the address.
+        let held = daemon.hold::<methods::LibrechatProbe>();
+        view.update_in(vcx, |v, window, cx| {
+            v.reset(window, cx);
+            v.address.update(cx, |i, cx| {
+                i.set_value("https://typed.example.org", window, cx)
+            });
+            v.submit(window, cx);
+            v.address.update(cx, |i, cx| {
+                i.set_value("https://other.example.org", window, cx)
+            });
+        });
+        held.release();
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, _| {
+            assert!(v.server.is_none(), "the form took the address typed before");
+            assert!(matches!(v.step, Step::Server) && !v.busy);
+        });
+    }
 
     #[test]
     fn providers_are_named_by_the_admin_first() {
