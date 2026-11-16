@@ -1317,10 +1317,13 @@ final class TurnsService implements ChatTurns {
   /// Not an error when nothing is running: a stop button pressed as the last
   /// token lands is the common case, not a mistake.
   Future<void> stop(String chatId) async {
+    // The account the Stop was asked under: a stranded answer is read before
+    // it is stopped, and nothing is stopped once another account is in charge.
+    final account = AccountScope.capture(_container);
     final session = _sessionOf(chatId);
     final turn = session?.turn;
     if (session == null || turn == null || turn.finished) {
-      await _stopStranded(chatId, session);
+      await _stopStranded(chatId, session, account);
       return;
     }
     await _stopTurn(session, turn);
@@ -1354,12 +1357,20 @@ final class TurnsService implements ChatTurns {
   /// told to stop, a request that never started dropped). Nothing happens
   /// for a chat that is quiet, or while a send is on its way (the window
   /// stops that one once it is answered).
-  Future<void> _stopStranded(String chatId, _ChatSession? open) async {
+  ///
+  /// [account]: the account the Stop was asked under. Once another is in
+  /// charge, nothing is stopped (logged, not an error, as a Stop with
+  /// nothing running is not).
+  Future<void> _stopStranded(
+    String chatId,
+    _ChatSession? open,
+    AccountScope account,
+  ) async {
     if (_disposed || open?.pending != null) return;
     final _ChatSession session;
     try {
       // The stored copy says so too: a chat with no scope open is opened.
-      session = await _sessionFor(chatId);
+      session = await _sessionFor(chatId, account: account);
     } on Object catch (error) {
       // Not a chat this daemon can open: nothing of its to stop.
       DebugLogger.warning(
@@ -1371,6 +1382,14 @@ final class TurnsService implements ChatTurns {
     }
     try {
       if (session.scope.isDisposed || !session.scope.isStreaming) return;
+      if (!account.isCurrent) {
+        DebugLogger.info(
+          'turn-stop-stranded-stale',
+          scope: 'daemon/turns',
+          data: {'chatId': chatId},
+        );
+        return;
+      }
       DebugLogger.info(
         'turn-stop-stranded',
         scope: 'daemon/turns',

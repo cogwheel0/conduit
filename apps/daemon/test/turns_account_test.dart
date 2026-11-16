@@ -3,9 +3,14 @@ library;
 
 import 'dart:async';
 
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show chatMessagesProvider, isChatStreamingProvider;
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart'
     show
         Models,
@@ -259,6 +264,37 @@ void main() {
       anotherTakesCharge();
       listed.complete();
       await expectLater(holding, refused);
+    });
+
+    test('a Stop on an answer left generating stops nothing once another '
+        'account is in charge', () async {
+      PreferencesStore.debugOverride(InMemoryKeyValueStore());
+      addTearDown(PreferencesStore.debugReset);
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-ada');
+      // An answer the core still shows as generating, with no turn behind
+      // it: Stop settles it with the core's own stop.
+      final scope = await turns.holdScope('chat-trail');
+      addTearDown(() => turns.releaseScope('chat-trail'));
+      scope.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+        for (final message in chat.messages)
+          message.role == 'assistant'
+              ? message.copyWith(isStreaming: true)
+              : message,
+      ]);
+      expect(scope.read(isChatStreamingProvider), isTrue);
+
+      final stopping = turns.stop('chat-trail');
+      // Stop has its chat; another account's settings take charge before
+      // it reaches the core.
+      unawaited(
+        PreferencesStore.put(PreferenceKeys.activeServerId, 'server-bo'),
+      );
+      await stopping;
+      expect(
+        scope.read(isChatStreamingProvider),
+        isTrue,
+        reason: 'the last account\'s Stop reached the core under the next one',
+      );
     });
 
     test('a temporary chat is saved into no account but the one that '
