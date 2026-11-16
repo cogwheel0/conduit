@@ -430,6 +430,9 @@ pub struct ComposerStore {
     /// `prompts` are a Hermes chat's `/` commands (the agent's skills, as
     /// on a phone), inserted as typed rather than rendered.
     pub prompts_hermes: bool,
+    /// The Hermes connection a Hermes chat's commands were read from (the
+    /// daemon's name for it): another one reads its own.
+    prompts_connection: Option<String>,
     /// `@`: the server's users and channels for the query typed.
     pub mention_results: MentionList,
     /// A channel's composer: `@` lists the channel's members (and models,
@@ -524,6 +527,7 @@ impl ComposerStore {
             librechat: LibreChatComposer::default(),
             prompts: None,
             prompts_hermes: false,
+            prompts_connection: None,
             mention_results: MentionList::default(),
             channel: None,
             context_results: vec![],
@@ -1001,21 +1005,29 @@ impl ComposerStore {
     /// moves between Hermes and the rest): saved prompts (`prompts.list`),
     /// or in a Hermes chat the agent's commands (`hermes.catalog`), as
     /// mobile's composer sources its `/` overlay.
-    pub fn load_prompts(&mut self, cx: &mut Context<Self>) {
+    pub fn load_prompts(&mut self, hermes_connection: Option<String>, cx: &mut Context<Self>) {
         let hermes = self.is_hermes();
-        if self.prompts.is_some() && self.prompts_hermes == hermes {
+        if self.prompts.is_some()
+            && self.prompts_hermes == hermes
+            && (!hermes || self.prompts_connection == hermes_connection)
+        {
             return;
         }
         self.prompts = Some(vec![]);
         self.prompts_hermes = hermes;
+        self.prompts_connection = hermes.then(|| hermes_connection.clone()).flatten();
         let scope = self.scope;
         if hermes {
             let call = self.rpc.call::<methods::HermesCatalog>(&NoParams);
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
-                    // Another account's, or the chat left Hermes since.
-                    if s.scope != scope || !s.prompts_hermes {
+                    // Another account's, the chat left Hermes since, or
+                    // another connection's commands were asked for since.
+                    if s.scope != scope
+                        || !s.prompts_hermes
+                        || s.prompts_connection != hermes_connection
+                    {
                         return;
                     }
                     match result {
@@ -3095,6 +3107,49 @@ mod tests {
         });
     }
 
+    /// A Hermes chat's `/` list is the connection in use now's: another
+    /// connection reads its own, and the last one's answer never fills it.
+    #[gpui_kit::test]
+    fn another_hermes_connection_reads_its_own_commands(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::DraftsGet>(Draft::default());
+        let n = Arc::new(Mutex::new(0usize));
+        let count = n.clone();
+        daemon.on::<methods::HermesCatalog>(move |_| {
+            let mut n = count.lock().unwrap();
+            *n += 1;
+            let name = if *n == 1 { "prune-roses" } else { "sow-beans" };
+            Ok(json!({"commands": [{"name": name}]}))
+        });
+        let first = daemon.hold_one::<methods::HermesCatalog>(0);
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| {
+            s.switch_draft(Some(key(Some("local:hermes_s1"))), "", cx)
+        });
+        cx.run_until_parked();
+        store.update(cx, |s, cx| {
+            s.load_prompts(Some("0a1b2c3d:1".into()), cx);
+            s.load_prompts(Some("0a1b2c3d:2".into()), cx);
+        });
+        cx.run_until_parked();
+        drop(first);
+        cx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::HermesCatalog>().len(), 2);
+        store.read_with(cx, |s, _| {
+            let commands: Vec<&str> = s
+                .prompts
+                .iter()
+                .flatten()
+                .map(|p| p.command.as_str())
+                .collect();
+            assert_eq!(
+                commands,
+                vec!["/sow-beans"],
+                "the last connection's commands are shown"
+            );
+        });
+    }
+
     #[gpui_kit::test]
     fn an_old_accounts_answers_never_fill_the_new_ones(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
@@ -3108,7 +3163,7 @@ mod tests {
         let store = store(&daemon, Arc::default(), cx);
         store.update(cx, |s, cx| {
             s.code_interpreter = true;
-            s.load_prompts(cx);
+            s.load_prompts(None, cx);
             s.reset(cx);
         });
         held.release();

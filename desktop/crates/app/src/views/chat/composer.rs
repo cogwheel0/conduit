@@ -1043,7 +1043,11 @@ impl ChatComposer {
         });
         match &trigger {
             Some(t) if t.kind == TriggerKind::Prompt => {
-                self.composer.update(cx, |c, cx| c.load_prompts(cx));
+                // A Hermes chat's commands are the connection in use's.
+                let hermes = cx
+                    .try_global::<crate::AppState>()
+                    .and_then(|s| s.stores.hermes_admin.read(cx).connection());
+                self.composer.update(cx, |c, cx| c.load_prompts(hermes, cx));
             }
             Some(t) if t.kind == TriggerKind::Knowledge => {
                 let q = t.query.clone();
