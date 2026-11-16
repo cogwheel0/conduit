@@ -936,13 +936,22 @@ final class ChatsService {
   }
 
   /// The text of answer [messageId] in [chatId] (or of the version with
-  /// that id), with the model that wrote it: what Read Aloud reads.
+  /// that id), with the model that wrote it: what Read Aloud reads. Read
+  /// where `chats.get` reads it: a Hermes session's transcript is Hermes's,
+  /// a temporary chat's is in this daemon's memory.
   Future<({String content, String? model})> answerFor(
     String chatId,
     String messageId,
   ) async {
-    final conversation = await _load(chatId);
-    for (final message in conversation.messages) {
+    final List<core.ChatMessage> messages;
+    if (hermesSessionOf(chatId) case final sessionId? when _hermes != null) {
+      messages = await _hermes.transcript(sessionId);
+    } else if (_temporary.contains(chatId)) {
+      messages = _temporary.transcript(chatId);
+    } else {
+      messages = (await _load(chatId)).messages;
+    }
+    for (final message in messages) {
       if (message.id == messageId) {
         return (content: message.content, model: message.model);
       }

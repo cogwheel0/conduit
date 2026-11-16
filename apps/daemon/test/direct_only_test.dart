@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -139,6 +140,28 @@ void main() {
     await chats.setArchived(accepted.chatId, value: false);
     final deleted = await chats.delete(accepted.chatId);
     expect(deleted.chats.map((c) => c.id), isNot(contains(accepted.chatId)));
+  });
+
+  // Read Aloud reads a temporary chat's answer from the daemon's memory,
+  // where its transcript is: it was never in the database.
+  test('read aloud finds a temporary chat\'s answer', () async {
+    final temporary = TemporaryChats()
+      ..start('local:aloud')
+      ..append(
+        'local:aloud',
+        ChatMessage(
+          id: 'answer-1',
+          role: 'assistant',
+          content: 'Spoken words.',
+          timestamp: DateTime.utc(2026),
+          model: 'fake-model',
+        ),
+      );
+    final chats = ChatsService(runtime.container, temporary: temporary);
+    addTearDown(chats.dispose);
+    final answer = await chats.answerFor('local:aloud', 'answer-1');
+    expect(answer.content, 'Spoken words.');
+    expect(answer.model, 'fake-model');
   });
 
   // A temporary chat lives only in the daemon's memory; deleting it must
