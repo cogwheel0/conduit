@@ -181,6 +181,24 @@ impl ChannelTimeline {
         });
     }
 
+    /// The earlier page failed for this list.
+    fn older_failed(&self, cx: &App) -> bool {
+        let store = self.store.read(cx);
+        match &self.source {
+            Source::Channel => store.older_failed,
+            Source::Thread(_) => store.thread.as_ref().is_some_and(|t| t.older_failed),
+        }
+    }
+
+    /// Try Again on the failed earlier page.
+    fn retry_older(&mut self, cx: &mut Context<Self>) {
+        let source = self.source.clone();
+        self.store.update(cx, |s, cx| match source {
+            Source::Channel => s.retry_older(cx),
+            Source::Thread(_) => s.retry_older_replies(cx),
+        });
+    }
+
     /// The newest message into view.
     pub fn jump_to_latest(&mut self, cx: &mut Context<Self>) {
         self.list.scroll_to_end();
@@ -403,6 +421,18 @@ impl ChannelTimeline {
         let t = cx.conduit().clone();
         let l = cx.l10n().clone();
         let body = match &row {
+            // A failed earlier page waits for Try Again: drawing its row
+            // asks for nothing.
+            TimelineRow::Older if self.older_failed(cx) => {
+                let weak = cx.entity().downgrade();
+                older_failed_row(
+                    &l,
+                    &t,
+                    Rc::new(move |_, _, cx| {
+                        let _ = weak.update(cx, |t, cx| t.retry_older(cx));
+                    }),
+                )
+            }
             TimelineRow::Older => {
                 // Drawing the top row loads the page before it.
                 let weak = cx.entity().downgrade();
@@ -1229,6 +1259,35 @@ fn older_row(l: &L10n, t: &ConduitTheme) -> AnyElement {
         .into_any_element()
 }
 
+/// The earlier page failed: why, and Try Again.
+fn older_failed_row(
+    l: &L10n,
+    t: &ConduitTheme,
+    retry: conduit_components::views::kit::ClickHandler,
+) -> AnyElement {
+    div()
+        .id("older-failed")
+        .min_h(px(40.))
+        .py(px(6.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(px(10.))
+        .child(
+            div()
+                .id("older-failed-text")
+                .role(Role::Status)
+                .text_size(px(t.metrics.small))
+                .text_color(t.roles.text_subtle)
+                .child(SharedString::from(l.desktop_channel_older_failed())),
+        )
+        .child(
+            conduit_components::views::kit::Button::new("older-retry", l.desktop_try_again())
+                .on_click(retry),
+        )
+        .into_any_element()
+}
+
 fn empty_row(l: &L10n, t: &ConduitTheme) -> AnyElement {
     div()
         .id("empty")
@@ -1394,5 +1453,79 @@ mod tests {
         // The end stays in view as the post arrives.
         let at_end = timeline.read_with(cx, |t, _| !t.away);
         assert!(at_end);
+    }
+
+    /// An earlier page that fails is asked for once, however often its row
+    /// is drawn: no request after request while the server is away.
+    #[gpui_kit::test]
+    fn a_failed_earlier_page_is_asked_for_once(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            install(
+                ConduitTheme::new("conduit", false, DesignPrefs::default(), gpui_kit::black()),
+                cx,
+            );
+            cx.set_global(L10n::new("en"));
+            cx.set_global(conduit_components::Strings::default());
+        });
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChannelsOpen>(details("c1"));
+        let t0 = 1_790_000_000_000;
+        let newest = serde_json::to_value(page(
+            (0..3)
+                .rev()
+                .map(|n| message(&format!("m{n}"), t0 + n * 60_000, "Seedlings are up"))
+                .collect(),
+            true,
+        ))
+        .unwrap();
+        // The earlier page fails; after five tries the server would say
+        // there is none, so a test of a loop ends.
+        let tries = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let oldest = serde_json::to_value(page(vec![], false)).unwrap();
+        daemon.on::<methods::ChannelsMessages>(move |params| {
+            if params["older"] != true {
+                return Ok(newest.clone());
+            }
+            if tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 5 {
+                Err(conduit_daemon::protocol::error(
+                    "rpc.daemonUnavailable",
+                    "away",
+                ))
+            } else {
+                Ok(oldest.clone())
+            }
+        });
+        let older_asked = |daemon: &FakeDaemon| {
+            daemon
+                .calls::<methods::ChannelsMessages>()
+                .iter()
+                .filter(|c| c["older"] == true)
+                .count()
+        };
+        let subscribe: Subscribe = Rc::new(|_, _| {});
+        let rpc = daemon.rpc();
+        let store = cx.new(|cx| ChannelStore::new(rpc, subscribe, "c1".into(), cx));
+        cx.run_until_parked();
+        let timeline = {
+            let store = store.clone();
+            cx.new(|cx| ChannelTimeline::new(store, WeakEntity::new_invalid(), Source::Channel, cx))
+        };
+        let host = timeline.clone();
+        let (_, cx) = cx.add_window_view(move |_, _| Hosted(host));
+        for _ in 0..6 {
+            frame(cx);
+        }
+        assert_eq!(
+            older_asked(&daemon),
+            1,
+            "a failed earlier page was asked for again"
+        );
+        // Try Again asks once more; failing again, it waits again.
+        timeline.update(cx, |t, cx| t.retry_older(cx));
+        for _ in 0..6 {
+            frame(cx);
+        }
+        assert_eq!(older_asked(&daemon), 2, "Try Again asked other than once");
     }
 }

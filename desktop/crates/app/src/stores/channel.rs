@@ -198,6 +198,9 @@ pub struct Thread {
     pub list: MessageList,
     pub loading: bool,
     pub loading_older: bool,
+    /// Its earlier page failed: asked for again only on Try Again or after
+    /// the thread is read afresh.
+    pub older_failed: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -235,6 +238,9 @@ pub struct ChannelStore {
     /// The first page has arrived.
     pub loaded: bool,
     pub loading_older: bool,
+    /// The earlier page failed: asked for again only on Try Again or after
+    /// the newest page is read afresh, never on every draw of its row.
+    pub older_failed: bool,
     pub typing: Vec<String>,
     /// An app's private answers, under their messages, in arrival order.
     pub app_replies: Vec<ChannelAppReplyEvent>,
@@ -272,6 +278,7 @@ impl ChannelStore {
             list: MessageList::default(),
             loaded: false,
             loading_older: false,
+            older_failed: false,
             typing: vec![],
             app_replies: vec![],
             pending_actions: vec![],
@@ -362,6 +369,7 @@ impl ChannelStore {
                         Ok(page) => {
                             s.list.replace(page.messages, page.has_older);
                             s.loaded = true;
+                            s.older_failed = false;
                             s.changed(cx);
                         }
                         Err(e) => {
@@ -380,7 +388,7 @@ impl ChannelStore {
 
     /// The next page back, when the timeline reaches its top.
     pub fn load_older(&mut self, cx: &mut Context<Self>) {
-        if self.loading_older || !self.list.has_older || !self.loaded {
+        if self.loading_older || self.older_failed || !self.list.has_older || !self.loaded {
             return;
         }
         self.loading_older = true;
@@ -406,6 +414,7 @@ impl ChannelStore {
                         Ok(page) => s.list.prepend_older(page.messages, page.has_older),
                         Err(e) => {
                             log::warn!("channels.messages (older): {e}");
+                            s.older_failed = true;
                             cx.emit(ChannelStoreEvent::Failed(Failure::LoadOlder));
                         }
                     }
@@ -414,6 +423,12 @@ impl ChannelStore {
             }),
         );
         self.changed(cx);
+    }
+
+    /// Try Again on a failed earlier page.
+    pub fn retry_older(&mut self, cx: &mut Context<Self>) {
+        self.older_failed = false;
+        self.load_older(cx);
     }
 
     /// A daemon event for this window.
@@ -781,6 +796,7 @@ impl ChannelStore {
             list: MessageList::default(),
             loading: true,
             loading_older: false,
+            older_failed: false,
         });
         if self.thread.is_some() {
             self.fetch_thread(cx);
@@ -801,12 +817,20 @@ impl ChannelStore {
         let Some(thread) = self.thread.as_mut() else {
             return;
         };
-        if thread.loading_older || !thread.list.has_older {
+        if thread.loading_older || thread.older_failed || !thread.list.has_older {
             return;
         }
         thread.loading_older = true;
         let parent = thread.parent_id.clone();
         self.thread_page(parent, true, cx);
+    }
+
+    /// Try Again on a thread's failed earlier page.
+    pub fn retry_older_replies(&mut self, cx: &mut Context<Self>) {
+        if let Some(thread) = self.thread.as_mut() {
+            thread.older_failed = false;
+        }
+        self.load_older_replies(cx);
     }
 
     fn thread_page(&mut self, parent: String, older: bool, cx: &mut Context<Self>) {
@@ -828,8 +852,14 @@ impl ChannelStore {
                     t.loading_older = false;
                     match result {
                         Ok(page) if older => t.list.prepend_older(page.messages, page.has_older),
-                        Ok(page) => t.list.replace(page.messages, page.has_older),
-                        Err(e) => log::warn!("channels.messages (thread): {e}"),
+                        Ok(page) => {
+                            t.list.replace(page.messages, page.has_older);
+                            t.older_failed = false;
+                        }
+                        Err(e) => {
+                            log::warn!("channels.messages (thread): {e}");
+                            t.older_failed |= older;
+                        }
                     }
                     s.changed(cx);
                 });
