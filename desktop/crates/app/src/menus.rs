@@ -748,6 +748,16 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
     });
     for slot in CHAT_COMMAND_ORDER {
         if let Some((session_id, commands)) = &hermes {
+            // Its one sheet, just before Delete… as a chat's are.
+            if slot == ChatCommandSlot::Delete && state.hermes_context {
+                items.extend([
+                    MenuItem::separator(),
+                    MenuItem::action(
+                        l10n.desktop_hermes_context_usage_menu(),
+                        crate::actions::ShowContextUsage,
+                    ),
+                ]);
+            }
             for command in commands.iter().filter(|c| c.slot() == slot) {
                 if slot == ChatCommandSlot::Delete {
                     items.push(MenuItem::separator());
@@ -1178,6 +1188,35 @@ mod tests {
             menu(&build_menus(&l, &local), "Chat"),
             "Share Chat…"
         ));
+        // A Hermes session with a context window: Context & Usage… before
+        // Delete…, as an ordinary chat's sheets are.
+        let hermes = build_menus(
+            &l,
+            &MenuState {
+                hermes: Some(conduit_protocol::HermesSessionDto {
+                    id: "s1".into(),
+                    chat_id: "local:hermes_s1".into(),
+                    title: "Pond plants".into(),
+                    preview: None,
+                    updated_at_ms: None,
+                    pinned: false,
+                    archived: false,
+                    hidden: false,
+                    source: None,
+                    running: false,
+                }),
+                hermes_context: true,
+                ..MenuState::default()
+            },
+        );
+        let items = titles(menu(&hermes, "Chat"));
+        let context = items.iter().position(|t| t == "Context & Usage…");
+        let delete = items.iter().position(|t| t == "Delete…");
+        assert!(
+            context.is_some_and(|c| delete.is_some_and(|d| c < d)),
+            "{items:?}"
+        );
+        assert!(!disabled(menu(&hermes, "Chat"), "Context & Usage…"));
     }
 
     #[test]
