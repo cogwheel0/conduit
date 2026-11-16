@@ -231,9 +231,18 @@ pub struct OneShot {
     pub mentions: Vec<ComposerMentionDto>,
     /// Compare Models' second model.
     pub compare_with: Option<ModelSummary>,
+    /// The draft's recordings the message took with it (a dictation hold):
+    /// kept if it is refused.
+    pub recordings: Option<u64>,
 }
 
 impl OneShot {
+    /// The same, with the recordings the message took.
+    pub fn with_recordings(mut self, recordings: Option<u64>) -> Self {
+        self.recordings = recordings;
+        self
+    }
+
     /// The same, with the mentions the message carried.
     pub fn with_mentions(mut self, mentions: Vec<ComposerMentionDto>) -> Self {
         self.mentions = mentions;
@@ -1691,6 +1700,7 @@ impl ComposerStore {
             mention: self.mention.clone(),
             mentions: vec![],
             compare_with: self.compare_with.clone(),
+            recordings: None,
         }
     }
 

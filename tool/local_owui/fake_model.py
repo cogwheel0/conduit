@@ -40,7 +40,9 @@ offers three models:
 
 Open WebUI's background tasks (title, tags, follow-ups) get JSON answers,
 and a note sent as `<notes>...</notes>` comes back as a markdown list.
-`/audio/transcriptions` answers with a fixed sentence and `/audio/speech`
+`/audio/transcriptions` answers with a fixed sentence (the log gets the
+upload's size, its WAV's length and its language; six seconds or more of
+audio take 4 s to answer) and `/audio/speech`
 with a tenth of a second of silence (WAV), for the server's speech
 features. `/mcp` is a small MCP server (streamable HTTP, JSON answers)
 with one MCP App, `show_tides`, whose page shows the tool's result, for
@@ -83,6 +85,56 @@ NOTES = re.compile(r'<notes>(.*?)</notes>', re.DOTALL)
 
 
 TRANSCRIPT = 'A synthetic transcript from the fake model.'
+
+
+def upload_summary(raw, content_type):
+    """A multipart transcription upload's file size, its audio's length in
+    seconds (WAV), and the language field, for the request log."""
+    boundary = re.search(r'boundary="?([^";]+)', content_type or '')
+    summary = {'bytes': len(raw), 'seconds': None, 'language': None}
+    if not boundary:
+        return summary
+    for part in raw.split(b'--' + boundary.group(1).encode()):
+        head, _, body = part.partition(b'\r\n\r\n')
+        body = body[:-2] if body.endswith(b'\r\n') else body
+        if b'name="language"' in head:
+            summary['language'] = body.decode('utf-8', 'replace').strip()
+        elif b'name="file"' in head:
+            summary['bytes'] = len(body)
+            try:
+                with wave.open(io.BytesIO(body)) as w:
+                    summary['seconds'] = round(w.getnframes() / float(w.getframerate()), 2)
+            except (wave.Error, EOFError):
+                # Open WebUI sends 16-bit PCM on as MP3.
+                summary['seconds'] = mp3_seconds(body)
+    return summary
+
+
+def mp3_seconds(data):
+    """An MP3's length in seconds, by counting its MPEG audio Layer III
+    frames (None when it holds none)."""
+    i = 0
+    if data[:3] == b'ID3' and len(data) >= 10:
+        i = 10 + ((data[6] & 0x7f) << 21 | (data[7] & 0x7f) << 14
+                  | (data[8] & 0x7f) << 7 | (data[9] & 0x7f))
+    v1 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320]
+    v2 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160]
+    rates = {3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000]}
+    samples, rate = 0, None
+    while i + 4 <= len(data):
+        b1, b2 = data[i + 1], data[i + 2]
+        version, layer = (b1 >> 3) & 3, (b1 >> 1) & 3
+        bitrate, index, pad = b2 >> 4, (b2 >> 2) & 3, (b2 >> 1) & 1
+        if (data[i] != 0xFF or (b1 & 0xE0) != 0xE0 or version == 1 or layer != 1
+                or bitrate in (0, 15) or index == 3):
+            i += 1
+            continue
+        rate = rates[version][index]
+        per_frame = 1152 if version == 3 else 576
+        kbps = (v1 if version == 3 else v2)[bitrate]
+        samples += per_frame
+        i += per_frame // 8 * kbps * 1000 // rate + pad
+    return round(samples / rate, 2) if rate else None
 
 ASK_USER = {
     'questions': [
@@ -395,6 +447,16 @@ class Handler(BaseHTTPRequestHandler):
         raw = self._body()
         path = self.path.split('?')[0].rstrip('/')
         if path.endswith('/audio/transcriptions'):
+            summary = upload_summary(raw, self.headers.get('Content-Type', ''))
+            if self.log_path:
+                # What reached the server, so a dictation test can check
+                # the whole recording and its language went out.
+                with open(self.log_path, 'a') as log:
+                    log.write(json.dumps({'transcription': summary}) + '\n')
+            # A long recording takes a moment, as a real engine's does (the
+            # desktop's Transcribing state is seen, and shot).
+            if (summary.get('seconds') or 0) >= 6:
+                time.sleep(4)
             self._json(200, {'text': TRANSCRIPT})
             return
         if path.endswith('/audio/speech'):

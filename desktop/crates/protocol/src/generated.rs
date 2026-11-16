@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.59.0";
+pub const PROTOCOL_VERSION: &str = "1.60.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: folders now, notes and Workspace items reuse it.
@@ -3034,6 +3034,75 @@ fn default_connection_health_allow_websocket() -> bool {
     true
 }
 
+/// Params for `dictation.status`: what dictation is for. The model names
+/// the backend that transcribes on the server: an Open WebUI server for its
+/// models, the Voice Provider for Direct and Apple models, a Hermes
+/// gateway for Hermes, a LibreChat server for its own.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DictationTarget {
+    /// The chat's model, or null for the account's default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+}
+
+/// Reply to `dictation.status`: which engine dictation uses now, and what
+/// each one can do. The window records; the daemon only transcribes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictationStatus {
+    /// `device` (this computer's own speech recognition), `server`, or
+    /// `local` (whisper on this computer): Settings › Audio's choice.
+    #[serde(default = "default_dictation_status_engine")]
+    pub engine: String,
+    /// Whether the target's backend transcribes speech.
+    #[serde(default)]
+    pub server_available: bool,
+    /// Which backend that is: `openWebUi`, `hermes`, `direct` or
+    /// `libreChat`; null when there is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_source: Option<String>,
+    /// Whether this build can run whisper (it has the library).
+    #[serde(default)]
+    pub local_available: bool,
+    /// Whether whisper can transcribe now: the library, and the chosen
+    /// model downloaded.
+    #[serde(default)]
+    pub local_ready: bool,
+    /// The whisper model chosen, by id (`base.en`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_model: Option<String>,
+    /// The transcription language (`de`, `pt-BR`), or null for automatic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    /// How long a pause ends dictation, in milliseconds.
+    #[serde(default = "default_dictation_status_silence_ms")]
+    pub silence_ms: i64,
+}
+
+impl Default for DictationStatus {
+    fn default() -> Self {
+        Self {
+            engine: default_dictation_status_engine(),
+            server_available: Default::default(),
+            server_source: None,
+            local_available: Default::default(),
+            local_ready: Default::default(),
+            local_model: None,
+            language: None,
+            silence_ms: default_dictation_status_silence_ms(),
+        }
+    }
+}
+
+fn default_dictation_status_engine() -> String {
+    "device".to_owned()
+}
+
+fn default_dictation_status_silence_ms() -> i64 {
+    2000
+}
+
 /// Which kind of server a direct connection talks to.
 ///
 /// OpenRouter, Azure and LM Studio are OpenAI-compatible servers, not kinds
@@ -5015,6 +5084,145 @@ pub struct QueueSendNowResult {
     /// `blockedByUpload`, `stopFailed`, `changed` or `admissionFailed`.
     pub outcome: String,
     pub queue: QueueState,
+}
+
+/// Names the draft whose recordings these are: a stored chat's, or a new
+/// chat's (in a folder, or none), as `drafts.*` does. Params for
+/// `recordings.list` and `recordings.begin`.
+///
+/// A recording is the audio of a dictation, kept in the account's database
+/// with the unsent draft (never in chat history or a sync payload) until
+/// the draft is sent or the recording discarded. A temporary or read-only
+/// chat keeps none.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingTarget {
+    /// Null for a chat not started yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+    /// A new chat's folder; ignored with a `chatId`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_id: Option<String>,
+}
+
+/// One saved recording: 16 kHz mono 16-bit PCM.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingDto {
+    pub id: String,
+    /// When it started, in milliseconds since the epoch.
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default)]
+    pub byte_count: i64,
+    /// How long it is, from `byteCount`.
+    #[serde(default)]
+    pub duration_ms: i64,
+}
+
+/// Reply to `recordings.list` and `recordings.discard`: the draft's
+/// recordings, oldest first.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingList {
+    /// False when the draft keeps none (a temporary or read-only chat).
+    #[serde(default = "default_recording_list_stored")]
+    pub stored: bool,
+    #[serde(default)]
+    pub recordings: Vec<RecordingDto>,
+}
+
+impl Default for RecordingList {
+    fn default() -> Self {
+        Self {
+            stored: default_recording_list_stored(),
+            recordings: Default::default(),
+        }
+    }
+}
+
+fn default_recording_list_stored() -> bool {
+    true
+}
+
+/// Reply to `recordings.begin`: the new recording, or none when the draft
+/// keeps no recordings (the window then holds the audio itself).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingStarted {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default = "default_recording_started_stored")]
+    pub stored: bool,
+}
+
+impl Default for RecordingStarted {
+    fn default() -> Self {
+        Self {
+            id: None,
+            stored: default_recording_started_stored(),
+        }
+    }
+}
+
+fn default_recording_started_stored() -> bool {
+    true
+}
+
+/// Params for `recordings.append`: the next audio of an open recording.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingChunk {
+    pub id: String,
+    /// 16 kHz mono 16-bit little-endian PCM, base64.
+    pub pcm: String,
+}
+
+/// Reply to `recordings.append` and `recordings.close`: how much of the
+/// recording is safely stored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingSaved {
+    pub id: String,
+    #[serde(default)]
+    pub saved_bytes: i64,
+    /// Closed with nothing in it, so not kept.
+    #[serde(default)]
+    pub discarded: bool,
+}
+
+/// Params for `recordings.close` and `recordings.discard`, and for
+/// `GET /recordings/{id}` (as its query): a recording of a draft.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingRef {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_id: Option<String>,
+}
+
+/// Params for `recordings.transcribe`: a saved recording, as text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingTranscribe {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_id: Option<String>,
+    /// `server` (the model's backend) or `local` (whisper on this
+    /// computer).
+    #[serde(default = "default_recording_transcribe_engine")]
+    pub engine: String,
+    /// The chat's model, whose backend transcribes on the server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+}
+
+fn default_recording_transcribe_engine() -> String {
+    "server".to_owned()
 }
 
 /// One version's release note, as core's catalog reads it.
@@ -10669,6 +10877,90 @@ pub mod methods {
         type Params = super::VoiceModelRef;
         type Result = super::VoiceModels;
     }
+
+    /// Which engine dictates now, and what the target's backend can do.
+    ///
+    /// `dictation.status`: DictationTarget -> DictationStatus.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DictationStatus;
+
+    impl RpcMethod for DictationStatus {
+        const NAME: &'static str = "dictation.status";
+        type Params = super::DictationTarget;
+        type Result = super::DictationStatus;
+    }
+
+    /// A draft's saved recordings.
+    ///
+    /// `recordings.list`: RecordingTarget -> RecordingList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct RecordingsList;
+
+    impl RpcMethod for RecordingsList {
+        const NAME: &'static str = "recordings.list";
+        type Params = super::RecordingTarget;
+        type Result = super::RecordingList;
+    }
+
+    /// Starts a recording for a draft.
+    ///
+    /// `recordings.begin`: RecordingTarget -> RecordingStarted.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct RecordingsBegin;
+
+    impl RpcMethod for RecordingsBegin {
+        const NAME: &'static str = "recordings.begin";
+        type Params = super::RecordingTarget;
+        type Result = super::RecordingStarted;
+    }
+
+    /// Stores the next audio of an open recording.
+    ///
+    /// `recordings.append`: RecordingChunk -> RecordingSaved.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct RecordingsAppend;
+
+    impl RpcMethod for RecordingsAppend {
+        const NAME: &'static str = "recordings.append";
+        type Params = super::RecordingChunk;
+        type Result = super::RecordingSaved;
+    }
+
+    /// Ends an open recording; one with no audio is not kept.
+    ///
+    /// `recordings.close`: RecordingRef -> RecordingSaved.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct RecordingsClose;
+
+    impl RpcMethod for RecordingsClose {
+        const NAME: &'static str = "recordings.close";
+        type Params = super::RecordingRef;
+        type Result = super::RecordingSaved;
+    }
+
+    /// Deletes a saved recording.
+    ///
+    /// `recordings.discard`: RecordingRef -> RecordingList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct RecordingsDiscard;
+
+    impl RpcMethod for RecordingsDiscard {
+        const NAME: &'static str = "recordings.discard";
+        type Params = super::RecordingRef;
+        type Result = super::RecordingList;
+    }
+
+    /// A saved recording, as text: by the model's backend or by whisper.
+    ///
+    /// `recordings.transcribe`: RecordingTranscribe -> VoiceTranscript.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct RecordingsTranscribe;
+
+    impl RpcMethod for RecordingsTranscribe {
+        const NAME: &'static str = "recordings.transcribe";
+        type Params = super::RecordingTranscribe;
+        type Result = super::VoiceTranscript;
+    }
 }
 
 /// Every method, with its params and result DTOs by name (`None` for none).
@@ -11893,6 +12185,41 @@ pub const METHODS: &[MethodSpec] = &[
         params: Some("VoiceModelRef"),
         result: Some("VoiceModels"),
     },
+    MethodSpec {
+        name: "dictation.status",
+        params: Some("DictationTarget"),
+        result: Some("DictationStatus"),
+    },
+    MethodSpec {
+        name: "recordings.list",
+        params: Some("RecordingTarget"),
+        result: Some("RecordingList"),
+    },
+    MethodSpec {
+        name: "recordings.begin",
+        params: Some("RecordingTarget"),
+        result: Some("RecordingStarted"),
+    },
+    MethodSpec {
+        name: "recordings.append",
+        params: Some("RecordingChunk"),
+        result: Some("RecordingSaved"),
+    },
+    MethodSpec {
+        name: "recordings.close",
+        params: Some("RecordingRef"),
+        result: Some("RecordingSaved"),
+    },
+    MethodSpec {
+        name: "recordings.discard",
+        params: Some("RecordingRef"),
+        result: Some("RecordingList"),
+    },
+    MethodSpec {
+        name: "recordings.transcribe",
+        params: Some("RecordingTranscribe"),
+        result: Some("VoiceTranscript"),
+    },
 ];
 
 /// The event names, for `events.subscribe`.
@@ -12561,6 +12888,8 @@ pub mod conformance {
         "DeleteMessages",
         "DeletedResult",
         "DiagnosticsExport",
+        "DictationStatus",
+        "DictationTarget",
         "DirectConnectionEdit",
         "DirectConnectionList",
         "DirectConnectionSummary",
@@ -12709,6 +13038,14 @@ pub mod conformance {
         "RateTurn",
         "RatedResult",
         "ReasoningOptions",
+        "RecordingChunk",
+        "RecordingDto",
+        "RecordingList",
+        "RecordingRef",
+        "RecordingSaved",
+        "RecordingStarted",
+        "RecordingTarget",
+        "RecordingTranscribe",
         "RegenerateTurn",
         "ReleaseNoteBullet",
         "ReleaseNoteDto",
@@ -12959,6 +13296,8 @@ pub mod conformance {
             "DeleteMessages" => roundtrip::<super::DeleteMessages>(json),
             "DeletedResult" => roundtrip::<super::DeletedResult>(json),
             "DiagnosticsExport" => roundtrip::<super::DiagnosticsExport>(json),
+            "DictationStatus" => roundtrip::<super::DictationStatus>(json),
+            "DictationTarget" => roundtrip::<super::DictationTarget>(json),
             "DirectConnectionEdit" => roundtrip::<super::DirectConnectionEdit>(json),
             "DirectConnectionList" => roundtrip::<super::DirectConnectionList>(json),
             "DirectConnectionSummary" => roundtrip::<super::DirectConnectionSummary>(json),
@@ -13107,6 +13446,14 @@ pub mod conformance {
             "RateTurn" => roundtrip::<super::RateTurn>(json),
             "RatedResult" => roundtrip::<super::RatedResult>(json),
             "ReasoningOptions" => roundtrip::<super::ReasoningOptions>(json),
+            "RecordingChunk" => roundtrip::<super::RecordingChunk>(json),
+            "RecordingDto" => roundtrip::<super::RecordingDto>(json),
+            "RecordingList" => roundtrip::<super::RecordingList>(json),
+            "RecordingRef" => roundtrip::<super::RecordingRef>(json),
+            "RecordingSaved" => roundtrip::<super::RecordingSaved>(json),
+            "RecordingStarted" => roundtrip::<super::RecordingStarted>(json),
+            "RecordingTarget" => roundtrip::<super::RecordingTarget>(json),
+            "RecordingTranscribe" => roundtrip::<super::RecordingTranscribe>(json),
             "RegenerateTurn" => roundtrip::<super::RegenerateTurn>(json),
             "ReleaseNoteBullet" => roundtrip::<super::ReleaseNoteBullet>(json),
             "ReleaseNoteDto" => roundtrip::<super::ReleaseNoteDto>(json),

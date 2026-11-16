@@ -50,6 +50,8 @@ import 'terminals_service.dart';
 import 'handoff_service.dart';
 import 'hermes_service.dart';
 import 'voice_service.dart';
+import 'dictation_service.dart';
+import 'recordings_service.dart';
 import 'core_settings_service.dart';
 import 'data_service.dart';
 import 'access_service.dart';
@@ -123,6 +125,8 @@ class DaemonServer {
   TerminalsService? _terminals;
   HermesService? _hermes;
   VoiceService? _voice;
+  DictationService? _dictation;
+  RecordingsService? _recordings;
   CapabilitiesService? _capabilities;
   CoreSettingsService? _coreSettings;
   ProfileService? _profile;
@@ -246,6 +250,8 @@ class DaemonServer {
         p.join(core.directories.paths.userData, 'whisper'),
       ),
     );
+    _dictation = DictationService(core.container, voice: _voice!);
+    _recordings = RecordingsService(drafts: _drafts!, dictation: _dictation!);
     _coreSettings = CoreSettingsService(core.container, events: events);
     _profile = ProfileService(core.container, accounts: _accounts);
     _memories = MemoriesService(core.container);
@@ -281,6 +287,8 @@ class DaemonServer {
       terminals: _terminals,
       hermes: _hermes,
       voice: _voice,
+      dictation: _dictation,
+      recordings: _recordings,
       coreSettings: _coreSettings,
       profile: _profile,
       memories: _memories,
@@ -425,6 +433,7 @@ class DaemonServer {
     if (path.startsWith('/terminal/')) return _terminalTunnel(request, path);
     if (path.startsWith('/files/')) return _file(request);
     if (path == ConduitHttpRoutes.transcribe) return _transcribe(request);
+    if (path.startsWith('/recordings/')) return _recording(request, path);
     if (path.startsWith('/tts/')) return _speech(request, path);
     if (path == '/health') {
       // Authenticated liveness probe for a supervisor; it does not
@@ -665,10 +674,12 @@ class DaemonServer {
   }
 
   /// `POST /transcribe` -- a recording, as text. The body is the
-  /// recording and nothing else; its type is the content type.
+  /// recording and nothing else; its type is the content type. The query
+  /// may name the engine (`engine=server|local`) and the chat's model
+  /// (`model=`), whose backend transcribes on the server.
   Future<shelf.Response> _transcribe(shelf.Request request) async {
-    final voice = _voice;
-    if (voice == null) {
+    final dictation = _dictation;
+    if (dictation == null) {
       return _problem(
         503,
         ConduitErrorCodes.daemonUnavailable,
@@ -678,10 +689,17 @@ class DaemonServer {
     if (request.method != 'POST') {
       return shelf.Response(405, body: 'POST only');
     }
+    final query = request.url.queryParameters;
+    // The account the request began under: audio still arriving when
+    // another signs in never goes to the next account's backend.
+    final session = dictation.session();
     try {
-      final transcript = await voice.transcribe(
+      final transcript = await dictation.transcribe(
         await _collect(request.read()),
         contentType: request.headers['content-type'],
+        engine: _nonEmpty(query['engine']),
+        modelId: _nonEmpty(query['model']),
+        session: session,
       );
       return shelf.Response.ok(
         jsonEncode(transcript.toJson()),
@@ -695,6 +713,51 @@ class DaemonServer {
     } on Object catch (error, stack) {
       _log.error('transcription failed', error, stack);
       return _problem(502, ConduitErrorCodes.serverError, 'transcribe failed');
+    }
+  }
+
+  static String? _nonEmpty(String? value) {
+    final trimmed = value?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : trimmed;
+  }
+
+  /// `GET /recordings/{id}?chatId=&folderId=` -- a saved recording of a
+  /// draft as 16 kHz mono WAV. It needs the token, as `/files/` does.
+  Future<shelf.Response> _recording(shelf.Request request, String path) async {
+    final recordings = _recordings;
+    if (recordings == null) {
+      return _problem(
+        503,
+        ConduitErrorCodes.daemonUnavailable,
+        'core starting',
+      );
+    }
+    if (request.method != 'GET') {
+      return shelf.Response(405, body: 'GET only');
+    }
+    final query = request.url.queryParameters;
+    try {
+      final wav = await recordings.wav(
+        RecordingRef(
+          id: Uri.decodeComponent(path.substring('/recordings/'.length)),
+          chatId: _nonEmpty(query['chatId']),
+          folderId: _nonEmpty(query['folderId']),
+        ),
+      );
+      return shelf.Response.ok(
+        wav,
+        headers: <String, String>{
+          'content-type': 'audio/wav',
+          'x-content-type-options': 'nosniff',
+          'cache-control': 'no-store',
+          ..._corsHeaders,
+        },
+      );
+    } on RpcError catch (error) {
+      return _problem(_statusFor(error), error.code, error.debugMessage);
+    } on Object catch (error, stack) {
+      _log.error('recording read failed', error, stack);
+      return _problem(500, ConduitErrorCodes.serverError, 'recording failed');
     }
   }
 

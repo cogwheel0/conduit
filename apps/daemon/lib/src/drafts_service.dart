@@ -45,6 +45,11 @@ final class DraftsService {
     return Draft(text: request.text);
   }
 
+  /// Where [chatId]'s draft (a new chat's in [folderId]) lives, for what
+  /// else is kept with it: its recordings (`recordings.*`).
+  Future<ComposerDraftContext> contextFor(String? chatId, String? folderId) =>
+      _context(chatId, folderId);
+
   Future<ComposerDraftContext> _context(
     String? chatId,
     String? folderId,

@@ -8,6 +8,7 @@ import 'chat_settings.dart';
 import 'chats.dart';
 import 'composer.dart';
 import 'data.dart';
+import 'dictation.dart';
 import 'direct.dart';
 import 'events.dart';
 import 'handoff.dart';
@@ -24,6 +25,7 @@ import 'profile.dart';
 import 'prompts.dart';
 import 'release_notes.dart';
 import 'queue.dart';
+import 'recordings.dart';
 import 'servers.dart';
 import 'settings.dart';
 import 'system.dart';
@@ -1444,6 +1446,52 @@ abstract final class ConduitMethodSpecs {
     result: VoiceModels.fromJson,
   );
 
+  // dictation.*
+  static const dictationStatus =
+      ConduitMethodSpec<DictationTarget, DictationStatus>(
+        ConduitMethods.dictationStatus,
+        params: DictationTarget.fromJson,
+        result: DictationStatus.fromJson,
+      );
+
+  // recordings.*
+  static const recordingsList =
+      ConduitMethodSpec<RecordingTarget, RecordingList>(
+        ConduitMethods.recordingsList,
+        params: RecordingTarget.fromJson,
+        result: RecordingList.fromJson,
+      );
+  static const recordingsBegin =
+      ConduitMethodSpec<RecordingTarget, RecordingStarted>(
+        ConduitMethods.recordingsBegin,
+        params: RecordingTarget.fromJson,
+        result: RecordingStarted.fromJson,
+      );
+  static const recordingsAppend =
+      ConduitMethodSpec<RecordingChunk, RecordingSaved>(
+        ConduitMethods.recordingsAppend,
+        params: RecordingChunk.fromJson,
+        result: RecordingSaved.fromJson,
+      );
+  static const recordingsClose =
+      ConduitMethodSpec<RecordingRef, RecordingSaved>(
+        ConduitMethods.recordingsClose,
+        params: RecordingRef.fromJson,
+        result: RecordingSaved.fromJson,
+      );
+  static const recordingsDiscard =
+      ConduitMethodSpec<RecordingRef, RecordingList>(
+        ConduitMethods.recordingsDiscard,
+        params: RecordingRef.fromJson,
+        result: RecordingList.fromJson,
+      );
+  static const recordingsTranscribe =
+      ConduitMethodSpec<RecordingTranscribe, VoiceTranscript>(
+        ConduitMethods.recordingsTranscribe,
+        params: RecordingTranscribe.fromJson,
+        result: VoiceTranscript.fromJson,
+      );
+
   /// Every method, once.
   static const List<ConduitMethodSpec<Object?, Object?>> all =
       <ConduitMethodSpec<Object?, Object?>>[
@@ -1691,6 +1739,13 @@ abstract final class ConduitMethodSpecs {
         voiceModels,
         voiceDownloadModel,
         voiceDeleteModel,
+        dictationStatus,
+        recordingsList,
+        recordingsBegin,
+        recordingsAppend,
+        recordingsClose,
+        recordingsDiscard,
+        recordingsTranscribe,
       ];
 
   static final Map<String, ConduitMethodSpec<Object?, Object?>> _byName =

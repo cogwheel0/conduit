@@ -30,6 +30,8 @@ import 'terminals_service.dart';
 import 'handoff_service.dart';
 import 'hermes_service.dart';
 import 'voice_service.dart';
+import 'dictation_service.dart';
+import 'recordings_service.dart';
 import 'core_settings_service.dart';
 import 'data_service.dart';
 import 'access_service.dart';
@@ -63,6 +65,8 @@ final class CoreServices {
     this.terminals,
     this.hermes,
     this.voice,
+    this.dictation,
+    this.recordings,
     this.coreSettings,
     this.profile,
     this.memories,
@@ -111,6 +115,8 @@ final class CoreServices {
 
   /// A server's `chat:handoff`, put to the windows.
   final HandoffService? handoff;
+  final DictationService? dictation;
+  final RecordingsService? recordings;
 }
 
 /// One connected renderer window.
@@ -178,6 +184,8 @@ class RpcSession {
   TerminalsService? get _terminals => _services().terminals;
   HermesService? get _hermes => _services().hermes;
   VoiceService? get _voice => _services().voice;
+  DictationService? get _dictation => _services().dictation;
+  RecordingsService? get _recordings => _services().recordings;
   CoreSettingsService? get _coreSettings => _services().coreSettings;
   ProfileService? get _profile => _services().profile;
   MemoriesService? get _memories => _services().memories;
@@ -204,6 +212,8 @@ class RpcSession {
     // the turn that asked them.
     _uiRequests?.onWindowsChanged();
     _handoff?.onWindowsChanged();
+    // What this window was recording is kept for its next launch.
+    await _recordings?.closeOwnedBy(sessionId);
     await _peer.close();
   }
 
@@ -864,6 +874,33 @@ class RpcSession {
       (p) => _requireVoice().deleteModel(p.id),
     );
 
+    // dictation.*, recordings.*.
+    _on(
+      ConduitMethodSpecs.dictationStatus,
+      (p) => _requireDictation().status(p),
+    );
+    _on(ConduitMethodSpecs.recordingsList, (p) => _requireRecordings().list(p));
+    _on(
+      ConduitMethodSpecs.recordingsBegin,
+      (p) => _requireRecordings().begin(p, sessionId: sessionId),
+    );
+    _on(
+      ConduitMethodSpecs.recordingsAppend,
+      (p) => _requireRecordings().append(p),
+    );
+    _on(
+      ConduitMethodSpecs.recordingsClose,
+      (p) => _requireRecordings().close(p),
+    );
+    _on(
+      ConduitMethodSpecs.recordingsDiscard,
+      (p) => _requireRecordings().discard(p),
+    );
+    _on(
+      ConduitMethodSpecs.recordingsTranscribe,
+      (p) => _requireRecordings().transcribe(p),
+    );
+
     // terminal.*.
     _on(
       ConduitMethodSpecs.terminalServers,
@@ -1086,6 +1123,20 @@ class RpcSession {
 
   VoiceService _requireVoice() =>
       _voice ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  DictationService _requireDictation() =>
+      _dictation ??
+      (throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the core is not up yet',
+      ));
+
+  RecordingsService _requireRecordings() =>
+      _recordings ??
       (throw const RpcError(
         code: ConduitErrorCodes.daemonUnavailable,
         debugMessage: 'the core is not up yet',

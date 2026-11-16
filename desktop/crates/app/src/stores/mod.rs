@@ -33,6 +33,7 @@ pub mod chat;
 pub mod chat_list;
 pub mod composer;
 pub mod connection;
+pub mod dictation;
 pub mod files;
 pub mod layout;
 pub mod navigation;

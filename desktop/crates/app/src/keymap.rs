@@ -69,7 +69,7 @@ impl ShortcutAction {
     /// Whether the app can carry this out yet. The others are listed in
     /// Settings › Keyboard as "not available yet" and are not bound.
     ///
-    /// Only dictate (voice) is not live yet.
+    /// Every one is now (dictation came with voice input).
     pub fn is_live(self) -> bool {
         matches!(
             self,
@@ -85,6 +85,7 @@ impl ShortcutAction {
                 | Self::StopGenerating
                 | Self::CopyLastResponse
                 | Self::CopyLastCodeBlock
+                | Self::Dictate
         )
     }
 }
@@ -474,6 +475,7 @@ pub fn keyboard_groups() -> Vec<(KeyGroup, Vec<KeyRow>)> {
             KeyGroup::Messages,
             vec![
                 R(A::FocusComposer),
+                R(A::Dictate),
                 R(A::FocusModelPicker),
                 R(A::StopGenerating),
                 Fixed(F::Regenerate),
@@ -902,6 +904,7 @@ mod tests {
                 A::CopyLastCodeBlock,
                 A::AllowRequest,
                 A::DenyRequest,
+                A::Dictate,
                 A::ToggleSidebar
             ]
         );
@@ -916,7 +919,7 @@ mod tests {
             .into_iter()
             .flat_map(|(_, rows)| rows)
             .collect();
-        // Every command the app carries out, once; Dictate waits for voice.
+        // Every command the app carries out, once.
         for a in ShortcutAction::ALL {
             let n = rows.iter().filter(|r| **r == KeyRow::Rebindable(a)).count();
             assert_eq!(n, usize::from(a.is_live()), "{a:?}");
@@ -932,8 +935,8 @@ mod tests {
             assert_eq!(n, 1, "{c:?}");
         }
         assert_eq!(rows.iter().filter(|r| **r == KeyRow::QuickAsk).count(), 1);
-        // 12 rebindable, 17 fixed (⌘1…⌘8 as one row), Quick Ask.
-        assert_eq!(rows.len(), 31);
+        // 13 rebindable, 17 fixed (⌘1…⌘8 as one row), Quick Ask.
+        assert_eq!(rows.len(), 32);
         // Go › Back and Forward are Finder's ⌘[ and ⌘].
         assert_eq!(describe(&fixed_stroke(FixedCommand::Back), true), "⌘[");
         assert_eq!(describe(&fixed_stroke(FixedCommand::Forward), true), "⌘]");

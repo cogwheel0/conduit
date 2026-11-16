@@ -7,7 +7,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.59.0",
+  "protocolVersion": "1.60.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -16,7 +16,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.59.0",
+  "protocolVersion": "1.60.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -2196,6 +2196,82 @@ const Map<String, String> protocolGoldens = <String, String>{
   'voiceModelRef': r'''
 {
   "id": "tiny.en"
+}''',
+
+  'dictationTarget': r'''
+{
+  "modelId": "fake-model"
+}''',
+
+  'dictationStatus': r'''
+{
+  "engine": "server",
+  "serverAvailable": true,
+  "serverSource": "openWebUi",
+  "localAvailable": true,
+  "localReady": false,
+  "localModel": "tiny.en",
+  "language": "de",
+  "silenceMs": 1500
+}''',
+
+  'recordingTarget': r'''
+{
+  "folderId": "folder-1"
+}''',
+
+  'recordingDto': r'''
+{
+  "id": "rec-1",
+  "createdAt": 1767225600000,
+  "byteCount": 96000,
+  "durationMs": 3000
+}''',
+
+  'recordingList': r'''
+{
+  "stored": true,
+  "recordings": [
+    {
+      "id": "rec-1",
+      "createdAt": 0,
+      "byteCount": 32000,
+      "durationMs": 0
+    }
+  ]
+}''',
+
+  'recordingStarted': r'''
+{
+  "id": "rec-2",
+  "stored": true
+}''',
+
+  'recordingChunk': r'''
+{
+  "id": "rec-2",
+  "pcm": "AAABAAIA"
+}''',
+
+  'recordingSaved': r'''
+{
+  "id": "rec-2",
+  "savedBytes": 32000,
+  "discarded": false
+}''',
+
+  'recordingRef': r'''
+{
+  "id": "rec-1",
+  "chatId": "chat-1"
+}''',
+
+  'recordingTranscribe': r'''
+{
+  "id": "rec-1",
+  "chatId": "chat-1",
+  "engine": "local",
+  "modelId": "fake-model"
 }''',
 
   'terminalDisplayFile': r'''

@@ -897,6 +897,35 @@ abstract final class ConduitMethods {
 
   /// Deletes a downloaded model, or stops its download.
   static const String voiceDeleteModel = 'voice.deleteModel';
+  static const String dictationPrefix = 'dictation.';
+
+  // dictation.*. The window listens and records; what it heard reaches the
+  // backend through `POST /transcribe`.
+
+  /// Which engine dictates now, and what the target's backend can do.
+  static const String dictationStatus = 'dictation.status';
+  static const String recordingsPrefix = 'recordings.';
+
+  // recordings.*. A dictation's audio, kept with the unsent draft in the
+  // account's database so a crash or a relaunch loses none of it.
+
+  /// A draft's saved recordings.
+  static const String recordingsList = 'recordings.list';
+
+  /// Starts a recording for a draft.
+  static const String recordingsBegin = 'recordings.begin';
+
+  /// Stores the next audio of an open recording.
+  static const String recordingsAppend = 'recordings.append';
+
+  /// Ends an open recording; one with no audio is not kept.
+  static const String recordingsClose = 'recordings.close';
+
+  /// Deletes a saved recording.
+  static const String recordingsDiscard = 'recordings.discard';
+
+  /// A saved recording, as text: by the model's backend or by whisper.
+  static const String recordingsTranscribe = 'recordings.transcribe';
   static const String settingsPrefix = 'settings.';
   static const String syncPrefix = 'sync.';
   static const String socketPrefix = 'socket.';
@@ -940,6 +969,8 @@ abstract final class ConduitMethods {
     hermesPrefix,
     terminalPrefix,
     voicePrefix,
+    dictationPrefix,
+    recordingsPrefix,
     settingsPrefix,
     syncPrefix,
     socketPrefix,
@@ -981,7 +1012,17 @@ abstract final class ConduitHttpRoutes {
   /// transcription as a `VoiceTranscript`, by the active server or, with
   /// the local engine, by whisper on this computer -- which takes 16 kHz
   /// mono WAV only. The saved language applies.
+  ///
+  /// Query: `engine` (`server` or `local`; the saved one when absent) and
+  /// `model` (a model id: its backend transcribes on the server -- an Open
+  /// WebUI server, the Voice Provider, a Hermes gateway or a LibreChat
+  /// server; the account's server when absent).
   static const String transcribe = '/transcribe';
+
+  /// `GET /recordings/{id}?chatId=&folderId=` -- a saved recording
+  /// (`recordings.*`) as 16 kHz mono WAV, for Export and for transcribing
+  /// it on this computer.
+  static String recording(String id) => '/recordings/$id';
 
   /// `WS /terminal/{handle}` — raw byte tunnel to the Open WebUI terminal
   /// socket with auth added.

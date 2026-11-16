@@ -39,6 +39,7 @@ pub mod smoke;
 pub mod stores;
 pub mod updates;
 pub mod views;
+pub mod voice;
 pub mod windows;
 
 use std::path::PathBuf;

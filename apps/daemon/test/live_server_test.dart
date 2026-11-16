@@ -2428,6 +2428,53 @@ void main() {
         }
       }, timeout: const Timeout(Duration(minutes: 2)));
 
+      // Dictation: the server's engine for an Open WebUI model, and a
+      // recording kept with a new chat's draft, transcribed from there.
+      test(
+        'dictates through the model\'s server and keeps the recording',
+        () async {
+          final voice = VoiceService(runtime.container);
+          final dictation = DictationService(runtime.container, voice: voice);
+          final status = await dictation.status(const DictationTarget());
+          if (!status.serverAvailable) {
+            markTestSkipped('the server does not transcribe');
+            return;
+          }
+          expect(status.serverSource, 'openWebUi');
+          final heard = await dictation.transcribe(
+            _toneWav(),
+            contentType: 'audio/wav',
+            engine: 'server',
+          );
+          expect(heard.text, isNotEmpty);
+
+          final recordings = RecordingsService(
+            drafts: DraftsService(
+              runtime.container,
+              temporary: TemporaryChats(),
+            ),
+            dictation: dictation,
+          );
+          const target = RecordingTarget(folderId: 'live-dictation');
+          final id = (await recordings.begin(target, sessionId: 'live')).id!;
+          addTearDown(
+            () => recordings.discard(
+              RecordingRef(id: id, folderId: 'live-dictation'),
+            ),
+          );
+          final tone = _toneWav();
+          await recordings.append(
+            RecordingChunk(id: id, pcm: base64Encode(tone.sublist(44))),
+          );
+          await recordings.close(RecordingRef(id: id));
+          final transcript = await recordings.transcribe(
+            RecordingTranscribe(id: id, folderId: 'live-dictation'),
+          );
+          expect(transcript.text, isNotEmpty);
+        },
+        timeout: const Timeout(Duration(minutes: 2)),
+      );
+
       // Settings parity: the account's profile, its memories and
       // system prompt, a model's prompt, the composer's pills, Chat Data
       // Controls and the socket's health. Every change is put back.

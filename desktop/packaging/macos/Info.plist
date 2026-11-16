@@ -66,6 +66,15 @@
 	<key>NSSupportsAutomaticGraphicsSwitching</key>
 	<true/>
 
+	<!-- Dictation (the composer's mic, ⇧⌘L): the microphone, and this
+	     Mac's own speech recognition when Settings › Audio chooses it.
+	     Asked for on first use; the audio stays on this Mac unless the
+	     server's engine is chosen. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Conduit listens when you dictate a message, and keeps the recording with your draft until you send it.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Conduit turns what you dictate into text on this Mac when you choose On This Mac in Settings › Audio.</string>
+
 	<!-- conduit://chat/<id>, conduit://new?q=…, conduit://settings/<tab> -->
 	<key>CFBundleURLTypes</key>
 	<array>

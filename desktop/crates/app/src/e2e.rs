@@ -62,6 +62,7 @@ mod actions;
 mod chat;
 mod chat_settings;
 mod composer;
+mod dictation;
 mod integration;
 mod offline;
 mod rendering;
@@ -724,6 +725,8 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "settings" => settings::run(&inputs, &dir, cx).await,
         "actions" => actions::run(&inputs, &dir, cx).await,
         "rendering" => rendering::run(&inputs, &dir, cx).await,
+        "dictation" => dictation::run(&inputs, &dir, cx).await,
+        "dictation-recovered" => dictation::recovered(&inputs, &dir, cx).await,
         other => ok(&format!("unknown scenario {other}"), false),
     }
 }

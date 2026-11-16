@@ -49,7 +49,7 @@ log=target/app/last-run.log
 # own words, so a value with spaces stays whole.
 set -- --stdout "$log" --stderr "$log" --args --cwd "$PWD" "$@"
 for var in CONDUITD_PATH CONDUIT_USER_DATA CONDUIT_LOGS CONDUIT_FLAVOR CONDUIT_SHOT_WINDOW \
-  CONDUIT_OWUI_ENV CONDUIT_OWUI_DIR CONDUIT_DEV_CACHE; do
+  CONDUIT_OWUI_ENV CONDUIT_OWUI_DIR CONDUIT_DEV_CACHE CONDUIT_WHISPER_LIB CONDUIT_DICTATION_INPUT; do
   eval "val=\${$var:-}"
   if [ -n "$val" ]; then set -- --env "$var=$val" "$@"; fi
 done
