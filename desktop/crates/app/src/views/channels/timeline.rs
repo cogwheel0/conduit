@@ -488,6 +488,7 @@ impl ChannelTimeline {
         };
         let details = store.details.clone();
         let editing = store.editing.as_deref() == Some(id);
+        let edit_draft = store.edit_draft.clone().filter(|_| editing);
         let pending_app = store.pending_actions.iter().any(|m| m == id);
         let in_thread = matches!(self.source, Source::Thread(_));
         let _ = store;
@@ -577,7 +578,9 @@ impl ChannelTimeline {
             );
         }
         if editing && message.mine {
-            let field = self.edit_field(id, &message.content, window, cx);
+            // A refused edit's words, else the message's.
+            let text = edit_draft.unwrap_or_else(|| message.content.clone());
+            let field = self.edit_field(id, &text, window, cx);
             let weak = cx.entity().downgrade();
             let cancel = weak.clone();
             let id_save = id.to_string();

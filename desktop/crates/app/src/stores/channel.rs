@@ -243,6 +243,9 @@ pub struct ChannelStore {
     pub thread: Option<Thread>,
     /// The message being edited in place.
     pub editing: Option<String>,
+    /// The words of an edit the daemon refused, for its editor to open with
+    /// again (not the message's saved text).
+    pub edit_draft: Option<String>,
     /// The message the next post answers (an inline reply).
     pub replying_to: Option<String>,
     pace: TypingPace,
@@ -274,6 +277,7 @@ impl ChannelStore {
             pending_actions: vec![],
             thread: None,
             editing: None,
+            edit_draft: None,
             replying_to: None,
             pace: TypingPace::default(),
             generation: 0,
@@ -570,6 +574,7 @@ impl ChannelStore {
     pub fn start_editing(&mut self, id: Option<String>, cx: &mut Context<Self>) {
         if self.editing != id {
             self.editing = id;
+            self.edit_draft = None;
             self.changed(cx);
         }
     }
@@ -577,6 +582,7 @@ impl ChannelStore {
     /// `channels.editMessage`, unless the text is empty or unchanged.
     pub fn save_edit(&mut self, id: &str, text: String, cx: &mut Context<Self>) {
         self.editing = None;
+        self.edit_draft = None;
         self.changed(cx);
         let text = text.trim().to_string();
         let unchanged = self.message(id).is_some_and(|m| m.content.trim() == text);
@@ -588,8 +594,9 @@ impl ChannelStore {
             .call::<methods::ChannelsEditMessage>(&ChannelMessageEdit {
                 channel_id: self.channel_id.clone(),
                 message_id: id.to_string(),
-                content: text,
+                content: text.clone(),
             });
+        let id = id.to_string();
         let task = cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| match result {
@@ -599,6 +606,13 @@ impl ChannelStore {
                 }
                 Err(e) => {
                     log::warn!("channels.editMessage: {e}");
+                    // The words typed stay: the editor opens on the message
+                    // again with them, unless another edit has begun.
+                    if s.editing.is_none() {
+                        s.editing = Some(id);
+                        s.edit_draft = Some(text);
+                        s.changed(cx);
+                    }
                     cx.emit(ChannelStoreEvent::Failed(Failure::Edit));
                 }
             });
@@ -1059,6 +1073,25 @@ pub mod tests {
         let reacts = daemon.calls::<methods::ChannelsReact>();
         assert_eq!(reacts[0]["add"], false);
         assert_eq!(reacts[1]["add"], true);
+
+        // An edit the daemon refuses keeps its words: the editor opens on
+        // the message again, holding them.
+        daemon.on::<methods::ChannelsEditMessage>(|_| {
+            Err(conduit_daemon::protocol::error("rpc.timeout", "slow"))
+        });
+        store.update(cx, |s, cx| {
+            s.start_editing(Some("m1".into()), cx);
+            s.save_edit("m1", "a, then the beans".into(), cx);
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.editing.as_deref(),
+                Some("m1"),
+                "the refused edit's editor closed"
+            );
+            assert_eq!(s.edit_draft.as_deref(), Some("a, then the beans"));
+        });
     }
 
     #[gpui_kit::test]
