@@ -174,6 +174,24 @@ pub struct SettingsChoice {
     pub value: String,
 }
 
+/// A command from a Calendar pane menu (`make-default`, `open`, `edit`,
+/// `delete`) for a calendar or agenda item.
+#[derive(Clone, Debug, PartialEq, Action)]
+#[action(namespace = conduit, no_json)]
+pub struct CalendarMenu {
+    pub command: String,
+    pub id: String,
+}
+
+/// A command from a Scheduled Tasks menu (`run`, `edit`, `pause`, `resume`,
+/// `delete`) for a task.
+#[derive(Clone, Debug, PartialEq, Action)]
+#[action(namespace = conduit, no_json)]
+pub struct TaskMenu {
+    pub command: String,
+    pub id: String,
+}
+
 /// The GPUI action a shortcut dispatches.
 pub fn for_shortcut(action: ShortcutAction) -> Box<dyn Action> {
     use ShortcutAction as S;

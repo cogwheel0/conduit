@@ -19,10 +19,11 @@
 
 pub mod actions;
 #[cfg(all(target_os = "macos", feature = "harness"))]
+pub mod calendar_fixture;
+#[cfg(all(target_os = "macos", feature = "harness"))]
 pub mod capture;
 #[cfg(all(target_os = "macos", feature = "harness"))]
 pub mod channel_fixture;
-#[cfg(target_os = "macos")]
 #[cfg(feature = "harness")]
 pub mod chat_fixture;
 pub mod desktop;
@@ -224,6 +225,12 @@ pub fn run() {
     #[cfg(all(target_os = "macos", feature = "harness"))]
     if workspace_fixture::requested(&args) {
         workspace_fixture::run();
+        return;
+    }
+    // The agenda and the task list over canned data (perf).
+    #[cfg(all(target_os = "macos", feature = "harness"))]
+    if let Some(which) = calendar_fixture::requested(&args) {
+        calendar_fixture::run(which);
         return;
     }
     let flavor = Flavor::detect();

@@ -84,6 +84,16 @@ pub enum Form {
     Month,
     /// A month and its year ("October 2025").
     MonthYear,
+    /// The weekday, day and month ("Tue, Nov 11"), as an agenda heads a day.
+    WeekdayDayMonth,
+    /// The same with the year ("Tue, Nov 11, 2026").
+    WeekdayDayMonthYear,
+    /// The day, month and year ("Nov 11, 2026").
+    DayMonthYear,
+    /// The weekday's short name ("Tue").
+    Weekday,
+    /// A day, month and year with the time ("Nov 11, 2026 at 9:30 AM").
+    DateTime,
 }
 
 /// `ms` (milliseconds since the epoch) written in `form` for `locale` (an
@@ -124,6 +134,11 @@ fn fallback(ms: i64, form: Form, _locale: &str) -> String {
         Form::LongDate => t.format("%-d %B %Y").to_string(),
         Form::Month => t.format("%B").to_string(),
         Form::MonthYear => t.format("%B %Y").to_string(),
+        Form::WeekdayDayMonth => t.format("%a, %-d %b").to_string(),
+        Form::WeekdayDayMonthYear => t.format("%a, %-d %b %Y").to_string(),
+        Form::DayMonthYear => t.format("%-d %b %Y").to_string(),
+        Form::Weekday => t.format("%a").to_string(),
+        Form::DateTime => t.format("%-d %b %Y %H:%M").to_string(),
     }
 }
 
@@ -182,6 +197,20 @@ mod mac {
             Form::DayMonth => f.setLocalizedDateFormatFromTemplate(&NSString::from_str("dMMM")),
             Form::Month => f.setLocalizedDateFormatFromTemplate(&NSString::from_str("LLLL")),
             Form::MonthYear => f.setLocalizedDateFormatFromTemplate(&NSString::from_str("yMMMM")),
+            Form::WeekdayDayMonth => {
+                f.setLocalizedDateFormatFromTemplate(&NSString::from_str("MMMEd"))
+            }
+            Form::WeekdayDayMonthYear => {
+                f.setLocalizedDateFormatFromTemplate(&NSString::from_str("yMMMEd"))
+            }
+            Form::DayMonthYear => {
+                f.setLocalizedDateFormatFromTemplate(&NSString::from_str("yMMMd"))
+            }
+            Form::Weekday => f.setLocalizedDateFormatFromTemplate(&NSString::from_str("EEE")),
+            Form::DateTime => {
+                f.setDateStyle(NSDateFormatterStyle::MediumStyle);
+                f.setTimeStyle(NSDateFormatterStyle::ShortStyle);
+            }
         }
         f
     }

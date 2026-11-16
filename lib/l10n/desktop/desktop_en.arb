@@ -1,5 +1,9 @@
 {
   "@@locale": "en",
+  "scheduledTaskDeleteTitle": "Delete scheduled task?",
+  "@scheduledTaskDeleteTitle": {
+    "description": "Title of the confirmation dialog before deleting a scheduled task."
+  },
   "desktopAddLinkEllipsis": "Add Link…",
   "@desktopAddLinkEllipsis": {
     "description": "Format menu item that asks for an address and links the selected text (⌘K). Title Case, ellipsis because it asks."
@@ -5048,5 +5052,51 @@
   "desktopLibreChatSignInSubtitle": "Sign in with your LibreChat account.",
   "@desktopLibreChatSignInSubtitle": {
     "description": "Subtitle of the LibreChat sign-in step, under its Sign In title. Sentence case."
-  }
+  },
+  "desktopCalendarShowOnly": "Show Only This Calendar",
+  "@desktopCalendarShowOnly": {"description": "Calendar context menu item: hide every other calendar's events."},
+  "desktopCalendarOpenEvent": "Open Event",
+  "@desktopCalendarOpenEvent": {"description": "Agenda row context menu item: open the event's sheet."},
+  "desktopCalendarEditSeriesEllipsis": "Edit Series…",
+  "@desktopCalendarEditSeriesEllipsis": {"description": "Button and menu item that opens the editor for a repeating event's whole series."},
+  "desktopCalendarDeleteSeriesEllipsis": "Delete Series…",
+  "@desktopCalendarDeleteSeriesEllipsis": {"description": "Button and menu item that asks before deleting a repeating event and every repeat of it."},
+  "desktopCalendarLastShown": "At least one calendar stays shown.",
+  "@desktopCalendarLastShown": {"description": "Tooltip on the only checked calendar's checkbox, which cannot be unchecked."},
+  "desktopCalendarHideEvents": "Hide Events",
+  "@desktopCalendarHideEvents": {"description": "Tooltip on a checked calendar's checkbox: unchecking hides its events in the agenda."},
+  "desktopCalendarShowEvents": "Show Events",
+  "@desktopCalendarShowEvents": {"description": "Tooltip on an unchecked calendar's checkbox: checking shows its events in the agenda."},
+  "desktopCalendarNewCalendarEllipsis": "New Calendar…",
+  "@desktopCalendarNewCalendarEllipsis": {"description": "Button in the calendars column that opens the New Calendar sheet."},
+  "desktopCalendarVisibilityFooter": "Events from checked calendars are shown.",
+  "@desktopCalendarVisibilityFooter": {"description": "Note under the calendars column on the Mac (the phone's version says to tap)."},
+  "desktopCalendarAgenda": "Agenda",
+  "@desktopCalendarAgenda": {"description": "Accessibility name of the calendar pane's list of upcoming events."},
+  "desktopCalendarOpenTask": "Open Task",
+  "@desktopCalendarOpenTask": {"description": "Button on a scheduled task's calendar entry that opens the task in Scheduled Tasks."},
+  "desktopCalendarScheduledTitle": "Scheduled Task",
+  "@desktopCalendarScheduledTitle": {"description": "Title of the sheet a scheduled task's calendar entry opens."},
+  "desktopCalendarSearchPeople": "Search people",
+  "@desktopCalendarSearchPeople": {"description": "Placeholder of the field that finds people to invite to an event."},
+  "desktopCalendarNoPeople": "No people found.",
+  "@desktopCalendarNoPeople": {"description": "Shown under the people search field when nobody matches."},
+  "desktopCalendarName": "Name",
+  "@desktopCalendarName": {"description": "Label of a new calendar's name field."},
+  "desktopCalendarColor": "Color",
+  "@desktopCalendarColor": {"description": "Label of a new calendar's colour choices."},
+  "desktopTasksPause": "Pause",
+  "@desktopTasksPause": {"description": "Scheduled task context menu item that pauses an active task."},
+  "desktopTasksResume": "Resume",
+  "@desktopTasksResume": {"description": "Scheduled task context menu item that makes a paused task active again."},
+  "desktopTasksFilter": "Show",
+  "@desktopTasksFilter": {"description": "Accessibility name of the All / Active / Paused filter above the scheduled task list."},
+  "desktopTasksStale": "This list may be out of date.",
+  "@desktopTasksStale": {"description": "Notice above the scheduled task list when a change went through but the list could not be read back."},
+  "desktopTasksSelect": "Select a task to see its schedule and history.",
+  "@desktopTasksSelect": {"description": "Shown beside the scheduled task list when no task is selected."},
+  "desktopScheduledTasksDescription": "Your Open WebUI server runs these tasks on its own schedule, even while this Mac is offline.",
+  "@desktopScheduledTasksDescription": {"description": "Explains scheduled tasks on the Mac (the phone's version says this phone)."},
+  "desktopTasksLastRun": "Last Run",
+  "@desktopTasksLastRun": {"description": "Row label on a scheduled task's page: when it last ran."}
 }
