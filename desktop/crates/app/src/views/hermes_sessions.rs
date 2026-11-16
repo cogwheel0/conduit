@@ -279,9 +279,13 @@ fn confirm_delete(stores: &Stores, id: &str, window: &mut Window, cx: &mut App) 
         let result = call.await;
         cx.update(|cx| match result {
             Ok(sessions) => {
-                stores
-                    .areas
-                    .update(cx, |a, cx| a.adopt_hermes(sessions, cx));
+                stores.areas.update(cx, |a, cx| {
+                    a.adopt_hermes(sessions, cx);
+                    // Hidden Chats, when read, lists what is left.
+                    if a.hermes_hidden.is_some() {
+                        a.refresh_hermes_hidden(cx);
+                    }
+                });
                 let open = stores.navigation.read(cx).selected_item()
                     == Some(&AreaItem::HermesSession(id.clone()));
                 if open {
@@ -421,6 +425,36 @@ mod tests {
             source: None,
             running: false,
         }
+    }
+
+    /// Delete… of a hidden session takes it out of Hidden Chats too, once
+    /// confirmed: the page lists what is left.
+    #[gpui_kit::test]
+    fn a_deleted_hidden_session_leaves_hidden_chats(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-hdel-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            cx.set_global(crate::shell::sheet::AutoAnswer(Some(true)));
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        daemon.returns::<methods::HermesDeleteSession>(conduit_protocol::HermesSessions::default());
+        daemon.returns::<methods::HermesHiddenList>(conduit_protocol::HermesSessions::default());
+        stores.areas.update(cx, |a, cx| {
+            a.hermes_hidden = Some(Ok(vec![session(false, false, true)]));
+            cx.notify();
+        });
+        let vcx = cx.add_empty_window();
+        vcx.update(|window, cx| run(&stores, "s1", HermesCommand::Delete, window, cx));
+        vcx.run_until_parked();
+        assert!(daemon.calls::<methods::HermesDeleteSession>().len() == 1);
+        stores.areas.read_with(vcx, |a, _| {
+            assert!(
+                matches!(&a.hermes_hidden, Some(Ok(list)) if list.is_empty()),
+                "Hidden Chats still lists the deleted session"
+            );
+        });
     }
 
     #[test]

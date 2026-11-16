@@ -86,6 +86,9 @@ pub struct AreasStore {
     /// Hermes's Hidden Chats, read when its pane opens: `None` until read,
     /// `Err` when the read failed.
     pub hermes_hidden: Option<Result<Vec<HermesSessionDto>, String>>,
+    /// The Hidden Chats last listed, kept through a refresh that fails: an
+    /// open hidden session is still found (its title, its More menu).
+    hermes_hidden_known: Vec<HermesSessionDto>,
     pub terminals: Option<Vec<TerminalServerDto>>,
     /// The areas whose list could not be read (and none is held): the
     /// sidebar offers Try Again instead of a loading line.
@@ -126,7 +129,7 @@ impl AreasStore {
         self.hermes
             .iter()
             .flat_map(|h| h.sessions.iter().chain(h.archived.iter()))
-            .chain(self.hermes_hidden.iter().flatten().flatten())
+            .chain(self.hermes_hidden_known.iter())
             .find(|s| s.id == id)
     }
 
@@ -152,7 +155,10 @@ impl AreasStore {
                         return;
                     }
                     s.hermes_hidden = Some(match result {
-                        Ok(list) => Ok(list.sessions),
+                        Ok(list) => {
+                            s.hermes_hidden_known = list.sessions.clone();
+                            Ok(list.sessions)
+                        }
                         Err(e) => {
                             log::warn!("hermes.hidden.list: {e}");
                             Err(e.to_string())
@@ -197,6 +203,7 @@ impl AreasStore {
             Area::Hermes => {
                 self.hermes = None;
                 self.hermes_hidden = None;
+                self.hermes_hidden_known.clear();
             }
             Area::Terminal => self.terminals = None,
             _ => {}
@@ -488,6 +495,46 @@ mod tests {
         cx.run_until_parked();
         store.read_with(cx, |s, _| assert!(s.channels.is_none()));
     }
+    /// A Hidden Chats refresh that fails says so in its pane, but the
+    /// sessions it last listed are still found (an open hidden session's
+    /// title and More menu).
+    #[gpui_kit::test]
+    fn a_failed_hidden_refresh_keeps_the_last_sessions_found(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let session: HermesSessionDto = serde_json::from_value(
+            serde_json::json!({"id": "s1", "chatId": "local:hermes_s1", "title": "Tide tables"}),
+        )
+        .unwrap();
+        daemon.once::<methods::HermesHiddenList>(Ok(HermesSessions {
+            sessions: vec![session],
+            ..Default::default()
+        }));
+        daemon.once::<methods::HermesHiddenList>(Err(conduit_daemon::protocol::error(
+            "rpc.daemonUnavailable",
+            "offline",
+        )));
+        let store = cx.new(|_| AreasStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.refresh_hermes_hidden(cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| assert!(s.hermes_session("s1").is_some()));
+        store.update(cx, |s, cx| s.refresh_hermes_hidden(cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(
+                matches!(s.hermes_hidden, Some(Err(_))),
+                "the pane says the list failed"
+            );
+            assert_eq!(
+                s.hermes_session("s1").map(|h| h.title.as_str()),
+                Some("Tide tables"),
+                "a failed refresh lost the hidden session"
+            );
+        });
+        // Another account: nothing of the last one's is found.
+        store.update(cx, |s, cx| s.reset(cx));
+        store.read_with(cx, |s, _| assert!(s.hermes_session("s1").is_none()));
+    }
+
     #[gpui_kit::test]
     fn a_list_that_fails_says_so_until_it_is_asked_again(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();

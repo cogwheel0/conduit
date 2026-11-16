@@ -755,6 +755,10 @@ impl ChatPane {
                 self.composer_store
                     .update(cx, |c, cx| c.switch_new_chat(folder, temporary, &text, cx));
                 self.chat = None;
+                self.forget_context_offer(cx);
+                // The menus were built for this selection before the pane
+                // followed it: Read Aloud follows the chat now shown.
+                cx.defer(crate::menus::refresh_menus);
                 self.sync_speech(cx);
                 self.sync_call_offer(cx);
                 self.prompt_card.update(cx, |p, cx| p.set_store(None, cx));
@@ -937,7 +941,19 @@ impl ChatPane {
 
     /// Opens `id` in a fresh store and transcript. Opening reads it, and
     /// the chat left is read up to now.
+    /// The chat shown goes: Chat › Context & Usage… with it, and the next
+    /// chat's detail offers it again (or not).
+    fn forget_context_offer(&mut self, cx: &mut Context<Self>) {
+        if self.context_offered.replace(false) {
+            cx.defer(crate::menus::refresh_menus);
+        }
+    }
+
     fn open_chat(&mut self, id: String, cx: &mut Context<Self>) -> Entity<ChatStore> {
+        self.forget_context_offer(cx);
+        // The menus were built for this selection before the pane opened
+        // the chat: Read Aloud follows it now.
+        cx.defer(crate::menus::refresh_menus);
         let left = self
             .chat
             .as_ref()
@@ -1095,6 +1111,10 @@ impl ChatPane {
         // its tooltip (no second word beside it).
         let reason = offline
             .then(|| crate::views::status::send_waits(&connection.status(true, None), cx.l10n()));
+        if self.composer.read(cx).offline != offline {
+            // Chat › Start Voice Call follows the window going offline and back.
+            cx.defer(crate::menus::refresh_menus);
+        }
         self.composer.update(cx, |c, cx| {
             if c.offline != offline || c.offline_reason != reason || c.offline_word.is_some() {
                 c.offline = offline;
@@ -1534,9 +1554,27 @@ impl ChatPane {
         }
     }
 
+    /// Chat › Read Aloud has a chat to read from: a chat the window shows,
+    /// whether it takes changes or not (read-only, temporary, Hermes); not
+    /// the chat kept loaded behind another area's pane. Without an answer
+    /// yet it reads nothing.
+    pub fn can_read_aloud(&self, cx: &App) -> bool {
+        self.chat.is_some()
+            && self
+                .stores
+                .navigation
+                .read(cx)
+                .selection()
+                .chat_id()
+                .is_some()
+    }
+
     /// Chat › Read Aloud: the newest answer, or Stop Speaking while it is
     /// read (Resume while paused), as its own Read Aloud does.
     pub fn read_aloud_last(&mut self, cx: &mut Context<Self>) {
+        if !self.can_read_aloud(cx) {
+            return;
+        }
         let Some(chat) = &self.chat else { return };
         let store = chat.store.read(cx);
         let Some(answer) = store.last_answer_id() else {
@@ -1557,8 +1595,8 @@ impl ChatPane {
         if self.stores.call.read(cx).is_active() {
             return;
         }
-        // ⌥⌘V as the button: only when the core admits a call.
-        if !self.composer.read(cx).call_ready {
+        // ⌥⌘V as the button: only when the core admits a call, online.
+        if !self.call_startable(cx) {
             return;
         }
         if self
@@ -1590,6 +1628,14 @@ impl ChatPane {
         self.stores
             .call
             .update(cx, |c, cx| c.start(chat_id, model, folder, temporary, cx));
+    }
+
+    /// A call can start here now, as the composer's call button would
+    /// take it: the core admits one with the chosen model, and the window is
+    /// online.
+    pub fn call_startable(&self, cx: &App) -> bool {
+        let composer = self.composer.read(cx);
+        composer.call_ready && !composer.offline
     }
 
     /// Chat › Start Voice Call, or End Voice Call while one is on.
@@ -3059,6 +3105,60 @@ mod tests {
                     .map(|a| a.name.clone())
                     .collect()
             })
+        }
+
+        /// Offline, Chat › Start Voice Call and ⌥⌘V start no call, as the
+        /// composer's call button (disabled offline) starts none.
+        #[gpui_kit::test]
+        fn no_call_starts_while_offline(cx: &mut TestAppContext) {
+            let (daemon, _stores, pane, vcx) = bench(cx);
+            pane.update(vcx, |p, cx| {
+                p.composer.update(cx, |c, _| {
+                    c.call_ready = true;
+                    c.offline = true;
+                })
+            });
+            pane.update(vcx, |p, cx| p.toggle_call(cx));
+            vcx.run_until_parked();
+            assert!(
+                daemon.calls::<methods::CallsStart>().is_empty(),
+                "a call started while offline"
+            );
+        }
+
+        /// Chat › Read Aloud reads only a chat the window shows: with Notes
+        /// shown over it, the chat kept loaded behind is not read.
+        #[gpui_kit::test]
+        fn read_aloud_needs_the_chat_on_screen(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            assert!(
+                pane.read_with(vcx, |p, cx| p.can_read_aloud(cx)),
+                "the shown chat is not read"
+            );
+            stores.navigation.update(vcx, |n, cx| {
+                n.open_item(crate::stores::navigation::AreaItem::Note("n1".into()), cx)
+            });
+            vcx.run_until_parked();
+            assert!(
+                !pane.read_with(vcx, |p, cx| p.can_read_aloud(cx)),
+                "a chat behind Notes is read aloud"
+            );
+        }
+
+        /// New Chat forgets that the last chat offered Context & Usage, so
+        /// the next Hermes chat puts it back in the Chat menu.
+        #[gpui_kit::test]
+        fn new_chat_forgets_the_last_chats_context_item(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            pane.update(vcx, |p, _| p.context_offered.set(true));
+            stores.navigation.update(vcx, |n, cx| n.new_chat(true, cx));
+            vcx.run_until_parked();
+            assert!(
+                !pane.read_with(vcx, |p, _| p.context_offered.get()),
+                "a new chat still counts the last chat's Context & Usage as offered"
+            );
         }
 
         #[gpui_kit::test]

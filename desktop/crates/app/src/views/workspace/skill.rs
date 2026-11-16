@@ -229,7 +229,8 @@ impl SkillEditor {
                 .then(|| l.desktop_workspace_skill_name_required()),
             if form.id.is_empty() {
                 Some(l.desktop_workspace_skill_id_required())
-            } else if !command_is_valid(&form.id) {
+            } else if self.id.is_none() && !command_is_valid(&form.id) {
+                // Only a skill being made: one made elsewhere keeps its id.
                 Some(l.desktop_workspace_skill_id_invalid())
             } else {
                 None
@@ -270,9 +271,13 @@ impl SkillEditor {
                 }
                 self.name.update(cx, |s, cx| s.set_value(value, window, cx))
             }
-            "id" => self
-                .skill_id
-                .update(cx, |s, cx| s.set_value(value, window, cx)),
+            "id" => {
+                // As typed: the name no longer moves it (a programmatic set
+                // sends no change event).
+                self.id_typed = true;
+                self.skill_id
+                    .update(cx, |s, cx| s.set_value(value, window, cx))
+            }
             "description" => self
                 .description
                 .update(cx, |s, cx| s.set_value(value, window, cx)),
@@ -750,6 +755,99 @@ mod tests {
                 e.skill_id.read(cx).value().to_string(),
                 "trail_skill",
                 "the id field names another item than the one made"
+            );
+        });
+    }
+
+    /// A skill made elsewhere whose id is not command-shaped (a dot, a
+    /// space) still saves: the command form is checked only when making one.
+    #[gpui_kit::test]
+    fn a_skill_made_elsewhere_saves_with_its_own_id(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::workspace::editor::bench;
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        daemon.returns::<methods::WorkspaceGet>(bench::detail(
+            WorkspaceKind::Skills,
+            serde_json::json!({"id": "trail.skill v2", "name": "Trail skill", "description": "", "content": "Pick a trail.", "active": true}),
+        ));
+        let editor = vcx.update(|window, cx| {
+            cx.new(|cx| {
+                SkillEditor::new(
+                    stores.clone(),
+                    WeakEntity::new_invalid(),
+                    Some("trail.skill v2".into()),
+                    bench::manage(),
+                    window,
+                    cx,
+                )
+            })
+        });
+        vcx.run_until_parked();
+        vcx.update(|window, cx| {
+            editor.update(cx, |e, cx| {
+                e.set_field("description", "Day trails", window, cx)
+            })
+        });
+        assert!(
+            editor.read_with(vcx, |e, cx| e.valid(cx)),
+            "an existing skill's id was checked as a new command"
+        );
+        // A new skill's id is still checked.
+        let fresh = vcx.update(|window, cx| {
+            cx.new(|cx| {
+                SkillEditor::new(
+                    stores.clone(),
+                    WeakEntity::new_invalid(),
+                    None,
+                    bench::manage(),
+                    window,
+                    cx,
+                )
+            })
+        });
+        vcx.update(|window, cx| {
+            fresh.update(cx, |e, cx| {
+                e.set_field("name", "Trail skill", window, cx);
+                e.set_field("id", "trail.skill v2", window, cx);
+                e.set_field("content", "Pick a trail.", window, cx);
+            })
+        });
+        assert!(!fresh.read_with(vcx, |e, cx| e.valid(cx)));
+    }
+
+    /// An id a Markdown import brought stays when the name is changed
+    /// afterwards, as an id typed by hand does.
+    #[gpui_kit::test]
+    fn an_imported_id_stays_when_the_name_changes(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::workspace::editor::bench;
+        let (_daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        let editor = vcx.update(|window, cx| {
+            cx.new(|cx| {
+                SkillEditor::new(
+                    stores.clone(),
+                    WeakEntity::new_invalid(),
+                    None,
+                    bench::manage(),
+                    window,
+                    cx,
+                )
+            })
+        });
+        // As Import Markdown fills the form.
+        vcx.update(|window, cx| {
+            editor.update(cx, |e, cx| {
+                e.set_field("content", "Pick a trail.", window, cx);
+                e.set_field("name", "Trail skill", window, cx);
+                e.set_field("id", "ridge_walks", window, cx);
+            })
+        });
+        vcx.update(|window, cx| {
+            editor.update(cx, |e, cx| e.set_field("name", "Ridge walks", window, cx))
+        });
+        editor.read_with(vcx, |e, cx| {
+            assert_eq!(
+                e.skill_id.read(cx).value().to_string(),
+                "ridge_walks",
+                "the imported id followed the name"
             );
         });
     }

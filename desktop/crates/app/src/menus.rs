@@ -393,12 +393,15 @@ pub struct MenuState {
     pub hermes_context: bool,
     /// The composer is dictating: Chat › Stop Dictation.
     pub dictating: bool,
+    /// The main window shows a chat to read from (Chat › Read Aloud): a
+    /// read-only, temporary or Hermes chat too.
+    pub read_aloud: bool,
     /// Something is being read aloud (Chat › Stop Speaking).
     pub speaking: bool,
     /// A voice call is on (Chat › End Voice Call).
     pub in_call: bool,
     /// A call can start in the open chat (Chat › Start Voice Call): the
-    /// composer's call button is ready.
+    /// composer's call button is ready, and the window online.
     pub call_ready: bool,
 }
 
@@ -419,6 +422,7 @@ impl Default for MenuState {
             save_chat: false,
             hermes_context: false,
             dictating: false,
+            read_aloud: false,
             speaking: false,
             in_call: false,
             call_ready: false,
@@ -541,12 +545,18 @@ pub fn menu_state(cx: &App) -> MenuState {
             .filter(|_| main)
             .is_some_and(|v| v.read(cx).chat_pane.read(cx).hermes_context(cx)),
         dictating,
+        read_aloud: state
+            .main_view
+            .as_ref()
+            .filter(|_| main)
+            .is_some_and(|v| v.read(cx).chat_pane.read(cx).can_read_aloud(cx)),
         speaking: state.stores.speech.read(cx).is_active(),
         in_call: state.stores.call.read(cx).is_active(),
-        call_ready: state.main_view.as_ref().filter(|_| main).is_some_and(|v| {
-            let composer = v.read(cx).chat_pane.read(cx).composer.clone();
-            composer.read(cx).call_ready
-        }),
+        call_ready: state
+            .main_view
+            .as_ref()
+            .filter(|_| main)
+            .is_some_and(|v| v.read(cx).chat_pane.read(cx).call_startable(cx)),
     }
 }
 
@@ -915,7 +925,8 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
         MenuItem::action(l10n.regenerate(), RegenerateLastAnswer).disabled(no_chat),
         MenuItem::action(l10n.desktop_stop_generating(), StopGenerating),
         MenuItem::separator(),
-        MenuItem::action(l10n.desktop_read_aloud(), crate::actions::ReadAloud).disabled(no_chat),
+        MenuItem::action(l10n.desktop_read_aloud(), crate::actions::ReadAloud)
+            .disabled(!state.read_aloud),
         MenuItem::action(l10n.desktop_stop_speaking(), crate::actions::StopSpeaking)
             .disabled(!state.speaking),
         MenuItem::action(
@@ -989,6 +1000,26 @@ mod tests {
             folders: vec![("f1".into(), "Garden".into()), ("f2".into(), "Work".into())],
             ..MenuState::default()
         }
+    }
+
+    /// Chat › Read Aloud follows the main window showing a chat, not the
+    /// chat commands: a read-only chat, a temporary one and a Hermes
+    /// session's are read too, as their answers' own Read Aloud does.
+    #[test]
+    fn read_aloud_follows_a_shown_chat_not_the_chat_commands() {
+        let l = L10n::new("en");
+        // A read-only chat: no chat commands, still read aloud.
+        let read_only = build_menus(
+            &l,
+            &MenuState {
+                read_aloud: true,
+                ..MenuState::default()
+            },
+        );
+        assert!(!disabled(menu(&read_only, "Chat"), "Read Aloud"));
+        // No chat shown: nothing to read.
+        let none = build_menus(&l, &MenuState::default());
+        assert!(disabled(menu(&none, "Chat"), "Read Aloud"));
     }
 
     #[test]
