@@ -12,6 +12,8 @@ import 'package:conduit_core/features/librechat/models/librechat_session.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_memories_providers.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/librechat/services/librechat_api_service.dart'
+    show LibreChatApiService;
 import 'package:conduit_core/features/librechat/services/librechat_auth_service.dart'
     show LibreChatAuthService, LibreChatSignedIn, LibreChatTwoFactorRequired;
 import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
@@ -404,8 +406,12 @@ final class LibreChatService {
   // Memories
   // -------------------------------------------------------------------------
 
+  /// The account's memories with its own rights: if another account signs
+  /// in while they are read, nothing goes out (one account's memories never
+  /// with another's rights).
   Future<LibreChatMemories> memories() async {
     _requireSignedIn();
+    final account = _container.read(libreChatApiServiceProvider);
     final state = await readSettled(
       _container,
       libreChatMemoriesProvider.future,
@@ -414,6 +420,7 @@ final class LibreChatService {
       _container,
       libreChatCapabilitiesProvider.future,
     );
+    _sameAccount(account);
     final usage = state.memories.usage;
     return LibreChatMemories(
       enabled: state.enabled,
@@ -486,12 +493,7 @@ final class LibreChatService {
   Future<void> _write(Future<void> Function() write) async {
     final account = _container.read(libreChatApiServiceProvider);
     await readSettled(_container, libreChatMemoriesProvider.future);
-    if (!identical(_container.read(libreChatApiServiceProvider), account)) {
-      throw const RpcError(
-        code: ConduitErrorCodes.sessionExpired,
-        debugMessage: 'another LibreChat account signed in before the write',
-      );
-    }
+    _sameAccount(account);
     try {
       await write();
     } on LibreChatApiException catch (error) {
@@ -499,6 +501,17 @@ final class LibreChatService {
         code: ConduitErrorCodes.serverError,
         args: <String, String>{'detail': error.message},
         debugMessage: 'LibreChat refused: ${error.message}',
+      );
+    }
+  }
+
+  /// Refuses (session expired) once another LibreChat account than
+  /// [account] -- the one a request began under -- is signed in.
+  void _sameAccount(LibreChatApiService? account) {
+    if (!identical(_container.read(libreChatApiServiceProvider), account)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'another LibreChat account signed in meanwhile',
       );
     }
   }
