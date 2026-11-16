@@ -19,6 +19,7 @@
 //! setup window when the LibreChat account in charge needs to sign in again
 //! (its session ended): then it starts at that server, saying so.
 
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
@@ -361,6 +362,10 @@ impl LibreChatSignInView {
                         return;
                     }
                 };
+                // The form started over meanwhile: no browser for the old one.
+                if this.read_with(cx, |s, _| s.round != round).unwrap_or(true) {
+                    return;
+                }
                 let Ok(outcome) = cx.update(|_, cx| run_librechat_sso(plan, title, cx)) else {
                     return;
                 };
@@ -384,11 +389,39 @@ impl LibreChatSignInView {
                         return;
                     }
                 };
-                let call = rpc.call::<methods::LibrechatCompleteSso>(&LibreChatSsoCompletion {
-                    url: server.base_url,
-                    cookies,
-                    force: false,
+                let _ = this.update_in(cx, |s, window, cx| {
+                    s.complete_sso(round, server.base_url, cookies, window, cx)
                 });
+            },
+        )
+        .detach();
+    }
+
+    /// Single sign-on in form round `round` left `cookies`: conduitd makes
+    /// them the account's session and puts it in charge.
+    fn complete_sso(
+        &mut self,
+        round: u64,
+        url: String,
+        cookies: BTreeMap<String, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // The form started over (another account's sign-in began): the old
+        // round's cookies would put its account in charge again.
+        if self.round != round {
+            return;
+        }
+        let call = self
+            .rpc(cx)
+            .call::<methods::LibrechatCompleteSso>(&LibreChatSsoCompletion {
+                url,
+                cookies,
+                force: false,
+            });
+        cx.spawn_in(
+            window,
+            async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
                 let result = call.await;
                 let _ = this.update_in(cx, |s, window, cx| {
                     if s.round == round {
@@ -923,6 +956,33 @@ mod tests {
 
     use super::*;
     use crate::stores::rpc::fake::FakeDaemon;
+
+    /// Single sign-on finished for a form that has started over (another
+    /// account's sign-in began meanwhile) completes nothing: conduitd would
+    /// put the old account in charge again.
+    #[gpui_kit::test]
+    fn an_obsolete_sso_round_completes_nothing(cx: &mut TestAppContext) {
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        let view = vcx
+            .update(|window, cx| cx.new(|cx| LibreChatSignInView::new(stores.clone(), window, cx)));
+        let round = view.read_with(vcx, |v, _| v.round);
+        view.update_in(vcx, |v, window, cx| v.reset(window, cx));
+        let cookies = BTreeMap::from([("refreshToken".to_string(), "rt-old".to_string())]);
+        view.update_in(vcx, |v, window, cx| {
+            v.complete_sso(
+                round,
+                "https://harbour.example.org".into(),
+                cookies,
+                window,
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::LibrechatCompleteSso>().is_empty(),
+            "an obsolete single sign-on was completed"
+        );
+    }
 
     /// Switch Anyway, answered after another account took charge, switches
     /// to nothing: the forced switch would stop that account's reply.
