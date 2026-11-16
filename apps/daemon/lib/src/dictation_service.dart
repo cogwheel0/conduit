@@ -8,6 +8,8 @@ import 'package:conduit_core/features/direct_connections/services/direct_model_r
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/librechat/models/librechat_model.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/persistence/account_scoped_preferences.dart'
+    show currentPreferenceAccountId;
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -57,16 +59,33 @@ final class DictationService {
     );
   }
 
+  /// The signed-in session and the account in use, read when a
+  /// transcription's request begins: its audio can take a while to arrive,
+  /// and the chat's model to be read.
+  Object session() => (
+    epoch: _container.read(openWebUiAuthSessionEpochProvider),
+    account: currentPreferenceAccountId(),
+  );
+
+  bool _stillSession(Object began) {
+    final now = session() as ({Object epoch, String? account});
+    return began is ({Object epoch, String? account}) &&
+        identical(began.epoch, now.epoch) &&
+        began.account == now.account;
+  }
+
   /// [bytes] as text, in the saved language.
   ///
   /// [engine] is `server` or `local`; without one the saved engine, falling
   /// back to the server while whisper has no model (a download under way is
   /// no reason to go deaf). Asked for by name, whisper must be ready.
+  /// [session]: the [session] its request began under, if not now.
   Future<VoiceTranscript> transcribe(
     Uint8List bytes, {
     String? contentType,
     String? engine,
     String? modelId,
+    Object? session,
   }) async {
     if (bytes.isEmpty) {
       throw const RpcError(
@@ -90,6 +109,16 @@ final class DictationService {
       throw const RpcError(
         code: ConduitErrorCodes.unsupported,
         debugMessage: "this chat's backend does not transcribe",
+      );
+    }
+    // Another account signed in since the request began: its audio goes to
+    // no backend of that account's. No await between this and the send.
+    if (session != null && !_stillSession(session)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed during the transcription',
+        // The recording stays: Try Again sends it under the account now.
+        retryable: true,
       );
     }
     final language = SettingsService.normalizeSttLanguageCode(

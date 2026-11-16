@@ -189,6 +189,8 @@ final class RecordingsService {
   }
 
   Future<VoiceTranscript> transcribe(RecordingTranscribe request) async {
+    // The account it was asked under: its audio goes to no other's backend.
+    final session = _dictation.session();
     final wav = await this.wav(
       RecordingRef(
         id: request.id,
@@ -201,6 +203,7 @@ final class RecordingsService {
       contentType: 'audio/wav',
       engine: request.engine,
       modelId: request.modelId,
+      session: session,
     );
     if (transcript.text.trim().isEmpty) {
       throw const RpcError(

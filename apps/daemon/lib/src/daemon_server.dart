@@ -690,12 +690,16 @@ class DaemonServer {
       return shelf.Response(405, body: 'POST only');
     }
     final query = request.url.queryParameters;
+    // The account the request began under: audio still arriving when
+    // another signs in never goes to the next account's backend.
+    final session = dictation.session();
     try {
       final transcript = await dictation.transcribe(
         await _collect(request.read()),
         contentType: request.headers['content-type'],
         engine: _nonEmpty(query['engine']),
         modelId: _nonEmpty(query['model']),
+        session: session,
       );
       return shelf.Response.ok(
         jsonEncode(transcript.toJson()),

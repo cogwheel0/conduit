@@ -7,6 +7,7 @@ import 'dart:typed_data';
 
 import 'package:conduit_core/features/chat/composer/composer_recording_store.dart';
 import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
@@ -137,6 +138,26 @@ void main() {
     final sent = provider.transcriptions.skip(before).single;
     expect(sent.language, 'de');
     expect(sent.bytes, greaterThan(16000));
+
+    // Another account signs in while the chat's model is read: the audio
+    // goes to no backend, and Try Again can send it under the new one.
+    final late = dictation.transcribe(
+      pcm16Wav(pcm(0.5)),
+      contentType: 'audio/wav',
+      engine: 'server',
+      modelId: modelId,
+      session: dictation.session(),
+    );
+    runtime.container.invalidate(openWebUiAuthSessionEpochProvider);
+    await expectLater(
+      late,
+      throwsA(
+        isA<RpcError>()
+            .having((e) => e.code, 'code', ConduitErrorCodes.sessionExpired)
+            .having((e) => e.retryable, 'retryable', isTrue),
+      ),
+    );
+    expect(provider.transcriptions.length, before + 1);
   });
 
   test('whisper asked for by name must be ready', () async {
@@ -200,6 +221,28 @@ void main() {
       ),
     );
     expect(transcript.text, 'A fake transcript.');
+
+    // Another account signs in while it is read: nothing reaches a backend.
+    final sentBefore = provider.transcriptions.length;
+    final late = recordings.transcribe(
+      RecordingTranscribe(
+        id: id,
+        folderId: 'dictation-folder',
+        modelId: modelId,
+      ),
+    );
+    runtime.container.invalidate(openWebUiAuthSessionEpochProvider);
+    await expectLater(
+      late,
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+    );
+    expect(provider.transcriptions.length, sentBefore);
 
     final after = await recordings.discard(
       RecordingRef(id: id, folderId: 'dictation-folder'),
