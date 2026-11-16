@@ -603,7 +603,7 @@ impl KnowledgeEditor {
                 )
                 .destructive();
                 let ask = present_sheet(window, spec, cx);
-                let call = self.rpc.call::<methods::WorkspaceFileAction>(&action(
+                let request = action(
                     if delete {
                         WorkspaceFileOp::Delete
                     } else {
@@ -611,10 +611,12 @@ impl KnowledgeEditor {
                     },
                     None,
                     None,
-                ));
+                );
+                // Asked first: the request goes only once confirmed.
                 cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                     if ask.await {
                         let _ = this.update(cx, |s, cx| {
+                            let call = s.rpc.call::<methods::WorkspaceFileAction>(&request);
                             let busy = cx.l10n().desktop_loading();
                             s.files_call(busy, call, None, cx)
                         });
@@ -682,18 +684,18 @@ impl KnowledgeEditor {
                 )
                 .destructive();
                 let ask = present_sheet(window, spec, cx);
-                let call =
-                    self.rpc
-                        .call::<methods::WorkspaceDirectoryAction>(&WorkspaceDirectoryAction {
-                            knowledge_id: id,
-                            op: WorkspaceDirectoryOp::Delete,
-                            directory_id: Some(dir.id.clone()),
-                            parent_id: parent,
-                            name: String::new(),
-                        });
+                let request = WorkspaceDirectoryAction {
+                    knowledge_id: id,
+                    op: WorkspaceDirectoryOp::Delete,
+                    directory_id: Some(dir.id.clone()),
+                    parent_id: parent,
+                    name: String::new(),
+                };
+                // Asked first: the request goes only once confirmed.
                 cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                     if ask.await {
                         let _ = this.update(cx, |s, cx| {
+                            let call = s.rpc.call::<methods::WorkspaceDirectoryAction>(&request);
                             let busy = cx.l10n().desktop_loading();
                             s.files_call(busy, call, None, cx)
                         });
@@ -1528,6 +1530,62 @@ impl Render for KnowledgeEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Delete File, Remove and a folder's Delete go only once confirmed:
+    /// Cancel leaves the file and the folder where they are.
+    #[gpui_kit::test]
+    fn a_cancelled_delete_sends_nothing(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::workspace::editor::bench;
+        // The bench answers questions "no": Cancel.
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        daemon.returns::<methods::WorkspaceGet>(bench::detail(
+            WorkspaceKind::Knowledge,
+            serde_json::json!({"id": "k1", "name": "Trail notes", "description": "",
+                               "fileCount": 1, "external": false}),
+        ));
+        daemon.returns::<methods::WorkspaceFiles>(
+            serde_json::from_value(serde_json::json!({
+                "knowledgeId": "k1", "directoryId": "", "breadcrumbs": [],
+                "directories": [{"id": "d1", "name": "Maps"}],
+                "files": [{"id": "f1", "filename": "ridge.pdf"}],
+                "pending": [], "total": 1, "hasMore": false
+            }))
+            .unwrap(),
+        );
+        let editor = vcx.update(|window, cx| {
+            cx.new(|cx| {
+                KnowledgeEditor::new(
+                    stores.clone(),
+                    WeakEntity::new_invalid(),
+                    Some("k1".into()),
+                    bench::manage(),
+                    window,
+                    cx,
+                )
+            })
+        });
+        vcx.run_until_parked();
+        assert!(editor.read_with(vcx, |e, _| e.file("f1").is_some()));
+        for op in ["delete", "remove"] {
+            vcx.update(|window, cx| {
+                editor.update(cx, |e, cx| e.file_command(op, "f1", window, cx))
+            });
+            vcx.run_until_parked();
+        }
+        vcx.update(|window, cx| {
+            editor.update(cx, |e, cx| e.directory_command("delete", "d1", window, cx))
+        });
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::WorkspaceFileAction>().is_empty(),
+            "a file went before the question was answered"
+        );
+        assert!(
+            daemon
+                .calls::<methods::WorkspaceDirectoryAction>()
+                .is_empty()
+        );
+    }
 
     /// Text typed while a save is out is kept, still to save.
     #[gpui_kit::test]
