@@ -148,7 +148,9 @@ pub fn take(root: &Path, id: &str) -> Result<Shared, TakeError> {
 }
 
 /// `relative` inside `entry`, when it names a regular file there: plain
-/// components only, no symlink.
+/// components only, and no symlink anywhere on the way (a folder that is a
+/// link would lead outside the share), the file itself included; and the
+/// file, resolved, still inside the share.
 fn file_in(entry: &Path, relative: &str) -> Option<PathBuf> {
     let rel = Path::new(relative);
     let plain =
@@ -156,9 +158,23 @@ fn file_in(entry: &Path, relative: &str) -> Option<PathBuf> {
     if !plain {
         return None;
     }
-    let path = entry.join(rel);
-    std::fs::symlink_metadata(&path)
-        .is_ok_and(|m| m.is_file())
+    let count = rel.components().count();
+    let mut path = entry.to_path_buf();
+    for (i, part) in rel.components().enumerate() {
+        path.push(part);
+        let meta = std::fs::symlink_metadata(&path).ok()?;
+        let fits = if i + 1 == count {
+            meta.file_type().is_file()
+        } else {
+            meta.file_type().is_dir()
+        };
+        if !fits {
+            return None;
+        }
+    }
+    let inside = std::fs::canonicalize(entry).ok()?;
+    std::fs::canonicalize(&path)
+        .is_ok_and(|real| real.starts_with(&inside))
         .then_some(path)
 }
 
@@ -326,7 +342,8 @@ mod tests {
                 {{"name": "c", "path": "files/0/link.txt"}},
                 {{"name": "d", "path": ""}},
                 {{"name": "e", "path": "files/1/kept.txt"}},
-                {{"name": "f", "path": "files/9/missing.txt"}}
+                {{"name": "f", "path": "files/9/missing.txt"}},
+                {{"name": "g", "path": "files/2/notes.txt"}}
             ]}}"#,
             outside.display()
         );
@@ -336,6 +353,12 @@ mod tests {
         std::os::unix::fs::symlink(&outside, entry.join("files/0/link.txt")).unwrap();
         std::fs::create_dir_all(entry.join("files/1")).unwrap();
         std::fs::write(entry.join("files/1/kept.txt"), b"kept").unwrap();
+        // A folder on the way that is a link to a folder outside the share.
+        let away = s.0.join("away");
+        std::fs::create_dir_all(&away).unwrap();
+        std::fs::write(away.join("notes.txt"), b"not shared").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&away, entry.join("files/2")).unwrap();
         let shared = take(&s.0, ID).unwrap();
         assert_eq!(shared.files, vec![entry.join("files/1/kept.txt")]);
         assert_eq!(shared.text, None);
