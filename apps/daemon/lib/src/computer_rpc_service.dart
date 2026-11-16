@@ -10,16 +10,19 @@ import 'package:conduit_core/features/terminal/services/computer_service.dart';
 import 'package:conduit_core/features/terminal/services/computer_socket_relay.dart';
 import 'package:conduit_core/features/terminal/services/terminal_service.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'log.dart';
 
-/// One open view: a relay the viewer page streams through.
+/// One open view: a relay the viewer page streams through, opened under
+/// [account] (the account session it holds the credential of).
 final class _View {
-  _View(this.service, this.connection, this.relay);
+  _View(this.account, this.service, this.connection, this.relay);
 
+  final Object account;
   final ComputerService service;
   final ComputerConnection connection;
   final ComputerSocketRelay relay;
@@ -38,13 +41,45 @@ final class _View {
 /// The window gets a relay address and no credential: the relay sends the
 /// viewer's auth message on with the account's token put in
 /// (`injectAuth`), and adds a sign-in proxy's cookies and headers itself.
+///
+/// A view belongs to the account session it was opened under: its relay
+/// holds that account's token and its proxy's cookies. When the account
+/// changes or signs out every view closes, an open the change overtakes
+/// makes none, and a request for a view of another session is refused.
 final class ComputerRpcService {
-  ComputerRpcService(this._container, {DaemonLog? log}) : _log = log;
+  ComputerRpcService(this._container, {DaemonLog? log}) : _log = log {
+    _accountWatch = _container.listen<Object?>(
+      openWebUiAuthSessionEpochProvider,
+      (previous, next) => unawaited(_closeViews()),
+    );
+  }
 
   final ProviderContainer _container;
   final DaemonLog? _log;
+  late final ProviderSubscription<Object?> _accountWatch;
   final Map<String, _View> _views = <String, _View>{};
   final Random _random = Random.secure();
+  bool _disposed = false;
+
+  /// The account session now in use.
+  Object _session() => _container.read(openWebUiAuthSessionEpochProvider);
+
+  /// Refuses work begun under [account] once another session is in use, or
+  /// once the service shut down.
+  void _requireSession(Object account) {
+    if (_disposed) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'conduitd is stopping',
+      );
+    }
+    if (!identical(account, _session())) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed',
+      );
+    }
+  }
 
   /// How often a watched browser tab is renewed, as mobile's viewer does.
   static const Duration heartbeat = Duration(seconds: 45);
@@ -98,6 +133,8 @@ final class ComputerRpcService {
   }
 
   Future<ComputerView> open(ComputerOpen request) async {
+    final account = _session();
+    _requireSession(account);
     final service = await _require(request.chatId);
     final surface = request.surface == ComputerSurfaceKind.desktop
         ? ComputerSurface.desktop
@@ -115,11 +152,13 @@ final class ComputerRpcService {
         return service.open(surface);
       });
     } on ComputerBrowserUnavailable {
+      _requireSession(account);
       return ComputerView(
         surface: request.surface,
         state: ComputerViewState.browserUnavailable,
       );
     }
+    _requireSession(account);
     if (connection == null) {
       return ComputerView(
         surface: request.surface,
@@ -138,8 +177,14 @@ final class ComputerRpcService {
     }
     final live = connection;
     final relay = await ComputerSocketRelay.start(live, injectAuth: true);
+    try {
+      _requireSession(account);
+    } on RpcError {
+      await relay.close();
+      rethrow;
+    }
     final handle = _newKey();
-    final view = _View(service, live, relay);
+    final view = _View(account, service, live, relay);
     view.heartbeat = Timer.periodic(heartbeat, (_) {
       unawaited(
         service.keepAlive(live).catchError((Object _) {
@@ -161,8 +206,10 @@ final class ComputerRpcService {
   }
 
   Future<ComputerTabs> tabs(String chatId) async {
+    final account = _session();
     final service = await _require(chatId);
     final tabs = await _guard(service.browserTabs);
+    _requireSession(account);
     return ComputerTabs(
       tabs: <ComputerTab>[
         for (final tab in tabs)
@@ -177,7 +224,9 @@ final class ComputerRpcService {
   }
 
   Future<void> closeTab(ComputerTabRef request) async {
+    final account = _session();
     final service = await _require(request.chatId);
+    _requireSession(account);
     await _guard(() => service.closeBrowserTab(request.tabId));
   }
 
@@ -188,6 +237,9 @@ final class ComputerRpcService {
           code: ConduitErrorCodes.notFound,
           debugMessage: 'no such Computer view',
         ));
+    // A view of another session is closing, or closed: its credential is
+    // that account's.
+    _requireSession(view.account);
     try {
       await _guard(
         () => view.service.sendShortcut(view.connection, request.key),
@@ -205,10 +257,17 @@ final class ComputerRpcService {
   }
 
   Future<void> dispose() async {
-    for (final view in _views.values) {
+    _disposed = true;
+    _accountWatch.close();
+    await _closeViews();
+  }
+
+  Future<void> _closeViews() async {
+    final views = _views.values.toList();
+    _views.clear();
+    for (final view in views) {
       await view.close();
     }
-    _views.clear();
   }
 
   String _newKey() {
