@@ -798,6 +798,8 @@ final class HermesAdminService {
       );
       saved = edit.id;
     }
+    // The list read next, and the notices it takes, are this connection's.
+    _check(scope);
     _announce();
     return (await jobs()).copyWith(savedId: saved);
   });
@@ -820,6 +822,7 @@ final class HermesAdminService {
   Future<HermesJobs> setJobEnabled(HermesJobToggle toggle) =>
       _bound(toggle.connection, (scope) async {
         await _jobs.setEnabled(toggle.id, toggle.enabled);
+        _check(scope);
         _announce();
         return jobs();
       });
