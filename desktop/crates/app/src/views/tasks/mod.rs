@@ -1670,4 +1670,70 @@ mod tests {
             "Avery's task delete went out under Blake's account"
         );
     }
+
+    /// A Discard answered for a task editor that has gone closes nothing
+    /// else: the editor open by then (another account's) keeps its edits.
+    #[gpui_kit::test]
+    fn a_late_discard_closes_only_its_own_task_editor(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_protocol::methods;
+
+        use crate::stores::accounts::tests::{account, list};
+        use crate::views::sheet::{self, SheetBody as _, bench::bench};
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::AutomationsEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "te-1",
+                "isNew": true,
+                "fields": {
+                    "name": "",
+                    "prompt": "",
+                    "modelId": "m1",
+                    "active": true,
+                    "schedule": {
+                        "kind": "daily", "year": 0, "month": 0, "day": 0,
+                        "hour": 9, "minute": 0, "days": [],
+                        "rrule": "RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
+                    },
+                    "target": "chat"
+                },
+                "terminal": false
+            }))
+        });
+        let open = |vcx: &mut gpui_kit::VisualTestContext, words: &str| {
+            let s = stores.clone();
+            vcx.update(|window, cx| editor::open(s, None, window, cx));
+            let task = vcx
+                .update(|_, cx| sheet::current::<editor::TaskEditor>(cx))
+                .expect("the editor opens");
+            vcx.run_until_parked();
+            vcx.update(|window, cx| {
+                task.update(cx, |e, cx| {
+                    e.type_text(words, "Sow by the moon", window, cx)
+                })
+            });
+            task
+        };
+        let first = open(vcx, "Avery's digest");
+        // Avery's editor asks to discard; the answer will be Discard.
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        vcx.update(|window, cx| first.update(cx, |e, cx| e.cancel(window, cx)));
+        // Before it answers, Blake signs in (Avery's editor closes) and opens
+        // a task editor of his own.
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blake", true, true),
+                ]),
+                cx,
+            )
+        });
+        let second = open(vcx, "Blake's digest");
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<editor::TaskEditor>(cx))
+                .is_some_and(|open| open == second),
+            "Avery's Discard closed Blake's task editor"
+        );
+    }
 }

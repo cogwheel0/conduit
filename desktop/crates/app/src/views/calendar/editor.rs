@@ -926,9 +926,18 @@ impl SheetBody for EventEditor {
         )
         .destructive();
         let ask = present_sheet(window, spec, cx);
-        cx.spawn(async move |_, cx: &mut AsyncApp| {
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             if ask.await {
-                cx.update(sheet::dismiss);
+                // Discard closes this editor only: the question can outlive
+                // it (another account's sign-in closed it), and the sheet
+                // open by then is another editor, whose edits stay.
+                cx.update(|cx| {
+                    if let Some(this) = this.upgrade()
+                        && sheet::current::<Self>(cx).is_some_and(|open| open == this)
+                    {
+                        sheet::dismiss(cx);
+                    }
+                });
             }
         })
         .detach();

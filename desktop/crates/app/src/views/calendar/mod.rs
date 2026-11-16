@@ -1507,4 +1507,63 @@ mod tests {
             "the editor stays open once everything typed is saved"
         );
     }
+
+    /// A Discard answered for an event editor that has gone closes nothing
+    /// else: the editor open by then (another account's) keeps its edits.
+    #[gpui_kit::test]
+    fn a_late_discard_closes_only_its_own_event_editor(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::sheet::{self, SheetBody as _, bench::bench};
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::CalendarEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "ed-1",
+                "isNew": true,
+                "series": false,
+                "fields": {
+                    "title": "",
+                    "description": "",
+                    "location": "",
+                    "calendarId": "c",
+                    "allDay": false,
+                    "start": {"year": 2026, "month": 11, "day": 12, "hour": 9, "minute": 0},
+                    "repeat": "none",
+                    "attendees": []
+                },
+                "calendars": []
+            }))
+        });
+        let open = |vcx: &mut gpui_kit::VisualTestContext, title: &str| {
+            let s = stores.clone();
+            vcx.update(|window, cx| editor::open(s, None, None, window, cx));
+            let event = vcx
+                .update(|_, cx| sheet::current::<editor::EventEditor>(cx))
+                .expect("the editor opens");
+            vcx.run_until_parked();
+            vcx.update(|window, cx| event.update(cx, |e, cx| e.type_title(title, window, cx)));
+            event
+        };
+        let first = open(vcx, "Avery's seed swap");
+        // Avery's editor asks to discard; the answer will be Discard.
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        vcx.update(|window, cx| first.update(cx, |e, cx| e.cancel(window, cx)));
+        // Before it answers, Blake signs in (Avery's editor closes) and opens
+        // an event editor of his own.
+        stores.accounts.update(vcx, |a, cx| {
+            use crate::stores::accounts::tests::{account, list};
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blake", true, true),
+                ]),
+                cx,
+            )
+        });
+        let second = open(vcx, "Blake's plot visit");
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<editor::EventEditor>(cx))
+                .is_some_and(|open| open == second),
+            "Avery's Discard closed Blake's event editor"
+        );
+    }
 }
