@@ -474,6 +474,8 @@ impl SettingsView {
         }
         self.profile = None;
         self.personalization = None;
+        // The account's connections, history and web search settings.
+        self.direct = None;
         self.chats = None;
         self.data_controls = None;
         self.about_info = None;
@@ -2224,6 +2226,7 @@ mod language_tests {
             v.profile_pane(window, cx);
             v.personalization_pane(window, cx);
             v.data_controls_pane(window, cx);
+            v.direct_pane(window, cx);
             v.about_info = Some(conduit_protocol::AboutInfo::default());
         });
         stores.accounts.update(vcx, |a, cx| {
@@ -2240,6 +2243,7 @@ mod language_tests {
             assert!(v.profile.is_none(), "B's Profile shows A's details");
             assert!(v.personalization.is_none() && v.data_controls.is_none());
             assert!(v.about_info.is_none(), "About shows A's server");
+            assert!(v.direct.is_none(), "Direct shows A's connections");
         });
     }
 

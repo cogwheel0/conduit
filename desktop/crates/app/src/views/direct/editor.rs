@@ -69,6 +69,8 @@ impl DirectEditorSheet {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        // Kept in the account: the account it opened for, never the next.
+        let in_account = summary.as_ref().map_or(open_web_ui, |c| c.open_web_ui);
         let ollama = summary
             .as_ref()
             .filter(|c| c.kind == DirectKind::Ollama && !c.open_web_ui)
@@ -86,7 +88,7 @@ impl DirectEditorSheet {
             })
         };
         let initial = fingerprint(form.read(cx), cx);
-        let subscriptions = vec![
+        let mut subscriptions = vec![
             cx.observe(&form, |_, _, cx| cx.notify()),
             cx.subscribe(&form, |this: &mut Self, _, e: &DirectEvent, cx| match e {
                 DirectEvent::Saved => {
@@ -95,6 +97,9 @@ impl DirectEditorSheet {
                 }
             }),
         ];
+        if in_account {
+            subscriptions.push(sheet::close_with_account(&stores, cx));
+        }
         if let Some(o) = &ollama {
             cx.observe(o, |_, _, cx| cx.notify()).detach();
         }
@@ -377,6 +382,31 @@ mod tests {
 
     use super::*;
     use crate::stores::rpc::fake::FakeDaemon;
+    use crate::views::sheet::bench::{bench, switch_account};
+
+    /// A connection kept in the account belongs to the account it was
+    /// opened for: another account closes its sheet before it saves there.
+    /// One kept on this Mac stays open.
+    #[gpui_kit::test]
+    fn an_account_connection_closes_with_its_account(cx: &mut TestAppContext) {
+        for (open_web_ui, closes) in [(true, true), (false, false)] {
+            let (daemon, stores, vcx) = bench(cx);
+            let s = stores.clone();
+            vcx.update(|window, cx| {
+                DirectEditorSheet::open(s, None, open_web_ui, Rc::new(|_| {}), window, cx)
+            })
+            .unwrap();
+            vcx.run_until_parked();
+            switch_account(&stores, vcx);
+            assert_eq!(
+                vcx.update(|_, cx| sheet::current::<DirectEditorSheet>(cx))
+                    .is_none(),
+                closes,
+                "open_web_ui {open_web_ui}"
+            );
+            assert!(daemon.calls::<methods::DirectSave>().is_empty());
+        }
+    }
 
     /// Only the private key's password typed: Cancel asks before it is
     /// thrown away.
