@@ -112,7 +112,11 @@ void main() {
   test('a LibreChat chat not listed yet is pinned and archived in LibreChat', () async {
     // LibreChat is in charge; Open WebUI's account is still signed in
     // behind it.
+    final warned = driftRuntimeOptions.dontWarnAboutMultipleDatabases;
     driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    addTearDown(
+      () => driftRuntimeOptions.dontWarnAboutMultipleDatabases = warned,
+    );
     final libreChat = AppDatabase(NativeDatabase.memory());
     addTearDown(libreChat.close);
     final direct = AppDatabase(NativeDatabase.memory());
