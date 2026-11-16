@@ -582,6 +582,46 @@ void main() {
     );
   });
 
+  // A Desktop Gateway keeps no copied messages for a session it did not
+  // write: a copy there would open empty, so none is made.
+  test('a gateway makes no copy it cannot give the messages to', () async {
+    final pond = hermesServer.seedForeign(
+      title: 'Pond pump',
+      turns: <(String, String)>[('Which pump size?', 'About 2000 l/h.')],
+    );
+    addTearDown(() async {
+      hermesServer.sessions.remove(pond);
+      await hermes.saveSettings(
+        HermesSettingsEdit(
+          baseUrl: hermesServer.baseUrl,
+          apiKey: hermesServer.key,
+        ),
+      );
+    });
+    await hermes.saveSettings(
+      HermesSettingsEdit(
+        baseUrl: hermesServer.baseUrl,
+        mode: 'desktop',
+        desktopAuthKind: 'legacyToken',
+        legacyToken: 'gateway-token',
+      ),
+    );
+    final before = hermesServer.sessions.length;
+    await expectLater(
+      hermes.continueChat(
+        HermesContinue(chatId: hermesChatId(pond), copy: true),
+      ),
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.unsupported,
+        ),
+      ),
+    );
+    expect(hermesServer.sessions.length, before);
+  });
+
   test('chosen in onboarding, Hermes is the backend the app is used through, '
       'once it can answer', () async {
     final apiKey = HermesSettingsEdit(

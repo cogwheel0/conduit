@@ -512,32 +512,40 @@ final class HermesService {
           final forked = await fork(sessionId);
           return forked.title.isEmpty ? forked.copyWith(title: title) : forked;
         }
-        final transcript = await service.getSessionMessages(sessionId);
-        // Untitled: Hermes refuses a second session with the same title.
-        final copyId = await service.createSession();
+        // Read before anything is asked: the copy's messages are kept for
+        // the connection that made it. A connection that keeps none (a
+        // Desktop Gateway) would make an empty copy, so none is made.
         final identity = hermesSessionConnectionIdentity(
           service,
           _config.documentTrustPrincipalId(),
         ).connectionIdentity;
         final store = hermesCopiedHistoryFor(_container, service, identity);
-        if (store != null && identity != null) {
-          try {
-            await saveHermesCopyHistory(
-              store: store,
-              connectionIdentity: identity,
-              service: service,
-              sessionId: copyId,
-              transcript: transcript,
-            );
-          } on HermesCopyHistoryException catch (error) {
-            _container.invalidate(hermesSessionsProvider);
-            _announce();
-            throw RpcError(
-              code: ConduitErrorCodes.conflict,
-              retryable: true,
-              debugMessage: 'the copy could not keep its messages: $error',
-            );
-          }
+        if (store == null || identity == null) {
+          throw RpcError(
+            code: ConduitErrorCodes.unsupported,
+            args: <String, String>{'chatId': request.chatId},
+            debugMessage: 'this Hermes connection keeps no copied messages',
+          );
+        }
+        final transcript = await service.getSessionMessages(sessionId);
+        // Untitled: Hermes refuses a second session with the same title.
+        final copyId = await service.createSession();
+        try {
+          await saveHermesCopyHistory(
+            store: store,
+            connectionIdentity: identity,
+            service: service,
+            sessionId: copyId,
+            transcript: transcript,
+          );
+        } on HermesCopyHistoryException catch (error) {
+          _container.invalidate(hermesSessionsProvider);
+          _announce();
+          throw RpcError(
+            code: ConduitErrorCodes.conflict,
+            retryable: true,
+            debugMessage: 'the copy could not keep its messages: $error',
+          );
         }
         final copy = HermesSessionSummary(
           id: copyId,
