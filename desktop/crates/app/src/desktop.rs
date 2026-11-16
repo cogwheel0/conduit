@@ -454,6 +454,8 @@ pub struct WidgetFeed {
     /// Snapshots written, and reloads WidgetKit took (the E2E pass).
     pub writes: u32,
     pub reloads: u32,
+    /// Reloads asked for: one per change to what the file holds.
+    reloads_asked: u32,
 }
 
 impl WidgetFeed {
@@ -618,9 +620,7 @@ fn write_snapshot(snapshot: Snapshot, cx: &mut App) {
             feed.failed = false;
             feed.failures = 0;
             feed.retry = None;
-            if feed.bridge.as_ref().is_some_and(|b| b.reload_all()) {
-                feed.reloads += 1;
-            }
+            widget_file_changed(feed);
             log::debug!(
                 "widget: snapshot written ({} chats, signed in: {})",
                 snapshot.chats.len(),
@@ -636,10 +636,21 @@ fn write_snapshot(snapshot: Snapshot, cx: &mut App) {
             if stale && widget::remove(&path).is_ok() {
                 feed.written = None;
                 feed.owner = None;
+                widget_file_changed(feed);
             }
             feed.failures += 1;
             schedule_widget_retry(cx);
         }
+    }
+}
+
+/// What the widget's file holds changed (written, or taken away): WidgetKit
+/// reads it again now, not at its timeline's next entry. Every change to
+/// the file goes through here.
+fn widget_file_changed(feed: &mut WidgetFeed) {
+    feed.reloads_asked += 1;
+    if feed.bridge.as_ref().is_some_and(|b| b.reload_all()) {
+        feed.reloads += 1;
     }
 }
 
@@ -1877,6 +1888,10 @@ mod widget_tests {
         assert!(!path.exists(), "the last account's titles are gone");
         cx.update(|cx| {
             let feed = &cx.global::<Desktop>().widget;
+            assert_eq!(
+                feed.reloads_asked, 1,
+                "WidgetKit drops the timeline it built"
+            );
             assert_eq!(feed.failures, 1);
             assert!(feed.retry.is_some(), "tried again");
         });
