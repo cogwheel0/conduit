@@ -3337,9 +3337,14 @@ impl SidebarView {
             });
         let navigation = self.stores.navigation.clone();
         let list = self.stores.chat_list.clone();
+        // The copy is the account's the command was given under: once
+        // another one is in charge, it is not opened in its window.
+        let accounts = self.stores.accounts.clone();
+        let scope = accounts.read(cx).scope_key();
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| match result {
+                Ok(_) if accounts.read(cx).scope_key() != scope => {}
                 Ok(copy) => {
                     list.update(cx, |l, cx| l.refresh(cx));
                     navigation.update(cx, |n, cx| n.open(copy.chat_id, cx));
@@ -4070,7 +4075,13 @@ mod selection_tests {
     use crate::stores::rpc::fake::FakeDaemon;
 
     fn bench(cx: &mut TestAppContext) -> (Stores, Entity<SidebarView>, &mut VisualTestContext) {
-        let daemon = FakeDaemon::new();
+        bench_on(FakeDaemon::new(), cx)
+    }
+
+    fn bench_on(
+        daemon: FakeDaemon,
+        cx: &mut TestAppContext,
+    ) -> (Stores, Entity<SidebarView>, &mut VisualTestContext) {
         let scratch = std::env::temp_dir().join(format!("conduit-sidebar-{}", std::process::id()));
         let stores = cx.update(|cx| {
             gpui_kit::init(cx);
@@ -4135,6 +4146,40 @@ mod selection_tests {
         view.update(vcx, |s, cx| s.end_selection(cx));
         view.read_with(vcx, |s, _| {
             assert_eq!(s.on_selection(&ChatCommand::Delete), None)
+        });
+    }
+
+    /// A LibreChat copy made under one account, answered after another
+    /// signs in, is not opened in the new account's window.
+    #[gpui_kit::test]
+    fn a_late_duplicate_does_not_open_in_another_account(cx: &mut TestAppContext) {
+        use conduit_protocol::methods;
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::LibrechatDuplicate>(conduit_protocol::ChatForked {
+            chat_id: "copy-1".into(),
+        });
+        let held = daemon.hold::<methods::LibrechatDuplicate>();
+        let (stores, view, vcx) = bench_on(daemon, cx);
+        view.update(vcx, |s, cx| s.duplicate("chat-a", cx));
+        vcx.run_until_parked();
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blake", true, true),
+                ]),
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        stores.navigation.read_with(vcx, |n, _| {
+            assert_ne!(
+                n.selected_chat(),
+                Some("copy-1"),
+                "the last account's copy opened in the new account"
+            );
         });
     }
 
