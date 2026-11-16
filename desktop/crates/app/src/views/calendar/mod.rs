@@ -40,7 +40,7 @@ use gpui_kit::{
 
 use crate::actions::CalendarMenu;
 use crate::l10n::{ActiveL10n as _, L10n};
-use crate::shell::sheet::{SheetSpec, present_sheet};
+use crate::shell::sheet::SheetSpec;
 use crate::stores::Stores;
 use crate::views::settings::controls;
 
@@ -1061,15 +1061,16 @@ pub fn confirm_delete(
         )
     }
     .destructive();
-    let ask = present_sheet(window, spec, cx);
+    // Asked, and sent, only for the account the event is shown for.
+    let ask = crate::views::sheet::ask_for_account(&stores, window, spec, cx);
     let rpc = stores.connection.read(cx).rpc();
+    // The agenda the answer comes back with is this account's: another
+    // account signed in meanwhile shows its own.
+    let generation = stores.calendar.read(cx).generation();
     cx.spawn(async move |cx: &mut AsyncApp| {
-        if !ask.await {
+        if !ask.await || cx.update(|cx| stores.calendar.read(cx).generation()) != generation {
             return;
         }
-        // The agenda the answer comes back with is this account's: another
-        // account signed in meanwhile shows its own.
-        let generation = cx.update(|cx| stores.calendar.read(cx).generation());
         let result = rpc
             .call::<methods::CalendarDeleteEvent>(&CalendarItemRef {
                 key: item.key.clone(),
@@ -1367,6 +1368,34 @@ mod tests {
         make_active(&stores, "b", vcx);
         drop(held);
         vcx.run_until_parked();
+        assert!(
+            stores.calendar.read_with(vcx, |c, _| c.agenda.is_none()),
+            "Avery's agenda is shown under Blake's account"
+        );
+
+        // Blake signs in while Avery's question is still up: the delete is
+        // never sent, under either account.
+        make_active(&stores, "a", vcx);
+        let s = stores.clone();
+        vcx.update(|window, cx| {
+            confirm_delete(s.clone(), item("k2"), None, window, cx);
+            s.accounts.update(cx, |a, cx| {
+                use crate::stores::accounts::tests::{account, list};
+                a.adopt(
+                    list(vec![
+                        account("a", "Avery", false, true),
+                        account("b", "Blake", true, true),
+                    ]),
+                    cx,
+                )
+            });
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::CalendarDeleteEvent>().len(),
+            1,
+            "Avery's delete went out under Blake's account"
+        );
         assert!(
             stores.calendar.read_with(vcx, |c, _| c.agenda.is_none()),
             "Avery's agenda is shown under Blake's account"

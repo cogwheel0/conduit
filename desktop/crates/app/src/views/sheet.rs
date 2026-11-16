@@ -376,6 +376,36 @@ pub fn close_with_account<V: SheetBody>(
     })
 }
 
+/// Asks `spec` for the account active now, for an action that changes the
+/// server: the question closes (answers no) when another account signs in,
+/// and answers no if one has by the time it is answered, so what it
+/// confirms never runs under the next account.
+pub fn ask_for_account(
+    stores: &crate::stores::Stores,
+    window: &Window,
+    spec: crate::shell::sheet::SheetSpec,
+    cx: &mut App,
+) -> gpui_kit::Task<bool> {
+    let accounts = stores.accounts.clone();
+    let opened = accounts.read(cx).active().map(|a| a.id.clone());
+    let (asked, closer) = crate::shell::sheet::present_sheet_closable(window, spec, cx);
+    let watch = {
+        let opened = opened.clone();
+        cx.observe(&accounts, move |accounts, cx| {
+            // A list being read again (a reconnect) names nobody: no change.
+            let now = accounts.read(cx).active().map(|a| a.id.clone());
+            if now.is_some() && now != opened {
+                closer.close(cx);
+            }
+        })
+    };
+    cx.spawn(async move |cx| {
+        let yes = asked.await;
+        drop(watch);
+        yes && cx.update(|cx| accounts.read(cx).active().map(|a| a.id.clone()) == opened)
+    })
+}
+
 /// Closes the sheet down now (it slides up), from its body or anywhere.
 pub fn dismiss(cx: &mut App) {
     let open = cx.default_global::<OpenSheet>();

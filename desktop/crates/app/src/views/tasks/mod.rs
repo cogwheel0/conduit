@@ -42,7 +42,7 @@ use gpui_kit::{
 
 use crate::actions::TaskMenu;
 use crate::l10n::{ActiveL10n as _, L10n};
-use crate::shell::sheet::{SheetSpec, present_sheet};
+use crate::shell::sheet::SheetSpec;
 use crate::stores::Stores;
 use crate::stores::navigation::AreaItem;
 use crate::views::dates::{Form, format};
@@ -282,7 +282,8 @@ impl TasksPane {
             l.cancel(),
         )
         .destructive();
-        let ask = present_sheet(window, spec, cx);
+        // Asked, and sent, only for the account the task is shown for.
+        let ask = crate::views::sheet::ask_for_account(&self.stores, window, spec, cx);
         let tasks = self.stores.tasks.clone();
         let id = id.to_string();
         cx.spawn(async move |_, cx: &mut AsyncApp| {
@@ -1636,6 +1637,37 @@ mod tests {
         assert!(
             !vcx.update(|_, cx| sheet::is_open(cx)),
             "the editor stays open once everything typed is saved"
+        );
+    }
+
+    /// A task delete confirmed after another account signed in is never
+    /// sent: the question closes with the account it was asked for.
+    #[gpui_kit::test]
+    fn a_task_delete_is_never_sent_under_another_account(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_protocol::methods;
+
+        use crate::stores::accounts::tests::{account, list};
+        use crate::views::sheet::bench::bench;
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        let s = stores.clone();
+        let pane = vcx.update(|window, cx| cx.new(|cx| TasksPane::new(s, window, cx)));
+        vcx.update(|window, cx| {
+            pane.update(cx, |p, cx| p.delete("avery-digest", window, cx));
+            stores.accounts.update(cx, |a, cx| {
+                a.adopt(
+                    list(vec![
+                        account("a", "Avery", false, true),
+                        account("b", "Blake", true, true),
+                    ]),
+                    cx,
+                )
+            });
+        });
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::AutomationsDelete>().is_empty(),
+            "Avery's task delete went out under Blake's account"
         );
     }
 }
