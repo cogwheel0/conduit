@@ -152,9 +152,29 @@ impl TasksPane {
         let l = cx.l10n().clone();
         let search =
             cx.new(|cx| InputState::new(window, cx).placeholder(l.scheduled_tasks_search_hint()));
+        let mut account = stores.accounts.read(cx).active().map(|a| a.id.clone());
         let subscriptions = vec![
             cx.observe(&stores.tasks, |_, _, cx| cx.notify()),
             cx.observe(&stores.session, |_, _, cx| cx.notify()),
+            // Another account: what was typed in search goes, and the search
+            // waiting to go with it, so it never reaches the next account.
+            cx.observe_in(
+                &stores.accounts,
+                window,
+                move |this, accounts, window, cx| {
+                    // A list being read again (a reconnect) names nobody.
+                    let Some(now) = accounts.read(cx).active().map(|a| a.id.clone()) else {
+                        return;
+                    };
+                    if account.as_ref() == Some(&now) {
+                        return;
+                    }
+                    account = Some(now);
+                    this.search_task = None;
+                    this.search.update(cx, |s, cx| s.set_value("", window, cx));
+                    cx.notify();
+                },
+            ),
             cx.subscribe_in(
                 &search,
                 window,
@@ -1734,6 +1754,41 @@ mod tests {
             vcx.update(|_, cx| sheet::current::<editor::TaskEditor>(cx))
                 .is_some_and(|open| open == second),
             "Avery's Discard closed Blake's task editor"
+        );
+    }
+
+    /// A search typed under one account never goes to the next: another
+    /// account's sign-in clears the field and the search waiting to go.
+    #[gpui_kit::test]
+    fn a_search_typed_for_one_account_never_goes_to_the_next(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_protocol::methods;
+
+        use crate::views::sheet::bench::{bench, switch_account};
+        let (daemon, stores, vcx) = bench(cx);
+        let s = stores.clone();
+        let pane = vcx.update(|window, cx| cx.new(|cx| TasksPane::new(s, window, cx)));
+        // Avery types; the search waits a moment before it goes.
+        vcx.update(|window, cx| {
+            pane.update(cx, |p, cx| {
+                p.search
+                    .update(cx, |i, cx| i.set_value("allotment digest", window, cx));
+                p.search_soon("allotment digest".into(), cx);
+            })
+        });
+        switch_account(&stores, vcx);
+        vcx.executor().advance_clock(Duration::from_secs(1));
+        vcx.run_until_parked();
+        assert!(
+            daemon
+                .calls::<methods::AutomationsList>()
+                .iter()
+                .all(|q| q["query"] != "allotment digest"),
+            "Avery's search went to Blake's server"
+        );
+        assert_eq!(
+            pane.read_with(vcx, |p, cx| p.search.read(cx).value().to_string()),
+            "",
+            "Avery's search stayed in the field"
         );
     }
 }
