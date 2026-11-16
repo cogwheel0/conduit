@@ -374,6 +374,9 @@ final class NotesService {
     // The account the save was asked under, before any wait: a new note is
     // made under it or not at all.
     final scope = currentPreferenceAccountId();
+    // The editor's own account, when it says: another one active (a switch
+    // this side has made and the window not yet heard of) takes nothing.
+    _requireExpected(request.accountId, request.id);
     // Settled first. The providers check that the session they started in
     // is still current when their request returns; straight after signing
     // in the account's database is still being certified, appears during
@@ -387,6 +390,7 @@ final class NotesService {
         : markdownFromQuillOps(request.ops!);
     final access = await _access();
     final id = request.id;
+    _requireExpected(request.accountId, id);
     if (id == null) {
       // Save as My Own Note, begun under another account than the one
       // active now: the draft is not made into this account's note.
@@ -528,6 +532,17 @@ final class NotesService {
       code: ConduitErrorCodes.sessionExpired,
       args: const <String, String>{'reason': 'account'},
       debugMessage: 'note $id was opened under another account',
+    );
+  }
+
+  /// Refuses a save the editor made for account [expected] while another
+  /// account is active (nothing is checked when the editor names none).
+  void _requireExpected(String? expected, String? id) {
+    if (expected == null || expected == currentPreferenceAccountId()) return;
+    throw RpcError(
+      code: ConduitErrorCodes.sessionExpired,
+      args: const <String, String>{'reason': 'account'},
+      debugMessage: 'note ${id ?? '(new)'} is for another account',
     );
   }
 

@@ -1236,7 +1236,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     {
       "insert": "Sow peas"
     }
-  ]
+  ],
+  "accountId": "account-1"
 }''',
 
   'noteDetailPaged': r'''

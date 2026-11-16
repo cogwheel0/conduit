@@ -6525,6 +6525,12 @@ pub struct NoteDetach {
 /// editor); `resource.notFound` with `reason: page` when the page was
 /// removed elsewhere. A note deleted elsewhere is not refused: the text
 /// is kept as a new note (`NoteDetail.recoveredFrom`).
+///
+/// `accountId`: the account the editor opened the note under (an account's
+/// id, as `AccountRef.accountId`). When another account is active, the save
+/// -- a new note too -- is refused with `auth.sessionExpired`, `reason:
+/// account`, and nothing is written: the text stays with the editor for
+/// that account.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteSave {
@@ -6537,6 +6543,8 @@ pub struct NoteSave {
     pub page_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_ops: Option<Vec<serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
 }
 
 /// Params naming one note.

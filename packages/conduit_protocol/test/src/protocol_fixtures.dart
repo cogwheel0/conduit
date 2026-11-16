@@ -639,6 +639,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     baseOps: <Map<String, dynamic>>[
       <String, dynamic>{'insert': 'Sow peas'},
     ],
+    accountId: 'account-1',
   ),
   'noteDetailPaged': const NoteDetail(
     summary: NoteSummary(id: 'n2', title: 'Garden plan', updatedAtMs: 2),

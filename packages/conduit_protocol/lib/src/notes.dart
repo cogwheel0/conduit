@@ -260,6 +260,12 @@ abstract class NoteDetach with _$NoteDetach {
 /// editor); `resource.notFound` with `reason: page` when the page was
 /// removed elsewhere. A note deleted elsewhere is not refused: the text
 /// is kept as a new note ([NoteDetail.recoveredFrom]).
+///
+/// `accountId`: the account the editor opened the note under (an account's
+/// id, as [AccountRef.accountId]). When another account is active, the save
+/// -- a new note too -- is refused with `auth.sessionExpired`, `reason:
+/// account`, and nothing is written: the text stays with the editor for
+/// that account.
 @freezed
 abstract class NoteSave with _$NoteSave {
   const factory NoteSave({
@@ -268,6 +274,7 @@ abstract class NoteSave with _$NoteSave {
     List<Map<String, dynamic>>? ops,
     String? pageId,
     List<Map<String, dynamic>>? baseOps,
+    String? accountId,
   }) = _NoteSave;
 
   factory NoteSave.fromJson(Map<String, dynamic> json) =>

@@ -170,6 +170,59 @@ void main() {
       );
     });
 
+    test('refuses a save or new note meant for another account', () async {
+      await first
+          .into(first.notes)
+          .insert(
+            serverToNoteRow(<String, dynamic>{
+              'id': 'tide-table',
+              'title': 'Tide table',
+              'data': <String, dynamic>{
+                'content': <String, dynamic>{'md': 'Low at noon'},
+              },
+              'created_at': 1,
+              'updated_at': 1,
+            }).copyWith(dirtyData: const Value(true)),
+          );
+      final notes = NotesService(container);
+      expect((await notes.get('tide-table'))?.summary.title, 'Tide table');
+      final refused = throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      );
+      const typed = <Map<String, dynamic>>[
+        <String, dynamic>{'insert': 'Low at one\n'},
+      ];
+      // The editor's account is B; conduitd is on A.
+      await expectLater(
+        notes.save(
+          const NoteSave(
+            id: 'tide-table',
+            title: 'Tide table',
+            ops: typed,
+            accountId: 'server-b',
+          ),
+        ),
+        refused,
+      );
+      await expectLater(
+        notes.save(
+          const NoteSave(
+            title: 'Tide table, mine',
+            ops: typed,
+            accountId: 'server-b',
+          ),
+        ),
+        refused,
+      );
+      final rows = await first.select(first.notes).get();
+      expect(rows.map((r) => r.id), <String>['tide-table']);
+      expect(rows.single.data, contains('Low at noon'));
+    });
+
     test('refuses a note read under one account once another is active', () async {
       await first
           .into(first.notes)
