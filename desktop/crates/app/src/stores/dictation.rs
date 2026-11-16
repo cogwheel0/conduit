@@ -1099,26 +1099,59 @@ async fn transcribe_here(
     let wav = fetch_wav(http, reference).await?;
     let path = std::env::temp_dir().join(format!("conduit-recording-{id}.wav"));
     std::fs::write(&path, &wav).map_err(|e| e.to_string())?;
-    let (tx, rx) = futures::channel::oneshot::channel();
-    let file = path.clone();
-    std::thread::spawn(move || {
+    let (rx, _) = recognize_file(path, move |file| {
         #[cfg(target_os = "macos")]
-        let result = voice::mac::transcribe_file(&file, language.as_deref());
+        let result = voice::mac::transcribe_file(file, language.as_deref());
         #[cfg(not(target_os = "macos"))]
         let result: Result<String, SessionError> = {
-            let _ = (&file, language);
+            let _ = (file, language);
             Err(SessionError::NotOnThisMac(String::new()))
         };
-        let _ = tx.send(result);
+        result
     });
     let result = rx.await.map_err(|e| e.to_string())?;
-    let _ = std::fs::remove_file(&path);
     result.map_err(|e| format!("{e:?}"))
+}
+
+/// Runs `recognize` on the recording at `path` on its own thread, then
+/// removes the file there, whether or not anyone still waits for the words
+/// on the receiver (the draft may have changed meanwhile).
+fn recognize_file<R: Send + 'static>(
+    path: std::path::PathBuf,
+    recognize: impl FnOnce(&std::path::Path) -> R + Send + 'static,
+) -> (
+    futures::channel::oneshot::Receiver<R>,
+    std::thread::JoinHandle<()>,
+) {
+    let (tx, rx) = futures::channel::oneshot::channel();
+    let thread = std::thread::spawn(move || {
+        let result = recognize(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = tx.send(result);
+    });
+    (rx, thread)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A recording copied out for this Mac's recognizer is removed once
+    /// recognized, even when nobody waits for the words any more (the
+    /// draft changed).
+    #[test]
+    fn a_recognized_recordings_copy_goes_even_unawaited() {
+        let path =
+            std::env::temp_dir().join(format!("conduit-recording-test-{}.wav", std::process::id()));
+        std::fs::write(&path, b"RIFF").unwrap();
+        let (rx, thread) = recognize_file(path.clone(), |file| file.exists());
+        drop(rx);
+        thread.join().unwrap();
+        assert!(
+            !path.exists(),
+            "the recording's copy was left in the temporary folder"
+        );
+    }
 
     #[test]
     fn lengths_read_as_minutes_and_seconds() {
