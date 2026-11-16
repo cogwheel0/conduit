@@ -398,7 +398,7 @@ pub struct MenuState {
     /// A voice call is on (Chat › End Voice Call).
     pub in_call: bool,
     /// A call can start in the open chat (Chat › Start Voice Call): the
-    /// composer's call button is ready.
+    /// composer's call button is ready, and the window online.
     pub call_ready: bool,
 }
 
@@ -543,10 +543,11 @@ pub fn menu_state(cx: &App) -> MenuState {
         dictating,
         speaking: state.stores.speech.read(cx).is_active(),
         in_call: state.stores.call.read(cx).is_active(),
-        call_ready: state.main_view.as_ref().filter(|_| main).is_some_and(|v| {
-            let composer = v.read(cx).chat_pane.read(cx).composer.clone();
-            composer.read(cx).call_ready
-        }),
+        call_ready: state
+            .main_view
+            .as_ref()
+            .filter(|_| main)
+            .is_some_and(|v| v.read(cx).chat_pane.read(cx).call_startable(cx)),
     }
 }
 

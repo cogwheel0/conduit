@@ -1557,8 +1557,8 @@ impl ChatPane {
         if self.stores.call.read(cx).is_active() {
             return;
         }
-        // ⌥⌘V as the button: only when the core admits a call.
-        if !self.composer.read(cx).call_ready {
+        // ⌥⌘V as the button: only when the core admits a call, online.
+        if !self.call_startable(cx) {
             return;
         }
         if self
@@ -1590,6 +1590,14 @@ impl ChatPane {
         self.stores
             .call
             .update(cx, |c, cx| c.start(chat_id, model, folder, temporary, cx));
+    }
+
+    /// A call can start here now, as the composer's call button would
+    /// take it: the core admits one with the chosen model, and the window is
+    /// online.
+    pub fn call_startable(&self, cx: &App) -> bool {
+        let composer = self.composer.read(cx);
+        composer.call_ready && !composer.offline
     }
 
     /// Chat › Start Voice Call, or End Voice Call while one is on.
@@ -3059,6 +3067,25 @@ mod tests {
                     .map(|a| a.name.clone())
                     .collect()
             })
+        }
+
+        /// Offline, Chat › Start Voice Call and ⌥⌘V start no call, as the
+        /// composer's call button (disabled offline) starts none.
+        #[gpui_kit::test]
+        fn no_call_starts_while_offline(cx: &mut TestAppContext) {
+            let (daemon, _stores, pane, vcx) = bench(cx);
+            pane.update(vcx, |p, cx| {
+                p.composer.update(cx, |c, _| {
+                    c.call_ready = true;
+                    c.offline = true;
+                })
+            });
+            pane.update(vcx, |p, cx| p.toggle_call(cx));
+            vcx.run_until_parked();
+            assert!(
+                daemon.calls::<methods::CallsStart>().is_empty(),
+                "a call started while offline"
+            );
         }
 
         #[gpui_kit::test]
