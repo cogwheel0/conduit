@@ -85,6 +85,12 @@ const RETRY_DELAY: Duration = Duration::from_secs(5);
 /// A failed save tried again while Quit waits (well within its 3 s).
 const QUIT_RETRY_DELAY: Duration = Duration::from_secs(1);
 
+/// What a recording's transcript was asked for: the card it follows, on
+/// the page shown then.
+struct Transcription {
+    block: Option<u64>,
+    page: u64,
+}
 /// The longest a page change waits for a dictation's last words.
 const RUN_END_WAIT: Duration = Duration::from_secs(3);
 /// The text column's widest.
@@ -1594,7 +1600,10 @@ impl NotePane {
     fn transcribe(&mut self, file: FileRef, link: FileLink, cx: &mut Context<Self>) {
         let http = self.stores.connection.read(cx).http().cloned();
         let staged = stage_file(file, &link.name, cx);
-        let block = self.editor.read(cx).card_block(&link.id);
+        let asked = Transcription {
+            block: self.editor.read(cx).card_block(&link.id),
+            page: self.page_asked,
+        };
         self.ai = None;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result: Result<String, String> = async {
@@ -1617,22 +1626,33 @@ impl NotePane {
                     .to_string())
             }
             .await;
-            let _ = this.update(cx, |this, cx| {
-                let l = this.l(cx);
-                match result {
-                    Ok(text) if !text.trim().is_empty() => {
-                        this.editor
-                            .update(cx, |e, cx| e.insert_after_block(block, &text, cx));
-                    }
-                    Ok(_) => this.toast(NoticeLevel::Info, l.desktop_nothing_heard(), cx),
-                    Err(e) => {
-                        log::warn!("transcribing a note's recording: {e}");
-                        this.toast(NoticeLevel::Error, l.desktop_transcription_failed(), cx);
-                    }
-                }
-            });
+            let _ = this.update(cx, |this, cx| this.transcribed(asked, result, cx));
         })
         .detach();
+    }
+
+    /// A recording's transcript is in: after the card it was asked from.
+    fn transcribed(
+        &mut self,
+        asked: Transcription,
+        result: Result<String, String>,
+        cx: &mut Context<Self>,
+    ) {
+        let l = self.l(cx);
+        match result {
+            // Another page is shown (or asked for) now: the words were said
+            // on the one left, and are not put into this one.
+            Ok(_) if asked.page != self.page_asked => {}
+            Ok(text) if !text.trim().is_empty() => {
+                self.editor
+                    .update(cx, |e, cx| e.insert_after_block(asked.block, &text, cx));
+            }
+            Ok(_) => self.toast(NoticeLevel::Info, l.desktop_nothing_heard(), cx),
+            Err(e) => {
+                log::warn!("transcribing a note's recording: {e}");
+                self.toast(NoticeLevel::Error, l.desktop_transcription_failed(), cx);
+            }
+        }
     }
 
     fn confirm_remove(&mut self, link: FileLink, window: &mut Window, cx: &mut Context<Self>) {
@@ -3320,6 +3340,29 @@ mod tests {
         vcx.run_until_parked();
         assert_eq!(daemon.calls::<methods::NotesSave>().len(), 2);
         assert_eq!(quits.get(), 1);
+    }
+
+    /// A transcript that comes in after the page changed is not put into
+    /// the page shown then.
+    #[gpui_kit::test]
+    fn a_transcript_after_a_page_change_goes_nowhere(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        let asked = pane.read_with(vcx, |p, _| Transcription {
+            block: None,
+            page: p.page_asked,
+        });
+        pane.update_in(vcx, |p, window, cx| p.show_page("p2".into(), window, cx));
+        vcx.run_until_parked();
+        assert_eq!(bench::text(&pane, vcx), "Second page");
+        pane.update(vcx, |p, cx| {
+            p.transcribed(asked, Ok("Heard by the river".into()), cx)
+        });
+        assert_eq!(
+            bench::text(&pane, vcx),
+            "Second page",
+            "the first page's transcript went into the second"
+        );
     }
 
     /// A note left while its save fails is kept, and saved again, until
