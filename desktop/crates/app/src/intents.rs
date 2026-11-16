@@ -612,9 +612,10 @@ async fn start_voice_call(cx: &mut AsyncApp) -> Result<Response, Failure> {
         });
         match outcome {
             Some(result) => return result.map(|()| Response::done()),
-            // Still starting when the wait ends: the call strip goes on
-            // from here.
-            None if Instant::now() >= deadline => return Ok(Response::done()),
+            None if Instant::now() >= deadline => {
+                let started = cx.update(|cx| call.read(cx).state().call != before);
+                return at_deadline(started).map(|()| Response::done());
+            }
             None => {
                 cx.background_executor()
                     .timer(Duration::from_millis(100))
@@ -644,6 +645,18 @@ fn call_outcome(started: bool, phase: CallPhase) -> Option<Result<(), ()>> {
         | CallPhase::Muted
         | CallPhase::Ending
         | CallPhase::Ended => Some(Ok(())),
+    }
+}
+
+/// A Start Voice Call still unsettled when the wait ends: a call that
+/// started and is still starting goes on from its strip; no call at all
+/// (another chat took the window before the call could start in the new
+/// one) is a failure, never a success.
+fn at_deadline(started: bool) -> Result<(), Failure> {
+    if started {
+        Ok(())
+    } else {
+        Err(Failure::Unexpected)
     }
 }
 
@@ -1090,6 +1103,11 @@ mod tests {
         // ends the call in an error: the action fails with its words.
         assert_eq!(call_outcome(true, CallPhase::Error), Some(Err(())));
         assert_eq!(call_outcome(true, CallPhase::Idle), Some(Err(())));
+        // At the end of the wait: a call still starting goes on from its
+        // strip, but no call at all (another chat took the window first)
+        // is no success.
+        assert_eq!(at_deadline(true), Ok(()));
+        assert_eq!(at_deadline(false), Err(Failure::Unexpected));
         let reason = "Choose a model before starting a voice call.".to_string();
         assert_eq!(
             Failure::CallFailed {
