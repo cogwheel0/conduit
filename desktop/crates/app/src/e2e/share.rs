@@ -292,6 +292,8 @@ async fn share_menu(dir: &Path, cx: &mut AsyncApp) -> bool {
         "a share opens a new chat with the message, text and link in the composer, not sent",
         filled,
     );
+    // Read now: the toast goes after a few seconds, the upload can take longer.
+    let left_out_named = cx.update(|cx| toasts(cx).iter().any(|t| t.contains(BIG)));
     let uploaded = wait_until(cx, Duration::from_secs(30), |cx| {
         let a = attachments(cx);
         a.len() == 2 && a.iter().all(|(_, done)| *done)
@@ -304,7 +306,7 @@ async fn share_menu(dir: &Path, cx: &mut AsyncApp) -> bool {
     );
     pass &= ok(
         "the file the extension left out is named in a toast",
-        cx.update(|cx| toasts(cx).iter().any(|t| t.contains(BIG))),
+        left_out_named,
     );
     pass &= ok(
         "the share is marked taken",
