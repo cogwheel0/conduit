@@ -659,7 +659,10 @@ impl DictationStore {
         self.level = 0.0;
         self.last_end = Some(reason);
         let keep = self.active.as_ref().is_some_and(|a| a.keep);
-        if reason == EndReason::Cancelled {
+        // Its draft moved (another chat, another account): ended as if
+        // cancelled even when the session's own end was already on its way,
+        // so nothing of it is transcribed for the draft or account now shown.
+        if reason == EndReason::Cancelled || keep {
             // Dropped, unless it was cut off by opening another chat.
             let recording = self.active_recording().map(str::to_string);
             self.finish_recording(keep, cx);
@@ -1269,6 +1272,55 @@ mod tests {
         });
         cx.run_until_parked();
         assert_eq!(daemon.calls::<methods::RecordingsList>().len(), 1);
+    }
+
+    /// A dictation whose draft moved (another chat, another account) keeps
+    /// its audio with that draft: an end the session had already sent when
+    /// it was cancelled transcribes nothing, under nobody's account.
+    #[gpui_kit::test]
+    fn an_end_already_on_its_way_when_the_draft_moved_transcribes_nothing(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::RecordingsList>(RecordingList::default());
+        let store = cx.new(|_| DictationStore::new(daemon.rpc(), None));
+        let generation = store.update(cx, |s, cx| {
+            s.set_target_in(1, chat("c1"), cx);
+            // Listening on the server engine, its recording begun.
+            s.engine = "server".into();
+            s.phase = Phase::Listening {
+                since: Instant::now(),
+            };
+            s.active = Some(Active {
+                id: Some("r1".into()),
+                stored: true,
+                waiting: VecDeque::new(),
+                keep: false,
+                target: chat("c1"),
+            });
+            // Another account's new chat, the same ids.
+            s.set_target_in(2, chat("c1"), cx);
+            s.generation
+        });
+        // The end the session sent before it heard the cancel.
+        store.update(cx, |s, cx| {
+            s.on_event(
+                generation,
+                SessionEvent::Ended {
+                    reason: EndReason::Silence,
+                    text: String::new(),
+                    heard: true,
+                    pcm: Some(vec![1; 3200]),
+                },
+                cx,
+            );
+            assert_eq!(
+                s.phase,
+                Phase::Idle,
+                "the last account's words were sent to transcribe"
+            );
+            assert_eq!(s.busy, None);
+        });
+        cx.run_until_parked();
+        assert!(daemon.calls::<methods::RecordingsTranscribe>().is_empty());
     }
 
     // (A refused microphone is the session's: `voice::session` tests it;
