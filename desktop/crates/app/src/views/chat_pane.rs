@@ -1612,6 +1612,15 @@ impl ChatPane {
         {
             return;
         }
+        self.begin_call(cx);
+    }
+
+    /// Starts the call this pane shows the way to: in the open chat, or in
+    /// the new chat with its model, folder and Temporary switch as shown.
+    /// Every start of a call in the main window comes here, so a call never
+    /// saves a chat the composer shows as temporary. Dictation stops: the
+    /// call owns the microphone.
+    fn begin_call(&mut self, cx: &mut Context<Self>) {
         if let Some(dictation) = self.composer.read(cx).dictation.clone()
             && dictation.read(cx).is_active()
         {
@@ -1634,6 +1643,25 @@ impl ChatPane {
         self.stores
             .call
             .update(cx, |c, cx| c.start(chat_id, model, folder, temporary, cx));
+    }
+
+    /// The widget's Voice Call and Shortcuts' Start Voice Call, once this
+    /// pane shows the new chat they opened: the call starts there as the
+    /// composer's call button would start it (its Temporary switch, folder
+    /// and model). When another chat took the pane's place first (a later
+    /// link), no call starts: never one in a chat it was not asked for.
+    /// The core's refusal shows on the call strip, so no readiness check.
+    pub fn call_in_new_chat(&mut self, cx: &mut Context<Self>) {
+        if self.stores.call.read(cx).is_active() || self.chat.is_some() {
+            return;
+        }
+        if !matches!(
+            self.stores.navigation.read(cx).selection(),
+            Selection::New { .. }
+        ) {
+            return;
+        }
+        self.begin_call(cx);
     }
 
     /// A call can start here now, as the composer's call button would
@@ -3142,6 +3170,67 @@ mod tests {
                     .map(|a| a.name.clone())
                     .collect()
             })
+        }
+
+        /// The widget's and Shortcuts' calls start in the new chat as it
+        /// shows: temporary when Temporary by Default makes it so, in its
+        /// folder, as the composer's call button would start them.
+        #[gpui_kit::test]
+        fn a_call_from_outside_keeps_the_new_chats_temporary_and_folder(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            // Each start is answered as refused at once (idle), so the next
+            // one is not taken for a call already on.
+            let starting = || -> conduit_protocol::CallState {
+                serde_json::from_value(serde_json::json!({"phase": "idle", "call": 0})).unwrap()
+            };
+            pane.update(vcx, |p, cx| {
+                p.composer_store
+                    .update(cx, |c, _| c.prefs.temporary_by_default = true)
+            });
+            // A chat was open: the link's New Chat replaces it.
+            stores.navigation.update(vcx, |n, cx| n.open("c0", cx));
+            vcx.run_until_parked();
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+            assert!(pane.read_with(vcx, |p, cx| p.composer.read(cx).temporary));
+            daemon.returns::<methods::CallsStart>(starting());
+            pane.update(vcx, |p, cx| p.call_in_new_chat(cx));
+            vcx.run_until_parked();
+            let started = daemon.calls::<methods::CallsStart>();
+            assert_eq!(started.len(), 1);
+            assert_eq!(
+                started[0]["temporary"], true,
+                "the call saved a chat the composer showed as temporary"
+            );
+
+            // A folder's new chat, not temporary: the call starts in it.
+            pane.update(vcx, |p, cx| {
+                p.composer_store
+                    .update(cx, |c, _| c.prefs.temporary_by_default = false)
+            });
+            stores
+                .navigation
+                .update(vcx, |n, cx| n.new_chat_in_folder("f1".into(), cx));
+            vcx.run_until_parked();
+            daemon.returns::<methods::CallsStart>(starting());
+            pane.update(vcx, |p, cx| p.call_in_new_chat(cx));
+            vcx.run_until_parked();
+            let started = daemon.calls::<methods::CallsStart>();
+            assert_eq!(started.len(), 2);
+            assert_eq!(started[1]["temporary"], false);
+            assert_eq!(started[1]["folderId"], "f1", "the call left its folder");
+
+            // Another chat opened before the call could start (a later link
+            // in the same batch): no call starts, and none in that chat.
+            stores.navigation.update(vcx, |n, cx| n.open("c9", cx));
+            vcx.run_until_parked();
+            pane.update(vcx, |p, cx| p.call_in_new_chat(cx));
+            vcx.run_until_parked();
+            assert_eq!(
+                daemon.calls::<methods::CallsStart>().len(),
+                2,
+                "a call meant for a new chat started in another one"
+            );
         }
 
         /// Offline, Chat › Start Voice Call and ⌥⌘V start no call, as the

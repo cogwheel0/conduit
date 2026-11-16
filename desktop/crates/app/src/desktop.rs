@@ -439,7 +439,15 @@ fn start_voice_call(cx: &mut App) {
         return;
     }
     open_new_chat(None, vec![], vec![], cx);
-    call.update(cx, |c, cx| c.start(None, None, None, false, cx));
+    // After open_new_chat's own task: the pane shows the new chat by then,
+    // and the call takes that chat's Temporary switch and folder.
+    crate::with_main_view(cx, |view, window, cx| {
+        let pane = view.chat_pane.clone();
+        cx.spawn_in(window, async move |_, cx| {
+            pane.update(cx, |p, cx| p.call_in_new_chat(cx));
+        })
+        .detach();
+    });
 }
 
 /// The toasts for files a new chat could not take: past the count limit,
@@ -1602,6 +1610,8 @@ fn on_quick_ask_event(event: QuickAskEvent, cx: &mut App) {
         }
         QuickAskEvent::StartCall(model) => {
             hide_quick_ask(cx);
+            // Quick Ask's chats are ordinary chats, as its sends are (no
+            // folder, no Temporary switch shown there).
             if let Some(call) = cx.try_global::<AppState>().map(|s| s.stores.call.clone()) {
                 call.update(cx, |c, cx| c.start(None, model, None, false, cx));
             }
