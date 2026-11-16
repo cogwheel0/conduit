@@ -122,8 +122,9 @@ pub fn viewer_note(message: &str) -> Option<ViewerNote> {
 }
 
 /// What the address field must be set to so it shows `url`, the page's
-/// address now, given `shown`, what it was last set to: nothing while it
-/// is being edited (`editing`), or while it already shows `url`.
+/// address now, given `shown`, what the field holds: nothing while it is
+/// being edited (`editing`), or while it already shows `url`. An edit left
+/// without navigating is put back.
 fn address_sync<'a>(shown: &str, url: &'a str, editing: bool) -> Option<&'a str> {
     (!editing && shown != url).then_some(url)
 }
@@ -223,8 +224,6 @@ pub struct ComputerWindow {
     /// The page has loaded: the viewer can start.
     loaded: bool,
     address: Entity<InputState>,
-    /// What the address field was last set to from the page.
-    address_shown: String,
     shortcut: Entity<InputState>,
     shortcut_open: bool,
     /// Bumped by every open: late answers to older ones are dropped.
@@ -858,11 +857,11 @@ impl Render for ComputerWindow {
                 .into_any_element()
         } else if self.surface == ComputerSurfaceKind::Browser {
             let focused = self.address.focus_handle(cx).is_focused(window);
-            if let Some(url) = address_sync(&self.address_shown, &self.url, focused) {
+            let typed = self.address.read(cx).value().to_string();
+            if let Some(url) = address_sync(&typed, &self.url, focused) {
                 let url = url.to_string();
                 self.address
-                    .update(cx, |i, cx| i.set_value(url.clone(), window, cx));
-                self.address_shown = url;
+                    .update(cx, |i, cx| i.set_value(url, window, cx));
             }
             div()
                 .flex_1()
@@ -1197,7 +1196,6 @@ pub fn open(stores: Stores, chat_id: String, status: ComputerStatus, cx: &mut Ap
                 webview,
                 loaded: false,
                 address,
-                address_shown: String::new(),
                 shortcut,
                 shortcut_open: false,
                 generation: 0,
@@ -1293,6 +1291,11 @@ mod tests {
         assert_eq!(
             address_sync("https://a.example.com/", "https://a.example.com/", false),
             None
+        );
+        // Typed, then left without going there: the page's address comes back.
+        assert_eq!(
+            address_sync("https://half-typ", "https://a.example.com/", false),
+            Some("https://a.example.com/")
         );
     }
 
