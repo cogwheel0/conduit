@@ -268,10 +268,12 @@ final class DirectService {
       if (record == null) {
         await controller.add(profile);
       } else {
+        // The sign-in the form chose: Open WebUI keeps a key only under
+        // bearer.
         await controller.updateConnection(
           record,
           profile,
-          authType: record.authType,
+          authType: openWebUiAuthType(named, record.authType),
         );
       }
     } on StateError catch (error) {
@@ -499,11 +501,20 @@ final class DirectService {
     return found;
   }
 
+  /// The Open WebUI `auth_type` to store for an account connection [edit]
+  /// changes, [stored] before it.
+  static String openWebUiAuthType(DirectConnectionEdit edit, String stored) =>
+      switch (edit.apiKey) {
+        null => stored,
+        final key when key.trim().isEmpty => 'none',
+        _ => 'bearer',
+      };
+
   /// Whether [edit] typed the key or the headers again, which is what lets
   /// them move with a URL to a new origin. A client certificate typed for
   /// the new place is not: the core keeps no TLS setting across origins.
   static bool _secretsConfirmed(DirectConnectionEdit edit) =>
-      edit.apiKey != null || (edit.customHeaders?.isNotEmpty ?? false);
+      edit.apiKey != null || typesHeaders(edit.customHeaders);
 
   /// [edit] over [previous], or a new profile. Secrets follow the servers
   /// rule: null keeps, empty clears.
@@ -519,9 +530,17 @@ final class DirectService {
   ) {
     final applied = _apply(edit, previous);
     if (previous == null) return applied;
+    // Somewhere else, only what was typed again goes along: a header typed
+    // again takes no saved key, and a key no saved header.
+    final moved = previous.origin != applied.origin
+        ? applied.copyWith(
+            apiKey: edit.apiKey == null ? null : applied.apiKey,
+            customHeaders: mergeCustomHeaders(edit.customHeaders, null),
+          )
+        : applied;
     return DirectConnectionProfile.secureUpdate(
       previous: previous,
-      next: applied,
+      next: moved,
       secretsConfirmedForNewOrigin: _secretsConfirmed(edit),
     );
   }
@@ -566,7 +585,7 @@ final class DirectService {
         modelIdPrefix: edit.modelIdPrefix,
         enabled: edit.enabled,
         apiKey: key(edit.apiKey, null),
-        customHeaders: edit.customHeaders ?? const <String, String>{},
+        customHeaders: mergeCustomHeaders(edit.customHeaders, null),
         manualModelIds: edit.manualModelIds,
         allowSelfSignedCertificates: edit.allowSelfSignedCertificates,
         tags: tags,
@@ -595,7 +614,10 @@ final class DirectService {
       modelIdPrefix: edit.modelIdPrefix,
       enabled: edit.enabled,
       apiKey: key(edit.apiKey, previous.apiKey),
-      customHeaders: edit.customHeaders ?? previous.customHeaders,
+      customHeaders: mergeCustomHeaders(
+        edit.customHeaders,
+        previous.customHeaders,
+      ),
       manualModelIds: edit.manualModelIds,
       allowSelfSignedCertificates: edit.allowSelfSignedCertificates,
       tags: tags,
@@ -652,3 +674,26 @@ final class DirectService {
         ollamaCloud: profile.isOllamaCloud,
       );
 }
+
+/// Custom headers as an edit gives them over [stored]: the window knows
+/// saved headers by name only, so null keeps them, an empty set clears them,
+/// and otherwise each header given replaces the saved one of its name (in
+/// any case), an empty value taking it away.
+Map<String, String> mergeCustomHeaders(
+  Map<String, String>? given,
+  Map<String, String>? stored,
+) {
+  if (given == null) return stored ?? const <String, String>{};
+  if (given.isEmpty) return const <String, String>{};
+  final out = <String, String>{...?stored};
+  for (final MapEntry(:key, :value) in given.entries) {
+    out.removeWhere((name, _) => name.toLowerCase() == key.toLowerCase());
+    if (value.trim().isNotEmpty) out[key] = value;
+  }
+  return out;
+}
+
+/// Whether [headers] types a header value again (an empty set, or only
+/// headers taken away, types none).
+bool typesHeaders(Map<String, String>? headers) =>
+    headers?.values.any((value) => value.trim().isNotEmpty) ?? false;

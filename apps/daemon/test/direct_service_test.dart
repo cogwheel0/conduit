@@ -209,6 +209,28 @@ void main() {
         previous,
       );
       expect(retyped.apiKey, 'sk-typed-again');
+      expect(retyped.customHeaders, isEmpty, reason: 'saved headers moved');
+      // A header typed again takes only itself, not the saved key.
+      final headerRetyped = DirectService.apply(
+        stored.copyWith(
+          baseUrl: 'https://elsewhere.example.net/v1',
+          apiKey: null,
+          customHeaders: const <String, String>{'X-New': 'typed'},
+        ),
+        previous,
+      );
+      expect(headerRetyped.apiKey, isNull, reason: 'the saved key moved');
+      expect(headerRetyped.customHeaders, <String, String>{'X-New': 'typed'});
+      // No Authentication (the key cleared) types no header again either.
+      final keyCleared = DirectService.apply(
+        stored.copyWith(
+          baseUrl: 'https://elsewhere.example.net/v1',
+          apiKey: '',
+          customHeaders: null,
+        ),
+        previous,
+      );
+      expect(keyCleared.customHeaders, isEmpty, reason: 'saved headers moved');
 
       // A client certificate typed for the new place is not the key or the
       // headers typed again: they stay behind.
@@ -235,6 +257,42 @@ void main() {
         previous,
       );
       expect(noHeaders.apiKey, isNull);
+    });
+
+    // The window lists saved headers by name only: a header added to them
+    // joins them, and an empty value takes one away.
+    test('a header added keeps the saved ones', () {
+      final previous = DirectService.apply(stored, null);
+      final added = DirectService.apply(
+        stored.copyWith(
+          apiKey: null,
+          customHeaders: const <String, String>{'X-Other': 'more'},
+        ),
+        previous,
+      );
+      expect(added.customHeaders, <String, String>{
+        'X-Probe': 'team-secret',
+        'X-Other': 'more',
+      });
+      final removed = DirectService.apply(
+        stored.copyWith(
+          apiKey: null,
+          customHeaders: const <String, String>{'x-probe': ''},
+        ),
+        added,
+      );
+      expect(removed.customHeaders, <String, String>{'X-Other': 'more'});
+    });
+
+    // Open WebUI keeps a key only under bearer: a key typed for a
+    // connection without one turns bearer on, and clearing it turns it off.
+    test('an account connection takes the sign-in the edit chose', () {
+      String auth(String? key, String saved) =>
+          DirectService.openWebUiAuthType(stored.copyWith(apiKey: key), saved);
+      expect(auth('sk-typed', 'none'), 'bearer');
+      expect(auth('', 'bearer'), 'none');
+      expect(auth(null, 'bearer'), 'bearer');
+      expect(auth(null, 'none'), 'none');
     });
 
     test('a test probe sends the new server no stored secret', () async {

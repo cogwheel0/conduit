@@ -76,6 +76,22 @@ void main() {
     expect((await mcp.test(edit(id: saved.id))).reachable, isTrue);
   });
 
+  // The window lists saved headers by name only: a header added to them
+  // joins them, an empty value takes one away, and an empty set clears.
+  test('a header added keeps the saved ones', () async {
+    final saved = (await mcp.list()).servers.single;
+    Future<List<String>> names(Map<String, String> headers) async =>
+        (await mcp.save(edit(id: saved.id).copyWith(customHeaders: headers)))
+            .servers
+            .single
+            .customHeaderNames;
+    expect(await names(const {'X-One': '1'}), <String>['X-One']);
+    expect(await names(const {'X-Two': '2'}), <String>['X-One', 'X-Two']);
+    expect(await names(const {'x-one': ''}), <String>['X-Two']);
+    expect(await names(const {}), isEmpty);
+    expect((await mcp.list()).servers.single.hasBearerToken, isTrue);
+  });
+
   // The saved token belongs to the saved address: testing an edit that
   // points elsewhere, without typing the token again, must not send it.
   test('testing an edited address does not send the saved token', () async {
@@ -90,10 +106,13 @@ void main() {
       await request.response.close();
     });
 
-    // An empty set of headers types nothing again either.
+    // An empty set of headers types nothing again either, and a header
+    // typed again takes only itself along, not the saved token.
     for (final moved in <McpServerEdit>[
       edit(id: saved.id),
       edit(id: saved.id).copyWith(customHeaders: const <String, String>{}),
+      edit(id: saved.id)
+          .copyWith(customHeaders: const <String, String>{'X-Trace': 'typed'}),
     ]) {
       final result = await mcp.test(
         moved.copyWith(endpoint: 'http://127.0.0.1:${elsewhere.port}/mcp'),

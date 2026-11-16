@@ -10,6 +10,7 @@ import 'package:mcp_dart/mcp_dart.dart' as mcp;
 import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import 'direct_service.dart';
 import 'settled.dart';
 
 /// Implements `mcp.*`: MCP servers the app talks to itself.
@@ -302,7 +303,7 @@ final class McpService {
   /// them go with an endpoint to a new address. An empty set of headers
   /// types nothing.
   static bool _credentialsTypedAgain(McpServerEdit edit) =>
-      edit.bearerToken != null || (edit.customHeaders?.isNotEmpty ?? false);
+      edit.bearerToken != null || typesHeaders(edit.customHeaders);
 
   static DirectMcpServer _apply(McpServerEdit edit, DirectMcpServer? previous) {
     final auth = switch (edit.auth) {
@@ -330,10 +331,10 @@ final class McpService {
           ? previous!.oauthTokens
           : null,
       allowInsecureCredentials: edit.allowInsecureCredentials,
-      customHeaders:
-          edit.customHeaders ??
-          previous?.customHeaders ??
-          const <String, String>{},
+      customHeaders: mergeCustomHeaders(
+        edit.customHeaders,
+        previous?.customHeaders,
+      ),
       rememberedApprovals:
           previous?.rememberedApprovals ??
           const <DirectMcpRememberedApproval>[],
@@ -353,6 +354,15 @@ final class McpService {
       throw RpcError(
         code: ConduitErrorCodes.invalidParams,
         debugMessage: invalid,
+      );
+    }
+    // Another address takes only what this edit typed again: a header
+    // typed again takes no saved token, and a token no saved header.
+    if (previous != null &&
+        !sameDirectMcpCredentialEndpoint(previous.endpoint, endpoint)) {
+      return server.copyWith(
+        bearerToken: edit.bearerToken == null ? null : server.bearerToken,
+        customHeaders: mergeCustomHeaders(edit.customHeaders, null),
       );
     }
     return server;
