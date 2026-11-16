@@ -278,7 +278,14 @@ impl EventEditor {
                 let _ = this.update(cx, |s, cx| {
                     match result {
                         Ok(state) => s.take_state(state, moved_start.is_some()),
-                        Err(e) => log::warn!("calendar.checkDraft: {e}"),
+                        Err(e) => {
+                            log::warn!("calendar.checkDraft: {e}");
+                            // A start the daemon could not settle is not
+                            // saved behind the one the Start row shows.
+                            if moved_start.is_some() && s.pending_start == moved_start {
+                                s.pending_start = None;
+                            }
+                        }
                     }
                     cx.notify();
                 });
@@ -344,7 +351,11 @@ impl EventEditor {
         };
         let l = cx.l10n().clone();
         let current = match boundary {
-            Boundary::Start => fields.start.clone(),
+            // A start picked and not settled yet: the time is picked on its day.
+            Boundary::Start => self
+                .pending_start
+                .clone()
+                .unwrap_or_else(|| fields.start.clone()),
             Boundary::End => fields.end.clone().unwrap_or_else(|| fields.start.clone()),
         };
         let title = match (boundary, mode) {
@@ -1165,5 +1176,122 @@ impl Render for EventEditor {
             }))
             .on_action(cx.listener(|this, a: &SettingsChoice, _, cx| this.on_choice(a, cx)))
             .children(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use conduit_protocol::methods;
+    use gpui_kit::VisualTestContext;
+
+    use super::*;
+    use crate::shell::date_picker::{AutoPick, WallClock};
+    use crate::stores::rpc::fake::FakeDaemon;
+    use crate::views::sheet::bench::bench;
+
+    fn wall(day: i64, hour: i64, minute: i64) -> CalendarWallTime {
+        CalendarWallTime {
+            year: 2026,
+            month: 11,
+            day,
+            hour,
+            minute,
+        }
+    }
+
+    /// An editor for a new event starting on the 12th at 9:00, its first
+    /// check answered.
+    fn editor(
+        cx: &mut gpui_kit::TestAppContext,
+    ) -> (FakeDaemon, Entity<EventEditor>, &mut VisualTestContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::CalendarEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "ed-1",
+                "isNew": true,
+                "series": false,
+                "fields": {
+                    "title": "Seed swap",
+                    "description": "",
+                    "location": "",
+                    "calendarId": "c",
+                    "allDay": false,
+                    "start": {"year": 2026, "month": 11, "day": 12, "hour": 9, "minute": 0},
+                    "repeat": "none",
+                    "attendees": []
+                },
+                "calendars": []
+            }))
+        });
+        daemon.on::<methods::CalendarSave>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "saved": true}))
+        });
+        vcx.update(|window, cx| open(stores, None, None, window, cx));
+        vcx.run_until_parked();
+        let editor = vcx
+            .update(|_, cx| sheet::current::<EventEditor>(cx))
+            .expect("the editor opens");
+        (daemon, editor, vcx)
+    }
+
+    /// A start time picked while the day picked before it is still being
+    /// checked starts from that day: Save keeps both.
+    #[gpui_kit::test]
+    fn a_start_time_picked_before_the_day_settles_keeps_the_day(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, editor, vcx) = editor(cx);
+        daemon.on::<methods::CalendarCheckDraft>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": true}))
+        });
+        vcx.run_until_parked();
+        let _held = daemon.hold::<methods::CalendarCheckDraft>();
+        // The 13th, picked; its check is still out.
+        vcx.update(|_, cx| editor.update(cx, |e, cx| e.set_start(wall(13, 9, 0), cx)));
+        // Then 10:30 in the start's time picker.
+        vcx.update(|window, cx| {
+            cx.set_global(AutoPick(Some(Some(WallClock {
+                hour: 10,
+                minute: 30,
+                ..WallClock::default()
+            }))));
+            editor.update(cx, |e, cx| {
+                e.pick(Boundary::Start, PickerMode::Time, window, cx)
+            })
+        });
+        vcx.run_until_parked();
+        vcx.update(|window, cx| editor.update(cx, |e, cx| e.save(window, cx)));
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::CalendarSave>();
+        assert_eq!(
+            saves.last().map(|s| s["movedStart"].clone()),
+            Some(serde_json::to_value(wall(13, 10, 30)).unwrap()),
+            "the day picked before the time was lost"
+        );
+    }
+
+    /// A start whose check failed is not saved behind the start shown: what
+    /// the Start row shows is what Save sends.
+    #[gpui_kit::test]
+    fn a_start_whose_check_failed_is_not_saved_unseen(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, editor, vcx) = editor(cx);
+        daemon.on::<methods::CalendarCheckDraft>(|p| {
+            if p["movedStart"].is_null() {
+                Ok(serde_json::json!({"fields": p["fields"], "changed": false}))
+            } else {
+                Err(conduit_daemon::protocol::error("rpc.timeout", "slow"))
+            }
+        });
+        vcx.run_until_parked();
+        vcx.update(|_, cx| editor.update(cx, |e, cx| e.set_start(wall(13, 9, 0), cx)));
+        vcx.run_until_parked();
+        let shown = editor.read_with(vcx, |e, _| e.fields.as_ref().map(|f| f.start.clone()));
+        assert_eq!(shown, Some(wall(12, 9, 0)));
+        vcx.update(|window, cx| editor.update(cx, |e, cx| e.save(window, cx)));
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::CalendarSave>();
+        assert_eq!(
+            saves.last().map(|s| s["movedStart"].clone()),
+            Some(serde_json::Value::Null),
+            "Save sent a start the Start row does not show"
+        );
     }
 }

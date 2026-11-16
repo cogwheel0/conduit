@@ -39,7 +39,8 @@ pub struct PickerSpec {
 }
 
 /// Test hook: when set, a picker answers at once with this instead of
-/// showing (E2E sets the editor's fields directly).
+/// showing (E2E sets the editor's fields directly). As the sheet does, a
+/// Date picker keeps the time it started on and a Time picker its day.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AutoPick(pub Option<Option<WallClock>>);
 
@@ -48,7 +49,20 @@ impl gpui_kit::Global for AutoPick {}
 /// Shows the picker as a sheet on `window`.
 pub fn pick(window: &Window, spec: PickerSpec, cx: &mut App) -> Task<Option<WallClock>> {
     if let Some(answer) = cx.try_global::<AutoPick>().and_then(|a| a.0) {
-        return Task::ready(answer);
+        let start = spec.value;
+        return Task::ready(answer.map(|picked| match spec.mode {
+            PickerMode::Date => WallClock {
+                hour: start.hour,
+                minute: start.minute,
+                ..picked
+            },
+            PickerMode::Time => WallClock {
+                year: start.year,
+                month: start.month,
+                day: start.day,
+                ..picked
+            },
+        }));
     }
     #[cfg(target_os = "macos")]
     {
