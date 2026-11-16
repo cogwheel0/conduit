@@ -443,11 +443,23 @@ impl ModelEditor {
     /// A save answered while the form had changed since it was sent: the
     /// saved model is the item now (its id, its detail, what counts as
     /// unchanged), and the form keeps what was typed since.
-    fn saved_under_edits(&mut self, detail: WorkspaceDetail, sent: (WorkspaceModelDto, String)) {
+    fn saved_under_edits(
+        &mut self,
+        detail: WorkspaceDetail,
+        mut sent: (WorkspaceModelDto, String),
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(m) = detail.model.as_ref() else {
             return;
         };
-        self.id = Some(m.id.clone());
+        // Made: its id is the one it was made with, whatever the field
+        // holds now, so the next Save updates this model.
+        let id = m.id.clone();
+        self.model_id
+            .update(cx, |s, cx| s.set_value(id.clone(), window, cx));
+        sent.0.id = id.clone();
+        self.id = Some(id);
         self.detail = Some(detail);
         (self.initial, self.initial_params) = sent;
         self.id_typed = true;
@@ -1057,7 +1069,7 @@ impl ItemEditor for ModelEditor {
                             // save, in this editor.
                             let kept = s.form(cx) != sent;
                             if kept {
-                                s.saved_under_edits(detail, sent);
+                                s.saved_under_edits(detail, sent, window, cx);
                             } else {
                                 s.adopt(detail, window, cx);
                             }
@@ -1569,6 +1581,51 @@ mod tests {
     use gpui_kit::VisualTestContext;
 
     use super::*;
+
+    /// An id typed while the new item was being made gives way to the id it
+    /// was made with: the next Save updates that item, never another.
+    #[gpui_kit::test]
+    fn a_made_model_keeps_the_id_it_was_made_with(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::workspace::editor::bench;
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        daemon.returns::<methods::WorkspaceSave>(bench::detail(
+            WorkspaceKind::Models,
+            serde_json::json!({"id": "trail-guide", "name": "Trail Guide", "baseModelId": "base"}),
+        ));
+        let editor = vcx.update(|window, cx| {
+            cx.new(|cx| {
+                ModelEditor::new(
+                    stores.clone(),
+                    WeakEntity::new_invalid(),
+                    None,
+                    bench::manage(),
+                    window,
+                    cx,
+                )
+            })
+        });
+        vcx.run_until_parked();
+        let set = |field: &str, text: &str, vcx: &mut gpui_kit::VisualTestContext| {
+            vcx.update(|window, cx| editor.update(cx, |e, cx| e.set_field(field, text, window, cx)))
+        };
+        set("name", "Trail Guide", vcx);
+        set("id", "trail-guide", vcx);
+        editor.update(vcx, |e, _| e.model.base_model_id = Some("base".into()));
+        let held = daemon.hold::<methods::WorkspaceSave>();
+        vcx.update(|window, cx| editor.update(cx, |e, cx| e.save(window, cx)));
+        vcx.run_until_parked();
+        set("id", "other-guide", vcx);
+        drop(held);
+        vcx.run_until_parked();
+        editor.read_with(vcx, |e, cx| {
+            assert_eq!(e.id.as_deref(), Some("trail-guide"));
+            assert_eq!(
+                e.model_id.read(cx).value().to_string(),
+                "trail-guide",
+                "the id field names another item than the one made"
+            );
+        });
+    }
     use crate::views::sheet::bench::bench;
 
     fn editor(

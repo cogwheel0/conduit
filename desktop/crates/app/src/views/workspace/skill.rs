@@ -163,10 +163,21 @@ impl SkillEditor {
     /// A save answered while the form had changed since it was sent: the
     /// saved item is the one shown now (its id, its detail, what counts as
     /// unchanged), and the form keeps what was typed since.
-    fn saved_under_edits(&mut self, detail: WorkspaceDetail, sent: SkillForm) {
+    fn saved_under_edits(
+        &mut self,
+        detail: WorkspaceDetail,
+        mut sent: SkillForm,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(id) = detail.skill.as_ref().map(|i| i.id.clone()) else {
             return;
         };
+        // Made: its id is the one it was made with, whatever the field
+        // holds now, so the next Save updates this item.
+        self.skill_id
+            .update(cx, |s, cx| s.set_value(id.clone(), window, cx));
+        sent.id = id.clone();
         self.id = Some(id);
         self.detail = Some(detail);
         self.initial = sent;
@@ -370,7 +381,7 @@ impl ItemEditor for SkillEditor {
                             // save, in this editor.
                             let kept = s.form(cx) != sent;
                             if kept {
-                                s.saved_under_edits(detail, sent);
+                                s.saved_under_edits(detail, sent, window, cx);
                             } else {
                                 s.adopt(detail, window, cx);
                             }
@@ -697,6 +708,51 @@ pub fn import_markdown(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An id typed while the new item was being made gives way to the id it
+    /// was made with: the next Save updates that item, never another.
+    #[gpui_kit::test]
+    fn a_made_skill_keeps_the_id_it_was_made_with(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::workspace::editor::bench;
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        daemon.returns::<methods::WorkspaceSave>(bench::detail(
+            WorkspaceKind::Skills,
+            serde_json::json!({"id": "trail_skill", "name": "Trail skill", "description": "", "content": "Pick a trail.", "active": true}),
+        ));
+        let editor = vcx.update(|window, cx| {
+            cx.new(|cx| {
+                SkillEditor::new(
+                    stores.clone(),
+                    WeakEntity::new_invalid(),
+                    None,
+                    bench::manage(),
+                    window,
+                    cx,
+                )
+            })
+        });
+        vcx.run_until_parked();
+        let set = |field: &str, text: &str, vcx: &mut gpui_kit::VisualTestContext| {
+            vcx.update(|window, cx| editor.update(cx, |e, cx| e.set_field(field, text, window, cx)))
+        };
+        set("name", "Trail skill", vcx);
+        set("id", "trail_skill", vcx);
+        set("content", "Pick a trail.", vcx);
+        let held = daemon.hold::<methods::WorkspaceSave>();
+        vcx.update(|window, cx| editor.update(cx, |e, cx| e.save(window, cx)));
+        vcx.run_until_parked();
+        set("id", "other_skill", vcx);
+        drop(held);
+        vcx.run_until_parked();
+        editor.read_with(vcx, |e, cx| {
+            assert_eq!(e.id.as_deref(), Some("trail_skill"));
+            assert_eq!(
+                e.skill_id.read(cx).value().to_string(),
+                "trail_skill",
+                "the id field names another item than the one made"
+            );
+        });
+    }
 
     /// Text typed while a save is out is kept, still to save.
     #[gpui_kit::test]
