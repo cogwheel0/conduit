@@ -755,6 +755,7 @@ impl ChatPane {
                 self.composer_store
                     .update(cx, |c, cx| c.switch_new_chat(folder, temporary, &text, cx));
                 self.chat = None;
+                self.forget_context_offer(cx);
                 self.sync_speech(cx);
                 self.sync_call_offer(cx);
                 self.prompt_card.update(cx, |p, cx| p.set_store(None, cx));
@@ -937,7 +938,16 @@ impl ChatPane {
 
     /// Opens `id` in a fresh store and transcript. Opening reads it, and
     /// the chat left is read up to now.
+    /// The chat shown goes: Chat › Context & Usage… with it, and the next
+    /// chat's detail offers it again (or not).
+    fn forget_context_offer(&mut self, cx: &mut Context<Self>) {
+        if self.context_offered.replace(false) {
+            cx.defer(crate::menus::refresh_menus);
+        }
+    }
+
     fn open_chat(&mut self, id: String, cx: &mut Context<Self>) -> Entity<ChatStore> {
+        self.forget_context_offer(cx);
         let left = self
             .chat
             .as_ref()
@@ -3085,6 +3095,20 @@ mod tests {
             assert!(
                 daemon.calls::<methods::CallsStart>().is_empty(),
                 "a call started while offline"
+            );
+        }
+
+        /// New Chat forgets that the last chat offered Context & Usage, so
+        /// the next Hermes chat puts it back in the Chat menu.
+        #[gpui_kit::test]
+        fn new_chat_forgets_the_last_chats_context_item(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            pane.update(vcx, |p, _| p.context_offered.set(true));
+            stores.navigation.update(vcx, |n, cx| n.new_chat(true, cx));
+            vcx.run_until_parked();
+            assert!(
+                !pane.read_with(vcx, |p, _| p.context_offered.get()),
+                "a new chat still counts the last chat's Context & Usage as offered"
             );
         }
 
