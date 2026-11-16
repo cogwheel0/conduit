@@ -271,6 +271,10 @@ void main() {
       // What an earlier build could leave (a request that never went out):
       // the answer still marked as generating, with no run behind it.
       final scope = await turns.holdScope(first.chatId);
+      var held = true;
+      addTearDown(() {
+        if (held) turns.releaseScope(first.chatId);
+      });
       scope
           .read(chatMessagesProvider.notifier)
           .updateLastMessageWithFunction((m) => m.copyWith(isStreaming: true));
@@ -298,6 +302,7 @@ void main() {
         of('stranded', ConduitEvents.chatsChanged).length,
         greaterThan(heard),
       );
+      held = false;
       turns.releaseScope(first.chatId);
       final next = await turns.send(
         SendTurn(model: model, chatId: first.chatId, text: 'still there?'),

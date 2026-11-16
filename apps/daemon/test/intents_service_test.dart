@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
 
 /// `intents.*` over a scripted send and chat list: what Shortcuts gets back
@@ -24,8 +25,9 @@ void main() {
       for (final (name, payload) in beforeReply) {
         bus.publish(name, payload: encodeDto(payload));
       }
-      scheduleMicrotask(() async {
-        await Future<void>.delayed(const Duration(milliseconds: 5));
+      // After the send returns: the answer's events come once its reply is
+      // read, as a turn's do.
+      scheduleMicrotask(() {
         for (final (name, payload) in events) {
           bus.publish(name, payload: encodeDto(payload));
         }
@@ -223,26 +225,38 @@ void main() {
 
     test(
       'an answer slower than the wait gives the chat and the text so far',
-      () async {
-        final intents = service(
-          send: scriptedSend(
-            events: <(String, Object)>[
-              (
-                ConduitEvents.turnDelta,
-                const TurnDelta(chatId: 'c1', messageId: 'a1', text: 'Still '),
-              ),
-            ],
-          ),
-          stored: <String, String>{'c1': 'Long answer'},
-        );
-        final answer = await intents.ask(
-          // Below the floor: waits the floor's one second, not zero.
-          const IntentAsk(text: 'Slow', timeoutMs: 10),
-        );
-        expect(answer.outcome, IntentAskOutcome.timedOut);
-        expect(answer.chatId, 'c1');
-        expect(answer.text, 'Still');
-        expect(answer.title, 'Long answer');
+      () {
+        fakeAsync((time) {
+          final intents = service(
+            send: scriptedSend(
+              events: <(String, Object)>[
+                (
+                  ConduitEvents.turnDelta,
+                  const TurnDelta(
+                    chatId: 'c1',
+                    messageId: 'a1',
+                    text: 'Still ',
+                  ),
+                ),
+              ],
+            ),
+            stored: <String, String>{'c1': 'Long answer'},
+          );
+          IntentAnswer? answer;
+          intents
+              // Below the floor: waits the floor's one second, not zero.
+              .ask(const IntentAsk(text: 'Slow', timeoutMs: 10))
+              .then((value) => answer = value);
+          time.elapse(
+            const Duration(milliseconds: IntentsService.minTimeoutMs - 1),
+          );
+          expect(answer, isNull, reason: 'gave up before the floor');
+          time.elapse(const Duration(milliseconds: 1));
+          expect(answer?.outcome, IntentAskOutcome.timedOut);
+          expect(answer?.chatId, 'c1');
+          expect(answer?.text, 'Still');
+          expect(answer?.title, 'Long answer');
+        });
       },
     );
 
