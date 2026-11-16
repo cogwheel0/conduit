@@ -45,6 +45,8 @@ use crate::views::sidebar::{area_label, item_icon, item_title};
 pub struct AreaPane {
     stores: Stores,
     layout: Entity<LayoutStore>,
+    /// The workspace's pane, once a section was shown.
+    pub workspace: Option<Entity<crate::views::workspace::WorkspacePane>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -68,6 +70,7 @@ impl AreaPane {
         Self {
             stores,
             layout,
+            workspace: None,
             _subscriptions: subscriptions,
         }
     }
@@ -143,7 +146,7 @@ pub fn placeholder(item: &AreaItem, title: &str, t: &ConduitTheme, l: &L10n) -> 
 }
 
 impl Render for AreaPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = cx.conduit().clone();
         let l = cx.l10n().clone();
         let r = t.roles;
@@ -158,7 +161,10 @@ impl Render for AreaPane {
             // switches over.
             AreaItem::HermesSession(_) => placeholder(&item, &title, &t, &l),
             AreaItem::HermesHidden => hermes::hidden_pane(&self.stores, &t, &l, cx),
-            AreaItem::Workspace(section) => workspace::pane(*section, &title, &t, &l),
+            AreaItem::Workspace(section) => {
+                workspace::pane(&mut self.workspace, &self.stores, *section, window, cx)
+                    .into_any_element()
+            }
             AreaItem::Terminal(id) => terminal::pane(id, &title, &t, &l),
             AreaItem::Calendar => calendar::pane(&title, &t, &l),
             AreaItem::Automations => automations::pane(&title, &t, &l),

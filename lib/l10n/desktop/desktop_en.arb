@@ -1135,6 +1135,839 @@
   "@desktopWorkspaceDefaultFeaturesHint": {
     "description": "Hint under the default features field of the model editor."
   },
+  "desktopWorkspaceImportMarkdownEllipsis": "Import Markdown…",
+  "@desktopWorkspaceImportMarkdownEllipsis": {
+    "description": "Menu item in the Skills section's action menu: reads a skill from a Markdown file into a new skill to review. Title Case, ellipsis (opens a file panel)."
+  },
+  "desktopWorkspaceSkillImportMarkdownLoaded": "Markdown loaded. Review and save to create the skill.",
+  "@desktopWorkspaceSkillImportMarkdownLoaded": {
+    "description": "Toast after a Markdown file filled a new skill's form; nothing is saved yet."
+  },
+  "desktopWorkspaceSkillImportMarkdownFailed": "Couldn't read the Markdown file.",
+  "@desktopWorkspaceSkillImportMarkdownFailed": {
+    "description": "Toast when the picked Markdown file could not be read."
+  },
+  "desktopWorkspaceDenied": "You do not have permission to manage this workspace section.",
+  "@desktopWorkspaceDenied": {
+    "description": "Shown when the user lacks permission to manage a workspace section. (Desktop copy of the phone's workspaceDenied, translated for the desktop.)"
+  },
+  "desktopWorkspaceEditorSaving": "Saving…",
+  "@desktopWorkspaceEditorSaving": {
+    "description": "Label shown on the editor save button while a save is in progress. (Desktop copy of the phone's workspaceEditorSaving, translated for the desktop.)"
+  },
+  "desktopWorkspaceImportBatchFailed": "The import could not be completed.",
+  "@desktopWorkspaceImportBatchFailed": {
+    "description": "Error shown when the entire import operation fails unexpectedly. (Desktop copy of the phone's workspaceImportBatchFailed, translated for the desktop.)"
+  },
+  "desktopWorkspaceImportInvalidJson": "That doesn't look like valid JSON.",
+  "@desktopWorkspaceImportInvalidJson": {
+    "description": "Error shown when the pasted or selected content is not valid JSON. (Desktop copy of the phone's workspaceImportInvalidJson, translated for the desktop.)"
+  },
+  "desktopWorkspaceImportReadFailed": "Could not read the selected file.",
+  "@desktopWorkspaceImportReadFailed": {
+    "description": "Error shown when the chosen import file cannot be read. (Desktop copy of the phone's workspaceImportReadFailed, translated for the desktop.)"
+  },
+  "desktopWorkspaceImportRun": "Import",
+  "@desktopWorkspaceImportRun": {
+    "description": "Button that starts importing the provided JSON items. (Desktop copy.) (Desktop copy of the phone's workspaceImportRun, translated for the desktop.)"
+  },
+  "desktopWorkspaceImportSummary": "Imported {success} of {total} items",
+  "@desktopWorkspaceImportSummary": {
+    "description": "Summary of how many items were imported successfully out of the total. (Desktop copy of the phone's workspaceImportSummary, translated for the desktop.)",
+    "placeholders": {
+      "success": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopWorkspaceKnowledge": "Knowledge",
+  "@desktopWorkspaceKnowledge": {
+    "description": "Label for the Knowledge section of the Workspace. (Desktop copy of the phone's workspaceKnowledge, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeAddTextContent": "Content",
+  "@desktopWorkspaceKnowledgeAddTextContent": {
+    "description": "Label for the content field when adding a text file. (Desktop copy of the phone's workspaceKnowledgeAddTextContent, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeDeleteConfirmMessage": "This permanently removes {name} and detaches its files.",
+  "@desktopWorkspaceKnowledgeDeleteConfirmMessage": {
+    "description": "Confirmation dialog body for deleting a knowledge base. (Desktop copy of the phone's workspaceKnowledgeDeleteConfirmMessage, translated for the desktop.)",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceKnowledgeDeleteConfirmTitle": "Delete knowledge base?",
+  "@desktopWorkspaceKnowledgeDeleteConfirmTitle": {
+    "description": "Confirmation dialog title for deleting a knowledge base. (Desktop copy of the phone's workspaceKnowledgeDeleteConfirmTitle, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeDeleteFolderConfirmMessage": "Files inside {name} move to the parent folder.",
+  "@desktopWorkspaceKnowledgeDeleteFolderConfirmMessage": {
+    "description": "Confirmation dialog body for deleting a knowledge base directory. (Desktop copy of the phone's workspaceKnowledgeDeleteFolderConfirmMessage, translated for the desktop.)",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceKnowledgeDeleteFolderConfirmTitle": "Delete folder?",
+  "@desktopWorkspaceKnowledgeDeleteFolderConfirmTitle": {
+    "description": "Confirmation dialog title for deleting a knowledge base directory. (Desktop copy of the phone's workspaceKnowledgeDeleteFolderConfirmTitle, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeDeleted": "Knowledge base deleted.",
+  "@desktopWorkspaceKnowledgeDeleted": {
+    "description": "Confirmation that the knowledge base was deleted. (Desktop copy of the phone's workspaceKnowledgeDeleted, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeDescription": "Description",
+  "@desktopWorkspaceKnowledgeDescription": {
+    "description": "Label for the knowledge base description field. (Desktop copy of the phone's workspaceKnowledgeDescription, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeExternalBadge": "Connected",
+  "@desktopWorkspaceKnowledgeExternalBadge": {
+    "description": "Badge marking a knowledge base as external/connected (read-only). (Desktop copy of the phone's workspaceKnowledgeExternalBadge, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeExternalReadOnly": "Connected knowledge bases are read-only in this app.",
+  "@desktopWorkspaceKnowledgeExternalReadOnly": {
+    "description": "Notice shown when viewing an external/connected knowledge base. (Desktop copy of the phone's workspaceKnowledgeExternalReadOnly, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeFileDetachMessage": "Remove {name} from this knowledge base?",
+  "@desktopWorkspaceKnowledgeFileDetachMessage": {
+    "description": "Confirmation dialog body for detaching a file from a knowledge base. (Desktop copy of the phone's workspaceKnowledgeFileDetachMessage, translated for the desktop.)",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceKnowledgeFileDetachTitle": "Remove file?",
+  "@desktopWorkspaceKnowledgeFileDetachTitle": {
+    "description": "Confirmation dialog title for detaching a file from a knowledge base. (Desktop copy of the phone's workspaceKnowledgeFileDetachTitle, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeFileMove": "Move To",
+  "@desktopWorkspaceKnowledgeFileMove": {
+    "description": "Per-file action to move a knowledge base file to another folder. (Desktop copy.) (Desktop copy of the phone's workspaceKnowledgeFileMove, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeFileReindexed": "Re-indexing started.",
+  "@desktopWorkspaceKnowledgeFileReindexed": {
+    "description": "Confirmation that re-indexing a knowledge base file began. (Desktop copy of the phone's workspaceKnowledgeFileReindexed, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeFileRename": "Rename File",
+  "@desktopWorkspaceKnowledgeFileRename": {
+    "description": "Per-file action to rename a knowledge base file. (Desktop copy.) (Desktop copy of the phone's workspaceKnowledgeFileRename, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeFilesEmpty": "No files yet.",
+  "@desktopWorkspaceKnowledgeFilesEmpty": {
+    "description": "Empty state when a knowledge base directory contains no files. (Desktop copy of the phone's workspaceKnowledgeFilesEmpty, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeFilesLoadFailed": "Files could not be loaded.",
+  "@desktopWorkspaceKnowledgeFilesLoadFailed": {
+    "description": "Error when the knowledge base file list fails to load. (Desktop copy of the phone's workspaceKnowledgeFilesLoadFailed, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeFilesTitle": "Files",
+  "@desktopWorkspaceKnowledgeFilesTitle": {
+    "description": "Heading of the knowledge base file browser. (Desktop copy of the phone's workspaceKnowledgeFilesTitle, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeName": "Name",
+  "@desktopWorkspaceKnowledgeName": {
+    "description": "Label for the knowledge base name field. (Desktop copy of the phone's workspaceKnowledgeName, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeNameRequired": "A name is required.",
+  "@desktopWorkspaceKnowledgeNameRequired": {
+    "description": "Validation error when the knowledge base name is empty. (Desktop copy of the phone's workspaceKnowledgeNameRequired, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeRefreshFiles": "Refresh",
+  "@desktopWorkspaceKnowledgeRefreshFiles": {
+    "description": "Tooltip for the button that refreshes the knowledge file list. (Desktop copy of the phone's workspaceKnowledgeRefreshFiles, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeReset": "Reset",
+  "@desktopWorkspaceKnowledgeReset": {
+    "description": "Overflow action that removes all files from a knowledge base. (Desktop copy of the phone's workspaceKnowledgeReset, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeResetConfirmMessage": "This removes all files from {name} but keeps the knowledge base.",
+  "@desktopWorkspaceKnowledgeResetConfirmMessage": {
+    "description": "Confirmation dialog body for resetting a knowledge base. (Desktop copy of the phone's workspaceKnowledgeResetConfirmMessage, translated for the desktop.)",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceKnowledgeResetConfirmTitle": "Reset knowledge base?",
+  "@desktopWorkspaceKnowledgeResetConfirmTitle": {
+    "description": "Confirmation dialog title for resetting a knowledge base. (Desktop copy of the phone's workspaceKnowledgeResetConfirmTitle, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeResetDone": "Knowledge base reset.",
+  "@desktopWorkspaceKnowledgeResetDone": {
+    "description": "Confirmation that the knowledge base files were reset. (Desktop copy of the phone's workspaceKnowledgeResetDone, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeRoot": "Root",
+  "@desktopWorkspaceKnowledgeRoot": {
+    "description": "Breadcrumb label for the top level of a knowledge base. (Desktop copy of the phone's workspaceKnowledgeRoot, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeSaved": "Knowledge base saved.",
+  "@desktopWorkspaceKnowledgeSaved": {
+    "description": "Confirmation that the knowledge base was saved. (Desktop copy of the phone's workspaceKnowledgeSaved, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeSourceExternal": "Connected",
+  "@desktopWorkspaceKnowledgeSourceExternal": {
+    "description": "Knowledge collection filter showing only external/connected knowledge bases. (Desktop copy of the phone's workspaceKnowledgeSourceExternal, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeSourceLocal": "Local",
+  "@desktopWorkspaceKnowledgeSourceLocal": {
+    "description": "Knowledge collection filter showing only local knowledge bases. (Desktop copy of the phone's workspaceKnowledgeSourceLocal, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeStatusFailed": "Failed",
+  "@desktopWorkspaceKnowledgeStatusFailed": {
+    "description": "Status shown for a knowledge base file whose ingestion failed. (Desktop copy of the phone's workspaceKnowledgeStatusFailed, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeStatusPending": "Processing…",
+  "@desktopWorkspaceKnowledgeStatusPending": {
+    "description": "Status shown for a knowledge base file still being ingested. (Desktop copy of the phone's workspaceKnowledgeStatusPending, translated for the desktop.)"
+  },
+  "desktopWorkspaceKnowledgeUploading": "Uploading {name}…",
+  "@desktopWorkspaceKnowledgeUploading": {
+    "description": "Progress label shown while a file uploads into a knowledge base. (Desktop copy of the phone's workspaceKnowledgeUploading, translated for the desktop.)",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceKnowledgeViewAll": "All",
+  "@desktopWorkspaceKnowledgeViewAll": {
+    "description": "Knowledge collection filter showing all knowledge bases. (Desktop copy of the phone's workspaceKnowledgeViewAll, translated for the desktop.)"
+  },
+  "desktopWorkspaceLoadFailed": "Workspace could not be loaded.",
+  "@desktopWorkspaceLoadFailed": {
+    "description": "Error message shown when the Workspace fails to load. (Desktop copy of the phone's workspaceLoadFailed, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelActions": "Actions",
+  "@desktopWorkspaceModelActions": {
+    "description": "Label for the action functions selector. (Desktop copy of the phone's workspaceModelActions, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelActivate": "Activate",
+  "@desktopWorkspaceModelActivate": {
+    "description": "Action that marks the model active. (Desktop copy of the phone's workspaceModelActivate, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelCapabilities": "Capabilities",
+  "@desktopWorkspaceModelCapabilities": {
+    "description": "Label for the model capability toggles. (Desktop copy of the phone's workspaceModelCapabilities, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelClone": "Duplicate",
+  "@desktopWorkspaceModelClone": {
+    "description": "Action that duplicates the model. (Desktop copy of the phone's workspaceModelClone, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelCloneSuffix": "(copy)",
+  "@desktopWorkspaceModelCloneSuffix": {
+    "description": "Suffix appended to a duplicated model name. (Desktop copy of the phone's workspaceModelCloneSuffix, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelDeactivate": "Deactivate",
+  "@desktopWorkspaceModelDeactivate": {
+    "description": "Action that marks the model inactive. (Desktop copy of the phone's workspaceModelDeactivate, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelDeleteConfirmMessage": "This permanently removes {name}.",
+  "@desktopWorkspaceModelDeleteConfirmMessage": {
+    "description": "Confirmation dialog body for deleting a model. (Desktop copy of the phone's workspaceModelDeleteConfirmMessage, translated for the desktop.)",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceModelDeleteConfirmTitle": "Delete model?",
+  "@desktopWorkspaceModelDeleteConfirmTitle": {
+    "description": "Confirmation dialog title for deleting a model. (Desktop copy of the phone's workspaceModelDeleteConfirmTitle, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelDeleted": "Model deleted.",
+  "@desktopWorkspaceModelDeleted": {
+    "description": "Confirmation that the model was deleted. (Desktop copy of the phone's workspaceModelDeleted, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelDescription": "Description",
+  "@desktopWorkspaceModelDescription": {
+    "description": "Label for the model description field. (Desktop copy of the phone's workspaceModelDescription, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelExportFailed": "The export could not be completed.",
+  "@desktopWorkspaceModelExportFailed": {
+    "description": "Error when exporting models fails. (Desktop copy of the phone's workspaceModelExportFailed, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelFilters": "Filters",
+  "@desktopWorkspaceModelFilters": {
+    "description": "Label for the filter functions selector. (Desktop copy of the phone's workspaceModelFilters, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelIdLabel": "Model ID",
+  "@desktopWorkspaceModelIdLabel": {
+    "description": "Label for the unique model identifier field. (Desktop copy of the phone's workspaceModelIdLabel, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelIdRequired": "A model ID is required.",
+  "@desktopWorkspaceModelIdRequired": {
+    "description": "Validation error when the model ID is empty. (Desktop copy of the phone's workspaceModelIdRequired, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelImageFailed": "Could not load the selected image.",
+  "@desktopWorkspaceModelImageFailed": {
+    "description": "Error when picking a profile image fails. (Desktop copy of the phone's workspaceModelImageFailed, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelInvalidJson": "Enter a valid JSON object.",
+  "@desktopWorkspaceModelInvalidJson": {
+    "description": "Validation error for a malformed JSON field. (Desktop copy of the phone's workspaceModelInvalidJson, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelKnowledge": "Knowledge",
+  "@desktopWorkspaceModelKnowledge": {
+    "description": "Label for the knowledge relationship selector. (Desktop copy of the phone's workspaceModelKnowledge, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelName": "Name",
+  "@desktopWorkspaceModelName": {
+    "description": "Label for the model display-name field. (Desktop copy of the phone's workspaceModelName, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelNameRequired": "A name is required.",
+  "@desktopWorkspaceModelNameRequired": {
+    "description": "Validation error when the model name is empty. (Desktop copy of the phone's workspaceModelNameRequired, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelParamsHint": "JSON object of additional parameters",
+  "@desktopWorkspaceModelParamsHint": {
+    "description": "Helper text for a JSON parameters field. (Desktop copy of the phone's workspaceModelParamsHint, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelRelationshipEmpty": "Nothing available to select.",
+  "@desktopWorkspaceModelRelationshipEmpty": {
+    "description": "Empty state for a relationship picker. (Desktop copy of the phone's workspaceModelRelationshipEmpty, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelSaved": "Model saved.",
+  "@desktopWorkspaceModelSaved": {
+    "description": "Confirmation that the model was saved. (Desktop copy of the phone's workspaceModelSaved, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelSectionAdvanced": "Advanced",
+  "@desktopWorkspaceModelSectionAdvanced": {
+    "description": "Section header for advanced model fields. (Desktop copy of the phone's workspaceModelSectionAdvanced, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelSectionBasics": "Basics",
+  "@desktopWorkspaceModelSectionBasics": {
+    "description": "Section header for basic model fields. (Desktop copy of the phone's workspaceModelSectionBasics, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelSectionPrompt": "Prompt",
+  "@desktopWorkspaceModelSectionPrompt": {
+    "description": "Section header for prompt-related model fields. (Desktop copy of the phone's workspaceModelSectionPrompt, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelSectionRelationships": "Relationships",
+  "@desktopWorkspaceModelSectionRelationships": {
+    "description": "Section header for model relationship selectors. (Desktop copy of the phone's workspaceModelSectionRelationships, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelSelectNone": "None selected",
+  "@desktopWorkspaceModelSelectNone": {
+    "description": "Subtitle when no relationship items are selected. (Desktop copy of the phone's workspaceModelSelectNone, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelSkills": "Skills",
+  "@desktopWorkspaceModelSkills": {
+    "description": "Label for the skills relationship selector. (Desktop copy of the phone's workspaceModelSkills, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelStopHint": "Comma-separated stop sequences",
+  "@desktopWorkspaceModelStopHint": {
+    "description": "Helper text for the stop-sequences field. (Desktop copy of the phone's workspaceModelStopHint, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelTags": "Tags",
+  "@desktopWorkspaceModelTags": {
+    "description": "Label for the model tags editor. (Desktop copy of the phone's workspaceModelTags, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelTools": "Tools",
+  "@desktopWorkspaceModelTools": {
+    "description": "Label for the tools relationship selector. (Desktop copy of the phone's workspaceModelTools, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptCloneSuffix": "(copy)",
+  "@desktopWorkspacePromptCloneSuffix": {
+    "description": "Suffix appended to the name and command of a cloned prompt. (Desktop copy of the phone's workspacePromptCloneSuffix, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptCommand": "Command",
+  "@desktopWorkspacePromptCommand": {
+    "description": "Label for the prompt slash-command field. (Desktop copy of the phone's workspacePromptCommand, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptCommandHint": "Only letters, numbers, hyphens, and underscores. Type it as a slash command in chat.",
+  "@desktopWorkspacePromptCommandHint": {
+    "description": "Helper text explaining the allowed prompt command characters. (Desktop copy of the phone's workspacePromptCommandHint, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptCommandInvalid": "Only letters, numbers, hyphens, and underscores are allowed.",
+  "@desktopWorkspacePromptCommandInvalid": {
+    "description": "Validation error when the prompt command contains illegal characters. (Desktop copy of the phone's workspacePromptCommandInvalid, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptCommandRequired": "Command is required.",
+  "@desktopWorkspacePromptCommandRequired": {
+    "description": "Validation error when the prompt command is empty. (Desktop copy of the phone's workspacePromptCommandRequired, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptCommitMessageHint": "Describe what changed (optional)",
+  "@desktopWorkspacePromptCommitMessageHint": {
+    "description": "Placeholder for the prompt commit message field. (Desktop copy of the phone's workspacePromptCommitMessageHint, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptContentHint": "Write the prompt template…",
+  "@desktopWorkspacePromptContentHint": {
+    "description": "Placeholder text for the empty prompt content field. (Desktop copy of the phone's workspacePromptContentHint, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptContentRequired": "Prompt content is required.",
+  "@desktopWorkspacePromptContentRequired": {
+    "description": "Validation error when the prompt content is empty. (Desktop copy of the phone's workspacePromptContentRequired, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
+  "@desktopWorkspacePromptDeleteConfirmMessage": {
+    "description": "Confirmation dialog body for deleting a prompt. (Desktop copy of the phone's workspacePromptDeleteConfirmMessage, translated for the desktop.)",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspacePromptDeleteConfirmTitle": "Delete prompt?",
+  "@desktopWorkspacePromptDeleteConfirmTitle": {
+    "description": "Confirmation dialog title for deleting a prompt. (Desktop copy of the phone's workspacePromptDeleteConfirmTitle, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptDeleted": "Prompt deleted.",
+  "@desktopWorkspacePromptDeleted": {
+    "description": "Confirmation that a prompt was deleted. (Desktop copy.) (Desktop copy of the phone's workspacePromptDeleted, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptDetailsSaved": "Name and command saved.",
+  "@desktopWorkspacePromptDetailsSaved": {
+    "description": "Confirmation that prompt name and command were updated. (Desktop copy.) (Desktop copy of the phone's workspacePromptDetailsSaved, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptHistoryCommitFallback": "No commit message",
+  "@desktopWorkspacePromptHistoryCommitFallback": {
+    "description": "Placeholder shown for a history entry without a commit message. (Desktop copy of the phone's workspacePromptHistoryCommitFallback, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptHistoryDeleteConfirmMessage": "This version snapshot will be removed. This can't be undone.",
+  "@desktopWorkspacePromptHistoryDeleteConfirmMessage": {
+    "description": "Confirmation dialog body for deleting a prompt version. (Desktop copy of the phone's workspacePromptHistoryDeleteConfirmMessage, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptHistoryDeleteConfirmTitle": "Delete version?",
+  "@desktopWorkspacePromptHistoryDeleteConfirmTitle": {
+    "description": "Confirmation dialog title for deleting a prompt version. (Desktop copy of the phone's workspacePromptHistoryDeleteConfirmTitle, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptHistoryDeleteProduction": "The live production version can't be deleted.",
+  "@desktopWorkspacePromptHistoryDeleteProduction": {
+    "description": "Error shown when trying to delete the active production version. (Desktop copy of the phone's workspacePromptHistoryDeleteProduction, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptHistoryDeleted": "Version deleted.",
+  "@desktopWorkspacePromptHistoryDeleted": {
+    "description": "Confirmation that a prompt version was deleted. (Desktop copy.) (Desktop copy of the phone's workspacePromptHistoryDeleted, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptHistoryDiffEmpty": "No content differences.",
+  "@desktopWorkspacePromptHistoryDiffEmpty": {
+    "description": "Shown when two prompt versions have identical content. (Desktop copy of the phone's workspacePromptHistoryDiffEmpty, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptHistoryDiffFailed": "Couldn't compute the diff.",
+  "@desktopWorkspacePromptHistoryDiffFailed": {
+    "description": "Error shown when computing a prompt version diff fails. (Desktop copy of the phone's workspacePromptHistoryDiffFailed, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptHistoryDiffNameChanged": "The name changed between these versions.",
+  "@desktopWorkspacePromptHistoryDiffNameChanged": {
+    "description": "Note shown in the diff sheet when the prompt name changed. (Desktop copy of the phone's workspacePromptHistoryDiffNameChanged, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptHistoryEmpty": "No versions yet.",
+  "@desktopWorkspacePromptHistoryEmpty": {
+    "description": "Empty-state text when a prompt has no version history. (Desktop copy of the phone's workspacePromptHistoryEmpty, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptHistoryLive": "Live",
+  "@desktopWorkspacePromptHistoryLive": {
+    "description": "Badge marking the active production version of a prompt. (Desktop copy of the phone's workspacePromptHistoryLive, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptHistoryLoadFailed": "Couldn't load version history.",
+  "@desktopWorkspacePromptHistoryLoadFailed": {
+    "description": "Error shown when loading prompt history fails. (Desktop copy of the phone's workspacePromptHistoryLoadFailed, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptHistoryProductionSet": "Production version updated.",
+  "@desktopWorkspacePromptHistoryProductionSet": {
+    "description": "Confirmation that the production version was changed. (Desktop copy of the phone's workspacePromptHistoryProductionSet, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptHistoryRestored": "Version content restored. Save to keep it.",
+  "@desktopWorkspacePromptHistoryRestored": {
+    "description": "Confirmation that a version snapshot was loaded into the editor. (Desktop copy of the phone's workspacePromptHistoryRestored, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptName": "Name",
+  "@desktopWorkspacePromptName": {
+    "description": "Label for the prompt name field. (Desktop copy of the phone's workspacePromptName, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptNameRequired": "Name is required.",
+  "@desktopWorkspacePromptNameRequired": {
+    "description": "Validation error when the prompt name is empty. (Desktop copy of the phone's workspacePromptNameRequired, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptPreviewEmpty": "Nothing to preview yet.",
+  "@desktopWorkspacePromptPreviewEmpty": {
+    "description": "Empty-state text shown in the prompt preview when there is no content. (Desktop copy of the phone's workspacePromptPreviewEmpty, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptPreviewTab": "Preview",
+  "@desktopWorkspacePromptPreviewTab": {
+    "description": "Toggle label for the rendered markdown preview of the prompt content. (Desktop copy of the phone's workspacePromptPreviewTab, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptSaved": "Prompt saved.",
+  "@desktopWorkspacePromptSaved": {
+    "description": "Confirmation that a prompt was saved. (Desktop copy.) (Desktop copy of the phone's workspacePromptSaved, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptSetProductionSubtitle": "Make this the live version used in chat.",
+  "@desktopWorkspacePromptSetProductionSubtitle": {
+    "description": "Explanation for the production-version toggle. (Desktop copy of the phone's workspacePromptSetProductionSubtitle, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptTags": "Tags",
+  "@desktopWorkspacePromptTags": {
+    "description": "Label for the prompt tags field. (Desktop copy of the phone's workspacePromptTags, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptVersionSection": "Version",
+  "@desktopWorkspacePromptVersionSection": {
+    "description": "Section header for prompt versioning controls. (Desktop copy of the phone's workspacePromptVersionSection, translated for the desktop.)"
+  },
+  "desktopWorkspacePromptWriteTab": "Write",
+  "@desktopWorkspacePromptWriteTab": {
+    "description": "Toggle label for the editable prompt content view. (Desktop copy of the phone's workspacePromptWriteTab, translated for the desktop.)"
+  },
+  "desktopWorkspaceSelectItem": "Select an item to view its details.",
+  "@desktopWorkspaceSelectItem": {
+    "description": "Placeholder prompting the user to select a resource to view its details. (Desktop copy of the phone's workspaceSelectItem, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillCloneSuffix": "(Clone)",
+  "@desktopWorkspaceSkillCloneSuffix": {
+    "description": "Suffix appended to the name of a cloned skill. (Desktop copy of the phone's workspaceSkillCloneSuffix, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillContent": "Instructions",
+  "@desktopWorkspaceSkillContent": {
+    "description": "Label for the skill Markdown instructions body field. (Desktop copy of the phone's workspaceSkillContent, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillContentHint": "Enter skill instructions in markdown…",
+  "@desktopWorkspaceSkillContentHint": {
+    "description": "Placeholder text for the empty skill instructions field. (Desktop copy of the phone's workspaceSkillContentHint, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillContentRequired": "Instructions are required.",
+  "@desktopWorkspaceSkillContentRequired": {
+    "description": "Validation error when the skill instructions are empty. (Desktop copy of the phone's workspaceSkillContentRequired, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
+  "@desktopWorkspaceSkillDeleteConfirmMessage": {
+    "description": "Confirmation dialog body for deleting a skill. (Desktop copy of the phone's workspaceSkillDeleteConfirmMessage, translated for the desktop.)",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceSkillDeleteConfirmTitle": "Delete skill?",
+  "@desktopWorkspaceSkillDeleteConfirmTitle": {
+    "description": "Confirmation dialog title for deleting a skill. (Desktop copy of the phone's workspaceSkillDeleteConfirmTitle, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillDeleted": "Skill deleted.",
+  "@desktopWorkspaceSkillDeleted": {
+    "description": "Confirmation that a skill was deleted. (Desktop copy.) (Desktop copy of the phone's workspaceSkillDeleted, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillDescription": "Description",
+  "@desktopWorkspaceSkillDescription": {
+    "description": "Label for the optional skill description field. (Desktop copy of the phone's workspaceSkillDescription, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillDescriptionHint": "e.g. Step-by-step instructions for code reviews",
+  "@desktopWorkspaceSkillDescriptionHint": {
+    "description": "Placeholder example for the skill description field. (Desktop copy of the phone's workspaceSkillDescriptionHint, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillId": "Skill ID",
+  "@desktopWorkspaceSkillId": {
+    "description": "Label for the skill identifier field. (Desktop copy of the phone's workspaceSkillId, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillIdHint": "e.g. code-review-guidelines",
+  "@desktopWorkspaceSkillIdHint": {
+    "description": "Placeholder example for the skill identifier field. (Desktop copy of the phone's workspaceSkillIdHint, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillIdInvalid": "Only letters, numbers, hyphens, and underscores are allowed.",
+  "@desktopWorkspaceSkillIdInvalid": {
+    "description": "Validation error when the skill identifier contains illegal characters. (Desktop copy of the phone's workspaceSkillIdInvalid, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillIdRequired": "Skill ID is required.",
+  "@desktopWorkspaceSkillIdRequired": {
+    "description": "Validation error when the skill identifier is empty. (Desktop copy of the phone's workspaceSkillIdRequired, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillName": "Name",
+  "@desktopWorkspaceSkillName": {
+    "description": "Label for the skill name field. (Desktop copy of the phone's workspaceSkillName, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillNameHint": "e.g. Code Review Guidelines",
+  "@desktopWorkspaceSkillNameHint": {
+    "description": "Placeholder example for the skill name field. (Desktop copy of the phone's workspaceSkillNameHint, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillNameRequired": "Name is required.",
+  "@desktopWorkspaceSkillNameRequired": {
+    "description": "Validation error when the skill name is empty. (Desktop copy of the phone's workspaceSkillNameRequired, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillPreviewEmpty": "Nothing to preview yet.",
+  "@desktopWorkspaceSkillPreviewEmpty": {
+    "description": "Empty-state text shown in the skill preview when there is no content. (Desktop copy of the phone's workspaceSkillPreviewEmpty, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillPreviewTab": "Preview",
+  "@desktopWorkspaceSkillPreviewTab": {
+    "description": "Toggle label for the rendered markdown preview of the skill instructions. (Desktop copy of the phone's workspaceSkillPreviewTab, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillSaved": "Skill saved.",
+  "@desktopWorkspaceSkillSaved": {
+    "description": "Confirmation that a skill was saved. (Desktop copy.) (Desktop copy of the phone's workspaceSkillSaved, translated for the desktop.)"
+  },
+  "desktopWorkspaceSkillWriteTab": "Write",
+  "@desktopWorkspaceSkillWriteTab": {
+    "description": "Toggle label for the editable skill instructions view. (Desktop copy of the phone's workspaceSkillWriteTab, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolCloneSuffix": "(Clone)",
+  "@desktopWorkspaceToolCloneSuffix": {
+    "description": "Suffix appended to the name of a cloned tool. (Desktop copy of the phone's workspaceToolCloneSuffix, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolContentRequired": "Add Python source before saving.",
+  "@desktopWorkspaceToolContentRequired": {
+    "description": "Validation error when the tool source is empty. (Desktop copy of the phone's workspaceToolContentRequired, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolDeleteConfirmMessage": "\"{name}\" will be permanently deleted.",
+  "@desktopWorkspaceToolDeleteConfirmMessage": {
+    "description": "Confirmation dialog body for deleting a tool. (Desktop copy of the phone's workspaceToolDeleteConfirmMessage, translated for the desktop.)",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceToolDeleteConfirmTitle": "Delete tool?",
+  "@desktopWorkspaceToolDeleteConfirmTitle": {
+    "description": "Title of the tool delete confirmation dialog. (Desktop copy of the phone's workspaceToolDeleteConfirmTitle, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolDeleted": "Tool deleted.",
+  "@desktopWorkspaceToolDeleted": {
+    "description": "Confirmation that a tool was deleted. (Desktop copy.) (Desktop copy of the phone's workspaceToolDeleted, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolDescription": "Description",
+  "@desktopWorkspaceToolDescription": {
+    "description": "Label for the tool description field. (Desktop copy of the phone's workspaceToolDescription, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolDescriptionHint": "e.g. Tools for performing various operations",
+  "@desktopWorkspaceToolDescriptionHint": {
+    "description": "Placeholder for the tool description field. (Desktop copy of the phone's workspaceToolDescriptionHint, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolId": "Tool ID",
+  "@desktopWorkspaceToolId": {
+    "description": "Label for the tool ID field. (Desktop copy of the phone's workspaceToolId, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolIdHint": "Letters, numbers, and underscores; can't start with a number.",
+  "@desktopWorkspaceToolIdHint": {
+    "description": "Helper text describing the allowed format of a tool ID. (Desktop copy of the phone's workspaceToolIdHint, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolIdInvalid": "Tool IDs use letters, numbers, and underscores and can't start with a number.",
+  "@desktopWorkspaceToolIdInvalid": {
+    "description": "Validation error when the tool ID is not a valid identifier. (Desktop copy of the phone's workspaceToolIdInvalid, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolIdRequired": "Enter a tool ID.",
+  "@desktopWorkspaceToolIdRequired": {
+    "description": "Validation error when the tool ID is empty. (Desktop copy of the phone's workspaceToolIdRequired, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolImportUrlFailed": "Couldn't import the tool from that URL.",
+  "@desktopWorkspaceToolImportUrlFailed": {
+    "description": "Error shown when a tool URL import fails. (Desktop copy of the phone's workspaceToolImportUrlFailed, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolImportUrlHost": "Only GitHub tool URLs can be imported.",
+  "@desktopWorkspaceToolImportUrlHost": {
+    "description": "Validation error when the tool import URL is not a permitted GitHub host. (Desktop copy of the phone's workspaceToolImportUrlHost, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolImportUrlLabel": "URL",
+  "@desktopWorkspaceToolImportUrlLabel": {
+    "description": "Label above the tool URL import field. (Desktop copy of the phone's workspaceToolImportUrlLabel, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolManifest": "Manifest",
+  "@desktopWorkspaceToolManifest": {
+    "description": "Heading for the server-generated tool manifest summary. (Desktop copy of the phone's workspaceToolManifest, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolManifestRequiredVersion": "Requires Open WebUI {version}",
+  "@desktopWorkspaceToolManifestRequiredVersion": {
+    "description": "Displays the Open WebUI version a tool requires. (Desktop copy of the phone's workspaceToolManifestRequiredVersion, translated for the desktop.)",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceToolName": "Name",
+  "@desktopWorkspaceToolName": {
+    "description": "Label for the tool name field. (Desktop copy of the phone's workspaceToolName, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolNameHint": "e.g. My Tools",
+  "@desktopWorkspaceToolNameHint": {
+    "description": "Placeholder for the tool name field. (Desktop copy of the phone's workspaceToolNameHint, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolNameRequired": "Enter a tool name.",
+  "@desktopWorkspaceToolNameRequired": {
+    "description": "Validation error when the tool name is empty. (Desktop copy of the phone's workspaceToolNameRequired, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolSaved": "Tool saved.",
+  "@desktopWorkspaceToolSaved": {
+    "description": "Confirmation that a tool was saved. (Desktop copy.) (Desktop copy of the phone's workspaceToolSaved, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolSpecsEmpty": "No specifications were generated for this tool.",
+  "@desktopWorkspaceToolSpecsEmpty": {
+    "description": "Empty state when a tool produced no function specifications. (Desktop copy of the phone's workspaceToolSpecsEmpty, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolValvesLoadFailed": "Couldn't load valves.",
+  "@desktopWorkspaceToolValvesLoadFailed": {
+    "description": "Error shown when loading tool valves fails. (Desktop copy of the phone's workspaceToolValvesLoadFailed, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolValvesSaveFailed": "Couldn't save the valves.",
+  "@desktopWorkspaceToolValvesSaveFailed": {
+    "description": "Error shown when saving tool valves fails. (Desktop copy.) (Desktop copy of the phone's workspaceToolValvesSaveFailed, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolValvesSaved": "Valves saved.",
+  "@desktopWorkspaceToolValvesSaved": {
+    "description": "Confirmation that tool valves were saved. (Desktop copy.) (Desktop copy of the phone's workspaceToolValvesSaved, translated for the desktop.)"
+  },
+  "desktopWorkspaceToolValvesTitle": "Valves",
+  "@desktopWorkspaceToolValvesTitle": {
+    "description": "Title of the tool valves sheet. (Desktop copy of the phone's workspaceToolValvesTitle, translated for the desktop.)"
+  },
+  "desktopWorkspaceAddTextFile": "Add Text File…",
+  "@desktopWorkspaceAddTextFile": {
+    "description": "Button in a knowledge base's files: opens a sheet to type a text file into the base. Title Case, ellipsis (opens a sheet)."
+  },
+  "desktopWorkspaceCapabilityCitations": "Citations",
+  "@desktopWorkspaceCapabilityCitations": {
+    "description": "Model capability checkbox: the model's answers cite their sources. Title Case."
+  },
+  "desktopWorkspaceCapabilityFileUpload": "File Upload",
+  "@desktopWorkspaceCapabilityFileUpload": {
+    "description": "Model capability checkbox: files can be attached to messages for this model. Title Case."
+  },
+  "desktopWorkspaceCapabilityUsage": "Usage",
+  "@desktopWorkspaceCapabilityUsage": {
+    "description": "Model capability checkbox: token usage is reported for this model's answers. Title Case."
+  },
+  "desktopWorkspaceCapabilityVision": "Vision",
+  "@desktopWorkspaceCapabilityVision": {
+    "description": "Model capability checkbox: the model can read images. Title Case."
+  },
+  "desktopWorkspaceChangeImage": "Change Image…",
+  "@desktopWorkspaceChangeImage": {
+    "description": "Button in the model editor: picks a new profile image for the model from a file. Title Case, ellipsis (opens a file panel)."
+  },
+  "desktopWorkspaceChoose": "Choose…",
+  "@desktopWorkspaceChoose": {
+    "description": "Button on a model relationship row (knowledge, tools, skills…): opens a sheet of checkboxes to choose them. Title Case, ellipsis."
+  },
+  "desktopWorkspaceDeleteFile": "Delete File…",
+  "@desktopWorkspaceDeleteFile": {
+    "description": "Context menu item on a knowledge base file: deletes the file itself, not only from this base. Title Case, ellipsis (asks first)."
+  },
+  "desktopWorkspaceDeleteFileTitle": "Delete this file?",
+  "@desktopWorkspaceDeleteFileTitle": {
+    "description": "Title of the alert asking before a knowledge file is deleted. Sentence case question."
+  },
+  "desktopWorkspaceDeleteFileMessage": "{name} will be taken out of this knowledge base and deleted from your files. This can’t be undone.",
+  "@desktopWorkspaceDeleteFileMessage": {
+    "description": "Message of the alert asking before a knowledge file is deleted; {name} is the file name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspaceDropFiles": "No files yet. Drop files here, or use Upload Files.",
+  "@desktopWorkspaceDropFiles": {
+    "description": "Shown in an empty knowledge base's file table, where files can be dropped. Sentence case."
+  },
+  "desktopWorkspaceEdited": "Edited",
+  "@desktopWorkspaceEdited": {
+    "description": "Status beside the Save button when a workspace item has unsaved changes."
+  },
+  "desktopWorkspaceExportAllEllipsis": "Export All…",
+  "@desktopWorkspaceExportAllEllipsis": {
+    "description": "Menu item in a workspace section's action menu: saves every item of the section to a JSON file. Title Case, ellipsis (opens a save panel)."
+  },
+  "desktopWorkspaceHidden": "Hidden from the model picker",
+  "@desktopWorkspaceHidden": {
+    "description": "Tooltip of the badge on a workspace model that is hidden from the model picker."
+  },
+  "desktopWorkspaceImageTooLarge": "Choose an image of 1 MB or less.",
+  "@desktopWorkspaceImageTooLarge": {
+    "description": "Error when the picked model profile image is too big."
+  },
+  "desktopWorkspaceImportFromUrl": "Import from URL…",
+  "@desktopWorkspaceImportFromUrl": {
+    "description": "Menu item and button: fills a new tool from a GitHub address. Title Case, ellipsis (opens a sheet)."
+  },
+  "desktopWorkspaceItemCount": "{count, plural, =1{1 item} other{{count} items}}",
+  "@desktopWorkspaceItemCount": {
+    "description": "How many items a workspace section's list holds, at the bottom of the list.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopWorkspaceNewFolder": "New Folder…",
+  "@desktopWorkspaceNewFolder": {
+    "description": "Button in a knowledge base's files: makes a folder in the folder shown. Title Case, ellipsis (opens a sheet)."
+  },
+  "desktopWorkspaceNewKnowledge": "New Knowledge Base…",
+  "@desktopWorkspaceNewKnowledge": {
+    "description": "Button and tooltip of the workspace's + in the Knowledge section. Title Case, ellipsis (opens a sheet)."
+  },
+  "desktopWorkspaceNewTool": "New Tool",
+  "@desktopWorkspaceNewTool": {
+    "description": "Button and title of a new tool in the workspace's Tools section. Title Case."
+  },
+  "desktopWorkspaceNoMatches": "Nothing matches. Try fewer or different words.",
+  "@desktopWorkspaceNoMatches": {
+    "description": "Shown in a workspace list when the search finds nothing."
+  },
+  "desktopWorkspaceOwnedBy": "By {name}",
+  "@desktopWorkspaceOwnedBy": {
+    "description": "Under a workspace item's name: who owns it; {name} is a person's name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWorkspacePromptVariablesHint": "Words in double braces become fields to fill in when the prompt is used.",
+  "@desktopWorkspacePromptVariablesHint": {
+    "description": "Help under a prompt's content in the editor, about template variables."
+  },
+  "desktopWorkspaceRemove": "Remove",
+  "@desktopWorkspaceRemove": {
+    "description": "Button of the alert that takes a file out of a knowledge base (the file itself is kept). Title Case."
+  },
+  "desktopWorkspaceResetEllipsis": "Reset…",
+  "@desktopWorkspaceResetEllipsis": {
+    "description": "Button in the knowledge editor: takes every file out of the base. Title Case, ellipsis (asks first)."
+  },
+  "desktopWorkspaceRevert": "Revert",
+  "@desktopWorkspaceRevert": {
+    "description": "Button in a workspace editor: throws away unsaved changes and shows the item as saved. Title Case."
+  },
+  "desktopWorkspaceShareAccess": "Share Access…",
+  "@desktopWorkspaceShareAccess": {
+    "description": "Context menu item and button: opens the sheet that says who may use or edit a workspace item. Title Case, ellipsis."
+  },
+  "desktopWorkspaceShareAccessTitle": "Share Access",
+  "@desktopWorkspaceShareAccessTitle": {
+    "description": "Title of the sheet that says who may use or edit a workspace item. Title Case."
+  },
+  "desktopWorkspaceShow": "Show",
+  "@desktopWorkspaceShow": {
+    "description": "Label of the pop-up that filters a workspace list: all items, created by you, shared with you. Title Case."
+  },
+  "desktopWorkspaceShowInPicker": "Show in Model Picker",
+  "@desktopWorkspaceShowInPicker": {
+    "description": "Switch in the model editor: whether the model is offered in the chat's model picker. Title Case."
+  },
+  "desktopWorkspaceSortBy": "Sort By",
+  "@desktopWorkspaceSortBy": {
+    "description": "Label of the pop-up that orders a workspace list. Title Case."
+  },
+  "desktopWorkspaceSortModified": "Date Modified",
+  "@desktopWorkspaceSortModified": {
+    "description": "Sort order of a workspace list: the most recently changed first. Title Case."
+  },
+  "desktopWorkspaceSource": "Source",
+  "@desktopWorkspaceSource": {
+    "description": "Label of the pop-up that filters knowledge bases by where they come from. Title Case."
+  },
+  "desktopWorkspaceUploadFiles": "Upload Files…",
+  "@desktopWorkspaceUploadFiles": {
+    "description": "Button in a knowledge base's files: picks files to add. Title Case, ellipsis (opens a file panel)."
+  },
+  "desktopWorkspaceValvesEllipsis": "Valves…",
+  "@desktopWorkspaceValvesEllipsis": {
+    "description": "Button in the tool editor: opens the tool's settings (valves). Title Case, ellipsis."
+  },
   "desktopHermesTestOk": "Connected to Hermes Agent.",
   "@desktopHermesTestOk": {
     "description": "Result of testing a Hermes connection that answered."

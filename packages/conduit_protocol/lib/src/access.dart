@@ -4,8 +4,18 @@ part 'access.freezed.dart';
 part 'access.g.dart';
 
 /// A resource whose access grants the everyday UI edits. Generic on
-/// purpose: folders now, notes and Workspace items reuse it.
-enum AccessResourceKind { chat, folder, note }
+/// purpose: chats, folders and notes, and the workspace's models,
+/// knowledge bases, prompts, tools and skills.
+enum AccessResourceKind {
+  chat,
+  folder,
+  note,
+  model,
+  knowledge,
+  prompt,
+  tool,
+  skill,
+}
 
 /// Who a resource is open to beyond named users and groups, as Open
 /// WebUI's access editor shows it: nobody else, every user on the server,

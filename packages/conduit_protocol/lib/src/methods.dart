@@ -890,6 +890,17 @@ abstract final class ConduitMethods {
 
   /// Takes the files that failed to be read in out of a knowledge base.
   static const String workspaceKnowledgeCleanup = 'workspace.knowledgeCleanup';
+
+  /// Makes a copy of an item on the server and answers with it.
+  static const String workspaceDuplicate = 'workspace.duplicate';
+
+  /// Puts a text file made from typed text into a knowledge base.
+  static const String workspaceAddText = 'workspace.addText';
+
+  /// Reads a skill from a Markdown file (front-matter name, id and
+  /// description, the file as instructions), not saved.
+  static const String workspaceSkillFromMarkdown =
+      'workspace.skillFromMarkdown';
   static const String directPrefix = 'direct.';
   static const String mcpPrefix = 'mcp.';
   static const String webSearchPrefix = 'webSearch.';

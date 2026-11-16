@@ -357,7 +357,7 @@ impl Mode {
     }
 }
 
-fn stores(rpc: Rpc, scratch: &std::path::Path, cx: &mut App) -> Stores {
+pub(crate) fn stores(rpc: Rpc, scratch: &std::path::Path, cx: &mut App) -> Stores {
     let paths = AppPaths {
         flavor: Flavor::Dev,
         user_data: scratch.join("user-data"),

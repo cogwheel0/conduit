@@ -19,7 +19,8 @@ use crate::{EventSpec, MethodSpec};
 pub const PROTOCOL_VERSION: &str = "1.62.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
-/// purpose: folders now, notes and Workspace items reuse it.
+/// purpose: chats, folders and notes, and the workspace's models,
+/// knowledge bases, prompts, tools and skills.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AccessResourceKind {
     #[serde(rename = "chat")]
@@ -28,6 +29,16 @@ pub enum AccessResourceKind {
     Folder,
     #[serde(rename = "note")]
     Note,
+    #[serde(rename = "model")]
+    Model,
+    #[serde(rename = "knowledge")]
+    Knowledge,
+    #[serde(rename = "prompt")]
+    Prompt,
+    #[serde(rename = "tool")]
+    Tool,
+    #[serde(rename = "skill")]
+    Skill,
     /// A value this build does not know, from a newer daemon. It decodes
     /// only: it encodes as `"unknown"`, which the daemon refuses.
     #[serde(other, rename = "unknown")]
@@ -8802,6 +8813,15 @@ pub struct WorkspaceItem {
     pub updated_at_ms: Option<i64>,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// A knowledge base backed by a connected source: read-only here.
+    #[serde(default)]
+    pub external: bool,
+    /// A model hidden from the model picker.
+    #[serde(default)]
+    pub hidden: bool,
+    /// How many functions a tool declares.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function_count: Option<i64>,
 }
 
 /// Params for `workspace.list`. `more` loads the next page onto what this
@@ -8960,6 +8980,16 @@ pub struct WorkspaceKnowledgeDto {
     pub description: String,
     #[serde(default)]
     pub file_count: i64,
+    /// Backed by a connected source: its files are read-only here.
+    #[serde(default)]
+    pub external: bool,
+    /// The most files it may hold, set by its owner; null for the
+    /// server's limit only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_file_count: Option<i64>,
+    /// The largest file it takes, in MB; null for the server's limit only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_file_size: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -9033,6 +9063,9 @@ pub struct WorkspaceToolDto {
     pub has_valves: bool,
     #[serde(default)]
     pub has_user_valves: bool,
+    /// Whether the tool is switched on; null when the server does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active: Option<bool>,
     /// The Open WebUI version the tool says it needs, when newer than the
     /// server's; saving is refused until the server catches up.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -9315,6 +9348,14 @@ pub struct WorkspaceValves {
     pub schema: serde_json::Value,
     #[serde(default = "default_workspace_valves_values")]
     pub values: serde_json::Value,
+    /// One row per valve, as the form draws it (the core reads the
+    /// schema's types and defaults); set in replies.
+    #[serde(default)]
+    pub fields: Vec<ValveField>,
+    /// For `workspace.saveValves`: the form's rows as text, which the
+    /// daemon types by the schema. When given, `values` is ignored.
+    #[serde(default)]
+    pub edits: Vec<ValveEdit>,
 }
 
 fn default_workspace_valves_schema() -> serde_json::Value {
@@ -9408,6 +9449,50 @@ pub struct WorkspaceFilesAttach {
     pub directory_id: String,
     #[serde(default)]
     pub file_ids: Vec<String>,
+    /// The files were just uploaded for this: the daemon waits until the
+    /// server has read them in, checks the base's limits, and deletes the
+    /// ones that could not go in rather than leave them among the user's
+    /// files.
+    #[serde(default)]
+    pub uploaded: bool,
+}
+
+/// Params for `workspace.addText`: a text file made from `content` and
+/// put into a folder of a knowledge base (`.txt` is added to the name
+/// when missing).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceTextFile {
+    pub knowledge_id: String,
+    #[serde(default)]
+    pub directory_id: String,
+    pub filename: String,
+    #[serde(default)]
+    pub content: String,
+}
+
+/// Params for `workspace.duplicate`: makes a copy of an item on the
+/// server, without its access grants, named with `suffix` ("(copy)") and
+/// a free id or command, as the phone's Duplicate does. Knowledge is not
+/// duplicated.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceDuplicate {
+    pub kind: WorkspaceKind,
+    pub id: String,
+    #[serde(default = "default_workspace_duplicate_suffix")]
+    pub suffix: String,
+}
+
+fn default_workspace_duplicate_suffix() -> String {
+    "(copy)".to_owned()
+}
+
+/// Params for `workspace.skillFromMarkdown`: a Markdown file's text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceMarkdown {
+    pub text: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -12454,6 +12539,43 @@ pub mod methods {
         type Result = super::WorkspaceFiles;
     }
 
+    /// Makes a copy of an item on the server and answers with it.
+    ///
+    /// `workspace.duplicate`: WorkspaceDuplicate -> WorkspaceDetail.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct WorkspaceDuplicate;
+
+    impl RpcMethod for WorkspaceDuplicate {
+        const NAME: &'static str = "workspace.duplicate";
+        type Params = super::WorkspaceDuplicate;
+        type Result = super::WorkspaceDetail;
+    }
+
+    /// Puts a text file made from typed text into a knowledge base.
+    ///
+    /// `workspace.addText`: WorkspaceTextFile -> WorkspaceFiles.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct WorkspaceAddText;
+
+    impl RpcMethod for WorkspaceAddText {
+        const NAME: &'static str = "workspace.addText";
+        type Params = super::WorkspaceTextFile;
+        type Result = super::WorkspaceFiles;
+    }
+
+    /// Reads a skill from a Markdown file (front-matter name, id and
+    /// description, the file as instructions), not saved.
+    ///
+    /// `workspace.skillFromMarkdown`: WorkspaceMarkdown -> WorkspaceSkillDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct WorkspaceSkillFromMarkdown;
+
+    impl RpcMethod for WorkspaceSkillFromMarkdown {
+        const NAME: &'static str = "workspace.skillFromMarkdown";
+        type Params = super::WorkspaceMarkdown;
+        type Result = super::WorkspaceSkillDto;
+    }
+
     /// `hermes.settings`: no params -> HermesSettings.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct HermesSettings;
@@ -14237,6 +14359,21 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("WorkspaceFiles"),
     },
     MethodSpec {
+        name: "workspace.duplicate",
+        params: Some("WorkspaceDuplicate"),
+        result: Some("WorkspaceDetail"),
+    },
+    MethodSpec {
+        name: "workspace.addText",
+        params: Some("WorkspaceTextFile"),
+        result: Some("WorkspaceFiles"),
+    },
+    MethodSpec {
+        name: "workspace.skillFromMarkdown",
+        params: Some("WorkspaceMarkdown"),
+        result: Some("WorkspaceSkillDto"),
+    },
+    MethodSpec {
         name: "hermes.settings",
         params: None,
         result: Some("HermesSettings"),
@@ -15552,6 +15689,7 @@ pub mod conformance {
         "WorkspaceDetail",
         "WorkspaceDirectory",
         "WorkspaceDirectoryAction",
+        "WorkspaceDuplicate",
         "WorkspaceExportFile",
         "WorkspaceExportQuery",
         "WorkspaceFile",
@@ -15565,6 +15703,7 @@ pub mod conformance {
         "WorkspaceImportResult",
         "WorkspaceItem",
         "WorkspaceKnowledgeDto",
+        "WorkspaceMarkdown",
         "WorkspaceModelDto",
         "WorkspaceModelOptions",
         "WorkspacePage",
@@ -15583,6 +15722,7 @@ pub mod conformance {
         "WorkspaceSave",
         "WorkspaceSectionAccess",
         "WorkspaceSkillDto",
+        "WorkspaceTextFile",
         "WorkspaceToolDto",
         "WorkspaceUrl",
         "WorkspaceValves",
@@ -16013,6 +16153,7 @@ pub mod conformance {
             "WorkspaceDetail" => roundtrip::<super::WorkspaceDetail>(json),
             "WorkspaceDirectory" => roundtrip::<super::WorkspaceDirectory>(json),
             "WorkspaceDirectoryAction" => roundtrip::<super::WorkspaceDirectoryAction>(json),
+            "WorkspaceDuplicate" => roundtrip::<super::WorkspaceDuplicate>(json),
             "WorkspaceExportFile" => roundtrip::<super::WorkspaceExportFile>(json),
             "WorkspaceExportQuery" => roundtrip::<super::WorkspaceExportQuery>(json),
             "WorkspaceFile" => roundtrip::<super::WorkspaceFile>(json),
@@ -16026,6 +16167,7 @@ pub mod conformance {
             "WorkspaceImportResult" => roundtrip::<super::WorkspaceImportResult>(json),
             "WorkspaceItem" => roundtrip::<super::WorkspaceItem>(json),
             "WorkspaceKnowledgeDto" => roundtrip::<super::WorkspaceKnowledgeDto>(json),
+            "WorkspaceMarkdown" => roundtrip::<super::WorkspaceMarkdown>(json),
             "WorkspaceModelDto" => roundtrip::<super::WorkspaceModelDto>(json),
             "WorkspaceModelOptions" => roundtrip::<super::WorkspaceModelOptions>(json),
             "WorkspacePage" => roundtrip::<super::WorkspacePage>(json),
@@ -16044,6 +16186,7 @@ pub mod conformance {
             "WorkspaceSave" => roundtrip::<super::WorkspaceSave>(json),
             "WorkspaceSectionAccess" => roundtrip::<super::WorkspaceSectionAccess>(json),
             "WorkspaceSkillDto" => roundtrip::<super::WorkspaceSkillDto>(json),
+            "WorkspaceTextFile" => roundtrip::<super::WorkspaceTextFile>(json),
             "WorkspaceToolDto" => roundtrip::<super::WorkspaceToolDto>(json),
             "WorkspaceUrl" => roundtrip::<super::WorkspaceUrl>(json),
             "WorkspaceValves" => roundtrip::<super::WorkspaceValves>(json),

@@ -3106,6 +3106,214 @@ void main() {
           );
           cleanups.remove('knowledge');
         }, timeout: const Timeout(Duration(minutes: 3)));
+
+        test(
+          'the desktop editors: duplicate, typed valves, a tool switched off, '
+          'limits, uploads and text files, and access through access.*',
+          () async {
+            final api = runtime.container.read(apiServiceProvider)!;
+            final access = AccessService(
+              runtime.container,
+              workspace: workspace,
+            );
+
+            // A prompt and its copy, named as the phone's Duplicate names it.
+            final command = 'live-dup-$stamp';
+            final prompt = await workspace.save(
+              WorkspaceSave(
+                create: true,
+                detail: WorkspaceDetail(
+                  kind: WorkspaceKind.prompts,
+                  prompt: WorkspacePromptDto(
+                    command: command,
+                    name: 'Live duplicate',
+                    content: 'Say hello.',
+                  ),
+                ),
+              ),
+            );
+            final promptId = prompt.prompt!.id;
+            cleanups['dup-prompt'] = () => api.deletePrompt(promptId);
+            final copy = await workspace.duplicate(
+              WorkspaceDuplicate(kind: WorkspaceKind.prompts, id: promptId),
+            );
+            final copyId = copy.prompt!.id;
+            cleanups['dup-copy'] = () => api.deletePrompt(copyId);
+            expect(copy.prompt!.command, '$command-copy');
+            expect(copy.prompt!.name, 'Live duplicate (copy)');
+            expect(copy.prompt!.content, 'Say hello.');
+            expect(copy.grants, isEmpty);
+
+            // Share it with the seeded group as an editor, and every user.
+            final groups = await access.principals(
+              const AccessPrincipalQuery(),
+            );
+            final group = groups.items.firstWhere((p) => p.type == 'group');
+            final shared = await access.set(
+              AccessEdit(
+                kind: AccessResourceKind.prompt,
+                id: copyId,
+                grants: <AccessGrantDto>[
+                  AccessGrantDto(
+                    principalType: 'group',
+                    principalId: group.id,
+                    write: true,
+                  ),
+                ],
+                audience: AccessAudience.public,
+              ),
+            );
+            expect(shared.canEdit, isTrue);
+            expect(shared.audience, AccessAudience.public);
+            final granted = shared.grants.single;
+            expect(granted.principalId, group.id);
+            expect(granted.write, isTrue);
+            expect(granted.name, group.name);
+            final read = await access.get(
+              AccessRef(kind: AccessResourceKind.prompt, id: copyId),
+            );
+            expect(read.grants.single.write, isTrue);
+            final private = await access.set(
+              AccessEdit(
+                kind: AccessResourceKind.prompt,
+                id: copyId,
+                audience: AccessAudience.private,
+              ),
+            );
+            expect(private.grants, isEmpty);
+            expect(private.audience, AccessAudience.private);
+
+            await workspace.delete(
+              WorkspaceRef(kind: WorkspaceKind.prompts, id: copyId),
+            );
+            cleanups.remove('dup-copy');
+            await workspace.delete(
+              WorkspaceRef(kind: WorkspaceKind.prompts, id: promptId),
+            );
+            cleanups.remove('dup-prompt');
+
+            // A tool: valves typed from the form's text, switched off.
+            final toolId = 'live_typed_$stamp';
+            cleanups['typed-tool'] = () => api.deleteTool(toolId);
+            await workspace.save(
+              WorkspaceSave(
+                create: true,
+                detail: WorkspaceDetail(
+                  kind: WorkspaceKind.tools,
+                  tool: WorkspaceToolDto(
+                    id: toolId,
+                    name: 'Live typed',
+                    content: _liveToolSource,
+                  ),
+                ),
+              ),
+            );
+            final valves = await workspace.valves(
+              WorkspaceValvesQuery(toolId: toolId),
+            );
+            final limit = valves.fields.singleWhere((f) => f.key == 'limit');
+            expect(limit.type, ValveFieldType.integer);
+            final typed = await workspace.saveValves(
+              WorkspaceValves(
+                toolId: toolId,
+                edits: const <ValveEdit>[
+                  ValveEdit(key: 'limit', isDefault: false, text: '9'),
+                ],
+              ),
+            );
+            expect(typed.values['limit'], 9);
+            expect(
+              typed.fields.singleWhere((f) => f.key == 'limit').text,
+              '9',
+            );
+            final listedTool = await workspace.list(
+              WorkspaceQuery(kind: WorkspaceKind.tools, query: 'Live typed'),
+            );
+            final row = listedTool.items.singleWhere((i) => i.id == toolId);
+            expect(row.functionCount, greaterThan(0));
+            if (row.active != null) {
+              final off = await workspace.toggle(
+                WorkspaceRef(kind: WorkspaceKind.tools, id: toolId),
+              );
+              expect(off.active, isFalse);
+            }
+            final toolCopy = await workspace.duplicate(
+              WorkspaceDuplicate(
+                kind: WorkspaceKind.tools,
+                id: toolId,
+                suffix: '(Clone)',
+              ),
+            );
+            expect(toolCopy.tool!.id, '${toolId}_clone');
+            await workspace.delete(
+              WorkspaceRef(kind: WorkspaceKind.tools, id: toolCopy.tool!.id),
+            );
+            await workspace.delete(
+              WorkspaceRef(kind: WorkspaceKind.tools, id: toolId),
+            );
+            cleanups.remove('typed-tool');
+
+            // A knowledge base with limits, a fresh upload and a text file.
+            final base = await workspace.save(
+              WorkspaceSave(
+                create: true,
+                detail: WorkspaceDetail(
+                  kind: WorkspaceKind.knowledge,
+                  knowledge: WorkspaceKnowledgeDto(
+                    name: 'Live limits $stamp',
+                    maxFileCount: 5,
+                  ),
+                ),
+              ),
+            );
+            final baseId = base.knowledge!.id;
+            cleanups['limits'] = () => api.deleteKnowledgeBase(baseId);
+            expect(base.knowledge!.maxFileCount, 5);
+            final changed = await workspace.save(
+              WorkspaceSave(
+                detail: base.copyWith(
+                  knowledge: base.knowledge!.copyWith(
+                    maxFileCount: 6,
+                    maxFileSize: 2,
+                  ),
+                ),
+              ),
+            );
+            expect(changed.knowledge!.maxFileCount, 6);
+            expect(changed.knowledge!.maxFileSize, 2);
+
+            final uploaded = await FilesService(runtime.container).upload(
+              session: FilesService(runtime.container).session(),
+              name: 'live-fresh-$stamp.md',
+              bytes: Uint8List.fromList(utf8.encode('# Fresh\n\nBeans.')),
+              contentType: 'text/markdown',
+            );
+            var files = await workspace.attachFiles(
+              WorkspaceFilesAttach(
+                knowledgeId: baseId,
+                fileIds: <String>[uploaded.id],
+                uploaded: true,
+              ),
+            );
+            expect(files.files.map((f) => f.id), contains(uploaded.id));
+            files = await workspace.addText(
+              WorkspaceTextFile(
+                knowledgeId: baseId,
+                filename: 'typed-$stamp',
+                content: 'Water the beans at dawn.',
+              ),
+            );
+            expect(
+              files.files.map((f) => f.filename),
+              contains('typed-$stamp.txt'),
+            );
+            await workspace.delete(
+              WorkspaceRef(kind: WorkspaceKind.knowledge, id: baseId),
+            );
+            cleanups.remove('limits');
+          },
+          timeout: const Timeout(Duration(minutes: 3)),
+        );
       });
 
       group('chat and folder settings', () {

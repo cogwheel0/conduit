@@ -1,5 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'valves.dart';
+
 part 'workspace.freezed.dart';
 part 'workspace.g.dart';
 
@@ -73,6 +75,15 @@ abstract class WorkspaceItem with _$WorkspaceItem {
     @Default(false) bool public,
     int? updatedAtMs,
     @Default(<String>[]) List<String> tags,
+
+    /// A knowledge base backed by a connected source: read-only here.
+    @Default(false) bool external,
+
+    /// A model hidden from the model picker.
+    @Default(false) bool hidden,
+
+    /// How many functions a tool declares.
+    int? functionCount,
   }) = _WorkspaceItem;
 
   factory WorkspaceItem.fromJson(Map<String, dynamic> json) =>
@@ -181,6 +192,16 @@ abstract class WorkspaceKnowledgeDto with _$WorkspaceKnowledgeDto {
     @Default('') String name,
     @Default('') String description,
     @Default(0) int fileCount,
+
+    /// Backed by a connected source: its files are read-only here.
+    @Default(false) bool external,
+
+    /// The most files it may hold, set by its owner; null for the
+    /// server's limit only.
+    int? maxFileCount,
+
+    /// The largest file it takes, in MB; null for the server's limit only.
+    int? maxFileSize,
   }) = _WorkspaceKnowledgeDto;
 
   factory WorkspaceKnowledgeDto.fromJson(Map<String, dynamic> json) =>
@@ -228,6 +249,9 @@ abstract class WorkspaceToolDto with _$WorkspaceToolDto {
     @Default(<String>[]) List<String> functions,
     @Default(false) bool hasValves,
     @Default(false) bool hasUserValves,
+
+    /// Whether the tool is switched on; null when the server does not say.
+    bool? active,
 
     /// The Open WebUI version the tool says it needs, when newer than the
     /// server's; saving is refused until the server catches up.
@@ -517,6 +541,14 @@ abstract class WorkspaceValves with _$WorkspaceValves {
     @Default(false) bool user,
     @Default(<String, dynamic>{}) Map<String, dynamic> schema,
     @Default(<String, dynamic>{}) Map<String, dynamic> values,
+
+    /// One row per valve, as the form draws it (the core reads the
+    /// schema's types and defaults); set in replies.
+    @Default(<ValveField>[]) List<ValveField> fields,
+
+    /// For `workspace.saveValves`: the form's rows as text, which the
+    /// daemon types by the schema. When given, [values] is ignored.
+    @Default(<ValveEdit>[]) List<ValveEdit> edits,
   }) = _WorkspaceValves;
 
   factory WorkspaceValves.fromJson(Map<String, dynamic> json) =>
@@ -608,10 +640,57 @@ abstract class WorkspaceFilesAttach with _$WorkspaceFilesAttach {
     required String knowledgeId,
     @Default('') String directoryId,
     @Default(<String>[]) List<String> fileIds,
+
+    /// The files were just uploaded for this: the daemon waits until the
+    /// server has read them in, checks the base's limits, and deletes the
+    /// ones that could not go in rather than leave them among the user's
+    /// files.
+    @Default(false) bool uploaded,
   }) = _WorkspaceFilesAttach;
 
   factory WorkspaceFilesAttach.fromJson(Map<String, dynamic> json) =>
       _$WorkspaceFilesAttachFromJson(json);
+}
+
+/// Params for `workspace.addText`: a text file made from [content] and
+/// put into a folder of a knowledge base (`.txt` is added to the name
+/// when missing).
+@freezed
+abstract class WorkspaceTextFile with _$WorkspaceTextFile {
+  const factory WorkspaceTextFile({
+    required String knowledgeId,
+    @Default('') String directoryId,
+    required String filename,
+    @Default('') String content,
+  }) = _WorkspaceTextFile;
+
+  factory WorkspaceTextFile.fromJson(Map<String, dynamic> json) =>
+      _$WorkspaceTextFileFromJson(json);
+}
+
+/// Params for `workspace.duplicate`: makes a copy of an item on the
+/// server, without its access grants, named with [suffix] ("(copy)") and
+/// a free id or command, as the phone's Duplicate does. Knowledge is not
+/// duplicated.
+@freezed
+abstract class WorkspaceDuplicate with _$WorkspaceDuplicate {
+  const factory WorkspaceDuplicate({
+    required WorkspaceKind kind,
+    required String id,
+    @Default('(copy)') String suffix,
+  }) = _WorkspaceDuplicate;
+
+  factory WorkspaceDuplicate.fromJson(Map<String, dynamic> json) =>
+      _$WorkspaceDuplicateFromJson(json);
+}
+
+/// Params for `workspace.skillFromMarkdown`: a Markdown file's text.
+@freezed
+abstract class WorkspaceMarkdown with _$WorkspaceMarkdown {
+  const factory WorkspaceMarkdown({required String text}) = _WorkspaceMarkdown;
+
+  factory WorkspaceMarkdown.fromJson(Map<String, dynamic> json) =>
+      _$WorkspaceMarkdownFromJson(json);
 }
 
 enum WorkspaceFileOp { rename, move, reindex, remove, delete }

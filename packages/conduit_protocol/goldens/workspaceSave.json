@@ -5,7 +5,8 @@
       "id": "",
       "name": "Docs",
       "description": "",
-      "fileCount": 0
+      "fileCount": 0,
+      "external": false
     },
     "grants": [],
     "writeAccess": true

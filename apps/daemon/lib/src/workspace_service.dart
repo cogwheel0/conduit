@@ -3,12 +3,15 @@ import 'dart:convert';
 
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/workspace/models/workspace_capabilities.dart';
+import 'package:conduit_core/features/workspace/models/workspace_clone.dart';
 import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit_core/features/workspace/models/workspace_model_draft.dart';
 import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_skill_content.dart';
 import 'package:conduit_core/features/workspace/models/workspace_tool_content.dart';
 import 'package:conduit_core/features/workspace/models/workspace_transfer.dart';
+import 'package:conduit_core/features/workspace/models/workspace_valve_values.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_knowledge_files.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_model_relationships.dart';
@@ -22,6 +25,7 @@ import 'package:riverpod/riverpod.dart';
 
 import 'event_bus.dart';
 import 'settled.dart';
+import 'valves_service.dart';
 
 /// Implements `workspace.*` over the core's workspace providers.
 ///
@@ -219,6 +223,9 @@ final class WorkspaceService {
             name: summary.name,
             description: summary.description,
             fileCount: knowledge.files.length,
+            external: summary.isExternal,
+            maxFileCount: summary.maxFileCount,
+            maxFileSize: summary.maxFileSize,
           ),
           grants: _grants(summary.accessGrants),
           writeAccess: _writable(summary.writeAccess, summary.userId),
@@ -273,6 +280,7 @@ final class WorkspaceService {
             specs: tool.specs,
             hasValves: valves,
             hasUserValves: userValves,
+            active: tool.isActive,
           ),
           grants: _grants(tool.accessGrants),
           writeAccess: _writable(tool.writeAccess, tool.userId),
@@ -317,24 +325,40 @@ final class WorkspaceService {
         final dto = _require(detail.knowledge, detail.kind);
         final notifier = _container.read(workspaceKnowledgeProvider.notifier);
         if (dto.name.trim().isEmpty) throw _invalid('knowledge needs a name');
+        final limits = (
+          maxFileCount: _positive(dto.maxFileCount),
+          maxFileSize: _positive(dto.maxFileSize),
+        );
         if (create) {
           final saved = await notifier.create(
             WorkspaceKnowledgeForm(
               name: dto.name.trim(),
               description: dto.description.trim(),
               accessGrants: grants,
+              // Sent only when set, as the phone does.
+              limits: limits.maxFileCount == null && limits.maxFileSize == null
+                  ? null
+                  : limits,
             ),
           );
           id = saved.summary.id;
         } else {
           final existing = await _api().getWorkspaceKnowledgeDetail(dto.id);
           if (existing == null) throw _notFound(detail.kind, dto.id);
+          final summary = existing.summary;
+          // Only a change is sent: Open WebUI takes limits from the base's
+          // owner or an admin alone, and never for a connected base.
+          final changed =
+              !summary.isExternal &&
+              (limits.maxFileCount != summary.maxFileCount ||
+                  limits.maxFileSize != summary.maxFileSize);
           await notifier.updateItem(
             dto.id,
             WorkspaceKnowledgeForm(
               name: dto.name.trim(),
               description: dto.description.trim(),
-              accessGrants: _inputs(existing.summary.accessGrants),
+              accessGrants: _inputs(summary.accessGrants),
+              limits: changed ? limits : null,
             ),
           );
           id = dto.id;
@@ -485,7 +509,12 @@ final class WorkspaceService {
       WorkspaceKind.skills => _skillItem(
         await _container.read(workspaceSkillsProvider.notifier).toggle(ref.id),
       ),
-      _ => throw _invalid('${ref.kind.name} cannot be switched off'),
+      WorkspaceKind.tools => _toolItem(
+        await _container.read(workspaceToolsProvider.notifier).toggle(ref.id),
+      ),
+      WorkspaceKind.knowledge => throw _invalid(
+        'knowledge cannot be switched off',
+      ),
     };
     _announce(ref.kind, ref.id);
     return item;
@@ -856,6 +885,12 @@ final class WorkspaceService {
         user: query.user,
         schema: spec?.schema ?? const <String, dynamic>{},
         values: values,
+        fields: spec == null
+            ? const <ValveField>[]
+            : <ValveField>[
+                for (final key in spec.properties.keys)
+                  ValvesService.fieldOf(spec, key, values[key]),
+              ],
       );
     },
   );
@@ -863,10 +898,34 @@ final class WorkspaceService {
   Future<WorkspaceValves> saveValves(WorkspaceValves valves) =>
       _guard(() async {
         final tools = _container.read(workspaceToolsProvider.notifier);
+        final id = valves.toolId;
+        var values = valves.values;
+        if (valves.edits.isNotEmpty) {
+          // The form's rows as text: typed by the schema over what the
+          // server holds now, as the phone's valve form saves them.
+          final (spec, current) = valves.user
+              ? await (
+                  tools.userToolValvesSpec(id),
+                  tools.userToolValves(id),
+                ).wait
+              : await (tools.toolValvesSpec(id), tools.toolValves(id)).wait;
+          if (spec == null) throw _invalid('this tool has no valves');
+          values = Map<String, dynamic>.of(current);
+          for (final edit in valves.edits) {
+            if (!spec.properties.containsKey(edit.key)) continue;
+            values[edit.key] = edit.isDefault
+                ? null
+                : ValvesService.typed(
+                    WorkspaceValveValues.propertySpec(spec, edit.key),
+                    edit.text,
+                    current[edit.key],
+                  );
+          }
+        }
         if (valves.user) {
-          await tools.updateUserToolValves(valves.toolId, valves.values);
+          await tools.updateUserToolValves(id, values);
         } else {
-          await tools.updateToolValves(valves.toolId, valves.values);
+          await tools.updateToolValves(id, values);
         }
         return this.valves(
           WorkspaceValvesQuery(toolId: valves.toolId, user: valves.user),
@@ -894,6 +953,120 @@ final class WorkspaceService {
   });
 
   // ---------------------------------------------------------------------------
+  // Duplicate
+  // ---------------------------------------------------------------------------
+
+  /// Makes a copy of an item on the server, named as the phone's Duplicate
+  /// names it ([WorkspaceClone]) and without its access grants, and answers
+  /// with the copy.
+  Future<WorkspaceDetail> duplicate(WorkspaceDuplicate request) => _guard(
+    () async {
+      final api = _api();
+      final session = _container.read(openWebUiAuthSessionEpochProvider);
+      // Read under one account, never made under the next: checked after
+      // the read, with no await before the copy is sent.
+      void sameAccount() {
+        if (!identical(
+          session,
+          _container.read(openWebUiAuthSessionEpochProvider),
+        )) {
+          throw const RpcError(
+            code: ConduitErrorCodes.sessionExpired,
+            debugMessage: 'the account changed',
+          );
+        }
+      }
+
+      final id = request.id;
+      final suffix = request.suffix.trim().isEmpty
+          ? '(copy)'
+          : request.suffix.trim();
+      final String copyId;
+      switch (request.kind) {
+        case WorkspaceKind.models:
+          final model =
+              await api.getWorkspaceModel(id) ??
+              (throw _notFound(request.kind, id));
+          sameAccount();
+          final source = WorkspaceModelDraft.fromSummary(model);
+          final copy = source.deepCopy(
+            id: WorkspaceClone.modelId(source.id),
+            name: WorkspaceClone.name(source.name, suffix),
+            accessGrants: const [],
+          );
+          final saved = await _container
+              .read(workspaceModelsProvider.notifier)
+              .create(copy.toForm());
+          copyId = saved.id;
+        case WorkspaceKind.prompts:
+          final prompt =
+              await api.getWorkspacePrompt(id) ??
+              (throw _notFound(request.kind, id));
+          sameAccount();
+          final saved = await _container
+              .read(workspacePromptsProvider.notifier)
+              .create(
+                WorkspacePromptForm(
+                  command: WorkspaceClone.promptCommand(prompt.command, suffix),
+                  name: WorkspaceClone.name(prompt.name.trim(), suffix),
+                  content: prompt.content,
+                  tags: prompt.tags,
+                ),
+              );
+          copyId = saved.id;
+        case WorkspaceKind.tools:
+          final tool = WorkspaceToolSummary.fromJson(await api.getTool(id));
+          sameAccount();
+          final saved = await _container
+              .read(workspaceToolsProvider.notifier)
+              .create(
+                WorkspaceToolForm(
+                  id: WorkspaceClone.toolId(tool.id),
+                  name: WorkspaceClone.name(tool.name.trim(), suffix),
+                  content: tool.content ?? '',
+                  meta: Map<String, dynamic>.of(tool.meta),
+                ),
+              );
+          copyId = saved.id;
+        case WorkspaceKind.skills:
+          final skill =
+              await api.getWorkspaceSkill(id) ??
+              (throw _notFound(request.kind, id));
+          sameAccount();
+          final description = (skill.description ?? '').trim();
+          final saved = await _container
+              .read(workspaceSkillsProvider.notifier)
+              .create(
+                WorkspaceSkillForm(
+                  id: WorkspaceClone.skillId(skill.id),
+                  name: WorkspaceClone.name(skill.name.trim(), suffix),
+                  description: description.isEmpty ? null : description,
+                  content: skill.content ?? '',
+                  meta: skill.meta,
+                ),
+              );
+          copyId = saved.id;
+        case WorkspaceKind.knowledge:
+          throw _invalid('knowledge is not duplicated');
+      }
+      _announce(request.kind, copyId);
+      return _detail(request.kind, copyId);
+    },
+  );
+
+  /// A skill read from a Markdown file, for the editor to review and save
+  /// (the phone's Import Markdown); nothing is sent to the server.
+  WorkspaceSkillDto skillFromMarkdown(String text) {
+    final read = WorkspaceSkillContent.fromMarkdown(text);
+    return WorkspaceSkillDto(
+      id: read.id,
+      name: read.name,
+      description: read.description,
+      content: read.content,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // Knowledge files
   // ---------------------------------------------------------------------------
 
@@ -916,12 +1089,31 @@ final class WorkspaceService {
   /// Links files already uploaded through `POST /upload`, one request each:
   /// the core links existing files one at a time, and a refusal (the base's
   /// limits) then names the file that did not fit, after the ones that did.
+  ///
+  /// Files [WorkspaceFilesAttach.uploaded] for this go in as the phone's
+  /// upload puts them: once the server has read them in and the base's
+  /// limits allow, the ones that cannot go in deleted again.
   Future<WorkspaceFiles> attachFiles(WorkspaceFilesAttach request) =>
       _knowledgeFiles(request.knowledgeId, request.directoryId, (n) async {
+        if (request.uploaded) {
+          await n.attachUploaded(request.fileIds);
+          return;
+        }
         for (final id in request.fileIds) {
           await n.attachExisting(id);
         }
       });
+
+  /// A text file made from typed text, put into a folder of a base.
+  Future<WorkspaceFiles> addText(WorkspaceTextFile request) {
+    final name = request.filename.trim();
+    if (name.isEmpty) throw _invalid('a text file needs a name');
+    return _knowledgeFiles(
+      request.knowledgeId,
+      request.directoryId,
+      (n) => n.addTextFile(name, request.content),
+    );
+  }
 
   Future<WorkspaceFiles> fileAction(WorkspaceFileAction action) async {
     final provider = workspaceKnowledgeFilesProvider(action.knowledgeId);
@@ -1069,6 +1261,7 @@ final class WorkspaceService {
       public: model.accessGrants.any((g) => g.isPublic),
       updatedAtMs: _ms(model.updatedAt),
       tags: draft.tags,
+      hidden: draft.hidden,
     );
   }
 
@@ -1082,6 +1275,7 @@ final class WorkspaceService {
         writeAccess: _writable(knowledge.writeAccess, knowledge.userId),
         public: knowledge.accessGrants.any((g) => g.isPublic),
         updatedAtMs: _ms(knowledge.updatedAt),
+        external: knowledge.isExternal,
       );
 
   WorkspaceItem _promptItem(WorkspacePromptSummary prompt) => WorkspaceItem(
@@ -1108,6 +1302,8 @@ final class WorkspaceService {
       writeAccess: _writable(tool.writeAccess, tool.userId),
       public: tool.accessGrants.any((g) => g.isPublic),
       updatedAtMs: _ms(tool.updatedAt),
+      active: tool.isActive,
+      functionCount: tool.specs.length,
     );
   }
 
@@ -1184,6 +1380,7 @@ final class WorkspaceService {
     required List<Map<String, dynamic>> specs,
     bool hasValves = false,
     bool hasUserValves = false,
+    bool? active,
   }) {
     final required = WorkspaceToolContent.requiredServerVersion(content);
     final meets = WorkspaceToolContent.meetsRequiredVersion(
@@ -1202,6 +1399,7 @@ final class WorkspaceService {
       hasValves: hasValves,
       hasUserValves: hasUserValves,
       requiresServerVersion: meets ? null : required,
+      active: active,
     );
   }
 
@@ -1315,6 +1513,13 @@ final class WorkspaceService {
       );
     } on WorkspaceModelBaseRequiredException {
       throw _invalid('a model needs a base model');
+    } on KnowledgeUploadRefused catch (error) {
+      // The server's own reason (a limit, a file it could not read): shown.
+      throw RpcError(
+        code: ConduitErrorCodes.conflict,
+        args: <String, String>{'detail': error.reason},
+        debugMessage: 'the knowledge base refused the files',
+      );
     } on StateError catch (error) {
       if (error.message.contains('authenticated server session')) {
         throw const RpcError(
@@ -1380,6 +1585,9 @@ final class WorkspaceService {
     code: ConduitErrorCodes.notFound,
     debugMessage: 'no ${kind.name} $id',
   );
+
+  static int? _positive(int? value) =>
+      value != null && value > 0 ? value : null;
 
   static String _fileSafe(String name) {
     final safe = name.trim().replaceAll(RegExp(r'[^A-Za-z0-9._ -]+'), '_');
