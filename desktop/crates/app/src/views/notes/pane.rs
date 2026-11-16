@@ -220,6 +220,9 @@ pub struct NotePane {
     quit_waiters: Vec<futures::channel::oneshot::Sender<()>>,
     /// Recordings sent to conduitd (`notes.addRecording`) not answered yet.
     recordings_out: u32,
+    /// Counts this pane's saves that landed: a refresh asked before one is
+    /// older than what the server holds (a title saved meanwhile).
+    saves_landed: u64,
     /// Told when the dictation run ends (its last words are in): a page
     /// change waits for them.
     run_waiters: Vec<futures::channel::oneshot::Sender<()>>,
@@ -358,6 +361,7 @@ impl NotePane {
             waiters: vec![],
             quit_waiters: vec![],
             recordings_out: 0,
+            saves_landed: 0,
             run_waiters: vec![],
             last_own_save: None,
             hold: false,
@@ -536,10 +540,12 @@ impl NotePane {
         });
         let revision = self.editor.read(cx).revision();
         let asked = self.page_asked;
+        let landed = self.saves_landed;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |this, cx| {
                 if this.page_asked != asked
+                    || this.saves_landed != landed
                     || this.editor.read(cx).revision() != revision
                     || this.dirty(cx)
                 {
@@ -737,6 +743,7 @@ impl NotePane {
         self.last_own_save = Some(Instant::now());
         match result {
             Ok(detail) => {
+                self.saves_landed += 1;
                 if detail.recovered_from.is_some() {
                     self.recovered = true;
                 }
@@ -3454,6 +3461,34 @@ mod tests {
         assert!(
             weak.upgrade().is_none(),
             "the pane stayed once its words were in"
+        );
+    }
+
+    /// A refresh asked before a newer title was saved brings the old title
+    /// back to nothing: the title saved stays (and a later save keeps it).
+    #[gpui_kit::test]
+    fn a_late_refresh_keeps_a_newer_saved_title(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        daemon.on::<methods::NotesSave>(|p| {
+            let page = p["pageId"].as_str().unwrap_or("main").to_string();
+            Ok(serde_json::to_value(bench::detail("n1", &page, "Ridge at dawn")).unwrap())
+        });
+        let refresh = daemon.hold_one::<methods::NotesGet>(0);
+        pane.update(vcx, |p, cx| p.changed_elsewhere(cx));
+        vcx.run_until_parked();
+        pane.update_in(vcx, |p, window, cx| {
+            p.title
+                .update(cx, |t, cx| t.set_value("Trail log, ridge", window, cx));
+            p.save_now(cx);
+        });
+        vcx.run_until_parked();
+        refresh.release();
+        vcx.run_until_parked();
+        assert_eq!(
+            pane.read_with(vcx, |p, cx| p.title.read(cx).value().to_string()),
+            "Trail log, ridge",
+            "a refresh older than the title's save put the old title back"
         );
     }
 
