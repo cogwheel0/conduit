@@ -318,13 +318,14 @@ final class ShareViewController: NSViewController, NSTextFieldDelegate {
 
   @objc private func cancelShare(_ sender: Any?) {
     guard !sending else { return }
+    // The sheet goes now, even while a slow item still loads; the share is
+    // cleaned up on the staging queue once that load ends (and, should the
+    // extension be gone first, the app's prune clears the part folder).
     queue.async { [self] in
       if publishedID != nil { draft?.withdraw() } else { draft?.discard() }
-      DispatchQueue.main.async {
-        self.extensionContext?.cancelRequest(
-          withError: NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError))
-      }
     }
+    extensionContext?.cancelRequest(
+      withError: NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError))
   }
 
   @objc private func openInConduit(_ sender: Any?) {
