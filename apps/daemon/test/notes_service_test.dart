@@ -205,6 +205,37 @@ void main() {
           ),
         ),
       );
+
+      // Save as My Own Note begun under A: made under no other account.
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-a');
+      active = first;
+      container.invalidate(appDatabaseProvider);
+      rights = Completer<void>();
+      container.invalidate(workspaceCapabilitiesProvider);
+      final making = notes.save(
+        const NoteSave(
+          title: 'Ridge notes, mine',
+          ops: <Map<String, dynamic>>[
+            <String, dynamic>{'insert': 'Cairns\n'},
+          ],
+        ),
+      );
+      await pumpEventQueue();
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
+      active = second;
+      container.invalidate(appDatabaseProvider);
+      rights!.complete();
+      await expectLater(
+        making,
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.sessionExpired,
+          ),
+        ),
+      );
+      expect(await second.select(second.notes).get(), isEmpty);
     });
   });
 }

@@ -371,6 +371,9 @@ final class NotesService {
   };
 
   Future<NoteDetail> save(NoteSave request) async {
+    // The account the save was asked under, before any wait: a new note is
+    // made under it or not at all.
+    final scope = currentPreferenceAccountId();
     // Settled first. The providers check that the session they started in
     // is still current when their request returns; straight after signing
     // in the account's database is still being certified, appears during
@@ -384,8 +387,11 @@ final class NotesService {
         : markdownFromQuillOps(request.ops!);
     final access = await _access();
     final id = request.id;
-    final scope = currentPreferenceAccountId();
-    if (id != null) {
+    if (id == null) {
+      // Save as My Own Note, begun under another account than the one
+      // active now: the draft is not made into this account's note.
+      _requireStill(scope, 'a new note');
+    } else {
       // A note opened under another account is written by no path (a
       // rename, the core's updater, the text): its draft stays with the
       // editor, never in this account's notes.
@@ -396,7 +402,7 @@ final class NotesService {
           .read(noteCreatorProvider.notifier)
           .createNote(title: title, markdownContent: markdown ?? '');
       if (created == null) throw _saveFailed(creating: true);
-      return _detail(created, access);
+      return _detail(created, access, scope: scope);
     }
     final db = _container.read(appDatabaseProvider);
     if (markdown == null || db == null) {
