@@ -267,6 +267,11 @@ impl SheetBody for FormSheet {
         self.title.clone().into()
     }
 
+    /// Words typed and not saved, or a save still out: Quit asks first.
+    fn unsaved(&self, cx: &App) -> bool {
+        self.busy || self.values(cx) != self.initial
+    }
+
     fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let l = cx.l10n().clone();
         let cancel = cx.entity().downgrade();
@@ -630,6 +635,30 @@ mod tests {
             "Avery's form stayed open over Blake's account"
         );
         assert!(daemon.calls::<methods::WorkspaceSave>().is_empty());
+    }
+
+    /// Quit with an edited small form asks first, as Esc does: the words
+    /// typed in it are not dropped without a question.
+    #[gpui_kit::test]
+    fn quit_asks_before_an_edited_form_goes(cx: &mut gpui_kit::TestAppContext) {
+        let (_, stores, vcx) = bench(cx);
+        let rpc = stores.connection.read_with(vcx, |c, _| c.rpc());
+        vcx.update(|window, cx| {
+            new_knowledge(WeakEntity::new_invalid(), stores.clone(), rpc, window, cx)
+        });
+        vcx.run_until_parked();
+        let form = vcx
+            .update(|_, cx| sheet::current::<FormSheet>(cx))
+            .expect("New Knowledge Base opens");
+        vcx.update(|window, cx| form.update(cx, |f, cx| f.set_value(0, "Trail notes", window, cx)));
+        // Quit; the question is answered Keep Editing.
+        vcx.update(|_, cx| sheet::quit(cx));
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<FormSheet>(cx))
+                .is_some_and(|f| f == form),
+            "Quit closed the edited form without asking"
+        );
     }
 
     /// A version comparison shown for one account closes when another signs
