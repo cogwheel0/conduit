@@ -208,6 +208,19 @@ impl PromptEditor {
         self.detail.as_ref().is_none_or(|d| d.write_access)
     }
 
+    /// A save answered while the form had changed since it was sent: the
+    /// saved item is the one shown now (its id, its detail, what counts as
+    /// unchanged), and the form keeps what was typed since.
+    fn saved_under_edits(&mut self, detail: WorkspaceDetail, sent: PromptForm) {
+        let Some(id) = detail.prompt.as_ref().map(|i| i.id.clone()) else {
+            return;
+        };
+        self.id = Some(id);
+        self.detail = Some(detail);
+        self.initial = sent;
+        self.submitted = false;
+    }
+
     /// Fills the form from `detail`.
     fn adopt(&mut self, detail: WorkspaceDetail, window: &mut Window, cx: &mut Context<Self>) {
         let Some(prompt) = detail.prompt.clone() else {
@@ -319,6 +332,7 @@ impl PromptEditor {
             return;
         }
         let creating = self.id.is_none();
+        let sent = self.form(cx);
         self.saving = true;
         self.failure = None;
         cx.notify();
@@ -349,7 +363,14 @@ impl PromptEditor {
                     match result {
                         Ok(detail) => {
                             let id = editor::detail_id(&detail).unwrap_or_default();
-                            s.adopt(detail, window, cx);
+                            // Typed on while it saved: that stays, still to
+                            // save, in this editor.
+                            let kept = s.form(cx) != sent;
+                            if kept {
+                                s.saved_under_edits(detail, sent);
+                            } else {
+                                s.adopt(detail, window, cx);
+                            }
                             s.load_history(cx);
                             s.stores.toasts.update(cx, |t, cx| {
                                 t.show(
@@ -362,7 +383,7 @@ impl PromptEditor {
                                     cx,
                                 )
                             });
-                            cx.emit(if creating {
+                            cx.emit(if creating && !kept {
                                 EditorEvent::Created(id)
                             } else {
                                 EditorEvent::Saved(id)
@@ -1057,6 +1078,55 @@ impl Render for PromptEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Text typed while a save is out is kept, still to save.
+    #[gpui_kit::test]
+    fn text_typed_while_a_prompt_saves_stays(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::workspace::editor::bench;
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        let item = |content: &str| {
+            bench::detail(
+                WorkspaceKind::Prompts,
+                serde_json::json!({"id": "p1", "command": "trail", "name": "Trail", "content": content, "tags": [], "active": true, "production": true}),
+            )
+        };
+        daemon.returns::<methods::WorkspaceGet>(item("Plan a hike"));
+        daemon.returns::<methods::WorkspaceSave>(item("Plan a day hike"));
+        let editor = vcx.update(|window, cx| {
+            cx.new(|cx| {
+                PromptEditor::new(
+                    stores.clone(),
+                    WeakEntity::new_invalid(),
+                    Some("p1".into()),
+                    bench::manage(),
+                    window,
+                    cx,
+                )
+            })
+        });
+        vcx.run_until_parked();
+        let set = |text: &str, vcx: &mut gpui_kit::VisualTestContext| {
+            vcx.update(|window, cx| {
+                editor.update(cx, |e, cx| e.set_field("content", text, window, cx))
+            })
+        };
+        set("Plan a day hike", vcx);
+        let held = daemon.hold::<methods::WorkspaceSave>();
+        vcx.update(|window, cx| editor.update(cx, |e, cx| e.save(window, cx)));
+        vcx.run_until_parked();
+        set("Plan a day hike with a picnic", vcx);
+        drop(held);
+        vcx.run_until_parked();
+        editor.read_with(vcx, |e, cx| {
+            assert_eq!(
+                e.content.read(cx).value().to_string(),
+                "Plan a day hike with a picnic",
+                "the save's answer replaced what was typed since"
+            );
+            assert!(e.is_dirty(cx), "the later words count as saved");
+        });
+        assert_eq!(daemon.calls::<methods::WorkspaceSave>().len(), 1);
+    }
 
     #[test]
     fn commands_take_letters_digits_hyphens_and_underscores() {

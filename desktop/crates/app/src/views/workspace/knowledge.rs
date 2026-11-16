@@ -188,6 +188,19 @@ impl KnowledgeEditor {
             && self.detail.as_ref().is_none_or(|d| d.write_access)
     }
 
+    /// A save answered while the form had changed since it was sent: the
+    /// saved item is the one shown now (its id, its detail, what counts as
+    /// unchanged), and the form keeps what was typed since.
+    fn saved_under_edits(&mut self, detail: WorkspaceDetail, sent: KnowledgeForm) {
+        let Some(id) = detail.knowledge.as_ref().map(|i| i.id.clone()) else {
+            return;
+        };
+        self.id = Some(id);
+        self.detail = Some(detail);
+        self.initial = sent;
+        self.submitted = false;
+    }
+
     fn adopt(&mut self, detail: WorkspaceDetail, window: &mut Window, cx: &mut Context<Self>) {
         let Some(k) = detail.knowledge.clone() else {
             return;
@@ -1302,6 +1315,7 @@ impl ItemEditor for KnowledgeEditor {
         }
         self.submitted = true;
         let form = self.form(cx);
+        let sent = form.clone();
         let l = cx.l10n().clone();
         let (Some(max_files), Some(max_size)) =
             (parse_limit(&form.max_files), parse_limit(&form.max_size))
@@ -1341,7 +1355,14 @@ impl ItemEditor for KnowledgeEditor {
                     match result {
                         Ok(detail) => {
                             let id = editor::detail_id(&detail).unwrap_or_default();
-                            s.adopt(detail, window, cx);
+                            // Typed on while it saved: that stays, still to
+                            // save, in this editor.
+                            let kept = s.form(cx) != sent;
+                            if kept {
+                                s.saved_under_edits(detail, sent);
+                            } else {
+                                s.adopt(detail, window, cx);
+                            }
                             s.stores.toasts.update(cx, |t, cx| {
                                 t.show(
                                     NoticeLevel::Success,
@@ -1507,6 +1528,55 @@ impl Render for KnowledgeEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Text typed while a save is out is kept, still to save.
+    #[gpui_kit::test]
+    fn text_typed_while_a_knowledge_base_saves_stays(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::workspace::editor::bench;
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        let item = |description: &str| {
+            bench::detail(
+                WorkspaceKind::Knowledge,
+                serde_json::json!({"id": "k1", "name": "Trail notes", "description": description, "fileCount": 0, "external": false}),
+            )
+        };
+        daemon.returns::<methods::WorkspaceGet>(item("Notes on trails"));
+        daemon.returns::<methods::WorkspaceSave>(item("Notes on day trails"));
+        let editor = vcx.update(|window, cx| {
+            cx.new(|cx| {
+                KnowledgeEditor::new(
+                    stores.clone(),
+                    WeakEntity::new_invalid(),
+                    Some("k1".into()),
+                    bench::manage(),
+                    window,
+                    cx,
+                )
+            })
+        });
+        vcx.run_until_parked();
+        let set = |text: &str, vcx: &mut gpui_kit::VisualTestContext| {
+            vcx.update(|window, cx| {
+                editor.update(cx, |e, cx| e.set_field("description", text, window, cx))
+            })
+        };
+        set("Notes on day trails", vcx);
+        let held = daemon.hold::<methods::WorkspaceSave>();
+        vcx.update(|window, cx| editor.update(cx, |e, cx| e.save(window, cx)));
+        vcx.run_until_parked();
+        set("Notes on day trails nearby", vcx);
+        drop(held);
+        vcx.run_until_parked();
+        editor.read_with(vcx, |e, cx| {
+            assert_eq!(
+                e.description.read(cx).value().to_string(),
+                "Notes on day trails nearby",
+                "the save's answer replaced what was typed since"
+            );
+            assert!(e.is_dirty(cx), "the later words count as saved");
+        });
+        assert_eq!(daemon.calls::<methods::WorkspaceSave>().len(), 1);
+    }
 
     #[test]
     fn sizes_read_as_finder_writes_them() {

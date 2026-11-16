@@ -240,6 +240,19 @@ impl ToolEditor {
             .update(cx, |s, cx| s.set_value(tool.content.clone(), window, cx));
     }
 
+    /// A save answered while the form had changed since it was sent: the
+    /// saved item is the one shown now (its id, its detail, what counts as
+    /// unchanged), and the form keeps what was typed since.
+    fn saved_under_edits(&mut self, detail: WorkspaceDetail, sent: ToolForm) {
+        let Some(id) = detail.tool.as_ref().map(|i| i.id.clone()) else {
+            return;
+        };
+        self.id = Some(id);
+        self.detail = Some(detail);
+        self.initial = sent;
+        self.submitted = false;
+    }
+
     fn adopt(&mut self, detail: WorkspaceDetail, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tool) = detail.tool.clone() else {
             return;
@@ -415,11 +428,8 @@ impl ItemEditor for ToolEditor {
     }
 
     fn is_dirty(&self, cx: &App) -> bool {
-        if self.id.is_none() {
-            let form = self.form(cx);
-            return !form.name.is_empty() || form.content != self.initial.content;
-        }
-        self.detail.is_some() && self.form(cx) != self.initial
+        // A new tool: any field filled in or changed, as for a saved one.
+        (self.id.is_none() || self.detail.is_some()) && self.form(cx) != self.initial
     }
 
     fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -464,6 +474,7 @@ impl ItemEditor for ToolEditor {
         }
         let creating = self.id.is_none();
         let form = self.form(cx);
+        let sent = form.clone();
         let mut tool = self.dto().cloned().unwrap_or_default();
         tool.id = form.id;
         tool.name = form.name;
@@ -499,11 +510,18 @@ impl ItemEditor for ToolEditor {
                     match result {
                         Ok(detail) => {
                             let id = editor::detail_id(&detail).unwrap_or_default();
-                            s.adopt(detail, window, cx);
+                            // Typed on while it saved: that stays, still to
+                            // save, in this editor.
+                            let kept = s.form(cx) != sent;
+                            if kept {
+                                s.saved_under_edits(detail, sent);
+                            } else {
+                                s.adopt(detail, window, cx);
+                            }
                             s.stores.toasts.update(cx, |t, cx| {
                                 t.show(NoticeLevel::Success, l.desktop_workspace_tool_saved(), cx)
                             });
-                            cx.emit(if creating {
+                            cx.emit(if creating && !kept {
                                 EditorEvent::Created(id)
                             } else {
                                 EditorEvent::Saved(id)
@@ -768,6 +786,85 @@ impl Render for ToolEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A new tool asks before its edits go, whichever field they are in.
+    #[gpui_kit::test]
+    fn a_new_tools_description_alone_asks_before_it_goes(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::workspace::editor::bench;
+        let (_daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        let editor = vcx.update(|window, cx| {
+            cx.new(|cx| {
+                ToolEditor::new(
+                    stores.clone(),
+                    WeakEntity::new_invalid(),
+                    None,
+                    bench::manage(),
+                    window,
+                    cx,
+                )
+            })
+        });
+        vcx.run_until_parked();
+        assert!(!editor.read_with(vcx, |e, cx| e.is_dirty(cx)));
+        vcx.update(|window, cx| {
+            editor.update(cx, |e, cx| {
+                e.set_field("description", "Finds trails", window, cx)
+            })
+        });
+        assert!(
+            editor.read_with(vcx, |e, cx| e.is_dirty(cx)),
+            "a description typed into a new tool went without asking"
+        );
+    }
+
+    /// Text typed while a save is out is kept, still to save.
+    #[gpui_kit::test]
+    fn text_typed_while_a_tool_saves_stays(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::workspace::editor::bench;
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        let item = |description: &str| {
+            bench::detail(
+                WorkspaceKind::Tools,
+                serde_json::json!({"id": "trail_tool", "name": "Trail tool", "description": description, "content": "class Tools:\n    pass\n"}),
+            )
+        };
+        daemon.returns::<methods::WorkspaceGet>(item("Finds trails"));
+        daemon.returns::<methods::WorkspaceSave>(item("Finds day trails"));
+        let editor = vcx.update(|window, cx| {
+            cx.new(|cx| {
+                ToolEditor::new(
+                    stores.clone(),
+                    WeakEntity::new_invalid(),
+                    Some("trail_tool".into()),
+                    bench::manage(),
+                    window,
+                    cx,
+                )
+            })
+        });
+        vcx.run_until_parked();
+        let set = |text: &str, vcx: &mut gpui_kit::VisualTestContext| {
+            vcx.update(|window, cx| {
+                editor.update(cx, |e, cx| e.set_field("description", text, window, cx))
+            })
+        };
+        set("Finds day trails", vcx);
+        let held = daemon.hold::<methods::WorkspaceSave>();
+        vcx.update(|window, cx| editor.update(cx, |e, cx| e.save(window, cx)));
+        vcx.run_until_parked();
+        set("Finds day trails nearby", vcx);
+        drop(held);
+        vcx.run_until_parked();
+        editor.read_with(vcx, |e, cx| {
+            assert_eq!(
+                e.description.read(cx).value().to_string(),
+                "Finds day trails nearby",
+                "the save's answer replaced what was typed since"
+            );
+            assert!(e.is_dirty(cx), "the later words count as saved");
+        });
+        assert_eq!(daemon.calls::<methods::WorkspaceSave>().len(), 1);
+    }
 
     #[test]
     fn tool_ids_are_python_identifiers() {

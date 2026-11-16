@@ -440,6 +440,20 @@ impl ModelEditor {
         self._subscriptions.extend(subs);
     }
 
+    /// A save answered while the form had changed since it was sent: the
+    /// saved model is the item now (its id, its detail, what counts as
+    /// unchanged), and the form keeps what was typed since.
+    fn saved_under_edits(&mut self, detail: WorkspaceDetail, sent: (WorkspaceModelDto, String)) {
+        let Some(m) = detail.model.as_ref() else {
+            return;
+        };
+        self.id = Some(m.id.clone());
+        self.detail = Some(detail);
+        (self.initial, self.initial_params) = sent;
+        self.id_typed = true;
+        self.submitted = false;
+    }
+
     fn adopt(&mut self, detail: WorkspaceDetail, window: &mut Window, cx: &mut Context<Self>) {
         let Some(m) = detail.model.clone() else {
             return;
@@ -951,10 +965,10 @@ impl ItemEditor for ModelEditor {
 
     fn is_dirty(&self, cx: &App) -> bool {
         let (form, params) = self.form(cx);
-        if self.id.is_none() {
-            return form.name != self.initial.name || !form.system.is_empty();
-        }
-        self.detail.is_some() && (form != self.initial || params != self.initial_params)
+        // A new model: any field filled in or changed (its base, abilities
+        // and relations too), as for a saved one.
+        (self.id.is_none() || self.detail.is_some())
+            && (form != self.initial || params != self.initial_params)
     }
 
     fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -998,7 +1012,8 @@ impl ItemEditor for ModelEditor {
             return;
         }
         let creating = self.id.is_none();
-        let (mut model, params) = self.form(cx);
+        let sent = self.form(cx);
+        let (mut model, params) = sent.clone();
         model.params = parse_params(&params).unwrap_or_default();
         let detail = WorkspaceDetail {
             kind: WorkspaceKind::Models,
@@ -1030,11 +1045,18 @@ impl ItemEditor for ModelEditor {
                     match result {
                         Ok(detail) => {
                             let id = editor::detail_id(&detail).unwrap_or_default();
-                            s.adopt(detail, window, cx);
+                            // Typed on while it saved: that stays, still to
+                            // save, in this editor.
+                            let kept = s.form(cx) != sent;
+                            if kept {
+                                s.saved_under_edits(detail, sent);
+                            } else {
+                                s.adopt(detail, window, cx);
+                            }
                             s.stores.toasts.update(cx, |t, cx| {
                                 t.show(NoticeLevel::Success, l.desktop_workspace_model_saved(), cx)
                             });
-                            cx.emit(if creating {
+                            cx.emit(if creating && !kept {
                                 EditorEvent::Created(id)
                             } else {
                                 EditorEvent::Saved(id)
@@ -1536,7 +1558,91 @@ impl Render for ModelEditor {
 
 #[cfg(test)]
 mod tests {
+    use gpui_kit::VisualTestContext;
+
     use super::*;
+    use crate::views::sheet::bench::bench;
+
+    fn editor(
+        stores: &Stores,
+        id: Option<&str>,
+        vcx: &mut VisualTestContext,
+    ) -> Entity<ModelEditor> {
+        let stores = stores.clone();
+        let id = id.map(str::to_string);
+        let access = WorkspaceSectionAccess {
+            manage: true,
+            ..Default::default()
+        };
+        let editor = vcx.update(|window, cx| {
+            cx.new(|cx| ModelEditor::new(stores, WeakEntity::new_invalid(), id, access, window, cx))
+        });
+        vcx.run_until_parked();
+        editor
+    }
+
+    fn detail(name: &str, description: &str) -> WorkspaceDetail {
+        WorkspaceDetail {
+            kind: WorkspaceKind::Models,
+            model: Some(WorkspaceModelDto {
+                id: "trail-guide".into(),
+                name: name.into(),
+                base_model_id: Some("base".into()),
+                description: description.into(),
+                ..blank_model()
+            }),
+            knowledge: None,
+            prompt: None,
+            tool: None,
+            skill: None,
+            grants: vec![],
+            write_access: true,
+            owner_name: None,
+            updated_at_ms: None,
+        }
+    }
+
+    fn set(editor: &Entity<ModelEditor>, field: &str, text: &str, vcx: &mut VisualTestContext) {
+        vcx.update(|window, cx| editor.update(cx, |e, cx| e.set_field(field, text, window, cx)));
+    }
+
+    /// A new model asks before its edits go, whichever field they are in.
+    #[gpui_kit::test]
+    fn a_new_models_description_alone_asks_before_it_goes(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, stores, vcx) = bench(cx);
+        let editor = editor(&stores, None, vcx);
+        assert!(!editor.read_with(vcx, |e, cx| e.is_dirty(cx)));
+        set(&editor, "description", "Plans day hikes", vcx);
+        assert!(
+            editor.read_with(vcx, |e, cx| e.is_dirty(cx)),
+            "a description typed into a new model went without asking"
+        );
+    }
+
+    /// Text typed while a save is out is kept, still to save.
+    #[gpui_kit::test]
+    fn text_typed_while_a_model_saves_stays(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::WorkspaceGet>(detail("Trail Guide", "Plans hikes"));
+        daemon.returns::<methods::WorkspaceSave>(detail("Trail Guide", "Plans day hikes"));
+        let editor = editor(&stores, Some("trail-guide"), vcx);
+        set(&editor, "description", "Plans day hikes", vcx);
+        let held = daemon.hold::<methods::WorkspaceSave>();
+        vcx.update(|window, cx| editor.update(cx, |e, cx| e.save(window, cx)));
+        vcx.run_until_parked();
+        set(&editor, "description", "Plans day hikes and picnics", vcx);
+        drop(held);
+        vcx.run_until_parked();
+        editor.read_with(vcx, |e, cx| {
+            assert_eq!(
+                e.description.read(cx).value().to_string(),
+                "Plans day hikes and picnics",
+                "the save's answer replaced what was typed since"
+            );
+            assert!(e.is_dirty(cx), "the later words count as saved");
+        });
+        assert_eq!(daemon.calls::<methods::WorkspaceSave>().len(), 1);
+    }
 
     #[test]
     fn parameters_are_a_json_object_or_nothing() {

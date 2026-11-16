@@ -484,6 +484,35 @@ pub fn split_list(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// Editor tests' shared pieces.
+#[cfg(test)]
+pub mod bench {
+    use conduit_protocol::{WorkspaceDetail, WorkspaceKind, WorkspaceSectionAccess};
+
+    /// Rights to change a section.
+    pub fn manage() -> WorkspaceSectionAccess {
+        WorkspaceSectionAccess {
+            manage: true,
+            ..Default::default()
+        }
+    }
+
+    /// `kind`'s item as `workspace.get`/`save` answer it, from its JSON.
+    pub fn detail(kind: WorkspaceKind, item: serde_json::Value) -> WorkspaceDetail {
+        let field = match kind {
+            WorkspaceKind::Models => "model",
+            WorkspaceKind::Knowledge => "knowledge",
+            WorkspaceKind::Prompts => "prompt",
+            WorkspaceKind::Tools => "tool",
+            WorkspaceKind::Skills => "skill",
+            WorkspaceKind::Unknown => "unknown",
+        };
+        let mut json = serde_json::json!({"kind": kind, "writeAccess": true, "grants": []});
+        json[field] = item;
+        serde_json::from_value(json).expect("a workspace detail")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
