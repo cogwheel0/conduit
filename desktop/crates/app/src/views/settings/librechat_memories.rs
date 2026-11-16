@@ -34,6 +34,9 @@ use super::controls;
 /// A memory being written: a new one (`original` None) or an edit of the
 /// memory `original` names.
 pub struct LibreChatMemoryEditor {
+    /// Which editor this is: a Save's answer goes only to the editor that
+    /// sent it, never to one opened since.
+    id: u64,
     pub original: Option<String>,
     pub saving: bool,
     /// What the server said when it refused, or a plain failure.
@@ -47,6 +50,8 @@ pub struct LibreChatMemoriesView {
     pub key: Entity<InputState>,
     pub value: Entity<TextareaState>,
     pub editor: Option<LibreChatMemoryEditor>,
+    /// Editors opened so far (each takes the next id).
+    editors: u64,
     pub busy: bool,
     pub failed: bool,
 }
@@ -67,6 +72,7 @@ impl LibreChatMemoriesView {
             key,
             value,
             editor: None,
+            editors: 0,
             busy: false,
             failed: false,
         };
@@ -80,12 +86,13 @@ impl LibreChatMemoriesView {
     }
 
     /// Runs a `librechat.memories.*` call and shows the list it answers.
-    /// `saved` is the editor's Save, with what it sent: the editor closes
-    /// only while it still holds that, so words typed meanwhile stay.
+    /// `saved` is an editor's Save: that editor's id, with what it sent.
+    /// The editor closes only while it still holds that, so words typed
+    /// meanwhile stay; another editor is never touched.
     fn run(
         &mut self,
         call: impl std::future::Future<Output = Result<LibreChatMemories, RpcError>> + 'static,
-        saved: Option<LibreChatMemoryEdit>,
+        saved: Option<(u64, LibreChatMemoryEdit)>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -106,16 +113,14 @@ impl LibreChatMemoriesView {
                     match result {
                         Ok(list) => {
                             s.memories = Some(list);
-                            if let Some(sent) = &saved {
-                                if s.holds(sent, cx) {
+                            if let Some((id, sent)) = &saved {
+                                if s.holds(*id, sent, cx) {
                                     s.editor = None;
-                                } else if let Some(e) = s.editor.as_mut() {
+                                } else if let Some(e) = s.editor.as_mut().filter(|e| e.id == *id) {
                                     // The memory is saved under the key sent
                                     // (made, or renamed): this editor's next
                                     // Save updates it there.
-                                    if e.original == sent.original_key {
-                                        e.original = Some(sent.key.clone());
-                                    }
+                                    e.original = Some(sent.key.clone());
                                     e.saving = false;
                                 }
                             }
@@ -123,8 +128,9 @@ impl LibreChatMemoriesView {
                         Err(e) => {
                             log::warn!("librechat.memories: {e}");
                             let words = e.args.get("detail").cloned();
+                            let sender = saved.as_ref().map(|(id, _)| *id);
                             match s.editor.as_mut() {
-                                Some(editor) if closes_editor => {
+                                Some(editor) if Some(editor.id) == sender => {
                                     editor.saving = false;
                                     editor.error =
                                         Some(words.unwrap_or_else(|| cx.l10n().error_message()));
@@ -147,12 +153,9 @@ impl LibreChatMemoriesView {
         self.run(call, None, window, cx);
     }
 
-    /// The editor still holds `sent`: the memory it edits, with the key
-    /// and value sent.
-    fn holds(&self, sent: &LibreChatMemoryEdit, cx: &App) -> bool {
-        self.editor
-            .as_ref()
-            .is_some_and(|e| e.original == sent.original_key)
+    /// Editor `id` is open and still holds `sent`: the key and value sent.
+    fn holds(&self, id: u64, sent: &LibreChatMemoryEdit, cx: &App) -> bool {
+        self.editor.as_ref().is_some_and(|e| e.id == id)
             && forms::text(&self.key, cx) == sent.key
             && self.value.read(cx).value().trim() == sent.value
     }
@@ -164,7 +167,9 @@ impl LibreChatMemoriesView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.editors += 1;
         self.editor = Some(LibreChatMemoryEditor {
+            id: self.editors,
             original: memory.map(|m| m.key.clone()),
             saving: false,
             error: None,
@@ -183,6 +188,7 @@ impl LibreChatMemoriesView {
         let Some(editor) = self.editor.as_mut() else {
             return;
         };
+        let id = editor.id;
         let key = forms::text(&self.key, cx);
         let value = self.value.read(cx).value().trim().to_string();
         if key.is_empty() {
@@ -199,7 +205,7 @@ impl LibreChatMemoriesView {
             value,
         };
         let call = self.rpc.call::<methods::LibrechatMemoriesSave>(&edit);
-        self.run(call, Some(edit), window, cx);
+        self.run(call, Some((id, edit)), window, cx);
     }
 
     /// Delete…: asks with a sheet, as the phone does.
@@ -526,6 +532,34 @@ mod tests {
             sent(&daemon),
             Some(serde_json::json!("lake_notes")),
             "the next Save went to the old key"
+        );
+
+        // A Save answered after its editor closed and another Add opened:
+        // the new editor stays a new memory, and its Save makes one.
+        let held = daemon.hold::<methods::LibrechatMemoriesSave>();
+        view.update_in(vcx, |v, window, cx| {
+            v.open_editor(None, window, cx);
+            v.key
+                .update(cx, |s, cx| s.set_value("camp_notes", window, cx));
+            v.value
+                .update(cx, |s, cx| s.set_value("Tent by the lake", window, cx));
+            v.save(window, cx);
+            // Cancel, then Add Memory… again.
+            v.editor = None;
+            v.open_editor(None, window, cx);
+            v.key
+                .update(cx, |s, cx| s.set_value("gear_notes", window, cx));
+            v.value
+                .update(cx, |s, cx| s.set_value("Stove and fuel", window, cx));
+        });
+        held.release();
+        vcx.run_until_parked();
+        view.update_in(vcx, |v, window, cx| v.save(window, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            sent(&daemon),
+            Some(serde_json::Value::Null),
+            "the new memory's Save went to the closed editor's memory"
         );
     }
 }
