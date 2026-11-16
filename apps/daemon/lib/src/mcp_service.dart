@@ -360,8 +360,13 @@ final class McpService {
     // typed again takes no saved token, and a token no saved header.
     if (previous != null &&
         !sameDirectMcpCredentialEndpoint(previous.endpoint, endpoint)) {
+      // Bearer goes with the token it stood for, as the core's own rule.
+      final tokenStays = edit.bearerToken == null;
       return server.copyWith(
-        bearerToken: edit.bearerToken == null ? null : server.bearerToken,
+        authMode: tokenStays && server.authMode == DirectMcpAuthMode.bearer
+            ? DirectMcpAuthMode.none
+            : server.authMode,
+        bearerToken: tokenStays ? null : server.bearerToken,
         customHeaders: mergeCustomHeaders(edit.customHeaders, null),
       );
     }

@@ -74,12 +74,9 @@ void main() {
     expect(renamed.servers.single.name, 'Renamed');
     expect(renamed.servers.single.hasBearerToken, isTrue);
     expect((await mcp.test(edit(id: saved.id))).reachable, isTrue);
-  });
 
-  // The window lists saved headers by name only: a header added to them
-  // joins them, an empty value takes one away, and an empty set clears.
-  test('a header added keeps the saved ones', () async {
-    final saved = (await mcp.list()).servers.single;
+    // The window lists saved headers by name only: a header added to them
+    // joins them, an empty value takes one away, and an empty set clears.
     Future<List<String>> names(Map<String, String> headers) async =>
         (await mcp.save(edit(id: saved.id).copyWith(customHeaders: headers)))
             .servers
@@ -97,10 +94,12 @@ void main() {
   test('testing an edited address does not send the saved token', () async {
     final saved = (await mcp.list()).servers.single;
     final headers = <String?>[];
+    final traces = <String?>[];
     final elsewhere = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => elsewhere.close(force: true));
     elsewhere.listen((request) async {
       headers.add(request.headers.value(HttpHeaders.authorizationHeader));
+      traces.add(request.headers.value('X-Trace'));
       await request.drain<void>();
       request.response.statusCode = HttpStatus.unauthorized;
       await request.response.close();
@@ -121,6 +120,25 @@ void main() {
     }
     expect(headers, hasLength(greaterThanOrEqualTo(2)));
     expect(headers, everyElement(isNot(contains('mcp-secret-token'))));
+    // The header typed again is sent, without a token: the saved token
+    // stays behind and bearer with it, as the core's own rule does.
+    expect(traces, contains('typed'), reason: 'the moved server was not tried');
+
+    // And saved so: no token, no bearer, only the header typed again.
+    final other = (await mcp.save(
+      edit(token: 'mcp-secret-token').copyWith(name: 'Other'),
+    )).servers.firstWhere((s) => s.name == 'Other');
+    final moved = (await mcp.save(
+      edit(id: other.id).copyWith(
+        name: 'Other',
+        endpoint: 'http://127.0.0.1:${elsewhere.port}/mcp',
+        customHeaders: const <String, String>{'X-Trace': 'typed'},
+      ),
+    )).servers.firstWhere((s) => s.id == other.id);
+    await mcp.remove(other.id);
+    expect(moved.hasBearerToken, isFalse);
+    expect(moved.auth, McpAuth.none);
+    expect(moved.customHeaderNames, <String>['X-Trace']);
   });
 
   test('credentials over plain HTTP to another computer need a yes', () {
