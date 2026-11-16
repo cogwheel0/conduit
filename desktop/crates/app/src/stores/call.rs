@@ -109,6 +109,9 @@ pub struct CallStore {
     pub listens: usize,
     pub said: Vec<String>,
     pub audio: Arc<AudioCounters>,
+    /// Call states applied so far: a refresh's answer gives way to one
+    /// applied after it was asked.
+    applied: u64,
 }
 
 impl EventEmitter<CallChanged> for CallStore {}
@@ -146,6 +149,7 @@ impl CallStore {
             listens: 0,
             said: vec![],
             audio: Arc::new(AudioCounters::default()),
+            applied: 0,
         }
     }
 
@@ -250,7 +254,7 @@ impl CallStore {
             folder_id,
             temporary,
         });
-        self.adopt(call, false, cx);
+        self.adopt(call, None, cx);
     }
 
     pub fn end(&mut self, cx: &mut Context<Self>) {
@@ -266,29 +270,29 @@ impl CallStore {
             return;
         }
         let call = self.rpc.call::<methods::CallsEnd>(&NoParams {});
-        self.adopt(call, false, cx);
+        self.adopt(call, None, cx);
     }
 
     /// Pause, or Resume when paused or muted.
     pub fn toggle_pause(&mut self, cx: &mut Context<Self>) {
         if self.state.can_resume && !self.state.muted {
             let call = self.rpc.call::<methods::CallsResume>(&NoParams {});
-            self.adopt(call, false, cx);
+            self.adopt(call, None, cx);
         } else if self.state.can_pause {
             let call = self.rpc.call::<methods::CallsPause>(&NoParams {});
-            self.adopt(call, false, cx);
+            self.adopt(call, None, cx);
         }
     }
 
     pub fn toggle_mute(&mut self, cx: &mut Context<Self>) {
         let call = self.rpc.call::<methods::CallsMute>(&NoParams {});
-        self.adopt(call, false, cx);
+        self.adopt(call, None, cx);
     }
 
     /// Stops the answer being said and listens again.
     pub fn skip(&mut self, cx: &mut Context<Self>) {
         let call = self.rpc.call::<methods::CallsSkip>(&NoParams {});
-        self.adopt(call, false, cx);
+        self.adopt(call, None, cx);
     }
 
     pub fn toggle_collapsed(&mut self, cx: &mut Context<Self>) {
@@ -299,25 +303,30 @@ impl CallStore {
 
     /// The call now (on connecting, or after events were lost): the
     /// daemon's answer is its present call, applied whatever number the
-    /// window last saw, since a restarted daemon numbers calls from 0 again.
+    /// window last saw, since a restarted daemon numbers calls from 0 again,
+    /// unless a call state came in while it was asked (that one is newer).
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         let call = self.rpc.call::<methods::CallsGet>(&NoParams {});
-        self.adopt(call, true, cx);
+        self.adopt(call, Some(self.applied), cx);
     }
 
     fn adopt(
         &mut self,
         call: impl std::future::Future<Output = Result<CallState, conduit_daemon::RpcError>> + 'static,
-        present: bool,
+        present: Option<u64>,
         cx: &mut Context<Self>,
     ) {
         cx.spawn(
             async move |this: WeakEntity<Self>, cx: &mut AsyncApp| match call.await {
                 Ok(state) => {
                     let _ = this.update(cx, |s, cx| {
-                        if present {
-                            // Replies and events share one ordered socket:
-                            // nothing seen before this answer is newer.
+                        if let Some(asked) = present {
+                            // Events and replies are taken by different
+                            // tasks: a state applied since the request is
+                            // newer than this answer.
+                            if s.applied != asked {
+                                return;
+                            }
                             s.state.call = s.state.call.min(state.call);
                         }
                         s.apply(state, cx)
@@ -347,6 +356,7 @@ impl CallStore {
         if state.call < self.state.call {
             return;
         }
+        self.applied += 1;
         let was_active = self.is_active();
         // A notice mid-call (words that could not be made out, a reply cut
         // short): said once, as the phone's snack bar says it.
@@ -876,6 +886,30 @@ pub fn wire(stores: &Stores, cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A call that started while the refresh was out stays: the refresh's
+    /// older answer is not applied over it.
+    #[gpui_kit::test]
+    fn a_call_seen_after_a_refresh_was_asked_stays(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        let state =
+            |json: serde_json::Value| -> CallState { serde_json::from_value(json).unwrap() };
+        daemon.returns::<methods::CallsGet>(state(serde_json::json!({"phase": "idle", "call": 4})));
+        let held = daemon.hold::<methods::CallsGet>();
+        stores.call.update(vcx, |c, cx| c.refresh(cx));
+        vcx.run_until_parked();
+        // The next call's event comes before the refresh's answer is taken.
+        let on = state(serde_json::json!({
+            "phase": "listening", "call": 5, "mode": "realtime", "chatId": "c1"
+        }));
+        stores.call.update(vcx, |c, cx| c.apply(on, cx));
+        drop(held);
+        vcx.run_until_parked();
+        assert!(
+            stores.call.read_with(vcx, |c, _| c.is_active()),
+            "the refresh's older answer ended the call"
+        );
+    }
 
     /// A restarted daemon numbers its calls from 0 again: its first answer
     /// is the call now, whatever the last daemon numbered.
