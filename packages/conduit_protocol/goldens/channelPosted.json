@@ -1,0 +1,9 @@
+{
+  "channelId": "c1",
+  "messageId": "m5",
+  "author": "Grace",
+  "channelTitle": "garden",
+  "kind": "group",
+  "alert": true,
+  "mention": true
+}

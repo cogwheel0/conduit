@@ -1,0 +1,17 @@
+{
+  "channel": {
+    "id": "c4",
+    "name": "garden",
+    "private": false,
+    "unread": 0,
+    "manager": false,
+    "canPost": true,
+    "kind": "group",
+    "title": "",
+    "muted": false,
+    "canDelete": false,
+    "canLeave": false
+  },
+  "canManageMembers": true,
+  "moderator": true
+}

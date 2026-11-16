@@ -1,0 +1,22 @@
+{
+  "channelId": "c1",
+  "content": "",
+  "mentions": [
+    {
+      "start": 0,
+      "end": 4,
+      "id": "u1",
+      "label": "Ada",
+      "idType": "U",
+      "kind": "entity"
+    }
+  ],
+  "files": [
+    {
+      "id": "f1",
+      "name": "plan.pdf",
+      "image": false
+    }
+  ],
+  "replyToId": "m1"
+}

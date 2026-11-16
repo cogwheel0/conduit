@@ -1226,6 +1226,23 @@ pub struct Capabilities {
     pub bulk_selection: bool,
 }
 
+/// What sort of channel it is: an Open WebUI channel the server's access
+/// rules open (`standard`), one with its own members (`group`), or a
+/// direct message between people (`dm`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ChannelKind {
+    #[serde(rename = "standard")]
+    Standard,
+    #[serde(rename = "group")]
+    Group,
+    #[serde(rename = "dm")]
+    Dm,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
 /// A channel, as the list shows it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1248,10 +1265,31 @@ pub struct ChannelSummary {
     pub can_post: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_count: Option<i64>,
+    #[serde(default = "default_channel_summary_kind")]
+    pub kind: ChannelKind,
+    /// What the list and the pane call it: the name, or for a direct
+    /// message the people in it (the core's `channelDisplayName`). Empty
+    /// when the server gave neither.
+    #[serde(default)]
+    pub title: String,
+    /// Notifies for mentions only: no unread badge, and no alert for a
+    /// message that does not mention the user (Open WebUI's mute).
+    #[serde(default)]
+    pub muted: bool,
+    /// May delete it: its owner, or an admin.
+    #[serde(default)]
+    pub can_delete: bool,
+    /// Has members one can leave (a group or a direct message).
+    #[serde(default)]
+    pub can_leave: bool,
 }
 
 fn default_channel_summary_can_post() -> bool {
     true
+}
+
+fn default_channel_summary_kind() -> ChannelKind {
+    ChannelKind::Standard
 }
 
 /// Reply to `channels.list`.
@@ -1263,6 +1301,10 @@ pub struct ChannelList {
     /// Whether the server has channels switched on at all.
     #[serde(default)]
     pub enabled: bool,
+    /// May make a channel (New Channel): an admin, or a user the server's
+    /// permissions let.
+    #[serde(default)]
+    pub can_create: bool,
 }
 
 /// Someone in a channel.
@@ -1284,6 +1326,9 @@ pub struct ChannelReaction {
     /// Whether the signed-in user is one of them, so a click removes it.
     #[serde(default)]
     pub mine: bool,
+    /// Who they are, as far as the server names them (a tooltip).
+    #[serde(default)]
+    pub names: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1311,6 +1356,35 @@ pub struct ChannelMessageDto {
     /// Whether the signed-in user wrote it, and so may edit or delete it.
     #[serde(default)]
     pub mine: bool,
+    /// Who is speaking, for grouping a run of messages under one name: a
+    /// user's id, `model:<id>` or `app:<id>` (the core's
+    /// `channelMessageSender`).
+    #[serde(default)]
+    pub sender_key: String,
+    #[serde(default = "default_channel_message_dto_sender_kind")]
+    pub sender_kind: ChannelSenderKind,
+    /// `content` ready to draw: mention markup as `@Name`, and the core's
+    /// plain-markdown normalisation. `content` stays as written, for an
+    /// edit.
+    #[serde(default)]
+    pub display: String,
+    /// Files and images posted with it (`data.files`).
+    #[serde(default)]
+    pub files: Vec<ChannelFileDto>,
+    /// The cards and buttons of an app's message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<ChannelAppContentDto>,
+    /// The message this one replies to, inline (not a thread).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<ChannelReplyPreview>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_reply_at_ms: Option<i64>,
+}
+
+fn default_channel_message_dto_sender_kind() -> ChannelSenderKind {
+    ChannelSenderKind::User
 }
 
 /// Params for `channels.messages`: a channel's messages, or with
@@ -1343,10 +1417,22 @@ pub struct ChannelMessages {
 #[serde(rename_all = "camelCase")]
 pub struct ChannelPost {
     pub channel_id: String,
+    /// May be empty when `files` are posted.
+    #[serde(default)]
     pub content: String,
     /// A reply in the thread of this message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
+    /// The mentions in `content`, which the daemon writes as Open WebUI's
+    /// `<@U:id|Name>` and `<@M:id|Name>`.
+    #[serde(default)]
+    pub mentions: Vec<ComposerMentionDto>,
+    /// Files already uploaded (`/upload`), posted with the message.
+    #[serde(default)]
+    pub files: Vec<ChannelFileDto>,
+    /// An inline reply to this message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to_id: Option<String>,
 }
 
 /// Params naming one message.
@@ -1433,11 +1519,25 @@ pub struct ChannelTypingUsers {
 }
 
 /// Payload of `channels.message`: a channel's messages changed -- a post,
-/// an edit, a reaction, a reply. The window refetches what it shows.
+/// an edit, a reaction, a reply. It carries what changed in the list it
+/// names (`parentId`: a thread's), so the window patches what it shows;
+/// with `full` (or neither list) the window refetches it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelMessagesChanged {
     pub channel_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    /// New or changed messages, as the list now holds them.
+    #[serde(default)]
+    pub upserts: Vec<ChannelMessageDto>,
+    #[serde(default)]
+    pub removed: Vec<String>,
+    #[serde(default)]
+    pub full: bool,
+    /// Whether older messages are left to load, as the list now says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub has_older: Option<bool>,
 }
 
 /// Reply to `channels.members`: who can be mentioned.
@@ -1446,6 +1546,406 @@ pub struct ChannelMessagesChanged {
 pub struct ChannelMembers {
     #[serde(default)]
     pub users: Vec<ChannelUser>,
+}
+
+/// Who wrote a channel message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ChannelSenderKind {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "model")]
+    Model,
+    #[serde(rename = "app")]
+    App,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// A file or image posted in a channel (`data.files`). `id` is the server
+/// file's: the window loads it through `/files`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelFileDto {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub image: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+}
+
+/// The message an inline reply answers, as a one-line preview.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelReplyPreview {
+    #[serde(default)]
+    pub name: String,
+    /// Its text (or its cards' text), mentions as `@Name`.
+    #[serde(default)]
+    pub text: String,
+}
+
+/// One name and value of an app card.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelAppFieldDto {
+    pub name: String,
+    /// Markdown.
+    pub value: String,
+    /// May share a row with the other inline fields.
+    #[serde(default)]
+    pub inline: bool,
+}
+
+/// A card an app attaches to a message or a reply (the core's `AppEmbed`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelAppEmbedDto {
+    #[serde(default)]
+    pub title: String,
+    /// Markdown.
+    #[serde(default)]
+    pub description: String,
+    /// What the title opens (http or https).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// An accent, as 24-bit RGB.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footer_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail_url: Option<String>,
+    #[serde(default)]
+    pub fields: Vec<ChannelAppFieldDto>,
+}
+
+/// A button (`actionId`) or a link (`url`) of an app's message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelAppActionDto {
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+/// The cards and buttons of an app's message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelAppContentDto {
+    pub app_id: String,
+    #[serde(default)]
+    pub embeds: Vec<ChannelAppEmbedDto>,
+    #[serde(default)]
+    pub actions: Vec<ChannelAppActionDto>,
+}
+
+/// What kind of answer an app gave.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ChannelAppReplyKind {
+    #[serde(rename = "message")]
+    Message,
+    #[serde(rename = "update")]
+    Update,
+    #[serde(rename = "download")]
+    Download,
+    #[serde(rename = "error")]
+    Error,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// An app's answer shown to the signed-in user alone (the core's
+/// `AppChannelReply`): never stored, gone once dismissed or once the
+/// channel closes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelAppReplyDto {
+    #[serde(default = "default_channel_app_reply_dto_kind")]
+    pub kind: ChannelAppReplyKind,
+    #[serde(default)]
+    pub title: String,
+    /// Markdown; a download's file content.
+    #[serde(default)]
+    pub content: String,
+    /// A download's file name.
+    #[serde(default = "default_channel_app_reply_dto_filename")]
+    pub filename: String,
+    #[serde(default)]
+    pub embeds: Vec<ChannelAppEmbedDto>,
+    #[serde(default)]
+    pub actions: Vec<ChannelAppActionDto>,
+}
+
+impl Default for ChannelAppReplyDto {
+    fn default() -> Self {
+        Self {
+            kind: default_channel_app_reply_dto_kind(),
+            title: Default::default(),
+            content: Default::default(),
+            filename: default_channel_app_reply_dto_filename(),
+            embeds: Default::default(),
+            actions: Default::default(),
+        }
+    }
+}
+
+fn default_channel_app_reply_dto_kind() -> ChannelAppReplyKind {
+    ChannelAppReplyKind::Message
+}
+
+fn default_channel_app_reply_dto_filename() -> String {
+    "report.md".to_owned()
+}
+
+/// A private app answer under message `messageId`: payload of
+/// `channels.appReply` (scoped to `channel:<id>`), and what
+/// `channels.appAction` answers when the answer is for the asker alone.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelAppReplyEvent {
+    pub channel_id: String,
+    pub message_id: String,
+    /// The thread it belongs to; null for the channel itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    pub app_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_name: Option<String>,
+    pub reply: ChannelAppReplyDto,
+}
+
+/// Params for `channels.appAction`: press a button on an app's message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelAppAction {
+    pub channel_id: String,
+    pub message_id: String,
+    pub action_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+}
+
+/// Reply to `channels.appAction`: the answer shown to the asker alone, if
+/// the app gave one (a reply to everyone arrives as a message).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelAppActionResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply: Option<ChannelAppReplyEvent>,
+}
+
+/// Reply to `channels.open`: the channel as its pane shows it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelDetails {
+    pub channel: ChannelSummary,
+    /// May add and remove members (a group the user manages).
+    #[serde(default)]
+    pub can_manage_members: bool,
+    /// An admin: may delete anyone's message, not only their own.
+    #[serde(default)]
+    pub moderator: bool,
+}
+
+/// Params for `channels.focus`: the channel in front of the user now (its
+/// pane shown in the key window), or none.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelFocus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+/// Params for `channels.setMuted`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelMute {
+    pub id: String,
+    pub muted: bool,
+}
+
+/// Params for `channels.mentions`: the channel's members whose name
+/// matches `query`, for `@`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelMentionQuery {
+    pub channel_id: String,
+    #[serde(default)]
+    pub query: String,
+}
+
+/// One member, as the members sheet lists them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelMemberDto {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    /// `admin`, `user` or `pending`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// Online now.
+    #[serde(default)]
+    pub active: bool,
+    /// The signed-in user.
+    #[serde(default)]
+    pub me: bool,
+}
+
+/// Params for `channels.memberPage`: the first page of `query`, or with
+/// `more` the next one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelMemberQuery {
+    pub channel_id: String,
+    #[serde(default)]
+    pub query: String,
+    #[serde(default)]
+    pub more: bool,
+}
+
+/// How the members list stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ChannelMemberListPhase {
+    #[serde(rename = "loading")]
+    Loading,
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "ownerChanged")]
+    OwnerChanged,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Reply to `channels.memberPage`: the members loaded so far for the
+/// query, by name, and what the user may change.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelMemberPage {
+    pub channel_id: String,
+    #[serde(default)]
+    pub query: String,
+    #[serde(default = "default_channel_member_page_phase")]
+    pub phase: ChannelMemberListPhase,
+    #[serde(default)]
+    pub members: Vec<ChannelMemberDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
+    #[serde(default)]
+    pub has_more: bool,
+    #[serde(default)]
+    pub load_more_failed: bool,
+    /// May add and remove members, and whom one may add.
+    #[serde(default)]
+    pub can_manage: bool,
+    #[serde(default)]
+    pub allow_users: bool,
+    #[serde(default)]
+    pub allow_groups: bool,
+}
+
+fn default_channel_member_page_phase() -> ChannelMemberListPhase {
+    ChannelMemberListPhase::Ready
+}
+
+/// Params for `channels.addMembers`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelMembersAdd {
+    pub channel_id: String,
+    #[serde(default)]
+    pub user_ids: Vec<String>,
+    #[serde(default)]
+    pub group_ids: Vec<String>,
+}
+
+/// Params for `channels.removeMember`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelMemberRemove {
+    pub channel_id: String,
+    pub user_id: String,
+}
+
+/// What became of an add or a remove (the core's
+/// `ChannelMemberMutationResult`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ChannelMemberChangeResult {
+    #[serde(rename = "done")]
+    Done,
+    #[serde(rename = "ownerChanged")]
+    OwnerChanged,
+    #[serde(rename = "notPermitted")]
+    NotPermitted,
+    #[serde(rename = "denied")]
+    Denied,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "busy")]
+    Busy,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Reply to `channels.addMembers` and `channels.removeMember`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelMemberChange {
+    pub result: ChannelMemberChangeResult,
+    pub page: ChannelMemberPage,
+}
+
+/// Payload of `channels.posted` (unscoped): someone else posted in a
+/// channel that is not in front of the user. Its unread count went up;
+/// `alert` says whether it notifies (Open WebUI's rule: always, or for a
+/// channel set to mentions only, when it mentions the user). Never the
+/// message's text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelPosted {
+    pub channel_id: String,
+    pub message_id: String,
+    #[serde(default)]
+    pub author: String,
+    /// The channel's name (`ChannelSummary.title`); empty for a direct
+    /// message, which the author names.
+    #[serde(default)]
+    pub channel_title: String,
+    #[serde(default = "default_channel_posted_kind")]
+    pub kind: ChannelKind,
+    #[serde(default = "default_channel_posted_alert")]
+    pub alert: bool,
+    /// The message mentions the user.
+    #[serde(default)]
+    pub mention: bool,
+}
+
+fn default_channel_posted_kind() -> ChannelKind {
+    ChannelKind::Standard
+}
+
+fn default_channel_posted_alert() -> bool {
+    true
 }
 
 /// What an Open WebUI prompt asks for.
@@ -12260,6 +12760,100 @@ pub mod methods {
         type Result = super::ChannelMembers;
     }
 
+    /// Opens a channel's pane: the channel as it shows there, and what the
+    /// user may do to its members. Marks it read and starts listening to it.
+    ///
+    /// `channels.open`: ChannelRef -> ChannelDetails.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChannelsOpen;
+
+    impl RpcMethod for ChannelsOpen {
+        const NAME: &'static str = "channels.open";
+        type Params = super::ChannelRef;
+        type Result = super::ChannelDetails;
+    }
+
+    /// The channel in front of the user now, or none: its new messages are
+    /// read as they come, and it neither counts as unread nor notifies.
+    ///
+    /// `channels.focus`: ChannelFocus -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChannelsFocus;
+
+    impl RpcMethod for ChannelsFocus {
+        const NAME: &'static str = "channels.focus";
+        type Params = super::ChannelFocus;
+        type Result = super::OkResult;
+    }
+
+    /// Notifies for every message, or (muted) for mentions only.
+    ///
+    /// `channels.setMuted`: ChannelMute -> ChannelList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChannelsSetMuted;
+
+    impl RpcMethod for ChannelsSetMuted {
+        const NAME: &'static str = "channels.setMuted";
+        type Params = super::ChannelMute;
+        type Result = super::ChannelList;
+    }
+
+    /// The channel's members matching what follows an `@`.
+    ///
+    /// `channels.mentions`: ChannelMentionQuery -> MentionList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChannelsMentions;
+
+    impl RpcMethod for ChannelsMentions {
+        const NAME: &'static str = "channels.mentions";
+        type Params = super::ChannelMentionQuery;
+        type Result = super::MentionList;
+    }
+
+    /// The members sheet: a page of members, by name, for a search.
+    ///
+    /// `channels.memberPage`: ChannelMemberQuery -> ChannelMemberPage.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChannelsMemberPage;
+
+    impl RpcMethod for ChannelsMemberPage {
+        const NAME: &'static str = "channels.memberPage";
+        type Params = super::ChannelMemberQuery;
+        type Result = super::ChannelMemberPage;
+    }
+
+    /// `channels.addMembers`: ChannelMembersAdd -> ChannelMemberChange.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChannelsAddMembers;
+
+    impl RpcMethod for ChannelsAddMembers {
+        const NAME: &'static str = "channels.addMembers";
+        type Params = super::ChannelMembersAdd;
+        type Result = super::ChannelMemberChange;
+    }
+
+    /// `channels.removeMember`: ChannelMemberRemove -> ChannelMemberChange.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChannelsRemoveMember;
+
+    impl RpcMethod for ChannelsRemoveMember {
+        const NAME: &'static str = "channels.removeMember";
+        type Params = super::ChannelMemberRemove;
+        type Result = super::ChannelMemberChange;
+    }
+
+    /// Presses a button on an app's message.
+    ///
+    /// `channels.appAction`: ChannelAppAction -> ChannelAppActionResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChannelsAppAction;
+
+    impl RpcMethod for ChannelsAppAction {
+        const NAME: &'static str = "channels.appAction";
+        type Params = super::ChannelAppAction;
+        type Result = super::ChannelAppActionResult;
+    }
+
     /// Which sections the user may manage, and what each allows.
     ///
     /// `workspace.capabilities`: no params -> WorkspaceAccess.
@@ -14239,6 +14833,46 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("ChannelMembers"),
     },
     MethodSpec {
+        name: "channels.open",
+        params: Some("ChannelRef"),
+        result: Some("ChannelDetails"),
+    },
+    MethodSpec {
+        name: "channels.focus",
+        params: Some("ChannelFocus"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
+        name: "channels.setMuted",
+        params: Some("ChannelMute"),
+        result: Some("ChannelList"),
+    },
+    MethodSpec {
+        name: "channels.mentions",
+        params: Some("ChannelMentionQuery"),
+        result: Some("MentionList"),
+    },
+    MethodSpec {
+        name: "channels.memberPage",
+        params: Some("ChannelMemberQuery"),
+        result: Some("ChannelMemberPage"),
+    },
+    MethodSpec {
+        name: "channels.addMembers",
+        params: Some("ChannelMembersAdd"),
+        result: Some("ChannelMemberChange"),
+    },
+    MethodSpec {
+        name: "channels.removeMember",
+        params: Some("ChannelMemberRemove"),
+        result: Some("ChannelMemberChange"),
+    },
+    MethodSpec {
+        name: "channels.appAction",
+        params: Some("ChannelAppAction"),
+        result: Some("ChannelAppActionResult"),
+    },
+    MethodSpec {
         name: "workspace.capabilities",
         params: None,
         result: Some("WorkspaceAccess"),
@@ -14661,6 +15295,12 @@ pub mod events {
     /// The channel list changed: a channel added, removed, renamed, or a new
     /// unread count. No payload.
     pub const CHANNELS_CHANGED: &str = "channels.changed";
+    /// An app answered the user alone, under one of a channel's messages.
+    /// Payload `ChannelAppReplyEvent`, scoped to `channel:<id>`.
+    pub const CHANNELS_APP_REPLY: &str = "channels.appReply";
+    /// Someone else posted in a channel that is not in front of the user.
+    /// Payload `ChannelPosted`, unscoped (for notifications).
+    pub const CHANNELS_POSTED: &str = "channels.posted";
     pub const SYNC_STATUS: &str = "sync.status";
     /// The realtime socket's health changed (connected, transport, latency,
     /// reconnects). No payload; `data.connection` says what it is now.
@@ -14806,6 +15446,16 @@ pub const EVENTS: &[EventSpec] = &[
     EventSpec {
         name: "channels.changed",
         payload: None,
+        scoped: false,
+    },
+    EventSpec {
+        name: "channels.appReply",
+        payload: Some("ChannelAppReplyEvent"),
+        scoped: true,
+    },
+    EventSpec {
+        name: "channels.posted",
+        payload: Some("ChannelPosted"),
         scoped: false,
     },
     EventSpec {
@@ -14982,6 +15632,16 @@ pub enum Event {
     ///
     /// `channels.changed`.
     ChannelsChanged,
+    /// An app answered the user alone, under one of a channel's messages.
+    /// Payload `ChannelAppReplyEvent`, scoped to `channel:<id>`.
+    ///
+    /// `channels.appReply`, scoped.
+    ChannelsAppReply(ChannelAppReplyEvent),
+    /// Someone else posted in a channel that is not in front of the user.
+    /// Payload `ChannelPosted`, unscoped (for notifications).
+    ///
+    /// `channels.posted`.
+    ChannelsPosted(ChannelPosted),
     /// `sync.status`.
     SyncStatus(SyncState),
     /// The realtime socket's health changed (connected, transport, latency,
@@ -15141,6 +15801,8 @@ impl Event {
             events::CHANNELS_MESSAGE => Self::ChannelsMessage(serde_json::from_value(payload)?),
             events::CHANNELS_TYPING => Self::ChannelsTyping(serde_json::from_value(payload)?),
             events::CHANNELS_CHANGED => Self::ChannelsChanged,
+            events::CHANNELS_APP_REPLY => Self::ChannelsAppReply(serde_json::from_value(payload)?),
+            events::CHANNELS_POSTED => Self::ChannelsPosted(serde_json::from_value(payload)?),
             events::SYNC_STATUS => Self::SyncStatus(serde_json::from_value(payload)?),
             events::SOCKET_HEALTH => Self::SocketHealth,
             events::NOTIFY_SHOW => Self::NotifyShow(serde_json::from_value(payload)?),
@@ -15194,6 +15856,8 @@ impl Event {
             Self::ChannelsMessage(_) => events::CHANNELS_MESSAGE,
             Self::ChannelsTyping(_) => events::CHANNELS_TYPING,
             Self::ChannelsChanged => events::CHANNELS_CHANGED,
+            Self::ChannelsAppReply(_) => events::CHANNELS_APP_REPLY,
+            Self::ChannelsPosted(_) => events::CHANNELS_POSTED,
             Self::SyncStatus(_) => events::SYNC_STATUS,
             Self::SocketHealth => events::SOCKET_HEALTH,
             Self::NotifyShow(_) => events::NOTIFY_SHOW,
@@ -15237,6 +15901,8 @@ impl Event {
             Self::NotesChanged(payload) => serde_json::to_value(payload),
             Self::ChannelsMessage(payload) => serde_json::to_value(payload),
             Self::ChannelsTyping(payload) => serde_json::to_value(payload),
+            Self::ChannelsAppReply(payload) => serde_json::to_value(payload),
+            Self::ChannelsPosted(payload) => serde_json::to_value(payload),
             Self::SyncStatus(payload) => serde_json::to_value(payload),
             Self::NotifyShow(payload) => serde_json::to_value(payload),
             Self::RouteRemap(payload) => serde_json::to_value(payload),
@@ -15316,20 +15982,41 @@ pub mod conformance {
         "CancelledResult",
         "Capabilities",
         "ChangedFileDto",
+        "ChannelAppAction",
+        "ChannelAppActionDto",
+        "ChannelAppActionResult",
+        "ChannelAppContentDto",
+        "ChannelAppEmbedDto",
+        "ChannelAppFieldDto",
+        "ChannelAppReplyDto",
+        "ChannelAppReplyEvent",
+        "ChannelDetails",
         "ChannelEdit",
+        "ChannelFileDto",
+        "ChannelFocus",
         "ChannelList",
+        "ChannelMemberChange",
+        "ChannelMemberDto",
+        "ChannelMemberPage",
+        "ChannelMemberQuery",
+        "ChannelMemberRemove",
         "ChannelMembers",
+        "ChannelMembersAdd",
+        "ChannelMentionQuery",
         "ChannelMessageDto",
         "ChannelMessageEdit",
         "ChannelMessageRef",
         "ChannelMessages",
         "ChannelMessagesChanged",
         "ChannelMessagesQuery",
+        "ChannelMute",
         "ChannelPin",
         "ChannelPost",
+        "ChannelPosted",
         "ChannelReact",
         "ChannelReaction",
         "ChannelRef",
+        "ChannelReplyPreview",
         "ChannelSummary",
         "ChannelTyping",
         "ChannelTypingUsers",
@@ -15780,20 +16467,41 @@ pub mod conformance {
             "CancelledResult" => roundtrip::<super::CancelledResult>(json),
             "Capabilities" => roundtrip::<super::Capabilities>(json),
             "ChangedFileDto" => roundtrip::<super::ChangedFileDto>(json),
+            "ChannelAppAction" => roundtrip::<super::ChannelAppAction>(json),
+            "ChannelAppActionDto" => roundtrip::<super::ChannelAppActionDto>(json),
+            "ChannelAppActionResult" => roundtrip::<super::ChannelAppActionResult>(json),
+            "ChannelAppContentDto" => roundtrip::<super::ChannelAppContentDto>(json),
+            "ChannelAppEmbedDto" => roundtrip::<super::ChannelAppEmbedDto>(json),
+            "ChannelAppFieldDto" => roundtrip::<super::ChannelAppFieldDto>(json),
+            "ChannelAppReplyDto" => roundtrip::<super::ChannelAppReplyDto>(json),
+            "ChannelAppReplyEvent" => roundtrip::<super::ChannelAppReplyEvent>(json),
+            "ChannelDetails" => roundtrip::<super::ChannelDetails>(json),
             "ChannelEdit" => roundtrip::<super::ChannelEdit>(json),
+            "ChannelFileDto" => roundtrip::<super::ChannelFileDto>(json),
+            "ChannelFocus" => roundtrip::<super::ChannelFocus>(json),
             "ChannelList" => roundtrip::<super::ChannelList>(json),
+            "ChannelMemberChange" => roundtrip::<super::ChannelMemberChange>(json),
+            "ChannelMemberDto" => roundtrip::<super::ChannelMemberDto>(json),
+            "ChannelMemberPage" => roundtrip::<super::ChannelMemberPage>(json),
+            "ChannelMemberQuery" => roundtrip::<super::ChannelMemberQuery>(json),
+            "ChannelMemberRemove" => roundtrip::<super::ChannelMemberRemove>(json),
             "ChannelMembers" => roundtrip::<super::ChannelMembers>(json),
+            "ChannelMembersAdd" => roundtrip::<super::ChannelMembersAdd>(json),
+            "ChannelMentionQuery" => roundtrip::<super::ChannelMentionQuery>(json),
             "ChannelMessageDto" => roundtrip::<super::ChannelMessageDto>(json),
             "ChannelMessageEdit" => roundtrip::<super::ChannelMessageEdit>(json),
             "ChannelMessageRef" => roundtrip::<super::ChannelMessageRef>(json),
             "ChannelMessages" => roundtrip::<super::ChannelMessages>(json),
             "ChannelMessagesChanged" => roundtrip::<super::ChannelMessagesChanged>(json),
             "ChannelMessagesQuery" => roundtrip::<super::ChannelMessagesQuery>(json),
+            "ChannelMute" => roundtrip::<super::ChannelMute>(json),
             "ChannelPin" => roundtrip::<super::ChannelPin>(json),
             "ChannelPost" => roundtrip::<super::ChannelPost>(json),
+            "ChannelPosted" => roundtrip::<super::ChannelPosted>(json),
             "ChannelReact" => roundtrip::<super::ChannelReact>(json),
             "ChannelReaction" => roundtrip::<super::ChannelReaction>(json),
             "ChannelRef" => roundtrip::<super::ChannelRef>(json),
+            "ChannelReplyPreview" => roundtrip::<super::ChannelReplyPreview>(json),
             "ChannelSummary" => roundtrip::<super::ChannelSummary>(json),
             "ChannelTyping" => roundtrip::<super::ChannelTyping>(json),
             "ChannelTypingUsers" => roundtrip::<super::ChannelTypingUsers>(json),

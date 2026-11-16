@@ -1213,7 +1213,12 @@ const Map<String, String> protocolGoldens = <String, String>{
   "lastMessageAtMs": 1790000000000,
   "manager": true,
   "canPost": true,
-  "userCount": 12
+  "userCount": 12,
+  "kind": "standard",
+  "title": "",
+  "muted": false,
+  "canDelete": false,
+  "canLeave": false
 }''',
 
   'channelList': r'''
@@ -1225,10 +1230,16 @@ const Map<String, String> protocolGoldens = <String, String>{
       "private": true,
       "unread": 0,
       "manager": false,
-      "canPost": false
+      "canPost": false,
+      "kind": "standard",
+      "title": "",
+      "muted": false,
+      "canDelete": false,
+      "canLeave": false
     }
   ],
-  "enabled": true
+  "enabled": true,
+  "canCreate": false
 }''',
 
   'channelUser': r'''
@@ -1241,7 +1252,8 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "name": "👍",
   "count": 2,
-  "mine": true
+  "mine": true,
+  "names": []
 }''',
 
   'channelMessageDto': r'''
@@ -1261,10 +1273,15 @@ const Map<String, String> protocolGoldens = <String, String>{
     {
       "name": "🎉",
       "count": 1,
-      "mine": false
+      "mine": false,
+      "names": []
     }
   ],
-  "mine": true
+  "mine": true,
+  "senderKey": "",
+  "senderKind": "user",
+  "display": "",
+  "files": []
 }''',
 
   'channelMessagesQuery': r'''
@@ -1287,7 +1304,11 @@ const Map<String, String> protocolGoldens = <String, String>{
       "replyCount": 0,
       "createdAtMs": 1,
       "reactions": [],
-      "mine": false
+      "mine": false,
+      "senderKey": "",
+      "senderKind": "user",
+      "display": "",
+      "files": []
     }
   ],
   "hasOlder": true
@@ -1297,7 +1318,9 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "channelId": "c1",
   "content": "Hi",
-  "parentId": "m1"
+  "parentId": "m1",
+  "mentions": [],
+  "files": []
 }''',
 
   'channelMessageRef': r'''
@@ -1357,7 +1380,10 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'channelMessagesChanged': r'''
 {
-  "channelId": "c1"
+  "channelId": "c1",
+  "upserts": [],
+  "removed": [],
+  "full": false
 }''',
 
   'channelMembers': r'''
@@ -1368,6 +1394,373 @@ const Map<String, String> protocolGoldens = <String, String>{
       "name": "Ada"
     }
   ]
+}''',
+
+  'channelSummaryDm': r'''
+{
+  "id": "c3",
+  "name": "",
+  "private": false,
+  "unread": 0,
+  "manager": false,
+  "canPost": true,
+  "kind": "dm",
+  "title": "Ada, Grace",
+  "muted": true,
+  "canDelete": false,
+  "canLeave": true
+}''',
+
+  'channelListCreate': r'''
+{
+  "channels": [
+    {
+      "id": "c4",
+      "name": "garden",
+      "private": false,
+      "unread": 0,
+      "manager": false,
+      "canPost": true,
+      "kind": "group",
+      "title": "garden",
+      "muted": false,
+      "canDelete": true,
+      "canLeave": true
+    }
+  ],
+  "enabled": true,
+  "canCreate": true
+}''',
+
+  'channelReactionNames': r'''
+{
+  "name": "🎉",
+  "count": 2,
+  "mine": false,
+  "names": [
+    "Ada",
+    "Grace"
+  ]
+}''',
+
+  'channelFileDto': r'''
+{
+  "id": "f1",
+  "name": "plan.pdf",
+  "image": false,
+  "size": 2048,
+  "contentType": "application/pdf"
+}''',
+
+  'channelReplyPreview': r'''
+{
+  "name": "Ada",
+  "text": "Deploy is done"
+}''',
+
+  'channelAppFieldDto': r'''
+{
+  "name": "Status",
+  "value": "Green",
+  "inline": true
+}''',
+
+  'channelAppEmbedDto': r'''
+{
+  "title": "Build 42",
+  "description": "All checks passed",
+  "url": "https://example.com/builds/42",
+  "color": 3066993,
+  "authorName": "Builder",
+  "footerText": "Today",
+  "fields": [
+    {
+      "name": "Status",
+      "value": "Green",
+      "inline": true
+    }
+  ]
+}''',
+
+  'channelAppActionDto': r'''
+{
+  "label": "Approve",
+  "actionId": "approve"
+}''',
+
+  'channelAppContentDto': r'''
+{
+  "appId": "a1",
+  "embeds": [
+    {
+      "title": "Build 42",
+      "description": "",
+      "fields": []
+    }
+  ],
+  "actions": [
+    {
+      "label": "Open",
+      "url": "https://example.com"
+    }
+  ]
+}''',
+
+  'channelMessageDtoApp': r'''
+{
+  "id": "m3",
+  "channelId": "c1",
+  "user": {
+    "id": "app:a1",
+    "name": "Builder"
+  },
+  "content": "Build ready",
+  "pinned": false,
+  "replyCount": 0,
+  "createdAtMs": 1790000000000,
+  "reactions": [],
+  "mine": false,
+  "senderKey": "app:a1",
+  "senderKind": "app",
+  "display": "Build ready",
+  "files": [
+    {
+      "id": "f2",
+      "name": "a.png",
+      "image": true
+    }
+  ],
+  "app": {
+    "appId": "a1",
+    "embeds": [],
+    "actions": []
+  },
+  "replyToId": "m1",
+  "replyTo": {
+    "name": "Ada",
+    "text": "Ship it"
+  },
+  "latestReplyAtMs": 1790000002000
+}''',
+
+  'channelPostFiles': r'''
+{
+  "channelId": "c1",
+  "content": "",
+  "mentions": [
+    {
+      "start": 0,
+      "end": 4,
+      "id": "u1",
+      "label": "Ada",
+      "idType": "U",
+      "kind": "entity"
+    }
+  ],
+  "files": [
+    {
+      "id": "f1",
+      "name": "plan.pdf",
+      "image": false
+    }
+  ],
+  "replyToId": "m1"
+}''',
+
+  'channelMessagesChangedDelta': r'''
+{
+  "channelId": "c1",
+  "parentId": "m1",
+  "upserts": [
+    {
+      "id": "m4",
+      "channelId": "c1",
+      "content": "",
+      "pinned": false,
+      "replyCount": 0,
+      "createdAtMs": 2,
+      "reactions": [],
+      "mine": false,
+      "senderKey": "",
+      "senderKind": "user",
+      "display": "",
+      "files": []
+    }
+  ],
+  "removed": [
+    "m2"
+  ],
+  "full": false,
+  "hasOlder": false
+}''',
+
+  'channelAppReplyDto': r'''
+{
+  "kind": "download",
+  "title": "Report",
+  "content": "Done",
+  "filename": "report.md",
+  "embeds": [],
+  "actions": []
+}''',
+
+  'channelAppReplyEvent': r'''
+{
+  "channelId": "c1",
+  "messageId": "m3",
+  "appId": "a1",
+  "appName": "Builder",
+  "reply": {
+    "kind": "message",
+    "title": "Thanks",
+    "content": "",
+    "filename": "report.md",
+    "embeds": [],
+    "actions": []
+  }
+}''',
+
+  'channelAppAction': r'''
+{
+  "channelId": "c1",
+  "messageId": "m3",
+  "actionId": "approve",
+  "parentId": "m1"
+}''',
+
+  'channelAppActionResult': r'''
+{
+  "reply": {
+    "channelId": "c1",
+    "messageId": "m3",
+    "appId": "a1",
+    "reply": {
+      "kind": "error",
+      "title": "",
+      "content": "",
+      "filename": "report.md",
+      "embeds": [],
+      "actions": []
+    }
+  }
+}''',
+
+  'channelDetails': r'''
+{
+  "channel": {
+    "id": "c4",
+    "name": "garden",
+    "private": false,
+    "unread": 0,
+    "manager": false,
+    "canPost": true,
+    "kind": "group",
+    "title": "",
+    "muted": false,
+    "canDelete": false,
+    "canLeave": false
+  },
+  "canManageMembers": true,
+  "moderator": true
+}''',
+
+  'channelFocus': r'''
+{
+  "id": "c1"
+}''',
+
+  'channelMute': r'''
+{
+  "id": "c1",
+  "muted": true
+}''',
+
+  'channelMentionQuery': r'''
+{
+  "channelId": "c1",
+  "query": "ad"
+}''',
+
+  'channelMemberDto': r'''
+{
+  "id": "u1",
+  "name": "Ada",
+  "email": "ada@example.com",
+  "role": "admin",
+  "active": true,
+  "me": true
+}''',
+
+  'channelMemberQuery': r'''
+{
+  "channelId": "c1",
+  "query": "gr",
+  "more": true
+}''',
+
+  'channelMemberPage': r'''
+{
+  "channelId": "c1",
+  "query": "",
+  "phase": "ready",
+  "members": [
+    {
+      "id": "u2",
+      "name": "Grace",
+      "active": false,
+      "me": false
+    }
+  ],
+  "total": 31,
+  "hasMore": true,
+  "loadMoreFailed": false,
+  "canManage": true,
+  "allowUsers": true,
+  "allowGroups": false
+}''',
+
+  'channelMembersAdd': r'''
+{
+  "channelId": "c1",
+  "userIds": [
+    "u2"
+  ],
+  "groupIds": [
+    "g1"
+  ]
+}''',
+
+  'channelMemberRemove': r'''
+{
+  "channelId": "c1",
+  "userId": "u2"
+}''',
+
+  'channelMemberChange': r'''
+{
+  "result": "denied",
+  "page": {
+    "channelId": "c1",
+    "query": "",
+    "phase": "failed",
+    "members": [],
+    "hasMore": false,
+    "loadMoreFailed": false,
+    "canManage": false,
+    "allowUsers": false,
+    "allowGroups": false
+  }
+}''',
+
+  'channelPosted': r'''
+{
+  "channelId": "c1",
+  "messageId": "m5",
+  "author": "Grace",
+  "channelTitle": "garden",
+  "kind": "group",
+  "alert": true,
+  "mention": true
 }''',
 
   'workspaceSectionAccess': r'''

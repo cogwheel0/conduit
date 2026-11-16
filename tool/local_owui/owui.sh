@@ -17,6 +17,10 @@
 #   tool/local_owui/owui.sh tool-permissions on|off
 #                                          auto tool permissions on, or back as
 #                                          they were (tool_permissions.py)
+#   tool/local_owui/owui.sh peer COMMAND ARGS...
+#                                          the second user in channels: post,
+#                                          react, type, start a direct message,
+#                                          or an app's card (channel_peer.py)
 #
 # Options, also read from the environment:
 #   --dir DIR        the instance: data, logs, pids, secrets
@@ -61,6 +65,11 @@ command=${1:-}
 # `chat` takes two arguments; nothing else takes any.
 ARG1=
 ARG2=
+# `peer` hands every argument to channel_peer.py.
+if [ "$command" = peer ]; then
+  PEER_ARGS=("$@")
+  set --
+fi
 while [ $# -gt 0 ]; do
   case $1 in
     --dir) DIR=$2; shift 2 ;;
@@ -260,6 +269,7 @@ start() {
       ENABLE_DIRECT_CONNECTIONS=true \
       TOOL_SERVER_CONNECTIONS="[{\"type\":\"mcp\",\"url\":\"http://127.0.0.1:$MODEL_PORT/mcp\",\"path\":\"\",\"auth_type\":\"none\",\"key\":\"\",\"config\":{\"enable\":true},\"info\":{\"id\":\"harbour\",\"name\":\"Harbour\",\"description\":\"A synthetic MCP server with one app.\"}}]" \
       ENABLE_CHANNELS=true \
+      ENABLE_APPS=true \
       ENABLE_LOCAL_WEB_FETCH=true \
       CODE_INTERPRETER_ENGINE=jupyter \
       CODE_INTERPRETER_JUPYTER_URL=http://127.0.0.1:9 \
@@ -364,6 +374,15 @@ chat() {
   "$VENV/bin/python" -I "$TOOL_DIR/drive_chat.py" "$ENV_FILE" "$ARG1" "$ARG2"
 }
 
+peer() {
+  need_venv
+  if ! alive server || [ ! -f "$ENV_FILE" ]; then
+    echo "not running or not seeded: run '$0 up' first" >&2
+    exit 1
+  fi
+  "$VENV/bin/python" -I "$TOOL_DIR/channel_peer.py" "$ENV_FILE" "$DATA" "${PEER_ARGS[@]}"
+}
+
 showcase() {
   need_venv
   if [ -z "$ARG1" ]; then
@@ -431,6 +450,7 @@ case $command in
   env) echo "$ENV_FILE" ;;
   chat) chat ;;
   showcase) showcase ;;
+  peer) peer ;;
   tool-permissions) tool_permissions ;;
   *)
     sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'

@@ -822,6 +822,28 @@ abstract final class ConduitMethods {
 
   /// Who is in a channel, for `@` mentions.
   static const String channelsMembers = 'channels.members';
+
+  /// Opens a channel's pane: the channel as it shows there, and what the
+  /// user may do to its members. Marks it read and starts listening to it.
+  static const String channelsOpen = 'channels.open';
+
+  /// The channel in front of the user now, or none: its new messages are
+  /// read as they come, and it neither counts as unread nor notifies.
+  static const String channelsFocus = 'channels.focus';
+
+  /// Notifies for every message, or (muted) for mentions only.
+  static const String channelsSetMuted = 'channels.setMuted';
+
+  /// The channel's members matching what follows an `@`.
+  static const String channelsMentions = 'channels.mentions';
+
+  /// The members sheet: a page of members, by name, for a search.
+  static const String channelsMemberPage = 'channels.memberPage';
+  static const String channelsAddMembers = 'channels.addMembers';
+  static const String channelsRemoveMember = 'channels.removeMember';
+
+  /// Presses a button on an app's message.
+  static const String channelsAppAction = 'channels.appAction';
   static const String workspacePrefix = 'workspace.';
 
   // workspace.*: models, knowledge, prompts, tools and skills. Most

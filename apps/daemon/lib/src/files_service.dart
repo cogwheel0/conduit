@@ -48,6 +48,9 @@ final class FilesService {
     required Uint8List bytes,
     required Object session,
     String? contentType,
+
+    /// Files the upload under this channel, for its members to read.
+    String? channelId,
   }) async {
     // Another account signed in since the request began: the file is
     // refused rather than sent to that account's server. No await between
@@ -80,7 +83,13 @@ final class FilesService {
       );
     }
 
-    final id = await api.uploadFileBytes(trimmed, bytes);
+    final id = await api.uploadFileBytes(
+      trimmed,
+      bytes,
+      metadata: channelId == null || channelId.isEmpty
+          ? null
+          : <String, dynamic>{'channel_id': channelId},
+    );
     final file = UploadedFile(
       id: id,
       name: trimmed,

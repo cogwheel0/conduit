@@ -1246,6 +1246,51 @@ abstract final class ConduitMethodSpecs {
     params: ChannelRef.fromJson,
     result: ChannelMembers.fromJson,
   );
+  static const channelsOpen = ConduitMethodSpec<ChannelRef, ChannelDetails>(
+    ConduitMethods.channelsOpen,
+    params: ChannelRef.fromJson,
+    result: ChannelDetails.fromJson,
+  );
+  static const channelsFocus = ConduitMethodSpec<ChannelFocus, OkResult>(
+    ConduitMethods.channelsFocus,
+    params: ChannelFocus.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const channelsSetMuted = ConduitMethodSpec<ChannelMute, ChannelList>(
+    ConduitMethods.channelsSetMuted,
+    params: ChannelMute.fromJson,
+    result: ChannelList.fromJson,
+  );
+  static const channelsMentions =
+      ConduitMethodSpec<ChannelMentionQuery, MentionList>(
+        ConduitMethods.channelsMentions,
+        params: ChannelMentionQuery.fromJson,
+        result: MentionList.fromJson,
+      );
+  static const channelsMemberPage =
+      ConduitMethodSpec<ChannelMemberQuery, ChannelMemberPage>(
+        ConduitMethods.channelsMemberPage,
+        params: ChannelMemberQuery.fromJson,
+        result: ChannelMemberPage.fromJson,
+      );
+  static const channelsAddMembers =
+      ConduitMethodSpec<ChannelMembersAdd, ChannelMemberChange>(
+        ConduitMethods.channelsAddMembers,
+        params: ChannelMembersAdd.fromJson,
+        result: ChannelMemberChange.fromJson,
+      );
+  static const channelsRemoveMember =
+      ConduitMethodSpec<ChannelMemberRemove, ChannelMemberChange>(
+        ConduitMethods.channelsRemoveMember,
+        params: ChannelMemberRemove.fromJson,
+        result: ChannelMemberChange.fromJson,
+      );
+  static const channelsAppAction =
+      ConduitMethodSpec<ChannelAppAction, ChannelAppActionResult>(
+        ConduitMethods.channelsAppAction,
+        params: ChannelAppAction.fromJson,
+        result: ChannelAppActionResult.fromJson,
+      );
 
   // workspace.*
 
@@ -1915,6 +1960,14 @@ abstract final class ConduitMethodSpecs {
         channelsTyping,
         channelsMarkRead,
         channelsMembers,
+        channelsOpen,
+        channelsFocus,
+        channelsSetMuted,
+        channelsMentions,
+        channelsMemberPage,
+        channelsAddMembers,
+        channelsRemoveMember,
+        channelsAppAction,
         workspaceCapabilities,
         workspaceList,
         workspaceGet,
@@ -2071,6 +2124,16 @@ abstract final class ConduitEventSpecs {
     ConduitEvents.channelsChanged,
     scoped: false,
   );
+  static const channelsAppReply = ConduitEventSpec<ChannelAppReplyEvent>(
+    ConduitEvents.channelsAppReply,
+    payload: ChannelAppReplyEvent.fromJson,
+    scoped: true,
+  );
+  static const channelsPosted = ConduitEventSpec<ChannelPosted>(
+    ConduitEvents.channelsPosted,
+    payload: ChannelPosted.fromJson,
+    scoped: false,
+  );
   static const syncStatus = ConduitEventSpec<SyncState>(
     ConduitEvents.syncStatus,
     payload: SyncState.fromJson,
@@ -2218,6 +2281,8 @@ abstract final class ConduitEventSpecs {
         channelsMessage,
         channelsTyping,
         channelsChanged,
+        channelsAppReply,
+        channelsPosted,
         syncStatus,
         socketHealth,
         notifyShow,

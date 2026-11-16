@@ -7,5 +7,10 @@
   "lastMessageAtMs": 1790000000000,
   "manager": true,
   "canPost": true,
-  "userCount": 12
+  "userCount": 12,
+  "kind": "standard",
+  "title": "",
+  "muted": false,
+  "canDelete": false,
+  "canLeave": false
 }

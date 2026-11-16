@@ -245,11 +245,7 @@ class DaemonServer {
     );
     core.handoff.attach(_handoff!);
     _drafts = DraftsService(core.container, temporary: temporary);
-    _mcpApps = McpAppsService(
-      core.container,
-      events,
-      uiRequests: _uiRequests,
-    );
+    _mcpApps = McpAppsService(core.container, events, uiRequests: _uiRequests);
     _accounts = AccountsService(core.container, events: events, turns: _turns);
     _models = ModelsService(core.container, events: events);
     _composer = ComposerService(core.container);
@@ -656,6 +652,9 @@ class DaemonServer {
         bytes: bytes,
         session: session,
         contentType: request.headers['content-type'],
+        // A channel's attachment: filed under the channel so its members
+        // may read it.
+        channelId: request.headers['x-conduit-channel'],
       );
       return shelf.Response.ok(
         jsonEncode(uploaded.toJson()),

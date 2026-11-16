@@ -14,8 +14,13 @@
     {
       "name": "🎉",
       "count": 1,
-      "mine": false
+      "mine": false,
+      "names": []
     }
   ],
-  "mine": true
+  "mine": true,
+  "senderKey": "",
+  "senderKind": "user",
+  "display": "",
+  "files": []
 }

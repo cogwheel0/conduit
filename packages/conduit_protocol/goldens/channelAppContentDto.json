@@ -1,0 +1,16 @@
+{
+  "appId": "a1",
+  "embeds": [
+    {
+      "title": "Build 42",
+      "description": "",
+      "fields": []
+    }
+  ],
+  "actions": [
+    {
+      "label": "Open",
+      "url": "https://example.com"
+    }
+  ]
+}

@@ -10,7 +10,11 @@
       "replyCount": 0,
       "createdAtMs": 1,
       "reactions": [],
-      "mine": false
+      "mine": false,
+      "senderKey": "",
+      "senderKind": "user",
+      "display": "",
+      "files": []
     }
   ],
   "hasOlder": true

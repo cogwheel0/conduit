@@ -1077,6 +1077,46 @@
       "result": "ChannelMembers"
     },
     {
+      "name": "channels.open",
+      "params": "ChannelRef",
+      "result": "ChannelDetails"
+    },
+    {
+      "name": "channels.focus",
+      "params": "ChannelFocus",
+      "result": "OkResult"
+    },
+    {
+      "name": "channels.setMuted",
+      "params": "ChannelMute",
+      "result": "ChannelList"
+    },
+    {
+      "name": "channels.mentions",
+      "params": "ChannelMentionQuery",
+      "result": "MentionList"
+    },
+    {
+      "name": "channels.memberPage",
+      "params": "ChannelMemberQuery",
+      "result": "ChannelMemberPage"
+    },
+    {
+      "name": "channels.addMembers",
+      "params": "ChannelMembersAdd",
+      "result": "ChannelMemberChange"
+    },
+    {
+      "name": "channels.removeMember",
+      "params": "ChannelMemberRemove",
+      "result": "ChannelMemberChange"
+    },
+    {
+      "name": "channels.appAction",
+      "params": "ChannelAppAction",
+      "result": "ChannelAppActionResult"
+    },
+    {
       "name": "workspace.capabilities",
       "params": null,
       "result": "WorkspaceAccess"
@@ -1531,6 +1571,16 @@
     {
       "name": "channels.changed",
       "payload": null,
+      "scoped": false
+    },
+    {
+      "name": "channels.appReply",
+      "payload": "ChannelAppReplyEvent",
+      "scoped": true
+    },
+    {
+      "name": "channels.posted",
+      "payload": "ChannelPosted",
       "scoped": false
     },
     {
