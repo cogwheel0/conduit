@@ -505,19 +505,30 @@ impl SheetBody for DiffSheet {
     }
 }
 
+/// A prompt diff's lines as the comparison shows them: without the file
+/// headers (`---`, `+++`), which come only before the first hunk; a line
+/// of the prompt's own that starts with them is shown.
+fn shown_diff_lines(lines: &[String]) -> Vec<&String> {
+    let first_hunk = lines
+        .iter()
+        .position(|l| l.starts_with("@@"))
+        .unwrap_or(lines.len());
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(i, l)| *i >= first_hunk || !(l.starts_with("---") || l.starts_with("+++")))
+        .map(|(_, l)| l)
+        .collect()
+}
+
 impl Render for DiffSheet {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = cx.conduit().clone();
         let r = t.roles;
         let l = cx.l10n().clone();
-        // The file headers (`---`, `+++`) say nothing here; a hunk's
-        // `@@` line is a quiet separator.
-        let shown: Vec<&String> = self
-            .diff
-            .lines
-            .iter()
-            .filter(|l| !l.starts_with("--- ") && !l.starts_with("+++ "))
-            .collect();
+        // The file headers say nothing here; a hunk's `@@` line is a quiet
+        // separator.
+        let shown = shown_diff_lines(&self.diff.lines);
         let lines: Vec<AnyElement> = shown
             .iter()
             .enumerate()
@@ -613,6 +624,37 @@ pub fn open_diff(stores: &Stores, diff: WorkspacePromptDiff, window: &mut Window
 mod tests {
     use super::*;
     use crate::views::sheet::bench::{bench, switch_account};
+
+    /// Only the file headers before the first hunk are left out: a removed
+    /// line that reads `-- note` (`--- note` in the diff) or an added `++ x`
+    /// still shows.
+    #[test]
+    fn a_diffs_own_dashes_and_pluses_stay() {
+        let lines: Vec<String> = [
+            "--- ",
+            "+++ ",
+            "@@ -1,2 +1,2 @@",
+            " Trail notes",
+            "--- old rule",
+            "+++ new rule",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let shown: Vec<&str> = shown_diff_lines(&lines)
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                "@@ -1,2 +1,2 @@",
+                " Trail notes",
+                "--- old rule",
+                "+++ new rule"
+            ]
+        );
+    }
 
     /// A small form opened for one account closes when another signs in:
     /// nothing typed in it is made under the next.
