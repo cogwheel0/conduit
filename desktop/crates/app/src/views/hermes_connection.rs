@@ -220,12 +220,15 @@ impl HermesConnectionSheet {
             allow_plain_http: self.plain_http_ok.as_deref() == Some(base_url.as_str()),
             base_url,
             mode: if self.desktop { "desktop" } else { "responses" }.into(),
-            desktop_auth_kind: if self.token_auth {
-                "legacyToken"
-            } else {
-                "nativePkce"
-            }
-            .into(),
+            // A method chosen here, or the saved one (a dashboard cookie,
+            // which this form has no choice for) when left as it was.
+            desktop_auth_kind: match &self.existing {
+                Some(c) if self.token_auth == self.initial.token_auth => {
+                    c.desktop_auth_kind.clone()
+                }
+                _ if self.token_auth => "legacyToken".into(),
+                _ => "nativePkce".into(),
+            },
             desktop_profile: if profile.is_empty() {
                 "default".into()
             } else {
@@ -239,14 +242,14 @@ impl HermesConnectionSheet {
         })
     }
 
-    /// Asks before credentials go unencrypted; true when the user agreed
-    /// (the form is sent again then).
+    /// Asks before credentials go unencrypted; `then` sends the form again
+    /// (and carries on with what was asked) when the user agreed.
     fn ask_plain_http(
         &mut self,
         url: String,
         window: &mut Window,
         cx: &mut Context<Self>,
-        then: fn(&mut Self, &mut Window, &mut Context<Self>),
+        then: impl FnOnce(&mut Self, &mut Window, &mut Context<Self>) + 'static,
     ) {
         let l = cx.l10n().clone();
         let spec = SheetSpec::new(
@@ -336,12 +339,16 @@ impl HermesConnectionSheet {
                 .toasts
                 .update(cx, |t, cx| t.show(NoticeLevel::Success, text, cx));
             let _ = list;
-            sheet::dismiss(cx);
+            // Words typed while the Save was out stay, still to save.
+            if !s.dirty(cx) {
+                sheet::dismiss(cx);
+            }
         });
     }
 
     /// Saves the form, then `done` with the saved list (the editor knows
-    /// its connection's id from then on).
+    /// its connection's id from then on). What was sent is what counts as
+    /// saved: words typed meanwhile are still to save.
     fn save_then(
         &mut self,
         window: &mut Window,
@@ -353,6 +360,7 @@ impl HermesConnectionSheet {
             return;
         };
         let url = edit.base_url.clone();
+        let sent = self.form(cx);
         let call = self
             .stores
             .connection
@@ -379,14 +387,16 @@ impl HermesConnectionSheet {
                             if saved.is_some() {
                                 s.existing = saved;
                             }
-                            s.initial = s.form(cx);
+                            s.initial = sent;
                             let admin = s.stores.hermes_admin.clone();
                             let adopted = list.clone();
                             admin.update(cx, |a, cx| a.adopt_connections(adopted, cx));
                             done(s, list, window, cx);
                         }
                         Err(e) if is_plain_http(&e) => {
-                            s.ask_plain_http(url, window, cx, |s, w, cx| s.save(w, cx));
+                            s.ask_plain_http(url, window, cx, move |s, w, cx| {
+                                s.save_then(w, cx, done)
+                            });
                         }
                         Err(e) => {
                             s.error = Some(match e.args.get("reason").map(String::as_str) {
@@ -413,7 +423,6 @@ impl HermesConnectionSheet {
             let rpc = s.stores.connection.read(cx).rpc();
             let activate = (list.active_id.as_deref() != Some(id.as_str()))
                 .then(|| rpc.call::<methods::HermesConnectionsActivate>(&HermesRef { id }));
-            let sign_in = rpc.call::<methods::HermesSignIn>(&NoParams);
             s.busy = true;
             s.note = Some(Note::SigningIn);
             cx.notify();
@@ -425,8 +434,10 @@ impl HermesConnectionSheet {
                 {
                     failed = Some(e);
                 }
+                // Asked only once the connection is in use: a call goes out
+                // as soon as it is made.
                 if failed.is_none()
-                    && let Err(e) = sign_in.await
+                    && let Err(e) = rpc.call::<methods::HermesSignIn>(&NoParams).await
                 {
                     failed = Some(e);
                 }
@@ -561,6 +572,11 @@ impl SheetBody for HermesConnectionSheet {
             }
         })
         .detach();
+    }
+
+    /// Edits not saved yet: Quit asks first.
+    fn unsaved(&self, cx: &App) -> bool {
+        self.dirty(cx)
     }
 
     fn label(&self, cx: &App) -> SharedString {
@@ -900,4 +916,176 @@ pub fn summary(sheet: &HermesConnectionSheet, l: &L10n) -> String {
             .unwrap_or("new"),
         if sheet.busy { " (busy)" } else { "" }
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui_kit::VisualTestContext;
+    use serde_json::json;
+
+    use super::*;
+    use crate::views::sheet::bench::bench;
+
+    fn list(active: &str, saved: Option<&str>, auth: &str) -> HermesConnections {
+        serde_json::from_value(json!({
+            "enabled": true,
+            "activeId": active,
+            "savedId": saved,
+            "connections": [
+                {"id": "a", "name": "Potting shed", "baseUrl": "http://127.0.0.1:20401",
+                 "mode": "desktop", "desktopAuthKind": "nativePkce", "active": active == "a"},
+                {"id": "b", "name": "Greenhouse", "baseUrl": "http://192.168.20.40:20402",
+                 "mode": "desktop", "desktopAuthKind": auth, "active": active == "b"},
+            ],
+        }))
+        .unwrap()
+    }
+
+    fn open_b(
+        stores: &Stores,
+        vcx: &mut VisualTestContext,
+        auth: &str,
+    ) -> Entity<HermesConnectionSheet> {
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.adopt_connections(list("a", None, auth), cx));
+        let s = stores.clone();
+        vcx.update(|window, cx| open(&s, Some("b".into()), window, cx));
+        vcx.run_until_parked();
+        vcx.update(|_, cx| sheet::current::<HermesConnectionSheet>(cx))
+            .expect("the editor opens")
+    }
+
+    fn on_sheet(
+        vcx: &mut VisualTestContext,
+        sheet: &Entity<HermesConnectionSheet>,
+        f: impl FnOnce(&mut HermesConnectionSheet, &mut Window, &mut Context<HermesConnectionSheet>),
+    ) {
+        vcx.update(|_, cx| {
+            let window = sheet::current_window(cx).expect("the sheet's window");
+            let _ = window.update(cx, |_, window, cx| {
+                sheet.update(cx, |s, cx| f(s, window, cx))
+            });
+        });
+    }
+
+    /// Sign In puts the connection in use first, and only then asks the
+    /// daemon to sign in: never while the one before is still in use.
+    #[gpui_kit::test]
+    fn sign_in_waits_for_the_connection_to_be_in_use(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsSave>(list("a", Some("b"), "nativePkce"));
+        daemon.once::<methods::HermesConnectionsActivate>(Err(serde_json::from_value(
+            json!({"code": "hermes.unreachable"}),
+        )
+        .unwrap()));
+        daemon.on::<methods::HermesSignIn>(|_| Ok(json!({})));
+        let held = daemon.hold::<methods::HermesConnectionsActivate>();
+        let sheet = open_b(&stores, vcx, "nativePkce");
+        on_sheet(vcx, &sheet, |s, w, cx| s.sign_in(w, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::HermesConnectionsActivate>().len(),
+            1
+        );
+        assert!(
+            daemon.calls::<methods::HermesSignIn>().is_empty(),
+            "sign-in was asked before the connection was in use"
+        );
+        drop(held);
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::HermesSignIn>().is_empty(),
+            "sign-in was asked though the connection could not be put in use"
+        );
+    }
+
+    /// Agreeing to send credentials unencrypted carries on with what was
+    /// asked: Sign In still signs in.
+    #[gpui_kit::test]
+    fn plain_http_consent_keeps_sign_in_going(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        daemon.once::<methods::HermesConnectionsSave>(Err(serde_json::from_value(
+            json!({"code": "rpc.invalidParams", "args": {"reason": "plainHttpConsent"}}),
+        )
+        .unwrap()));
+        daemon.returns::<methods::HermesConnectionsSave>(list("a", Some("b"), "nativePkce"));
+        daemon.returns::<methods::HermesConnectionsActivate>(list("b", None, "nativePkce"));
+        daemon.on::<methods::HermesSignIn>(|_| Ok(json!({})));
+        daemon.returns::<methods::HermesConnectionsList>(list("b", None, "nativePkce"));
+        let sheet = open_b(&stores, vcx, "nativePkce");
+        on_sheet(vcx, &sheet, |s, w, cx| s.sign_in(w, cx));
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::HermesConnectionsSave>();
+        assert_eq!(
+            saves.len(),
+            2,
+            "the form was not sent again after the consent"
+        );
+        assert_eq!(saves[1]["allowPlainHttp"], json!(true));
+        assert_eq!(
+            daemon.calls::<methods::HermesSignIn>().len(),
+            1,
+            "the consent dropped the sign-in"
+        );
+    }
+
+    /// Words typed while a Save is out stay in the editor, still to save:
+    /// the Save's answer neither closes it nor counts them as saved.
+    #[gpui_kit::test]
+    fn words_typed_during_a_save_stay_unsaved(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsSave>(list("a", Some("b"), "nativePkce"));
+        let held = daemon.hold::<methods::HermesConnectionsSave>();
+        let sheet = open_b(&stores, vcx, "nativePkce");
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.name.update(cx, |i, cx| i.set_value("Cold frame", w, cx));
+            s.save(w, cx);
+            s.name
+                .update(cx, |i, cx| i.set_value("Cold frame east", w, cx));
+        });
+        drop(held);
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::HermesConnectionsSave>();
+        assert_eq!(saves.len(), 1);
+        assert_eq!(saves[0]["name"], json!("Cold frame"));
+        vcx.update(|_, cx| {
+            assert!(
+                sheet::current::<HermesConnectionSheet>(cx).is_some_and(|b| b == sheet),
+                "the editor closed with words not saved"
+            );
+            assert!(
+                sheet.read(cx).dirty(cx),
+                "the words typed later count as saved"
+            );
+            assert!(sheet::has_unsaved(cx), "Quit would not ask about them");
+        });
+    }
+
+    /// A connection signing in some other way (a dashboard cookie) keeps
+    /// it when saved untouched.
+    #[gpui_kit::test]
+    fn an_untouched_sign_in_method_is_kept(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsSave>(list("a", Some("b"), "dashboardCookie"));
+        let sheet = open_b(&stores, vcx, "dashboardCookie");
+        on_sheet(vcx, &sheet, |s, w, cx| s.save(w, cx));
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::HermesConnectionsSave>();
+        assert_eq!(saves.len(), 1);
+        assert_eq!(saves[0]["desktopAuthKind"], json!("dashboardCookie"));
+    }
+
+    /// Typed words make Quit ask first.
+    #[gpui_kit::test]
+    fn typed_words_make_quit_ask(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, stores, vcx) = bench(cx);
+        let sheet = open_b(&stores, vcx, "nativePkce");
+        vcx.update(|_, cx| assert!(!sheet::has_unsaved(cx)));
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.name.update(cx, |i, cx| i.set_value("Cold frame", w, cx))
+        });
+        vcx.update(|_, cx| assert!(sheet::has_unsaved(cx), "Quit would not ask"));
+    }
 }
