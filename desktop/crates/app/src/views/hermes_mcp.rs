@@ -171,7 +171,6 @@ impl AddMcpSheet {
             cx.notify();
             return;
         }
-        let generation = admin.generation();
         let sent = self.snapshot(cx);
         let name = forms::text(&self.name, cx);
         let key = forms::raw(&self.key, cx);
@@ -200,6 +199,8 @@ impl AddMcpSheet {
             .read(cx)
             .rpc()
             .call::<methods::HermesMcpAdd>(&request);
+        // Its answer is taken in the order it was asked.
+        let ticket = self.stores.hermes_admin.update(cx, |a, _| a.ask_mcp());
         self.busy = true;
         self.error = None;
         cx.notify();
@@ -211,9 +212,7 @@ impl AddMcpSheet {
                 match result {
                     Ok(servers) => {
                         s.stores.hermes_admin.update(cx, |a, cx| {
-                            if a.generation() == generation {
-                                a.adopt_mcp(servers, cx);
-                            }
+                            a.answer_mcp(ticket, servers, cx);
                         });
                         let text = l.desktop_hermes_mcp_added(&name);
                         s.stores
@@ -439,7 +438,6 @@ impl McpKeySheet {
             cx.notify();
             return;
         }
-        let generation = admin.generation();
         let sent = forms::raw(&self.key, cx);
         let name = self.server.clone();
         let call = self
@@ -452,6 +450,7 @@ impl McpKeySheet {
                 api_key: forms::raw(&self.key, cx),
                 connection: self.opened.connection.clone(),
             });
+        let ticket = self.stores.hermes_admin.update(cx, |a, _| a.ask_mcp());
         self.busy = true;
         cx.notify();
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -462,9 +461,7 @@ impl McpKeySheet {
                 match result {
                     Ok(servers) => {
                         s.stores.hermes_admin.update(cx, |a, cx| {
-                            if a.generation() == generation {
-                                a.adopt_mcp(servers, cx);
-                            }
+                            a.answer_mcp(ticket, servers, cx);
                         });
                         let text = l.desktop_hermes_mcp_key_saved(&name);
                         s.stores
@@ -674,6 +671,49 @@ mod tests {
         let calls = daemon.calls::<methods::HermesMcpSetApiKey>();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0]["connection"], json!("0a1b2c3d:1"));
+    }
+
+    /// An activation answered after a newer one is not taken, and leaves
+    /// the page the user opened since alone.
+    #[gpui_kit::test]
+    fn a_dropped_activation_answer_leaves_the_page_alone(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        use_connection(&stores, vcx, "a");
+        let n = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = n.clone();
+        daemon.on::<methods::HermesConnectionsActivate>(move |_| {
+            let first = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0;
+            Ok(serde_json::to_value(list(if first { "b" } else { "a" })).unwrap())
+        });
+        let older = daemon.hold_one::<methods::HermesConnectionsActivate>(0);
+        vcx.update(|_, cx| {
+            crate::stores::hermes_admin::activate(&stores, "b", cx);
+            crate::stores::hermes_admin::activate(&stores, "a", cx);
+        });
+        vcx.run_until_parked();
+        stores.navigation.update(vcx, |n, cx| {
+            n.open_item(
+                crate::stores::navigation::AreaItem::HermesSession("sess-1".into()),
+                cx,
+            )
+        });
+        drop(older);
+        vcx.run_until_parked();
+        stores.navigation.read_with(vcx, |n, _| {
+            assert_eq!(
+                n.selection(),
+                &crate::stores::navigation::Selection::Area(
+                    crate::stores::navigation::AreaItem::HermesSession("sess-1".into())
+                ),
+                "a dropped answer closed the session opened since"
+            );
+        });
+        stores.hermes_admin.read_with(vcx, |a, _| {
+            assert_eq!(
+                a.connections.as_ref().and_then(|l| l.active_id.as_deref()),
+                Some("a")
+            );
+        });
     }
 
     /// Add MCP Server opened for one connection adds nothing to another.

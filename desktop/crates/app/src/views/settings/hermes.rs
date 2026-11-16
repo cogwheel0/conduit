@@ -860,12 +860,13 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
         let name = value.to_string();
         let call = rpc.call::<methods::HermesMcpAddFromCatalog>(&server(&name));
         let toasts = stores.toasts.clone();
+        let ticket = stores.hermes_admin.update(cx, |a, _| a.ask_mcp());
         hermes_admin::act(
             stores,
             call,
             l.desktop_hermes_mcp_action_failed(),
             move |a, servers, cx| {
-                a.adopt_mcp(servers, cx);
+                a.answer_mcp(ticket, servers, cx);
                 let text = cx.l10n().desktop_hermes_mcp_added(&name);
                 toasts.update(cx, |t, cx| t.show(NoticeLevel::Success, text, cx));
             },
@@ -966,11 +967,14 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
                 enabled: action == "enable",
                 connection: connection.clone(),
             });
+            let ticket = stores.hermes_admin.update(cx, |a, _| a.ask_mcp());
             hermes_admin::act(
                 stores,
                 call,
                 l.desktop_hermes_mcp_action_failed(),
-                |a, servers, cx| a.adopt_mcp(servers, cx),
+                move |a, servers, cx| {
+                    a.answer_mcp(ticket, servers, cx);
+                },
                 cx,
             );
         }
@@ -1001,12 +1005,13 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
                         connection: opened.connection.clone(),
                     });
                     let toasts = stores.toasts.clone();
+                    let ticket = stores.hermes_admin.update(cx, |a, _| a.ask_mcp());
                     hermes_admin::act(
                         &stores,
                         call,
                         l.desktop_hermes_mcp_action_failed(),
                         move |a, servers, cx| {
-                            a.adopt_mcp(servers, cx);
+                            a.answer_mcp(ticket, servers, cx);
                             let text = cx.l10n().desktop_hermes_mcp_removed(&name);
                             toasts.update(cx, |t, cx| t.show(NoticeLevel::Success, text, cx));
                         },

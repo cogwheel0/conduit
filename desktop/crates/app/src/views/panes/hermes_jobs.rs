@@ -700,11 +700,15 @@ fn stop(stores: &Stores, id: &str, cx: &mut App) {
     let rpc = stores.connection.read(cx).rpc();
     let call = rpc.call::<methods::HermesJobsStop>(&job_ref(stores, id, cx));
     let l = cx.l10n().clone();
+    // Its list is taken in the order it was asked, against the polls.
+    let ticket = stores.hermes_admin.update(cx, |a, _| a.ask_jobs());
     hermes_admin::act(
         stores,
         call,
         l.hermes_job_stop_failed(),
-        |a, jobs, cx| a.adopt_jobs(jobs, cx),
+        move |a, jobs, cx| {
+            a.answer_jobs(ticket, jobs, cx);
+        },
         cx,
     );
 }
@@ -726,6 +730,8 @@ fn busy_call(
         .hermes_admin
         .update(cx, |a, cx| a.set_busy(id, true, cx));
     let generation = stores.hermes_admin.read(cx).generation();
+    // Its list is taken in the order it was asked, against the polls.
+    let ticket = stores.hermes_admin.update(cx, |a, _| a.ask_jobs());
     let admin = stores.hermes_admin.downgrade();
     let toasts = stores.toasts.downgrade();
     let id = id.to_string();
@@ -739,7 +745,7 @@ fn busy_call(
             }
             a.set_busy(&id, false, cx);
             if let Ok(jobs) = &result {
-                a.adopt_jobs(jobs.clone(), cx);
+                a.answer_jobs(ticket, jobs.clone(), cx);
             }
         });
         let (level, text) = match result {
@@ -823,6 +829,37 @@ mod tests {
             .hermes_admin
             .update(vcx, |a, cx| a.adopt_connections(list, cx));
         vcx.run_until_parked();
+    }
+
+    /// A Run Now answered after a newer poll does not put back its older
+    /// list (the run shown going again after the poll saw it end).
+    #[gpui_kit::test]
+    fn a_late_action_answer_does_not_replace_a_newer_poll(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        let job = |running: bool| -> conduit_protocol::HermesJobs {
+            serde_json::from_value(json!({"jobs": [{
+                "id": "j1", "name": "Morning watering", "prompt": "Water",
+                "schedule": "0 9 * * *", "running": running,
+            }]}))
+            .unwrap()
+        };
+        daemon.returns::<methods::HermesRunJob>(job(true));
+        daemon.returns::<methods::HermesJobs>(job(false));
+        let held = daemon.hold::<methods::HermesRunJob>();
+        use_connection(&stores, vcx, "a");
+        vcx.update(|_, cx| run_now(&stores, "j1", cx));
+        stores.hermes_admin.update(vcx, |a, cx| a.refresh_jobs(cx));
+        vcx.run_until_parked();
+        drop(held);
+        vcx.run_until_parked();
+        stores.hermes_admin.read_with(vcx, |a, _| {
+            let running = a
+                .jobs
+                .as_ref()
+                .and_then(crate::stores::hermes_admin::Loaded::ready)
+                .map(|j| j.jobs[0].running);
+            assert_eq!(running, Some(false), "the older answer put the run back");
+        });
     }
 
     /// Run Now answered for the last connection leaves the busy mark of the

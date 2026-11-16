@@ -88,14 +88,56 @@ pub struct HermesAdminStore {
     /// answer to a read or action asked before is about the connection
     /// before, and is dropped.
     generation: u64,
-    /// The last jobs read asked, and the newest one whose list was taken:
-    /// an older poll answered late does not put its list back.
-    jobs_asked: u64,
-    jobs_taken: u64,
-    /// The same for the connections list (reads and the actions that
-    /// answer with it).
-    list_asked: u64,
-    list_taken: u64,
+    /// The order each thing's reads and actions were asked in: an answer
+    /// is taken only if it is newer than the last one taken for the same
+    /// thing (an older read never undoes a newer action, nor a newer read).
+    status_order: Order,
+    catalog_order: Order,
+    mcp_order: Order,
+    jobs_order: Order,
+    runs_order: HashMap<String, Order>,
+    /// The connections list's order, which a switch leaves alone (only a
+    /// reset drops what was asked before it).
+    list_order: Order,
+}
+
+/// When the reads and actions of one thing were asked, and the newest
+/// whose answer was taken.
+#[derive(Default)]
+struct Order {
+    asked: u64,
+    taken: u64,
+}
+
+impl Order {
+    fn ask(&mut self) -> u64 {
+        self.asked += 1;
+        self.asked
+    }
+
+    /// Whether answer `seq` is newer than the last one taken (and then it
+    /// is the last one taken).
+    fn take(&mut self, seq: u64) -> bool {
+        if seq <= self.taken {
+            return false;
+        }
+        self.taken = seq;
+        true
+    }
+
+    /// Nothing asked so far is taken any more.
+    fn forget(&mut self) {
+        self.taken = self.asked;
+    }
+}
+
+/// A read or action of the connection in use, as it was asked: its
+/// answer is taken only while that connection is still the one (no switch
+/// or reset since) and nothing asked later was taken first.
+#[derive(Clone, Copy, Debug)]
+pub struct Ticket {
+    generation: u64,
+    seq: u64,
 }
 
 /// A connections-list read or action, as it was asked (its place in the
@@ -140,6 +182,20 @@ impl HermesAdminStore {
         self.generation == generation
     }
 
+    fn ticket(&self, seq: u64) -> Ticket {
+        Ticket {
+            generation: self.generation,
+            seq,
+        }
+    }
+
+    /// The one check for an answer to `ticket`: the connection is still the
+    /// one it was asked under, and nothing asked later of the same thing
+    /// (`order`) was taken first.
+    fn answers(&mut self, ticket: Ticket, order: impl FnOnce(&mut Self) -> &mut Order) -> bool {
+        self.is_current(ticket.generation) && order(self).take(ticket.seq)
+    }
+
     /// Forgets everything (another account, a reconnect): read again when
     /// asked.
     pub fn reset(&mut self, cx: &mut Context<Self>) {
@@ -155,7 +211,7 @@ impl HermesAdminStore {
         self.pending_notices.clear();
         self.generation += 1;
         // Lists asked before the reset are not taken; those asked after are.
-        self.list_taken = self.list_asked;
+        self.list_order.forget();
         self.changed(cx);
     }
 
@@ -213,9 +269,8 @@ impl HermesAdminStore {
 
     /// A connections-list read or action about to be asked.
     pub fn ask_list(&mut self) -> ListTicket {
-        self.list_asked += 1;
         ListTicket {
-            list: self.list_asked,
+            list: self.list_order.ask(),
         }
     }
 
@@ -227,10 +282,9 @@ impl HermesAdminStore {
         list: HermesConnections,
         cx: &mut Context<Self>,
     ) -> bool {
-        if ticket.list <= self.list_taken {
+        if !self.list_order.take(ticket.list) {
             return false;
         }
-        self.list_taken = ticket.list;
         self.take_list(list, cx);
         true
     }
@@ -280,11 +334,12 @@ impl HermesAdminStore {
             self.status = Some(Loaded::Loading);
         }
         let call = rpc.call::<methods::HermesStatus>(&NoParams);
-        let generation = self.generation;
+        let seq = self.status_order.ask();
+        let ticket = self.ticket(seq);
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
-                if !s.is_current(generation) {
+                if !s.is_current(ticket.generation) || !s.status_order.take(ticket.seq) {
                     return;
                 }
                 s.status = Some(match result {
@@ -303,11 +358,12 @@ impl HermesAdminStore {
             self.catalog = Some(Loaded::Loading);
         }
         let call = rpc.call::<methods::HermesCatalog>(&NoParams);
-        let generation = self.generation;
+        let seq = self.catalog_order.ask();
+        let ticket = self.ticket(seq);
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
-                if !s.is_current(generation) {
+                if !s.is_current(ticket.generation) || !s.catalog_order.take(ticket.seq) {
                     return;
                 }
                 s.catalog = Some(match result {
@@ -328,11 +384,11 @@ impl HermesAdminStore {
             self.mcp = Some(Loaded::Loading);
         }
         let call = rpc.call::<methods::HermesMcpList>(&NoParams);
-        let generation = self.generation;
+        let ticket = self.ask_mcp();
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
-                if !s.is_current(generation) {
+                if !s.answers(ticket, |s| &mut s.mcp_order) {
                     return;
                 }
                 s.mcp = Some(match result {
@@ -345,10 +401,33 @@ impl HermesAdminStore {
         .detach();
     }
 
-    /// The servers an action answered with.
-    pub fn adopt_mcp(&mut self, servers: HermesMcpServers, cx: &mut Context<Self>) {
+    /// An MCP read or action about to be asked.
+    pub fn ask_mcp(&mut self) -> Ticket {
+        let seq = self.mcp_order.ask();
+        self.ticket(seq)
+    }
+
+    /// The servers `ticket`'s action answered with: taken unless another
+    /// connection came into use or something asked later was taken first.
+    /// Whether they were.
+    pub fn answer_mcp(
+        &mut self,
+        ticket: Ticket,
+        servers: HermesMcpServers,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.answers(ticket, |s| &mut s.mcp_order) {
+            return false;
+        }
         self.mcp = Some(Loaded::Ready(servers));
         self.changed(cx);
+        true
+    }
+
+    /// Servers that answered just now (newer than any read still out).
+    pub fn adopt_mcp(&mut self, servers: HermesMcpServers, cx: &mut Context<Self>) {
+        let ticket = self.ask_mcp();
+        self.answer_mcp(ticket, servers, cx);
     }
 
     pub fn set_mcp_busy(&mut self, name: &str, busy: bool, cx: &mut Context<Self>) {
@@ -388,20 +467,14 @@ impl HermesAdminStore {
             self.changed(cx);
         }
         let call = rpc.call::<methods::HermesJobs>(&NoParams);
-        let generation = self.generation;
-        self.jobs_asked += 1;
-        let asked = self.jobs_asked;
+        let ticket = self.ask_jobs();
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| match result {
-                _ if !s.is_current(generation) => {}
-                Ok(jobs) if asked <= s.jobs_taken => {
-                    // A newer list is shown: only what this one says once.
-                    s.pending_notices.extend(jobs.notices);
-                    s.changed(cx);
+                Ok(jobs) => {
+                    s.answer_jobs(ticket, jobs, cx);
                 }
-                Ok(jobs) => s.take_jobs(asked, jobs, cx),
-                Err(_) if asked <= s.jobs_taken => {}
+                Err(_) if !s.answers(ticket, |s| &mut s.jobs_order) => {}
                 Err(e) => {
                     // A failed poll keeps the list shown; a first read says so.
                     if !matches!(s.jobs, Some(Loaded::Ready(_))) {
@@ -415,15 +488,41 @@ impl HermesAdminStore {
         .detach();
     }
 
-    /// The jobs an action answered with: newer than any read still out.
-    pub fn adopt_jobs(&mut self, jobs: HermesJobs, cx: &mut Context<Self>) {
-        self.jobs_asked += 1;
-        self.take_jobs(self.jobs_asked, jobs, cx);
+    /// A jobs read or action about to be asked.
+    pub fn ask_jobs(&mut self) -> Ticket {
+        let seq = self.jobs_order.ask();
+        self.ticket(seq)
     }
 
-    /// The jobs read `asked` (or an action) answered with.
-    fn take_jobs(&mut self, asked: u64, jobs: HermesJobs, cx: &mut Context<Self>) {
-        self.jobs_taken = asked;
+    /// The jobs `ticket`'s read or action answered with: taken unless
+    /// another connection came into use or something asked later was taken
+    /// first (then only what it says once, its notices, is kept). Whether
+    /// they were.
+    pub fn answer_jobs(
+        &mut self,
+        ticket: Ticket,
+        jobs: HermesJobs,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.is_current(ticket.generation) {
+            return false;
+        }
+        if !self.jobs_order.take(ticket.seq) {
+            self.pending_notices.extend(jobs.notices);
+            self.changed(cx);
+            return false;
+        }
+        self.take_jobs(jobs, cx);
+        true
+    }
+
+    /// Jobs that answered just now (newer than any read still out).
+    pub fn adopt_jobs(&mut self, jobs: HermesJobs, cx: &mut Context<Self>) {
+        let ticket = self.ask_jobs();
+        self.answer_jobs(ticket, jobs, cx);
+    }
+
+    fn take_jobs(&mut self, jobs: HermesJobs, cx: &mut Context<Self>) {
         // A run that ended has its final title in the history.
         let was_running: HashSet<String> = self
             .jobs
@@ -530,11 +629,15 @@ impl HermesAdminStore {
             connection: self.connection(),
         });
         let id = id.to_string();
-        let generation = self.generation;
+        let seq = self.runs_order.entry(id.clone()).or_default().ask();
+        let ticket = self.ticket(seq);
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
-                if !s.is_current(generation) {
+                // The job's newest history read of the connection in use.
+                if !s.is_current(ticket.generation)
+                    || !s.runs_order.entry(id.clone()).or_default().take(ticket.seq)
+                {
                     return;
                 }
                 s.runs.insert(
@@ -703,8 +806,9 @@ pub fn set_enabled(stores: &Stores, enabled: bool, cx: &mut App) {
         call,
         failure,
         move |a, list, ticket, cx| {
-            a.answer_list(ticket, list, cx);
-            if !enabled {
+            // Only an answer taken moves the window: one older than a list
+            // taken since says nothing about now.
+            if a.answer_list(ticket, list, cx) && !enabled {
                 leave_hermes(&navigation, cx);
             }
         },
@@ -736,7 +840,11 @@ pub fn activate(stores: &Stores, id: &str, cx: &mut App) {
         call,
         failure,
         move |a, list, ticket, cx| {
-            a.answer_list(ticket, list, cx);
+            // Only an answer taken closes a page: one older than a list taken
+            // since leaves what the user opened meanwhile.
+            if !a.answer_list(ticket, list, cx) {
+                return;
+            }
             let _ = navigation.update(cx, |n, cx| {
                 if matches!(
                     n.selection(),
@@ -949,6 +1057,37 @@ mod tests {
                 Some("a"),
                 "the newer list was thrown away by the switch before it"
             )
+        });
+    }
+
+    /// An MCP read asked before an action is answered after it: the
+    /// action's servers stay (a server just turned off is not shown on).
+    #[gpui_kit::test]
+    fn an_older_mcp_read_does_not_undo_an_action(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::HermesMcpList>(servers("seed-catalogue"));
+        let held = daemon.hold::<methods::HermesMcpList>();
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        let mut off = servers("seed-catalogue");
+        off.servers[0].enabled = false;
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            s.refresh_mcp(cx);
+            s.adopt_mcp(off, cx);
+        });
+        drop(held);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            let enabled = s
+                .mcp
+                .as_ref()
+                .and_then(Loaded::ready)
+                .map(|m| m.servers[0].enabled);
+            assert_eq!(
+                enabled,
+                Some(false),
+                "the older read turned the server back on"
+            );
         });
     }
 
