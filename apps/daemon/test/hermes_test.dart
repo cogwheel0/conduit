@@ -524,6 +524,43 @@ void main() {
     },
   );
 
+  // A session one server listed is that server's: after a switch to
+  // another, a session there with the same id is read as that server says,
+  // never with the flags the first one gave it.
+  test('another server is not told of the last one\'s sessions', () async {
+    final other = await FakeHermesServer.start(key: 'other-key');
+    final shed = hermesServer.seedForeign(title: 'Shed roof');
+    other.sessions[shed] = <String, dynamic>{
+      'id': shed,
+      'title': 'Barn door',
+      'source': 'api_server',
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    };
+    other.messages[shed] = <Map<String, dynamic>>[];
+    addTearDown(() async {
+      hermesServer.sessions.remove(shed);
+      await hermes.saveSettings(
+        HermesSettingsEdit(
+          baseUrl: hermesServer.baseUrl,
+          apiKey: hermesServer.key,
+        ),
+      );
+      await other.close();
+    });
+    final listed = await hermes.sessions();
+    expect(listed.sessions.firstWhere((s) => s.id == shed).source, 'cli');
+
+    await hermes.saveSettings(
+      HermesSettingsEdit(baseUrl: other.baseUrl, apiKey: other.key),
+    );
+    await hermes.transcript(shed);
+    expect(
+      hermes.chatState(shed).readOnly,
+      isFalse,
+      reason: 'the first server\'s "Hermes CLI" made it read-only here',
+    );
+  });
+
   test('chosen in onboarding, Hermes is the backend the app is used through, '
       'once it can answer', () async {
     final apiKey = HermesSettingsEdit(

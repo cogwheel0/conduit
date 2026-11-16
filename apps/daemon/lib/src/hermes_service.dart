@@ -7,6 +7,7 @@ import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/hermes/models/hermes_toolset.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
@@ -17,6 +18,8 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show activeServerProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
@@ -48,6 +51,20 @@ String? hermesSessionOf(String chatId) =>
 /// it -- so the daemon adds nothing to what they already guard.
 final class HermesService {
   HermesService(this._container, {EventBus? events}) : _events = events {
+    // What one server said of its sessions is that server's: another
+    // connection, or another account's server, starts from its own lists.
+    _connectionWatch = _container.listen<HermesBackendService?>(
+      hermesApiServiceProvider,
+      (previous, next) {
+        if (!identical(previous, next)) _known.clear();
+      },
+    );
+    _serverWatch = _container.listen<String?>(
+      activeServerProvider.select((server) => server.value?.id),
+      (previous, next) {
+        if (previous != next) _known.clear();
+      },
+    );
     // A session found read-only (opened, or a send Hermes refused) changes
     // what its chat offers: the window reads it again.
     _readOnlyWatch = _container.listen<Map<String, String>>(
@@ -63,8 +80,14 @@ final class HermesService {
   final ProviderContainer _container;
   final EventBus? _events;
   ProviderSubscription<Map<String, String>>? _readOnlyWatch;
+  ProviderSubscription<HermesBackendService?>? _connectionWatch;
+  ProviderSubscription<String?>? _serverWatch;
 
-  void dispose() => _readOnlyWatch?.close();
+  void dispose() {
+    _readOnlyWatch?.close();
+    _connectionWatch?.close();
+    _serverWatch?.close();
+  }
 
   void _announceChat(String sessionId) => _events?.emit(
     ConduitEventSpecs.chatsChanged,
