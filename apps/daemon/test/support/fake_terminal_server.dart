@@ -470,35 +470,40 @@ final class _FakeShell {
   void _write(String text) => _socket.add(utf8.encode(text));
 
   void listen() {
-    _socket.listen((message) {
-      if (message is String) {
-        final frame = jsonDecode(message) as Map<String, dynamic>;
-        if (!_authed) {
-          _fake.authFrames.add(frame);
-          if (frame['type'] == 'auth' && frame['token'] == _fake.key) {
-            _authed = true;
-            _write(
-              'Welcome to the Build box stand-in. Type help for commands.'
-              '\r\n$_prompt',
-            );
-          } else {
-            unawaited(_socket.close(4401, 'bad auth'));
+    _socket.listen(
+      (message) {
+        if (message is String) {
+          final frame = jsonDecode(message) as Map<String, dynamic>;
+          if (!_authed) {
+            _fake.authFrames.add(frame);
+            if (frame['type'] == 'auth' && frame['token'] == _fake.key) {
+              _authed = true;
+              _write(
+                'Welcome to the Build box stand-in. Type help for commands.'
+                '\r\n$_prompt',
+              );
+            } else {
+              unawaited(_socket.close(4401, 'bad auth'));
+            }
+            return;
+          }
+          _fake.controlFrames.add(frame);
+          if (frame['type'] == 'resize') {
+            _cols = (frame['cols'] as num?)?.toInt() ?? _cols;
+            _rows = (frame['rows'] as num?)?.toInt() ?? _rows;
           }
           return;
         }
-        _fake.controlFrames.add(frame);
-        if (frame['type'] == 'resize') {
-          _cols = (frame['cols'] as num?)?.toInt() ?? _cols;
-          _rows = (frame['rows'] as num?)?.toInt() ?? _rows;
+        if (!_authed) {
+          unawaited(_socket.close(4401, 'auth first'));
+          return;
         }
-        return;
-      }
-      if (!_authed) {
-        unawaited(_socket.close(4401, 'auth first'));
-        return;
-      }
-      _keys(utf8.decode(message as List<int>, allowMalformed: true));
-    });
+        _keys(utf8.decode(message as List<int>, allowMalformed: true));
+      },
+      // A closed socket stops whatever command is still running.
+      onDone: () => _job++,
+      onError: (Object _) => _job++,
+    );
   }
 
   void _keys(String input) {
