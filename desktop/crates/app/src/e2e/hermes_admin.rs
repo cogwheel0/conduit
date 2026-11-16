@@ -611,8 +611,10 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         &format!("remove:{MCP}"),
         cx,
     );
+    // Gone from a list that was read, not from one still loading or failed.
     let removed = wait_until(cx, Duration::from_secs(30), |cx| {
-        !mcp_servers(cx).iter().any(|(n, _)| n == MCP)
+        matches!(admin(cx).read(cx).mcp, Some(Loaded::Ready(_)))
+            && !mcp_servers(cx).iter().any(|(n, _)| n == MCP)
     })
     .await;
     pass &= ok("Remove… (asked) removes the server", removed);
@@ -852,7 +854,10 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         let stores = cx.global::<AppState>().stores.clone();
         crate::views::panes::hermes_jobs::confirm_delete(&stores, &id, window, cx);
     });
-    let deleted = wait_until(cx, Duration::from_secs(30), |cx| job(cx).is_none()).await;
+    let deleted = wait_until(cx, Duration::from_secs(30), |cx| {
+        matches!(admin(cx).read(cx).jobs, Some(Loaded::Ready(_))) && job(cx).is_none()
+    })
+    .await;
     pass &= ok("Delete… (asked) deletes it", deleted);
 
     // ── `/` in a Hermes chat lists the agent's skills ────────────────
