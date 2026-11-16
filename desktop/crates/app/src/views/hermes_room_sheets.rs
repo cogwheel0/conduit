@@ -713,10 +713,19 @@ impl RoomInfoSheet {
                             .hermes_rooms
                             .update(cx, |h, cx| h.patch_listed(room, cx));
                     }
+                    // Words typed while it saved are still to save: the
+                    // sheet stays, with what was saved as its baseline.
+                    if s.edit != edit {
+                        cx.notify();
+                        return;
+                    }
                     stores
                         .toasts
                         .update(cx, |t, cx| t.show(NoticeLevel::Info, l.saved(), cx));
-                    sheet::dismiss(cx);
+                    let this = cx.entity();
+                    if sheet::current::<Self>(cx).is_some_and(|open| open == this) {
+                        sheet::dismiss(cx);
+                    }
                 });
             });
         })
@@ -1224,5 +1233,45 @@ mod tests {
         let renames = daemon.calls::<methods::HermesRoomsRename>();
         assert_eq!(renames.len(), 2);
         assert_eq!(renames[1]["name"], "Greenhouse crew");
+    }
+
+    #[gpui_kit::test]
+    fn words_typed_while_room_info_saves_stay_to_save(cx: &mut TestAppContext) {
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        daemon.returns::<methods::HermesRoomsWatch>(room());
+        daemon.returns::<methods::HermesRoomsRename>(
+            serde_json::from_value::<HermesRoomDto>(json!({"id": "r1", "name": "Seed swap"}))
+                .unwrap(),
+        );
+        stores.hermes_rooms.update(vcx, |h, cx| {
+            h.show(Some("r1"), cx);
+            h.on_event(&Event::HermesRoomsChanged(room()), cx);
+        });
+        let sheet = vcx
+            .update(|window, cx| {
+                crate::views::sheet::open(window, super::WIDTH, cx, move |w, cx| {
+                    RoomInfoSheet::new(stores, "r1".into(), true, w, cx)
+                })
+            })
+            .unwrap();
+        vcx.run_until_parked();
+        let held = daemon.hold::<methods::HermesRoomsRename>();
+        sheet.update_in(vcx, |s, window, cx| {
+            s.type_into("name", "Seed swap", window, cx);
+            s.save(window, cx);
+            // Typed while the rename is out.
+            s.type_into("name", "Seed swap crew", window, cx);
+        });
+        drop(held);
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| crate::views::sheet::current::<RoomInfoSheet>(cx))
+                .is_some(),
+            "the sheet closed over words typed during its save"
+        );
+        sheet.read_with(vcx, |s, cx| {
+            assert_eq!(s.edit.name, "Seed swap crew");
+            assert!(s.unsaved(cx), "the words typed meanwhile are still to save");
+        });
     }
 }
