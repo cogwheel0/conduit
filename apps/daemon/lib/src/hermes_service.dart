@@ -845,11 +845,18 @@ final class HermesService {
       HermesDesktopAuthKind.legacyToken;
 
   /// The saved Desktop Gateway credentials with [edit]'s legacy token in
-  /// place (null: the edit leaves them alone).
+  /// place (null: the edit leaves them alone). With another server's
+  /// address only the token goes: the saved sign-in and access headers
+  /// belong to the old server, as the core's connection form keeps them.
   HermesDesktopCredentials? _desktopCredentials(HermesSettingsEdit edit) {
     final token = edit.legacyToken;
     if (token == null) return null;
-    final saved = _container.read(hermesConfigProvider).desktopCredentials;
+    final config = _container.read(hermesConfigProvider);
+    final saved =
+        HermesConfig.connectionOrigin(config.baseUrl) ==
+            HermesConfig.connectionOrigin(edit.baseUrl.trim())
+        ? config.desktopCredentials
+        : null;
     return HermesDesktopCredentials(
       legacyToken: _blankIsNull(token),
       nativeTokens: saved?.nativeTokens,

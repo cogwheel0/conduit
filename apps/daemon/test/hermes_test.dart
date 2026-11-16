@@ -477,6 +477,53 @@ void main() {
     expect(sent.join('\n'), isNot(contains('native-')));
   });
 
+  // A token typed with another server's address is that server's alone:
+  // the saved sign-in and access headers stay with the old one.
+  test(
+    'a token saved with another address takes no old sign-in there',
+    () async {
+      final config = runtime.container.read(hermesConfigProvider.notifier);
+      addTearDown(() async {
+        await config.signOutDesktop();
+        await hermes.saveSettings(
+          HermesSettingsEdit(
+            baseUrl: hermesServer.baseUrl,
+            apiKey: hermesServer.key,
+          ),
+        );
+      });
+      await config.saveConnection(
+        baseUrl: hermesServer.baseUrl,
+        mode: HermesBackendMode.desktopGateway,
+        desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+        desktopCredentialsChanged: true,
+        desktopCredentials: HermesDesktopCredentials(
+          nativeTokens: HermesDesktopTokenSet(
+            accessToken: 'native-access-secret',
+            refreshToken: 'native-refresh-secret',
+            expiresAt: DateTime.now().add(const Duration(hours: 1)),
+          ),
+          accessHeaders: const {'X-Gate': 'gate-secret'},
+        ),
+      );
+      final elsewhere = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => elsewhere.close(force: true));
+
+      await hermes.saveSettings(
+        HermesSettingsEdit(
+          baseUrl: 'http://127.0.0.1:${elsewhere.port}',
+          mode: 'desktop',
+          desktopAuthKind: 'legacyToken',
+          legacyToken: 'new-token',
+        ),
+      );
+      final saved = runtime.container.read(hermesConfigProvider);
+      expect(saved.desktopCredentials?.legacyToken, 'new-token');
+      expect(saved.desktopCredentials?.nativeTokens, isNull);
+      expect(saved.desktopCredentials?.accessHeaders ?? const {}, isEmpty);
+    },
+  );
+
   test('chosen in onboarding, Hermes is the backend the app is used through, '
       'once it can answer', () async {
     final apiKey = HermesSettingsEdit(
