@@ -6,9 +6,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show chatSessionRegistryProvider;
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_ports.dart';
 
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
@@ -139,6 +142,52 @@ void main() {
       expect(ended.phase, CallPhase.ended);
       expect(ended.chatId, chatId);
       expect(window.last?.phase, CallPhase.ended);
+    },
+  );
+
+  test(
+    'a new call keeps the temporary and folder choices it started with',
+    () async {
+      // Temporary, with "temporary by default" off: never stored.
+      await calls.start(CallStart(model: model, temporary: true));
+      await window.until(() => window.listens.isNotEmpty);
+      window.say(window.listens.single.listen, 'a quick question');
+      await window.until(() => window.spoken.isNotEmpty);
+      final temporaryChat = window.last!.chatId!;
+      expect(
+        temporaryChat,
+        startsWith('local:'),
+        reason: 'a temporary call was saved as a chat',
+      );
+      expect(turns.temporary.contains(temporaryChat), isTrue);
+      await calls.end();
+
+      // In a folder: its first turn is made in the folder (the scope's
+      // pending folder when the turn goes out), after the start's new-chat
+      // reset cleared it. (A chat kept on this computer takes no folder; an
+      // Open WebUI one is filed in it.)
+      window = CallWindow(events, calls, speech);
+      await calls.start(CallStart(model: model, folderId: 'garden'));
+      final scope = runtime.container
+          .read(chatSessionRegistryProvider)
+          .scopes
+          .last
+          .container;
+      final folders = <String?>[];
+      final watch = scope.listen<String?>(
+        pendingFolderIdProvider,
+        (_, next) => folders.add(next),
+        fireImmediately: true,
+      );
+      addTearDown(watch.close);
+      await window.until(() => window.listens.isNotEmpty);
+      window.say(window.listens.single.listen, 'when do tulips go in');
+      await window.until(() => window.spoken.isNotEmpty);
+      expect(
+        folders.skipWhile((f) => f != null),
+        contains('garden'),
+        reason: 'the call\'s first turn left its folder',
+      );
     },
   );
 

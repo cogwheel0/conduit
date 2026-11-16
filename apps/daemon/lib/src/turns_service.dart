@@ -1605,6 +1605,15 @@ final class TurnsService implements ChatTurns {
       if (chatId == null && folderId != null && folderId.isNotEmpty) {
         scope.read(pendingFolderIdProvider.notifier).set(folderId);
       }
+      // A new chat: the call's start makes the scope a new chat again (the
+      // app's own temporary default, no folder), so its first turn is made
+      // with what the window chose ([_voiceSend]).
+      if (chatId == null) {
+        session.callNewChat = (
+          temporary: temporary,
+          folderId: (folderId?.isNotEmpty ?? false) ? folderId : null,
+        );
+      }
     } on Object {
       _release(session);
       rethrow;
@@ -1617,6 +1626,7 @@ final class TurnsService implements ChatTurns {
       release: () {
         if (released) return;
         released = true;
+        session.callNewChat = null;
         _release(session);
       },
     );
@@ -1664,6 +1674,22 @@ final class TurnsService implements ChatTurns {
         await settling.timeout(_settleTimeout, onTimeout: () {});
       }
       await _settleBeforeTurn(session);
+      // The call's first turn makes its chat: temporary or not, and in the
+      // folder, as the window chose, whatever the call's start reset.
+      final choice = session.callNewChat;
+      if (choice != null && !session.scope.isDisposed) {
+        if (scope.read(activeConversationProvider) == null) {
+          scope
+              .read(temporaryChatEnabledProvider.notifier)
+              .set(choice.temporary);
+          final folderId = choice.folderId;
+          if (folderId != null) {
+            scope.read(pendingFolderIdProvider.notifier).set(folderId);
+          }
+        } else {
+          session.callNewChat = null;
+        }
+      }
       await _run(
         session,
         modelId: model?.id ?? '',
@@ -3638,6 +3664,10 @@ final class _ChatSession {
 
   /// A merge (Merge Responses) writing in this chat.
   _Merge? merge;
+
+  /// A call in a new chat: the window's temporary and folder choices, for
+  /// the turn that makes the chat.
+  ({bool temporary, String? folderId})? callNewChat;
 
   String? get chatId {
     if (!scope.isDisposed) {
