@@ -81,9 +81,11 @@ impl ChannelForm {
             InputEvent::PressEnter { .. } => this.save(window, cx),
             _ => {}
         };
+        // What it would make or change belongs to the account it opened for.
         let subscriptions = vec![
             cx.subscribe_in(&name, window, on_input),
             cx.subscribe_in(&description, window, on_input),
+            sheet::close_with_account(&stores, cx),
         ];
         Self {
             stores,

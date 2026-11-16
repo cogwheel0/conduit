@@ -78,18 +78,19 @@ impl MembersSheet {
         let search =
             cx.new(|cx| InputState::new(window, cx).placeholder(l.channel_members_search_hint()));
         search.update(cx, |s, cx| s.focus(window, cx));
-        let subscriptions =
-            vec![
-                cx.subscribe_in(&search, window, |this, state, e: &InputEvent, _, cx| {
-                    if let InputEvent::Change = e {
-                        let query = state.read(cx).value().trim().to_string();
-                        match this.mode {
-                            Mode::Members => this.load(query, false, cx),
-                            Mode::Adding => this.find(query, cx),
-                        }
+        let subscriptions = vec![
+            cx.subscribe_in(&search, window, |this, state, e: &InputEvent, _, cx| {
+                if let InputEvent::Change = e {
+                    let query = state.read(cx).value().trim().to_string();
+                    match this.mode {
+                        Mode::Members => this.load(query, false, cx),
+                        Mode::Adding => this.find(query, cx),
                     }
-                }),
-            ];
+                }
+            }),
+            // Its people and changes belong to the account it opened for.
+            sheet::close_with_account(&stores, cx),
+        ];
         let mut this = Self {
             stores,
             rpc,

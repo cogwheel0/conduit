@@ -599,8 +599,11 @@ impl ChannelPane {
         .destructive();
         let answer = present_sheet(window, spec, cx);
         let store = self.store.downgrade();
+        let stores = self.stores.clone();
+        let asked = active_account(&stores, cx);
         cx.spawn(async move |_, cx| {
-            if answer.await {
+            // Not once another account is in use: the message is this one's.
+            if answer.await && cx.update(|cx| active_account(&stores, cx)) == asked {
                 let _ = store.update(cx, |s, cx| s.delete(&message_id, cx));
             }
         })
@@ -1190,8 +1193,11 @@ pub fn run_channel_command(
             };
             let answer = present_sheet(window, spec, cx);
             let stores = stores.clone();
+            let asked = active_account(&stores, cx);
             cx.spawn(async move |cx| {
-                if !answer.await {
+                // Answered once another account is in use (Settings has its
+                // own window): the question was about this one's channel.
+                if !answer.await || cx.update(|cx| active_account(&stores, cx)) != asked {
                     return;
                 }
                 let result = if leave {
@@ -1223,6 +1229,11 @@ pub fn run_channel_command(
             .detach();
         }
     }
+}
+
+/// The account in use now, by id: what a question asked about.
+fn active_account(stores: &Stores, cx: &App) -> Option<String> {
+    stores.accounts.read(cx).active().map(|a| a.id.clone())
 }
 
 /// The channel pane the main window shows, if any.
@@ -1298,5 +1309,74 @@ mod tests {
         assert_eq!(channel_icon(&private), IconName::Lock);
         let nameless = summary(serde_json::json!({"id": "x", "name": "", "kind": "dm"}));
         assert_eq!(display_title(&nameless, &l), l.channel_unknown_member());
+    }
+
+    /// New Channel, a channel's members and its Leave question belong to
+    /// the account they opened under: another account signing in (Settings
+    /// has its own window) closes the sheets, and a Leave answered after it
+    /// leaves nothing under the next account.
+    #[gpui_kit::test]
+    fn channel_sheets_and_questions_stay_with_their_account(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::accounts::tests::{account, list};
+        use crate::views::sheet::{
+            self,
+            bench::{bench, switch_account},
+        };
+
+        let (daemon, stores, vcx) = bench(cx);
+        let back_to_avery = |vcx: &mut gpui_kit::VisualTestContext| {
+            stores.accounts.update(vcx, |a, cx| {
+                a.adopt(
+                    list(vec![
+                        account("a", "Avery", true, true),
+                        account("b", "Blake", false, true),
+                    ]),
+                    cx,
+                )
+            });
+            vcx.run_until_parked();
+        };
+
+        vcx.update(|window, cx| form::open_new(stores.clone(), window, cx));
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<form::ChannelForm>(cx))
+                .is_some()
+        );
+        switch_account(&stores, vcx);
+        assert!(
+            vcx.update(|_, cx| sheet::current::<form::ChannelForm>(cx))
+                .is_none(),
+            "Avery's New Channel stayed open over Blake's account"
+        );
+
+        vcx.update(|window, cx| members::open(stores.clone(), "c1".into(), window, cx));
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<members::MembersSheet>(cx))
+                .is_some()
+        );
+        back_to_avery(vcx);
+        assert!(
+            vcx.update(|_, cx| sheet::current::<members::MembersSheet>(cx))
+                .is_none(),
+            "Blake's channel members stayed open over Avery's account"
+        );
+
+        // Leave, asked under Avery and answered once Blake signs in.
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        let channel = summary(serde_json::json!({"id": "c1", "name": "garden-club"}));
+        vcx.update(|window, cx| {
+            let menu = ChannelMenu {
+                channel_id: "c1".into(),
+                command: ChannelCommand::Leave,
+            };
+            run_channel_command(&stores, &menu, Some(channel), window, cx)
+        });
+        switch_account(&stores, vcx);
+        assert!(
+            daemon.calls::<methods::ChannelsLeave>().is_empty(),
+            "Avery's Leave went out under Blake's account"
+        );
     }
 }
