@@ -45,8 +45,9 @@ that.
 `owui.sh start` runs Open WebUI with `ENABLE_PERSISTENT_CONFIG=false`,
 offline, with direct connections and channels on, retrieval bypassed, and
 one OpenAI connection, `fake_model.py`, which also does its speech-to-text,
-text-to-speech and embeddings (saving a memory needs one). `seed.py` then
-makes:
+text-to-speech and embeddings (saving a memory needs one), and is the voice
+behind the server's realtime calls (a scripted exchange over its
+`/v1/realtime` WebSocket). `seed.py` then makes:
 
 - an admin, Avery Tester (`avery@example.test`), and a second user, Riley
   Example (`riley@example.test`), each with a random password;

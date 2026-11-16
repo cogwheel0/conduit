@@ -8,6 +8,7 @@ import 'dart:io';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesCapabilitiesProvider, hermesConfigProvider;
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart'
     show
@@ -374,6 +375,67 @@ void main() {
     ]);
     await hermes.delete(branch.id);
     await hermes.delete(id);
+  });
+
+  test('a chat read again keeps its names turn by turn, for Retry', () {
+    ChatMessage message(String id, String role, String text, {String? error}) =>
+        ChatMessage(
+          id: id,
+          role: role,
+          content: text,
+          timestamp: DateTime.utc(2026, 11, 11),
+          error: error == null ? null : ChatMessageError(content: error),
+        );
+    // The chat's scope: one answer a turn, the last one a live failure.
+    final scope = <ChatMessage>[
+      message('q1', 'user', 'Make a plan for the picnic'),
+      message('a1', 'assistant', 'The plan is drafted.'),
+      message('q2', 'user', 'Book the ferry'),
+      message('a2', 'assistant', '', error: 'Rate limit exceeded'),
+    ];
+    // Hermes' record: a row a tool step, and the row it closes a failed
+    // turn with (its own notice).
+    final read = <ChatMessage>[
+      message('r1', 'user', 'Make a plan for the picnic'),
+      message('r2', 'assistant', ''),
+      message('r3', 'assistant', ''),
+      message('r4', 'assistant', 'The plan is drafted.'),
+      message('r5', 'user', 'Book the ferry'),
+      message(
+        'r6',
+        'assistant',
+        'The provider is rate limiting requests.',
+        error: 'Rate limit exceeded',
+      ),
+    ];
+    // The questions and answers keep the scope's names; the steps, the
+    // last read's.
+    final earlier = <ChatMessage>[
+      message('q1', 'user', 'Make a plan for the picnic'),
+      message('s1', 'assistant', ''),
+      message('s2', 'assistant', ''),
+      message('a1', 'assistant', 'The plan is drafted.'),
+    ];
+    expect(
+      HermesService.keepIds(read, scope, earlier: earlier).map((m) => m.id),
+      <String>['q1', 's1', 's2', 'a1', 'q2', 'a2'],
+    );
+    // Read again with nothing new: the same names.
+    final named = HermesService.keepIds(read, scope, earlier: earlier);
+    expect(
+      HermesService.keepIds(read, named).map((m) => m.id),
+      named.map((m) => m.id),
+    );
+    // Where a question differs, the turns no longer line up.
+    final edited = <ChatMessage>[
+      ...read.take(4),
+      message('r5', 'user', 'Book the train'),
+      read[5],
+    ];
+    expect(
+      HermesService.keepIds(edited, scope).map((m) => m.id).skip(4),
+      <String>['r5', 'r6'],
+    );
   });
 
   test('scheduled agents are made, paused, run and deleted', () async {

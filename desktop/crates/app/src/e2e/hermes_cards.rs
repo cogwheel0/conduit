@@ -189,6 +189,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     settle(cx, 1500).await;
 
     pass &= plan(dir, cx).await;
+    pass &= call_over_cards(dir, cx).await;
     pass &= clarify(dir, cx).await;
     pass &= secrets(dir, cx).await;
     pass &= paid_approval(dir, cx).await;
@@ -258,6 +259,99 @@ async fn plan(dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= ok(
         "folding keeps for the chat",
         cx.update(|cx| crate::stores::hermes_work::plan_folded(&id, true, cx)),
+    );
+    pass
+}
+
+/// A voice call in the plan's Hermes chat: the call button is ready (the
+/// core admits a Hermes model while its connection is usable), and the
+/// call's strip takes the composer's place with the plan card still docked
+/// above it. Nothing transcribes in a Hermes-only setup (the server's
+/// engine is Open WebUI's), so the call stops at its first listen and the
+/// strip says why. A silent stand-in and the server's engine keep the Mac's
+/// microphone and recognizer (and their prompts) out of it.
+async fn call_over_cards(dir: &Path, cx: &mut AsyncApp) -> bool {
+    use crate::l10n::ActiveL10n as _;
+    use crate::voice::InputOverride;
+    use conduit_protocol::{AppSettingsPatch, VoiceSettingsEdit};
+
+    let quiet = dir.join("hermes-call-quiet.wav");
+    let silence = vec![0u8; crate::voice::pcm::BYTES_PER_SECOND * 2];
+    let mut pass = ok(
+        "a silent stand-in for the microphone",
+        std::fs::write(&quiet, crate::voice::pcm::wav(&silence)).is_ok(),
+    );
+    let call = cx.update(|cx| cx.global::<AppState>().stores.call.clone());
+    call.update(cx, |c, cx| {
+        c.set_input(Some(InputOverride::File(quiet.clone())), cx)
+    });
+    pass &= ok(
+        "Settings › Audio: the server transcribes",
+        super::dictation::save_voice(
+            VoiceSettingsEdit {
+                stt_engine: Some("server".into()),
+                ..Default::default()
+            },
+            cx,
+        )
+        .await,
+    );
+    super::dictation::set_settings(
+        AppSettingsPatch {
+            stt_preference: Some("serverOnly".into()),
+            ..Default::default()
+        },
+        cx,
+    )
+    .await;
+    let ready = wait_until(cx, Duration::from_secs(20), |cx| {
+        main_window(cx).is_some_and(|(_, mw)| {
+            let composer = mw.read(cx).chat_pane.read(cx).composer.clone();
+            composer.read(cx).call_ready
+        })
+    })
+    .await;
+    pass &= ok(
+        "a Hermes chat offers a voice call (the core admits Hermes)",
+        ready,
+    );
+    in_pane(cx, |p, _, cx| p.start_call(cx));
+    let shown = wait_until(cx, Duration::from_secs(20), |cx| {
+        let call = cx.global::<AppState>().stores.call.read(cx);
+        call.is_shown() && call.state().mode == Some(conduit_protocol::CallMode::Standard)
+    })
+    .await;
+    pass &= ok("the call is a Standard one", shown);
+    settle(cx, 800).await;
+    let Some(main) = wait_main(cx).await else {
+        return ok("main window", false);
+    };
+    let controls = ax(main, "hermes-call", dir, cx).await;
+    // The plan card's header (folded or not) and the strip's controls; no
+    // composer's call button.
+    let (show, hide) = cx.update(|cx| (cx.l10n().hermes_plan_show(), cx.l10n().hermes_plan_hide()));
+    let plan = has(&controls, "Button", &show) || has(&controls, "Button", &hide);
+    let strip = has(&controls, "Button", "End Call") || has(&controls, "Button", "Dismiss");
+    pass &= ok(
+        "the call's strip stands where the composer was, the plan card docked above it",
+        strip && plan && !has(&controls, "Button", "Start Voice Call"),
+    );
+    shoot_main(dir, "hermes-call-over-plan", cx).await;
+    // Ended (and a failed one dismissed): the composer is back.
+    for _ in 0..2 {
+        call.update(cx, |c, cx| {
+            if c.is_shown() {
+                c.end(cx)
+            }
+        });
+        settle(cx, 600).await;
+    }
+    pass &= ok(
+        "the call is over and the composer back",
+        wait_until(cx, Duration::from_secs(15), |cx| {
+            !cx.global::<AppState>().stores.call.read(cx).is_shown()
+        })
+        .await,
     );
     pass
 }
@@ -627,6 +721,52 @@ async fn failure(dir: &Path, cx: &mut AsyncApp) -> bool {
             cx_text_has(cx, "went through")
         })
         .await;
+        if !fixed {
+            // What the window shows, and what the daemon has, for the log.
+            let (shown, chat_id) = cx.update(|cx| {
+                chat_store(cx).map_or((vec![], String::new()), |s| {
+                    let s = s.read(cx);
+                    let shown: Vec<String> = s
+                        .rows()
+                        .iter()
+                        .filter_map(|r| s.item(*r))
+                        .map(|i| {
+                            format!(
+                                "{:?}:{}:{}",
+                                i.role,
+                                i.key.chars().take(8).collect::<String>(),
+                                i.text.chars().take(40).collect::<String>()
+                            )
+                        })
+                        .collect();
+                    (shown, s.chat_id().to_string())
+                })
+            });
+            println!("SMOKE e2e note retry key {key} shown {shown:?}");
+            let rpc = cx.update(|cx| cx.global::<AppState>().stores.connection.read(cx).rpc());
+            if let Ok(result) = rpc
+                .call::<methods::ChatsGet>(&conduit_protocol::ChatRef { id: chat_id })
+                .await
+            {
+                let got: Vec<String> = result
+                    .chat
+                    .map(|d| {
+                        d.messages
+                            .iter()
+                            .map(|m| {
+                                format!(
+                                    "{:?}:{}:{}",
+                                    m.role,
+                                    m.id.chars().take(8).collect::<String>(),
+                                    m.content.chars().take(40).collect::<String>()
+                                )
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                println!("SMOKE e2e note retry chats.get {got:?}");
+            }
+        }
         pass &= ok("Retry answers this time", fixed);
     }
     pass

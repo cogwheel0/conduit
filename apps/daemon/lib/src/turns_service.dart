@@ -18,6 +18,7 @@ import 'package:conduit_core/features/chat/services/historical_message_regenerat
 import 'package:conduit_core/features/chat/utils/message_targeting.dart';
 import 'package:conduit_core/features/chat/utils/openwebui_tasks.dart';
 import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart';
+import 'package:conduit_core/features/chat/voice_mode/chat_voice_send.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
@@ -241,6 +242,13 @@ final class TurnsService implements ChatTurns {
   /// Whether a merge (Merge Responses) is writing in [chatId].
   @override
   bool mergeRunning(String chatId) => _sessionOf(chatId)?.merge != null;
+
+  @override
+  List<ChatMessage>? openMessages(String chatId) {
+    final session = _sessionOf(chatId);
+    if (session == null || session.scope.isDisposed) return null;
+    return List<ChatMessage>.of(session.scope.messages);
+  }
 
   /// Lets go of [chatId]'s scope when nothing runs in it: its transcript was
   /// read before the stored copy changed (another branch, say), and the next
@@ -1567,6 +1575,167 @@ final class TurnsService implements ChatTurns {
   }
 
   // ---------------------------------------------------------------------------
+  // Voice calls
+  // ---------------------------------------------------------------------------
+
+  /// The scope a voice call runs in: [chatId]'s, or a new chat's (with
+  /// [folderId], temporary when [temporary]), with [model] chosen. Held, so
+  /// it outlives any turn, until the hold's `release`.
+  Future<CallScopeHold> holdForCall({
+    String? chatId,
+    String? model,
+    String? folderId,
+    bool temporary = false,
+  }) async {
+    final chosen = await _resolveModel(model);
+    await _requireBackendFor(chosen);
+    final session = await _sessionFor(chatId);
+    try {
+      final scope = session.scope.container;
+      final running = session.turn != null && !session.turn!.finished;
+      if (!running) {
+        _choose(
+          scope,
+          chosen,
+          temporary: chatId == null
+              ? temporary
+              : this.temporary.contains(chatId),
+        );
+      }
+      if (chatId == null && folderId != null && folderId.isNotEmpty) {
+        scope.read(pendingFolderIdProvider.notifier).set(folderId);
+      }
+      // A new chat: the call's start makes the scope a new chat again (the
+      // app's own temporary default, no folder), so its first turn is made
+      // with what the window chose ([_voiceSend]).
+      if (chatId == null) {
+        session.callNewChat = (
+          temporary: temporary,
+          folderId: (folderId?.isNotEmpty ?? false) ? folderId : null,
+        );
+      }
+    } on Object {
+      _release(session);
+      rethrow;
+    }
+    session.linger?.cancel();
+    var released = false;
+    return CallScopeHold._(
+      session.scope,
+      chatId: () => session.chatId,
+      release: () {
+        if (released) return;
+        released = true;
+        session.callNewChat = null;
+        _release(session);
+      },
+    );
+  }
+
+  /// One turn of a voice call ([chatVoiceSendProvider]): the user's words,
+  /// a request the realtime voice handed over, or what was said with the
+  /// voice's own reply. Through [_run], as a typed message goes.
+  Future<void> _voiceSend(
+    _ChatSession session,
+    String text, {
+    List<String>? toolIds,
+    List<ChatContextAttachment>? contextAttachments,
+    bool isVoiceMode = false,
+    ChatSendVoiceContext? voice,
+    void Function(ChatSendPlaceholderHandle handle)?
+    onAssistantPlaceholderCreated,
+  }) async {
+    final scope = session.scope.container;
+    // The user talked over the answer (barge-in), and the call stopped it:
+    // its turn ends here before the next starts.
+    final running = session.turn;
+    if (running != null && !running.finished) {
+      running.stopped = true;
+      _project(session);
+      if (!running.finished) {
+        _finish(session, running, _answerOf(session, running));
+      }
+    }
+    final model = scope.read(selectedModelProvider);
+    final sent = Completer<void>();
+    session.holds++;
+    try {
+      // A delete that is out puts back the transcript it found if the
+      // server refuses it, without these words: they wait for it, as the
+      // queue's batch does.
+      while (session.deleting && !session.scope.isDisposed) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      // As before any turn ([_requireIdle]): the last turn's stored copy
+      // first, then a quiet transcript. Before this turn is pending: the
+      // last one's settling lets go of the pending turn when it ends.
+      final settling = session.settling;
+      if (settling != null) {
+        await settling.timeout(_settleTimeout, onTimeout: () {});
+      }
+      await _settleBeforeTurn(session);
+      // The call's first turn makes its chat: temporary or not, and in the
+      // folder, as the window chose, whatever the call's start reset.
+      final choice = session.callNewChat;
+      if (choice != null && !session.scope.isDisposed) {
+        if (scope.read(activeConversationProvider) == null) {
+          scope
+              .read(temporaryChatEnabledProvider.notifier)
+              .set(choice.temporary);
+          final folderId = choice.folderId;
+          if (folderId != null) {
+            scope.read(pendingFolderIdProvider.notifier).set(folderId);
+          }
+        } else {
+          session.callNewChat = null;
+        }
+      }
+      await _run(
+        session,
+        modelId: model?.id ?? '',
+        userMessageId: null,
+        start: (onPlaceholder) async {
+          final sending = durableSend(
+            scope,
+            text,
+            null,
+            toolIds: toolIds,
+            contextAttachments: contextAttachments,
+            isVoiceMode: isVoiceMode,
+            voice: voice,
+            onAssistantPlaceholderCreated: (handle) {
+              onPlaceholder(handle);
+              onAssistantPlaceholderCreated?.call(handle);
+            },
+          );
+          sending.then(
+            (_) {
+              if (!sent.isCompleted) sent.complete();
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              if (!sent.isCompleted) sent.completeError(error, stackTrace);
+            },
+          );
+          await sending;
+        },
+      );
+    } on Object catch (error, stackTrace) {
+      if (!sent.isCompleted) sent.completeError(error, stackTrace);
+    } finally {
+      _release(session);
+    }
+    // A Standard call's words are sent once their turn has started: a
+    // direct or Hermes send runs to the end of its answer, and the call
+    // must be free to hear the user talk over it. A later failure shows on
+    // the answer, which the call follows.
+    if (isVoiceMode && voice == null && !sent.isCompleted) {
+      unawaited(sent.future.then((_) {}, onError: (Object _) {}));
+      return;
+    }
+    return sent.future;
+  }
+
+  // ---------------------------------------------------------------------------
   // turns.steer -- a message typed while Hermes works
   // ---------------------------------------------------------------------------
 
@@ -2772,6 +2941,27 @@ final class TurnsService implements ChatTurns {
     final scope = ChatSessionScope.open(
       _container,
       overrides: <Override>[
+        // What is said in a voice call goes out through [_run] too, so the
+        // windows see it stream into the chat like a typed message.
+        chatVoiceSendProvider.overrideWithValue(
+          (
+            ref,
+            text, {
+            toolIds,
+            contextAttachments,
+            isVoiceMode = false,
+            voice,
+            onAssistantPlaceholderCreated,
+          }) => _voiceSend(
+            session,
+            text,
+            toolIds: toolIds,
+            contextAttachments: contextAttachments,
+            isVoiceMode: isVoiceMode,
+            voice: voice,
+            onAssistantPlaceholderCreated: onAssistantPlaceholderCreated,
+          ),
+        ),
         // A batch of queued messages goes out through [_run], so it is
         // followed and published like a turn a window started.
         chatDraftQueueSendProvider.overrideWithValue(
@@ -3475,6 +3665,10 @@ final class _ChatSession {
   /// A merge (Merge Responses) writing in this chat.
   _Merge? merge;
 
+  /// A call in a new chat: the window's temporary and folder choices, for
+  /// the turn that makes the chat.
+  ({bool temporary, String? folderId})? callNewChat;
+
   String? get chatId {
     if (!scope.isDisposed) {
       final id = scope.conversation?.id;
@@ -3605,3 +3799,22 @@ final class _Ended {
 
 /// Who a new chat's settings were checked for.
 typedef _ParamsOwner = ({Object session, String? accountId});
+/// A chat scope a voice call holds ([TurnsService.holdForCall]).
+final class CallScopeHold {
+  CallScopeHold._(
+    this.scope, {
+    required String? Function() chatId,
+    required void Function() release,
+  }) : _chatId = chatId,
+       _release = release;
+
+  final ChatSessionScope scope;
+  final String? Function() _chatId;
+  final void Function() _release;
+
+  /// The chat's id now: null for a new chat until its first turn made it.
+  String? get chatId => _chatId();
+
+  /// Lets the scope go; it lingers as any finished chat's does.
+  void release() => _release();
+}

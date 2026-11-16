@@ -77,6 +77,7 @@ mod rendering;
 mod sections;
 mod settings;
 pub mod shell;
+mod voice_call;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -738,6 +739,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "rendering" => rendering::run(&inputs, &dir, cx).await,
         "dictation" => dictation::run(&inputs, &dir, cx).await,
         "dictation-recovered" => dictation::recovered(&inputs, &dir, cx).await,
+        "voice-call" => voice_call::run(&inputs, &dir, cx).await,
         other => ok(&format!("unknown scenario {other}"), false),
     }
 }

@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "kind": "failed",
+  "listen": 2,
+  "done": false,
+  "failure": "serverUnavailable"
+}

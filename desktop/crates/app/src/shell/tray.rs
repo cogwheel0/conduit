@@ -1,6 +1,7 @@
 //! The menu-bar item (`tray-icon`, pinned exactly): Open Conduit, New Chat,
-//! Quick Ask, Settings…, Quit. It shows only while "Close to menu bar" is
-//! on.
+//! Quick Ask, Settings…, Quit. It shows while "Close to menu bar" is on, and
+//! during a voice call, which it shows: the time beside the icon, and the
+//! call's state, Show Call and End Call at the top of its menu.
 //!
 //! The icon is the brand mark (`components/assets/brand/mark.svg`: an open
 //! C tilted towards a dot) drawn as a monochrome template image, so macOS
@@ -20,6 +21,9 @@ pub enum TrayCommand {
     QuickAsk,
     Settings,
     Quit,
+    /// The call's chat, with its strip open.
+    ShowCall,
+    EndCall,
 }
 
 impl TrayCommand {
@@ -38,6 +42,8 @@ impl TrayCommand {
             Self::QuickAsk => "conduit-quick-ask",
             Self::Settings => "conduit-settings",
             Self::Quit => "conduit-quit",
+            Self::ShowCall => "conduit-show-call",
+            Self::EndCall => "conduit-end-call",
         }
     }
 
@@ -45,6 +51,7 @@ impl TrayCommand {
     pub fn from_event(event: &MenuEvent) -> Option<Self> {
         Self::ALL
             .into_iter()
+            .chain([Self::ShowCall, Self::EndCall])
             .find(|c| event.id == MenuId::new(c.id()))
     }
 }
@@ -65,9 +72,30 @@ pub struct TrayLabels {
     pub quick_ask_keys: Option<KeyStroke>,
 }
 
+/// A voice call, as the item shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrayCall {
+    /// "Listening · 1:23", the menu's first line.
+    pub status: String,
+    /// "1:23", beside the icon.
+    pub time: String,
+    pub show: String,
+    pub end: String,
+}
+
+/// The call's lines at the top of the menu.
+struct CallItems {
+    status: MenuItem,
+    show: MenuItem,
+    end: MenuItem,
+    separator: PredefinedMenuItem,
+}
+
 pub struct MenuBarItem {
     tray: TrayIcon,
+    menu: Menu,
     items: Vec<(TrayCommand, MenuItem)>,
+    call: Option<CallItems>,
 }
 
 impl MenuBarItem {
@@ -94,12 +122,59 @@ impl MenuBarItem {
             Icon::from_rgba(template_icon(ICON_PX), ICON_PX, ICON_PX).map_err(|e| e.to_string())?;
         let tray = TrayIconBuilder::new()
             .with_id("conduit")
-            .with_menu(Box::new(menu))
+            .with_menu(Box::new(menu.clone()))
             .with_icon_templated(icon)
             .with_tooltip(&labels.tooltip)
             .build()
             .map_err(|e| e.to_string())?;
-        Ok(Self { tray, items })
+        Ok(Self {
+            tray,
+            menu,
+            items,
+            call: None,
+        })
+    }
+
+    /// Shows the call `call` (its time beside the icon, its lines at the
+    /// top of the menu), or that there is none.
+    pub fn set_call(&mut self, call: Option<&TrayCall>) {
+        match (call, self.call.as_ref()) {
+            (Some(call), Some(items)) => {
+                items.status.set_text(&call.status);
+                items.show.set_text(&call.show);
+                items.end.set_text(&call.end);
+                self.tray.set_title(Some(&call.time));
+            }
+            (Some(call), None) => {
+                let items = CallItems {
+                    status: MenuItem::with_id("conduit-call-status", &call.status, false, None),
+                    show: MenuItem::with_id(TrayCommand::ShowCall.id(), &call.show, true, None),
+                    end: MenuItem::with_id(TrayCommand::EndCall.id(), &call.end, true, None),
+                    separator: PredefinedMenuItem::separator(),
+                };
+                let _ = self.menu.insert(&items.status, 0);
+                let _ = self.menu.insert(&items.show, 1);
+                let _ = self.menu.insert(&items.end, 2);
+                let _ = self.menu.insert(&items.separator, 3);
+                self.tray.set_title(Some(&call.time));
+                self.call = Some(items);
+            }
+            (None, Some(_)) => {
+                if let Some(items) = self.call.take() {
+                    let _ = self.menu.remove(&items.status);
+                    let _ = self.menu.remove(&items.show);
+                    let _ = self.menu.remove(&items.end);
+                    let _ = self.menu.remove(&items.separator);
+                }
+                self.tray.set_title(None::<&str>);
+            }
+            (None, None) => {}
+        }
+    }
+
+    /// Whether it shows a call (E2E).
+    pub fn shows_call(&self) -> bool {
+        self.call.is_some()
     }
 
     /// New words (the language changed) or chords (a shortcut changed).
@@ -128,7 +203,7 @@ impl MenuBarItem {
 /// Chat and Quick Ask follow their shortcuts, Settings… is ⌘, and Quit ⌘Q.
 fn accelerator(labels: &TrayLabels, command: TrayCommand) -> Option<Accelerator> {
     let stroke = match command {
-        TrayCommand::Open => return None,
+        TrayCommand::Open | TrayCommand::ShowCall | TrayCommand::EndCall => return None,
         TrayCommand::NewChat => labels.new_chat_keys.clone()?,
         TrayCommand::QuickAsk => labels.quick_ask_keys.clone()?,
         TrayCommand::Settings => KeyStroke::new(",").primary(),
@@ -180,6 +255,7 @@ fn label(labels: &TrayLabels, command: TrayCommand) -> &str {
         TrayCommand::QuickAsk => &labels.quick_ask,
         TrayCommand::Settings => &labels.settings,
         TrayCommand::Quit => &labels.quit,
+        TrayCommand::ShowCall | TrayCommand::EndCall => "",
     }
 }
 

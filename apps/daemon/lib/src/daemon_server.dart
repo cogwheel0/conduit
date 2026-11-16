@@ -50,6 +50,7 @@ import 'terminals_service.dart';
 import 'handoff_service.dart';
 import 'hermes_cards_service.dart';
 import 'hermes_service.dart';
+import 'calls_service.dart';
 import 'speech_service.dart';
 import 'voice_service.dart';
 import 'dictation_service.dart';
@@ -139,6 +140,7 @@ class DaemonServer {
   AccessService? _access;
   FolderSettingsService? _folderSettings;
   SpeechService? _readAloud;
+  CallsService? _calls;
   ReleaseNotesRpcService? _releaseNotes;
   DataService? _data;
 
@@ -285,6 +287,13 @@ class DaemonServer {
       voice: _voice!,
       answerFor: chats?.answerFor,
     );
+    _calls = CallsService(
+      core.container,
+      events: events,
+      turns: _turns!,
+      ports: core.calls,
+      speech: _readAloud,
+    );
     if (chats != null) {
       _voice!.speechOfChat = (chatId) async => SpeechService.speechForModel(
         core.container,
@@ -327,6 +336,7 @@ class DaemonServer {
       access: _access,
       folderSettings: _folderSettings,
       speech: _readAloud,
+      calls: _calls,
       handoff: _handoff,
     );
     // What the active account can use: answered by `system.capabilities`
@@ -381,7 +391,9 @@ class DaemonServer {
     return (shelf.Request request) async {
       final path = '/${request.url.path}';
       final isWebSocketRoute =
-          path == ConduitHttpRoutes.rpc || path.startsWith('/terminal/');
+          path == ConduitHttpRoutes.rpc ||
+          path.startsWith('/terminal/') ||
+          path.startsWith('/calls/');
 
       if (isWebSocketRoute) {
         if (!isAllowedOrigin(request.headers['origin'])) {
@@ -459,6 +471,7 @@ class DaemonServer {
       return _terminalUpload(request);
     }
     if (path.startsWith('/terminal/')) return _terminalTunnel(request, path);
+    if (path.startsWith('/calls/')) return _callAudio(request, path);
     if (path.startsWith('/files/')) return _file(request);
     if (path == ConduitHttpRoutes.transcribe) return _transcribe(request);
     if (path.startsWith('/recordings/')) return _recording(request, path);
@@ -494,6 +507,23 @@ class DaemonServer {
     return webSocketHandler(
       (WebSocketChannel socket, String? _) =>
           unawaited(terminals.tunnel(handle, socket)),
+      protocols: const <String>{negotiatedSubprotocol},
+      pingInterval: const Duration(seconds: 25),
+    )(request);
+  }
+
+  /// `WS /calls/{handle}` -- a realtime call's audio, with the window. The
+  /// auth gate has checked the origin and the session token already; a
+  /// handle that is not the call's now is refused before the upgrade.
+  Future<shelf.Response> _callAudio(shelf.Request request, String path) async {
+    final calls = _calls;
+    final handle = path.substring('/calls/'.length);
+    if (calls == null || !calls.knowsAudio(handle)) {
+      return shelf.Response.notFound('no such call');
+    }
+    return webSocketHandler(
+      (WebSocketChannel socket, String? _) =>
+          unawaited(calls.tunnel(handle, socket)),
       protocols: const <String>{negotiatedSubprotocol},
       pingInterval: const Duration(seconds: 25),
     )(request);
@@ -1023,6 +1053,7 @@ class DaemonServer {
       await session.close();
     }
     _sessions.clear();
+    await _calls?.dispose();
     await _readAloud?.dispose();
     await _terminals?.dispose();
     await _data?.dispose();

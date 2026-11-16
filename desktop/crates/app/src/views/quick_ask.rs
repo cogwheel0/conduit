@@ -67,6 +67,8 @@ pub enum QuickAskEvent {
         text: String,
         attachments: Vec<crate::stores::composer::Attachment>,
     },
+    /// A voice call in a new chat with this model, in the main window.
+    StartCall(Option<String>),
 }
 
 impl gpui_kit::EventEmitter<QuickAskEvent> for QuickAskView {}
@@ -119,6 +121,8 @@ impl QuickAskView {
             c.new_chat = false;
             // Two answers side by side need the main window's room.
             c.compare_ui = false;
+            // A call: its strip lives in the main window.
+            c.call_offer = true;
             c
         });
         let subscriptions = vec![
@@ -146,6 +150,10 @@ impl QuickAskView {
                 }
             }),
             cx.observe(&stores.connection, |this, _, cx| this.sync_offline(cx)),
+            // The call button: ready while no call is on and a model is
+            // chosen.
+            cx.observe(&stores.call, |this, _, cx| this.sync_call(cx)),
+            cx.observe(&composer_store, |this, _, cx| this.sync_call(cx)),
             cx.subscribe(&stores.connection, |this, _, event, cx| {
                 this.on_connection(event, cx)
             }),
@@ -171,6 +179,15 @@ impl QuickAskView {
                     | ChatComposerEvent::Steer { .. }
                     | ChatComposerEvent::SaveAsNote(_)
                     | ChatComposerEvent::CompareModels => {}
+                    // A call goes on in the main window, in a new chat.
+                    ChatComposerEvent::StartCall => {
+                        let model = this
+                            .composer_store
+                            .read(cx)
+                            .selected_model()
+                            .map(|m| m.id.clone());
+                        cx.emit(QuickAskEvent::StartCall(model));
+                    }
                 },
             ),
             cx.subscribe(&composer_store, |this, _, event, cx| {
@@ -313,6 +330,19 @@ impl QuickAskView {
             }
             ConnectionEvent::LocalDataReset { .. } => {}
         }
+    }
+
+    fn sync_call(&mut self, cx: &mut Context<Self>) {
+        let on = self.stores.call.read(cx).is_active();
+        let composer = self.composer_store.read(cx);
+        let ready = !on && composer.selected_model().is_some() && composer.options.voice_call;
+        self.composer.update(cx, |c, cx| {
+            if c.call_ready != ready || c.call_on != on {
+                c.call_ready = ready;
+                c.call_on = on;
+                cx.notify();
+            }
+        });
     }
 
     fn sync_offline(&mut self, cx: &mut Context<Self>) {

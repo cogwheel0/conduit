@@ -16,7 +16,15 @@ use futures_util::StreamExt as _;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use serde_json::Value;
 
-use crate::protocol::{RpcError, RpcErrorExt as _, codes, error};
+use crate::protocol::{APP_ORIGIN, RpcError, RpcErrorExt as _, SUBPROTOCOL, codes, error};
+use crate::secrets::subprotocol_token;
+
+/// A message on a [`DaemonSocket`].
+pub use tokio_tungstenite::tungstenite::Message as SocketMessage;
+
+/// A WebSocket to the daemon ([`HttpClient::websocket`]).
+pub type DaemonSocket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// What `encodeURIComponent` leaves alone; Dart's `Uri.decodeComponent`
 /// reverses it.
@@ -137,6 +145,34 @@ impl HttpClient {
     pub async fn speech(&self, job_id: &str) -> Result<FileBytes, RpcError> {
         let url = format!("{}/tts/{}", self.base, encode_component(job_id));
         self.get_bytes(url).await
+    }
+
+    /// A WebSocket on the daemon at `path` (`/calls/{handle}`, a realtime
+    /// call's audio), opened as the RPC socket is: the app's origin and the
+    /// session token in the subprotocols. Runs on the shared runtime.
+    pub async fn websocket(&self, path: &str) -> Result<DaemonSocket, RpcError> {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+        use tokio_tungstenite::tungstenite::http::HeaderValue;
+
+        let url = format!("{}{}", self.base.replacen("http", "ws", 1), path);
+        let mut request = url
+            .into_client_request()
+            .map_err(|e| error(codes::INTERNAL, e.to_string()))?;
+        let headers = request.headers_mut();
+        headers.insert("Origin", HeaderValue::from_static(APP_ORIGIN));
+        let protocols = format!("{SUBPROTOCOL}, {}", subprotocol_token(&self.token));
+        headers.insert(
+            "Sec-WebSocket-Protocol",
+            HeaderValue::from_str(&protocols).map_err(|e| error(codes::INTERNAL, e.to_string()))?,
+        );
+        let (socket, _) = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            tokio_tungstenite::connect_async(request),
+        )
+        .await
+        .map_err(|_| error(codes::DAEMON_UNAVAILABLE, "the daemon did not answer"))?
+        .map_err(|e| error(codes::DAEMON_UNAVAILABLE, e.to_string()))?;
+        Ok(socket)
     }
 
     /// `POST /transcribe`: `wav` (16 kHz mono) as text, by `engine`

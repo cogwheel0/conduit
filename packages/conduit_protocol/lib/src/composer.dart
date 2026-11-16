@@ -90,6 +90,14 @@ abstract class ComposerOptions with _$ComposerOptions {
     /// in their order (the core's `composerQuickPills`, as mobile's composer
     /// draws them); none outside Open WebUI.
     @Default(<QuickPillOption>[]) List<QuickPillOption> quickPills,
+
+    /// A voice call can start with the selected model: the core's
+    /// `voiceCallEligibilityProvider`, the phone's admission. A model is
+    /// chosen, and it is Hermes while its connection is usable (a Hermes
+    /// chat's call is a Standard one on the desktop), an on-device Direct
+    /// model while its connection is there, or else a signed-in Open WebUI
+    /// account's. The composer's call button and Start Voice Call follow it.
+    @Default(false) bool voiceCall,
   }) = _ComposerOptions;
 
   factory ComposerOptions.fromJson(Map<String, dynamic> json) =>

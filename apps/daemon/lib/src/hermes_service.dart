@@ -94,6 +94,7 @@ final class HermesService {
     _known.clear();
     _transcripts.clear();
     _previous.clear();
+    _lastRead.clear();
   }
 
   void dispose() {
@@ -712,9 +713,10 @@ final class HermesService {
         debugMessage: 'the Hermes connection changed during the read',
       );
     }
-    final messages = _keepIds(
+    final messages = keepIds(
       read,
       _transcripts[sessionId] ?? _previous.remove(sessionId),
+      earlier: _lastRead[sessionId],
     );
     // Another Hermes app's session opens read-only on REST, as on a phone.
     final summary = _known[sessionId];
@@ -735,8 +737,13 @@ final class HermesService {
           .mark(sessionId, source: summary.source);
     }
     _transcripts[sessionId] = messages;
+    _lastRead[sessionId] = messages;
     return List<ChatMessage>.of(messages);
   }
+
+  /// Each session's last read, whose ids a tool step's rows keep.
+  final Map<String, List<ChatMessage>> _lastRead =
+      <String, List<ChatMessage>>{};
 
   /// Drops what is kept of [sessionId]'s transcript, so the next read is
   /// Hermes's own record: a turn has added to it there. Its messages'
@@ -752,25 +759,89 @@ final class HermesService {
   final Map<String, List<ChatMessage>> _previous =
       <String, List<ChatMessage>>{};
 
-  /// [read] with [known]'s ids where the same message stands at the same
-  /// place (same role and text), unless the read already uses that id.
-  static List<ChatMessage> _keepIds(
+  /// [read] with the names its messages already have: [known]'s (the
+  /// chat scope's, or the last read), then [earlier]'s (the read before)
+  /// for what [known] does not name. Hermes's rows carry no ids, and a
+  /// turn that used tools is several rows in its record (a step each)
+  /// but one answer in a chat scope, so names are kept turn by turn:
+  ///
+  /// * turns line up by their question, until a question differs;
+  /// * a turn's last row is its answer, the one a window acts on (Retry,
+  ///   Branch from Here), and keeps the answer's name;
+  /// * in turns of as many rows, the earlier rows keep theirs where they
+  ///   say the same (or both are failed answers: the scope's carries the
+  ///   live failure, Hermes's record its own notice).
+  ///
+  /// A name the read already uses is never given to another message.
+  static List<ChatMessage> keepIds(
     List<ChatMessage> read,
-    List<ChatMessage>? known,
-  ) {
-    if (known == null || known.isEmpty) return read;
-    final taken = <String>{for (final m in read) m.id};
-    return <ChatMessage>[
-      for (final (i, message) in read.indexed)
-        if (i < known.length &&
-            known[i].id != message.id &&
-            !taken.contains(known[i].id) &&
-            known[i].role == message.role &&
-            known[i].content.trim() == message.content.trim())
-          message.copyWith(id: known[i].id)
-        else
-          message,
-    ];
+    List<ChatMessage>? known, {
+    List<ChatMessage>? earlier,
+  }) {
+    final out = List<ChatMessage>.of(read);
+    final named = <int>{};
+    void keep(List<ChatMessage>? source) {
+      if (source == null || source.isEmpty) return;
+      final taken = <String>{for (final m in out) m.id};
+      final ours = _turns(out);
+      final theirs = _turns(source);
+      for (var k = 0; k < ours.length && k < theirs.length; k++) {
+        final (askedHere, rowsHere) = ours[k];
+        final (askedThere, rowsThere) = theirs[k];
+        if ((askedHere == null) != (askedThere == null)) break;
+        if (askedHere != null &&
+            out[askedHere].content.trim() !=
+                source[askedThere!].content.trim()) {
+          break;
+        }
+        final pairs = <(int, int, bool)>[
+          if (askedHere != null) (askedHere, askedThere!, false),
+          if (rowsHere.length == rowsThere.length)
+            for (var i = 0; i < rowsHere.length - 1; i++)
+              (rowsHere[i], rowsThere[i], true),
+          if (rowsHere.isNotEmpty && rowsThere.isNotEmpty)
+            (rowsHere.last, rowsThere.last, false),
+        ];
+        for (final (here, there, strict) in pairs) {
+          if (named.contains(here)) continue;
+          final name = source[there].id;
+          if (out[here].id == name) {
+            named.add(here);
+            continue;
+          }
+          if (taken.contains(name) || out[here].role != source[there].role) {
+            continue;
+          }
+          if (strict && !_saysTheSame(out[here], source[there])) continue;
+          out[here] = out[here].copyWith(id: name);
+          taken.add(name);
+          named.add(here);
+        }
+      }
+    }
+
+    keep(known);
+    keep(earlier);
+    return out;
+  }
+
+  static bool _saysTheSame(ChatMessage a, ChatMessage b) =>
+      a.content.trim() == b.content.trim() ||
+      (a.error != null && b.error != null);
+
+  /// [messages] as turns: each question's index (null for replies before
+  /// any) and its replies' indices.
+  static List<(int?, List<int>)> _turns(List<ChatMessage> messages) {
+    final turns = <(int?, List<int>)>[];
+    for (final (i, m) in messages.indexed) {
+      if (m.role == 'user') {
+        turns.add((i, <int>[]));
+      } else if (m.role == 'assistant') {
+        if (turns.isEmpty) turns.add((null, <int>[]));
+        turns.last.$2.add(i);
+      }
+    }
+    return turns;
   }
 
   /// Titles of sessions this app made that Hermes leaves untitled (a copy

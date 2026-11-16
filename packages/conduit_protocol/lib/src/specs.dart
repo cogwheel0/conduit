@@ -34,6 +34,7 @@ import 'terminal.dart';
 import 'turns.dart';
 import 'valves.dart';
 import 'speech.dart';
+import 'calls.dart';
 import 'voice.dart';
 import 'workspace.dart';
 
@@ -1057,6 +1058,43 @@ abstract final class ConduitMethodSpecs {
     result: OkResult.fromJson,
   );
 
+  // calls.*
+
+  static const callsGet = ConduitMethodSpec<void, CallState>(
+    ConduitMethods.callsGet,
+    result: CallState.fromJson,
+  );
+  static const callsStart = ConduitMethodSpec<CallStart, CallState>(
+    ConduitMethods.callsStart,
+    params: CallStart.fromJson,
+    result: CallState.fromJson,
+  );
+  static const callsEnd = ConduitMethodSpec<void, CallState>(
+    ConduitMethods.callsEnd,
+    result: CallState.fromJson,
+  );
+  static const callsPause = ConduitMethodSpec<void, CallState>(
+    ConduitMethods.callsPause,
+    result: CallState.fromJson,
+  );
+  static const callsResume = ConduitMethodSpec<void, CallState>(
+    ConduitMethods.callsResume,
+    result: CallState.fromJson,
+  );
+  static const callsMute = ConduitMethodSpec<void, CallState>(
+    ConduitMethods.callsMute,
+    result: CallState.fromJson,
+  );
+  static const callsSkip = ConduitMethodSpec<void, CallState>(
+    ConduitMethods.callsSkip,
+    result: CallState.fromJson,
+  );
+  static const callsReport = ConduitMethodSpec<CallReport, OkResult>(
+    ConduitMethods.callsReport,
+    params: CallReport.fromJson,
+    result: OkResult.fromJson,
+  );
+
   // notes.*
 
   static const notesList = ConduitMethodSpec<NoteQuery, NoteList>(
@@ -1789,6 +1827,14 @@ abstract final class ConduitMethodSpecs {
         speechSeek,
         speechPreview,
         speechReport,
+        callsGet,
+        callsStart,
+        callsEnd,
+        callsPause,
+        callsResume,
+        callsMute,
+        callsSkip,
+        callsReport,
         notesList,
         notesGet,
         notesSave,
@@ -2079,6 +2125,16 @@ abstract final class ConduitEventSpecs {
     payload: SpeechCommand.fromJson,
     scoped: false,
   );
+  static const callsChanged = ConduitEventSpec<CallState>(
+    ConduitEvents.callsChanged,
+    payload: CallState.fromJson,
+    scoped: false,
+  );
+  static const callsCommand = ConduitEventSpec<CallCommand>(
+    ConduitEvents.callsCommand,
+    payload: CallCommand.fromJson,
+    scoped: false,
+  );
 
   static const hermesWorkChanged = ConduitEventSpec<HermesWork>(
     ConduitEvents.hermesWorkChanged,
@@ -2124,6 +2180,8 @@ abstract final class ConduitEventSpecs {
         speechChanged,
         speechCommand,
         hermesWorkChanged,
+        callsChanged,
+        callsCommand,
       ];
 
   static final Map<String, ConduitEventSpec<Object?>> _byName =

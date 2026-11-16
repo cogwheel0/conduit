@@ -11,6 +11,14 @@
 //! more). It drives [`ClipOutput`]s: `AVAudioPlayer` on macOS, a clock in
 //! tests.
 //!
+//! **In a call.** While a Standard voice call is on, what is said plays on
+//! the call's own engine ([`crate::voice::call_audio`]), whose microphone
+//! runs through voice processing: the Mac's voice is written to samples
+//! (`AVSpeechSynthesizer.write`) and the server's clips decoded, both played
+//! on its player node, so the call does not hear its answer as the user's
+//! words. The reports are the same, `complete` once the last of it was
+//! heard; words are not reported there (nothing in a call shows them).
+//!
 //! **Null sink.** `CONDUIT_SPEECH_OUTPUT=null` (dev and E2E only) speaks
 //! and plays everything at volume 0: the voices still report their words
 //! and the clips still run their length, so a test hears nothing while the
@@ -327,8 +335,11 @@ impl Voice {
 mod mac {
     use std::cell::RefCell;
     use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
+    use block2::RcBlock;
     use futures::channel::mpsc::UnboundedSender;
     use objc2::rc::{Allocated, Retained};
     use objc2::runtime::{AnyClass, AnyObject, NSObject, NSObjectProtocol};
@@ -338,6 +349,9 @@ mod mac {
     use conduit_protocol::SpeechReportKind;
 
     use super::{ClipLoader, ClipOutput, VoiceEvent};
+    use crate::voice::call_audio::{self, CallAudio, Utterance};
+    use crate::voice::call_audio_mac;
+    use crate::voice::pcm::Resampler;
 
     #[link(name = "AVFoundation", kind = "framework")]
     unsafe extern "C" {}
@@ -436,14 +450,19 @@ mod mac {
         delegate: Retained<SpeechDelegate>,
         synth: Option<Retained<AnyObject>>,
         muted: bool,
+        events: UnboundedSender<VoiceEvent>,
+        /// The utterance being said on a call's engine.
+        call: Option<CallSpeech>,
     }
 
     impl Voice {
         pub fn new(events: UnboundedSender<VoiceEvent>, muted: bool) -> Self {
             Self {
-                delegate: SpeechDelegate::new(events),
+                delegate: SpeechDelegate::new(events.clone()),
                 synth: None,
                 muted,
+                events,
+                call: None,
             }
         }
 
@@ -464,42 +483,23 @@ mod mac {
             volume: f64,
         ) -> bool {
             self.stop();
-            let (Some(synth_class), Some(utterance_class)) = (
-                AnyClass::get(c"AVSpeechSynthesizer"),
-                AnyClass::get(c"AVSpeechUtterance"),
-            ) else {
+            let volume = if self.muted {
+                0.0
+            } else {
+                volume.clamp(0.0, 1.0)
+            };
+            let Some((synth, utterance)) = made(text, voice, rate, pitch, volume) else {
                 return false;
             };
+            // A Standard call is on: said on its engine, where the
+            // microphone's voice processing hears it.
+            if let Some(audio) = call_audio::current() {
+                self.call = CallSpeech::start(audio, synth, utterance, number, &self.events);
+                return self.call.is_some();
+            }
             // SAFETY: AVFoundation on the main thread; the synthesizer is
             // kept in `self.synth` and the utterance by the delegate.
             unsafe {
-                let synth: Option<Retained<AnyObject>> = msg_send![synth_class, new];
-                let Some(synth) = synth else { return false };
-                let text = NSString::from_str(text);
-                let utterance: Option<Retained<AnyObject>> =
-                    msg_send![utterance_class, speechUtteranceWithString: &*text];
-                let Some(utterance) = utterance else {
-                    return false;
-                };
-                if let Some(id) = voice
-                    && let Some(voice_class) = AnyClass::get(c"AVSpeechSynthesisVoice")
-                {
-                    let id = NSString::from_str(id);
-                    let voice: Option<Retained<AnyObject>> =
-                        msg_send![voice_class, voiceWithIdentifier: &*id];
-                    if let Some(voice) = voice {
-                        let _: () = msg_send![&*utterance, setVoice: &*voice];
-                    }
-                }
-                let _: () = msg_send![&*utterance, setRate: rate.clamp(0.0, 1.0) as f32];
-                let _: () =
-                    msg_send![&*utterance, setPitchMultiplier: pitch.clamp(0.5, 2.0) as f32];
-                let volume = if self.muted {
-                    0.0
-                } else {
-                    volume.clamp(0.0, 1.0)
-                };
-                let _: () = msg_send![&*utterance, setVolume: volume as f32];
                 let delegate: &AnyObject = &self.delegate;
                 let _: () = msg_send![&*synth, setDelegate: delegate];
                 self.delegate.remember(utterance.clone(), number);
@@ -510,6 +510,9 @@ mod mac {
         }
 
         pub fn pause(&mut self) -> bool {
+            if let Some(call) = &self.call {
+                return call.pause();
+            }
             let Some(synth) = &self.synth else {
                 return false;
             };
@@ -518,6 +521,9 @@ mod mac {
         }
 
         pub fn resume(&mut self) -> bool {
+            if let Some(call) = &self.call {
+                return call.resume();
+            }
             let Some(synth) = &self.synth else {
                 return false;
             };
@@ -525,13 +531,373 @@ mod mac {
             unsafe { msg_send![&**synth, continueSpeaking] }
         }
 
-        /// Stops; the utterance reports `cancel`.
+        /// Stops (the Mac's voice reports `cancel` when it can; a call's never
+        /// does).
         pub fn stop(&mut self) -> bool {
+            if let Some(call) = self.call.take() {
+                return call.stop();
+            }
             let Some(synth) = self.synth.take() else {
                 return false;
             };
             // SAFETY: as above.
             unsafe { msg_send![&*synth, stopSpeakingAtBoundary: 0isize] }
+        }
+    }
+
+    /// A synthesizer and the utterance of `text` it is to say.
+    fn made(
+        text: &str,
+        voice: Option<&str>,
+        rate: f64,
+        pitch: f64,
+        volume: f64,
+    ) -> Option<(Retained<AnyObject>, Retained<AnyObject>)> {
+        let synth_class = AnyClass::get(c"AVSpeechSynthesizer")?;
+        let utterance_class = AnyClass::get(c"AVSpeechUtterance")?;
+        // SAFETY: AVFoundation on the main thread; both are returned owned.
+        unsafe {
+            let synth: Option<Retained<AnyObject>> = msg_send![synth_class, new];
+            let synth = synth?;
+            let text = NSString::from_str(text);
+            let utterance: Option<Retained<AnyObject>> =
+                msg_send![utterance_class, speechUtteranceWithString: &*text];
+            let utterance = utterance?;
+            if let Some(id) = voice
+                && let Some(voice_class) = AnyClass::get(c"AVSpeechSynthesisVoice")
+            {
+                let id = NSString::from_str(id);
+                let voice: Option<Retained<AnyObject>> =
+                    msg_send![voice_class, voiceWithIdentifier: &*id];
+                if let Some(voice) = voice {
+                    let _: () = msg_send![&*utterance, setVoice: &*voice];
+                }
+            }
+            let _: () = msg_send![&*utterance, setRate: rate.clamp(0.0, 1.0) as f32];
+            let _: () = msg_send![&*utterance, setPitchMultiplier: pitch.clamp(0.5, 2.0) as f32];
+            let _: () = msg_send![&*utterance, setVolume: volume as f32];
+            Some((synth, utterance))
+        }
+    }
+
+    /// One utterance said on a call's engine: the voice writes it to
+    /// samples, which play on the call's player as they come.
+    struct CallSpeech {
+        audio: Arc<CallAudio>,
+        synth: Retained<AnyObject>,
+        number: i64,
+        state: Arc<Mutex<Utterance>>,
+        events: UnboundedSender<VoiceEvent>,
+    }
+
+    /// How long a voice may take to write a sentence's first audio.
+    const SILENT: Duration = Duration::from_secs(4);
+
+    /// How long the voice may go quiet, everything written so far heard,
+    /// before its utterance counts as said: the Mac ends a written one with
+    /// an empty buffer, which is not promised.
+    const QUIET: Duration = Duration::from_millis(800);
+
+    fn tell(events: &UnboundedSender<VoiceEvent>, kind: SpeechReportKind, utterance: i64) {
+        let _ = events.unbounded_send(VoiceEvent {
+            kind,
+            utterance,
+            range: None,
+        });
+    }
+
+    /// Plays `samples` on `audio` as the next chunk of the utterance.
+    fn chunk(
+        audio: &Arc<CallAudio>,
+        samples: &[f32],
+        state: &Arc<Mutex<Utterance>>,
+        events: &UnboundedSender<VoiceEvent>,
+        number: i64,
+    ) {
+        if samples.is_empty() {
+            return;
+        }
+        let first = state.lock().is_ok_and(|mut u| u.scheduled());
+        if first {
+            log::debug!("call speech {number}: first audio");
+            tell(events, SpeechReportKind::Start, number);
+        }
+        let generation = audio.generation();
+        let weak = Arc::downgrade(audio);
+        let heard = {
+            let state = state.clone();
+            let events = events.clone();
+            move || {
+                let (complete, drained, count) = match state.lock() {
+                    Ok(mut u) => (u.played(), u.drained(), u.scheduled_count()),
+                    Err(_) => return,
+                };
+                if complete {
+                    log::debug!("call speech {number}: heard");
+                    tell(&events, SpeechReportKind::Complete, number);
+                } else if drained {
+                    // Everything written was heard: ended, unless more
+                    // comes soon.
+                    std::thread::spawn(move || {
+                        std::thread::sleep(QUIET);
+                        let live = weak.upgrade().is_some_and(|a| a.generation() == generation);
+                        let ended = live
+                            && state.lock().is_ok_and(|mut u| {
+                                u.drained() && u.scheduled_count() == count && u.ended()
+                            });
+                        if ended {
+                            log::debug!("call speech {number}: heard (no end mark)");
+                            tell(&events, SpeechReportKind::Complete, number);
+                        }
+                    });
+                }
+            }
+        };
+        if !audio.schedule(samples, Box::new(heard)) {
+            // Nothing to play it on: it counts as heard, so the call goes on.
+            let complete = state.lock().is_ok_and(|mut u| u.played());
+            if complete {
+                tell(events, SpeechReportKind::Complete, number);
+            }
+        }
+    }
+
+    impl CallSpeech {
+        fn start(
+            audio: Arc<CallAudio>,
+            synth: Retained<AnyObject>,
+            utterance: Retained<AnyObject>,
+            number: i64,
+            events: &UnboundedSender<VoiceEvent>,
+        ) -> Option<Self> {
+            audio.stop();
+            audio.set_rate(1.0);
+            let generation = audio.generation();
+            let state = Arc::new(Mutex::new(Utterance::default()));
+            let resampler: Mutex<Option<Resampler>> = Mutex::new(None);
+            let written = {
+                let audio = audio.clone();
+                let state = state.clone();
+                let events = events.clone();
+                RcBlock::new(move |buffer: *mut AnyObject| {
+                    if audio.generation() != generation {
+                        return;
+                    }
+                    // SAFETY: the buffer the voice hands over, alive for
+                    // this call.
+                    let written = unsafe { call_audio_mac::buffer_samples(buffer) };
+                    let Ok(mut resampler) = resampler.lock() else {
+                        return;
+                    };
+                    match written {
+                        Some((samples, rate)) if !samples.is_empty() => {
+                            let resampler = resampler
+                                .get_or_insert_with(|| Resampler::to(rate, call_audio::RATE));
+                            let samples = resampler.push(&samples);
+                            chunk(&audio, &samples, &state, &events, number);
+                        }
+                        // An empty buffer: the voice has written it all.
+                        _ => {
+                            if let Some(mut resampler) = resampler.take() {
+                                let tail = resampler.push(&vec![
+                                    0.0;
+                                    64.max(
+                                        resampler.input_rate() as usize / 50
+                                    )
+                                ]);
+                                chunk(&audio, &tail, &state, &events, number);
+                            }
+                            let (start, complete) = match state.lock() {
+                                Ok(mut u) => {
+                                    log::debug!(
+                                        "call speech {number}: written ({} chunks)",
+                                        u.scheduled_count()
+                                    );
+                                    let complete = u.ended();
+                                    (complete && u.take_start(), complete)
+                                }
+                                Err(_) => (false, false),
+                            };
+                            if start {
+                                tell(&events, SpeechReportKind::Start, number);
+                            }
+                            if complete {
+                                tell(&events, SpeechReportKind::Complete, number);
+                            }
+                        }
+                    }
+                })
+            };
+            // SAFETY: AVFoundation; the synthesizer is kept by the
+            // `CallSpeech` and copies the block.
+            unsafe {
+                let _: () = msg_send![
+                    &*synth,
+                    writeUtterance: &*utterance,
+                    toBufferCallback: &*written
+                ];
+            }
+            audio.play();
+            audio.count_said();
+            log::debug!("call speech {number}: writing");
+            // A voice that writes nothing (the Mac's synthesizer can, right
+            // after another was stopped mid-sentence) would hold the call on
+            // this sentence: it counts as said, and the call goes on.
+            {
+                let weak = Arc::downgrade(&audio);
+                let state = state.clone();
+                let events = events.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(SILENT);
+                    let live = weak.upgrade().is_some_and(|a| a.generation() == generation);
+                    let silent = live
+                        && state.lock().is_ok_and(|mut u| {
+                            let silent = u.scheduled_count() == 0 && !u.is_done() && u.ended();
+                            if silent {
+                                u.take_start();
+                            }
+                            silent
+                        });
+                    if silent {
+                        log::warn!("call speech {number}: the voice wrote nothing; going on");
+                        tell(&events, SpeechReportKind::Start, number);
+                        tell(&events, SpeechReportKind::Complete, number);
+                    }
+                });
+            }
+            Some(Self {
+                audio,
+                synth,
+                number,
+                state,
+                events: events.clone(),
+            })
+        }
+
+        fn pause(&self) -> bool {
+            self.audio.pause();
+            tell(&self.events, SpeechReportKind::Pause, self.number);
+            true
+        }
+
+        fn resume(&self) -> bool {
+            self.audio.play();
+            tell(&self.events, SpeechReportKind::Resume, self.number);
+            true
+        }
+
+        fn stop(self) -> bool {
+            log::debug!("call speech {}: stopped", self.number);
+            // The player first: a last buffer the voice hands over as it
+            // stops is then the stopped utterance's, and reports nothing.
+            self.audio.stop();
+            // SAFETY: the synthesizer this utterance is written by.
+            unsafe {
+                let _: bool = msg_send![&*self.synth, stopSpeakingAtBoundary: 0isize];
+            }
+            // Done, and never reported: whoever stops it knows (the
+            // daemon's own stop says it was cancelled), while a `cancel`
+            // that reached the daemon after it began the next answer, before
+            // that answer's first sentence, would end the next answer too.
+            // (The Mac's own voice is released as it stops, and says
+            // nothing either.)
+            let _ = self.state.lock().map(|mut u| u.cancel());
+            true
+        }
+    }
+
+    /// One of the server's clips, decoded and played on a call's engine.
+    struct CallClip {
+        audio: Arc<CallAudio>,
+        samples: Arc<Vec<f32>>,
+        /// Where it plays from next, in samples.
+        from: usize,
+        /// The player's generation it was scheduled in.
+        scheduled: Option<u64>,
+        finished: Arc<AtomicBool>,
+        speed: f64,
+        counted: bool,
+    }
+
+    impl CallClip {
+        fn load(audio: Arc<CallAudio>, bytes: &[u8], speed: f64) -> Option<Self> {
+            let (samples, rate) = call_audio_mac::decode(bytes)?;
+            Some(Self {
+                audio,
+                samples: Arc::new(call_audio::to_rate(&samples, rate)),
+                from: 0,
+                scheduled: None,
+                finished: Arc::new(AtomicBool::new(false)),
+                speed,
+                counted: false,
+            })
+        }
+
+        /// It is what the player has now.
+        fn live(&self) -> bool {
+            self.scheduled == Some(self.audio.generation())
+        }
+    }
+
+    impl ClipOutput for CallClip {
+        fn duration(&self) -> Duration {
+            call_audio::frames_to_time(self.samples.len())
+        }
+        fn position(&self) -> Duration {
+            if self.live() {
+                call_audio::clip_position(self.from, self.audio.played(), self.samples.len())
+            } else {
+                call_audio::frames_to_time(self.from.min(self.samples.len()))
+            }
+        }
+        fn play(&mut self) {
+            self.audio.set_rate(self.speed);
+            if self.live() {
+                // Paused: on from there.
+                self.audio.play();
+                return;
+            }
+            self.audio.stop();
+            self.finished.store(false, Ordering::SeqCst);
+            let rest = &self.samples[self.from.min(self.samples.len())..];
+            let finished = self.finished.clone();
+            let done = Box::new(move || finished.store(true, Ordering::SeqCst));
+            if !self.audio.schedule(rest, done) {
+                self.finished.store(true, Ordering::SeqCst);
+            }
+            self.scheduled = Some(self.audio.generation());
+            self.audio.play();
+            if !std::mem::replace(&mut self.counted, true) {
+                self.audio.count_said();
+            }
+        }
+        fn pause(&mut self) {
+            if self.live() {
+                self.audio.pause();
+            }
+        }
+        fn stop(&mut self) {
+            if self.live() {
+                self.audio.stop();
+            }
+            self.scheduled = None;
+        }
+        fn seek(&mut self, to: Duration) {
+            if self.live() {
+                self.audio.stop();
+            }
+            self.scheduled = None;
+            self.finished.store(false, Ordering::SeqCst);
+            self.from = call_audio::time_to_frames(to).min(self.samples.len());
+        }
+        fn set_speed(&mut self, speed: f64) {
+            self.speed = speed;
+            if self.live() {
+                self.audio.set_rate(speed);
+            }
+        }
+        fn is_playing(&self) -> bool {
+            self.live() && !self.finished.load(Ordering::SeqCst)
         }
     }
 
@@ -577,9 +943,14 @@ mod mac {
         }
     }
 
-    /// Loads clips into `AVAudioPlayer`s (silent ones when `muted`).
+    /// Loads clips into `AVAudioPlayer`s (silent ones when `muted`), or,
+    /// while a Standard call is on, onto the call's engine.
     pub fn clip_loader(muted: bool) -> ClipLoader {
         Box::new(move |bytes: &[u8], speed: f64| {
+            if let Some(audio) = call_audio::current() {
+                return CallClip::load(audio, bytes, speed)
+                    .map(|c| Box::new(c) as Box<dyn ClipOutput>);
+            }
             let (Some(player_class), Some(data_class)) =
                 (AnyClass::get(c"AVAudioPlayer"), AnyClass::get(c"NSData"))
             else {

@@ -377,12 +377,21 @@ impl ChatPane {
                     // The composer runs Compare Models itself, from its +
                     // menu (`choose_compare_model`).
                     ChatComposerEvent::CompareModels => {}
+                    ChatComposerEvent::StartCall => this.start_call(cx),
                 },
             ),
+            // The voice call: its strip or capsule, the composer's call
+            // button, and the new chat a call started, once it has an id.
+            cx.subscribe(
+                &stores.call,
+                |this, _, _: &crate::stores::call::CallChanged, cx| this.on_call_changed(cx),
+            ),
+            cx.observe(&stores.call, |_, _, cx| cx.notify()),
             // The title capsule shows the selected model; the menus follow
             // what the chat's settings offer.
             cx.observe(&composer_store, |this, _, cx| {
                 this.sync_settings_offer(cx);
+                this.sync_call_offer(cx);
                 cx.notify()
             }),
             // Toasts dock above the composer.
@@ -719,6 +728,7 @@ impl ChatPane {
                     cx,
                 );
                 self.open_chat(id, cx);
+                self.sync_call_offer(cx);
             }
             // Another area's item: the main window shows its pane, and the
             // chat stays loaded for when it comes back.
@@ -746,6 +756,7 @@ impl ChatPane {
                     .update(cx, |c, cx| c.switch_new_chat(folder, temporary, &text, cx));
                 self.chat = None;
                 self.sync_speech(cx);
+                self.sync_call_offer(cx);
                 self.prompt_card.update(cx, |p, cx| p.set_store(None, cx));
                 self.queue_edit = None;
                 // Nothing to find in a new chat.
@@ -1537,6 +1548,128 @@ impl ChatPane {
             .update(cx, |s, cx| s.toggle(chat_id, answer, cx));
     }
 
+    // ── Voice calls ───────────────────────────────────────────────────
+
+    /// Start Voice Call: in the open chat, or in the new chat this pane
+    /// shows (its model, folder and temporary switch, as a send would).
+    /// Dictation stops: the call owns the microphone.
+    pub fn start_call(&mut self, cx: &mut Context<Self>) {
+        if self.stores.call.read(cx).is_active() {
+            return;
+        }
+        // ⌥⌘V as the button: only when the core admits a call.
+        if !self.composer.read(cx).call_ready {
+            return;
+        }
+        if self
+            .chat
+            .as_ref()
+            .is_some_and(|c| c.store.read(cx).read_only())
+        {
+            return;
+        }
+        if let Some(dictation) = self.composer.read(cx).dictation.clone()
+            && dictation.read(cx).is_active()
+        {
+            dictation.update(cx, |d, cx| d.cancel(cx));
+        }
+        let chat_id = self.open_chat_id(cx);
+        let model = self
+            .composer_store
+            .read(cx)
+            .selected_model()
+            .map(|m| m.id.clone());
+        let navigation = self.stores.navigation.read(cx);
+        let temporary = chat_id.is_none()
+            && (matches!(navigation.selection(), Selection::New { temporary: true })
+                || self.composer.read(cx).temporary);
+        let folder = chat_id
+            .is_none()
+            .then(|| navigation.new_chat_folder().map(str::to_string))
+            .flatten();
+        self.stores
+            .call
+            .update(cx, |c, cx| c.start(chat_id, model, folder, temporary, cx));
+    }
+
+    /// Chat › Start Voice Call, or End Voice Call while one is on.
+    pub fn toggle_call(&mut self, cx: &mut Context<Self>) {
+        if self.stores.call.read(cx).is_active() {
+            self.stores.call.update(cx, |c, cx| c.end(cx));
+        } else {
+            self.start_call(cx);
+        }
+    }
+
+    /// Show Call: the call's chat, with its strip open.
+    pub fn show_call(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.stores.call.read(cx).chat_id().map(str::to_string) else {
+            return;
+        };
+        self.stores.call.update(cx, |c, cx| {
+            if c.collapsed {
+                c.toggle_collapsed(cx);
+            }
+        });
+        if self.open_chat_id(cx).as_deref() != Some(id.as_str()) {
+            self.stores.navigation.update(cx, |n, cx| n.open(id, cx));
+        }
+    }
+
+    fn on_call_changed(&mut self, cx: &mut Context<Self>) {
+        let call = self.stores.call.read(cx);
+        let chat_id = call.chat_id().map(str::to_string);
+        // A call started in a new chat (here, or from Quick Ask): once its
+        // first turn has made the chat, the chat opens where a new chat is
+        // shown; over another chat, the capsule offers Show Call.
+        if call.follow_new
+            && let Some(id) = chat_id
+        {
+            self.stores.call.update(cx, |c, _| c.follow_new = false);
+            if self.chat.is_none() {
+                self.stores.navigation.update(cx, |n, cx| n.open(id, cx));
+            }
+        }
+        self.sync_call_offer(cx);
+        cx.defer(crate::menus::refresh_menus);
+        cx.notify();
+    }
+
+    /// The composer's call button: offered in a chat that takes answers,
+    /// ready while no call is on and the core admits a call with the chosen
+    /// model (`ComposerOptions::voice_call`, the phone's rule: a Hermes
+    /// chat's call is a Standard one).
+    fn sync_call_offer(&mut self, cx: &mut Context<Self>) {
+        let offer = !self
+            .chat
+            .as_ref()
+            .is_some_and(|c| c.store.read(cx).read_only());
+        let on = self.stores.call.read(cx).is_active();
+        let composer = self.composer_store.read(cx);
+        let ready = !on && composer.selected_model().is_some() && composer.options.voice_call;
+        self.composer.update(cx, |c, cx| {
+            if c.call_offer != offer || c.call_ready != ready || c.call_on != on {
+                c.call_offer = offer;
+                c.call_ready = ready;
+                c.call_on = on;
+                cx.notify();
+            }
+        });
+    }
+
+    /// Whether the call's strip belongs in this pane now: the call is in
+    /// the open chat, or it is starting the new chat this pane shows.
+    fn call_here(&self, cx: &App) -> bool {
+        let call = self.stores.call.read(cx);
+        if !call.is_shown() {
+            return false;
+        }
+        match call.chat_id() {
+            Some(id) => self.open_chat_id(cx).as_deref() == Some(id),
+            None => self.chat.is_none() && call.follow_new,
+        }
+    }
+
     /// Follows the reading: its answer's Read Aloud says Stop Speaking and
     /// its words are marked in place; a reading of another chat pauses when
     /// this one opens, as the phone's does when its chat goes.
@@ -2245,6 +2378,20 @@ impl ChatPane {
             &t,
             cx,
         );
+        // The call, minimised or on in another chat: its capsule.
+        let call = self.stores.call.read(cx);
+        let here = self.call_here(cx);
+        let capsule = (call.is_active() && (!here || call.collapsed)).then(|| {
+            div()
+                .flex()
+                .justify_center()
+                .pb(px(6.))
+                .child(crate::views::chat::call::capsule(
+                    &self.stores.call,
+                    !here,
+                    cx,
+                ))
+        });
         Some(
             div()
                 .flex()
@@ -2255,6 +2402,7 @@ impl ChatPane {
                 .children(speech)
                 .child(self.approvals.clone())
                 .when(self.chat.is_some(), |d| d.child(self.prompt_card.clone()))
+                .children(capsule)
                 .into_any_element(),
         )
     }
@@ -2301,6 +2449,16 @@ pub fn register_actions(cx: &mut App) {
     cx.on_action(|_: &StopGenerating, cx| with_pane(cx, |p, _, cx| p.stop(cx)));
     cx.on_action(|_: &crate::actions::ReadAloud, cx| {
         with_pane(cx, |p, _, cx| p.read_aloud_last(cx))
+    });
+    cx.on_action(|_: &crate::actions::VoiceCall, cx| with_pane(cx, |p, _, cx| p.toggle_call(cx)));
+    cx.on_action(|_: &crate::actions::ShowCall, cx| {
+        crate::open_main_window(cx);
+        cx.defer(|cx| with_pane_now(cx, |p, _, cx| p.show_call(cx)));
+    });
+    cx.on_action(|_: &crate::actions::EndCall, cx| {
+        if let Some(call) = cx.try_global::<AppState>().map(|s| s.stores.call.clone()) {
+            call.update(cx, |c, cx| c.end(cx));
+        }
     });
     // ⌘. ends the reading from anywhere (Settings' preview too).
     cx.on_action(|_: &crate::actions::StopSpeaking, cx| {
@@ -2517,6 +2675,9 @@ impl Render for ChatPane {
         let docked = self.docked(window, cx);
         let toasts = crate::views::toasts::toast_dock(&self.stores.toasts, window, cx)
             .map(IntoElement::into_any_element);
+        // The voice call in this chat, open: its strip where the composer is.
+        let mut call_strip = (self.call_here(cx) && !self.stores.call.read(cx).collapsed)
+            .then(|| crate::views::chat::call::strip(&self.stores.call, cx));
         let body: AnyElement = match &self.chat {
             // The phone's new chat: the greeting in the middle of the page,
             // the composer at the bottom where every chat has it.
@@ -2554,11 +2715,15 @@ impl Render for ChatPane {
                             )
                         }),
                 )
-                .child(div().track_focus(&self.dock_focus).child(composer_dock(
-                    toasts,
-                    docked,
-                    self.composer.clone().into_any_element(),
-                )))
+                .child(
+                    div().track_focus(&self.dock_focus).child(composer_dock(
+                        toasts,
+                        docked,
+                        call_strip
+                            .take()
+                            .unwrap_or_else(|| self.composer.clone().into_any_element()),
+                    )),
+                )
                 .into_any_element(),
             Some(chat) => div()
                 .flex_1()
@@ -2598,7 +2763,9 @@ impl Render for ChatPane {
                             .child(SharedString::from(l10n.read_only_shared_chat()))
                             .into_any_element()
                     } else {
-                        self.composer.clone().into_any_element()
+                        call_strip
+                            .take()
+                            .unwrap_or_else(|| self.composer.clone().into_any_element())
                     },
                 )))
                 .into_any_element(),

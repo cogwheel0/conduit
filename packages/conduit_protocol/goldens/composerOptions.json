@@ -55,5 +55,6 @@
       "name": "Tidy Up",
       "targetId": "tidy"
     }
-  ]
+  ],
+  "voiceCall": true
 }

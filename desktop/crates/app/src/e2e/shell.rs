@@ -482,7 +482,8 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         let controls = ax(handle, "shell-quick-ask", dir, cx).await;
         pass &= ok(
             "Quick Ask's actions are labelled",
-            ["New Chat", "Open in Conduit", "Close", "Send"]
+            // Nothing typed: the call button stands where Send is.
+            ["New Chat", "Open in Conduit", "Close", "Start Voice Call"]
                 .iter()
                 .all(|l| has(&controls, "Button", l)),
         );

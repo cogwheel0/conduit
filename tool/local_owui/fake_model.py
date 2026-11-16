@@ -40,7 +40,16 @@ offers three models:
 
 Open WebUI's background tasks (title, tags, follow-ups) get JSON answers,
 and a note sent as `<notes>...</notes>` comes back as a markdown list.
-`/audio/transcriptions` answers with a fixed sentence (the log gets the
+`/realtime` (a WebSocket, OpenAI's Realtime API shape) is a scripted
+realtime voice, for Open WebUI's call bridge and the Direct voice provider:
+it hears speech by loudness in the 24 kHz PCM it is sent, transcribes the
+first utterance of a session as "What is the weather like by the harbour"
+(answered by the voice itself) and later ones as "Ask the chat for a short
+greeting" (handed to the chat's model as a `generate_chat_completion` call,
+whose result it then says), and speaks as a quiet synthetic tone with a
+word-by-word caption. The log gets each event type it receives and sends.
+`/audio/transcriptions` answers with a fixed sentence (or, when a test wrote
+`<log>.transcripts`, its next line; the log gets the
 upload's size, its WAV's length and its language; six seconds or more of
 audio take 4 s to answer) and `/audio/speech` with silence (WAV) about as
 long as the text would take to say, for the server's speech features;
@@ -55,9 +64,14 @@ or a test's own, all synthetic.
 """
 
 import argparse
+import base64
+import hashlib
 import io
 import json
+import math
 import re
+import struct
+import threading
 import time
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -399,6 +413,276 @@ def called(messages, name):
     )
 
 
+# ── The realtime voice ─────────────────────────────────────────────────
+
+WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+REALTIME_HEARD = (
+    'What is the weather like by the harbour',
+    'Ask the chat for a short greeting',
+)
+REALTIME_SAYS = 'Calm water and a light breeze by the harbour this morning.'
+REALTIME_RELAYS = 'Here is what the chat said: {answer}'
+REALTIME_STATUS = 'One moment, the chat is working on it.'
+# Loudness (RMS of 16-bit samples) above which the input is speech, and the
+# quiet that ends an utterance.
+SPEECH_RMS = 500
+SPEECH_END_MS = 500
+
+
+class WebSocket:
+    """The server side of RFC 6455 on a handler's socket: text and binary
+    frames, ping, close. Enough for the realtime voice."""
+
+    def __init__(self, rfile, wfile):
+        self.rfile = rfile
+        self.wfile = wfile
+        self.lock = threading.Lock()
+        self.closed = False
+
+    def _read(self, n):
+        data = b''
+        while len(data) < n:
+            part = self.rfile.read(n - len(data))
+            if not part:
+                raise ConnectionError('closed')
+            data += part
+        return data
+
+    def recv(self):
+        """The next message as (is_text, payload), or None once closed."""
+        message = b''
+        opcode = None
+        while True:
+            head = self._read(2)
+            fin = head[0] & 0x80
+            op = head[0] & 0x0F
+            masked = head[1] & 0x80
+            length = head[1] & 0x7F
+            if length == 126:
+                length = struct.unpack('>H', self._read(2))[0]
+            elif length == 127:
+                length = struct.unpack('>Q', self._read(8))[0]
+            mask = self._read(4) if masked else b'\0\0\0\0'
+            payload = bytearray(self._read(length))
+            for i in range(length):
+                payload[i] ^= mask[i % 4]
+            if op == 0x8:
+                self.close()
+                return None
+            if op == 0x9:
+                self._send(0xA, bytes(payload))
+                continue
+            if op == 0xA:
+                continue
+            if op != 0x0:
+                opcode = op
+            message += payload
+            if fin:
+                return (opcode == 0x1, bytes(message))
+
+    def _send(self, op, data):
+        head = bytes([0x80 | op])
+        n = len(data)
+        if n < 126:
+            head += bytes([n])
+        elif n < 65536:
+            head += bytes([126]) + struct.pack('>H', n)
+        else:
+            head += bytes([127]) + struct.pack('>Q', n)
+        with self.lock:
+            if self.closed:
+                return
+            self.wfile.write(head + data)
+            self.wfile.flush()
+
+    def send_json(self, obj):
+        self._send(0x1, json.dumps(obj).encode())
+
+    def close(self):
+        try:
+            self._send(0x8, b'')
+        except OSError:
+            pass
+        self.closed = True
+
+
+def tone_pcm(seconds, frequency=440.0, amplitude=1200, rate=24000):
+    """Quiet synthetic speech: a tone, as 16-bit mono PCM."""
+    count = int(seconds * rate)
+    return b''.join(
+        struct.pack('<h', int(amplitude * math.sin(2 * math.pi * frequency * i / rate)))
+        for i in range(count)
+    )
+
+
+def rms(pcm):
+    count = len(pcm) // 2
+    if count == 0:
+        return 0
+    samples = struct.unpack('<%dh' % count, pcm[:count * 2])
+    return math.sqrt(sum(s * s for s in samples) / count)
+
+
+class RealtimeSession:
+    """One call's voice: hears utterances by loudness, answers or hands a
+    request to the chat, and speaks as a tone with a caption."""
+
+    def __init__(self, ws, log):
+        self.ws = ws
+        self.log = log
+        self.speaking = None
+        self.quiet_ms = 0
+        self.heard_ms = 0
+        self.utterances = 0
+        self.items = 0
+        self.transcripts = {}
+        self.results = {}
+        self.cancelled = set()
+
+    def send(self, event):
+        self.log({'realtime_sent': event.get('type')})
+        self.ws.send_json(event)
+
+    def next_id(self, prefix):
+        self.items += 1
+        return '%s_%d' % (prefix, self.items)
+
+    def hear(self, pcm):
+        ms = len(pcm) / 2 / 24000 * 1000
+        loud = rms(pcm) > SPEECH_RMS
+        if loud:
+            self.quiet_ms = 0
+            if self.speaking is None:
+                self.speaking = self.next_id('item_in')
+                self.heard_ms = 0
+                self.send({'type': 'input_audio_buffer.speech_started',
+                           'item_id': self.speaking, 'audio_start_ms': 0})
+            self.heard_ms += ms
+            return
+        if self.speaking is None:
+            return
+        self.quiet_ms += ms
+        if self.quiet_ms < SPEECH_END_MS:
+            return
+        item = self.speaking
+        self.speaking = None
+        self.send({'type': 'input_audio_buffer.speech_stopped', 'item_id': item,
+                   'audio_end_ms': int(self.heard_ms)})
+        text = REALTIME_HEARD[min(self.utterances, len(REALTIME_HEARD) - 1)]
+        self.utterances += 1
+        self.transcripts[item] = text
+        self.send({'type': 'conversation.item.input_audio_transcription.completed',
+                   'item_id': item, 'content_index': 0, 'transcript': text})
+
+    def respond(self, response):
+        metadata = response.get('metadata') or {}
+        response_id = self.next_id('resp')
+        self.send({'type': 'response.created',
+                   'response': {'id': response_id, 'status': 'in_progress',
+                                'metadata': metadata}})
+        threading.Thread(target=self._respond, daemon=True,
+                         args=(response_id, response, metadata)).start()
+
+    def _respond(self, response_id, response, metadata):
+        try:
+            heard = self.transcripts.get(metadata.get('input_item_id'), '')
+            if response.get('conversation') == 'none':
+                self.speak(response_id, metadata, REALTIME_STATUS)
+            elif 'call_id' in metadata:
+                answer = self.results.get(metadata['call_id'], 'nothing')
+                self.speak(response_id, metadata,
+                           REALTIME_RELAYS.format(answer=answer.strip()[:200]))
+            elif 'ask the chat' in heard.lower():
+                item = self.next_id('item_call')
+                call_id = self.next_id('call')
+                arguments = json.dumps({'request': heard})
+                self.send({'type': 'response.output_item.added', 'response_id': response_id,
+                           'output_index': 0,
+                           'item': {'id': item, 'type': 'function_call', 'status': 'in_progress',
+                                    'name': 'generate_chat_completion', 'call_id': call_id}})
+                self.send({'type': 'response.output_item.done', 'response_id': response_id,
+                           'output_index': 0,
+                           'item': {'id': item, 'type': 'function_call', 'status': 'completed',
+                                    'name': 'generate_chat_completion', 'call_id': call_id,
+                                    'arguments': arguments}})
+                self.send({'type': 'response.done',
+                           'response': {'id': response_id, 'status': 'completed',
+                                        'metadata': metadata}})
+            else:
+                self.speak(response_id, metadata, REALTIME_SAYS)
+        except (OSError, ConnectionError):
+            pass
+
+    def speak(self, response_id, metadata, text):
+        item = self.next_id('item_out')
+        self.send({'type': 'response.output_item.added', 'response_id': response_id,
+                   'output_index': 0,
+                   'item': {'id': item, 'type': 'message', 'status': 'in_progress',
+                            'role': 'assistant'}})
+        words = text.split(' ')
+        audio = tone_pcm(0.08 * len(words) + 0.4)
+        step = len(audio) // len(words) // 2 * 2
+        caption = ''
+        status = 'completed'
+        for index, word in enumerate(words):
+            if response_id in self.cancelled:
+                status = 'cancelled'
+                break
+            chunk = audio[index * step:(index + 1) * step]
+            self.send({'type': 'response.output_audio.delta', 'response_id': response_id,
+                       'item_id': item, 'output_index': 0, 'content_index': 0,
+                       'delta': base64.b64encode(chunk).decode()})
+            delta = word if index == 0 else ' ' + word
+            caption += delta
+            self.send({'type': 'response.output_audio_transcript.delta',
+                       'response_id': response_id, 'item_id': item, 'output_index': 0,
+                       'content_index': 0, 'delta': delta})
+            time.sleep(0.04)
+        if status == 'completed':
+            self.send({'type': 'response.output_audio_transcript.done',
+                       'response_id': response_id, 'item_id': item, 'output_index': 0,
+                       'content_index': 0, 'transcript': caption})
+        self.send({'type': 'response.output_item.done', 'response_id': response_id,
+                   'output_index': 0,
+                   'item': {'id': item, 'type': 'message', 'status': status,
+                            'role': 'assistant'}})
+        self.send({'type': 'response.done',
+                   'response': {'id': response_id, 'status': status, 'metadata': metadata}})
+
+    def run(self):
+        self.send({'type': 'session.created', 'session': {'id': 'sess_fake'}})
+        while True:
+            message = self.ws.recv()
+            if message is None:
+                return
+            is_text, payload = message
+            if not is_text:
+                continue
+            event = json.loads(payload)
+            kind = event.get('type')
+            if kind != 'input_audio_buffer.append':
+                self.log({'realtime': kind})
+            if kind == 'session.update':
+                # A real voice takes a moment to set up (the call shows
+                # Connecting… meanwhile, long enough to be shot).
+                time.sleep(4)
+                self.send({'type': 'session.updated', 'session': event.get('session') or {}})
+            elif kind == 'input_audio_buffer.append':
+                self.hear(base64.b64decode(event.get('audio') or ''))
+            elif kind == 'response.create':
+                self.respond(event.get('response') or {})
+            elif kind == 'response.cancel':
+                self.cancelled.add(event.get('response_id'))
+            elif kind == 'conversation.item.create':
+                item = event.get('item') or {}
+                if item.get('type') == 'function_call_output':
+                    try:
+                        output = json.loads(item.get('output') or '{}')
+                    except ValueError:
+                        output = {}
+                    self.results[item.get('call_id')] = output.get('answer', '')
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
     log_path = None
@@ -423,6 +707,10 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if (self.path.split('?')[0].rstrip('/').endswith('/realtime')
+                and self.headers.get('Upgrade', '').lower() == 'websocket'):
+            self._realtime()
+            return
         if self.path.split('?')[0].rstrip('/').endswith('/mcp'):
             # No server-to-client stream.
             self.send_response(405)
@@ -446,6 +734,47 @@ class Handler(BaseHTTPRequestHandler):
             ]})
         else:
             self._json(404, {'error': 'not found'})
+
+    def _scripted_transcript(self):
+        """The next line of `<log>.transcripts`, which a test writes to say
+        what the next transcriptions hear (a voice call's turns); None when
+        there is none."""
+        if not self.log_path:
+            return None
+        path = self.log_path + '.transcripts'
+        try:
+            with open(path) as f:
+                lines = f.read().splitlines()
+        except OSError:
+            return None
+        if not lines:
+            return None
+        with open(path, 'w') as f:
+            f.write('\n'.join(lines[1:]) + ('\n' if len(lines) > 1 else ''))
+        return lines[0].strip() or None
+
+    def _realtime(self):
+        key = self.headers.get('Sec-WebSocket-Key', '')
+        accept = base64.b64encode(hashlib.sha1((key + WS_GUID).encode()).digest()).decode()
+        self.send_response(101, 'Switching Protocols')
+        self.send_header('Upgrade', 'websocket')
+        self.send_header('Connection', 'Upgrade')
+        self.send_header('Sec-WebSocket-Accept', accept)
+        self.end_headers()
+        self.wfile.flush()
+        log_path = self.log_path
+
+        def log(entry):
+            if log_path:
+                with open(log_path, 'a') as out:
+                    out.write(json.dumps(entry) + '\n')
+
+        log({'realtime': 'connect', 'path': self.path})
+        try:
+            RealtimeSession(WebSocket(self.rfile, self.wfile), log).run()
+        except (OSError, ConnectionError, ValueError):
+            pass
+        self.close_connection = True
 
     def _body(self):
         # Open WebUI streams an audio upload with chunked encoding and no
@@ -479,7 +808,7 @@ class Handler(BaseHTTPRequestHandler):
             # desktop's Transcribing state is seen, and shot).
             if (summary.get('seconds') or 0) >= 6:
                 time.sleep(4)
-            self._json(200, {'text': TRANSCRIPT})
+            self._json(200, {'text': self._scripted_transcript() or TRANSCRIPT})
             return
         if path.endswith('/audio/speech'):
             data = silence_wav(speech_seconds(raw))

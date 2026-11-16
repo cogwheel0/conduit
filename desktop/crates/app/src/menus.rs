@@ -348,6 +348,7 @@ pub fn shortcut_hints(keymap: &Keymap, quick_ask: Option<&KeyStroke>) -> Shortcu
         regenerate: Some(describe(&fixed_stroke(FixedCommand::Regenerate), mac).into()),
         dictate: chord(ShortcutAction::Dictate),
         read_aloud: chord(ShortcutAction::ReadAloud),
+        voice_call: chord(ShortcutAction::VoiceCall),
     }
 }
 
@@ -394,6 +395,11 @@ pub struct MenuState {
     pub dictating: bool,
     /// Something is being read aloud (Chat › Stop Speaking).
     pub speaking: bool,
+    /// A voice call is on (Chat › End Voice Call).
+    pub in_call: bool,
+    /// A call can start in the open chat (Chat › Start Voice Call): the
+    /// composer's call button is ready.
+    pub call_ready: bool,
 }
 
 impl Default for MenuState {
@@ -414,6 +420,8 @@ impl Default for MenuState {
             hermes_context: false,
             dictating: false,
             speaking: false,
+            in_call: false,
+            call_ready: false,
         }
     }
 }
@@ -534,6 +542,11 @@ pub fn menu_state(cx: &App) -> MenuState {
             .is_some_and(|v| v.read(cx).chat_pane.read(cx).hermes_context(cx)),
         dictating,
         speaking: state.stores.speech.read(cx).is_active(),
+        in_call: state.stores.call.read(cx).is_active(),
+        call_ready: state.main_view.as_ref().filter(|_| main).is_some_and(|v| {
+            let composer = v.read(cx).chat_pane.read(cx).composer.clone();
+            composer.read(cx).call_ready
+        }),
     }
 }
 
@@ -748,19 +761,20 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
     });
     for slot in CHAT_COMMAND_ORDER {
         if let Some((session_id, commands)) = &hermes {
-            // Its one sheet, just before Delete… as a chat's are.
-            if slot == ChatCommandSlot::Delete && state.hermes_context {
-                items.extend([
-                    MenuItem::separator(),
-                    MenuItem::action(
-                        l10n.desktop_hermes_context_usage_menu(),
-                        crate::actions::ShowContextUsage,
-                    ),
-                ]);
-            }
             for command in commands.iter().filter(|c| c.slot() == slot) {
                 if slot == ChatCommandSlot::Delete {
                     items.push(MenuItem::separator());
+                    // The open session's own sheet, as the toolbar's More
+                    // has it before Delete….
+                    if state.hermes_context {
+                        items.extend([
+                            MenuItem::action(
+                                l10n.desktop_hermes_context_usage_menu(),
+                                crate::actions::ShowContextUsage,
+                            ),
+                            MenuItem::separator(),
+                        ]);
+                    }
                 }
                 items.push(MenuItem::action(
                     command.label(l10n),
@@ -904,6 +918,15 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
         MenuItem::action(l10n.desktop_read_aloud(), crate::actions::ReadAloud).disabled(no_chat),
         MenuItem::action(l10n.desktop_stop_speaking(), crate::actions::StopSpeaking)
             .disabled(!state.speaking),
+        MenuItem::action(
+            if state.in_call {
+                l10n.desktop_end_voice_call()
+            } else {
+                l10n.desktop_start_voice_call()
+            },
+            crate::actions::VoiceCall,
+        )
+        .disabled(!state.in_call && !state.call_ready),
         MenuItem::separator(),
         MenuItem::action(l10n.desktop_menu_copy_last_reply(), CopyLastResponse),
         MenuItem::action(l10n.desktop_menu_copy_last_code_block(), CopyLastCodeBlock),
@@ -1156,6 +1179,7 @@ mod tests {
                 "—",
                 "Read Aloud",
                 "Stop Speaking",
+                "Start Voice Call",
                 "—",
                 "Copy Last Answer",
                 "Copy Last Code Block"
@@ -1170,6 +1194,28 @@ mod tests {
             },
         );
         assert!(titles(menu(&dictating, "Chat")).contains(&"Stop Dictation".to_string()));
+        // A call on: the same item ends it.
+        let calling = build_menus(
+            &l,
+            &MenuState {
+                in_call: true,
+                ..open_chat(None)
+            },
+        );
+        assert!(titles(menu(&calling, "Chat")).contains(&"End Voice Call".to_string()));
+        assert!(titles(menu(&dictating, "Chat")).contains(&"Start Voice Call".to_string()));
+        // Start Voice Call as the composer's call button: only when the core
+        // admits a call; End Voice Call always.
+        assert!(disabled(menu(&dictating, "Chat"), "Start Voice Call"));
+        let ready = build_menus(
+            &l,
+            &MenuState {
+                call_ready: true,
+                ..open_chat(None)
+            },
+        );
+        assert!(!disabled(menu(&ready, "Chat"), "Start Voice Call"));
+        assert!(!disabled(menu(&calling, "Chat"), "End Voice Call"));
         let move_to = submenu(menu(&filed, "Chat"), "Move to");
         assert_eq!(titles(move_to), ["Garden", "Work"]);
         assert!(move_to.items[0].is_checked());
@@ -1217,6 +1263,48 @@ mod tests {
             "{items:?}"
         );
         assert!(!disabled(menu(&hermes, "Chat"), "Context & Usage…"));
+    }
+
+    #[test]
+    fn a_hermes_sessions_chat_menu_has_its_commands_and_context_before_delete() {
+        let l = L10n::new("en");
+        let session: conduit_protocol::HermesSessionDto = serde_json::from_value(
+            serde_json::json!({"id": "s1", "chatId": "local:hermes_s1", "title": "Tide tables"}),
+        )
+        .expect("a session");
+        let state = MenuState {
+            hermes: Some(session),
+            hermes_context: true,
+            ..open_chat(None)
+        };
+        let items = titles(menu(&build_menus(&l, &state), "Chat"));
+        let head: Vec<&str> = items
+            .iter()
+            .take_while(|t| *t != "Previous Chat")
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            head,
+            [
+                "Pin",
+                "Rename…",
+                "Fork",
+                "Archive",
+                "Hide",
+                "—",
+                "Context & Usage…",
+                "—",
+                "Delete…",
+                "—"
+            ]
+        );
+        // Without a context window to read, Delete… stands alone.
+        let state = MenuState {
+            hermes_context: false,
+            ..state
+        };
+        let items = titles(menu(&build_menus(&l, &state), "Chat"));
+        assert!(!items.iter().any(|t| t == "Context & Usage…"));
     }
 
     #[test]

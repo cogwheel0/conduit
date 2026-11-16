@@ -134,6 +134,13 @@ abstract final class ConduitEvents {
   /// plan or the output a window reads. Payload [HermesWork], scoped to the
   /// chat.
   static const String hermesWorkChanged = 'hermes.work.changed';
+  /// The voice call changed: its phase, words, meter or error. Payload
+  /// [CallState].
+  static const String callsChanged = 'calls.changed';
+
+  /// The daemon asks the window to listen, or to open the realtime audio,
+  /// for the call. Payload [CallCommand]; answered with `calls.report`.
+  static const String callsCommand = 'calls.command';
 
   /// Every event name, for subscription validation and tests.
   static const Set<String> all = {
@@ -172,6 +179,8 @@ abstract final class ConduitEvents {
     speechChanged,
     speechCommand,
     hermesWorkChanged,
+    callsChanged,
+    callsCommand,
   };
 }
 

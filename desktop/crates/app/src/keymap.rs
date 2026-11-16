@@ -1,7 +1,7 @@
 //! The rebindable shortcuts: the table, its matching rules, the stored form
 //! of a chord, and conflict detection, plus the bridge to GPUI key bindings.
 //!
-//! The table has 14 bindings; a 15th, `toggleSidePane`, waits for the
+//! The table has 15 bindings; a 16th, `toggleSidePane`, waits for the
 //! right-hand pane, which is post-v1. Only [`ShortcutAction::is_live`] ones
 //! are bound to GPUI actions today; the rest keep their chords (rebindable
 //! and conflict-checked) until a view binds them.
@@ -26,10 +26,12 @@ pub enum ShortcutAction {
     ToggleSidebar,
     /// Read Aloud: the open chat's last answer (Chat › Read Aloud).
     ReadAloud,
+    /// Chat › Start Voice Call in the open chat, or End Voice Call.
+    VoiceCall,
 }
 
 impl ShortcutAction {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::NewChat,
         Self::OpenPalette,
         Self::FocusComposer,
@@ -44,6 +46,7 @@ impl ShortcutAction {
         Self::Dictate,
         Self::ToggleSidebar,
         Self::ReadAloud,
+        Self::VoiceCall,
     ];
 
     /// The stored name (`ShortcutAction.name` in Dart).
@@ -63,6 +66,7 @@ impl ShortcutAction {
             Self::Dictate => "dictate",
             Self::ToggleSidebar => "toggleSidebar",
             Self::ReadAloud => "readAloud",
+            Self::VoiceCall => "voiceCall",
         }
     }
 
@@ -91,6 +95,7 @@ impl ShortcutAction {
                 | Self::CopyLastCodeBlock
                 | Self::Dictate
                 | Self::ReadAloud
+                | Self::VoiceCall
         )
     }
 }
@@ -182,6 +187,8 @@ pub fn default_shortcuts() -> Vec<Shortcut> {
         s(A::ToggleSidebar, KeyStroke::new("s").primary().ctrl()),
         // ⌥ beside Regenerate's ⌘R: both act on the last answer.
         s(A::ReadAloud, KeyStroke::new("r").primary().alt()),
+        // ⌥ as Read Aloud has: the voice's commands.
+        s(A::VoiceCall, KeyStroke::new("v").primary().alt()),
     ]
 }
 
@@ -491,6 +498,7 @@ pub fn keyboard_groups() -> Vec<(KeyGroup, Vec<KeyRow>)> {
                 Fixed(F::Regenerate),
                 R(A::ReadAloud),
                 Fixed(F::StopSpeaking),
+                R(A::VoiceCall),
                 Fixed(F::ExpandEditor),
                 Fixed(F::AskConduit),
                 Fixed(F::ChatSettings),
@@ -712,7 +720,7 @@ mod tests {
     #[test]
     fn every_default_is_reachable_and_unique() {
         let t = default_shortcuts();
-        assert_eq!(t.len(), 14);
+        assert_eq!(t.len(), 15);
         let mut seen = std::collections::HashSet::new();
         for s in &t {
             assert!(
@@ -918,7 +926,8 @@ mod tests {
                 A::DenyRequest,
                 A::Dictate,
                 A::ToggleSidebar,
-                A::ReadAloud
+                A::ReadAloud,
+                A::VoiceCall
             ]
         );
         for a in ShortcutAction::ALL {
@@ -948,8 +957,15 @@ mod tests {
             assert_eq!(n, 1, "{c:?}");
         }
         assert_eq!(rows.iter().filter(|r| **r == KeyRow::QuickAsk).count(), 1);
-        // 14 rebindable, 18 fixed (⌘1…⌘8 as one row), Quick Ask.
-        assert_eq!(rows.len(), 34);
+        // 15 rebindable, 18 fixed (⌘1…⌘8 as one row), Quick Ask.
+        assert_eq!(rows.len(), 35);
+        // Start Voice Call takes no chord the menus have.
+        let call = default_shortcuts()
+            .into_iter()
+            .find(|s| s.action == ShortcutAction::VoiceCall)
+            .unwrap();
+        assert_eq!(describe(&call.stroke, true), "⌥⌘V");
+        assert_eq!(fixed_conflict(&call.stroke, None), None);
         // Read Aloud beside Regenerate's ⌘R; Stop Speaking is the Mac's ⌘.
         let read_aloud = default_shortcuts()
             .into_iter()

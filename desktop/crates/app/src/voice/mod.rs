@@ -5,18 +5,28 @@
 //! * [`session`]: one dictation on its own thread -- the input made 16 kHz
 //!   mono ([`pcm`]), metered, chunked for the recording, ended by the pause
 //!   ([`vad`]) and, for this Mac's engine, recognized as it goes;
+//! * [`realtime`] (and [`realtime_mac`]): a realtime call's audio, the
+//!   microphone and the voice on one echo-cancelled engine;
+//! * [`call_audio`] (and [`call_audio_mac`]): a Standard call's, the
+//!   microphone its listens hear and the player its answers are said on;
 //! * [`mac`]: the microphone (`AVAudioEngine`), this Mac's recognizer
 //!   (`SFSpeechRecognizer`, on-device) and their permissions.
 //!
 //! The server's engines (the chat's backend, or whisper in the daemon) take
 //! the finished recording as WAV through `POST /transcribe`.
 
+pub mod call_audio;
 pub mod pcm;
+pub mod realtime;
 pub mod session;
 pub mod vad;
 
 #[cfg(target_os = "macos")]
+pub mod call_audio_mac;
+#[cfg(target_os = "macos")]
 pub mod mac;
+#[cfg(target_os = "macos")]
+pub mod realtime_mac;
 
 use std::path::PathBuf;
 
@@ -56,6 +66,13 @@ impl InputOverride {
 /// The input a dictation listens to: the override's, else the
 /// microphone.
 pub fn input(over: Option<&InputOverride>) -> session::InputFactory {
+    input_with(over, false)
+}
+
+/// [`input`], with the microphone's voice processing on for a call
+/// (`voice_processing`), which keeps what the Mac plays out of what it
+/// hears.
+pub fn input_with(over: Option<&InputOverride>, voice_processing: bool) -> session::InputFactory {
     match over {
         // Long enough for the longest pause setting to end it.
         Some(InputOverride::File(path)) => {
@@ -63,10 +80,19 @@ pub fn input(over: Option<&InputOverride>) -> session::InputFactory {
         }
         Some(InputOverride::Denied) => session::denied_input(),
         None => {
+            // A Standard call's ears hear its own engine, where what the call
+            // says plays, so voice processing takes the answer out.
+            if voice_processing
+                && let Some(audio) = call_audio::current().filter(|a| a.has_microphone())
+            {
+                return audio.microphone_input();
+            }
             #[cfg(target_os = "macos")]
             {
-                mac::microphone_input()
+                mac::microphone_input_with(voice_processing)
             }
+            #[cfg(not(target_os = "macos"))]
+            let _ = voice_processing;
             #[cfg(not(target_os = "macos"))]
             {
                 Box::new(|_| Err(InputError::Unavailable("dictation needs macOS".into())))

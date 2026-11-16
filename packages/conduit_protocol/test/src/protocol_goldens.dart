@@ -2640,7 +2640,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "name": "Tidy Up",
       "targetId": "tidy"
     }
-  ]
+  ],
+  "voiceCall": true
 }''',
 
   'attachmentAvailability': r'''
@@ -6012,6 +6013,112 @@ const Map<String, String> protocolGoldens = <String, String>{
   },
   "timeoutMs": 290000,
   "defaultChoice": "deny"
+}''',
+
+  'callStateListening': r'''
+{
+  "phase": "listening",
+  "call": 2,
+  "mode": "standard",
+  "chatId": "chat-harbour",
+  "modelId": "fake-model",
+  "modelName": "Kestrel 8B",
+  "transcript": "When does the tide turn",
+  "reply": "",
+  "level": 0.5,
+  "muted": false,
+  "canPause": true,
+  "canResume": false,
+  "startedAtMs": 1767225600000,
+  "noticeCount": 0,
+  "standardReason": "standardChosen"
+}''',
+
+  'callStateError': r'''
+{
+  "phase": "error",
+  "call": 3,
+  "transcript": "",
+  "reply": "",
+  "level": 0.0,
+  "muted": false,
+  "canPause": false,
+  "canResume": false,
+  "errorKind": "message",
+  "error": "Call permission denied",
+  "notice": "replyIncomplete",
+  "noticeCount": 1
+}''',
+
+  'callStateIdle': r'''
+{
+  "phase": "idle",
+  "call": 0,
+  "transcript": "",
+  "reply": "",
+  "level": 0.0,
+  "muted": false,
+  "canPause": false,
+  "canResume": false,
+  "noticeCount": 0
+}''',
+
+  'callStart': r'''
+{
+  "chatId": "chat-harbour",
+  "temporary": false
+}''',
+
+  'callStartNew': r'''
+{
+  "model": "fake-model",
+  "folderId": "folder-tides",
+  "temporary": true
+}''',
+
+  'callCommandListen': r'''
+{
+  "id": 4,
+  "kind": "listen",
+  "listen": 2,
+  "continuous": true,
+  "modelId": "fake-model"
+}''',
+
+  'callCommandAudio': r'''
+{
+  "id": 5,
+  "kind": "audioStart",
+  "listen": 0,
+  "continuous": false,
+  "path": "/calls/call-7"
+}''',
+
+  'callReportWords': r'''
+{
+  "ok": true,
+  "kind": "words",
+  "listen": 2,
+  "text": "When does the tide turn",
+  "done": true
+}''',
+
+  'callReportAnswer': r'''
+{
+  "id": 4,
+  "ok": true,
+  "value": true,
+  "listen": 0,
+  "done": false
+}''',
+
+  'callReportFailed': r'''
+{
+  "ok": true,
+  "kind": "failed",
+  "listen": 2,
+  "done": false,
+  "failure": "serverUnavailable"
 }''',
 
 };

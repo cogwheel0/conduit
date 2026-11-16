@@ -30,6 +30,7 @@ import 'terminals_service.dart';
 import 'handoff_service.dart';
 import 'hermes_cards_service.dart';
 import 'hermes_service.dart';
+import 'calls_service.dart';
 import 'speech_service.dart';
 import 'voice_service.dart';
 import 'dictation_service.dart';
@@ -81,6 +82,7 @@ final class CoreServices {
     this.access,
     this.folderSettings,
     this.speech,
+    this.calls,
     this.handoff,
   });
 
@@ -120,6 +122,9 @@ final class CoreServices {
 
   /// `speech.*`: read aloud.
   final SpeechService? speech;
+
+  /// `calls.*`: voice calls.
+  final CallsService? calls;
 
   /// A server's `chat:handoff`, put to the windows.
   final HandoffService? handoff;
@@ -201,6 +206,7 @@ class RpcSession {
   McpAppsService? get _mcpApps => _services().mcpApps;
   HermesCardsService? get _hermesCards => _services().hermesCards;
   SpeechService? get _speech => _services().speech;
+  CallsService? get _calls => _services().calls;
   ReleaseNotesRpcService? get _releaseNotes => _services().releaseNotes;
   DataService? get _data => _services().data;
   ChatSettingsService? get _chatSettings => _services().chatSettings;
@@ -970,6 +976,19 @@ class RpcSession {
     _on(ConduitMethodSpecs.speechPreview, (p) => _need(_speech).preview(p));
     _on(ConduitMethodSpecs.speechReport, (p) async {
       _need(_speech).report(p);
+      return const OkResult(ok: true);
+    });
+
+    // calls.*: voice calls, run here; the window listens and plays.
+    _on(ConduitMethodSpecs.callsGet, (_) async => _need(_calls).get());
+    _on(ConduitMethodSpecs.callsStart, (p) => _need(_calls).start(p));
+    _on(ConduitMethodSpecs.callsEnd, (_) => _need(_calls).end());
+    _on(ConduitMethodSpecs.callsPause, (_) => _need(_calls).pause());
+    _on(ConduitMethodSpecs.callsResume, (_) => _need(_calls).resume());
+    _on(ConduitMethodSpecs.callsMute, (_) => _need(_calls).mute());
+    _on(ConduitMethodSpecs.callsSkip, (_) => _need(_calls).skip());
+    _on(ConduitMethodSpecs.callsReport, (p) async {
+      _need(_calls).report(p);
       return const OkResult(ok: true);
     });
 

@@ -1307,10 +1307,17 @@ impl ChatStore {
         // Never a row of its own: an answer another message carries as one
         // of its versions (a sibling branch, which a copy saved mid-regenerate
         // can list beside the new answer), or one a regenerate here replaced
-        // once the stored copy has the new answer.
+        // once the stored copy has the new answer. Not the message itself: a
+        // regenerate that keeps the answer's id (Hermes, Direct) lists what
+        // it said before under that same id.
         let versions: std::collections::HashSet<&str> = messages
             .iter()
-            .flat_map(|m| m.versions.iter().map(|v| v.id.as_str()))
+            .flat_map(|m| {
+                m.versions
+                    .iter()
+                    .filter(move |v| v.id != m.id)
+                    .map(|v| v.id.as_str())
+            })
             .collect();
         let present: std::collections::HashSet<&str> =
             messages.iter().map(|m| m.id.as_str()).collect();
@@ -3568,6 +3575,37 @@ mod tests {
             daemon.calls::<methods::TurnsStop>(),
             vec![json!({"chatId": "gone"})]
         );
+    }
+
+    #[gpui_kit::test]
+    fn an_answer_that_lists_its_earlier_text_under_its_own_id_still_shows(cx: &mut TestAppContext) {
+        // A Hermes Retry keeps the answer's id; the failed text it replaced
+        // is a version under that same id.
+        let daemon = FakeDaemon::new();
+        let mut answer = message("a1", "assistant", "This time it went through.");
+        answer.versions = vec![ChatMessageVersionDto {
+            slot: None,
+            merged: None,
+            streaming: false,
+            error_code: Some("rateLimit".into()),
+            id: "a1".into(),
+            content: String::new(),
+            timestamp_ms: 1,
+            model: Some("m".into()),
+            sources: vec![],
+            usage: None,
+            blocks: vec![],
+        }];
+        daemon.returns::<methods::ChatsGet>(chat(
+            "local:hermes_s1",
+            vec![message("u1", "user", "Book the ferry"), answer],
+        ));
+        let (store, _) = open(&daemon, "local:hermes_s1", cx);
+        assert_eq!(keys(&store, cx), vec!["u1", "a1"]);
+        store.read_with(cx, |s, _| {
+            let item = s.item(s.rows()[1]).unwrap();
+            assert_eq!(item.text, "This time it went through.");
+        });
     }
 
     #[test]

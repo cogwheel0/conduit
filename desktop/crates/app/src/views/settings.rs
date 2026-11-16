@@ -265,6 +265,7 @@ pub fn shortcut_label(action: ShortcutAction, l10n: &L10n) -> String {
         A::Dictate => l10n.desktop_shortcut_dictate(),
         A::ToggleSidebar => l10n.desktop_shortcut_toggle_sidebar(),
         A::ReadAloud => l10n.desktop_read_aloud(),
+        A::VoiceCall => l10n.voice_call_title(),
     }
 }
 

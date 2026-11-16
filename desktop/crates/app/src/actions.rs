@@ -33,11 +33,19 @@ actions!(
         Dictate,
         ToggleSidebar,
         ReadAloud,
+        VoiceCall,
     ]
 );
 
 // Chat › Stop Speaking (⌘.): ends the reading, wherever it is.
 actions!(conduit, [StopSpeaking]);
+
+// The voice call's strip: Pause or Resume, Mute, Minimize or Expand, and
+// the menu-bar item's Show Call.
+actions!(
+    conduit,
+    [CallPause, CallMute, CallMinimize, ShowCall, EndCall]
+);
 
 // The ⌘K palette's "Choose model" command: opens the composer's model
 // picker.
@@ -182,5 +190,6 @@ pub fn for_shortcut(action: ShortcutAction) -> Box<dyn Action> {
         S::Dictate => Box::new(Dictate),
         S::ToggleSidebar => Box::new(ToggleSidebar),
         S::ReadAloud => Box::new(ReadAloud),
+        S::VoiceCall => Box::new(VoiceCall),
     }
 }

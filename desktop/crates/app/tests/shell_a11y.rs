@@ -69,7 +69,8 @@ fn settings_desktop_and_quick_ask_are_voiceover_operable() {
     missing("settings-desktop", "Tab", "General");
 
     // Quick Ask: its actions and the composer.
-    for label in ["New Chat", "Open in Conduit", "Close", "Send"] {
+    // Nothing typed: the call button stands where Send is, as on the phone.
+    for label in ["New Chat", "Open in Conduit", "Close", "Start Voice Call"] {
         missing("quick-ask", "Button", label);
     }
     assert!(
