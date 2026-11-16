@@ -49,7 +49,10 @@ pub fn display_path(path: &str, directory: Option<&str>) -> String {
     }
     let root = format!("{dir}/");
     let inside = if is_drive(&dir) {
-        file.to_lowercase().starts_with(&root.to_lowercase())
+        // The file's own first bytes, compared without case: lowercasing
+        // can change a letter's length, and the cut below is by bytes.
+        file.get(..root.len())
+            .is_some_and(|head| head.to_lowercase() == root.to_lowercase())
     } else {
         file.starts_with(&root)
     };
@@ -528,6 +531,12 @@ mod tests {
         assert_eq!(
             display_path("c:\\Work\\Src\\a.rs", Some("C:/work")),
             "Src/a.rs"
+        );
+        // A letter that lowercases to fewer bytes (the Kelvin sign is `k`)
+        // is not the directory's: the path as sent, never a cut letter.
+        assert_eq!(
+            display_path("C:/\u{212A}/a.rs", Some("C:/K")),
+            "C:/\u{212A}/a.rs"
         );
     }
 
