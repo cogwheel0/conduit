@@ -18,7 +18,6 @@
 //! connection kept in the Open WebUI account names no provider or name of
 //! its own (Open WebUI keeps neither) and has no certificates.
 
-use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
@@ -42,7 +41,8 @@ use crate::l10n::{ActiveL10n as _, L10n};
 use crate::stores::Stores;
 use crate::views::forms::{
     self, HeaderError, HeaderRow, PemError, PemFile, PemLabels, field, form_error, form_group,
-    form_note, form_row, header_rows, headers_from_rows, normalize_url, pem_picker, pick_pem,
+    form_note, form_row, header_rows, headers_edit, headers_from_rows, normalize_url, pem_picker,
+    pick_pem,
 };
 use crate::views::settings::controls::{self, Choice};
 use crate::views::words;
@@ -563,14 +563,19 @@ impl DirectView {
                 return fail(self, Invalid::Key, l10n.desktop_direct_key_required(), cx);
             }
         };
-        let custom_headers = if !self.headers.is_empty() {
+        let custom_headers = {
             let rows: Vec<(String, String)> = self
                 .headers
                 .iter()
                 .map(|h| (forms::text(&h.name, cx), forms::raw(&h.value, cx)))
                 .collect();
+            let saved_names = self
+                .editing
+                .as_ref()
+                .map(|c| c.custom_header_names.as_slice())
+                .unwrap_or_default();
             match headers_from_rows(&rows) {
-                Ok(map) => Some(map),
+                Ok(map) => headers_edit(map, self.clear_headers, saved_names),
                 Err(e) => {
                     let (row, message) = match e {
                         HeaderError::MissingName(i) => {
@@ -589,10 +594,6 @@ impl DirectView {
                     return fail(self, Invalid::Header(row), message, cx);
                 }
             }
-        } else if self.clear_headers {
-            Some(BTreeMap::new())
-        } else {
-            None
         };
         let manual_model_ids = lines(self.manual_models.read(cx).value().as_ref());
         let tags = forms::text(&self.tags, cx)

@@ -17,7 +17,6 @@
 //! (`args.reason == "insecure"`, then saved again with
 //! `allowInsecureCredentials`).
 
-use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -46,7 +45,7 @@ use crate::stores::Stores;
 use crate::stores::rpc::Rpc;
 use crate::views::forms::{
     self, HeaderError, HeaderRow, field, form_error, form_group, form_note, form_row, header_rows,
-    headers_from_rows, normalize_url,
+    headers_edit, headers_from_rows, normalize_url,
 };
 use crate::views::settings::controls::{self, Choice};
 use crate::views::sheet::{self, SheetBody};
@@ -78,8 +77,9 @@ pub struct McpServerSheet {
     pub token: Entity<InputState>,
     pub headers: Vec<HeaderRow>,
     pub clear_headers: bool,
-    /// The user agreed to send credentials over plain HTTP.
-    pub allow_insecure: bool,
+    /// The address the user agreed to send credentials to over plain
+    /// HTTP: another address asks again.
+    pub insecure_ok: Option<String>,
     pub busy: bool,
     pub testing: bool,
     /// Signing in in the browser.
@@ -141,7 +141,7 @@ impl McpServerSheet {
             token,
             headers: vec![],
             clear_headers: false,
-            allow_insecure: false,
+            insecure_ok: None,
             busy: false,
             testing: false,
             connecting: false,
@@ -164,7 +164,10 @@ impl McpServerSheet {
         let l10n = cx.l10n().clone();
         self.enabled = s.enabled;
         self.auth = s.auth;
-        self.allow_insecure = s.allow_insecure_credentials;
+        self.insecure_ok = s
+            .allow_insecure_credentials
+            .then(|| normalize_url(&s.endpoint))
+            .flatten();
         let (name, endpoint) = (s.name.clone(), s.endpoint.clone());
         self.name.update(cx, |i, cx| i.set_value(name, window, cx));
         self.endpoint
@@ -226,30 +229,31 @@ impl McpServerSheet {
             cx.notify();
             return None;
         };
-        let custom_headers = if !self.headers.is_empty() {
-            let rows: Vec<(String, String)> = self
-                .headers
-                .iter()
-                .map(|h| (forms::text(&h.name, cx), forms::raw(&h.value, cx)))
-                .collect();
-            match headers_from_rows(&rows) {
-                Ok(map) => Some(map),
-                Err(e) => {
-                    self.error = Some(match e {
-                        HeaderError::MissingName(_) => l10n.desktop_direct_header_name_required(),
-                        HeaderError::InvalidName(_) => l10n.header_name_invalid_chars(),
-                        HeaderError::Duplicate(name) => l10n.desktop_header_already_exists(&name),
-                    });
-                    cx.notify();
-                    return None;
-                }
+        let rows: Vec<(String, String)> = self
+            .headers
+            .iter()
+            .map(|h| (forms::text(&h.name, cx), forms::raw(&h.value, cx)))
+            .collect();
+        let typed = match headers_from_rows(&rows) {
+            Ok(map) => map,
+            Err(e) => {
+                self.error = Some(match e {
+                    HeaderError::MissingName(_) => l10n.desktop_direct_header_name_required(),
+                    HeaderError::InvalidName(_) => l10n.header_name_invalid_chars(),
+                    HeaderError::Duplicate(name) => l10n.desktop_header_already_exists(&name),
+                });
+                cx.notify();
+                return None;
             }
-        } else if self.clear_headers {
-            Some(BTreeMap::new())
-        } else {
-            None
         };
+        let saved_names = self
+            .saved
+            .as_ref()
+            .map(|s| s.custom_header_names.as_slice())
+            .unwrap_or_default();
+        let custom_headers = headers_edit(typed, self.clear_headers, saved_names);
         let token = forms::raw(&self.token, cx).trim().to_string();
+        let allow_insecure_credentials = self.insecure_ok.as_ref() == Some(&endpoint);
         Some(McpServerEdit {
             id: self.saved.as_ref().map(|s| s.id.clone()),
             name: forms::text(&self.name, cx),
@@ -258,7 +262,7 @@ impl McpServerSheet {
             auth: self.auth,
             bearer_token: (self.auth == McpAuth::Bearer && !token.is_empty()).then_some(token),
             custom_headers,
-            allow_insecure_credentials: self.allow_insecure,
+            allow_insecure_credentials,
         })
     }
 
@@ -293,7 +297,7 @@ impl McpServerSheet {
             }
             let _ = handle.update(cx, |_, window, cx| {
                 let _ = this.update(cx, |s, cx| {
-                    s.allow_insecure = true;
+                    s.insecure_ok = normalize_url(&forms::text(&s.endpoint, cx));
                     then(s, window, cx);
                 });
             });
@@ -971,5 +975,99 @@ impl Render for McpServerSheet {
                 d.child(form_error("mcp-error", e, cx))
             })
             .when_some(note, |d, (text, ok)| d.child(form_note(text, ok, cx)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use gpui_kit::{TestAppContext, VisualTestContext};
+    use serde_json::json;
+
+    use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    /// A saved server on plain HTTP, its credentials agreed to, with one
+    /// saved header.
+    fn saved() -> McpServerSummary {
+        serde_json::from_value(json!({
+            "id": "mcp-1", "name": "Docs", "endpoint": "http://docs.lab.example/mcp",
+            "enabled": true, "auth": "bearer", "hasBearerToken": true,
+            "customHeaderNames": ["X-Team"], "oauthConnected": false,
+            "allowInsecureCredentials": true, "approvals": []
+        }))
+        .unwrap()
+    }
+
+    fn bench(cx: &mut TestAppContext) -> (Entity<McpServerSheet>, &mut VisualTestContext) {
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-mcp-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let on_change: OnChange = Rc::new(|_| {});
+        cx.add_window_view(move |window, cx| {
+            McpServerSheet::new(stores, Some(saved()), on_change, window, cx)
+        })
+    }
+
+    /// The yes to plain HTTP was for the saved address: another one asks
+    /// again.
+    #[gpui_kit::test]
+    fn agreeing_to_plain_http_stays_with_its_address(cx: &mut TestAppContext) {
+        let (sheet, vcx) = bench(cx);
+        let edit = sheet.update_in(vcx, |s, _, cx| s.edit(cx)).unwrap();
+        assert!(edit.allow_insecure_credentials, "the saved yes was dropped");
+        let edit = sheet
+            .update_in(vcx, |s, window, cx| {
+                s.endpoint.update(cx, |i, cx| {
+                    i.set_value("http://other.lab.example/mcp", window, cx)
+                });
+                s.edit(cx)
+            })
+            .unwrap();
+        assert!(
+            !edit.allow_insecure_credentials,
+            "the yes for one address went to another"
+        );
+    }
+
+    /// Saved headers are known by name only: a header added joins them,
+    /// and Clear with a new one takes the saved ones away.
+    #[gpui_kit::test]
+    fn added_headers_keep_or_clear_the_saved_ones_as_shown(cx: &mut TestAppContext) {
+        let (sheet, vcx) = bench(cx);
+        let headers = sheet
+            .update_in(vcx, |s, window, cx| {
+                s.add_header(window, cx);
+                let row = &s.headers[0];
+                row.name
+                    .update(cx, |i, cx| i.set_value("X-Trace", window, cx));
+                row.value.update(cx, |i, cx| i.set_value("on", window, cx));
+                s.edit(cx)
+            })
+            .unwrap()
+            .custom_headers;
+        assert_eq!(
+            headers,
+            Some(BTreeMap::from([("X-Trace".into(), "on".into())]))
+        );
+        let headers = sheet
+            .update_in(vcx, |s, _, cx| {
+                s.clear_headers = true;
+                s.edit(cx)
+            })
+            .unwrap()
+            .custom_headers;
+        assert_eq!(
+            headers,
+            Some(BTreeMap::from([
+                ("X-Team".into(), String::new()),
+                ("X-Trace".into(), "on".into()),
+            ])),
+            "Clear kept the saved header"
+        );
     }
 }
