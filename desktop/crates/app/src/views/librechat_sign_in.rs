@@ -29,15 +29,15 @@ use conduit_components::views::kit::{Button, icon_tile};
 use conduit_components::views::onboarding::{back_link, link, title_block};
 use conduit_daemon::RpcError;
 use conduit_protocol::{
-    AccountChangeOutcome, LibreChatProbe, LibreChatProbeOutcome, LibreChatServerDto,
-    LibreChatSignIn, LibreChatSignInOutcome, LibreChatSignInResult, LibreChatSsoCompletion,
-    LibreChatSsoStart, LibreChatVerify, methods,
+    AccountChangeOutcome, AccountChangeResult, LibreChatProbe, LibreChatProbeOutcome,
+    LibreChatServerDto, LibreChatSignIn, LibreChatSignInOutcome, LibreChatSignInResult,
+    LibreChatSsoCompletion, LibreChatSsoStart, LibreChatVerify, methods,
 };
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     App, AsyncWindowContext, ClickEvent, Context, Entity, EventEmitter, FontWeight, Role,
-    SharedString, Subscription, WeakEntity, Window, div, px,
+    SharedString, Subscription, Task, WeakEntity, Window, div, px,
 };
 
 use crate::l10n::{ActiveL10n as _, L10n};
@@ -543,6 +543,7 @@ impl LibreChatSignInView {
             l10n.desktop_switch_anyway(),
             l10n.cancel(),
         );
+        let asked_under = self.stores.accounts.read(cx).scope_key();
         let ask = crate::views::sheet::ask_for_account(&self.stores, window, spec, cx);
         let stores = self.stores.clone();
         let round = self.round;
@@ -552,9 +553,13 @@ impl LibreChatSignInView {
                 if !ask.await || this.read_with(cx, |s, _| s.round != round).unwrap_or(true) {
                     return;
                 }
-                let task = stores.accounts.update(cx, |a, cx| {
-                    a.change(AccountChange::Switch { account_id }, true, cx)
-                });
+                // The answer is read some time after the question closed:
+                // another account may have taken charge since.
+                let Ok(Some(task)) = cx
+                    .update(|_, cx| switch_while_in_charge(&stores, &asked_under, account_id, cx))
+                else {
+                    return;
+                };
                 if let Ok(result) = task.await
                     && result.outcome != AccountChangeOutcome::BlockedByActiveReply
                 {
@@ -950,6 +955,22 @@ fn server_chip(
         )
 }
 
+/// The forced switch to `account_id` (it stops the answer being written),
+/// sent only while the account in charge is still `asked_under`, the one
+/// the question was asked over: checked here, with no wait between the
+/// check and the call.
+fn switch_while_in_charge(
+    stores: &Stores,
+    asked_under: &Option<String>,
+    account_id: String,
+    cx: &mut App,
+) -> Option<Task<Result<AccountChangeResult, RpcError>>> {
+    stores.accounts.update(cx, |a, cx| {
+        (a.scope_key() == *asked_under)
+            .then(|| a.change(AccountChange::Switch { account_id }, true, cx))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use gpui_kit::TestAppContext;
@@ -1004,6 +1025,31 @@ mod tests {
             daemon.calls::<methods::AccountsSwitch>().is_empty(),
             "the stale question switched accounts"
         );
+    }
+
+    /// Switch Anyway read after another account took charge (the question
+    /// had closed with a yes) sends no forced switch: it would stop the
+    /// new account's reply without asking.
+    #[gpui_kit::test]
+    fn a_yes_read_after_another_account_took_charge_switches_nothing(cx: &mut TestAppContext) {
+        use crate::views::sheet::bench::{bench, switch_account};
+        let (daemon, stores, vcx) = bench(cx);
+        let asked_under = vcx.update(|_, cx| stores.accounts.read(cx).scope_key());
+        switch_account(&stores, vcx);
+        let sent = vcx.update(|_, cx| {
+            switch_while_in_charge(&stores, &asked_under, "lc-harbour".into(), cx).is_some()
+        });
+        vcx.run_until_parked();
+        assert!(!sent, "a switch was sent for the account before");
+        assert!(
+            daemon.calls::<methods::AccountsSwitch>().is_empty(),
+            "the forced switch went out under another account"
+        );
+        let now = vcx.update(|_, cx| stores.accounts.read(cx).scope_key());
+        let sent = vcx.update(|_, cx| {
+            switch_while_in_charge(&stores, &now, "lc-harbour".into(), cx).is_some()
+        });
+        assert!(sent, "the account still in charge can switch");
     }
 
     /// A probe of the last address, answered after the form started over
