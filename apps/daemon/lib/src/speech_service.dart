@@ -73,6 +73,10 @@ final class SpeechService {
   List<String> _sentences = const <String>[];
   int _reading = 0;
 
+  /// Moves on with every Read Aloud and Stop: a Read Aloud still looking up
+  /// its answer starts nothing once a newer one or a Stop came.
+  int _toggles = 0;
+
   TextToSpeechController get _controller =>
       _container.read(textToSpeechControllerProvider.notifier);
 
@@ -87,6 +91,7 @@ final class SpeechService {
   /// paused). Answers at once: the reading starts behind it, and
   /// `speech.changed` follows it.
   Future<SpeechState> toggle(SpeechToggle request) async {
+    final toggle = ++_toggles;
     final state = _state;
     final same = state.activeMessageId == request.messageId;
     if (same &&
@@ -108,6 +113,7 @@ final class SpeechService {
       );
     }
     final answer = await lookup(request.chatId, request.messageId);
+    if (toggle != _toggles) return get();
     final text = readAloudTextOf(answer.content);
     if (text.isEmpty) {
       throw const RpcError(
@@ -116,7 +122,9 @@ final class SpeechService {
       );
     }
     // Text is only spoken by the backend of the model that wrote it.
-    TtsManager.instance.setServerSpeech(await _speechFor(answer.model));
+    final speechFor = await _speechFor(answer.model);
+    if (toggle != _toggles) return get();
+    TtsManager.instance.setServerSpeech(speechFor);
     unawaited(
       _controller.readAloud(
         messageId: request.messageId,
@@ -139,6 +147,7 @@ final class SpeechService {
   }
 
   Future<SpeechState> stop() async {
+    _toggles++;
     await _controller.stop();
     return get();
   }

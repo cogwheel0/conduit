@@ -30,7 +30,11 @@ void main() {
   ];
   final answer = '${sentences[0]} ${sentences[1]}\n\n${sentences[2]}';
 
-  void start({required TtsEngine engine}) {
+  void start({
+    required TtsEngine engine,
+    Future<({String content, String? model})> Function(String, String)?
+    answerFor,
+  }) {
     bus = EventBus();
     container = ProviderContainer(
       overrides: [
@@ -46,8 +50,9 @@ void main() {
       container,
       events: bus,
       voice: voice,
-      answerFor: (chatId, messageId) async =>
-          (content: answer, model: 'fake-model'),
+      answerFor:
+          answerFor ??
+          (chatId, messageId) async => (content: answer, model: 'fake-model'),
       speechFor: (modelId) async => _Server(),
     );
     window = _Window(bus, speech);
@@ -102,6 +107,25 @@ void main() {
       await speech.stop();
       await window.until(() => window.last?.status == SpeechStatus.idle);
       expect(window.last!.messageId, isNull);
+    },
+  );
+
+  test(
+    'a reading stopped while its answer is looked up never starts',
+    () async {
+      final found = Completer<({String content, String? model})>();
+      start(
+        engine: TtsEngine.device,
+        answerFor: (chatId, messageId) => found.future,
+      );
+      final toggled = speech.toggle(
+        const SpeechToggle(chatId: 'chat-harbour', messageId: 'answer-1'),
+      );
+      await speech.stop();
+      found.complete((content: answer, model: 'fake-model'));
+      final state = await toggled;
+      expect(state.progress.messageId, isNull, reason: 'it started after Stop');
+      expect(speech.get().progress.status, SpeechStatus.idle);
     },
   );
 
