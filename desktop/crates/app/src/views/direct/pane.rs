@@ -211,6 +211,7 @@ impl DirectPane {
         let call = self
             .rpc(cx)
             .call::<methods::DirectSetHistory>(&DirectHistory { local_only: !sync });
+        let before = self.list.as_ref().map(|l| l.local_history);
         if let Some(l) = self.list.as_mut() {
             l.local_history = !sync;
         }
@@ -222,7 +223,16 @@ impl DirectPane {
                 let _ = this.update(cx, |s, cx| {
                     match result {
                         Ok(l) => s.list = Some(l),
-                        Err(e) => log::warn!("direct.setHistory: {e}"),
+                        Err(e) => {
+                            // Where chats go is what the daemon says: the
+                            // setting before, then read again (the switch
+                            // may have gone through all the same).
+                            log::warn!("direct.setHistory: {e}");
+                            if let (Some(l), Some(before)) = (s.list.as_mut(), before) {
+                                l.local_history = before;
+                            }
+                            s.refresh_quietly(cx);
+                        }
                     }
                     cx.notify();
                 });
@@ -1168,6 +1178,41 @@ mod tests {
             p95 < std::time::Duration::from_micros(16_700),
             "p95 draw {p95:?} is over a frame"
         );
+    }
+
+    /// A history switch the daemon did not take shows where chats really
+    /// go: the pane never says "on this Mac" while they still sync.
+    #[gpui_kit::test]
+    fn a_refused_history_switch_shows_the_setting_kept(cx: &mut TestAppContext) {
+        use conduit_protocol::methods;
+
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-dpane-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let syncing = DirectConnectionList {
+            local_history: false,
+            ..Default::default()
+        };
+        daemon.returns::<methods::DirectReload>(syncing.clone());
+        daemon.returns::<methods::DirectList>(syncing);
+        daemon.on::<methods::DirectSetHistory>(|_| {
+            Err(conduit_daemon::protocol::error("rpc.timeout", "slow"))
+        });
+        let (pane, vcx) = cx.add_window_view(move |window, cx| DirectPane::new(stores, window, cx));
+        vcx.run_until_parked();
+        pane.update_in(vcx, |p, window, cx| p.set_history(false, window, cx));
+        vcx.run_until_parked();
+        pane.read_with(vcx, |p, _| {
+            assert_eq!(
+                p.list.as_ref().map(|l| l.local_history),
+                Some(false),
+                "the pane says chats stay on this Mac; they still sync"
+            );
+        });
     }
 
     #[test]
