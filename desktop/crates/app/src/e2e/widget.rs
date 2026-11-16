@@ -94,11 +94,16 @@ fn expected(cx: &mut App) -> (Vec<String>, Vec<String>) {
     let titles = recent
         .iter()
         .map(|c| {
-            if c.title.trim().is_empty() {
+            let title = if c.title.trim().is_empty() {
                 l10n.new_chat()
             } else {
                 c.title.trim().to_string()
-            }
+            };
+            // As the snapshot cuts it.
+            title
+                .chars()
+                .take(crate::shell::widget::MAX_TITLE)
+                .collect::<String>()
         })
         .collect();
     (ids, titles)
