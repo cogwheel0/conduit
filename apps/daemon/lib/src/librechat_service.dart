@@ -481,9 +481,17 @@ final class LibreChatService {
 
   /// The memories controller lives only while read: it is read first, so a
   /// write lands on a built one, and refused writes leave as the server's
-  /// words.
+  /// words. A write is the account's it was asked for: if another account
+  /// signed in while the list was read, it is refused, never sent there.
   Future<void> _write(Future<void> Function() write) async {
+    final account = _container.read(libreChatApiServiceProvider);
     await readSettled(_container, libreChatMemoriesProvider.future);
+    if (!identical(_container.read(libreChatApiServiceProvider), account)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'another LibreChat account signed in before the write',
+      );
+    }
     try {
       await write();
     } on LibreChatApiException catch (error) {
