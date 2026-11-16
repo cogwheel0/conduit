@@ -3283,6 +3283,7 @@ void main() {
             expect(changed.knowledge!.maxFileSize, 2);
 
             final uploaded = await FilesService(runtime.container).upload(
+              session: FilesService(runtime.container).session(),
               name: 'live-fresh-$stamp.md',
               bytes: Uint8List.fromList(utf8.encode('# Fresh\n\nBeans.')),
               contentType: 'text/markdown',
