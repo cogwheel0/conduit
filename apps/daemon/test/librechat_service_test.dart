@@ -85,6 +85,40 @@ void main() {
       await expectLater(reading, _refusedForTheSwitch);
     },
   );
+
+  test('a two-step sign-in that a newer one began after puts no account in '
+      'charge', () async {
+    final fake = FakeLibreChatServer()
+      ..addUser(email: _avery, password: 'pw-avery', totpCode: '246810')
+      ..addUser(email: _blake, password: 'pw-blake');
+    final container = ProviderContainer(
+      overrides: [libreChatHttpAdapterProvider.overrideWithValue(fake)],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    final service = LibreChatService(
+      container,
+      events: EventBus(),
+      accounts: AccountsService(container, events: EventBus()),
+    );
+    final first = await service.signIn(
+      LibreChatSignIn(url: fake.baseUrl, email: _avery, password: 'pw-avery'),
+    );
+    expect(first.outcome, LibreChatSignInOutcome.twoFactorRequired);
+
+    // The form starts over and signs in again (refused here).
+    final second = await service.signIn(
+      LibreChatSignIn(url: fake.baseUrl, email: _blake, password: 'nope'),
+    );
+    expect(second.outcome, LibreChatSignInOutcome.rejected);
+
+    // The first form's code, sent late: no account goes in charge.
+    final late = await service.verify(
+      LibreChatVerify(flowId: first.flowId!, code: '246810'),
+    );
+    expect(late.outcome, LibreChatSignInOutcome.expired);
+    expect(late.accountId, isNull);
+  });
 }
 
 const _avery = 'avery@example.com';

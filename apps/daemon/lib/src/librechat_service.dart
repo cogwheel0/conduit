@@ -26,6 +26,8 @@ import 'package:conduit_core/features/librechat/services/librechat_probe.dart'
 import 'package:conduit_core/features/librechat/services/librechat_sso.dart';
 import 'package:conduit_core/models/model.dart' as core;
 import 'package:conduit_core/providers/app_providers.dart' show modelsProvider;
+import 'package:conduit_core/providers/primary_account_providers.dart'
+    show PrimaryAccountRef, primaryAccountProvider;
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
@@ -77,6 +79,20 @@ final class LibreChatService {
 
   /// Two-step sign-ins waiting for their code, by flow id.
   final Map<String, _TwoFactorFlow> _flows = {};
+
+  /// Bumped as each sign-in step begins (a password or code sent, single
+  /// sign-on started or completed): an older one still out, or a two-step
+  /// flow waiting for its code, then puts no account in charge.
+  int _signInRound = 0;
+
+  /// A newer sign-in step begins: the ones before it are superseded.
+  ({int round, PrimaryAccountRef primary}) _beginSignIn() {
+    _flows.clear();
+    return (
+      round: ++_signInRound,
+      primary: _container.read(primaryAccountProvider),
+    );
+  }
 
   // -------------------------------------------------------------------------
   // Probe
@@ -144,6 +160,7 @@ final class LibreChatService {
   // -------------------------------------------------------------------------
 
   Future<LibreChatSignInResult> signIn(LibreChatSignIn request) async {
+    final begun = _beginSignIn();
     final target = await _server(request.url);
     if (target == null) {
       return const LibreChatSignInResult(
@@ -158,8 +175,15 @@ final class LibreChatService {
       );
       switch (result) {
         case LibreChatSignedIn(:final session):
-          return await _finish(target, session, force: request.force);
+          return await _finish(
+            target,
+            session,
+            force: request.force,
+            begun: begun,
+          );
         case LibreChatTwoFactorRequired(:final tempToken):
+          // Superseded meanwhile: no flow waits for its code.
+          if (begun.round != _signInRound) return _superseded;
           _expireFlows();
           final flowId = _uuid.v4();
           _flows[flowId] = _TwoFactorFlow(
@@ -183,6 +207,11 @@ final class LibreChatService {
   Future<LibreChatSignInResult> verify(LibreChatVerify request) async {
     _expireFlows();
     final flow = _flows[request.flowId];
+    // The flow stays with this code (another try of a wrong one keeps it).
+    final begun = (
+      round: ++_signInRound,
+      primary: _container.read(primaryAccountProvider),
+    );
     if (flow == null) {
       return const LibreChatSignInResult(
         outcome: LibreChatSignInOutcome.expired,
@@ -203,10 +232,12 @@ final class LibreChatService {
         backupCode: request.backupCode ? code : null,
       );
       _flows.remove(request.flowId);
-      return await _finish((
-        server: flow.server,
-        info: flow.info,
-      ), session, force: request.force);
+      return await _finish(
+        (server: flow.server, info: flow.info),
+        session,
+        force: request.force,
+        begun: begun,
+      );
     } on LibreChatApiException catch (error) {
       if (error.statusCode == 401) {
         return LibreChatSignInResult(
@@ -226,6 +257,7 @@ final class LibreChatService {
   /// the window's browser follows (the core's, which the phone's web view
   /// follows too).
   Future<LibreChatSsoPlan> ssoStart(LibreChatSsoStart request) async {
+    _beginSignIn();
     final target = await _server(request.url);
     if (target == null) {
       throw RpcError(
@@ -262,6 +294,7 @@ final class LibreChatService {
   Future<LibreChatSignInResult> completeSso(
     LibreChatSsoCompletion request,
   ) async {
+    final begun = _beginSignIn();
     final target = await _server(request.url);
     if (target == null) {
       return const LibreChatSignInResult(
@@ -282,7 +315,12 @@ final class LibreChatService {
     final auth = _auth(target.server);
     try {
       final session = await auth.sessionFromCookies(cookies);
-      return await _finish(target, session, force: request.force);
+      return await _finish(
+        target,
+        session,
+        force: request.force,
+        begun: begun,
+      );
     } on LibreChatSessionExpiredException {
       return const LibreChatSignInResult(
         outcome: LibreChatSignInOutcome.ssoUnfinished,
@@ -297,11 +335,20 @@ final class LibreChatService {
   /// Saves the account signed in to and puts it in charge of the chats, as
   /// the phone's sign-in does: saved first, then switched to through the
   /// core's switcher, which parks Open WebUI.
+  ///
+  /// A sign-in another step superseded, or begun under another account
+  /// than the one in charge now (the user chose one meanwhile), saves and
+  /// switches nothing.
   Future<LibreChatSignInResult> _finish(
     ({LibreChatServer server, LibreChatServerInfo info}) target,
     LibreChatSession session, {
     required bool force,
+    required ({int round, PrimaryAccountRef primary}) begun,
   }) async {
+    bool superseded() =>
+        begun.round != _signInRound ||
+        _container.read(primaryAccountProvider) != begun.primary;
+    if (superseded()) return _superseded;
     final LibreChatAccount account;
     try {
       account = await _container
@@ -315,6 +362,7 @@ final class LibreChatService {
     } on Object catch (error, stackTrace) {
       return _failure(error, stackTrace);
     }
+    if (superseded()) return _superseded;
     final result = await _accounts.useLibreChat(account.id, force: force);
     return LibreChatSignInResult(
       outcome: result.outcome == AccountChangeOutcome.blockedByActiveReply
@@ -324,6 +372,10 @@ final class LibreChatService {
       accounts: result.accounts,
     );
   }
+
+  static const _superseded = LibreChatSignInResult(
+    outcome: LibreChatSignInOutcome.expired,
+  );
 
   LibreChatAuthService _auth(LibreChatServer server) => LibreChatAuthService(
     server,
