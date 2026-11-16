@@ -1097,9 +1097,11 @@ mod tests {
     use gpui_kit::{ScrollStrategy, TestAppContext, UniformListScrollHandle};
 
     /// The context-limit list as the pane draws it past a few models.
+    /// `built`: the rows each frame built, first and last index.
     struct LongList {
         options: DirectOptions,
         scroll: UniformListScrollHandle,
+        built: std::rc::Rc<std::cell::RefCell<Vec<std::ops::Range<usize>>>>,
     }
 
     impl Render for LongList {
@@ -1113,6 +1115,7 @@ mod tests {
                         |this: &mut Self, range: std::ops::Range<usize>, window, cx| {
                             let l10n = cx.l10n().clone();
                             let options = this.options.clone();
+                            this.built.borrow_mut().push(range.clone());
                             range
                                 .filter_map(|i| {
                                     DirectPane::context_row(&options, i, &l10n, window, cx)
@@ -1128,8 +1131,11 @@ mod tests {
         }
     }
 
+    /// A gateway's hundreds of models scroll in a list that builds only the
+    /// rows in view each frame (what keeps it within a frame), whatever the
+    /// machine's speed.
     #[gpui_kit::test]
-    fn a_gateways_hundreds_of_models_scroll_within_a_frame(cx: &mut TestAppContext) {
+    fn a_gateways_hundreds_of_models_build_only_the_rows_in_view(cx: &mut TestAppContext) {
         cx.update(|cx| {
             gpui_kit::init(cx);
             install(
@@ -1154,29 +1160,32 @@ mod tests {
             context_limit_choices: vec![4096, 8192, 16384, 32768],
         };
         let scroll = UniformListScrollHandle::new();
+        let built = std::rc::Rc::<std::cell::RefCell<Vec<std::ops::Range<usize>>>>::default();
+        let seen = built.clone();
         let (_, vcx) = cx.add_window_view(|_, _| LongList {
             options,
             scroll: scroll.clone(),
+            built: seen,
         });
         vcx.update(|window, cx| window.draw(cx).clear(cx));
         // A frame per step down the list, as a scroll draws them.
-        let mut frames: Vec<std::time::Duration> = (0..120)
-            .map(|step| {
-                scroll.scroll_to_item(step * 4, ScrollStrategy::Top);
-                vcx.update(|window, cx| {
-                    let started = std::time::Instant::now();
-                    window.refresh();
-                    window.draw(cx).clear(cx);
-                    started.elapsed()
-                })
-            })
-            .collect();
-        frames.sort();
-        let p95 = frames[frames.len() * 95 / 100];
-        eprintln!("context list: 500 rows, p95 draw {p95:?}");
+        for step in 0..125 {
+            scroll.scroll_to_item(step * 4, ScrollStrategy::Top);
+            vcx.update(|window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx);
+            });
+        }
+        let built = built.borrow();
+        // 340 pt of rows at least 44 pt tall: a screenful, never the 500.
+        let most = built.iter().map(|r| r.len()).max().unwrap_or(0);
         assert!(
-            p95 < std::time::Duration::from_micros(16_700),
-            "p95 draw {p95:?} is over a frame"
+            (1..=12).contains(&most),
+            "a frame built {most} of the 500 rows"
+        );
+        assert!(
+            built.iter().any(|r| r.end == 500),
+            "the scroll never reached the last model"
         );
     }
 
