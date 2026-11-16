@@ -133,10 +133,15 @@ final class ChannelsService {
   // ── The list ──────────────────────────────────────────────────────────
 
   Future<ChannelList> list() async {
+    final session = _session();
     final channels = await readSettled(_container, channelsListProvider.future);
+    final canCreate = await _canCreate();
+    // Read under another account: its channels, with the next one's flags,
+    // are neither's.
+    _sameAccount(session);
     return ChannelList(
       enabled: _container.read(channelsFeatureEnabledProvider),
-      canCreate: await _canCreate(),
+      canCreate: canCreate,
       channels: <ChannelSummary>[
         for (final channel in channels) _summarize(channel),
       ],

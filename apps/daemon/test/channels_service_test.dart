@@ -228,6 +228,8 @@ void main() {
   test("a channel read under one account is not the next one's", () async {
     var account = Object();
     final api = _Api();
+    // The account's permissions, read once the test says.
+    final permissions = Completer<Map<String, dynamic>>();
     final socket = _Socket();
     final container = ProviderContainer(
       overrides: [
@@ -245,11 +247,7 @@ void main() {
           ),
         ),
         channelsListProvider.overrideWith(_Listed.new),
-        userPermissionsProvider.overrideWith(
-          (ref) async => <String, dynamic>{
-            'features': <String, dynamic>{'channels': true},
-          },
-        ),
+        userPermissionsProvider.overrideWith((ref) => permissions.future),
       ],
     );
     addTearDown(container.dispose);
@@ -310,6 +308,16 @@ void main() {
       heard.where((e) => e.event == ConduitEvents.channelsPosted),
       isEmpty,
     );
+
+    // The list, its permissions read only after the switch: not the next
+    // account's list, with its flags.
+    final listing = channels.list();
+    await Future<void>.delayed(Duration.zero);
+    anotherAccount();
+    permissions.complete(<String, dynamic>{
+      'features': <String, dynamic>{'channels': true},
+    });
+    await expectLater(listing, expired);
   });
 }
 
