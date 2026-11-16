@@ -98,11 +98,12 @@ pub struct HermesAdminStore {
     list_taken: u64,
 }
 
-/// A connections-list read or action, as it was asked: answered only while
-/// no reset came since and no newer one was taken.
+/// A connections-list read or action, as it was asked (its place in the
+/// order they were asked in): answered only if it is newer than the last
+/// list taken and than the last reset. A list that switches connections
+/// does not make the ones asked after it older.
 #[derive(Clone, Copy, Debug)]
 pub struct ListTicket {
-    generation: u64,
     list: u64,
 }
 
@@ -153,6 +154,8 @@ impl HermesAdminStore {
         self.mcp_busy.clear();
         self.pending_notices.clear();
         self.generation += 1;
+        // Lists asked before the reset are not taken; those asked after are.
+        self.list_taken = self.list_asked;
         self.changed(cx);
     }
 
@@ -212,7 +215,6 @@ impl HermesAdminStore {
     pub fn ask_list(&mut self) -> ListTicket {
         self.list_asked += 1;
         ListTicket {
-            generation: self.generation,
             list: self.list_asked,
         }
     }
@@ -225,7 +227,7 @@ impl HermesAdminStore {
         list: HermesConnections,
         cx: &mut Context<Self>,
     ) -> bool {
-        if !self.is_current(ticket.generation) || ticket.list <= self.list_taken {
+        if ticket.list <= self.list_taken {
             return false;
         }
         self.list_taken = ticket.list;
@@ -906,6 +908,46 @@ mod tests {
             assert!(
                 s.connections.is_none(),
                 "a list asked before the reset was taken"
+            )
+        });
+    }
+
+    /// A list that switches connections does not throw away a newer list
+    /// asked before it came: with two reads out across a switch, the newer
+    /// one is what the window shows.
+    #[gpui_kit::test]
+    fn the_newest_list_wins_across_a_switch(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let n = Arc::new(AtomicUsize::new(0));
+        let count = n.clone();
+        daemon.on::<methods::HermesConnectionsList>(move |_| {
+            // The first read sees B in use; by the second, A is back.
+            let first = count.fetch_add(1, Ordering::SeqCst) == 0;
+            Ok(serde_json::to_value(list(if first { "b" } else { "a" })).unwrap())
+        });
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.adopt_connections(list("a"), cx));
+        let held = daemon.hold::<methods::HermesConnectionsList>();
+        store.update(cx, |s, cx| {
+            s.refresh_connections(cx);
+            s.refresh_connections(cx);
+        });
+        cx.run_until_parked();
+        held.release_one();
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.connections.as_ref().and_then(|l| l.active_id.as_deref()),
+                Some("b")
+            )
+        });
+        drop(held);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.connections.as_ref().and_then(|l| l.active_id.as_deref()),
+                Some("a"),
+                "the newer list was thrown away by the switch before it"
             )
         });
     }
