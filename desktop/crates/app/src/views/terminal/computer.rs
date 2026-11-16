@@ -121,6 +121,13 @@ pub fn viewer_note(message: &str) -> Option<ViewerNote> {
     })
 }
 
+/// What the address field must be set to so it shows `url`, the page's
+/// address now, given `shown`, what it was last set to: nothing while it
+/// is being edited (`editing`), or while it already shows `url`.
+fn address_sync<'a>(shown: &str, url: &'a str, editing: bool) -> Option<&'a str> {
+    (!editing && shown != url).then_some(url)
+}
+
 /// What typed text in the address field opens: mobile's rule, a bare host
 /// (or host and port) is an https address.
 pub fn address_url(typed: &str) -> String {
@@ -216,6 +223,8 @@ pub struct ComputerWindow {
     /// The page has loaded: the viewer can start.
     loaded: bool,
     address: Entity<InputState>,
+    /// What the address field was last set to from the page.
+    address_shown: String,
     shortcut: Entity<InputState>,
     shortcut_open: bool,
     /// Bumped by every open: late answers to older ones are dropped.
@@ -849,6 +858,12 @@ impl Render for ComputerWindow {
                 .into_any_element()
         } else if self.surface == ComputerSurfaceKind::Browser {
             let focused = self.address.focus_handle(cx).is_focused(window);
+            if let Some(url) = address_sync(&self.address_shown, &self.url, focused) {
+                let url = url.to_string();
+                self.address
+                    .update(cx, |i, cx| i.set_value(url.clone(), window, cx));
+                self.address_shown = url;
+            }
             div()
                 .flex_1()
                 .min_w_0()
@@ -1182,6 +1197,7 @@ pub fn open(stores: Stores, chat_id: String, status: ComputerStatus, cx: &mut Ap
                 webview,
                 loaded: false,
                 address,
+                address_shown: String::new(),
                 shortcut,
                 shortcut_open: false,
                 generation: 0,
@@ -1256,6 +1272,29 @@ fn load_viewer(webview: &Entity<WebView>, cx: &App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The address field shows where the page is now, and leaves what is
+    /// being typed into it alone.
+    #[test]
+    fn the_address_field_follows_the_page_unless_being_edited() {
+        assert_eq!(
+            address_sync("", "https://docs.example.com/", false),
+            Some("https://docs.example.com/")
+        );
+        assert_eq!(
+            address_sync("https://a.example.com/", "https://b.example.com/", false),
+            Some("https://b.example.com/")
+        );
+        assert_eq!(
+            address_sync("https://a.example.com/", "https://b.example.com/", true),
+            None,
+            "typing in the field was overwritten"
+        );
+        assert_eq!(
+            address_sync("https://a.example.com/", "https://a.example.com/", false),
+            None
+        );
+    }
 
     #[test]
     fn the_page_wraps_mobiles_viewer_and_reports_through_ipc() {
