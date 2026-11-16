@@ -1142,6 +1142,7 @@ void main() {
         final uploaded = await files.upload(
           name: 'conduit-e2e-$pid.png',
           bytes: png,
+          session: files.session(),
           contentType: 'image/png',
         );
         try {
@@ -2015,6 +2016,7 @@ void main() {
         );
         final id = created.summary.id;
         final uploaded = await FilesService(runtime.container).upload(
+          session: FilesService(runtime.container).session(),
           name: 'live-recording.webm',
           bytes: Uint8List.fromList(List<int>.generate(256, (i) => i)),
           contentType: 'audio/webm',
@@ -2965,6 +2967,7 @@ void main() {
           cleanups['knowledge'] = () => api.deleteKnowledgeBase(id);
 
           final uploaded = await FilesService(runtime.container).upload(
+            session: FilesService(runtime.container).session(),
             name: 'live-notes-$stamp.txt',
             bytes: Uint8List.fromList(
               utf8.encode('The deploy password rotates every Tuesday.'),

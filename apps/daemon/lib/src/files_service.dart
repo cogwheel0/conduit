@@ -38,14 +38,29 @@ final class FilesService {
   /// The file entry for [id], if this daemon uploaded it.
   UploadedFile? describe(String id) => _uploaded[id];
 
+  /// The signed-in session, read when an upload's request begins: its
+  /// body can take a while to arrive, and [upload] goes only to the account
+  /// that was signed in then.
+  Object session() => _container.read(openWebUiAuthSessionEpochProvider);
+
   Future<UploadedFile> upload({
     required String name,
     required Uint8List bytes,
+    required Object session,
     String? contentType,
   }) async {
+    // Another account signed in since the request began: the file is
+    // refused rather than sent to that account's server. No await between
+    // this check and the upload's client read below.
+    if (!identical(session, this.session())) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed during the upload',
+      );
+    }
     final api = _container.read(apiServiceProvider);
-    final session = _container.read(authStateManagerProvider).value;
-    if (api == null || session == null || !session.isAuthenticated) {
+    final auth = _container.read(authStateManagerProvider).value;
+    if (api == null || auth == null || !auth.isAuthenticated) {
       throw const RpcError(
         code: ConduitErrorCodes.unauthenticated,
         debugMessage: 'sign in before uploading',
