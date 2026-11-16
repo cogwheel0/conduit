@@ -25,19 +25,25 @@ class EventBus {
   /// reconnecting window, which is a new session, starts again too.
   void attach(String sessionId, void Function(EventEnvelope envelope) deliver) {
     _subscribers[sessionId] = _Subscriber(deliver);
-    final waiting = List<Completer<void>>.of(_attachWaiters);
+    final waiting = List<Completer<bool>>.of(_attachWaiters);
     _attachWaiters.clear();
     for (final waiter in waiting) {
-      waiter.complete();
+      waiter.complete(true);
     }
   }
 
-  final List<Completer<void>> _attachWaiters = <Completer<void>>[];
+  final List<Completer<bool>> _attachWaiters = <Completer<bool>>[];
 
-  /// Completes when the next client attaches (a window reconnecting).
-  Future<void> nextAttach() {
-    final waiter = Completer<void>();
+  /// True when the next client attaches (a window reconnecting), false when
+  /// [until] completes first. Either way nothing is left waiting here.
+  Future<bool> attachBefore(Future<void> until) {
+    final waiter = Completer<bool>();
     _attachWaiters.add(waiter);
+    unawaited(
+      until.then((_) {
+        if (_attachWaiters.remove(waiter)) waiter.complete(false);
+      }),
+    );
     return waiter.future;
   }
 

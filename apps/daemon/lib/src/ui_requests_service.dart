@@ -37,6 +37,10 @@ final class UiRequestsService implements UiRequestPort {
   final Map<String, ({UiRequest request, Completer<UiResponse> answer})>
   _pending = <String, ({UiRequest request, Completer<UiResponse> answer})>{};
 
+  /// Requests a window answered (not settled with their default), until
+  /// the one who asked reads the answer.
+  final Set<String> _answeredByWindow = <String>{};
+
   /// Requests still waiting, for a window that connects after they were
   /// sent.
   List<UiRequest> get pending =>
@@ -47,6 +51,7 @@ final class UiRequestsService implements UiRequestPort {
   bool respond(UiResponse response) {
     final entry = _pending.remove(response.requestId);
     if (entry == null || entry.answer.isCompleted) return false;
+    _answeredByWindow.add(response.requestId);
     entry.answer.complete(response);
     _publishSettled(response.requestId);
     return true;
@@ -174,23 +179,22 @@ final class UiRequestsService implements UiRequestPort {
   /// when [until] completes first.
   Future<bool> windowBack(Future<void> until) async {
     if (canAsk) return true;
-    return Future.any<bool>([
-      _events.nextAttach().then((_) => true),
-      until.then((_) => false),
-    ]);
+    return _events.attachBefore(until);
   }
 
   /// Asks whether a LibreChat run may go on with tool [toolName]: a run that
   /// paused for approval. Unanswered, it is rejected; [until] completing
-  /// (the turn that asked ended) takes the card back.
-  Future<bool> askLibreChatToolApproval({
+  /// (the turn that asked ended) takes the card back. [answered] says
+  /// whether a window answered, rather than the card being settled with
+  /// its default (nobody there, every window gone, the turn over).
+  Future<({bool allow, bool answered})> askLibreChatToolApproval({
     required String chatId,
     required String toolName,
     String? description,
     String? argumentsJson,
     Future<void>? until,
   }) async {
-    final response = await _ask(
+    final (:response, :answered) = await _askReadingWho(
       UiRequestKind.toolApproval,
       messageCode: 'librechat.toolApproval',
       args: <String, String>{
@@ -202,15 +206,18 @@ final class UiRequestsService implements UiRequestPort {
         'backend': 'libreChat',
         'arguments': ?argumentsJson,
       },
+      defaultChoice: 'deny',
       until: until,
     );
-    return response.choice == 'allow';
+    return (allow: response.choice == 'allow', answered: answered);
   }
 
   /// Puts a LibreChat agent's question to the user: its options, or words
-  /// of their own. Null when it was cancelled (or nobody could be asked);
-  /// [until] completing (the turn that asked ended) takes the card back.
-  Future<String?> askLibreChatQuestion({
+  /// of their own. [text] is null when it was cancelled (or nobody could be
+  /// asked); [until] completing (the turn that asked ended) takes the card
+  /// back. [answered] says whether a window answered, rather than the card
+  /// being settled with its default.
+  Future<({String? text, bool answered})> askLibreChatQuestion({
     required String chatId,
     required String question,
     String? description,
@@ -219,7 +226,7 @@ final class UiRequestsService implements UiRequestPort {
     String? progress,
     Future<void>? until,
   }) async {
-    final response = await _ask(
+    final (:response, :answered) = await _askReadingWho(
       UiRequestKind.libreChatQuestion,
       messageCode: 'librechat.question',
       args: <String, String>{
@@ -239,9 +246,11 @@ final class UiRequestsService implements UiRequestPort {
     // The window's question card answers `allow` with the text (the same
     // card as any server's question); `answer` is the plain word for it.
     final text = response.text?.trim();
-    final answered = response.choice == 'answer' || response.choice == 'allow';
-    if (!answered || text == null || text.isEmpty) return null;
-    return text;
+    final given = response.choice == 'answer' || response.choice == 'allow';
+    if (!given || text == null || text.isEmpty) {
+      return (text: null, answered: answered);
+    }
+    return (text: text, answered: answered);
   }
 
   /// Asks whether an MCP App in a chat may call one of its server's tools,
@@ -368,6 +377,31 @@ final class UiRequestsService implements UiRequestPort {
     options: options,
     until: until,
   ).answer;
+
+  /// [_ask], and whether a window answered rather than the default settling
+  /// the question.
+  Future<({UiResponse response, bool answered})> _askReadingWho(
+    UiRequestKind kind, {
+    required Map<String, String> args,
+    required String messageCode,
+    required Map<String, dynamic> detail,
+    required String defaultChoice,
+    Future<void>? until,
+  }) async {
+    final open = _open(
+      kind,
+      args: args,
+      messageCode: messageCode,
+      detail: detail,
+      defaultChoice: defaultChoice,
+      until: until,
+    );
+    final response = await open.answer;
+    return (
+      response: response,
+      answered: _answeredByWindow.remove(open.requestId),
+    );
+  }
 
   /// [until]: what asked can stop (an MCP App, a turn); once it completes
   /// the question goes, answered with [defaultChoice].

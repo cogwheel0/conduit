@@ -48,7 +48,11 @@ typedef LibreChatResume =
 /// nothing goes out over and over on its own. A send is tried again only
 /// after a card was put up and answered in that attempt (or, the first
 /// time, when the next attempt puts one up); a failure before anything is
-/// sent -- a card that could not be put up -- ends the reply once.
+/// sent -- a card that could not be put up -- ends the reply once. After a
+/// failed send only a window's own answer decides: a card settled with its
+/// default (every window gone before answering) sends nothing, refuses
+/// nothing and stops nothing; the pause waits for a window again while its
+/// turn runs.
 Future<LibreChatPauseOutcome> answerLibreChatPause(
   LibreChatPendingAction action, {
   required UiRequestsService? windows,
@@ -73,12 +77,13 @@ Future<LibreChatPauseOutcome> answerLibreChatPause(
       recovering: recovering,
     );
     // Not sent, and no window is there to put the card to (one is
-    // reconnecting): the pause waits for a window while its turn runs,
-    // rather than being left with no card to answer.
+    // reconnecting), or the card went unanswered by any window: the pause
+    // waits for a window while its turn runs, rather than being left with
+    // no card to answer.
     if (outcome == LibreChatPauseOutcome.failed &&
         windows != null &&
         until != null &&
-        !windows.canAsk &&
+        (attempt.unanswered || !windows.canAsk) &&
         asking()) {
       if (!await windows.windowBack(until) || !asking()) return outcome;
       recovering = true;
@@ -102,6 +107,10 @@ Future<LibreChatPauseOutcome> answerLibreChatPause(
 final class _Attempt {
   bool answered = false;
   bool sending = false;
+
+  /// A card after a failed send was settled with its default, not by a
+  /// window: nothing was decided.
+  bool unanswered = false;
 }
 
 /// Whether an attempt after a failed send puts a card to the windows: each
@@ -136,7 +145,7 @@ Future<LibreChatPauseOutcome> _answerOnce(
       for (final (index, question) in questions.indexed) {
         final id = question['id']?.toString() ?? 'question';
         final options = question['options'];
-        final answer = windows == null
+        final reply = windows == null
             ? null
             : await windows.askLibreChatQuestion(
                 chatId: chatId,
@@ -158,10 +167,15 @@ Future<LibreChatPauseOutcome> _answerOnce(
                     : null,
                 until: until,
               );
-        if (windows != null) attempt.answered = true;
+        attempt.answered = reply?.answered ?? false;
         // Answered or dismissed after its turn ended (a newer reply may run
         // in the chat now): nothing of that newer one is touched.
         if (!asking()) return LibreChatPauseOutcome.left;
+        if (recovering && reply != null && !reply.answered) {
+          attempt.unanswered = true;
+          return LibreChatPauseOutcome.failed;
+        }
+        final answer = reply?.text;
         if (answer == null) {
           await stop();
           return LibreChatPauseOutcome.stopped;
@@ -185,15 +199,20 @@ Future<LibreChatPauseOutcome> _answerOnce(
       // after a failed send, when the window's answer is what sends again.
       var allowed = false;
       if (carded) {
-        final yes = await windows.askLibreChatToolApproval(
+        final reply = await windows.askLibreChatToolApproval(
           chatId: chatId,
           toolName: request.name,
           description: request.description,
           argumentsJson: _argumentsJson(request.arguments),
           until: until,
         );
-        attempt.answered = true;
-        allowed = yes && approvable;
+        if (!asking()) return LibreChatPauseOutcome.left;
+        if (recovering && !reply.answered) {
+          attempt.unanswered = true;
+          return LibreChatPauseOutcome.failed;
+        }
+        attempt.answered = reply.answered;
+        allowed = reply.allow && approvable;
       }
       final decision = allowed
           ? LibreChatToolDecision.approve
