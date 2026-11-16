@@ -214,6 +214,12 @@ impl NavigationStore {
         self.set(Selection::New { temporary }, cx);
     }
 
+    /// The new chat's Temporary switch: the same new chat, in the same
+    /// folder, only temporary or not.
+    pub fn set_new_chat_temporary(&mut self, temporary: bool, cx: &mut Context<Self>) {
+        self.set(Selection::New { temporary }, cx);
+    }
+
     /// A new chat that is filed in `folder_id` once it exists.
     pub fn new_chat_in_folder(&mut self, folder_id: String, cx: &mut Context<Self>) {
         self.set(Selection::New { temporary: false }, cx);
