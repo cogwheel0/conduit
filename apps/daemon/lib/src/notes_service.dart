@@ -537,6 +537,23 @@ final class NotesService {
     );
   }
 
+  /// The account a recording request for note [id] comes under, captured
+  /// before anything is awaited: refused at once when the note was handed
+  /// out under another one.
+  String? _recordingAccount(String id) {
+    _requireOpenedHere(id);
+    return currentPreferenceAccountId();
+  }
+
+  /// Refuses a recording request for note [id] begun under [account] once
+  /// another account is active -- also for a note this daemon never handed
+  /// out (it restarted under an open editor) -- or once the note was handed
+  /// out under another account meanwhile.
+  void _requireRecordingStill(String id, String? account) {
+    _requireStill(account, id);
+    _requireOpenedHere(id);
+  }
+
   /// Refuses a save the editor made for account [expected] while another
   /// account is active (nothing is checked when the editor names none).
   void _requireExpected(String? expected, String? id) {
@@ -696,11 +713,12 @@ final class NotesService {
   /// the server can be reached.
   Future<NoteRecordings> recordings(String noteId) async {
     // A note opened under another account: its recordings are that
-    // account's, listed to no other (checked again after the read).
-    _requireOpenedHere(noteId);
+    // account's, listed to no other (checked again after each read).
+    final account = _recordingAccount(noteId);
     final recorder = await _recorderFor(noteId);
-    _requireOpenedHere(noteId);
+    _requireRecordingStill(noteId, account);
     await recorder.controller.loadPending();
+    _requireRecordingStill(noteId, account);
     return _recordingsOf(noteId, recorder);
   }
 
@@ -708,11 +726,11 @@ final class NotesService {
   /// into the account's storage before anything else), then uploads and
   /// attaches it.
   Future<NoteRecordings> addRecording(NoteRecordingAdd request) async {
-    _requireOpenedHere(request.noteId);
+    final account = _recordingAccount(request.noteId);
     final recorder = await _recorderFor(request.noteId);
     // Checked again after the reads: a switch meanwhile keeps the audio out
     // of the next account's storage.
-    _requireOpenedHere(request.noteId);
+    _requireRecordingStill(request.noteId, account);
     final file = File(request.path);
     if (!file.existsSync()) {
       throw RpcError(
@@ -734,9 +752,9 @@ final class NotesService {
   }
 
   Future<NoteRecordings> retryRecording(NoteRecordingRef request) async {
-    _requireOpenedHere(request.noteId);
+    final account = _recordingAccount(request.noteId);
     final recorder = await _recorderFor(request.noteId);
-    _requireOpenedHere(request.noteId);
+    _requireRecordingStill(request.noteId, account);
     unawaited(
       recorder.controller.retry(ids: <String>[request.id], showFeedback: true),
     );
@@ -744,10 +762,11 @@ final class NotesService {
   }
 
   Future<NoteRecordings> removeRecording(NoteRecordingRef request) async {
-    _requireOpenedHere(request.noteId);
+    final account = _recordingAccount(request.noteId);
     final recorder = await _recorderFor(request.noteId);
-    _requireOpenedHere(request.noteId);
+    _requireRecordingStill(request.noteId, account);
     await recorder.controller.removePending(request.id);
+    _requireRecordingStill(request.noteId, account);
     return _recordingsOf(request.noteId, recorder);
   }
 

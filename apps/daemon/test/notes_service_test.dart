@@ -26,7 +26,8 @@ import 'package:conduitd/src/daemon_paths.dart';
 import 'package:conduitd/src/event_bus.dart';
 import 'package:conduitd/src/notes_service.dart';
 import 'package:dio/dio.dart' show CancelToken;
-import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
+import 'package:drift/drift.dart'
+    show QueryExecutor, QueryInterceptor, ApplyInterceptor, Value, driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -124,10 +125,33 @@ void main() {
       );
       expect(await second.select(second.notes).get(), isEmpty);
 
-      // Nor does a recording made for it go to the next account.
+      // Nor does a recording made for it go to the next account, nor are
+      // its recordings listed or taken off there.
       await expectLater(
         notes.addRecording(
           const NoteRecordingAdd(noteId: 'trail-log', path: '/tmp/take.wav'),
+        ),
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.sessionExpired,
+          ),
+        ),
+      );
+      await expectLater(
+        notes.recordings('trail-log'),
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.sessionExpired,
+          ),
+        ),
+      );
+      await expectLater(
+        notes.removeRecording(
+          const NoteRecordingRef(noteId: 'trail-log', id: 'take-1'),
         ),
         throwsA(
           isA<RpcError>().having(
@@ -310,20 +334,15 @@ void main() {
       expect(await second.select(second.notes).get(), isEmpty);
     });
 
-    test('lists or removes no recording of a note opened under the last account', () async {
-      await first
-          .into(first.notes)
-          .insert(
-            serverToNoteRow(<String, dynamic>{
-              'id': 'kiln-log',
-              'title': 'Kiln log',
-              'data': <String, dynamic>{
-                'content': <String, dynamic>{'md': 'Cone 6, slow cool'},
-              },
-              'created_at': 1,
-              'updated_at': 1,
-            }).copyWith(dirtyData: const Value(true)),
-          );
+    test('lists no recording for a request begun under the last account', () async {
+      // The daemon restarted under an open editor: it never handed this
+      // note out. Its recordings are asked for under A; the note read is
+      // slow, and B becomes active meanwhile.
+      final gate = _ReadGate();
+      final gated = AppDatabase(NativeDatabase.memory().interceptWith(gate));
+      addTearDown(gated.close);
+      active = gated;
+      container.invalidate(appDatabaseProvider);
       final dir = await Directory.systemTemp.createTemp('conduit-notes-rec-');
       addTearDown(() => dir.delete(recursive: true));
       final notes = NotesService(
@@ -331,30 +350,22 @@ void main() {
         paths: DaemonDirectories.create(dir.path),
       );
       addTearDown(notes.dispose);
-      expect((await notes.get('kiln-log'))?.summary.title, 'Kiln log');
-      // A's editor takes a recording off the note: the note's recorder is
-      // made under A.
-      await notes.removeRecording(
-        const NoteRecordingRef(noteId: 'kiln-log', id: 'take-0'),
-      );
-
-      // Account B becomes active; the recorder is still A's.
+      final release = gate.hold();
+      final listing = notes.recordings('kiln-log');
+      await gate.asked;
       await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
       active = second;
       container.invalidate(appDatabaseProvider);
-      final refused = throwsA(
-        isA<RpcError>().having(
-          (e) => e.code,
-          'code',
-          ConduitErrorCodes.sessionExpired,
-        ),
-      );
-      await expectLater(notes.recordings('kiln-log'), refused);
+      release.complete();
       await expectLater(
-        notes.removeRecording(
-          const NoteRecordingRef(noteId: 'kiln-log', id: 'take-1'),
+        listing,
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.sessionExpired,
+          ),
         ),
-        refused,
       );
     });
   });
@@ -479,4 +490,31 @@ final class _OfflineApi extends ApiService {
     CancelToken? cancelToken,
     ApiAuthSnapshot? authSnapshot,
   }) async => throw StateError('offline');
+}
+
+/// Holds the next read of a database once [hold] is called: [asked]
+/// completes when that read arrives, and it goes on once the returned
+/// completer completes.
+final class _ReadGate extends QueryInterceptor {
+  Completer<void>? _release;
+  final Completer<void> _asked = Completer<void>();
+
+  Future<void> get asked => _asked.future;
+
+  Completer<void> hold() => _release = Completer<void>();
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final release = _release;
+    if (release != null) {
+      _release = null;
+      _asked.complete();
+      await release.future;
+    }
+    return executor.runSelect(statement, args);
+  }
 }
