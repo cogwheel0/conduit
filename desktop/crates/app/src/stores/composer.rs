@@ -252,6 +252,60 @@ impl OneShot {
         self.mentions = mentions;
         self
     }
+
+    /// Two unsent messages for one draft kept as one, so neither one's words
+    /// are lost: `first`'s words, a blank line, then `later`'s, with both
+    /// messages' mentions and files (`later`'s knowledge, context and models
+    /// unless it chose none). `first` from another account or draft scope is
+    /// dropped, as [`ComposerStore::give_back`] would drop it.
+    pub fn merge(
+        first_text: &str,
+        first: OneShot,
+        later_text: &str,
+        later: OneShot,
+    ) -> (String, OneShot) {
+        if first.scope != later.scope {
+            return (later_text.to_string(), later);
+        }
+        let (text, mentions) = if later_text.trim().is_empty() {
+            (first_text.to_string(), first.mentions)
+        } else if first_text.trim().is_empty() {
+            (later_text.to_string(), later.mentions)
+        } else {
+            let head = format!("{first_text}\n\n");
+            let shift = head.encode_utf16().count() as i64;
+            let mut mentions = first.mentions;
+            mentions.extend(later.mentions.into_iter().map(|mut m| {
+                m.start += shift;
+                m.end += shift;
+                m
+            }));
+            (format!("{head}{later_text}"), mentions)
+        };
+        let mut attachments = first.attachments;
+        attachments.retain(|a| !later.attachments.iter().any(|b| b.local_id == a.local_id));
+        attachments.extend(later.attachments);
+        let merged = OneShot {
+            scope: later.scope,
+            draft: later.draft,
+            attachments,
+            knowledge: if later.knowledge.is_empty() {
+                first.knowledge
+            } else {
+                later.knowledge
+            },
+            context: if later.context.is_empty() {
+                first.context
+            } else {
+                later.context
+            },
+            mention: later.mention.or(first.mention),
+            mentions,
+            compare_with: later.compare_with.or(first.compare_with),
+            recordings: later.recordings.or(first.recordings),
+        };
+        (text, merged)
+    }
 }
 
 #[derive(Clone)]

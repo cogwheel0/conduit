@@ -462,11 +462,30 @@ impl ChannelPane {
                 .update(cx, |c, cx| c.give_back(&text, used, window, cx));
             return;
         };
+        // Words typed for the thread since stay, and so do the failed post's:
+        // both kept, the failed post's first, with both posts' files.
         if self.thread_parent.as_ref() == Some(&parent) {
+            let typed = self.thread_composer.read(cx).text(cx);
+            let (text, used) = if typed.trim().is_empty() {
+                (text, used)
+            } else {
+                let mentions = self.thread_composer.read(cx).mentions(cx);
+                let later = self
+                    .thread_store
+                    .read(cx)
+                    .text_only()
+                    .with_mentions(mentions);
+                self.thread_composer
+                    .update(cx, |c, cx| c.set_text("", window, cx));
+                OneShot::merge(&text, used, &typed, later)
+            };
             self.put_thread_draft(text, used, window, cx);
         } else {
-            // Words typed for it since stay; else the failed post's.
-            self.thread_drafts.entry(parent).or_insert((text, used));
+            let (text, used) = match self.thread_drafts.remove(&parent) {
+                Some((typed, later)) => OneShot::merge(&text, used, &typed, later),
+                None => (text, used),
+            };
+            self.thread_drafts.insert(parent, (text, used));
         }
     }
 
@@ -1414,6 +1433,62 @@ mod tests {
         pane.update_in(vcx, |p, window, cx| p.open_thread("m1".into(), window, cx));
         vcx.run_until_parked();
         assert_eq!(thread_text(vcx), "Seedlings by Friday");
+    }
+
+    /// A thread post that fails while another thread is open, its own thread
+    /// holding words typed since: both are kept for the thread, the failed
+    /// post's words and file with the newer words.
+    #[gpui_kit::test]
+    fn a_failed_thread_post_joins_the_threads_newer_draft(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::composer::Attachment;
+        use crate::views::sheet::bench::bench;
+
+        let (_daemon, stores, vcx) = bench(cx);
+        let pane = vcx.update(|window, cx| {
+            cx.new(|cx| ChannelPane::new(stores.clone(), "c1".into(), window, cx))
+        });
+        pane.update_in(vcx, |p, window, cx| p.open_thread("m1".into(), window, cx));
+        vcx.run_until_parked();
+        let mut used = pane.read_with(vcx, |p, cx| p.thread_store.read(cx).one_shot());
+        used.attachments
+            .push(Attachment::uploaded_for_test(99, "plan.pdf", "f99"));
+        pane.update_in(vcx, |p, window, cx| {
+            p.thread_composer
+                .update(cx, |c, cx| c.set_text("Newer words", window, cx))
+        });
+        pane.update_in(vcx, |p, window, cx| p.open_thread("m2".into(), window, cx));
+        vcx.run_until_parked();
+        pane.update_in(vcx, |p, window, cx| {
+            p.post_failed(
+                Some("m1".into()),
+                "Seedlings by Friday".into(),
+                used,
+                window,
+                cx,
+            )
+        });
+        pane.update_in(vcx, |p, window, cx| p.open_thread("m1".into(), window, cx));
+        vcx.run_until_parked();
+        let (text, files) = pane.read_with(vcx, |p, cx| {
+            (
+                p.thread_composer.read(cx).text(cx),
+                p.thread_store
+                    .read(cx)
+                    .attachments
+                    .iter()
+                    .map(|a| a.name.clone())
+                    .collect::<Vec<_>>(),
+            )
+        });
+        assert!(
+            text.contains("Seedlings by Friday") && text.contains("Newer words"),
+            "a thread's words were dropped: {text:?}"
+        );
+        assert_eq!(
+            files,
+            vec!["plan.pdf".to_string()],
+            "the failed post's file was dropped"
+        );
     }
 
     /// New Channel, a channel's members and its Leave question belong to
