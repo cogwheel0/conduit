@@ -44,10 +44,14 @@ final class AutomationsService {
   final Random _random = Random.secure();
 
   /// Run Now per task: where it stands, and the run an earlier request found
-  /// (part of the next request's baseline).
+  /// (part of the next request's baseline), each with the account it was
+  /// asked for: another account signed in sees neither.
   final Map<String, AutomationRunProgress> _progress =
       <String, AutomationRunProgress>{};
-  final Map<String, AutomationRun> _requested = <String, AutomationRun>{};
+  final Map<String, AutomationsOwner> _progressOwner =
+      <String, AutomationsOwner>{};
+  final Map<String, ({AutomationsOwner owner, AutomationRun run})> _requested =
+      <String, ({AutomationsOwner owner, AutomationRun run})>{};
   final Map<String, Timer> _polls = <String, Timer>{};
 
   Automations get _notifier => _container.read(automationsProvider.notifier);
@@ -113,9 +117,11 @@ final class AutomationsService {
 
   Future<AutomationDetail> get(AutomationRef ref) async {
     await _requireData();
-    final task = await _guard(() => _notifier.fetch(ref.id, owner: _owner()));
+    final owner = _owner();
+    final task = await _guard(() => _notifier.fetch(ref.id, owner: owner));
     // The model's, channel's and folder's names, when they load soon.
     await _settle(const Duration(seconds: 2));
+    _stillCurrent(owner);
     return _detailOf(task);
   }
 
@@ -143,6 +149,7 @@ final class AutomationsService {
     await _guard(() => _notifier.remove(ref.id, owner: _owner()));
     _polls.remove(ref.id)?.cancel();
     _progress.remove(ref.id);
+    _progressOwner.remove(ref.id);
     _requested.remove(ref.id);
     return _listOf(_container.read(automationsProvider));
   }
@@ -150,18 +157,30 @@ final class AutomationsService {
   // ── Run Now ────────────────────────────────────────────────────────────
 
   AutomationRunProgress runState(AutomationRef ref) =>
-      _progress[ref.id] ?? AutomationRunProgress(id: ref.id);
+      _progressOf(ref.id) ?? AutomationRunProgress(id: ref.id);
+
+  /// [id]'s Run Now, when it was asked for the account signed in now.
+  AutomationRunProgress? _progressOf(String id) {
+    final owner = _progressOwner[id];
+    if (owner == null || !_notifier.isCurrentOwner(owner)) return null;
+    return _progress[id];
+  }
 
   Future<AutomationRunProgress> run(AutomationRef ref) async {
     final id = ref.id;
-    final current = _progress[id]?.phase;
-    if (current == 'requesting' || current == 'waiting') {
-      return _progress[id]!;
+    final shown = _progressOf(id);
+    if (shown?.phase == 'requesting' || shown?.phase == 'waiting') {
+      return shown!;
     }
     await _requireData();
     final owner = _owner();
     _polls.remove(id)?.cancel();
-    _set(AutomationRunProgress(id: id, phase: 'requesting'));
+    final earlier = _requested[id];
+    final requested = earlier != null && _notifier.isCurrentOwner(earlier.owner)
+        ? earlier.run
+        : null;
+    void set(AutomationRunProgress progress) => _set(progress, owner);
+    set(AutomationRunProgress(id: id, phase: 'requesting'));
     try {
       // What the history held right before the request: a scheduled run
       // that finished meanwhile must not pass for the requested one.
@@ -176,11 +195,11 @@ final class AutomationsService {
         // The request still goes; what is known is the baseline.
       }
       final baseline = AutomationRunBaseline.of(
-        runs: [...latest, ?_requested[id]],
+        runs: [...latest, ?requested],
         task: task,
       );
       await _notifier.run(id, owner: owner);
-      _set(AutomationRunProgress(id: id, phase: 'waiting'));
+      set(AutomationRunProgress(id: id, phase: 'waiting'));
       var polls = 0;
       var inFlight = false;
       _polls[id] = Timer.periodic(_pollInterval, (timer) async {
@@ -188,7 +207,7 @@ final class AutomationsService {
         if (!_notifier.isCurrentOwner(owner)) {
           timer.cancel();
           _polls.remove(id);
-          _set(
+          set(
             AutomationRunProgress(
               id: id,
               phase: 'idle',
@@ -206,8 +225,8 @@ final class AutomationsService {
           if (found != null) {
             timer.cancel();
             _polls.remove(id);
-            _requested[id] = found;
-            _set(
+            _requested[id] = (owner: owner, run: found);
+            set(
               AutomationRunProgress(
                 id: id,
                 phase: found.succeeded ? 'finished' : 'failed',
@@ -220,7 +239,7 @@ final class AutomationsService {
         } on AutomationsOwnerChangedException {
           timer.cancel();
           _polls.remove(id);
-          _set(
+          set(
             AutomationRunProgress(
               id: id,
               phase: 'idle',
@@ -234,20 +253,21 @@ final class AutomationsService {
           if (_progress[id]?.phase == 'waiting' && polls >= _pollLimit) {
             timer.cancel();
             _polls.remove(id);
-            _set(AutomationRunProgress(id: id, phase: 'timedOut'));
+            set(AutomationRunProgress(id: id, phase: 'timedOut'));
           }
         }
       });
     } on Object catch (error) {
-      _set(
+      set(
         AutomationRunProgress(id: id, phase: 'idle', failure: _failure(error)),
       );
     }
     return _progress[id]!;
   }
 
-  void _set(AutomationRunProgress progress) {
+  void _set(AutomationRunProgress progress, AutomationsOwner owner) {
     _progress[progress.id] = progress;
+    _progressOwner[progress.id] = owner;
     _events?.emit(ConduitEventSpecs.automationsRunProgress, progress);
   }
 
@@ -280,6 +300,10 @@ final class AutomationsService {
     );
     // Give the lists a moment to load, so the editor opens with them.
     await _settle(const Duration(seconds: 5));
+    if (!_notifier.isCurrentOwner(owner)) {
+      options.close();
+      _stillCurrent(owner);
+    }
     final token = List.generate(
       12,
       (_) => _random.nextInt(36).toRadixString(36),
@@ -441,6 +465,16 @@ final class AutomationsService {
         args: <String, String>{'reason': 'accountChanged'},
         debugMessage: 'no Open WebUI account holds scheduled tasks now',
       ));
+
+  /// Refuses an answer read for [owner] once another account is signed in.
+  void _stillCurrent(AutomationsOwner owner) {
+    if (_notifier.isCurrentOwner(owner)) return;
+    throw const RpcError(
+      code: ConduitErrorCodes.conflict,
+      args: <String, String>{'reason': 'accountChanged'},
+      debugMessage: 'another account signed in while the task was read',
+    );
+  }
 
   Future<T> _guard<T>(Future<T> Function() action) async {
     try {
