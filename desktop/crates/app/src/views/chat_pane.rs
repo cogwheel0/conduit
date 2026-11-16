@@ -3427,6 +3427,47 @@ mod tests {
             );
         }
 
+        /// A saved recording's words that come back after another account
+        /// took the window go into no composer of that account's.
+        #[gpui_kit::test]
+        fn a_recordings_words_never_reach_another_accounts_composer(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::RecordingsList>(
+                serde_json::from_value(serde_json::json!({
+                    "stored": true,
+                    "recordings": [{"id": "r1", "createdAt": 0, "byteCount": 64000,
+                                    "durationMs": 2000}]
+                }))
+                .unwrap(),
+            );
+            daemon.returns::<methods::DictationStatus>(
+                serde_json::from_value(serde_json::json!({
+                    "engine": "server", "serverAvailable": true
+                }))
+                .unwrap(),
+            );
+            daemon.returns::<methods::RecordingsTranscribe>(conduit_protocol::VoiceTranscript {
+                text: "Words for Avery".into(),
+            });
+            vcx.run_until_parked();
+            let held = daemon.hold::<methods::RecordingsTranscribe>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer
+                    .update(cx, |c, cx| c.transcribe_recording("r1", false, window, cx))
+            });
+            vcx.run_until_parked();
+            assert_eq!(daemon.calls::<methods::RecordingsTranscribe>().len(), 1);
+            switch_account(&stores, vcx);
+            vcx.run_until_parked();
+            held.release();
+            vcx.run_until_parked();
+            assert_eq!(
+                composer_text(&pane, vcx),
+                "",
+                "Avery's recording was written into Blake's composer"
+            );
+        }
+
         #[gpui_kit::test]
         fn a_late_first_send_does_not_take_over_another_chat(cx: &mut TestAppContext) {
             let (daemon, stores, pane, vcx) = bench(cx);

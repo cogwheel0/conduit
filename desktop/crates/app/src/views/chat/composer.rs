@@ -365,6 +365,9 @@ impl ChatComposer {
                         this.form = None;
                         this.prompt_request += 1;
                         this.panel = None;
+                        // Dictation for the last draft (or account) ends
+                        // now: its words never reach this one.
+                        this.sync_dictation_target(cx);
                         cx.notify();
                     }
                     ComposerEvent::DraftLoaded { key, text } => {
@@ -533,7 +536,8 @@ impl ChatComposer {
             model_id: composer.selected_model().map(|m| m.id.clone()),
             keeps_recordings: key.is_some(),
         };
-        store.update(cx, |s, cx| s.set_target(target, cx));
+        let scope = composer.scope();
+        store.update(cx, |s, cx| s.set_target_in(scope, target, cx));
     }
 
     /// ⇧⌘L and the mic: starts dictating after what is typed, or stops.

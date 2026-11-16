@@ -151,6 +151,9 @@ pub struct DictationStore {
     pub status: Option<DictationStatus>,
     pub notice: Option<Notice>,
     target: Target,
+    /// The account the draft is in (the composer's scope): another
+    /// account's new chat is another draft, though its ids are the same.
+    scope: u64,
     session: Option<voice::Session>,
     active: Option<Active>,
     generation: u64,
@@ -182,6 +185,7 @@ impl DictationStore {
             status: None,
             notice: None,
             target: Target::default(),
+            scope: 0,
             session: None,
             active: None,
             generation: 0,
@@ -230,8 +234,15 @@ impl DictationStore {
     /// The composer now holds `target`'s draft. Its recordings are read;
     /// a dictation for another draft stops, its audio kept for that one.
     pub fn set_target(&mut self, target: Target, cx: &mut Context<Self>) {
-        let same = self.target.same_draft(&target);
+        self.set_target_in(self.scope, target, cx);
+    }
+
+    /// [`Self::set_target`] for a draft of account scope `scope`: another
+    /// account's draft is another draft, whatever its ids.
+    pub fn set_target_in(&mut self, scope: u64, target: Target, cx: &mut Context<Self>) {
+        let same = self.scope == scope && self.target.same_draft(&target);
         let model_changed = self.target.model_id != target.model_id;
+        self.scope = scope;
         self.target = target;
         if same {
             if model_changed {
