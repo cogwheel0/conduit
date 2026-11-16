@@ -56,13 +56,13 @@ final class HermesService {
     _connectionWatch = _container.listen<HermesBackendService?>(
       hermesApiServiceProvider,
       (previous, next) {
-        if (!identical(previous, next)) _known.clear();
+        if (!identical(previous, next)) _forgetServer();
       },
     );
     _serverWatch = _container.listen<String?>(
       activeServerProvider.select((server) => server.value?.id),
       (previous, next) {
-        if (previous != next) _known.clear();
+        if (previous != next) _forgetServer();
       },
     );
     // A session found read-only (opened, or a send Hermes refused) changes
@@ -82,6 +82,19 @@ final class HermesService {
   ProviderSubscription<Map<String, String>>? _readOnlyWatch;
   ProviderSubscription<HermesBackendService?>? _connectionWatch;
   ProviderSubscription<String?>? _serverWatch;
+
+  /// Bumped when the connection or the account's server changes: a read
+  /// begun before is the last server's.
+  var _serverGeneration = 0;
+
+  /// Another connection, or another account's server: nothing one server
+  /// said of its sessions, or their messages, is kept for the next.
+  void _forgetServer() {
+    _serverGeneration++;
+    _known.clear();
+    _transcripts.clear();
+    _previous.clear();
+  }
 
   void dispose() {
     _readOnlyWatch?.close();
@@ -658,6 +671,7 @@ final class HermesService {
   }) async {
     final cached = _transcripts[sessionId];
     if (cached != null && !reload) return List<ChatMessage>.of(cached);
+    final generation = _serverGeneration;
     final service = _container.read(hermesApiServiceProvider);
     if (service == null) return const <ChatMessage>[];
     final identity = hermesSessionConnectionIdentity(
@@ -688,6 +702,14 @@ final class HermesService {
     // anew: what a window or a chat's scope already calls a message keeps
     // that name, or a reply chosen in the window is not found in the
     // scope (Branch from Here, edit).
+    // Answered after the connection or server changed: the last server's
+    // messages, never shown or kept for this one.
+    if (generation != _serverGeneration) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the Hermes connection changed during the read',
+      );
+    }
     final messages = _keepIds(
       read,
       _transcripts[sessionId] ?? _previous.remove(sessionId),

@@ -25,6 +25,9 @@ final class FakeHermesServer {
   final List<Map<String, dynamic>> runRequests = [];
   final List<Map<String, dynamic>> approvals = [];
 
+  /// While set, a session's messages are answered only once it completes.
+  Completer<void>? holdMessages;
+
   /// Runs waiting on an approval, by run id.
   final Map<String, Completer<bool>> _waiting = {};
   final Map<String, Map<String, dynamic>> _runs = {};
@@ -203,6 +206,7 @@ final class FakeHermesServer {
       final id = segments[2];
       if (!sessions.containsKey(id)) return json(null, 404);
       if (segments.length == 4 && segments[3] == 'messages') {
+        await holdMessages?.future;
         return json(<String, dynamic>{'messages': messages[id]});
       }
       if (segments.length == 4 && segments[3] == 'fork') {

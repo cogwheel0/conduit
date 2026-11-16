@@ -571,14 +571,49 @@ void main() {
     final listed = await hermes.sessions();
     expect(listed.sessions.firstWhere((s) => s.id == shed).source, 'cli');
 
+    hermesServer.messages[shed] = <Map<String, dynamic>>[
+      <String, dynamic>{'id': 'm-shed', 'role': 'user', 'content': 'Shed roof'},
+    ];
+    other.messages[shed] = <Map<String, dynamic>>[
+      <String, dynamic>{'id': 'm-barn', 'role': 'user', 'content': 'Barn door'},
+    ];
+    // Read on the first server, so its words are kept for the chat.
+    expect((await hermes.transcript(shed)).single.content, 'Shed roof');
+
     await hermes.saveSettings(
       HermesSettingsEdit(baseUrl: other.baseUrl, apiKey: other.key),
     );
-    await hermes.transcript(shed);
+    expect(
+      (await hermes.transcript(shed)).single.content,
+      'Barn door',
+      reason: 'the first server\'s transcript was shown for this one',
+    );
     expect(
       hermes.chatState(shed).readOnly,
       isFalse,
       reason: 'the first server\'s "Hermes CLI" made it read-only here',
+    );
+
+    // A read begun on this server and still out at the switch back ends
+    // in an error (refused, or its client closed), and keeps nothing for
+    // the first server's chat.
+    other.holdMessages = Completer<void>();
+    final late = expectLater(
+      hermes.transcript(shed, reload: true),
+      throwsA(isA<RpcError>()),
+    );
+    await hermes.saveSettings(
+      HermesSettingsEdit(
+        baseUrl: hermesServer.baseUrl,
+        apiKey: hermesServer.key,
+      ),
+    );
+    other.holdMessages!.complete();
+    await late;
+    expect(
+      (await hermes.transcript(shed)).single.content,
+      'Shed roof',
+      reason: 'the other server\'s late read was kept for this one',
     );
   });
 
