@@ -1372,4 +1372,69 @@ mod tests {
             "Avery's agenda is shown under Blake's account"
         );
     }
+
+    /// Words typed while a save is out stay in the editor, which stays open
+    /// on the event saved, and the next Save takes them.
+    #[gpui_kit::test]
+    fn words_typed_while_an_event_saves_stay_for_the_next_save(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::sheet::{self, bench::bench};
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::CalendarEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "ed-1",
+                "isNew": true,
+                "series": false,
+                "fields": {
+                    "title": "",
+                    "description": "",
+                    "location": "",
+                    "calendarId": "c",
+                    "allDay": false,
+                    "start": {"year": 2026, "month": 11, "day": 12, "hour": 9, "minute": 0},
+                    "repeat": "none",
+                    "attendees": []
+                },
+                "calendars": []
+            }))
+        });
+        daemon.on::<methods::CalendarCheckDraft>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": true}))
+        });
+        daemon.on::<methods::CalendarSave>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "saved": true}))
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| editor::open(s, None, None, window, cx));
+        vcx.run_until_parked();
+        let editor = vcx
+            .update(|_, cx| sheet::current::<editor::EventEditor>(cx))
+            .expect("the editor opens");
+        vcx.update(|window, cx| editor.update(cx, |e, cx| e.type_title("Seed swap", window, cx)));
+        vcx.run_until_parked();
+        let held = daemon.hold_one::<methods::CalendarSave>(0);
+        vcx.update(|window, cx| editor.update(cx, |e, cx| e.save(window, cx)));
+        vcx.run_until_parked();
+        // Typed while the save is out.
+        vcx.update(|window, cx| {
+            editor.update(cx, |e, cx| {
+                e.type_location("The allotment shed", window, cx)
+            })
+        });
+        drop(held);
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<editor::EventEditor>(cx))
+                .is_some_and(|e| e == editor),
+            "the editor closed over the location typed while it saved"
+        );
+        vcx.update(|window, cx| editor.update(cx, |e, cx| e.save(window, cx)));
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::CalendarSave>();
+        assert_eq!(saves.len(), 2);
+        assert_eq!(saves[1]["fields"]["location"], "The allotment shed");
+        assert!(
+            !vcx.update(|_, cx| sheet::is_open(cx)),
+            "the editor stays open once everything typed is saved"
+        );
+    }
 }

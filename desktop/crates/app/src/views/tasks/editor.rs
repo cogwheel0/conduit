@@ -429,6 +429,7 @@ impl TaskEditor {
         self.saving = true;
         self.failure = None;
         cx.notify();
+        let sent = fields.clone();
         let call = self
             .rpc(cx)
             .call::<methods::AutomationsSave>(&AutomationDraftEdit {
@@ -452,7 +453,18 @@ impl TaskEditor {
                                 t.select(Some(id), cx);
                             }
                         });
-                        sheet::dismiss(cx);
+                        if s.fields.as_ref() == Some(&sent) {
+                            sheet::dismiss(cx);
+                        } else {
+                            // Typed while the save was out: it stays, to save
+                            // next to the task just saved (the daemon's editor
+                            // now edits that task).
+                            if let Some(e) = s.editor.as_mut() {
+                                e.is_new = false;
+                                e.fields = sent;
+                            }
+                            s.check_now(None, cx);
+                        }
                     }
                     Ok(state) => {
                         s.attempted = true;

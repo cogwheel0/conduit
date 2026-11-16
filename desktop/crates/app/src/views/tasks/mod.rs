@@ -1558,4 +1558,84 @@ mod tests {
         );
         assert!(daemon.calls::<methods::AutomationsSave>().is_empty());
     }
+
+    /// Words typed while a task saves stay in the editor, which stays open
+    /// on the task saved, and the next Save takes them.
+    #[gpui_kit::test]
+    fn words_typed_while_a_task_saves_stay_for_the_next_save(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_protocol::methods;
+
+        use crate::views::sheet::{self, bench::bench};
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::AutomationsEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "te-1",
+                "isNew": true,
+                "fields": {
+                    "name": "",
+                    "prompt": "",
+                    "modelId": "m1",
+                    "active": true,
+                    "schedule": {
+                        "kind": "daily", "year": 0, "month": 0, "day": 0,
+                        "hour": 9, "minute": 0, "days": [],
+                        "rrule": "RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
+                    },
+                    "target": "chat"
+                },
+                "terminal": false
+            }))
+        });
+        daemon.on::<methods::AutomationsCheckDraft>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": true}))
+        });
+        daemon.on::<methods::AutomationsSave>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "saved": true, "id": "t1"}))
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| editor::open(s, None, window, cx));
+        vcx.run_until_parked();
+        let task = vcx
+            .update(|_, cx| sheet::current::<editor::TaskEditor>(cx))
+            .expect("the editor opens");
+        vcx.update(|window, cx| {
+            task.update(cx, |e, cx| {
+                e.type_text("Allotment digest", "List what to sow this week", window, cx)
+            })
+        });
+        vcx.run_until_parked();
+        let held = daemon.hold_one::<methods::AutomationsSave>(0);
+        vcx.update(|window, cx| task.update(cx, |e, cx| e.save(window, cx)));
+        vcx.run_until_parked();
+        // Typed while the save is out.
+        vcx.update(|window, cx| {
+            task.update(cx, |e, cx| {
+                e.type_text(
+                    "Allotment digest",
+                    "List what to sow and to harvest",
+                    window,
+                    cx,
+                )
+            })
+        });
+        drop(held);
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<editor::TaskEditor>(cx))
+                .is_some_and(|e| e == task),
+            "the editor closed over the words typed while it saved"
+        );
+        vcx.update(|window, cx| task.update(cx, |e, cx| e.save(window, cx)));
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::AutomationsSave>();
+        assert_eq!(saves.len(), 2);
+        assert_eq!(
+            saves[1]["fields"]["prompt"],
+            "List what to sow and to harvest"
+        );
+        assert!(
+            !vcx.update(|_, cx| sheet::is_open(cx)),
+            "the editor stays open once everything typed is saved"
+        );
+    }
 }

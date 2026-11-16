@@ -472,6 +472,7 @@ impl EventEditor {
         self.saving = true;
         self.failure = None;
         cx.notify();
+        let sent = (fields.clone(), self.pending_start.clone());
         let call = self
             .rpc(cx)
             .call::<methods::CalendarSave>(&CalendarDraftEdit {
@@ -487,7 +488,18 @@ impl EventEditor {
                 s.saving = false;
                 match result {
                     Ok(state) if state.saved => {
-                        sheet::dismiss(cx);
+                        if (s.fields.as_ref(), &s.pending_start) == (Some(&sent.0), &sent.1) {
+                            sheet::dismiss(cx);
+                        } else {
+                            // Typed while the save was out: it stays, to save
+                            // next to the event just saved (the daemon's
+                            // editor now edits that event).
+                            if let Some(e) = s.editor.as_mut() {
+                                e.is_new = false;
+                                e.fields = sent.0;
+                            }
+                            s.check_now(None, cx);
+                        }
                     }
                     Ok(state) => {
                         s.attempted = true;
