@@ -237,7 +237,6 @@ final class VoiceService {
         debugMessage: 'nothing to say',
       );
     }
-    final api = _api();
     final voice = switch (request.voice?.trim()) {
       final String chosen when chosen.isNotEmpty => chosen,
       _ =>
@@ -252,11 +251,14 @@ final class VoiceService {
         debugMessage: "that chat's backend does not speak",
       );
     }
+    // Only the Open WebUI server's own speech needs its account; a chat's
+    // provider (Direct, Hermes, LibreChat) speaks without one.
+    final api = speech == null ? _api() : null;
     final id = _newJobId();
     _jobs[id] = _SpeechJob(
-      speech == null
+      api != null
           ? () => api.generateSpeech(text: text, voice: voice)
-          : () => speech.synthesize(
+          : () => speech!.synthesize(
               text,
               preferredVoice: speech.offersVoiceChoice ? voice : null,
             ),
