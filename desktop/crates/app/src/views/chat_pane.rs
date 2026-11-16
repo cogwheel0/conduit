@@ -756,6 +756,9 @@ impl ChatPane {
                     .update(cx, |c, cx| c.switch_new_chat(folder, temporary, &text, cx));
                 self.chat = None;
                 self.forget_context_offer(cx);
+                // The menus were built for this selection before the pane
+                // followed it: Read Aloud follows the chat now shown.
+                cx.defer(crate::menus::refresh_menus);
                 self.sync_speech(cx);
                 self.sync_call_offer(cx);
                 self.prompt_card.update(cx, |p, cx| p.set_store(None, cx));
@@ -948,6 +951,9 @@ impl ChatPane {
 
     fn open_chat(&mut self, id: String, cx: &mut Context<Self>) -> Entity<ChatStore> {
         self.forget_context_offer(cx);
+        // The menus were built for this selection before the pane opened
+        // the chat: Read Aloud follows it now.
+        cx.defer(crate::menus::refresh_menus);
         let left = self
             .chat
             .as_ref()
@@ -1105,6 +1111,10 @@ impl ChatPane {
         // its tooltip (no second word beside it).
         let reason = offline
             .then(|| crate::views::status::send_waits(&connection.status(true, None), cx.l10n()));
+        if self.composer.read(cx).offline != offline {
+            // Chat › Start Voice Call follows the window going offline and back.
+            cx.defer(crate::menus::refresh_menus);
+        }
         self.composer.update(cx, |c, cx| {
             if c.offline != offline || c.offline_reason != reason || c.offline_word.is_some() {
                 c.offline = offline;
@@ -1544,16 +1554,27 @@ impl ChatPane {
         }
     }
 
-    /// Chat › Read Aloud has a chat to read from: any chat shown, whether
-    /// it takes changes or not (read-only, temporary, Hermes). Without an
-    /// answer yet it reads nothing.
-    pub fn can_read_aloud(&self) -> bool {
+    /// Chat › Read Aloud has a chat to read from: a chat the window shows,
+    /// whether it takes changes or not (read-only, temporary, Hermes); not
+    /// the chat kept loaded behind another area's pane. Without an answer
+    /// yet it reads nothing.
+    pub fn can_read_aloud(&self, cx: &App) -> bool {
         self.chat.is_some()
+            && self
+                .stores
+                .navigation
+                .read(cx)
+                .selection()
+                .chat_id()
+                .is_some()
     }
 
     /// Chat › Read Aloud: the newest answer, or Stop Speaking while it is
     /// read (Resume while paused), as its own Read Aloud does.
     pub fn read_aloud_last(&mut self, cx: &mut Context<Self>) {
+        if !self.can_read_aloud(cx) {
+            return;
+        }
         let Some(chat) = &self.chat else { return };
         let store = chat.store.read(cx);
         let Some(answer) = store.last_answer_id() else {
@@ -3102,6 +3123,27 @@ mod tests {
             assert!(
                 daemon.calls::<methods::CallsStart>().is_empty(),
                 "a call started while offline"
+            );
+        }
+
+        /// Chat › Read Aloud reads only a chat the window shows: with Notes
+        /// shown over it, the chat kept loaded behind is not read.
+        #[gpui_kit::test]
+        fn read_aloud_needs_the_chat_on_screen(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            assert!(
+                pane.read_with(vcx, |p, cx| p.can_read_aloud(cx)),
+                "the shown chat is not read"
+            );
+            stores.navigation.update(vcx, |n, cx| {
+                n.open_item(crate::stores::navigation::AreaItem::Note("n1".into()), cx)
+            });
+            vcx.run_until_parked();
+            assert!(
+                !pane.read_with(vcx, |p, cx| p.can_read_aloud(cx)),
+                "a chat behind Notes is read aloud"
             );
         }
 

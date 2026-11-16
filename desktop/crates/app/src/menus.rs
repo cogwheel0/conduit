@@ -549,7 +549,7 @@ pub fn menu_state(cx: &App) -> MenuState {
             .main_view
             .as_ref()
             .filter(|_| main)
-            .is_some_and(|v| v.read(cx).chat_pane.read(cx).can_read_aloud()),
+            .is_some_and(|v| v.read(cx).chat_pane.read(cx).can_read_aloud(cx)),
         speaking: state.stores.speech.read(cx).is_active(),
         in_call: state.stores.call.read(cx).is_active(),
         call_ready: state
