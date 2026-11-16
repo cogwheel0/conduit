@@ -223,6 +223,8 @@ pub struct NotePane {
     /// Counts this pane's saves that landed: a refresh asked before one is
     /// older than what the server holds (a title saved meanwhile).
     saves_landed: u64,
+    /// Counts refreshes asked for: only the newest one's answer is taken.
+    refresh_asked: u64,
     /// Told when the dictation run ends (its last words are in): a page
     /// change waits for them.
     run_waiters: Vec<futures::channel::oneshot::Sender<()>>,
@@ -362,6 +364,7 @@ impl NotePane {
             quit_waiters: vec![],
             recordings_out: 0,
             saves_landed: 0,
+            refresh_asked: 0,
             run_waiters: vec![],
             last_own_save: None,
             hold: false,
@@ -556,11 +559,14 @@ impl NotePane {
         let revision = self.editor.read(cx).revision();
         let asked = self.page_asked;
         let landed = self.saves_landed;
+        self.refresh_asked += 1;
+        let refresh = self.refresh_asked;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |this, cx| {
                 if this.page_asked != asked
                     || this.saves_landed != landed
+                    || this.refresh_asked != refresh
                     || this.editor.read(cx).revision() != revision
                     || this.dirty(cx)
                 {
@@ -3789,6 +3795,40 @@ mod tests {
         assert_eq!(
             bench::pane(&area, vcx).read_with(vcx, |p, _| p.note_id().to_string()),
             "n1"
+        );
+    }
+
+    /// Two refreshes answered in reverse order: the older answer, coming
+    /// last, does not replace what the newer one brought.
+    #[gpui_kit::test]
+    fn the_newest_refresh_wins(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        let text = std::sync::Arc::new(std::sync::Mutex::new("Ridge at dusk".to_string()));
+        let t = text.clone();
+        daemon.on::<methods::NotesGet>(move |p| {
+            let id = p["id"].as_str().unwrap_or("n1");
+            let body = t.lock().unwrap().clone();
+            Ok(serde_json::to_value(conduit_protocol::NoteResult {
+                note: Some(bench::detail(id, "main", &body)),
+            })
+            .unwrap())
+        });
+        let older = daemon.hold_one::<methods::NotesGet>(0);
+        pane.update(vcx, |p, cx| p.changed_elsewhere(cx));
+        vcx.run_until_parked();
+        *text.lock().unwrap() = "Ridge at night".into();
+        pane.update(vcx, |p, cx| p.changed_elsewhere(cx));
+        vcx.run_until_parked();
+        assert_eq!(bench::text(&pane, vcx), "Ridge at night");
+        // The older answer, as the server had it then.
+        *text.lock().unwrap() = "Ridge at dusk".into();
+        older.release();
+        vcx.run_until_parked();
+        assert_eq!(
+            bench::text(&pane, vcx),
+            "Ridge at night",
+            "an older refresh replaced a newer one"
         );
     }
 
