@@ -135,7 +135,14 @@ impl OllamaModels {
                 let _ = this.update(cx, |s, cx| {
                     s.busy.remove(&model);
                     match result {
-                        Ok(list) => s.list = Some(list),
+                        Ok(list) => {
+                            s.list = Some(list);
+                            if M::NAME == <methods::DirectOllamaKeepAlive as conduit_daemon::RpcMethod>::NAME
+                                && s.custom.as_deref() == Some(model.as_str())
+                            {
+                                s.custom = None;
+                            }
+                        }
                         Err(e) => {
                             log::warn!("{}: {e}", M::NAME);
                             s.error = Some(match e.code {
@@ -169,7 +176,8 @@ impl OllamaModels {
         if value.is_empty() {
             return;
         }
-        self.custom = None;
+        // Open until the daemon takes it: a refused duration keeps what
+        // was typed.
         self.act::<methods::DirectOllamaKeepAlive>(&model, Some(value), window, cx);
     }
 
@@ -426,7 +434,48 @@ impl Render for OllamaModels {
 
 #[cfg(test)]
 mod tests {
+    use conduit_protocol::methods;
+    use gpui_kit::TestAppContext;
+
     use super::*;
+    use crate::stores::Stores;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    /// A duration the daemon refuses keeps its editor, and what was typed.
+    #[gpui_kit::test]
+    fn a_refused_duration_keeps_what_was_typed(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-ollama-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        daemon.on::<methods::DirectOllamaKeepAlive>(|_| {
+            Err(conduit_daemon::protocol::error(
+                "rpc.invalidParams",
+                "not a duration",
+            ))
+        });
+        let rpc = stores.connection.read_with(cx, |c, _| c.rpc());
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| OllamaModels::new(rpc, "c1".into(), window, cx));
+        view.update_in(vcx, |v, window, cx| {
+            v.custom = Some("lab-model".into());
+            v.custom_input
+                .update(cx, |i, cx| i.set_value("ten minutes", window, cx));
+            v.save_custom(window, cx);
+        });
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, cx| {
+            assert!(v.error.is_some());
+            assert_eq!(
+                v.custom.as_deref(),
+                Some("lab-model"),
+                "the editor closed on a refused duration"
+            );
+            assert_eq!(forms::text(&v.custom_input, cx), "ten minutes");
+        });
+    }
 
     #[test]
     fn keep_alive_presets_are_ollama_durations() {
