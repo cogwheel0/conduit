@@ -457,6 +457,11 @@ impl NotePane {
 
     /// Reads page `page` (the main page when None) and shows it.
     fn open_page(&mut self, page: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        // The page shown takes no typing until the next one is in: its words
+        // would be replaced by it.
+        if self.load == Load::Ready {
+            self.editor.update(cx, |e, cx| e.set_read_only(true, cx));
+        }
         self.page_asked += 1;
         let asked = self.page_asked;
         let call = self.rpc.call::<methods::NotesGet>(&NoteOpen {
@@ -3230,6 +3235,32 @@ mod tests {
         assert!(bench::text(&shown, vcx).contains("Cairn"));
         drop(held);
         vcx.run_until_parked();
+    }
+
+    /// Typing while another page is read goes nowhere: the page being left
+    /// takes no words until the next one shows, so nothing typed is
+    /// replaced by it.
+    #[gpui_kit::test]
+    fn typing_waits_for_the_page_being_opened(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        let held = daemon.hold_one::<methods::NotesGet>(0);
+        pane.update_in(vcx, |p, window, cx| p.show_page("p2".into(), window, cx));
+        vcx.run_until_parked();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        assert!(
+            !bench::text(&pane, vcx).contains("Cairn"),
+            "typing went into the page being left, to be replaced by the next"
+        );
+        held.release();
+        vcx.run_until_parked();
+        assert_eq!(bench::text(&pane, vcx), "Second page");
+        assert!(
+            !pane.read_with(vcx, |p, cx| p.editor.read(cx).is_read_only()),
+            "the page shown takes no typing"
+        );
     }
 
     /// A note left while its save fails is kept, and saved again, until
