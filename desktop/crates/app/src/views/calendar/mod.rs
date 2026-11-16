@@ -1402,6 +1402,47 @@ mod tests {
         );
     }
 
+    /// A delete answered once the event's sheet has gone closes nothing: an
+    /// editor opened meanwhile stays, with what is typed in it.
+    #[gpui_kit::test]
+    fn an_event_delete_closes_only_its_own_sheet(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::sheet::{self, bench::bench};
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        let detail = serde_json::json!({"item": serde_json::to_value(item("k1")).unwrap()});
+        daemon.on::<methods::CalendarEvent>(move |_| Ok(detail.clone()));
+        daemon.returns::<methods::CalendarDeleteEvent>(CalendarAgenda {
+            available: true,
+            ..Default::default()
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| event_sheet::open(s, "k1".into(), window, cx));
+        vcx.run_until_parked();
+        let shown = vcx
+            .update(|_, cx| sheet::current::<event_sheet::EventSheet>(cx))
+            .expect("the event's sheet opens");
+        let held = daemon.hold::<methods::CalendarDeleteEvent>();
+        vcx.update(|window, cx| shown.update(cx, |e, cx| e.delete(window, cx)));
+        vcx.run_until_parked();
+        // Meanwhile the sheet goes and the event editor comes up.
+        vcx.update(|_, cx| sheet::dismiss(cx));
+        vcx.run_until_parked();
+        let s = stores.clone();
+        vcx.update(|window, cx| editor::open(s, None, None, window, cx));
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<editor::EventEditor>(cx))
+                .is_some()
+        );
+        drop(held);
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<editor::EventEditor>(cx))
+                .is_some(),
+            "the delete closed the editor opened after it"
+        );
+    }
+
     /// Words typed while a save is out stay in the editor, which stays open
     /// on the event saved, and the next Save takes them.
     #[gpui_kit::test]

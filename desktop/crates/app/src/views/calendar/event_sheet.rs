@@ -148,10 +148,16 @@ impl EventSheet {
         let Some(detail) = self.detail.clone() else {
             return;
         };
+        // Once deleted, this sheet closes: not one opened meanwhile.
+        let body = cx.entity();
         confirm_delete(
             self.stores.clone(),
             detail.item,
-            Some(Box::new(sheet::dismiss)),
+            Some(Box::new(move |cx: &mut App| {
+                if sheet::current::<Self>(cx).is_some_and(|open| open == body) {
+                    sheet::dismiss(cx);
+                }
+            })),
             window,
             cx,
         );
