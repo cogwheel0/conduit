@@ -32,6 +32,13 @@ private enum Words {
 }
 
 /// One line in the sheet's list.
+/// An error as the system log keeps it: its domain and code only. An
+/// NSError's description can name the shared file and its path.
+private func logged(_ error: Error) -> String {
+  let error = error as NSError
+  return "\(error.domain) \(error.code)"
+}
+
 private struct Row {
   enum Kind {
     case file(URL, Int64)
@@ -253,7 +260,7 @@ final class ShareViewController: NSViewController, NSTextFieldDelegate {
         if !tooLarge.isEmpty { note = tooLarge.joined(separator: "\n") }
         if rows.isEmpty && note == nil { note = Words.nothing }
       } catch {
-        NSLog("Conduit share: could not start a share: %@", String(describing: error))
+        NSLog("Conduit share: could not start a share: %@", logged(error))
         note = Words.failed
       }
       DispatchQueue.main.async { self.finishLoading(rows: rows, note: note) }
@@ -334,7 +341,7 @@ final class ShareViewController: NSViewController, NSTextFieldDelegate {
           id = try draft.publish(message: message)
           publishedID = id
         } catch {
-          NSLog("Conduit share: could not finish the share: %@", String(describing: error))
+          NSLog("Conduit share: could not finish the share: %@", logged(error))
         }
       }
       DispatchQueue.main.async {
@@ -356,7 +363,7 @@ final class ShareViewController: NSViewController, NSTextFieldDelegate {
       DispatchQueue.main.async {
         guard let self else { return }
         if let error {
-          NSLog("Conduit share: could not open Conduit: %@", String(describing: error))
+          NSLog("Conduit share: could not open Conduit: %@", logged(error))
           return self.handOffFailed()
         }
         self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
@@ -450,7 +457,7 @@ private enum Loader {
       let size = (try? staged.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init)
       return [Row(kind: .file(staged, size ?? 0))]
     } catch {
-      NSLog("Conduit share: could not copy a file: %@", String(describing: error))
+      NSLog("Conduit share: could not copy a file: %@", logged(error))
       return []
     }
   }
@@ -486,7 +493,7 @@ private enum Loader {
             finish(try Staged.copy(of: url))
           }
         } catch {
-          NSLog("Conduit share: could not copy an item: %@", String(describing: error))
+          NSLog("Conduit share: could not copy an item: %@", logged(error))
           finish(nil)
         }
       }
