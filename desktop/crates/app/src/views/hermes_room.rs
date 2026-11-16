@@ -592,8 +592,13 @@ impl HermesRoomPane {
         out
     }
 
-    /// Up, Down, Return, Tab and Esc while the mention list shows.
+    /// Up, Down, Return, Tab and Esc while the mention list shows -- and
+    /// the room's field has focus: keys typed into another sheet or window
+    /// are theirs.
     fn mention_key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if !self.input.read(cx).focus_handle(cx).is_focused(window) {
+            return false;
+        }
         let Some(mention) = self.mention.clone() else {
             return false;
         };
@@ -1664,7 +1669,7 @@ mod tests {
 
     mod pane {
         use conduit_protocol::{Event, HermesRoomSendResult, methods};
-        use gpui_kit::{Entity, TestAppContext, VisualTestContext};
+        use gpui_kit::{Entity, Focusable as _, TestAppContext, VisualTestContext};
         use serde_json::json;
 
         use super::super::HermesRoomPane;
@@ -1746,6 +1751,24 @@ mod tests {
             daemon.returns::<methods::HermesRoomsWatch>(room(Some("plant the beans")));
             let (_stores, pane, vcx) = open(cx, &daemon, "reopen");
             pane.read_with(vcx, |p, cx| assert_eq!(p.text(cx), "plant the beans"));
+        }
+
+        #[gpui_kit::test]
+        fn mention_keys_go_to_the_room_only_while_its_field_has_focus(cx: &mut TestAppContext) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(None));
+            let (_stores, pane, vcx) = open(cx, &daemon, "keys");
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("@fe", window, cx);
+                // Focus is elsewhere (another sheet, another window): its
+                // Return is its own.
+                window.blur(cx);
+                assert!(!p.mention_key("enter", window, cx));
+                assert_eq!(p.text(cx), "@fe");
+                p.input.read(cx).focus_handle(cx).focus(window, cx);
+                assert!(p.mention_key("enter", window, cx));
+                assert_eq!(p.text(cx), "@fern ");
+            });
         }
     }
 }
