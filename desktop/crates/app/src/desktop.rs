@@ -1597,8 +1597,8 @@ pub fn services_provider(cx: &App) -> Option<objc2::rc::Retained<services::Provi
 }
 
 /// What a Services item asked for: "Ask Conduit" quotes the selection in
-/// Quick Ask, or in a new chat when Quick Ask is off or can't ask yet (no
-/// account, not connected); "New Conduit Chat With Selection" puts it in a
+/// Quick Ask, or in a new chat when Quick Ask is off, can't ask yet (no
+/// account, not connected) or holds an unsent draft; "New Conduit Chat With Selection" puts it in a
 /// new chat as it is. Nothing is sent.
 pub fn on_service(request: ServiceRequest, cx: &mut App) {
     match request {
@@ -1615,7 +1615,8 @@ pub fn on_service(request: ServiceRequest, cx: &mut App) {
     }
 }
 
-/// Quick Ask with `text` in a new exchange's composer, when it can ask.
+/// Quick Ask with `text` in a new exchange's composer, when it can ask
+/// and holds nothing of the user's (an unsent draft stays as it is).
 fn ask_in_quick_ask(text: &str, cx: &mut App) -> bool {
     let Some((handle, view)) = quick_ask_window(cx) else {
         return false;
@@ -1624,11 +1625,15 @@ fn ask_in_quick_ask(text: &str, cx: &mut App) -> bool {
         return false;
     }
     let text = text.to_string();
-    let _ = handle.update(cx, |_, window, cx| {
-        view.update(cx, |v, cx| v.ask_about(&text, window, cx))
-    });
-    show_quick_ask(cx);
-    true
+    let asked = handle
+        .update(cx, |_, window, cx| {
+            view.update(cx, |v, cx| v.ask_about(&text, window, cx))
+        })
+        .unwrap_or(false);
+    if asked {
+        show_quick_ask(cx);
+    }
+    asked
 }
 
 /// A new chat in the main window with `text` in the composer.
