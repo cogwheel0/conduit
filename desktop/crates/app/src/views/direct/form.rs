@@ -337,9 +337,11 @@ impl DirectView {
         self.preset = Preset::of(&c);
         self.open_web_ui = c.open_web_ui;
         self.enabled = c.enabled;
+        // No key saved signs in with none, in the account too: an edit asks
+        // for no key it never had.
         self.auth = if c.api_key_header {
             Auth::ApiKeyHeader
-        } else if c.has_api_key || c.open_web_ui {
+        } else if c.has_api_key {
             Auth::Bearer
         } else {
             Auth::None
@@ -1524,6 +1526,30 @@ mod tests {
         assert_eq!(sent["enabled"], false);
         assert_eq!(sent["manualModelIds"], json!(["synthetic-model"]));
         assert_eq!(sent["tags"], json!(["work"]));
+    }
+
+    /// A connection kept in the account with no key signs in with none:
+    /// renaming it asks for no key it never had.
+    #[gpui_kit::test]
+    fn an_account_connection_without_a_key_renames_without_one(cx: &mut TestAppContext) {
+        let mut keyless = connection("c2");
+        keyless.open_web_ui = true;
+        keyless.has_api_key = false;
+        keyless.api_key_header = false;
+        let (daemon, view, vcx) = bench(cx, move |stores, window, cx| {
+            DirectView::editing(stores, keyless, window, cx)
+        });
+        daemon.returns::<methods::DirectSave>(list(vec![connection("c2")]));
+        view.update_in(vcx, |v, window, cx| {
+            v.name
+                .update(cx, |i, cx| i.set_value("Lab two", window, cx));
+            v.save(window, cx);
+        });
+        vcx.run_until_parked();
+        let sent = daemon.calls::<methods::DirectSave>();
+        assert_eq!(sent.len(), 1, "the rename asked for a key");
+        assert_eq!(sent[0]["name"], "Lab two");
+        assert!(sent[0].get("apiKey").is_none_or(|k| k.is_null()));
     }
 
     fn new_connection(
