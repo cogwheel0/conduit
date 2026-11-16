@@ -3075,12 +3075,16 @@ final class TurnsService implements ChatTurns {
     }
     // Loaded under one account, a chat is not opened under the next: an
     // account change while it loads closes only the sessions already open.
+    // Another LibreChat account taking charge leaves Open WebUI's session as
+    // it was, so the account in charge is asked too.
     final account = _container.read(openWebUiAuthSessionEpochProvider);
+    final owner = _container.read(primaryAccountProvider);
     final conversation = chatId == null ? null : await _conversation(chatId);
     if (!identical(
-      account,
-      _container.read(openWebUiAuthSessionEpochProvider),
-    )) {
+          account,
+          _container.read(openWebUiAuthSessionEpochProvider),
+        ) ||
+        owner != _container.read(primaryAccountProvider)) {
       throw const RpcError(
         code: ConduitErrorCodes.sessionExpired,
         debugMessage: 'the account changed while the chat loaded',
