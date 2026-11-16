@@ -421,6 +421,15 @@ impl NotePane {
             || self.held_for_account
     }
 
+    /// The account the note was opened under is the active one (true when
+    /// it opened with none known).
+    pub fn account_active(&self, cx: &App) -> bool {
+        let Some(opened) = &self.opened_under else {
+            return true;
+        };
+        self.stores.accounts.read(cx).active().map(|a| &a.id) == Some(opened)
+    }
+
     pub fn has_refused_draft(&self) -> bool {
         self.refused.is_some()
     }
@@ -933,6 +942,10 @@ impl NotePane {
     /// Save as My Own Note: the refused text becomes a note of its own,
     /// which opens.
     pub fn save_as_own_note(&mut self, cx: &mut Context<Self>) {
+        // Made only under the account the note was opened under.
+        if !self.account_active(cx) {
+            return;
+        }
         let ops = self.editor.read(cx).ops();
         let title = self.resolved_title(cx);
         let call = self.rpc.call::<methods::NotesSave>(&NoteSave {
@@ -3188,6 +3201,120 @@ mod tests {
         let saves = daemon.calls::<methods::NotesSave>();
         assert_eq!(saves.len(), 2, "the refused draft was not offered back");
         assert!(saves[1]["id"].is_null() && saves[1].to_string().contains("Cairn"));
+
+        // Under another account, a refusal answered late is held: no offer,
+        // nothing made under it, until the draft's own account is back.
+        use crate::stores::accounts::tests::{account, list};
+        let accounts = |active: &str| {
+            list(vec![
+                account("a", "Avery", active == "a", true),
+                account("b", "Blair", active == "b", true),
+            ])
+        };
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("a"), cx));
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n1".into()), cx));
+        vcx.run_until_parked();
+        let pane = bench::pane(&area, vcx);
+        let late = daemon.hold::<methods::NotesSave>();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Ledge ", cx));
+            p.save_now(cx);
+        });
+        drop(pane);
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("b"), cx));
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::AllNotes, cx));
+        vcx.run_until_parked();
+        drop(late);
+        vcx.run_until_parked();
+        let made = |daemon: &crate::stores::rpc::fake::FakeDaemon| {
+            daemon
+                .calls::<methods::NotesSave>()
+                .iter()
+                .filter(|s| s["id"].is_null() && s.to_string().contains("Ledge"))
+                .count()
+        };
+        assert_eq!(
+            made(&daemon),
+            0,
+            "account A's draft was made into a note under B"
+        );
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("a"), cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            made(&daemon),
+            1,
+            "the draft was not offered once its account was back"
+        );
+
+        // The question answered after another account became active sends
+        // the draft nowhere; it is offered again under its own account.
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n1".into()), cx));
+        vcx.run_until_parked();
+        let pane = bench::pane(&area, vcx);
+        let late = daemon.hold::<methods::NotesSave>();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Scree ", cx));
+            p.save_now(cx);
+        });
+        // The refusal comes in and the question goes up; account B becomes
+        // active before it is answered.
+        let s = stores.clone();
+        vcx.update(|_, cx| {
+            cx.subscribe(&pane, move |pane, e: &PaneEvent, cx| {
+                if *e == PaneEvent::Settled && pane.read(cx).has_refused_draft() {
+                    s.accounts.update(cx, |a, cx| {
+                        a.adopt(
+                            list(vec![
+                                account("a", "Avery", false, true),
+                                account("b", "Blair", true, true),
+                            ]),
+                            cx,
+                        )
+                    });
+                }
+            })
+            .detach()
+        });
+        drop(pane);
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::AllNotes, cx));
+        vcx.run_until_parked();
+        drop(late);
+        vcx.run_until_parked();
+        let scree = |daemon: &crate::stores::rpc::fake::FakeDaemon| {
+            daemon
+                .calls::<methods::NotesSave>()
+                .iter()
+                .filter(|s| s["id"].is_null() && s.to_string().contains("Scree"))
+                .count()
+        };
+        assert_eq!(
+            scree(&daemon),
+            0,
+            "an answer given under account B made A's draft a note"
+        );
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("a"), cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            scree(&daemon),
+            1,
+            "the held draft was not offered again under A"
+        );
     }
 
     /// A note's draft that conduitd refuses because another account is

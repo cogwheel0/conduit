@@ -51,6 +51,11 @@ impl NotesArea {
                 |this, _, _: &NavigationEvent, window, cx| this.follow(window, cx),
             ),
             cx.observe(&list, |_, _, cx| cx.notify()),
+            // A refused draft left under another account is offered once its
+            // own account is back.
+            cx.observe_in(&stores.accounts, window, |this, _, window, cx| {
+                this.offer_held_drafts(window, cx)
+            }),
         ];
         // Quitting saves the note shown first.
         cx.on_app_quit(|this, cx| {
@@ -129,7 +134,10 @@ impl NotesArea {
             return;
         };
         let refused = pane.read(cx).refused_draft();
-        if let Some(title) = refused.clone() {
+        // Offered only under the draft's own account; held until then.
+        if let Some(title) = refused.clone()
+            && pane.read(cx).account_active(cx)
+        {
             self.ask_about_refused(pane.clone(), title, window, cx);
         }
         let busy = pane.update(cx, |p, cx| {
@@ -154,6 +162,7 @@ impl NotesArea {
                 // are offered now, as they are when a refused note is left.
                 if self.retiring.contains(&pane)
                     && !pane.read(cx).refusal_offered
+                    && pane.read(cx).account_active(cx)
                     && let Some(title) = pane.read(cx).refused_draft()
                 {
                     self.ask_about_refused(pane.clone(), title, window, cx);
@@ -196,6 +205,12 @@ impl NotesArea {
         cx.spawn(async move |this, cx| {
             let keep = ask.await;
             let _ = this.update(cx, |this, cx| {
+                // Answered after another account became active: the draft
+                // goes nowhere, and is offered again under its own account.
+                if !pane.read(cx).account_active(cx) {
+                    pane.update(cx, |p, _| p.refusal_offered = false);
+                    return;
+                }
                 if keep {
                     pane.update(cx, |p, cx| p.save_as_own_note(cx));
                 } else {
@@ -211,6 +226,22 @@ impl NotesArea {
             });
         })
         .detach();
+    }
+
+    /// Offers the refused drafts of notes left whose account is active (again).
+    fn offer_held_drafts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let due: Vec<(Entity<NotePane>, String)> = self
+            .retiring
+            .iter()
+            .filter(|p| {
+                let p = p.read(cx);
+                !p.refusal_offered && p.account_active(cx)
+            })
+            .filter_map(|p| p.read(cx).refused_draft().map(|t| (p.clone(), t)))
+            .collect();
+        for (pane, title) in due {
+            self.ask_about_refused(pane, title, window, cx);
+        }
     }
 
     /// Shows `pane` again (a refused draft the user went back to).
