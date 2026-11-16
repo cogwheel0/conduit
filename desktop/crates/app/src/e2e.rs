@@ -139,17 +139,19 @@ pub struct E2eInputs {
     pub env: BTreeMap<String, String>,
 }
 
-/// Whether `url` is an http(s) address on this Mac (loopback).
 /// The env file's server addresses: every server a pass signs in to, or
 /// sends credentials, messages or settings to. Each must be this Mac's own
 /// (loopback), or the env file is not used.
-const SERVER_URLS: [&str; 4] = [
+const SERVER_URLS: [&str; 6] = [
     "OWUI_URL",
     "LIBRECHAT_URL",
     "HERMES_GATEWAY_URL",
     "HERMES_DESKTOP_URL",
+    "HERMES_A_URL",
+    "HERMES_B_URL",
 ];
 
+/// Whether `url` is an http(s) address on this Mac (loopback).
 pub(crate) fn is_local_url(url: &str) -> bool {
     url::Url::parse(url).is_ok_and(|u| {
         matches!(u.scheme(), "http" | "https")
