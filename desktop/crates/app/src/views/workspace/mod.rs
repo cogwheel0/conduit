@@ -700,13 +700,17 @@ impl WorkspacePane {
             return;
         }
         if section == WorkspaceSection::Knowledge {
-            sheets::new_knowledge(
-                cx.entity().downgrade(),
-                self.stores.clone(),
-                self.rpc.clone(),
-                window,
-                cx,
-            );
+            // The new base opens in place of the one shown: its unsaved
+            // edits are asked about first, as for any New.
+            self.after_discard(window, cx, |s, window, cx| {
+                sheets::new_knowledge(
+                    cx.entity().downgrade(),
+                    s.stores.clone(),
+                    s.rpc.clone(),
+                    window,
+                    cx,
+                )
+            });
             return;
         }
         self.after_discard(window, cx, move |s, window, cx| {
@@ -1963,6 +1967,55 @@ mod tests {
             "Avery's file was imported under Blake"
         );
         let _ = std::fs::remove_file(&file);
+    }
+
+    /// New Knowledge Base opens in place of the knowledge base shown: its
+    /// unsaved edits are asked about first (the bench keeps editing).
+    #[gpui_kit::test]
+    fn new_knowledge_base_asks_before_edits_go(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::sheet::bench::bench;
+        let (daemon, stores, vcx) = bench(cx);
+        let manage = serde_json::json!({"manage": true});
+        daemon.returns::<methods::WorkspaceCapabilities>(
+            serde_json::from_value(serde_json::json!({
+                "models": manage, "knowledge": manage, "prompts": manage,
+                "tools": manage, "skills": manage
+            }))
+            .unwrap(),
+        );
+        daemon.returns::<methods::WorkspaceGet>(super::editor::bench::detail(
+            WorkspaceKind::Knowledge,
+            serde_json::json!({"id": "k1", "name": "Trail notes", "description": "",
+                               "fileCount": 0, "external": false}),
+        ));
+        let pane = vcx.update(|window, cx| {
+            let stores = stores.clone();
+            cx.new(|cx| WorkspacePane::new(stores, WorkspaceSection::Knowledge, window, cx))
+        });
+        vcx.run_until_parked();
+        vcx.update(|window, cx| {
+            pane.update(cx, |p, cx| {
+                p.open_now(WorkspaceSection::Knowledge, Some("k1".into()), window, cx)
+            })
+        });
+        vcx.run_until_parked();
+        let Some(EditorView::Knowledge(editor)) = pane.read_with(vcx, |p, _| {
+            p.editors.get(&WorkspaceSection::Knowledge).cloned()
+        }) else {
+            panic!("the knowledge base opens");
+        };
+        vcx.update(|window, cx| {
+            editor.update(cx, |e, cx| {
+                e.set_field("description", "Ridges and passes", window, cx)
+            })
+        });
+        vcx.update(|window, cx| pane.update(cx, |p, cx| p.new_item(window, cx)));
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| crate::views::sheet::current::<sheets::FormSheet>(cx))
+                .is_none(),
+            "New Knowledge Base went on over unsaved edits without asking"
+        );
     }
 
     #[test]
