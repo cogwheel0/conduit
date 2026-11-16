@@ -63,6 +63,41 @@ void main() {
     container.read(openWebUiAuthSessionEpochProvider);
   }
 
+  group('live terminal watches', () {
+    test('go through the sign-in proxy with its header and cookie', () async {
+      final events = EventBus();
+      final changed = Completer<TerminalChanged>();
+      events
+        ..attach('window', (e) {
+          if (e.event == ConduitEvents.terminalChanged &&
+              !changed.isCompleted) {
+            changed.complete(TerminalChanged.fromJson(e.payload));
+          }
+        })
+        ..subscribe(
+          'window',
+          EventSubscription(events: <String>[ConduitEvents.terminalChanged]),
+        );
+      final terminals = TerminalsService(container, events: events);
+      addTearDown(terminals.dispose);
+      final attached = await terminals.attach(
+        const TerminalAttach(serverId: 'box'),
+      );
+      terminals.watch(TerminalWatch(handle: attached.handle, path: '/srv'));
+
+      // Either the watch's socket is let through and reports the ports, or
+      // the proxy turns its handshake away.
+      final outcome = await Future.any(<Future<Object?>>[
+        changed.future,
+        server.refusedSocket.future.then((_) => 'refused'),
+      ]);
+      check(outcome).isA<TerminalChanged>();
+      check(
+        (outcome as TerminalChanged).ports,
+      ).isNotNull().has((p) => p.single.port, 'port').equals(8080);
+    });
+  });
+
   group('Computer views belong to the account they opened under', () {
     const chat = 'chat-lighthouse';
 

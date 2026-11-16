@@ -11,10 +11,12 @@ import 'package:conduit_core/features/terminal/services/terminal_service.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/network/conduit_user_agent.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'event_bus.dart';
@@ -80,6 +82,10 @@ final class TerminalsService {
   late final ProviderSubscription<Object?> _accountWatch;
   final Map<String, _Handle> _handles = <String, _Handle>{};
   final Random _random = Random.secure();
+
+  /// The client the server's own terminals' sockets go through, made for
+  /// the server's settings it was made with.
+  (ServerConfig, HttpClient)? _systemClient;
 
   TerminalService _service() =>
       _container.read(terminalServiceProvider) ??
@@ -327,7 +333,8 @@ final class TerminalsService {
       sessionScopeId: h.scopeId,
     );
     final uri = service.buildEventsWebSocketUri(h.server);
-    final open = _container.read(terminalChannelConnectorProvider);
+    WebSocketChannel open(Uri uri, {required TerminalServerKind kind}) =>
+        _connect(h.server, uri);
     TerminalEventsWatcher watcher({String? path, bool ports = false}) =>
         TerminalEventsWatcher(
           openChannel: open,
@@ -366,6 +373,43 @@ final class TerminalsService {
   /// handles are fine (a window may detach twice).
   Future<void> detach(String handle) async {
     await _handles.remove(handle)?.close();
+  }
+
+  /// A socket to [server]. A direct terminal's goes straight to it. The
+  /// server's own terminals' go as every other request to that server does:
+  /// with a sign-in proxy's cookies and headers (never Open WebUI's own
+  /// cookies: the socket's first frame carries the account's token) and the
+  /// server's TLS settings.
+  WebSocketChannel _connect(TerminalServerInfo server, Uri uri) {
+    if (!server.isSystem) {
+      return _container.read(terminalChannelConnectorProvider)(
+        uri,
+        kind: server.kind,
+      );
+    }
+    final service = _service();
+    final cookies = service.proxyCookiesForServer(server);
+    return IOWebSocketChannel.connect(
+      uri,
+      headers: <String, String>{
+        ...service.computerProxyHeadersForServer(server),
+        if (cookies.isNotEmpty)
+          HttpHeaders.cookieHeader: <String>[
+            for (final e in cookies.entries) '${e.key}=${e.value}',
+          ].join('; '),
+      },
+      customClient: _clientFor(service.api.serverConfig),
+    );
+  }
+
+  HttpClient _clientFor(ServerConfig config) {
+    final kept = _systemClient;
+    if (kept != null && kept.$1 == config) return kept.$2;
+    kept?.$2.close();
+    final client = ServerTlsHttpClientFactory.createHttpClient(config)
+      ..userAgent = ConduitUserAgent.value;
+    _systemClient = (config, client);
+    return client;
   }
 
   /// The credential the daemon adds for [server]: Open WebUI's token for
@@ -426,10 +470,7 @@ final class TerminalsService {
         sessionScopeId: h.scopeId,
       );
       final uri = service.buildWebSocketUri(h.server, session.sessionId);
-      upstream = _container.read(terminalChannelConnectorProvider)(
-        uri,
-        kind: h.server.kind,
-      );
+      upstream = _connect(h.server, uri);
       await upstream.ready;
       _requireSession(account);
       if (token == null || token.isEmpty) {
@@ -541,6 +582,8 @@ final class TerminalsService {
   Future<void> dispose() async {
     _accountWatch.close();
     await _closeHandles();
+    _systemClient?.$2.close();
+    _systemClient = null;
   }
 
   /// The account session now in use.
