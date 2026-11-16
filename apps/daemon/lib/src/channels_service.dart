@@ -115,6 +115,21 @@ final class ChannelsService {
   cm.ChannelMembersOwner? _membersOwner;
   ProviderSubscription<cm.ChannelMembersState>? _membersWatch;
 
+  /// The account in use now, by its sign-in session.
+  Object _session() => _container.read(openWebUiAuthSessionEpochProvider);
+
+  /// Refuses an answer read under [session] once another account is in
+  /// use: one account's channel is never applied to, read under or shown
+  /// for the next.
+  void _sameAccount(Object session) {
+    if (!identical(session, _session())) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the account changed',
+      );
+    }
+  }
+
   // ── The list ──────────────────────────────────────────────────────────
 
   Future<ChannelList> list() async {
@@ -130,6 +145,7 @@ final class ChannelsService {
 
   Future<ChannelList> save(ChannelEdit edit) async {
     final api = _api();
+    final session = _session();
     final name = edit.name.trim();
     if (name.isEmpty) {
       throw const RpcError(
@@ -147,6 +163,7 @@ final class ChannelsService {
         description: description,
         isPrivate: edit.private,
       );
+      _sameAccount(session);
       channels.addChannel(channel);
     } else {
       // Mobile's Edit Channel changes the name and the description only.
@@ -155,6 +172,7 @@ final class ChannelsService {
         name: name,
         description: description,
       );
+      _sameAccount(session);
       final updated = Channel.fromJson(json);
       final listed = _listed(updated.id);
       channels.updateChannel(
@@ -182,13 +200,17 @@ final class ChannelsService {
   }
 
   Future<ChannelList> delete(String id) async {
+    final session = _session();
     await _api().deleteChannel(id);
+    _sameAccount(session);
     _forget(id);
     return list();
   }
 
   Future<ChannelList> leave(String id) async {
+    final session = _session();
     await _api().updateMemberActiveStatus(id, isActive: false);
+    _sameAccount(session);
     _forget(id);
     return list();
   }
@@ -214,7 +236,9 @@ final class ChannelsService {
   /// member rules read it), is listened to, and is read.
   Future<ChannelDetails> open(String id) async {
     final api = _api();
+    final session = _session();
     final channel = Channel.fromJson(await api.getChannel(id));
+    _sameAccount(session);
     _container.read(activeChannelProvider.notifier).set(channel);
     _subscribe(id);
     await markRead(id);
@@ -226,6 +250,7 @@ final class ChannelsService {
       channelsEnabled: _container.read(channelsFeatureEnabledProvider),
       permissions: await _permissions(),
     );
+    _sameAccount(session);
     final listed = _listed(id);
     return ChannelDetails(
       channel: _summarize(
@@ -304,6 +329,7 @@ final class ChannelsService {
         debugMessage: 'a message needs text or a file',
       );
     }
+    final session = _session();
     final json = await _api().postChannelMessage(
       post.channelId,
       content: content,
@@ -327,6 +353,7 @@ final class ChannelsService {
               ],
             },
     );
+    _sameAccount(session);
     var message = ChannelMessage.fromJson(json);
     // The post endpoint answers with a bare row that names only the
     // sender's id.
@@ -356,11 +383,13 @@ final class ChannelsService {
         debugMessage: 'a message needs text',
       );
     }
+    final session = _session();
     final json = await _api().updateChannelMessage(
       edit.channelId,
       edit.messageId,
       content: content,
     );
+    _sameAccount(session);
     final response = ChannelMessage.fromJson(json);
     _container
         .read(channelMessagesProvider(edit.channelId).notifier)
@@ -371,7 +400,9 @@ final class ChannelsService {
   }
 
   Future<void> deleteMessage(ChannelMessageRef ref) async {
+    final session = _session();
     await _api().deleteChannelMessage(ref.channelId, ref.messageId);
+    _sameAccount(session);
     _container
         .read(channelMessagesProvider(ref.channelId).notifier)
         .removeMessage(ref.messageId);
@@ -397,11 +428,13 @@ final class ChannelsService {
   }
 
   Future<void> pin(ChannelPin pin) async {
+    final session = _session();
     final json = await _api().pinMessage(
       pin.channelId,
       pin.messageId,
       isPinned: pin.pinned,
     );
+    _sameAccount(session);
     if (json == null) {
       await _refresh(pin.channelId, pin.messageId);
       return;
@@ -430,7 +463,9 @@ final class ChannelsService {
   // ── People ────────────────────────────────────────────────────────────
 
   Future<ChannelMembers> members(String channelId) async {
+    final session = _session();
     final raw = await _api().getChannelMembers(channelId);
+    _sameAccount(session);
     final users = raw['users'];
     return ChannelMembers(
       users: <ChannelUser>[
@@ -445,12 +480,14 @@ final class ChannelsService {
   /// The channel's members whose name starts what follows an `@`: the
   /// server's own search, by name. The user is left out.
   Future<MentionList> mentions(ChannelMentionQuery query) async {
+    final session = _session();
     final raw = await _api().getChannelMembers(
       query.channelId,
       query: query.query.trim().isEmpty ? null : query.query.trim(),
       orderBy: 'name',
       direction: 'asc',
     );
+    _sameAccount(session);
     final me = _me;
     final users = raw['users'];
     return MentionList(
@@ -514,11 +551,14 @@ final class ChannelsService {
       return held;
     }
     // The core's rules read the active channel and the permissions.
+    final session = _session();
     if (_container.read(activeChannelProvider)?.id != channelId) {
       final channel = Channel.fromJson(await _api().getChannel(channelId));
+      _sameAccount(session);
       _container.read(activeChannelProvider.notifier).set(channel);
     }
     await _permissions();
+    _sameAccount(session);
     final owner = cm.ChannelMembersOwner.capture(_container.read, channelId);
     if (owner == null) {
       throw const RpcError(
@@ -603,7 +643,9 @@ final class ChannelsService {
   /// server's (as mobile's toolbar does).
   Future<void> _refreshCount(String channelId) async {
     try {
+      final session = _session();
       final channel = Channel.fromJson(await _api().getChannel(channelId));
+      _sameAccount(session);
       if (_container.read(activeChannelProvider)?.id == channelId) {
         _container.read(activeChannelProvider.notifier).set(channel);
       }
@@ -624,12 +666,14 @@ final class ChannelsService {
   /// alone comes back; one to everyone arrives as a message.
   Future<ChannelAppActionResult> appAction(ChannelAppAction action) async {
     final api = _api();
+    final session = _session();
     var message = _find(action.channelId, action.messageId);
     if (message == null) {
       final json = await api.getChannelMessage(
         action.channelId,
         action.messageId,
       );
+      _sameAccount(session);
       if (json != null) message = ChannelMessage.fromJson(json);
     }
     final appId = message?.appId;
@@ -658,6 +702,7 @@ final class ChannelsService {
         debugMessage: 'app interaction failed: ${error.response?.statusCode}',
       );
     }
+    _sameAccount(session);
     final reply = AppChannelReply.fromJson(json);
     if (reply == null || !reply.showsToAskerOnly) {
       return const ChannelAppActionResult();
@@ -831,6 +876,7 @@ final class ChannelsService {
           author: author is Map ? '${author['name'] ?? ''}' : '',
           content: notification.body,
           me: me,
+          session: _session(),
         ),
       );
     } on Object {
@@ -848,6 +894,7 @@ final class ChannelsService {
     required String author,
     required String content,
     required String me,
+    required Object session,
   }) async {
     var channel = _listed(channelId);
     if (channel == null) {
@@ -857,7 +904,8 @@ final class ChannelsService {
         return;
       }
     }
-    if (_me != me) return;
+    // Read under another account: its notice is not the next one's.
+    if (_me != me || !identical(session, _session())) return;
     final summary = _summarize(channel);
     _events?.emit(
       ConduitEventSpecs.channelsPosted,
@@ -973,7 +1021,9 @@ final class ChannelsService {
   /// Reads one message again and puts it in the list that shows it: after
   /// a reaction or a pin, which the API answers without the message.
   Future<void> _refresh(String channelId, String messageId) async {
+    final session = _session();
     final json = await _api().getChannelMessage(channelId, messageId);
+    _sameAccount(session);
     if (json == null) return;
     final message = ChannelMessage.fromJson(json);
     final parentId = message.parentId;

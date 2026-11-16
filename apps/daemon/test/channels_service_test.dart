@@ -3,12 +3,16 @@ library;
 
 import 'dart:async';
 
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart'
     hide ChannelMessages, ChannelTypingUsers;
 import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/models/channel_message.dart';
 import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -221,6 +225,134 @@ void main() {
     expect(replies.single.reply.kind, ChannelAppReplyKind.download);
     expect(replies.single.appName, 'Builder');
   });
+  test("a channel read under one account is not the next one's", () async {
+    var account = Object();
+    final api = _Api();
+    final socket = _Socket();
+    final container = ProviderContainer(
+      overrides: [
+        socketServiceProvider.overrideWithValue(socket),
+        apiServiceProvider.overrideWithValue(api),
+        settledActiveAccountIdProvider.overrideWith(_SettledAccount.new),
+        openWebUiAuthSessionEpochProvider.overrideWith((ref) => account),
+        currentUserProvider2.overrideWithValue(
+          const User(
+            id: 'me',
+            username: 'robin',
+            email: 'robin@example.com',
+            name: 'Robin',
+            role: 'user',
+          ),
+        ),
+        channelsListProvider.overrideWith(_Listed.new),
+        userPermissionsProvider.overrideWith(
+          (ref) async => <String, dynamic>{
+            'features': <String, dynamic>{'channels': true},
+          },
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final events = EventBus();
+    final heard = <EventEnvelope>[];
+    events.attach('window', heard.add);
+    final channels = ChannelsService(container, events: events);
+    await container.read(channelsListProvider.future);
+    void anotherAccount() {
+      account = Object();
+      container.invalidate(openWebUiAuthSessionEpochProvider);
+    }
+
+    final expired = throwsA(
+      isA<RpcError>().having(
+        (e) => e.code,
+        'code',
+        ConduitErrorCodes.sessionExpired,
+      ),
+    );
+    const seedSwap = <String, dynamic>{
+      'id': 'c9',
+      'name': 'seed-swap',
+      'type': 'group',
+      'user_id': 'u2',
+    };
+
+    // The channel arrives once another account is signed in: it is neither
+    // made the active channel nor read under that account.
+    final opening = channels.open('c9');
+    anotherAccount();
+    api.channel.complete(seedSwap);
+    await expectLater(opening, expired);
+    expect(container.read(activeChannelProvider), isNull);
+    expect(socket.emitted, isEmpty);
+
+    // An app's answer for the asker alone comes after the switch.
+    final pressing = channels.appAction(
+      const ChannelAppAction(channelId: 'c1', messageId: 'm7', actionId: 'go'),
+    );
+    await Future<void>.delayed(Duration.zero);
+    anotherAccount();
+    api.interaction.complete(<String, dynamic>{
+      'type': 'message',
+      'content': 'Your plot is B4',
+    });
+    await expectLater(pressing, expired);
+
+    // A post in a channel the list doesn't hold yet, read after the switch:
+    // no notice for the next account.
+    api.channel = Completer<Map<String, dynamic>>();
+    socket.channel(message('c9', 'm8'));
+    await Future<void>.delayed(Duration.zero);
+    anotherAccount();
+    api.channel.complete(seedSwap);
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      heard.where((e) => e.event == ConduitEvents.channelsPosted),
+      isEmpty,
+    );
+  });
+}
+
+
+const _server = ServerConfig(
+  id: 'server',
+  name: 'Home server',
+  url: 'https://home.invalid',
+);
+
+/// The server's channel answers, each held until the test completes it.
+final class _Api extends ApiService {
+  _Api() : super(serverConfig: _server, workerManager: WorkerManager());
+
+  var channel = Completer<Map<String, dynamic>>();
+  final interaction = Completer<Map<String, dynamic>>();
+
+  @override
+  Future<Map<String, dynamic>> getChannel(
+    String channelId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) => channel.future;
+
+  @override
+  Future<Map<String, dynamic>?> getChannelMessage(
+    String channelId,
+    String messageId,
+  ) async => <String, dynamic>{
+    'id': messageId,
+    'channel_id': channelId,
+    'user_id': 'app-1',
+    'content': 'Pick a plot',
+    'created_at': 1790000000000,
+    'app_id': 'allotments',
+    'user': <String, dynamic>{'id': 'app-1', 'name': 'Allotments'},
+  };
+
+  @override
+  Future<Map<String, dynamic>> createAppInteraction(
+    String appId, {
+    required String messageId,
+    required String actionId,
+  }) => interaction.future;
 }
 
 class _Listed extends ChannelsList {
