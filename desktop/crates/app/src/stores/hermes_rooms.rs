@@ -131,14 +131,26 @@ impl HermesRoomsStore {
     /// Whether an answer read on `connection` belongs here: the one in use,
     /// or the first one heard of (taken as in use). An answer that names
     /// none (an older daemon) is kept.
-    fn belongs(&mut self, connection: Option<&str>) -> bool {
+    ///
+    /// Answers and events come in the order the daemon sent them (one
+    /// socket), and each names the connection in use when it was sent: one
+    /// naming another connection than the last answer did is newer, so the
+    /// connection changed since -- everything read before goes (only what
+    /// was asked before now) and is read again on it. Ordering by when a
+    /// request was asked would be wrong: a read asked earlier can be
+    /// answered later, on the newer connection.
+    fn belongs(&mut self, connection: Option<&str>, cx: &mut Context<Self>) -> bool {
         match (connection, self.connection.as_deref()) {
             (None, _) => true,
             (Some(c), None) => {
                 self.connection = Some(c.to_string());
                 true
             }
-            (Some(c), Some(current)) => c == current,
+            (Some(c), Some(current)) if c == current => true,
+            (Some(c), Some(_)) => {
+                self.drop_connection(Some(c.to_string()), cx);
+                false
+            }
         }
     }
 
@@ -398,7 +410,7 @@ impl HermesRoomsStore {
                         return;
                     }
                     match result {
-                        Ok(bots) if !s.belongs(bots.connection.as_deref()) => return,
+                        Ok(bots) if !s.belongs(bots.connection.as_deref(), cx) => return,
                         Ok(bots) => {
                             // A picture changed with the roster is read again.
                             s.avatars.retain(|name, _| {
@@ -418,7 +430,7 @@ impl HermesRoomsStore {
                         return;
                     }
                     match result {
-                        Ok(rooms) if !s.belongs(rooms.connection.as_deref()) => return,
+                        Ok(rooms) if !s.belongs(rooms.connection.as_deref(), cx) => return,
                         Ok(rooms) => s.rooms = Some(rooms),
                         Err(e) => {
                             log::warn!("hermes.rooms.list: {e}");
@@ -478,7 +490,7 @@ impl HermesRoomsStore {
                         return;
                     }
                     if let Ok(view) = &result
-                        && !s.belongs(view.connection.as_deref())
+                        && !s.belongs(view.connection.as_deref(), cx)
                     {
                         return;
                     }
@@ -518,7 +530,7 @@ impl HermesRoomsStore {
     pub fn on_event(&mut self, event: &Event, cx: &mut Context<Self>) {
         match event {
             Event::HermesRoomsChanged(view) => {
-                if !self.belongs(view.connection.as_deref()) {
+                if !self.belongs(view.connection.as_deref(), cx) {
                     return;
                 }
                 if let Some(open) = self.room.as_mut().filter(|r| r.room_id == view.room_id) {
@@ -529,7 +541,7 @@ impl HermesRoomsStore {
                 }
             }
             Event::HermesRoomsListChanged(rooms) => {
-                if self.wanted && self.belongs(rooms.connection.as_deref()) {
+                if self.wanted && self.belongs(rooms.connection.as_deref(), cx) {
                     self.rooms = Some(rooms.clone());
                     self.changed(cx);
                 }
@@ -776,14 +788,6 @@ mod tests {
             assert!(view.items.is_empty());
         });
 
-        // A change read on the last connection is not shown.
-        store.update(cx, |s, cx| {
-            s.on_event(
-                &Event::HermesRoomsChanged(view_on("r1", "Old", 5, "c1")),
-                cx,
-            )
-        });
-        store.read_with(cx, |s, _| assert!(s.view("r1").unwrap().items.is_empty()));
         // Requests go out under the connection in use.
         store.update(cx, |s, cx| s.show(None, cx));
         assert_eq!(
@@ -965,6 +969,35 @@ mod tests {
         store.update(cx, |s, cx| s.on_event(&changed_to("c2"), cx));
         store.read_with(cx, |s, _| {
             assert!(s.bots.is_none() && s.rooms.is_none() && !s.can_create());
+        });
+    }
+
+    #[gpui_kit::test]
+    fn an_answer_read_on_a_newer_connection_wins_over_the_one_named_before(
+        cx: &mut TestAppContext,
+    ) {
+        let daemon = FakeDaemon::new();
+        // Two reads in flight; the connection changes between their answers
+        // and nothing else says so (no hermes.changed).
+        daemon.once::<methods::HermesBotsList>(Ok(bots_on("c1")));
+        daemon.once::<methods::HermesRoomsList>(Ok(rooms_on("c2", "Seed swap")));
+        daemon.returns::<methods::HermesBotsList>(bots_on("c2"));
+        daemon.returns::<methods::HermesRoomsList>(rooms_on("c2", "Seed swap"));
+        let rooms = daemon.hold_one::<methods::HermesRoomsList>(0);
+        let store = cx.new(|_| HermesRoomsStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.set_wanted(true, cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| assert_eq!(s.connection().as_deref(), Some("c1")));
+        drop(rooms);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.connection().as_deref(),
+                Some("c2"),
+                "the newer answer was dropped"
+            );
+            assert_eq!(s.room("r1").unwrap().name, "Seed swap");
+            assert_eq!(s.bots.as_ref().unwrap().connection.as_deref(), Some("c2"));
         });
     }
 }
