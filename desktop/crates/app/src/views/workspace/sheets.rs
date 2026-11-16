@@ -254,9 +254,10 @@ impl SheetBody for FormSheet {
         )
         .destructive();
         let ask = present_sheet(window, spec, cx);
+        let form = cx.entity().downgrade();
         cx.spawn(async move |_, cx: &mut AsyncApp| {
             if ask.await {
-                cx.update(sheet::dismiss);
+                cx.update(|cx| discard_confirmed(form, cx));
             }
         })
         .detach();
@@ -458,9 +459,22 @@ pub fn new_knowledge(
     );
 }
 
+/// A form's Discard, confirmed: it closes that form only. The question
+/// can outlive it (another account's sign-in closed it), and the sheet open
+/// by then is another form, whose edits stay.
+fn discard_confirmed(form: WeakEntity<FormSheet>, cx: &mut App) {
+    let Some(form) = form.upgrade() else {
+        return;
+    };
+    if sheet::current::<FormSheet>(cx).is_some_and(|open| open == form) {
+        sheet::dismiss(cx);
+    }
+}
+
 /// The comparison of a version with production, line by line.
 pub struct DiffSheet {
     diff: WorkspacePromptDiff,
+    _account: Subscription,
 }
 
 impl SheetBody for DiffSheet {
@@ -581,8 +595,13 @@ impl Render for DiffSheet {
 }
 
 /// Opens the comparison sheet.
-pub fn open_diff(diff: WorkspacePromptDiff, window: &mut Window, cx: &mut App) {
-    sheet::open(window, 560., cx, move |_, _| DiffSheet { diff });
+pub fn open_diff(stores: &Stores, diff: WorkspacePromptDiff, window: &mut Window, cx: &mut App) {
+    let stores = stores.clone();
+    sheet::open(window, 560., cx, move |_, cx| DiffSheet {
+        diff,
+        // One account's prompt: another's sign-in closes it.
+        _account: sheet::close_with_account(&stores, cx),
+    });
 }
 
 #[cfg(test)]
@@ -611,5 +630,60 @@ mod tests {
             "Avery's form stayed open over Blake's account"
         );
         assert!(daemon.calls::<methods::WorkspaceSave>().is_empty());
+    }
+
+    /// A version comparison shown for one account closes when another signs
+    /// in: the last account's prompt is never shown to the next.
+    #[gpui_kit::test]
+    fn a_comparison_closes_on_another_account(cx: &mut gpui_kit::TestAppContext) {
+        let (_, stores, vcx) = bench(cx);
+        let diff = WorkspacePromptDiff {
+            lines: vec!["- Plan a private hike".into(), "+ Plan a short walk".into()],
+            name_changed: false,
+        };
+        vcx.update(|window, cx| open_diff(&stores, diff, window, cx));
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<DiffSheet>(cx))
+                .is_some()
+        );
+        switch_account(&stores, vcx);
+        assert!(
+            vcx.update(|_, cx| sheet::current::<DiffSheet>(cx))
+                .is_none(),
+            "Avery's prompt comparison stayed open over Blake's account"
+        );
+    }
+
+    /// A discard question answered after its form closed (another account
+    /// signed in) closes nothing it did not ask for: the form open now, and
+    /// what is typed in it, stay.
+    #[gpui_kit::test]
+    fn a_late_discard_closes_only_its_own_form(cx: &mut gpui_kit::TestAppContext) {
+        let (_, stores, vcx) = bench(cx);
+        let rpc = stores.connection.read_with(vcx, |c, _| c.rpc());
+        let open = |vcx: &mut gpui_kit::VisualTestContext| {
+            let (stores, rpc) = (stores.clone(), rpc.clone());
+            vcx.update(|window, cx| {
+                new_knowledge(WeakEntity::new_invalid(), stores, rpc, window, cx)
+            });
+            vcx.run_until_parked();
+            vcx.update(|_, cx| sheet::current::<FormSheet>(cx))
+                .expect("New Knowledge Base opens")
+        };
+        let first = open(vcx);
+        switch_account(&stores, vcx);
+        let second = open(vcx);
+        vcx.update(|window, cx| {
+            second.update(cx, |f, cx| f.set_value(0, "Ridge notes", window, cx))
+        });
+        // The first form's question, accepted now.
+        vcx.update(|_, cx| discard_confirmed(first.downgrade(), cx));
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<FormSheet>(cx))
+                .is_some_and(|f| f == second),
+            "the first form's late Discard closed the one open now"
+        );
     }
 }

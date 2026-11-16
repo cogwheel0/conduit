@@ -471,7 +471,7 @@ impl PromptEditor {
                         // Another account's now: this one's prompt is not
                         // shown to it.
                         _ if super::active_account(&stores, cx) != account => {}
-                        Ok(diff) => sheets::open_diff(diff, window, cx),
+                        Ok(diff) => sheets::open_diff(&stores, diff, window, cx),
                         Err(e) => {
                             log::warn!("workspace.promptDiff: {e}");
                             let text = cx.l10n().desktop_workspace_prompt_history_diff_failed();
