@@ -1407,7 +1407,9 @@ impl ChatPane {
             ]),
             page_id: None,
             base_ops: None,
-            account_id: None,
+            // Made under the account the words were written under, or
+            // refused (a switch conduitd heard of first).
+            account_id: self.stores.accounts.read(cx).active().map(|a| a.id.clone()),
         };
         let call = self
             .stores
@@ -3163,6 +3165,24 @@ mod tests {
             assert!(
                 !pane.read_with(vcx, |p, _| p.context_offered.get()),
                 "a new chat still counts the last chat's Context & Usage as offered"
+            );
+        }
+
+        /// Save as Note names the account the words were written under, so
+        /// conduitd makes the note under no other (an account switch it hears
+        /// of first refuses it).
+        #[gpui_kit::test]
+        fn save_as_note_names_the_account_it_was_written_under(cx: &mut TestAppContext) {
+            let (daemon, _stores, pane, vcx) = bench(cx);
+            pane.update_in(vcx, |p, window, cx| {
+                p.save_as_note("Glaze ratios for the next firing".into(), window, cx)
+            });
+            vcx.run_until_parked();
+            let saves = daemon.calls::<methods::NotesSave>();
+            assert_eq!(saves.len(), 1);
+            assert_eq!(
+                saves[0]["accountId"], "a",
+                "the note was asked for under no account"
             );
         }
 
