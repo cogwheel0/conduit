@@ -1488,4 +1488,74 @@ mod tests {
             "Schedule too frequent."
         );
     }
+
+    /// The task editor opened for one account closes when another signs in;
+    /// words typed in it are not dropped without a question, whether Cancel
+    /// or Quit comes before the daemon has checked them.
+    #[gpui_kit::test]
+    fn the_task_editor_asks_before_typed_words_go_and_closes_on_another_account(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use conduit_protocol::methods;
+
+        use crate::views::sheet::{
+            self, SheetBody as _,
+            bench::{bench, switch_account},
+        };
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::AutomationsEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "te-1",
+                "isNew": true,
+                "fields": {
+                    "name": "",
+                    "prompt": "",
+                    "modelId": "m1",
+                    "active": true,
+                    "schedule": {
+                        "kind": "daily", "year": 0, "month": 0, "day": 0,
+                        "hour": 9, "minute": 0, "days": [],
+                        "rrule": "RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
+                    },
+                    "target": "chat"
+                },
+                "terminal": false
+            }))
+        });
+        // The daemon has not answered a check yet.
+        let held = daemon.hold::<methods::AutomationsCheckDraft>();
+        let s = stores.clone();
+        vcx.update(|window, cx| editor::open(s, None, window, cx));
+        vcx.run_until_parked();
+        let task = vcx
+            .update(|_, cx| sheet::current::<editor::TaskEditor>(cx))
+            .expect("the editor opens");
+        vcx.update(|window, cx| {
+            task.update(cx, |e, cx| {
+                e.type_text("Allotment digest", "List what to sow this week", window, cx)
+            })
+        });
+        // Cancel, then Quit; each question is answered Keep Editing.
+        vcx.update(|window, cx| task.update(cx, |e, cx| e.cancel(window, cx)));
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<editor::TaskEditor>(cx))
+                .is_some(),
+            "Cancel dropped the typed task without asking"
+        );
+        vcx.update(|_, cx| sheet::quit(cx));
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<editor::TaskEditor>(cx))
+                .is_some(),
+            "Quit dropped the typed task without asking"
+        );
+        drop(held);
+        switch_account(&stores, vcx);
+        assert!(
+            !vcx.update(|_, cx| sheet::is_open(cx)),
+            "Avery's task editor stayed open over Blake's account"
+        );
+        assert!(daemon.calls::<methods::AutomationsSave>().is_empty());
+    }
 }

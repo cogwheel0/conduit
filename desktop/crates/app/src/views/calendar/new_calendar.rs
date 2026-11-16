@@ -47,7 +47,7 @@ impl NewCalendarSheet {
     pub fn new(stores: Stores, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let l = cx.l10n().clone();
         let name = forms::input(l.calendar_new_calendar_hint(), false, window, cx);
-        let subscriptions = vec![cx.subscribe_in(
+        let mut subscriptions = vec![cx.subscribe_in(
             &name,
             window,
             |this, _, e: &InputEvent, window, cx| match e {
@@ -59,6 +59,8 @@ impl NewCalendarSheet {
                 _ => {}
             },
         )];
+        // Made for the account it opened under, never the next one's.
+        subscriptions.push(sheet::close_with_account(&stores, cx));
         name.update(cx, |s, cx| s.focus(window, cx));
         Self {
             stores,

@@ -16,8 +16,8 @@ use conduit_protocol::{
 };
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, App, AsyncApp, Context, FontWeight, Role, SharedString, WeakEntity, Window, div,
-    px, relative,
+    AnyElement, App, AsyncApp, Context, FontWeight, Role, SharedString, Subscription, WeakEntity,
+    Window, div, px, relative,
 };
 
 use super::{color_dot, confirm_delete, format};
@@ -46,10 +46,14 @@ pub struct EventSheet {
     pub responding: bool,
     /// The last change was refused: what to say.
     pub failure: Option<String>,
+    /// The event and its answer are the opening account's: the sheet closes
+    /// when another signs in.
+    _account: Subscription,
 }
 
 impl EventSheet {
     pub fn new(stores: Stores, key: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let account = sheet::close_with_account(&stores, cx);
         let mut this = Self {
             stores,
             key,
@@ -57,6 +61,7 @@ impl EventSheet {
             load_error: None,
             responding: false,
             failure: None,
+            _account: account,
         };
         this.load(window, cx);
         this

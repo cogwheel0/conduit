@@ -1226,4 +1226,105 @@ mod tests {
             ]
         );
     }
+
+    fn make_active(stores: &Stores, id: &str, vcx: &mut gpui_kit::VisualTestContext) {
+        use crate::stores::accounts::tests::{account, list};
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", id == "a", true),
+                    account("b", "Blake", id == "b", true),
+                ]),
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+    }
+
+    /// A calendar sheet opened for one account closes when another signs in
+    /// (in Settings' own window): nothing it shows or would create, answer
+    /// or save goes to the next account.
+    #[gpui_kit::test]
+    fn calendar_sheets_close_on_another_account(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::sheet::{self, bench::bench};
+        let (daemon, stores, vcx) = bench(cx);
+        type Open = Box<dyn Fn(Stores, &mut Window, &mut App)>;
+        let open: Vec<(&str, Open)> = vec![
+            ("New Calendar", Box::new(new_calendar::open)),
+            (
+                "the event's sheet",
+                Box::new(|s, w, cx| event_sheet::open(s, "k1".into(), w, cx)),
+            ),
+            (
+                "the event editor",
+                Box::new(|s, w, cx| editor::open(s, None, None, w, cx)),
+            ),
+        ];
+        for (i, (name, open)) in open.iter().enumerate() {
+            let s = stores.clone();
+            vcx.update(|window, cx| open(s, window, cx));
+            vcx.run_until_parked();
+            assert!(vcx.update(|_, cx| sheet::is_open(cx)), "{name} opens");
+            make_active(&stores, if i % 2 == 0 { "b" } else { "a" }, vcx);
+            assert!(
+                !vcx.update(|_, cx| sheet::is_open(cx)),
+                "{name} stayed open over the next account"
+            );
+        }
+        assert!(daemon.calls::<methods::CalendarCreateCalendar>().is_empty());
+    }
+
+    /// Words typed in the event editor are not dropped without a question,
+    /// whether Cancel or Quit comes before the daemon has checked them.
+    #[gpui_kit::test]
+    fn cancel_and_quit_ask_before_typed_event_words_go(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::sheet::{self, SheetBody as _, bench::bench};
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::CalendarEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "ed-1",
+                "isNew": true,
+                "series": false,
+                "fields": {
+                    "title": "",
+                    "description": "",
+                    "location": "",
+                    "calendarId": "c",
+                    "allDay": false,
+                    "start": {"year": 2026, "month": 11, "day": 12, "hour": 9, "minute": 0},
+                    "repeat": "none",
+                    "attendees": []
+                },
+                "calendars": []
+            }))
+        });
+        // The daemon has not answered a check yet.
+        let _held = daemon.hold::<methods::CalendarCheckDraft>();
+        let s = stores.clone();
+        vcx.update(|window, cx| editor::open(s, None, None, window, cx));
+        vcx.run_until_parked();
+        let editor = vcx
+            .update(|_, cx| sheet::current::<editor::EventEditor>(cx))
+            .expect("the editor opens");
+        vcx.update(|window, cx| {
+            editor.update(cx, |e, cx| {
+                e.type_title("Seed swap at the allotment", window, cx)
+            })
+        });
+        // Cancel, then Quit; each question is answered Keep Editing.
+        vcx.update(|window, cx| editor.update(cx, |e, cx| e.cancel(window, cx)));
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<editor::EventEditor>(cx))
+                .is_some(),
+            "Cancel dropped the typed title without asking"
+        );
+        vcx.update(|_, cx| sheet::quit(cx));
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<editor::EventEditor>(cx))
+                .is_some(),
+            "Quit dropped the typed title without asking"
+        );
+    }
 }

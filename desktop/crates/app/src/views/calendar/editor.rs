@@ -108,7 +108,7 @@ impl EventEditor {
                 .auto_grow(3, 10)
                 .placeholder(l.calendar_field_description())
         });
-        let subscriptions = vec![
+        let mut subscriptions = vec![
             cx.subscribe_in(
                 &title,
                 window,
@@ -144,6 +144,8 @@ impl EventEditor {
                 }
             }),
         ];
+        // The event is saved for the account it opened under, never the next.
+        subscriptions.push(sheet::close_with_account(&stores, cx));
         let mut this = Self {
             stores,
             focus: cx.focus_handle(),
@@ -899,7 +901,7 @@ impl SheetBody for EventEditor {
         if self.saving {
             return;
         }
-        if !self.changed {
+        if !self.has_edits() {
             sheet::dismiss(cx);
             return;
         }
@@ -922,6 +924,21 @@ impl SheetBody for EventEditor {
 
     fn label(&self, cx: &App) -> SharedString {
         sheet_title(self.editor.as_ref(), cx.l10n()).into()
+    }
+
+    /// Edits not saved, or a save still out: Quit asks first.
+    fn unsaved(&self, _: &App) -> bool {
+        self.saving || self.has_edits()
+    }
+}
+
+impl EventEditor {
+    /// Something was changed: as the daemon last said, or typed (or a start
+    /// picked) since, before its check is back.
+    fn has_edits(&self) -> bool {
+        self.changed
+            || self.pending_start.is_some()
+            || self.fields.as_ref() != self.editor.as_ref().map(|e| &e.fields)
     }
 }
 

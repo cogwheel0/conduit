@@ -109,7 +109,7 @@ impl TaskEditor {
                 .auto_grow(2, 4)
                 .placeholder(RRULE_EXAMPLE)
         });
-        let subscriptions = vec![
+        let mut subscriptions = vec![
             cx.subscribe_in(
                 &name,
                 window,
@@ -135,6 +135,8 @@ impl TaskEditor {
                 }
             }),
         ];
+        // The task is saved for the account it opened under, never the next.
+        subscriptions.push(sheet::close_with_account(&stores, cx));
         let mut this = Self {
             stores,
             focus: cx.focus_handle(),
@@ -910,7 +912,7 @@ impl SheetBody for TaskEditor {
         if self.saving {
             return;
         }
-        if !self.changed || self.editor.as_ref().is_some_and(|e| e.is_new) && !self.dirty_new() {
+        if !self.has_edits() {
             sheet::dismiss(cx);
             return;
         }
@@ -939,6 +941,11 @@ impl SheetBody for TaskEditor {
             l.scheduled_task_new_title().into()
         }
     }
+
+    /// Edits not saved, or a save still out: Quit asks first.
+    fn unsaved(&self, _: &App) -> bool {
+        self.saving || self.has_edits()
+    }
 }
 
 impl TaskEditor {
@@ -948,6 +955,12 @@ impl TaskEditor {
             (Some(e), Some(f)) => &e.fields != f,
             _ => false,
         }
+    }
+
+    /// Something was changed: typed since the editor opened (before its
+    /// check is back, too), or a saved task the daemon says changed.
+    fn has_edits(&self) -> bool {
+        self.dirty_new() || self.changed && !self.editor.as_ref().is_some_and(|e| e.is_new)
     }
 }
 
