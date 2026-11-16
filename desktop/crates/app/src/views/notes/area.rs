@@ -70,6 +70,19 @@ impl NotesArea {
             }
         })
         .detach();
+        // Quit (⌘Q, the menu) saves what the notes shown and left have not
+        // saved yet, and waits for it, before the daemon stops: the quit hook
+        // below comes too late for that (the daemon is stopped first).
+        let area = cx.weak_entity();
+        crate::views::sheet::save_before_quit(cx, move |cx| {
+            let area = area.upgrade()?;
+            let saves = area.update(cx, |a, cx| a.flush_unsaved(cx));
+            (!saves.is_empty()).then(|| {
+                Box::pin(async move {
+                    futures::future::join_all(saves).await;
+                }) as futures::future::LocalBoxFuture<'static, ()>
+            })
+        });
         let mut this = Self {
             stores,
             list,
@@ -195,6 +208,26 @@ impl NotesArea {
     fn restore(&mut self, pane: Entity<NotePane>, cx: &mut Context<Self>) {
         self.note = Some(pane);
         cx.notify();
+    }
+
+    /// Saves now what the note shown, and the notes left still saving, have
+    /// not saved; one future per pane that had something to save.
+    fn flush_unsaved(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Vec<impl std::future::Future<Output = ()> + use<>> {
+        self.note
+            .iter()
+            .chain(self.retiring.iter())
+            .filter(|pane| {
+                let p = pane.read(cx);
+                p.dirty(cx) || p.is_busy()
+            })
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|pane| pane.update(cx, |p, cx| p.flush(cx)))
+            .collect()
     }
 
     /// The note pane shown, if one is.

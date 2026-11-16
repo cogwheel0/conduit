@@ -3037,6 +3037,57 @@ mod tests {
         assert!(!pane.read_with(vcx, |p, _| p.is_busy()));
     }
 
+    /// Quit saves the note's unsaved text first: the app quits (and the
+    /// daemon stops) only once the save has landed, or after 3 s at most.
+    #[gpui_kit::test]
+    fn quit_waits_for_the_notes_save(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        daemon.on::<methods::NotesSave>(|p| {
+            let page = p["pageId"].as_str().unwrap_or("main").to_string();
+            Ok(serde_json::to_value(bench::detail("n1", &page, "kept")).unwrap())
+        });
+        let quits = Rc::new(std::cell::Cell::new(0));
+        let quit = |vcx: &mut gpui_kit::VisualTestContext| {
+            let q = quits.clone();
+            vcx.update(|_, cx| {
+                crate::views::sheet::quit_with(cx, Rc::new(move |_| q.set(q.get() + 1)))
+            });
+        };
+        // Typed just now: the autosave pause has not passed.
+        let held = daemon.hold::<methods::NotesSave>();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        quit(vcx);
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::NotesSave>().len(),
+            1,
+            "Quit did not save the note"
+        );
+        assert_eq!(quits.get(), 0, "the app quit before the note's save landed");
+        drop(held);
+        vcx.run_until_parked();
+        assert_eq!(quits.get(), 1);
+
+        // A save that never answers holds Quit back 3 s at most.
+        let _held = daemon.hold::<methods::NotesSave>();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("again ", cx))
+        });
+        quit(vcx);
+        vcx.run_until_parked();
+        assert_eq!(quits.get(), 1);
+        vcx.executor().advance_clock(Duration::from_secs(3));
+        vcx.run_until_parked();
+        assert_eq!(
+            quits.get(),
+            2,
+            "a save that never answered kept the app from quitting"
+        );
+    }
+
     /// A dictation still finishing when the note is left keeps the pane
     /// until it ends: its last words are saved, then the pane goes.
     #[gpui_kit::test]
