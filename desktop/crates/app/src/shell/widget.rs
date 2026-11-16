@@ -10,7 +10,8 @@
 //! **Privacy.** The newest chats' ids, titles and times, and whether
 //! anyone is signed in; never message text, models, folders or account
 //! names. Signed out, the file holds no chats at all. It is written owner
-//! read/write only, by replacing the old file in one rename.
+//! read/write only, by replacing the old file in one rename; a write that
+//! fails leaves no copy of what it carried beside it.
 //!
 //! **Where.** `~/Library/Group Containers/<group>/widget-snapshot.json`,
 //! the group being the bundle's `ConduitAppGroup` (bundle.sh writes it from
@@ -132,8 +133,9 @@ pub fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
         .and_then(|mut f| f.write_all(bytes).and_then(|()| f.sync_all()))
         .and_then(|()| std::fs::rename(&tmp, path));
     if result.is_err() {
-        // A stray temporary file is harmless; the next write replaces it.
-        let _ = std::fs::rename(&tmp, dir.join(format!(".{name}.failed")));
+        // What the failed write carried (chat titles) goes with it: a copy
+        // left beside the file would outlive a later sign-out.
+        let _ = std::fs::remove_file(&tmp);
     }
     result
 }
@@ -489,6 +491,21 @@ mod tests {
         std::fs::create_dir_all(blocked.join("inner")).unwrap();
         assert!(write(&blocked, b"new\n").is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "old\n");
+    }
+
+    #[test]
+    fn a_failed_write_leaves_no_copy_beside_it() {
+        let dir = scratch("no-copy");
+        // The target is a folder with something in it: the rename fails.
+        let blocked = dir.join("blocked");
+        std::fs::create_dir_all(blocked.join("inner")).unwrap();
+        let err = write(&blocked, b"{\"chats\":[{\"title\":\"Seed swap notes\"}]}\n");
+        assert!(err.is_err(), "the rename's own error comes back");
+        let names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["blocked"], "nothing it carried stays beside it");
     }
 
     #[test]
