@@ -196,6 +196,13 @@ pub struct NotePane {
     focus: FocusHandle,
     focus_body: bool,
     leaving: bool,
+    /// The account signed in when the note opened: the only one its text
+    /// is saved under.
+    opened_under: Option<String>,
+    /// conduitd refused the text because another account is active now: it
+    /// stays here, unsaved, and is saved once [`Self::opened_under`] is
+    /// active again (never under the other account).
+    held_for_account: bool,
     /// Counts page loads asked for: an answer for a page (a load, a
     /// refresh, an upload or a file taken out) applies only while no other
     /// page was asked for since.
@@ -277,6 +284,15 @@ impl NotePane {
                 this.on_dictation(e, cx)
             }),
             cx.observe(&dictation, |_, _, cx| cx.notify()),
+            // A draft held for its account is saved once that account is
+            // active again.
+            cx.observe(&stores.accounts, |this: &mut Self, accounts, cx| {
+                let active = accounts.read(cx).active().map(|a| a.id.clone());
+                if this.held_for_account && active.is_some() && active == this.opened_under {
+                    this.held_for_account = false;
+                    this.save_now(cx);
+                }
+            }),
             cx.subscribe(&stores.connection, |this, _, e: &ConnectionEvent, cx| {
                 if let ConnectionEvent::Daemon(event) = e
                     && let conduit_protocol::Event::NotesChanged(changed) = event.as_ref()
@@ -293,6 +309,7 @@ impl NotePane {
         stores.connection.update(cx, |c, _| {
             c.subscribe("note-pane", &[events::NOTES_CHANGED], vec![])
         });
+        let opened_under = stores.accounts.read(cx).active().map(|a| a.id.clone());
         let mut this = Self {
             stores,
             rpc,
@@ -319,6 +336,8 @@ impl NotePane {
             focus: cx.focus_handle(),
             focus_body,
             leaving: false,
+            opened_under,
+            held_for_account: false,
             page_asked: 0,
             saving_rev: None,
             save_again: false,
@@ -376,6 +395,7 @@ impl NotePane {
             || self._debounce.is_some()
             || self.recorder.is_some()
             || self.run.is_some()
+            || self.held_for_account
     }
 
     pub fn has_refused_draft(&self) -> bool {
@@ -633,6 +653,12 @@ impl NotePane {
         if self.hold {
             return;
         }
+        // Held for its account: nothing is sent until that account is back
+        // (those waiting for a save are not kept waiting for it).
+        if self.held_for_account {
+            self.settle(cx);
+            return;
+        }
         if self.load != Load::Ready
             || self.refused.is_some()
             || !self.detail.as_ref().is_some_and(|d| d.summary.can_edit)
@@ -724,11 +750,12 @@ impl NotePane {
                 self.save_again = false;
             }
             Err(e) if is_reason(&e, "account") => {
-                // Opened under an account no longer signed in here: the text
-                // cannot go to it, and never goes to the next one.
+                // Opened under an account no longer active: the text never
+                // goes to the next one. It stays here, unsaved, until its own
+                // account is back ([`Self::held_for_account`]).
                 log::warn!("notes.save: {e}");
-                self.hold = true;
-                self.save = SaveState::Saved;
+                self.held_for_account = true;
+                self.save = SaveState::Failed;
                 self.save_again = false;
             }
             Err(e) if is_refusal(&e, "page") => {
@@ -2962,6 +2989,11 @@ mod tests {
                 crate::views::test_globals(cx);
                 Stores::for_test(daemon.rpc(), &scratch, cx)
             });
+            // Account `a` signed in.
+            stores.accounts.update(cx, |a, cx| {
+                use crate::stores::accounts::tests::{account, list};
+                a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+            });
             stores
                 .navigation
                 .update(cx, |n, cx| n.open_item(AreaItem::Note("n1".into()), cx));
@@ -3015,26 +3047,72 @@ mod tests {
         );
     }
 
-    /// A note opened under an account no longer signed in is not saved
-    /// (conduitd refuses it for the next account) and not tried again.
+    /// A note's draft that conduitd refuses because another account is
+    /// active now stays with its pane (never saved to the new account, not
+    /// tried again meanwhile), and is saved once its own account is back.
     #[gpui_kit::test]
-    fn a_save_refused_for_another_account_is_not_tried_again(cx: &mut gpui_kit::TestAppContext) {
-        let (daemon, _stores, area, vcx) = bench::open(cx);
+    fn a_draft_refused_for_another_account_waits_for_its_account(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use crate::stores::accounts::tests::{account, list};
+        use crate::stores::navigation::AreaItem;
+        let (daemon, stores, area, vcx) = bench::open(cx);
+        let accounts = |active: &str| {
+            list(vec![
+                account("a", "Avery", active == "a", true),
+                account("b", "Blair", active == "b", true),
+            ])
+        };
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("a"), cx));
         let pane = bench::pane(&area, vcx);
-        daemon.on::<methods::NotesSave>(|_| {
-            let mut e = conduit_daemon::protocol::error("auth.sessionExpired", "another account");
-            e.args.insert("reason".into(), "account".into());
-            Err(e)
+        let refuse = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let r = refuse.clone();
+        daemon.on::<methods::NotesSave>(move |p| {
+            if r.load(std::sync::atomic::Ordering::SeqCst) {
+                let mut e =
+                    conduit_daemon::protocol::error("auth.sessionExpired", "another account");
+                e.args.insert("reason".into(), "account".into());
+                return Err(e);
+            }
+            let page = p["pageId"].as_str().unwrap_or("main").to_string();
+            Ok(serde_json::to_value(bench::detail("n1", &page, "kept")).unwrap())
         });
         pane.update(vcx, |p, cx| {
-            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx));
-            p.save_now(cx);
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
         });
+        let weak = pane.downgrade();
+        drop(pane);
+        // Account B becomes active; the note is left and its save refused.
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("b"), cx));
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::AllNotes, cx));
         vcx.run_until_parked();
         vcx.executor().advance_clock(RETRY_DELAY * 3);
         vcx.run_until_parked();
-        assert_eq!(daemon.calls::<methods::NotesSave>().len(), 1);
-        assert!(!pane.read_with(vcx, |p, _| p.is_busy()));
+        assert_eq!(
+            daemon.calls::<methods::NotesSave>().len(),
+            1,
+            "tried again for account B"
+        );
+        assert!(weak.upgrade().is_some(), "the refused draft was dropped");
+        // Account A again: the draft is saved, under it.
+        refuse.store(false, std::sync::atomic::Ordering::SeqCst);
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("a"), cx));
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::NotesSave>();
+        assert_eq!(
+            saves.len(),
+            2,
+            "the draft was not saved once its account was back"
+        );
+        assert!(saves[1].to_string().contains("Cairn"));
     }
 
     /// Quit saves the note's unsaved text first: the app quits (and the
