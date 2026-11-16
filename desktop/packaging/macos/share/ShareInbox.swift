@@ -71,6 +71,40 @@ enum ShareAddResult: Equatable {
   case tooLarge
   case tooMany
   case notAFile
+  /// The share was published or discarded: nothing more goes in.
+  case closed
+}
+
+/// One item provider's answer, taken only while the share waits for it.
+/// The wait ends at its timeout or at the answer; an answer that comes
+/// after that is refused (`deliver` returns false), so a slow provider
+/// can never put into the share an item its sheet never showed.
+final class ShareWait<Value> {
+  private let lock = NSLock()
+  private let done = DispatchSemaphore(value: 0)
+  private var value: Value?
+  private var closed = false
+
+  /// Hands over the answer; false when the wait is over, and the caller
+  /// cleans up what it made for it.
+  func deliver(_ answer: Value?) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard !closed else { return false }
+    value = answer
+    closed = true
+    done.signal()
+    return true
+  }
+
+  /// Waits for the answer until `deadline`, then takes no more.
+  func wait(until deadline: DispatchTime) -> Value? {
+    _ = done.wait(timeout: deadline)
+    lock.lock()
+    defer { lock.unlock() }
+    closed = true
+    return value
+  }
 }
 
 enum ShareInbox {
@@ -120,6 +154,7 @@ final class ShareDraft {
   private let fileManager: FileManager
   private var seenTexts = Set<String>()
   private var published = false
+  private var discarded = false
 
   init(id: String, root: URL, dir: URL, fileManager: FileManager) {
     self.id = id
@@ -131,6 +166,7 @@ final class ShareDraft {
   /// A text item: trimmed, cut to the limit, kept once.
   @discardableResult
   func addText(_ raw: String) -> ShareAddResult {
+    if published || discarded { return .closed }
     let text = String(raw.trimmingCharacters(in: .whitespacesAndNewlines)
       .prefix(ShareLimits.maxTextCharacters))
     if text.isEmpty { return .empty }
@@ -142,6 +178,7 @@ final class ShareDraft {
   /// A web link, kept once (and never also as text).
   @discardableResult
   func addURL(_ url: URL) -> ShareAddResult {
+    if published || discarded { return .closed }
     let text = url.absoluteString
     if text.isEmpty { return .empty }
     guard seenTexts.insert(text).inserted else { return .duplicate }
@@ -152,6 +189,7 @@ final class ShareDraft {
   /// Copies the file at `source` into the share (a clone on APFS).
   @discardableResult
   func addFile(copying source: URL, name: String? = nil) throws -> ShareAddResult {
+    if published || discarded { return .closed }
     let values = try source.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
     guard values.isRegularFile == true else { return .notAFile }
     let fileName = ShareDraft.safeName(name ?? source.lastPathComponent)
@@ -165,6 +203,7 @@ final class ShareDraft {
   /// Writes `data` into the share as a file named `name`.
   @discardableResult
   func addData(_ data: Data, name: String) throws -> ShareAddResult {
+    if published || discarded { return .closed }
     let fileName = ShareDraft.safeName(name)
     if let check = admit(name: fileName, bytes: Int64(data.count)) { return check }
     let (destination, relative) = try slot(for: fileName)
@@ -176,7 +215,7 @@ final class ShareDraft {
   /// Finishes the share: the manifest, then the folder under its final
   /// name. Returns the id the link carries.
   func publish(message: String?) throws -> String {
-    guard !published else { throw ShareInboxError.published }
+    guard !published, !discarded else { throw ShareInboxError.published }
     let trimmed = message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     manifest.message = trimmed.isEmpty
       ? nil : String(trimmed.prefix(ShareLimits.maxTextCharacters))
@@ -194,6 +233,7 @@ final class ShareDraft {
   /// Removes an unpublished share (Cancel, or a failure before the hand-off).
   func discard() {
     guard !published else { return }
+    discarded = true
     try? fileManager.removeItem(at: dir)
   }
 

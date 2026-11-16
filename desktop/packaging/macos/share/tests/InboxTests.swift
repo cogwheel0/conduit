@@ -124,6 +124,32 @@ enum InboxTests {
       check(ShareManifest().isEmpty, "a new manifest is empty")
     }
 
+    // Nothing goes into a share once it is published or cancelled.
+    do {
+      let draft = try ShareInbox.begin(root: root)
+      _ = try draft.publish(message: "Seed swap on Saturday")
+      check(draft.addText("Late text") == .closed, "no text after publish")
+      check(try draft.addData(Data([1]), name: "late.png") == .closed, "no file after publish")
+      check(draft.manifest.files.isEmpty && draft.manifest.texts.isEmpty, "manifest as published")
+      draft.withdraw()
+      let cancelled = try ShareInbox.begin(root: root)
+      cancelled.discard()
+      check(cancelled.addURL(URL(string: "https://example.org/late")!) == .closed, "no link after cancel")
+      check(try cancelled.addFile(copying: source("late.txt")) == .closed, "no file after cancel")
+      check(!fm.fileExists(atPath: cancelled.dir.path), "nothing written after cancel")
+    }
+
+    // A provider's answer counts only while the share waits for it.
+    do {
+      let inTime = ShareWait<String>()
+      check(inTime.deliver("garden plan.pdf"), "an answer in time is taken")
+      check(inTime.wait(until: .now()) == "garden plan.pdf", "and handed over")
+      check(!inTime.deliver("second answer"), "one answer only")
+      let late = ShareWait<String>()
+      check(late.wait(until: .now()) == nil, "the wait ends at its deadline")
+      check(!late.deliver("orchard tour.mov"), "a late answer is refused")
+    }
+
     // Text is cut to the limit.
     do {
       let draft = try ShareInbox.begin(root: root)

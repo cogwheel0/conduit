@@ -402,20 +402,16 @@ private enum Loader {
     return []
   }
 
-  private static func wait<T>(_ start: (@escaping (T?) -> Void) -> Void) -> T? {
-    let done = DispatchSemaphore(value: 0)
-    var result: T?
-    let lock = NSLock()
+  /// Waits for one provider answer (at most `timeout` seconds). An answer
+  /// that comes later is refused, and `drop` cleans up what it made.
+  private static func wait<T>(
+    drop: @escaping (T) -> Void = { _ in }, _ start: (@escaping (T?) -> Void) -> Void
+  ) -> T? {
+    let gate = ShareWait<T>()
     start { value in
-      lock.lock()
-      result = value
-      lock.unlock()
-      done.signal()
+      if !gate.deliver(value), let value { drop(value) }
     }
-    _ = done.wait(timeout: .now() + .seconds(timeout))
-    lock.lock()
-    defer { lock.unlock() }
-    return result
+    return gate.wait(until: .now() + .seconds(timeout))
   }
 
   private static func loadURL(_ provider: NSItemProvider, type: String) -> URL? {
@@ -475,16 +471,19 @@ private enum Loader {
       ?? (utType?.conforms(to: .image) == true ? "Image" : "File")
     let ext = tiff ? "png" : (utType?.preferredFilenameExtension ?? "")
     let name = (stem as NSString).pathExtension.isEmpty && !ext.isEmpty ? "\(stem).\(ext)" : stem
-    let result: ShareAddResult? = wait { finish in
+    // The provider's file lasts only as long as its callback: the callback
+    // copies it aside (PNG for TIFF), and the share takes the copy here, on
+    // the draft's queue, only if it came in time.
+    let answer: Staged? = wait(drop: { $0.cleanUp() }) { finish in
       _ = provider.loadFileRepresentation(forTypeIdentifier: type) { url, _ in
         guard let url else { return finish(nil) }
         do {
           if tiff, let image = NSBitmapImageRep(data: try Data(contentsOf: url)),
             let png = image.representation(using: .png, properties: [:])
           {
-            finish(try draft.addData(png, name: name))
+            finish(.data(png))
           } else {
-            finish(try draft.addFile(copying: url, name: name))
+            finish(try Staged.copy(of: url))
           }
         } catch {
           NSLog("Conduit share: could not copy an item: %@", String(describing: error))
@@ -492,10 +491,47 @@ private enum Loader {
         }
       }
     }
+    var result: ShareAddResult?
+    switch answer {
+    case .data(let bytes)?:
+      result = try? draft.addData(bytes, name: name)
+    case .file(let copy, _)?:
+      result = try? draft.addFile(copying: copy, name: name)
+    case nil:
+      result = nil
+    }
+    answer?.cleanUp()
     guard result == .added, let copy = draft.manifest.files.last else { return [] }
     let staged = draft.dir.appendingPathComponent(copy.path)
     let size = (try? staged.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init)
     return [Row(kind: .file(staged, size ?? 0))]
+  }
+}
+
+/// What a provider's callback handed over: bytes, or a private copy of its
+/// file (in a folder of its own under the temporary folder).
+private enum Staged {
+  case data(Data)
+  case file(URL, folder: URL)
+
+  static func copy(of url: URL) throws -> Staged {
+    let fm = FileManager.default
+    let folder = fm.temporaryDirectory.appendingPathComponent(
+      "conduit-share-\(UUID().uuidString)", isDirectory: true)
+    try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+    let copy = folder.appendingPathComponent(url.lastPathComponent, isDirectory: false)
+    do {
+      try fm.copyItem(at: url, to: copy)
+    } catch {
+      try? fm.removeItem(at: folder)
+      throw error
+    }
+    return .file(copy, folder: folder)
+  }
+
+  /// Removes the private copy, if any.
+  func cleanUp() {
+    if case .file(_, let folder) = self { try? FileManager.default.removeItem(at: folder) }
   }
 }
 
