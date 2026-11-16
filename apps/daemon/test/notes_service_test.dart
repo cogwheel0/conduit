@@ -1,6 +1,8 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
+
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/note_mapper.dart';
@@ -30,6 +32,8 @@ void main() {
     late AppDatabase second;
     late AppDatabase? active;
     late ProviderContainer container;
+    // Holds the account's sharing rights read (`_access`) while set.
+    Completer<void>? rights;
 
     setUp(() async {
       // Two accounts, two databases, as the app keeps them.
@@ -37,6 +41,7 @@ void main() {
       first = AppDatabase(NativeDatabase.memory());
       second = AppDatabase(NativeDatabase.memory());
       active = first;
+      rights = null;
       PreferencesStore.debugOverride(InMemoryKeyValueStore());
       await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-a');
       container = ProviderContainer(
@@ -44,9 +49,10 @@ void main() {
           appDatabaseProvider.overrideWith((ref) => active),
           notesListProvider.overrideWith(_NoNotes.new),
           currentUserProvider2.overrideWithValue(null),
-          workspaceCapabilitiesProvider.overrideWith(
-            (ref) async => throw StateError('offline'),
-          ),
+          workspaceCapabilitiesProvider.overrideWith((ref) async {
+            await rights?.future;
+            throw StateError('offline');
+          }),
         ],
       );
     });
@@ -161,6 +167,43 @@ void main() {
           const NoteSave(id: 'trail-log', title: 'Trail log', ops: typed),
         ),
         refused,
+      );
+    });
+
+    test('refuses a note read under one account once another is active', () async {
+      await first
+          .into(first.notes)
+          .insert(
+            serverToNoteRow(<String, dynamic>{
+              'id': 'ridge-notes',
+              'title': 'Ridge notes',
+              'data': <String, dynamic>{
+                'content': <String, dynamic>{'md': 'Cairns'},
+              },
+              'created_at': 1,
+              'updated_at': 1,
+            }).copyWith(dirtyData: const Value(true)),
+          );
+      final notes = NotesService(container);
+      // The read waits on the account's rights; account B becomes active
+      // meanwhile.
+      rights = Completer<void>();
+      container.invalidate(workspaceCapabilitiesProvider);
+      final reading = notes.get('ridge-notes');
+      await pumpEventQueue();
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
+      active = second;
+      container.invalidate(appDatabaseProvider);
+      rights!.complete();
+      await expectLater(
+        reading,
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.sessionExpired,
+          ),
+        ),
       );
     });
   });

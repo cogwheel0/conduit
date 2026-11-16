@@ -133,6 +133,10 @@ final class NotesService {
     // the core's reader goes to the server, which would hand back the note
     // as it was before -- reopening a note just edited showed the old text,
     // and a deleted one came back.
+    // The account it is read under, with its database: a read answered
+    // after another account became active is refused, never shown or
+    // remembered as that account's.
+    final scope = currentPreferenceAccountId();
     final db = _container.read(appDatabaseProvider);
     final access = await _access();
     if (db != null) {
@@ -143,10 +147,12 @@ final class NotesService {
       final row = await db.notesDao.getNote(id);
       if (row != null && row.deleted) return null;
       if (row != null && (row.dirtyTitle || row.dirtyData || row.dirtyPinned)) {
+        _requireStill(scope, id);
         return _detail(
           Note.fromJson(noteRowToServer(row)),
           access,
           pageId: pageId,
+          scope: scope,
         );
       }
     }
@@ -155,7 +161,10 @@ final class NotesService {
     _container.invalidate(noteByIdProvider(id));
     try {
       final note = await readSettled(_container, noteByIdProvider(id).future);
-      return note == null ? null : _detail(note, access, pageId: pageId);
+      _requireStill(scope, id);
+      return note == null
+          ? null
+          : _detail(note, access, pageId: pageId, scope: scope);
     } on Object catch (error) {
       if (_notFound(error)) return null;
       rethrow;
@@ -513,6 +522,17 @@ final class NotesService {
       code: ConduitErrorCodes.sessionExpired,
       args: const <String, String>{'reason': 'account'},
       debugMessage: 'note $id was opened under another account',
+    );
+  }
+
+  /// Refuses a read of note [id] begun under [scope] once another account
+  /// is active.
+  void _requireStill(String? scope, String id) {
+    if (scope == currentPreferenceAccountId()) return;
+    throw RpcError(
+      code: ConduitErrorCodes.sessionExpired,
+      args: const <String, String>{'reason': 'account'},
+      debugMessage: 'note $id was read under another account',
     );
   }
 
