@@ -111,10 +111,12 @@ impl NotesArea {
                 let focus_body = FOCUS_BODY_NEXT.with(|f| f.replace(false));
                 // Left while its save is still out: shown again, rather than
                 // a fresh pane reading the stored text from before that save
-                // (its own later save would write over it).
+                // (its own later save would write over it). Only to the
+                // account it was opened under: another account (a note shared
+                // with both) gets a pane of its own, never these words.
                 if let Some(at) = self.retiring.iter().position(|p| {
                     let p = p.read(cx);
-                    p.shows(&id) && !p.has_refused_draft()
+                    p.shows(&id) && !p.has_refused_draft() && p.opened_under_active(cx)
                 }) {
                     let pane = self.retiring.remove(at);
                     pane.update(cx, |p, cx| p.shown_again(cx));

@@ -451,6 +451,16 @@ impl NotePane {
         accounts.active().map(|a| &a.id) == Some(opened)
     }
 
+    /// The account the note was opened under is the active one (true when
+    /// it opened with none known), even while an account change is in
+    /// flight: the pane's own account may take it back.
+    pub fn opened_under_active(&self, cx: &App) -> bool {
+        let Some(opened) = &self.opened_under else {
+            return true;
+        };
+        self.stores.accounts.read(cx).active().map(|a| &a.id) == Some(opened)
+    }
+
     pub fn has_refused_draft(&self) -> bool {
         self.refused.is_some()
     }
@@ -3281,6 +3291,58 @@ mod tests {
         vcx.run_until_parked();
     }
 
+    /// A note left under one account while its save is out, then opened
+    /// under the next account (a note shared with both): a fresh pane, with
+    /// none of the last account's words; the last account gets its own pane
+    /// back once it is active again.
+    #[gpui_kit::test]
+    fn a_note_reopened_under_another_account_gets_its_own_pane(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::accounts::tests::{account, list};
+        use crate::stores::navigation::AreaItem;
+        let (daemon, stores, area, vcx) = bench::open(cx);
+        let accounts = |active: &str| {
+            list(vec![
+                account("a", "Avery", active == "a", true),
+                account("b", "Blair", active == "b", true),
+            ])
+        };
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("a"), cx));
+        let pane = bench::pane(&area, vcx);
+        daemon.on::<methods::NotesSave>(|p| {
+            let page = p["pageId"].as_str().unwrap_or("main").to_string();
+            Ok(serde_json::to_value(bench::detail("n1", &page, "kept")).unwrap())
+        });
+        let held = daemon.hold::<methods::NotesSave>();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::AllNotes, cx));
+        vcx.run_until_parked();
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("b"), cx));
+        vcx.run_until_parked();
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n1".into()), cx));
+        vcx.run_until_parked();
+        let shown = bench::pane(&area, vcx);
+        assert_ne!(
+            shown.entity_id(),
+            pane.entity_id(),
+            "the last account's pane was shown under the next account"
+        );
+        assert!(
+            !bench::text(&shown, vcx).contains("Cairn"),
+            "the last account's unsaved words showed under the next account"
+        );
+        drop(held);
+        vcx.run_until_parked();
+    }
     /// Typing while another page is read goes nowhere: the page being left
     /// takes no words until the next one shows, so nothing typed is
     /// replaced by it.
