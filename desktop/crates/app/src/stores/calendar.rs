@@ -160,6 +160,11 @@ impl CalendarStore {
         }
     }
 
+    /// Which account's agenda this is: bumped when another signs in.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
     /// Takes an answer a change came back with.
     pub fn adopt(&mut self, agenda: CalendarAgenda, cx: &mut Context<Self>) {
         // A change answered after a newer request started still lands: it is

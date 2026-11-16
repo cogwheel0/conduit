@@ -1067,12 +1067,16 @@ pub fn confirm_delete(
         if !ask.await {
             return;
         }
+        // The agenda the answer comes back with is this account's: another
+        // account signed in meanwhile shows its own.
+        let generation = cx.update(|cx| stores.calendar.read(cx).generation());
         let result = rpc
             .call::<methods::CalendarDeleteEvent>(&CalendarItemRef {
                 key: item.key.clone(),
             })
             .await;
         cx.update(|cx| match result {
+            _ if stores.calendar.read(cx).generation() != generation => {}
             Ok(agenda) => {
                 stores.calendar.update(cx, |c, cx| c.adopt(agenda, cx));
                 if let Some(after) = after {
@@ -1325,6 +1329,47 @@ mod tests {
             vcx.update(|_, cx| sheet::current::<editor::EventEditor>(cx))
                 .is_some(),
             "Quit dropped the typed title without asking"
+        );
+    }
+
+    /// A delete answered after another account signed in leaves the next
+    /// account's calendar alone: the last account's agenda is not shown.
+    #[gpui_kit::test]
+    fn a_delete_answered_after_an_account_switch_is_not_shown(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::sheet::bench::bench;
+        let (daemon, stores, vcx) = bench(cx);
+        // The calendar follows the account, as the app wires it.
+        vcx.update(|_, cx| {
+            crate::stores::calendar::wire(&stores, cx);
+            cx.set_global(crate::shell::sheet::AutoAnswer(Some(true)))
+        });
+        make_active(&stores, "a", vcx);
+        daemon.returns::<methods::CalendarDeleteEvent>(CalendarAgenda {
+            available: true,
+            calendars: vec![CalendarDto {
+                id: "avery-garden".into(),
+                name: "Avery's garden".into(),
+                color: None,
+                is_default: true,
+                scheduled: false,
+                owned: true,
+                writable: true,
+                can_make_default: true,
+                visible: true,
+            }],
+            ..Default::default()
+        });
+        let held = daemon.hold::<methods::CalendarDeleteEvent>();
+        let s = stores.clone();
+        vcx.update(|window, cx| confirm_delete(s, item("k1"), None, window, cx));
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::CalendarDeleteEvent>().len(), 1);
+        make_active(&stores, "b", vcx);
+        drop(held);
+        vcx.run_until_parked();
+        assert!(
+            stores.calendar.read_with(vcx, |c, _| c.agenda.is_none()),
+            "Avery's agenda is shown under Blake's account"
         );
     }
 }
