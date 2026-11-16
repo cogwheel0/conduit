@@ -283,7 +283,10 @@ impl Render for AreaPane {
         // stays shown.
         match &item {
             AreaItem::HermesRoom(id) => {
-                if self.room.as_ref().is_none_or(|p| p.read(cx).room_id != *id) {
+                // A pane holds one account's words for one gateway's room:
+                // another key (an account or gateway change) gets its own.
+                let key = self.stores.hermes_rooms.read(cx).room_key(id);
+                if self.room.as_ref().is_none_or(|p| p.read(cx).key != key) {
                     let (stores, id) = (self.stores.clone(), id.clone());
                     self.room = Some(cx.new(|cx| {
                         crate::views::hermes_room::HermesRoomPane::new(stores, id, window, cx)

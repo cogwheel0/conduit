@@ -39,6 +39,45 @@ pub fn room_scope(room_id: &str) -> String {
     format!("hermes-room:{room_id}")
 }
 
+/// Whose a room's words are: the account, the Hermes gateway (its address
+/// and profile -- the same across reconnects, unlike the daemon's name for
+/// a connection) and the room. A pane shows and sends only its own key's.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RoomKey {
+    pub account: Option<String>,
+    pub gateway: Option<String>,
+    pub room: String,
+}
+
+/// Words sent to a room whose fate is not known yet: they leave the field
+/// only once Hermes is known to have them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Unresolved {
+    /// As sent (trimmed).
+    pub text: String,
+    /// The newest event the room showed when they went out: only a message
+    /// after it can be them.
+    pub after: i64,
+}
+
+impl Unresolved {
+    /// Whether `view`'s log shows these words posted: the user's own
+    /// message with them, newer than the send.
+    pub fn posted_in(&self, view: &HermesRoomView) -> bool {
+        view.items.iter().any(|item| {
+            item.kind == conduit_protocol::HermesRoomItemKind::Message
+                && item.own
+                && item.seq > self.after
+                && item.text.trim() == self.text
+        })
+    }
+}
+
+/// The newest event `view` shows.
+pub fn newest_seq(view: &HermesRoomView) -> i64 {
+    view.items.iter().map(|i| i.seq).max().unwrap_or(i64::MIN)
+}
+
 /// The room the main window shows.
 #[derive(Clone, Debug)]
 pub struct OpenRoom {
@@ -78,10 +117,15 @@ pub struct HermesRoomsStore {
     opening_token: u64,
     /// The account in charge, as the accounts store names it.
     account: Option<String>,
-    /// Words typed in a room's field and not sent, by account and room:
-    /// they wait for the room while another shows (the user's own, so no
-    /// connection change drops them).
-    drafts: HashMap<(Option<String>, String), String>,
+    /// The Hermes gateway in use (address and profile), as settings say.
+    gateway: Option<String>,
+    /// Words typed in a room's field and not sent, by [`RoomKey`]: they
+    /// wait for the room while another shows (the user's own, so a
+    /// reconnect drops none of them).
+    drafts: HashMap<RoomKey, String>,
+    /// Sends whose fate is not known yet, by [`RoomKey`]: kept apart from
+    /// the field's words, which a restored draft never replaces.
+    unresolved: HashMap<RoomKey, Unresolved>,
     revision: u64,
     fetches: Vec<Task<()>>,
     watch: Option<Task<()>>,
@@ -104,22 +148,58 @@ impl HermesRoomsStore {
         self.account = account;
     }
 
-    /// Words typed in room `room_id`'s field and not sent, for the account
-    /// in charge.
-    pub fn draft(&self, room_id: &str) -> Option<&str> {
-        self.drafts
-            .get(&(self.account.clone(), room_id.to_string()))
-            .map(String::as_str)
+    /// The Hermes gateway in use: room drafts are its own.
+    pub fn set_gateway(&mut self, gateway: Option<String>) {
+        self.gateway = gateway;
     }
 
-    /// Keeps what room `room_id`'s field holds while the room is not shown
-    /// (empty: nothing to keep).
-    pub fn keep_draft(&mut self, room_id: &str, text: &str) {
-        let key = (self.account.clone(), room_id.to_string());
+    /// The key room `room_id`'s words go under now.
+    pub fn room_key(&self, room_id: &str) -> RoomKey {
+        RoomKey {
+            account: self.account.clone(),
+            gateway: self.gateway.clone(),
+            room: room_id.to_string(),
+        }
+    }
+
+    /// Words typed for `key` and not sent.
+    pub fn draft(&self, key: &RoomKey) -> Option<&str> {
+        self.drafts.get(key).map(String::as_str)
+    }
+
+    /// Keeps what `key`'s field holds while its room is not shown (empty:
+    /// nothing to keep).
+    pub fn keep_draft(&mut self, key: &RoomKey, text: &str) {
         if text.trim().is_empty() {
-            self.drafts.remove(&key);
+            self.drafts.remove(key);
         } else {
-            self.drafts.insert(key, text.to_string());
+            self.drafts.insert(key.clone(), text.to_string());
+        }
+    }
+
+    /// The send for `key` whose fate is not known yet.
+    pub fn unresolved(&self, key: &RoomKey) -> Option<&Unresolved> {
+        self.unresolved.get(key)
+    }
+
+    pub fn set_unresolved(&mut self, key: &RoomKey, value: Option<Unresolved>) {
+        match value {
+            Some(value) => self.unresolved.insert(key.clone(), value),
+            None => self.unresolved.remove(key),
+        };
+    }
+
+    /// `key`'s send was answered as sent: its words are posted, and a
+    /// draft still holding exactly them goes too (a pane gone meanwhile
+    /// must not offer them again).
+    pub fn sent(&mut self, key: &RoomKey, text: &str) {
+        self.unresolved.remove(key);
+        if self
+            .drafts
+            .get(key)
+            .is_some_and(|d| d.trim() == text.trim())
+        {
+            self.drafts.remove(key);
         }
     }
 
@@ -652,7 +732,14 @@ pub fn wire(stores: &Stores, cx: &mut App) {
             }
             let session = s.session.read(cx);
             let wanted = session.route(cx) == Route::Main && session.capabilities().hermes;
+            // The gateway room drafts belong to: its address and profile,
+            // the same across reconnects.
+            let gateway = session
+                .hermes
+                .as_ref()
+                .map(|h| format!("{}#{}", h.base_url.trim_end_matches('/'), h.desktop_profile));
             s.hermes_rooms.update(cx, |h, cx| {
+                h.set_gateway(gateway);
                 h.set_wanted(wanted, cx);
                 if changed && wanted {
                     h.refresh(cx);

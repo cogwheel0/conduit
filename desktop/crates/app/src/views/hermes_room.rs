@@ -42,7 +42,7 @@ use gpui_kit::{
 
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::stores::Stores;
-use crate::stores::hermes_rooms::HermesRoomsStore;
+use crate::stores::hermes_rooms::{HermesRoomsStore, RoomKey, Unresolved, newest_seq};
 use crate::views::hermes_faces::{self, Face};
 use crate::views::hermes_rooms::{self, RoomCommand};
 
@@ -320,37 +320,13 @@ struct Mention {
     index: usize,
 }
 
-/// Words sent to a room whose fate is not known yet.
-#[derive(Clone, Debug)]
-struct Awaiting {
-    /// As sent (trimmed).
-    text: String,
-    /// The newest event the room showed when they went out: only a message
-    /// after it can be them.
-    after: i64,
-}
-
-impl Awaiting {
-    /// Whether `view`'s log shows these words posted: the user's own
-    /// message with them, newer than the send.
-    fn posted_in(&self, view: &HermesRoomView) -> bool {
-        view.items.iter().any(|item| {
-            item.kind == HermesRoomItemKind::Message
-                && item.own
-                && item.seq > self.after
-                && item.text.trim() == self.text
-        })
-    }
-}
-
-/// The newest event `view` shows.
-fn newest_seq(view: &HermesRoomView) -> i64 {
-    view.items.iter().map(|i| i.seq).max().unwrap_or(i64::MIN)
-}
-
 pub struct HermesRoomPane {
     stores: Stores,
     pub room_id: String,
+    /// Whose words this pane holds (account, gateway, room), fixed when it
+    /// opened: it shows, keeps and sends only these, whatever takes charge
+    /// later (a pane for another key replaces it).
+    pub key: RoomKey,
     pub input: Entity<TextareaState>,
     mention: Option<Mention>,
     rows: Vec<Row>,
@@ -363,9 +339,7 @@ pub struct HermesRoomPane {
     /// The room's view has been read once (words Hermes may have come back
     /// only then: the room opened again).
     seen_view: bool,
-    /// Words sent whose fate is not known yet: they leave the field only
-    /// once confirmed posted.
-    awaiting: Option<Awaiting>,
+
     tick: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -385,13 +359,9 @@ impl HermesRoomPane {
                 .placeholder(placeholder)
                 .submit_on_enter(send_on_enter)
         });
-        // Words typed here before and not sent come back.
-        if let Some(draft) = stores
-            .hermes_rooms
-            .read(cx)
-            .draft(&room_id)
-            .map(str::to_string)
-        {
+        // Words typed for this key before and not sent come back.
+        let key = stores.hermes_rooms.read(cx).room_key(&room_id);
+        if let Some(draft) = stores.hermes_rooms.read(cx).draft(&key).map(str::to_string) {
             let at = draft.len();
             input.update(cx, |s, cx| {
                 s.set_value(draft, window, cx);
@@ -459,6 +429,7 @@ impl HermesRoomPane {
         let mut this = Self {
             stores,
             room_id,
+            key,
             input,
             mention: None,
             rows: vec![],
@@ -467,7 +438,6 @@ impl HermesRoomPane {
             sending: None,
             answering: HashSet::new(),
             seen_view: false,
-            awaiting: None,
             tick: None,
             _subscriptions: subscriptions,
         };
@@ -539,18 +509,24 @@ impl HermesRoomPane {
             && !std::mem::replace(&mut self.seen_view, true)
             && let Some(words) = v.unsent_text.clone()
             && self.sending.is_none()
-            && self.text(cx).is_empty()
         {
-            self.awaiting = Some(Awaiting {
-                text: words.trim().to_string(),
-                after: newest_seq(v),
+            // Followed whatever the field holds (a restored draft too).
+            let key = self.key.clone();
+            let after = newest_seq(v);
+            self.stores.hermes_rooms.update(cx, |h, _| {
+                if h.unresolved(&key).is_none() {
+                    let text = words.trim().to_string();
+                    h.set_unresolved(&key, Some(Unresolved { text, after }));
+                }
             });
-            let at = words.len();
-            self.input.update(cx, |s, cx| {
-                s.set_value(words, window, cx);
-                s.set_selected_range(at..at, cx);
-            });
-            self.text_changed(cx);
+            if self.text(cx).is_empty() {
+                let at = words.len();
+                self.input.update(cx, |s, cx| {
+                    s.set_value(words, window, cx);
+                    s.set_selected_range(at..at, cx);
+                });
+                self.text_changed(cx);
+            }
         }
         self.give_up_posted(window, cx);
         cx.notify();
@@ -564,16 +540,22 @@ impl HermesRoomPane {
         if self.sending.is_some() {
             return;
         }
-        let posted = match (&self.awaiting, self.view(cx)) {
-            (Some(awaiting), Some(view)) => awaiting.posted_in(view),
-            _ => false,
+        let awaiting = self
+            .stores
+            .hermes_rooms
+            .read(cx)
+            .unresolved(&self.key)
+            .cloned();
+        let Some(awaiting) = awaiting else {
+            return;
         };
-        if !posted {
+        if !self.view(cx).is_some_and(|v| awaiting.posted_in(v)) {
             return;
         }
-        let Some(awaiting) = self.awaiting.take() else {
-            return;
-        };
+        let key = self.key.clone();
+        self.stores
+            .hermes_rooms
+            .update(cx, |h, _| h.set_unresolved(&key, None));
         if self.text(cx).trim() == awaiting.text {
             self.input.update(cx, |s, cx| s.set_value("", window, cx));
             self.text_changed(cx);
@@ -604,10 +586,10 @@ impl HermesRoomPane {
         let state = self.input.read(cx);
         let value = state.value().to_string();
         let caret = state.cursor();
-        let room = self.room_id.clone();
+        let key = self.key.clone();
         self.stores
             .hermes_rooms
-            .update(cx, |h, _| h.keep_draft(&room, &value));
+            .update(cx, |h, _| h.keep_draft(&key, &value));
         let members = self
             .view(cx)
             .and_then(|v| v.room.as_ref())
@@ -719,12 +701,36 @@ impl HermesRoomPane {
         let Some(rpc) = self.stores.hermes_rooms.read(cx).rpc() else {
             return;
         };
+        // These very words went out before and their fate is not known,
+        // while the room no longer holds their retry (Hermes posted them, or
+        // will say): sending them again could post them twice.
+        let held = self
+            .stores
+            .hermes_rooms
+            .read(cx)
+            .unresolved(&self.key)
+            .is_some_and(|u| {
+                u.text == text
+                    && self
+                        .view(cx)
+                        .and_then(|v| v.unsent_text.as_deref())
+                        .map(str::trim)
+                        != Some(text.as_str())
+            });
+        if held {
+            return;
+        }
         // Sent to the room as it is shown: on the connection it was read on.
         let connection = self.view(cx).and_then(|v| v.connection.clone());
-        self.awaiting = Some(Awaiting {
+        let key = self.key.clone();
+        let after = self.view(cx).map(newest_seq).unwrap_or(i64::MIN);
+        let pending = Unresolved {
             text: text.clone(),
-            after: self.view(cx).map(newest_seq).unwrap_or(i64::MIN),
-        });
+            after,
+        };
+        self.stores
+            .hermes_rooms
+            .update(cx, |h, _| h.set_unresolved(&key, Some(pending)));
         self.sending = Some(typed.clone());
         self.mention = None;
         cx.notify();
@@ -735,15 +741,24 @@ impl HermesRoomPane {
         });
         let handle = window.window_handle();
         let stores = self.stores.clone();
+        let sent = typed.trim().to_string();
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
+            // The answer is the key's, whether or not this pane is still
+            // there: sent, the words are posted; refused, nothing was.
+            cx.update(|cx| {
+                stores.hermes_rooms.update(cx, |h, _| match &result {
+                    Ok(r) if r.sent => h.sent(&key, &sent),
+                    Ok(r) if r.refused => h.set_unresolved(&key, None),
+                    _ => {}
+                })
+            });
             let _ = handle.update(cx, |_, window, cx| {
                 let _ = this.update(cx, |p, cx| {
                     let sent_text = p.sending.take().unwrap_or_default();
                     let l = cx.l10n().clone();
                     match result {
                         Ok(r) if r.sent => {
-                            p.awaiting = None;
                             if p.text(cx) == sent_text {
                                 p.input.update(cx, |s, cx| s.set_value("", window, cx));
                                 p.text_changed(cx);
@@ -751,7 +766,6 @@ impl HermesRoomPane {
                         }
                         // Nothing was posted: the words stay, to edit or send.
                         Ok(r) if r.refused => {
-                            p.awaiting = None;
                             let text = match r.detail {
                                 Some(d) if !d.trim().is_empty() => l.hermes_room_refused(&d),
                                 _ => l.hermes_room_action_failed(),
@@ -1742,6 +1756,27 @@ mod tests {
         use crate::stores::Stores;
         use crate::stores::rpc::fake::FakeDaemon;
 
+        const G1: &str = "https://gateway-one.example#default";
+        const G2: &str = "https://gateway-two.example#default";
+
+        /// A new pane for r1 in the window, as navigating back to it makes.
+        fn again(stores: &Stores, vcx: &mut VisualTestContext) -> Entity<HermesRoomPane> {
+            let stores = stores.clone();
+            let pane = vcx.update(|window, cx| {
+                cx.new(|cx| HermesRoomPane::new(stores, "r1".into(), window, cx))
+            });
+            vcx.run_until_parked();
+            pane
+        }
+
+        fn key(account: &str, gateway: &str) -> crate::stores::hermes_rooms::RoomKey {
+            crate::stores::hermes_rooms::RoomKey {
+                account: Some(account.into()),
+                gateway: Some(gateway.into()),
+                room: "r1".into(),
+            }
+        }
+
         fn room(unsent: Option<&str>) -> conduit_protocol::HermesRoomView {
             posted(unsent, &[])
         }
@@ -1778,15 +1813,28 @@ mod tests {
                 crate::views::test_globals(cx);
                 Stores::for_test(daemon.rpc(), &scratch, cx)
             });
-            stores
-                .hermes_rooms
-                .update(cx, |h, cx| h.show(Some("r1"), cx));
-            let pane_stores = stores.clone();
-            let (pane, vcx) = cx.add_window_view(move |window, cx| {
-                HermesRoomPane::new(pane_stores, "r1".into(), window, cx)
+            stores.hermes_rooms.update(cx, |h, cx| {
+                h.set_account(Some("avery".into()));
+                h.set_gateway(Some(G1.into()));
+                h.show(Some("r1"), cx)
             });
-            vcx.run_until_parked();
+            // The window's root is not the pane: a pane dropped here goes, as
+            // the main window's area pane lets go of a room left.
+            let (_, vcx) = cx.add_window_view(|_, _| Host);
+            let pane = again(&stores, vcx);
             (stores, pane, vcx)
+        }
+
+        struct Host;
+
+        impl gpui_kit::Render for Host {
+            fn render(
+                &mut self,
+                _: &mut gpui_kit::Window,
+                _: &mut gpui_kit::Context<Self>,
+            ) -> impl gpui_kit::IntoElement {
+                gpui_kit::div()
+            }
         }
 
         fn changed(
@@ -1875,30 +1923,111 @@ mod tests {
             let daemon = FakeDaemon::new();
             daemon.returns::<methods::HermesRoomsWatch>(room(None));
             let (stores, pane, vcx) = open(cx, &daemon, "draft");
-            stores
-                .hermes_rooms
-                .update(vcx, |h, _| h.set_account(Some("avery".into())));
             pane.update_in(vcx, |p, window, cx| {
                 p.type_text("half a thought", window, cx)
             });
             // Another room or area shows: the pane goes; r1 opens again.
             drop(pane);
-            let again = |vcx: &mut VisualTestContext| {
-                let stores = stores.clone();
-                vcx.update(|window, cx| {
-                    cx.new(|cx| HermesRoomPane::new(stores, "r1".into(), window, cx))
-                })
-            };
-            let back = again(vcx);
-            vcx.run_until_parked();
+            let back = again(&stores, vcx);
             back.read_with(vcx, |p, cx| assert_eq!(p.text(cx), "half a thought"));
             // Another account's r1 never shows them.
             stores
                 .hermes_rooms
                 .update(vcx, |h, _| h.set_account(Some("blake".into())));
-            let other = again(vcx);
-            vcx.run_until_parked();
+            let other = again(&stores, vcx);
             other.read_with(vcx, |p, cx| assert_eq!(p.text(cx), ""));
+        }
+
+        #[gpui_kit::test]
+        fn a_room_pane_keeps_its_words_for_the_account_it_opened_under(cx: &mut TestAppContext) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(None));
+            let (stores, pane, vcx) = open(cx, &daemon, "owner");
+            pane.update_in(vcx, |p, window, cx| p.type_text("for avery", window, cx));
+            // Another account takes charge while Avery's pane is still there
+            // (the same room id in both).
+            stores
+                .hermes_rooms
+                .update(vcx, |h, _| h.set_account(Some("blake".into())));
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("for avery, more", window, cx)
+            });
+            stores.hermes_rooms.read_with(vcx, |h, _| {
+                assert_eq!(
+                    h.draft(&key("blake", G1)),
+                    None,
+                    "Avery's words went to Blake"
+                );
+                assert_eq!(h.draft(&key("avery", G1)), Some("for avery, more"));
+            });
+            let blakes = again(&stores, vcx);
+            blakes.read_with(vcx, |p, cx| assert_eq!(p.text(cx), ""));
+        }
+
+        #[gpui_kit::test]
+        fn an_unclear_send_still_waits_for_its_words_after_the_room_opens_again(
+            cx: &mut TestAppContext,
+        ) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(None));
+            daemon.returns::<methods::HermesRoomsSend>(HermesRoomSendResult::default());
+            let (stores, pane, vcx) = open(cx, &daemon, "unclear-again");
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("hello", window, cx);
+                p.send(window, cx);
+            });
+            vcx.run_until_parked();
+            changed(&stores, room(Some("hello")), vcx);
+            // Another room shows, then r1 again: the words come back.
+            drop(pane);
+            let back = again(&stores, vcx);
+            back.read_with(vcx, |p, cx| assert_eq!(p.text(cx), "hello"));
+            // The room let its retry go (the words were posted; its log is
+            // not read yet): Send would post them twice, so it waits.
+            changed(&stores, room(None), vcx);
+            back.update_in(vcx, |p, window, cx| p.send(window, cx));
+            vcx.run_until_parked();
+            assert_eq!(daemon.calls::<methods::HermesRoomsSend>().len(), 1);
+            changed(&stores, posted(None, &[(4, "hello")]), vcx);
+            back.read_with(vcx, |p, cx| assert_eq!(p.text(cx), ""));
+        }
+
+        #[gpui_kit::test]
+        fn words_typed_for_a_room_stay_with_its_gateway(cx: &mut TestAppContext) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(None));
+            let (stores, pane, vcx) = open(cx, &daemon, "gateway");
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("for the first", window, cx)
+            });
+            drop(pane);
+            // Another gateway with a room of the same id.
+            stores
+                .hermes_rooms
+                .update(vcx, |h, _| h.set_gateway(Some(G2.into())));
+            let other = again(&stores, vcx);
+            other.read_with(vcx, |p, cx| assert_eq!(p.text(cx), ""));
+            drop(other);
+            stores
+                .hermes_rooms
+                .update(vcx, |h, _| h.set_gateway(Some(G1.into())));
+            let back = again(&stores, vcx);
+            back.read_with(vcx, |p, cx| assert_eq!(p.text(cx), "for the first"));
+        }
+
+        #[gpui_kit::test]
+        fn words_typed_for_a_room_survive_a_reconnect_to_its_gateway(cx: &mut TestAppContext) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(None));
+            let (stores, pane, vcx) = open(cx, &daemon, "reconnect");
+            pane.update_in(vcx, |p, window, cx| p.type_text("still here", window, cx));
+            drop(pane);
+            stores
+                .hermes_rooms
+                .update(vcx, |h, cx| h.connection_lost(cx));
+            vcx.run_until_parked();
+            let back = again(&stores, vcx);
+            back.read_with(vcx, |p, cx| assert_eq!(p.text(cx), "still here"));
         }
 
         #[gpui_kit::test]
