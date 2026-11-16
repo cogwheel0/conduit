@@ -45,7 +45,8 @@ typedef LibreChatResume =
 /// again for as long as a window can answer and the turn still asks. Only a
 /// window's answer sends again: after a failure even a tool call the pause
 /// lets refuse without asking (approve not allowed) waits for its card, so
-/// nothing goes out over and over on its own.
+/// nothing goes out over and over on its own; a pause with no card to put
+/// to anyone is not tried again.
 Future<LibreChatPauseOutcome> answerLibreChatPause(
   LibreChatPendingAction action, {
   required UiRequestsService? windows,
@@ -70,12 +71,22 @@ Future<LibreChatPauseOutcome> answerLibreChatPause(
     if (outcome != LibreChatPauseOutcome.failed ||
         windows == null ||
         !windows.canAsk ||
-        !asking()) {
+        !asking() ||
+        // Nothing to put to a window: trying again would only send the
+        // same thing, with nothing to wait on in between.
+        !_carded(action)) {
       return outcome;
     }
     recovering = true;
   }
 }
+
+/// Whether a round after a failed send puts a card to the windows: each
+/// question, and (then) each tool call, waits for its answer.
+bool _carded(LibreChatPendingAction action) =>
+    action.isQuestion && action.questions.isNotEmpty ||
+    action.isToolApproval && action.toolRequests.isNotEmpty;
+
 
 Future<LibreChatPauseOutcome> _answerOnce(
   LibreChatPendingAction action, {
@@ -90,6 +101,13 @@ Future<LibreChatPauseOutcome> _answerOnce(
   try {
     if (action.isQuestion) {
       final questions = action.questions;
+      // A question action with no question to put: the reply stops, as an
+      // unanswered question stops it (there is nothing to resume with).
+      if (questions.isEmpty) {
+        if (!asking()) return LibreChatPauseOutcome.left;
+        await stop();
+        return LibreChatPauseOutcome.stopped;
+      }
       final answers = <String, String>{};
       for (final (index, question) in questions.indexed) {
         final id = question['id']?.toString() ?? 'question';
@@ -131,14 +149,16 @@ Future<LibreChatPauseOutcome> _answerOnce(
     if (!action.isToolApproval) return LibreChatPauseOutcome.left;
     final decisions = <String, LibreChatToolDecisionInput>{};
     for (final request in action.toolRequests) {
+      // Answered elsewhere, or its turn ended: no further card for it.
+      if (!asking()) return LibreChatPauseOutcome.left;
       final approvable = request.allowed.contains(
         LibreChatToolDecision.approve,
       );
+      final carded = windows != null && (approvable || recovering);
       // A call that cannot be approved is refused without a card -- except
       // after a failed send, when the window's answer is what sends again.
       final allowed =
-          windows != null &&
-          (approvable || recovering) &&
+          carded &&
           await windows.askLibreChatToolApproval(
             chatId: chatId,
             toolName: request.name,

@@ -193,6 +193,49 @@ void main() {
     expect(sent, isEmpty, reason: 'a decision the pause does not allow went out');
     expect(stops, 2);
   });
+
+  test('a pause with nothing to ask ends once, never sent over and over', () async {
+    // The fake gives up failing after a few sends, so a loop ends (and
+    // fails the test) rather than hanging it.
+    var sends = 0;
+    Future<void> failing({decisions, answers}) async {
+      if (++sends <= 3) throw ArgumentError('nothing to answer');
+    }
+
+    // A question action with no questions: the reply stops, as when a
+    // question goes unanswered; nothing is sent.
+    var stops = 0;
+    final empty = await answerLibreChatPause(
+      const LibreChatPendingAction(<String, dynamic>{
+        'actionId': 'act-3',
+        'payload': <String, dynamic>{'type': 'ask_user_question'},
+      }),
+      windows: windows,
+      chatId: 'chat-1',
+      asking: () => true,
+      resume: failing,
+      stop: () async => stops++,
+    );
+    expect(empty, LibreChatPauseOutcome.stopped);
+    expect((sends, stops), (0, 1));
+
+    // A failed send with no card put to anyone is not tried again on its
+    // own: only a window's answer sends again.
+    final nothingAsked = await answerLibreChatPause(
+      const LibreChatPendingAction(<String, dynamic>{
+        'actionId': 'act-4',
+        'payload': <String, dynamic>{'type': 'tool_approval'},
+      }),
+      windows: windows,
+      chatId: 'chat-1',
+      asking: () => true,
+      resume: failing,
+      stop: () async => fail('nothing was to stop'),
+    );
+    expect(nothingAsked, LibreChatPauseOutcome.failed);
+    expect(sends, 1, reason: 'sent over and over with nobody asked');
+    expect(asked, isEmpty);
+  });
 }
 
 /// A run paused on one question.
