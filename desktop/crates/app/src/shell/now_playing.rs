@@ -57,6 +57,23 @@ pub fn opening_words(text: &str, max: usize) -> String {
     format!("{}…", cut.trim_end_matches([',', ';', ':', '.', ' ']))
 }
 
+/// What becomes of the media keys when Now Playing shows `playing`
+/// (true) or nothing, given whether the app holds them now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyChange {
+    Claim,
+    Release,
+    Keep,
+}
+
+pub fn key_change(claimed: bool, playing: bool) -> KeyChange {
+    match (claimed, playing) {
+        (false, true) => KeyChange::Claim,
+        (true, false) => KeyChange::Release,
+        _ => KeyChange::Keep,
+    }
+}
+
 /// Shows `progress` in Now Playing (or clears it).
 pub fn update(progress: &SpeechProgress, sentences: &[String]) {
     #[cfg(target_os = "macos")]
@@ -98,7 +115,7 @@ mod mac {
     use objc2::runtime::{AnyClass, AnyObject};
     use objc2_foundation::{NSNumber, NSString};
 
-    use super::Playing;
+    use super::{KeyChange, Playing, key_change};
     use crate::stores::speech::RemoteCommand;
 
     #[link(name = "MediaPlayer", kind = "framework")]
@@ -134,11 +151,8 @@ mod mac {
         unsafe { msg_send![class, sharedCommandCenter] }
     }
 
-    /// Registers the handlers, the first time a reading starts.
+    /// Registers the handlers when a reading starts.
     fn claim_keys() {
-        if TARGETS.with(|t| !t.borrow().is_empty()) {
-            return;
-        }
         let Some(center) = center() else { return };
         let commands: [(&std::ffi::CStr, RemoteCommand); 6] = [
             (c"togglePlayPauseCommand", RemoteCommand::TogglePause),
@@ -174,6 +188,18 @@ mod mac {
         }
     }
 
+    /// Removes the handlers once nothing is read, so the media keys go to
+    /// Music or a browser again.
+    fn release_keys() {
+        for (target, token) in TARGETS.with(|t| std::mem::take(&mut *t.borrow_mut())) {
+            // SAFETY: `token` is what `addTargetWithHandler:` returned for
+            // this command.
+            unsafe {
+                let _: () = msg_send![&*target, removeTarget: &*token];
+            }
+        }
+    }
+
     fn set_enabled(getter: &std::ffi::CStr, enabled: bool) {
         let Some(center) = center() else { return };
         let sel = objc2::runtime::Sel::register(getter);
@@ -203,6 +229,12 @@ mod mac {
             return;
         }
         LAST.with(|l| *l.borrow_mut() = playing.clone());
+        let claimed = TARGETS.with(|t| !t.borrow().is_empty());
+        match key_change(claimed, playing.is_some()) {
+            KeyChange::Claim => claim_keys(),
+            KeyChange::Release => release_keys(),
+            KeyChange::Keep => {}
+        }
         let Some(class) = AnyClass::get(c"MPNowPlayingInfoCenter") else {
             return;
         };
@@ -219,7 +251,6 @@ mod mac {
                 let _: () = msg_send![&*info_center, setPlaybackState: 3usize];
                 return;
             };
-            claim_keys();
             set_enabled(c"nextTrackCommand", p.can_skip);
             set_enabled(c"previousTrackCommand", p.can_skip);
             let Some(dict_class) = AnyClass::get(c"NSMutableDictionary") else {
@@ -264,6 +295,16 @@ mod tests {
             ),
             "The harbour lights come on…"
         );
+    }
+
+    /// The keys are the app's only while a reading is shown: once it ends
+    /// they go back to Music or a browser.
+    #[test]
+    fn the_media_keys_are_held_only_while_reading() {
+        assert_eq!(key_change(false, true), KeyChange::Claim);
+        assert_eq!(key_change(true, true), KeyChange::Keep);
+        assert_eq!(key_change(true, false), KeyChange::Release);
+        assert_eq!(key_change(false, false), KeyChange::Keep);
     }
 
     #[test]
