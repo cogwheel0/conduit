@@ -507,7 +507,7 @@ impl HermesConnectionSheet {
                 let call =
                     rpc.call::<methods::HermesConnectionsDelete>(&HermesRef { id: c.id.clone() });
                 let failure = cx.l10n().hermes_delete_connection_failed();
-                hermes_admin::act(
+                hermes_admin::act_on_list(
                     &stores,
                     call,
                     failure,

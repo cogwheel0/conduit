@@ -715,6 +715,7 @@ fn busy_call(
     stores
         .hermes_admin
         .update(cx, |a, cx| a.set_busy(id, true, cx));
+    let generation = stores.hermes_admin.read(cx).generation();
     let admin = stores.hermes_admin.downgrade();
     let toasts = stores.toasts.downgrade();
     let id = id.to_string();
@@ -722,7 +723,10 @@ fn busy_call(
         let result = call.await;
         let _ = admin.update(cx, |a, cx| {
             a.set_busy(&id, false, cx);
-            if let Ok(jobs) = &result {
+            // The list of the connection the action was asked under.
+            if let Ok(jobs) = &result
+                && a.generation() == generation
+            {
                 a.adopt_jobs(jobs.clone(), cx);
             }
         });

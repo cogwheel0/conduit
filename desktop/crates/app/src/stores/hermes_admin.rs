@@ -76,6 +76,14 @@ pub struct HermesAdminStore {
     /// Notices the last list brought, for the window to say once.
     pending_notices: Vec<HermesJobNotice>,
     revision: u64,
+    /// Moves on when another connection comes into use and on a reset: an
+    /// answer to a read or action asked before is about the connection
+    /// before, and is dropped.
+    generation: u64,
+    /// The last jobs read asked, and the newest one whose list was taken:
+    /// an older poll answered late does not put its list back.
+    jobs_asked: u64,
+    jobs_taken: u64,
 }
 
 impl HermesAdminStore {
@@ -99,6 +107,12 @@ impl HermesAdminStore {
         cx.notify();
     }
 
+    /// The connection (and reset) a read or action is asked under: its
+    /// answer is taken only while [`Self::generation`] still says the same.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
     /// Forgets everything (another account, a reconnect): read again when
     /// asked.
     pub fn reset(&mut self, cx: &mut Context<Self>) {
@@ -108,8 +122,11 @@ impl HermesAdminStore {
         self.mcp = None;
         self.jobs = None;
         self.runs.clear();
+        self.runs_open.clear();
         self.busy.clear();
         self.mcp_busy.clear();
+        self.pending_notices.clear();
+        self.generation += 1;
         self.changed(cx);
     }
 
@@ -150,6 +167,8 @@ impl HermesAdminStore {
             self.jobs = None;
             self.runs.clear();
             self.runs_open.clear();
+            self.pending_notices.clear();
+            self.generation += 1;
             if self.watching_jobs {
                 self.refresh_jobs(cx);
             }
@@ -165,9 +184,13 @@ impl HermesAdminStore {
             self.status = Some(Loaded::Loading);
         }
         let call = rpc.call::<methods::HermesStatus>(&NoParams);
+        let generation = self.generation;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
+                if s.generation != generation {
+                    return;
+                }
                 s.status = Some(match result {
                     Ok(status) => Loaded::Ready(status),
                     Err(e) => Loaded::Failed(e.to_string()),
@@ -184,9 +207,13 @@ impl HermesAdminStore {
             self.catalog = Some(Loaded::Loading);
         }
         let call = rpc.call::<methods::HermesCatalog>(&NoParams);
+        let generation = self.generation;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
+                if s.generation != generation {
+                    return;
+                }
                 s.catalog = Some(match result {
                     Ok(catalog) => Loaded::Ready(catalog),
                     Err(e) => Loaded::Failed(e.to_string()),
@@ -205,9 +232,13 @@ impl HermesAdminStore {
             self.mcp = Some(Loaded::Loading);
         }
         let call = rpc.call::<methods::HermesMcpList>(&NoParams);
+        let generation = self.generation;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
+                if s.generation != generation {
+                    return;
+                }
                 s.mcp = Some(match result {
                     Ok(servers) => Loaded::Ready(servers),
                     Err(e) => Loaded::Failed(e.to_string()),
@@ -261,10 +292,20 @@ impl HermesAdminStore {
             self.changed(cx);
         }
         let call = rpc.call::<methods::HermesJobs>(&NoParams);
+        let generation = self.generation;
+        self.jobs_asked += 1;
+        let asked = self.jobs_asked;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| match result {
-                Ok(jobs) => s.adopt_jobs(jobs, cx),
+                _ if s.generation != generation => {}
+                Ok(jobs) if asked <= s.jobs_taken => {
+                    // A newer list is shown: only what this one says once.
+                    s.pending_notices.extend(jobs.notices);
+                    s.changed(cx);
+                }
+                Ok(jobs) => s.take_jobs(asked, jobs, cx),
+                Err(_) if asked <= s.jobs_taken => {}
                 Err(e) => {
                     // A failed poll keeps the list shown; a first read says so.
                     if !matches!(s.jobs, Some(Loaded::Ready(_))) {
@@ -278,8 +319,15 @@ impl HermesAdminStore {
         .detach();
     }
 
-    /// The jobs a read or an action answered with.
+    /// The jobs an action answered with: newer than any read still out.
     pub fn adopt_jobs(&mut self, jobs: HermesJobs, cx: &mut Context<Self>) {
+        self.jobs_asked += 1;
+        self.take_jobs(self.jobs_asked, jobs, cx);
+    }
+
+    /// The jobs read `asked` (or an action) answered with.
+    fn take_jobs(&mut self, asked: u64, jobs: HermesJobs, cx: &mut Context<Self>) {
+        self.jobs_taken = asked;
         // A run that ended has its final title in the history.
         let was_running: HashSet<String> = self
             .jobs
@@ -383,9 +431,13 @@ impl HermesAdminStore {
         }
         let call = rpc.call::<methods::HermesJobsRuns>(&HermesRef { id: id.to_string() });
         let id = id.to_string();
+        let generation = self.generation;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
+                if s.generation != generation {
+                    return;
+                }
                 s.runs.insert(
                     id,
                     match result {
@@ -470,9 +522,33 @@ pub fn wire(stores: &Stores, cx: &mut App) {
     .detach();
 }
 
-/// Calls `call` and hands its answer to `done` on the store; a refusal is
-/// a toast with `failure`.
+/// Calls `call`, an action on the connection in use, and hands its answer
+/// to `done` on the store, unless another connection came into use (or the
+/// store was reset) meanwhile; a refusal is a toast with `failure`.
 pub fn act<T: Send + 'static>(
+    stores: &Stores,
+    call: impl std::future::Future<Output = Result<T, RpcError>> + Send + 'static,
+    failure: String,
+    done: impl FnOnce(&mut HermesAdminStore, T, &mut Context<HermesAdminStore>) + 'static,
+    cx: &mut App,
+) {
+    let generation = stores.hermes_admin.read(cx).generation;
+    act_on_list(
+        stores,
+        call,
+        failure,
+        move |a, value, cx| {
+            if a.generation == generation {
+                done(a, value, cx);
+            }
+        },
+        cx,
+    );
+}
+
+/// [`act`] for an action on the saved connections themselves (their list
+/// is the same whichever is in use): its answer is always taken.
+pub fn act_on_list<T: Send + 'static>(
     stores: &Stores,
     call: impl std::future::Future<Output = Result<T, RpcError>> + Send + 'static,
     failure: String,
@@ -503,7 +579,7 @@ pub fn set_enabled(stores: &Stores, enabled: bool, cx: &mut App) {
     let call = rpc.call::<methods::HermesConnectionsSetEnabled>(&HermesToggle { enabled });
     let failure = cx.l10n().hermes_action_failed();
     let navigation = stores.navigation.downgrade();
-    act(
+    act_on_list(
         stores,
         call,
         failure,
@@ -536,7 +612,7 @@ pub fn activate(stores: &Stores, id: &str, cx: &mut App) {
     let call = rpc.call::<methods::HermesConnectionsActivate>(&HermesRef { id: id.to_string() });
     let failure = cx.l10n().hermes_switch_connection_failed();
     let navigation = stores.navigation.downgrade();
-    act(
+    act_on_list(
         stores,
         call,
         failure,
@@ -555,4 +631,222 @@ pub fn activate(stores: &Stores, id: &str, cx: &mut App) {
         },
         cx,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use gpui_kit::{AppContext as _, TestAppContext};
+    use serde_json::json;
+
+    use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    fn list(active: &str) -> HermesConnections {
+        serde_json::from_value(json!({
+            "enabled": true,
+            "activeId": active,
+            "connections": [
+                {"id": "a", "name": "Potting shed", "baseUrl": "http://127.0.0.1:20401",
+                 "mode": "desktop", "active": active == "a"},
+                {"id": "b", "name": "Greenhouse", "baseUrl": "http://127.0.0.1:20402",
+                 "mode": "desktop", "active": active == "b"},
+            ],
+        }))
+        .unwrap()
+    }
+
+    fn servers(name: &str) -> HermesMcpServers {
+        serde_json::from_value(json!({
+            "available": true,
+            "servers": [{"name": name, "enabled": true}],
+        }))
+        .unwrap()
+    }
+
+    fn jobs(name: &str, notice: Option<&str>) -> HermesJobs {
+        let notices: Vec<_> = notice
+            .map(|kind| json!({"jobId": "j1", "kind": kind}))
+            .into_iter()
+            .collect();
+        serde_json::from_value(json!({
+            "jobs": [{"id": "j1", "name": name, "prompt": "Water the seedlings", "schedule": "0 9 * * *"}],
+            "notices": notices,
+        }))
+        .unwrap()
+    }
+
+    /// Reads still out when another connection comes into use answer for
+    /// the connection before it: none of them lands under the new one.
+    #[gpui_kit::test]
+    fn reads_from_the_connection_before_a_switch_are_dropped(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::HermesMcpList>(servers("seed-catalogue"));
+        daemon.returns::<methods::HermesStatus>(
+            serde_json::from_value(json!({"configured": true, "reachable": true})).unwrap(),
+        );
+        daemon.returns::<methods::HermesCatalog>(serde_json::from_value(json!({})).unwrap());
+        daemon.returns::<methods::HermesJobs>(jobs("Morning watering", None));
+        daemon.returns::<methods::HermesJobsRuns>(
+            serde_json::from_value(json!({"sessions": []})).unwrap(),
+        );
+        let held = [
+            daemon.hold::<methods::HermesMcpList>(),
+            daemon.hold::<methods::HermesStatus>(),
+            daemon.hold::<methods::HermesCatalog>(),
+            daemon.hold::<methods::HermesJobs>(),
+            daemon.hold::<methods::HermesJobsRuns>(),
+        ];
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            s.refresh_mcp(cx);
+            s.refresh_status(cx);
+            s.refresh_catalog(cx);
+            s.refresh_jobs(cx);
+            s.load_runs("j1", cx);
+            s.adopt_connections(list("b"), cx);
+        });
+        drop(held);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.mcp, None, "the last connection's servers landed");
+            assert_eq!(s.status, None, "the last connection's status landed");
+            assert_eq!(s.catalog, None, "the last connection's catalog landed");
+            assert_eq!(s.jobs, None, "the last connection's jobs landed");
+            assert!(
+                s.runs.is_empty(),
+                "the last connection's run history landed"
+            );
+        });
+    }
+
+    /// An action's answer that comes back after a switch is not taken as
+    /// the new connection's either.
+    #[gpui_kit::test]
+    fn an_action_answered_after_a_switch_is_dropped(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::HermesMcpSetEnabled>(servers("seed-catalogue"));
+        let held = daemon.hold::<methods::HermesMcpSetEnabled>();
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            let scratch =
+                std::env::temp_dir().join(format!("conduit-hadmin-{}", std::process::id()));
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores
+            .hermes_admin
+            .update(cx, |a, cx| a.adopt_connections(list("a"), cx));
+        cx.update(|cx| {
+            let call = stores
+                .connection
+                .read(cx)
+                .rpc()
+                .call::<methods::HermesMcpSetEnabled>(&conduit_protocol::HermesMcpToggle {
+                    name: "seed-catalogue".into(),
+                    enabled: false,
+                });
+            act(
+                &stores,
+                call,
+                "failed".into(),
+                |a, servers, cx| a.adopt_mcp(servers, cx),
+                cx,
+            );
+        });
+        stores
+            .hermes_admin
+            .update(cx, |a, cx| a.adopt_connections(list("b"), cx));
+        drop(held);
+        cx.run_until_parked();
+        stores.hermes_admin.read_with(cx, |a, _| {
+            assert_eq!(a.mcp, None, "the last connection's servers landed")
+        });
+    }
+
+    /// A reset (a reconnect, another account) forgets the notices not said
+    /// yet and the open run histories, and its reads still out are dropped.
+    #[gpui_kit::test]
+    fn a_reset_forgets_notices_open_histories_and_reads_out(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::HermesStatus>(
+            serde_json::from_value(json!({"configured": true, "reachable": true})).unwrap(),
+        );
+        daemon.returns::<methods::HermesJobsRuns>(
+            serde_json::from_value(json!({"sessions": []})).unwrap(),
+        );
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            s.adopt_jobs(jobs("Morning watering", Some("stopped")), cx);
+            s.toggle_runs("j1", cx);
+        });
+        cx.run_until_parked();
+        let held = daemon.hold::<methods::HermesStatus>();
+        store.update(cx, |s, cx| {
+            s.refresh_status(cx);
+            s.reset(cx);
+        });
+        drop(held);
+        cx.run_until_parked();
+        store.update(cx, |s, _| {
+            assert!(
+                s.take_notices().is_empty(),
+                "a notice from before the reset is left"
+            );
+            assert!(
+                s.runs_open.is_empty(),
+                "a run history from before the reset is open"
+            );
+            assert_eq!(s.status, None, "a status read before the reset landed");
+        });
+    }
+
+    /// A poll answered after a newer one does not put its older list back,
+    /// though what it says once (its notices) is still said.
+    #[gpui_kit::test]
+    fn an_older_poll_does_not_replace_a_newer_list(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let n = Arc::new(AtomicUsize::new(0));
+        let count = n.clone();
+        daemon.on::<methods::HermesJobs>(move |_| {
+            let older = count.fetch_add(1, Ordering::SeqCst) == 0;
+            Ok(serde_json::to_value(if older {
+                jobs("Older list", Some("runFailed"))
+            } else {
+                jobs("Newer list", None)
+            })
+            .unwrap())
+        });
+        let first = daemon.hold_one::<methods::HermesJobs>(0);
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            s.refresh_jobs(cx);
+            s.refresh_jobs(cx);
+        });
+        cx.run_until_parked();
+        drop(first);
+        cx.run_until_parked();
+        store.update(cx, |s, _| {
+            let name = s
+                .jobs
+                .as_ref()
+                .and_then(Loaded::ready)
+                .and_then(|j| j.jobs[0].name.clone());
+            assert_eq!(
+                name.as_deref(),
+                Some("Newer list"),
+                "the older poll's list came back"
+            );
+            let notices: Vec<String> = s.take_notices().into_iter().map(|n| n.kind).collect();
+            assert_eq!(
+                notices,
+                vec!["runFailed".to_string()],
+                "the older poll's notice was lost"
+            );
+        });
+    }
 }
