@@ -279,6 +279,8 @@ pub fn new_note(stores: &Stores, cx: &mut App) {
         ops: Some(vec![serde_json::json!({ "insert": "\n" })]),
         page_id: None,
         base_ops: None,
+        // Made under the account shown, or refused (a switch in flight).
+        account_id: stores.accounts.read(cx).active().map(|a| a.id.clone()),
     });
     let stores = stores.clone();
     cx.spawn(async move |cx: &mut AsyncApp| {

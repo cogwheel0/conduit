@@ -1407,6 +1407,7 @@ impl ChatPane {
             ]),
             page_id: None,
             base_ops: None,
+            account_id: None,
         };
         let call = self
             .stores

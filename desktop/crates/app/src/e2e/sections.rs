@@ -430,6 +430,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
             ops: None,
             page_id: None,
             base_ops: None,
+            account_id: None,
         },
         cx,
     )

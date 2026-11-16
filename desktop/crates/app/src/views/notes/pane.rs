@@ -424,10 +424,16 @@ impl NotePane {
     /// The account the note was opened under is the active one (true when
     /// it opened with none known).
     pub fn account_active(&self, cx: &App) -> bool {
+        let accounts = self.stores.accounts.read(cx);
+        // An account change in flight: not this account yet (conduitd may
+        // be on the next one before this window hears).
+        if accounts.busy.is_some() {
+            return false;
+        }
         let Some(opened) = &self.opened_under else {
             return true;
         };
-        self.stores.accounts.read(cx).active().map(|a| &a.id) == Some(opened)
+        accounts.active().map(|a| &a.id) == Some(opened)
     }
 
     pub fn has_refused_draft(&self) -> bool {
@@ -732,6 +738,7 @@ impl NotePane {
             ops: Some(ops.clone()),
             page_id: Some(self.page_id.clone()),
             base_ops: Some(self.base_ops.clone()),
+            account_id: self.opened_under.clone(),
         });
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
@@ -954,6 +961,7 @@ impl NotePane {
             ops: Some(ops),
             page_id: None,
             base_ops: None,
+            account_id: self.opened_under.clone(),
         });
         let stores = self.stores.clone();
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -968,6 +976,13 @@ impl NotePane {
                     stores.navigation.update(cx, |n, cx| {
                         n.open_item(crate::stores::navigation::AreaItem::Note(id), cx)
                     });
+                }
+                // Refused as another account's (conduitd switched before this
+                // window heard): the draft stays held, offered again under
+                // its own account.
+                Err(e) if is_reason(&e, "account") => {
+                    log::warn!("notes.save (own note): {e}");
+                    this.refusal_offered = false;
                 }
                 Err(e) => {
                     log::warn!("notes.save (own note): {e}");
@@ -3314,6 +3329,144 @@ mod tests {
             scree(&daemon),
             1,
             "the held draft was not offered again under A"
+        );
+
+        // conduitd is already on B while the desktop still shows A (the
+        // switch's answer not in yet): answering A's recovery then makes no
+        // note under B; the draft stays held and is offered again under A.
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let on_b = Arc::new(AtomicBool::new(false));
+        let made_under_b = Arc::new(AtomicUsize::new(0));
+        let (b, made) = (on_b.clone(), made_under_b.clone());
+        daemon.on::<methods::NotesSave>(move |p| {
+            if p["id"].is_string() {
+                let mut e = conduit_daemon::protocol::error("conflict", "read-only now");
+                e.args.insert("reason".into(), "readOnly".into());
+                return Err(e);
+            }
+            if b.load(Ordering::SeqCst) {
+                if p["accountId"].as_str().is_some_and(|a| a != "b") {
+                    let mut e =
+                        conduit_daemon::protocol::error("auth.sessionExpired", "another account");
+                    e.args.insert("reason".into(), "account".into());
+                    return Err(e);
+                }
+                made.fetch_add(1, Ordering::SeqCst);
+            }
+            Ok(serde_json::to_value(bench::detail("n3", "main", "kept")).unwrap())
+        });
+        let talus = |daemon: &crate::stores::rpc::fake::FakeDaemon, account: Option<&str>| {
+            daemon
+                .calls::<methods::NotesSave>()
+                .iter()
+                .filter(|s| {
+                    s["id"].is_null()
+                        && s.to_string().contains("Talus")
+                        && s["accountId"].as_str() == account
+                })
+                .count()
+        };
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n1".into()), cx));
+        vcx.run_until_parked();
+        let pane = bench::pane(&area, vcx);
+        let late = daemon.hold::<methods::NotesSave>();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Talus ", cx));
+            p.save_now(cx);
+        });
+        let weak = pane.downgrade();
+        drop(pane);
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::AllNotes, cx));
+        vcx.run_until_parked();
+        on_b.store(true, Ordering::SeqCst);
+        drop(late);
+        vcx.run_until_parked();
+        assert_eq!(
+            made_under_b.load(Ordering::SeqCst),
+            0,
+            "account A's draft was made into a note under B"
+        );
+        let held = weak.upgrade().expect("the draft was dropped");
+        assert!(held.read_with(vcx, |p, _| p.has_refused_draft()));
+        drop(held);
+        // The switch's answer, then account A again.
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("b"), cx));
+        vcx.run_until_parked();
+        on_b.store(false, Ordering::SeqCst);
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("a"), cx));
+        vcx.run_until_parked();
+        assert_eq!(made_under_b.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            talus(&daemon, Some("a")),
+            2,
+            "the draft was not offered again under A (or not for A)"
+        );
+
+        // While the desktop's own switch is in flight, no recovery is
+        // offered or answered: not this account yet.
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n1".into()), cx));
+        vcx.run_until_parked();
+        let pane = bench::pane(&area, vcx);
+        let late = daemon.hold::<methods::NotesSave>();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Scarp ", cx));
+            p.save_now(cx);
+        });
+        drop(pane);
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::AllNotes, cx));
+        vcx.run_until_parked();
+        daemon.returns::<methods::AccountsSwitch>(conduit_protocol::AccountChangeResult {
+            outcome: conduit_protocol::AccountChangeOutcome::Done,
+            accounts: accounts("b"),
+        });
+        let switching = daemon.hold::<methods::AccountsSwitch>();
+        stores.accounts.update(vcx, |a, cx| {
+            a.change(
+                crate::stores::accounts::AccountChange::Switch {
+                    account_id: "b".into(),
+                },
+                false,
+                cx,
+            )
+            .detach()
+        });
+        drop(late);
+        vcx.run_until_parked();
+        let scarp = |daemon: &crate::stores::rpc::fake::FakeDaemon| {
+            daemon
+                .calls::<methods::NotesSave>()
+                .iter()
+                .filter(|s| s["id"].is_null() && s.to_string().contains("Scarp"))
+                .count()
+        };
+        assert_eq!(
+            scarp(&daemon),
+            0,
+            "a recovery was offered while the switch was in flight"
+        );
+        drop(switching);
+        vcx.run_until_parked();
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("a"), cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            scarp(&daemon),
+            1,
+            "the draft was not offered once A was back"
         );
     }
 
