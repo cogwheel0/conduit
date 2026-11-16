@@ -215,6 +215,38 @@ void main() {
     },
   );
 
+  test(
+    'words said while the last ones wait go after them, each with its answer',
+    () async {
+      final hold = await turns.holdForCall(model: model);
+      final send = hold.scope.container.read(chatVoiceSendProvider);
+      // The first words wait for the chat to settle; the next come meanwhile.
+      var firstDone = false;
+      final first = send(null, 'is the soil warm yet');
+      unawaited(first.whenComplete(() => firstDone = true));
+      final second = send(null, 'and the beans');
+      await second;
+      await pumpEventQueue();
+      expect(firstDone, isTrue, reason: 'the first words never got their turn');
+      await first;
+      final messages = hold.scope.messages;
+      expect(
+        [
+          for (final m in messages)
+            if (m.role == 'user') m.content,
+        ],
+        ['is the soil warm yet', 'and the beans'],
+      );
+      expect(
+        [for (final m in messages) m.role],
+        ['user', 'assistant', 'user', 'assistant'],
+        reason: 'each words have their own answer',
+      );
+      hold.release();
+      await window.until(() => hold.scope.isDisposed);
+    },
+  );
+
   test('with barge-in the user talks over the answer', () async {
     await runtime.container
         .read(appSettingsProvider.notifier)

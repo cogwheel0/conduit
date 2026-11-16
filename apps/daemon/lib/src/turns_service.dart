@@ -1643,23 +1643,29 @@ final class TurnsService implements ChatTurns {
     onAssistantPlaceholderCreated,
   }) async {
     final scope = session.scope.container;
-    // The user talked over the answer (barge-in), and the call stopped it:
-    // its turn ends here before the next starts.
-    final running = session.turn;
-    if (running != null && !running.finished) {
-      running.stopped = true;
-      _project(session);
-      if (!running.finished) {
-        _finish(session, running, _answerOf(session, running));
-      }
-    }
-    final model = scope.read(selectedModelProvider);
     // The call's choice for a new chat, as these words began: a call that
     // ends while they wait below still makes the chat as it chose.
     final choice = session.callNewChat;
+    // Words said while earlier words still wait for their turn go after
+    // them, in order: one pending turn at a time, so each has its own answer.
+    final earlier = session.voiceStarting;
+    final started = Completer<void>();
+    session.voiceStarting = started.future;
     final sent = Completer<void>();
     session.holds++;
     try {
+      if (earlier != null) await earlier;
+      // The user talked over the answer (barge-in), and the call stopped it:
+      // its turn ends here before the next starts.
+      final running = session.turn;
+      if (running != null && !running.finished) {
+        running.stopped = true;
+        _project(session);
+        if (!running.finished) {
+          _finish(session, running, _answerOf(session, running));
+        }
+      }
+      final model = scope.read(selectedModelProvider);
       await _run(
         session,
         modelId: model?.id ?? '',
@@ -1709,6 +1715,11 @@ final class TurnsService implements ChatTurns {
     } on Object catch (error, stackTrace) {
       if (!sent.isCompleted) sent.completeError(error, stackTrace);
     } finally {
+      // Started (or refused): words said after these may go now.
+      started.complete();
+      if (identical(session.voiceStarting, started.future)) {
+        session.voiceStarting = null;
+      }
       _release(session);
     }
     // A Standard call's words are sent once their turn has started: a
@@ -3790,6 +3801,10 @@ final class _ChatSession {
   /// A call in a new chat: the window's temporary and folder choices, for
   /// the turn that makes the chat.
   ({bool temporary, String? folderId})? callNewChat;
+
+  /// The last voice turn asked for, until it has started: words said
+  /// meanwhile wait for it ([TurnsService._voiceSend]).
+  Future<void>? voiceStarting;
 
   String? get chatId {
     if (!scope.isDisposed) {
