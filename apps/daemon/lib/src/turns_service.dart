@@ -818,6 +818,7 @@ final class TurnsService implements ChatTurns {
     }
     final session = await _sessionFor(request.chatId);
     try {
+      _refuseReadOnlyHermes(hermes, sessionId);
       // Never from a reply still being written.
       await _requireIdle(session);
       final scope = session.scope.container;
@@ -860,6 +861,19 @@ final class TurnsService implements ChatTurns {
   /// Undo Last Turn of Hermes chat [request.id] (a Desktop Gateway's): its
   /// last question and everything after go, in the gateway's transcript
   /// and in the chat. `ok` is false when there was nothing to undo.
+  /// Another Hermes app's session (read-only here): its history is not
+  /// this app's to branch or undo, whoever asks. Read after the session's
+  /// scope opened, which is when its owner is known.
+  static void _refuseReadOnlyHermes(HermesService hermes, String sessionId) {
+    if (hermes.chatState(sessionId).readOnly) {
+      throw RpcError(
+        code: ConduitErrorCodes.unsupported,
+        args: <String, String>{'sessionId': sessionId},
+        debugMessage: 'that Hermes session is read-only',
+      );
+    }
+  }
+
   Future<OkResult> undoHermes(ChatRef request) async {
     final sessionId = hermesSessionOf(request.id);
     if (_hermes == null || sessionId == null) {
@@ -871,6 +885,7 @@ final class TurnsService implements ChatTurns {
     }
     final session = await _sessionFor(request.id);
     try {
+      _refuseReadOnlyHermes(_hermes, sessionId);
       await _requireIdle(session);
       final undone = await undoLastHermesTurn(session.scope.container);
       if (undone) {

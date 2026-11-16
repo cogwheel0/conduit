@@ -288,6 +288,27 @@ void main() {
     expect(detail!.hermes!.readOnly, isTrue);
     expect(detail.hermes!.owner, 'Hermes CLI');
     expect(detail.abilities.branchFromHere, isFalse);
+    // Refused by conduitd too, not only left out of its menus.
+    final readOnly = throwsA(
+      isA<RpcError>().having(
+        (e) => e.code,
+        'code',
+        ConduitErrorCodes.unsupported,
+      ),
+    );
+    await expectLater(
+      turns.branchHermes(
+        HermesBranch(
+          chatId: hermesChatId(cli),
+          messageId: detail.messages[1].id,
+        ),
+      ),
+      readOnly,
+    );
+    await expectLater(
+      turns.undoHermes(ChatRef(id: hermesChatId(cli))),
+      readOnly,
+    );
     final copy = await hermes.continueChat(
       HermesContinue(chatId: hermesChatId(cli), copy: true),
     );
