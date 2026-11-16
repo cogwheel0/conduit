@@ -125,6 +125,37 @@ void main() {
     expect(alone, LibreChatPauseOutcome.failed);
     expect(tries, 1);
   });
+
+  test('a tool call is refused only where the pause allows refusing', () async {
+    // Approve only: the window says no, and no `reject` goes out; the
+    // reply stops instead.
+    final sent = <Map<String, LibreChatToolDecisionInput>?>[];
+    var stops = 0;
+    final card = nextCard();
+    final approveOnly = answerLibreChatPause(
+      _toolCall(const ['approve']),
+      windows: windows,
+      chatId: 'chat-1',
+      asking: () => true,
+      resume: ({decisions, answers}) async => sent.add(decisions),
+      stop: () async => stops++,
+    );
+    final request = await card;
+    windows.respond(UiResponse(requestId: request.requestId, choice: 'deny'));
+    expect(await approveOnly, LibreChatPauseOutcome.stopped);
+    // A reply to write (respond only): no card here can answer it.
+    final respondOnly = await answerLibreChatPause(
+      _toolCall(const ['respond']),
+      windows: windows,
+      chatId: 'chat-1',
+      asking: () => true,
+      resume: ({decisions, answers}) async => sent.add(decisions),
+      stop: () async => stops++,
+    );
+    expect(respondOnly, LibreChatPauseOutcome.stopped);
+    expect(sent, isEmpty, reason: 'a decision the pause does not allow went out');
+    expect(stops, 2);
+  });
 }
 
 /// A run paused on one question.

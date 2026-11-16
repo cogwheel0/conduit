@@ -33,7 +33,8 @@ typedef LibreChatResume =
 /// Puts what a LibreChat run paused on to the windows, one card at a time --
 /// each tool call to approve, or each question -- and resumes the run with
 /// the answers, as the phone's overlay does. A question left unanswered
-/// stops the reply; a tool call left unanswered is rejected.
+/// stops the reply; a tool call left unanswered is rejected where the pause
+/// allows that, and stops the reply where it does not.
 ///
 /// [asking] says whether the turn that asked still runs and still waits on
 /// [action]. [until] completes when that turn ends: its cards go. [stop]
@@ -133,9 +134,18 @@ Future<LibreChatPauseOutcome> _answerOnce(
             argumentsJson: _argumentsJson(request.arguments),
             until: until,
           );
-      decisions[request.toolCallId] = LibreChatToolDecisionInput(
-        allowed ? LibreChatToolDecision.approve : LibreChatToolDecision.reject,
-      );
+      final decision = allowed
+          ? LibreChatToolDecision.approve
+          : LibreChatToolDecision.reject;
+      // A refusal the pause does not allow (approve only, or a reply to
+      // write, which no card here takes) is never sent: the reply stops, as
+      // an unanswered question stops it.
+      if (!request.allowed.contains(decision)) {
+        if (!asking()) return LibreChatPauseOutcome.left;
+        await stop();
+        return LibreChatPauseOutcome.stopped;
+      }
+      decisions[request.toolCallId] = LibreChatToolDecisionInput(decision);
     }
     if (!asking()) return LibreChatPauseOutcome.left;
     await resume(decisions: decisions);
