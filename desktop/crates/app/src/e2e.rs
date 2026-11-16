@@ -139,6 +139,16 @@ pub struct E2eInputs {
 }
 
 /// Whether `url` is an http(s) address on this Mac (loopback).
+/// The env file's server addresses: every server a pass signs in to, or
+/// sends credentials, messages or settings to. Each must be this Mac's own
+/// (loopback), or the env file is not used.
+const SERVER_URLS: [&str; 4] = [
+    "OWUI_URL",
+    "LIBRECHAT_URL",
+    "HERMES_GATEWAY_URL",
+    "HERMES_DESKTOP_URL",
+];
+
 pub(crate) fn is_local_url(url: &str) -> bool {
     url::Url::parse(url).is_ok_and(|u| {
         matches!(u.scheme(), "http" | "https")
@@ -174,7 +184,7 @@ impl E2eInputs {
         // The passes sign in with these credentials and photograph what
         // the server shows: only ever on this Mac's own test server.
         // The address itself is never logged: it may be private.
-        for key in ["OWUI_URL", "LIBRECHAT_URL"] {
+        for key in SERVER_URLS {
             if env.get(key).is_some_and(|u| !is_local_url(u)) {
                 println!("SMOKE FAILED e2e {key} is not a local (loopback) address");
                 env.clear();
@@ -2205,9 +2215,9 @@ mod tests {
         assert!(!is_local_url("http://10.0.0.5:8080"));
         assert!(!is_local_url("http://localhost.example.org"));
         assert!(!is_local_url("file:///tmp/x"));
-        // An env file naming another machine is not used, for either kind
-        // of server.
-        for key in ["OWUI_URL", "LIBRECHAT_URL"] {
+        // An env file naming another machine is not used, for any kind of
+        // server.
+        for key in SERVER_URLS {
             let file = std::env::temp_dir()
                 .join(format!("conduit-e2e-env-{key}-{}.env", std::process::id()));
             std::fs::write(&file, format!("{key}=https://chat.example.org\nX=1\n")).unwrap();
