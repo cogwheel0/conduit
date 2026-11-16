@@ -73,9 +73,11 @@ fi
 # App Intents (Shortcuts, Siri, Spotlight): their metadata and strings,
 # made again when the Swift, the strings or the scripts changed.
 # The stamp (beside the bundle, outside its signature) is written only once
-# metadata and strings are both made, so a failed string step runs again.
+# metadata and strings are both made, so a failed string step runs again; a
+# bundle made anew (its metadata gone) is filled again whatever the stamp says.
 meta="$app.intents-built"
-if [ ! -f "$meta" ] || [ -n "$(find crates/app/intents ../lib/l10n/desktop \
+if [ ! -f "$meta" ] || [ ! -f "$app/Contents/Resources/Metadata.appintents/extract.actionsdata" ] ||
+  [ -n "$(find crates/app/intents ../lib/l10n/desktop \
   packaging/macos/intents.sh packaging/macos/native_strings.py -newer "$meta" | head -1)" ]; then
   bash packaging/macos/intents.sh bundle "$app" >/dev/null
   touch "$meta"
