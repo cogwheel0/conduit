@@ -1468,12 +1468,12 @@
     },
     {
       "name": "hermes.runJob",
-      "params": "HermesRef",
+      "params": "HermesJobRef",
       "result": "HermesJobs"
     },
     {
       "name": "hermes.deleteJob",
-      "params": "HermesRef",
+      "params": "HermesJobRef",
       "result": "HermesJobs"
     },
     {
@@ -1483,12 +1483,12 @@
     },
     {
       "name": "hermes.jobs.runs",
-      "params": "HermesRef",
+      "params": "HermesJobRef",
       "result": "HermesSessions"
     },
     {
       "name": "hermes.jobs.stop",
-      "params": "HermesRef",
+      "params": "HermesJobRef",
       "result": "HermesJobs"
     },
     {

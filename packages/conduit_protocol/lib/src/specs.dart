@@ -1703,28 +1703,28 @@ abstract final class ConduitMethodSpecs {
         params: HermesJobToggle.fromJson,
         result: HermesJobs.fromJson,
       );
-  static const hermesRunJob = ConduitMethodSpec<HermesRef, HermesJobs>(
+  static const hermesRunJob = ConduitMethodSpec<HermesJobRef, HermesJobs>(
     ConduitMethods.hermesRunJob,
-    params: HermesRef.fromJson,
+    params: HermesJobRef.fromJson,
     result: HermesJobs.fromJson,
   );
-  static const hermesDeleteJob = ConduitMethodSpec<HermesRef, HermesJobs>(
+  static const hermesDeleteJob = ConduitMethodSpec<HermesJobRef, HermesJobs>(
     ConduitMethods.hermesDeleteJob,
-    params: HermesRef.fromJson,
+    params: HermesJobRef.fromJson,
     result: HermesJobs.fromJson,
   );
   static const hermesCatalog = ConduitMethodSpec<void, HermesCatalog>(
     ConduitMethods.hermesCatalog,
     result: HermesCatalog.fromJson,
   );
-  static const hermesJobsRuns = ConduitMethodSpec<HermesRef, HermesSessions>(
+  static const hermesJobsRuns = ConduitMethodSpec<HermesJobRef, HermesSessions>(
     ConduitMethods.hermesJobsRuns,
-    params: HermesRef.fromJson,
+    params: HermesJobRef.fromJson,
     result: HermesSessions.fromJson,
   );
-  static const hermesJobsStop = ConduitMethodSpec<HermesRef, HermesJobs>(
+  static const hermesJobsStop = ConduitMethodSpec<HermesJobRef, HermesJobs>(
     ConduitMethods.hermesJobsStop,
-    params: HermesRef.fromJson,
+    params: HermesJobRef.fromJson,
     result: HermesJobs.fromJson,
   );
   static const hermesJobsDelivery =

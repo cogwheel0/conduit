@@ -73,7 +73,21 @@ final class HermesAdminService {
   HermesConfigController get _config =>
       _container.read(hermesConfigProvider.notifier);
 
-  void _announce() => _events?.emit(ConduitEventSpecs.hermesChanged, null);
+  void _announce() => _events?.emit(
+    ConduitEventSpecs.hermesChanged,
+    HermesChanged(connection: hermes?.connection.current),
+  );
+
+  /// Refuses a request made under another connection than the one in use
+  /// (its `connection`; none from an older window).
+  void _require(String? asked) => hermes?.connection.require(asked);
+
+  /// The connection in use now, to tell after a wait whether it still is.
+  String? get _connection => hermes?.connection.current;
+
+  /// Whether the connection [began] is still the one in use: what an
+  /// answer of the last connection's would change here is left alone.
+  bool _still(String? began) => began == _connection;
 
   void _forgetConnection() {
     _stopping.clear();
@@ -112,6 +126,7 @@ final class HermesAdminService {
       connections: rows,
       canAdd: profiles.length < kMaxHermesConnections,
       savedId: savedId,
+      connection: _connection,
     );
   }
 
@@ -409,6 +424,7 @@ final class HermesAdminService {
   });
 
   Future<HermesMcpServers> addMcp(HermesMcpAdd add) => _guard(() async {
+    _require(add.connection);
     final name = add.name.trim();
     final url = add.url?.trim() ?? '';
     final command = add.command?.trim() ?? '';
@@ -431,26 +447,31 @@ final class HermesAdminService {
     return mcpServers();
   });
 
-  Future<HermesMcpServers> addMcpFromCatalog(String name) => _guard(() async {
-    // The catalog's entry by name, added as it stands: a server that needs
-    // credentials is not asked for them here yet, and the dashboard's refusal
-    // of an incomplete install comes back as the error.
-    final service = _gatewayService();
-    final entry = (await service.mcpCatalog())
-        .where((e) => e.name == name)
-        .firstOrNull;
-    if (entry == null) {
-      throw RpcError(
-        code: ConduitErrorCodes.invalidParams,
-        debugMessage: 'no MCP catalog entry named $name',
-      );
-    }
-    await service.addMcpCatalogEntry(entry);
-    return mcpServers();
-  });
+  Future<HermesMcpServers> addMcpFromCatalog(HermesMcpRef ref) => _guard(
+    () async {
+      _require(ref.connection);
+      final name = ref.name;
+      // The catalog's entry by name, added as it stands: a server that needs
+      // credentials is not asked for them here yet, and the dashboard's refusal
+      // of an incomplete install comes back as the error.
+      final service = _gatewayService();
+      final entry = (await service.mcpCatalog())
+          .where((e) => e.name == name)
+          .firstOrNull;
+      if (entry == null) {
+        throw RpcError(
+          code: ConduitErrorCodes.invalidParams,
+          debugMessage: 'no MCP catalog entry named $name',
+        );
+      }
+      await service.addMcpCatalogEntry(entry);
+      return mcpServers();
+    },
+  );
 
   Future<HermesMcpServers> setMcpApiKey(HermesMcpApiKey request) =>
       _guard(() async {
+        _require(request.connection);
         final service = _gatewayService();
         if (!service.supportsMcpCredentialUpdate) {
           throw const RpcError(
@@ -468,15 +489,24 @@ final class HermesAdminService {
         return mcpServers();
       });
 
-  Future<HermesMcpServers> removeMcp(String name) => _guard(() async {
+  Future<HermesMcpServers> removeMcp(HermesMcpRef ref) => _guard(() async {
+    final name = ref.name;
+    _require(ref.connection);
+    final began = _connection;
     await _gatewayService().removeMcpServer(name);
-    _mcpTools.remove(name);
+    if (_still(began)) _mcpTools.remove(name);
     return mcpServers();
   });
 
-  Future<HermesMcpTestResultDto> testMcp(String name) => _guard(() async {
+  Future<HermesMcpTestResultDto> testMcp(HermesMcpRef ref) => _guard(() async {
+    final name = ref.name;
+    _require(ref.connection);
+    final began = _connection;
     final result = await _gatewayService().testMcpServer(name);
-    if (result.toolNames.isNotEmpty) _mcpTools[name] = result.toolNames;
+    // Another connection's server of the same name is not this one.
+    if (result.toolNames.isNotEmpty && _still(began)) {
+      _mcpTools[name] = result.toolNames;
+    }
     return HermesMcpTestResultDto(
       ok: result.ok,
       tools: result.tools,
@@ -489,6 +519,7 @@ final class HermesAdminService {
 
   Future<HermesMcpServers> setMcpEnabled(HermesMcpToggle toggle) => _guard(
     () async {
+      _require(toggle.connection);
       await _gatewayService().setMcpServerEnabled(toggle.name, toggle.enabled);
       return mcpServers();
     },
@@ -496,19 +527,22 @@ final class HermesAdminService {
 
   /// OAuth in the browser (the window opens the page): answers once it is
   /// done, or refuses when it failed or timed out.
-  Future<HermesMcpServers> authenticateMcp(String name) => _guard(() async {
-    final signedIn = await _gatewayService().authenticateMcpServer(name);
-    // A window that stopped waiting (past its call's limit) reads the
-    // servers again on this.
-    _announce();
-    if (!signedIn) {
-      throw const RpcError(
-        code: ConduitErrorCodes.unauthorized,
-        debugMessage: 'MCP sign-in did not finish',
-      );
-    }
-    return mcpServers();
-  });
+  Future<HermesMcpServers> authenticateMcp(HermesMcpRef ref) =>
+      _guard(() async {
+        final name = ref.name;
+        _require(ref.connection);
+        final signedIn = await _gatewayService().authenticateMcpServer(name);
+        // A window that stopped waiting (past its call's limit) reads the
+        // servers again on this.
+        _announce();
+        if (!signedIn) {
+          throw const RpcError(
+            code: ConduitErrorCodes.unauthorized,
+            debugMessage: 'MCP sign-in did not finish',
+          );
+        }
+        return mcpServers();
+      });
 
   // ---------------------------------------------------------------------------
   // Scheduled agents
@@ -665,6 +699,7 @@ final class HermesAdminService {
   });
 
   Future<HermesJobs> saveJob(HermesJobEdit edit) => _guard(() async {
+    _require(edit.connection);
     final prompt = edit.prompt.trim();
     final schedule = edit.schedule.trim();
     final typed = edit.name?.trim() ?? '';
@@ -732,6 +767,7 @@ final class HermesAdminService {
   }
 
   Future<HermesJobs> setJobEnabled(HermesJobToggle toggle) => _guard(() async {
+    _require(toggle.connection);
     await _jobs.setEnabled(toggle.id, toggle.enabled);
     _announce();
     return jobs();
@@ -741,122 +777,140 @@ final class HermesAdminService {
   /// ends, so a run that started is reported running: the list follows it
   /// (and `hermes.changed` comes when it ends). A trigger Hermes refuses
   /// at once (a run already going) is refused here.
-  Future<HermesJobs> runJob(String id) => _guard(() async {
-    if (_runPending.contains(id)) return jobs();
-    final service = _container.read(hermesApiServiceProvider);
-    if (service == null) return jobs();
-    _runPending.add(id);
-    final done = Completer<Object?>();
-    unawaited(
-      _jobs
-          .runNow(id)
-          .then<void>(
-            (_) => done.complete(null),
-            onError: (Object error, StackTrace _) => done.complete(error),
-          ),
-    );
-    final early = await done.future.timeout(
-      kHermesRunRefusalWindow,
-      onTimeout: () => _stillRunning,
-    );
-    if (!identical(early, _stillRunning)) {
-      _runPending.remove(id);
-      if (early != null) throw early;
-      _announce();
-      return jobs();
-    }
-    unawaited(
-      done.future.then((error) {
-        if (!identical(_container.read(hermesApiServiceProvider), service)) {
-          return;
-        }
+  Future<HermesJobs> runJob(String id, {String? connection}) => _guard(
+    () async {
+      _require(connection);
+      if (_runPending.contains(id)) return jobs();
+      final service = _container.read(hermesApiServiceProvider);
+      if (service == null) return jobs();
+      _runPending.add(id);
+      final done = Completer<Object?>();
+      unawaited(
+        _jobs
+            .runNow(id)
+            .then<void>(
+              (_) => done.complete(null),
+              onError: (Object error, StackTrace _) => done.complete(error),
+            ),
+      );
+      final early = await done.future.timeout(
+        kHermesRunRefusalWindow,
+        onTimeout: () => _stillRunning,
+      );
+      if (!identical(early, _stillRunning)) {
         _runPending.remove(id);
-        if (error != null) {
-          _notices.add(HermesJobNotice(jobId: id, kind: 'runFailed'));
-        }
+        if (early != null) throw early;
         _announce();
-      }),
-    );
-    return jobs();
-  });
+        return jobs();
+      }
+      unawaited(
+        done.future.then((error) {
+          if (!identical(_container.read(hermesApiServiceProvider), service)) {
+            return;
+          }
+          _runPending.remove(id);
+          if (error != null) {
+            _notices.add(HermesJobNotice(jobId: id, kind: 'runFailed'));
+          }
+          _announce();
+        }),
+      );
+      return jobs();
+    },
+  );
 
   static final Object _stillRunning = Object();
 
   /// Stops job [id]'s running run. How it settles comes in the notices of
   /// a later list.
-  Future<HermesJobs> stopJob(String id) => _guard(() async {
-    if (_stopping.containsKey(id)) return jobs();
-    if (_stopUnsupported) {
-      _notices.add(HermesJobNotice(jobId: id, kind: 'stopUnsupported'));
-      return jobs();
-    }
-    _stopping[id] = null;
-    try {
-      final result = await _jobs.stopRun(id);
-      if (result.beforeStart) {
-        _stopping.remove(id);
-        _runPending.remove(id);
-        _notices.add(HermesJobNotice(jobId: id, kind: 'stopped'));
-      } else if (!result.cancelled) {
-        _stopping.remove(id);
-        _notices.add(HermesJobNotice(jobId: id, kind: 'nothingToStop'));
-      } else {
-        _stopping[id] = result.executionId ?? '';
-      }
-    } on HermesJobStopUnsupportedException {
-      _stopping.remove(id);
-      _stopUnsupported = true;
-      _notices.add(HermesJobNotice(jobId: id, kind: 'stopUnsupported'));
-    } on Object {
-      _stopping.remove(id);
-      _notices.add(HermesJobNotice(jobId: id, kind: 'stopFailed'));
-    }
-    return jobs();
-  });
+  Future<HermesJobs> stopJob(String id, {String? connection}) =>
+      _guard(() async {
+        _require(connection);
+        if (_stopping.containsKey(id)) return jobs();
+        if (_stopUnsupported) {
+          _notices.add(HermesJobNotice(jobId: id, kind: 'stopUnsupported'));
+          return jobs();
+        }
+        _stopping[id] = null;
+        final began = _connection;
+        try {
+          final result = await _jobs.stopRun(id);
+          // Settled after another connection came into use: what it found
+          // is the last connection's, not the next one's to keep.
+          if (!_still(began)) return await jobs();
+          if (result.beforeStart) {
+            _stopping.remove(id);
+            _runPending.remove(id);
+            _notices.add(HermesJobNotice(jobId: id, kind: 'stopped'));
+          } else if (!result.cancelled) {
+            _stopping.remove(id);
+            _notices.add(HermesJobNotice(jobId: id, kind: 'nothingToStop'));
+          } else {
+            _stopping[id] = result.executionId ?? '';
+          }
+        } on HermesJobStopUnsupportedException {
+          if (!_still(began)) return await jobs();
+          _stopping.remove(id);
+          _stopUnsupported = true;
+          _notices.add(HermesJobNotice(jobId: id, kind: 'stopUnsupported'));
+        } on Object {
+          if (!_still(began)) return await jobs();
+          _stopping.remove(id);
+          _notices.add(HermesJobNotice(jobId: id, kind: 'stopFailed'));
+        }
+        return jobs();
+      });
 
-  Future<HermesJobs> deleteJob(String id) => _guard(() async {
-    await _jobs.delete(id);
-    _stopping.remove(id);
-    _runPending.remove(id);
-    _announce();
-    return jobs();
-  });
+  Future<HermesJobs> deleteJob(String id, {String? connection}) =>
+      _guard(() async {
+        _require(connection);
+        final began = _connection;
+        await _jobs.delete(id);
+        if (_still(began)) {
+          _stopping.remove(id);
+          _runPending.remove(id);
+        }
+        _announce();
+        return jobs();
+      });
 
   /// The sessions job [id]'s runs wrote, newest first, each openable as a
   /// Hermes chat (a run's session is the scheduler's: it opens read-only,
   /// to continue here or in a copy).
-  Future<HermesSessions> jobRuns(String id) => _guard(() async {
-    final service = _container.read(hermesApiServiceProvider);
-    if (service is! HermesDesktopApiService) return const HermesSessions();
-    final generation = hermes?.serverGeneration;
-    _container.invalidate(hermesJobRunsProvider(id));
-    final runs = await readSettled(
-      _container,
-      hermesJobRunsProvider(id).future,
-    );
-    // Answered after the connection or the account's server changed: the
-    // last server's runs, never told to the sessions kept for this one.
-    if (generation != hermes?.serverGeneration) {
-      throw const RpcError(
-        code: ConduitErrorCodes.sessionExpired,
-        debugMessage: 'the Hermes connection changed during the read',
-      );
-    }
-    return HermesSessions(
-      sessions: <HermesSessionDto>[
-        for (final run in runs)
-          hermes?.remember(run) ??
-              HermesSessionDto(
-                id: run.id,
-                chatId: hermesChatId(run.id),
-                title: run.title,
-                preview: run.preview,
-                updatedAtMs: run.updatedAt?.millisecondsSinceEpoch,
-                source: run.source,
-              ),
-      ],
-    );
-  });
+  Future<HermesSessions> jobRuns(String id, {String? connection}) =>
+      _guard(() async {
+        _require(connection);
+        final service = _container.read(hermesApiServiceProvider);
+        if (service is! HermesDesktopApiService) return const HermesSessions();
+        final generation = hermes?.serverGeneration;
+        _container.invalidate(hermesJobRunsProvider(id));
+        final runs = await readSettled(
+          _container,
+          hermesJobRunsProvider(id).future,
+        );
+        // Answered after the connection or the account's server changed: the
+        // last server's runs, never told to the sessions kept for this one.
+        if (generation != hermes?.serverGeneration) {
+          throw const RpcError(
+            code: ConduitErrorCodes.sessionExpired,
+            debugMessage: 'the Hermes connection changed during the read',
+          );
+        }
+        return HermesSessions(
+          sessions: <HermesSessionDto>[
+            for (final run in runs)
+              hermes?.remember(run) ??
+                  HermesSessionDto(
+                    id: run.id,
+                    chatId: hermesChatId(run.id),
+                    title: run.title,
+                    preview: run.preview,
+                    updatedAtMs: run.updatedAt?.millisecondsSinceEpoch,
+                    source: run.source,
+                  ),
+          ],
+        );
+      });
 
   // ---------------------------------------------------------------------------
   // Catalog

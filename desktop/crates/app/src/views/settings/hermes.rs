@@ -849,10 +849,16 @@ fn first_sentence(text: &str) -> String {
 pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx: &mut App) {
     let l = cx.l10n().clone();
     let rpc = stores.connection.read(cx).rpc();
+    // The connection in use, as the daemon names it: what is asked of one
+    // server is refused once another is in use.
+    let connection = stores.hermes_admin.read(cx).connection();
+    let server = |name: &str| HermesMcpRef {
+        name: name.to_string(),
+        connection: connection.clone(),
+    };
     if menu == CATALOG_MENU {
         let name = value.to_string();
-        let call =
-            rpc.call::<methods::HermesMcpAddFromCatalog>(&HermesMcpRef { name: name.clone() });
+        let call = rpc.call::<methods::HermesMcpAddFromCatalog>(&server(&name));
         let toasts = stores.toasts.clone();
         hermes_admin::act(
             stores,
@@ -881,7 +887,7 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
     match action {
         "test" => {
             busy(stores, true, cx);
-            let call = rpc.call::<methods::HermesMcpTest>(&HermesMcpRef { name: name.clone() });
+            let call = rpc.call::<methods::HermesMcpTest>(&server(&name));
             let admin = stores.hermes_admin.downgrade();
             cx.spawn(async move |cx: &mut AsyncApp| {
                 let result = call.await;
@@ -908,8 +914,7 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
                     cx,
                 )
             });
-            let call =
-                rpc.call::<methods::HermesMcpAuthenticate>(&HermesMcpRef { name: name.clone() });
+            let call = rpc.call::<methods::HermesMcpAuthenticate>(&server(&name));
             let admin = stores.hermes_admin.downgrade();
             cx.spawn(async move |cx: &mut AsyncApp| {
                 let result = call.await;
@@ -946,6 +951,7 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
             let call = rpc.call::<methods::HermesMcpSetEnabled>(&HermesMcpToggle {
                 name: name.clone(),
                 enabled: action == "enable",
+                connection: connection.clone(),
             });
             hermes_admin::act(
                 stores,
@@ -966,7 +972,7 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
             let ask = present_sheet(window, spec, cx);
             let stores = stores.clone();
             // The server asked about is the connection in use now's.
-            let opened = stores.hermes_admin.read(cx).active_id();
+            let opened = stores.hermes_admin.read(cx).opened();
             cx.spawn(async move |cx: &mut AsyncApp| {
                 if !ask.await {
                     return;
@@ -977,8 +983,10 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
                     }
                     let l = cx.l10n().clone();
                     let rpc = stores.connection.read(cx).rpc();
-                    let call =
-                        rpc.call::<methods::HermesMcpRemove>(&HermesMcpRef { name: name.clone() });
+                    let call = rpc.call::<methods::HermesMcpRemove>(&HermesMcpRef {
+                        name: name.clone(),
+                        connection: opened.connection.clone(),
+                    });
                     let toasts = stores.toasts.clone();
                     hermes_admin::act(
                         &stores,

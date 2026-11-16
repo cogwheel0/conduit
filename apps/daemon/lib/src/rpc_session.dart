@@ -1086,20 +1086,20 @@ class RpcSession {
     );
     _on(
       ConduitMethodSpecs.hermesRunJob,
-      (p) => _need(_hermesAdmin).runJob(p.id),
+      (p) => _need(_hermesAdmin).runJob(p.id, connection: p.connection),
     );
     _on(
       ConduitMethodSpecs.hermesDeleteJob,
-      (p) => _need(_hermesAdmin).deleteJob(p.id),
+      (p) => _need(_hermesAdmin).deleteJob(p.id, connection: p.connection),
     );
     _on(ConduitMethodSpecs.hermesCatalog, (_) => _need(_hermesAdmin).catalog());
     _on(
       ConduitMethodSpecs.hermesJobsRuns,
-      (p) => _need(_hermesAdmin).jobRuns(p.id),
+      (p) => _need(_hermesAdmin).jobRuns(p.id, connection: p.connection),
     );
     _on(
       ConduitMethodSpecs.hermesJobsStop,
-      (p) => _need(_hermesAdmin).stopJob(p.id),
+      (p) => _need(_hermesAdmin).stopJob(p.id, connection: p.connection),
     );
     _on(
       ConduitMethodSpecs.hermesJobsDelivery,
@@ -1140,7 +1140,7 @@ class RpcSession {
     _on(ConduitMethodSpecs.hermesMcpAdd, (p) => _need(_hermesAdmin).addMcp(p));
     _on(
       ConduitMethodSpecs.hermesMcpAddFromCatalog,
-      (p) => _need(_hermesAdmin).addMcpFromCatalog(p.name),
+      (p) => _need(_hermesAdmin).addMcpFromCatalog(p),
     );
     _on(
       ConduitMethodSpecs.hermesMcpSetApiKey,
@@ -1148,11 +1148,11 @@ class RpcSession {
     );
     _on(
       ConduitMethodSpecs.hermesMcpRemove,
-      (p) => _need(_hermesAdmin).removeMcp(p.name),
+      (p) => _need(_hermesAdmin).removeMcp(p),
     );
     _on(
       ConduitMethodSpecs.hermesMcpTest,
-      (p) => _need(_hermesAdmin).testMcp(p.name),
+      (p) => _need(_hermesAdmin).testMcp(p),
     );
     _on(
       ConduitMethodSpecs.hermesMcpSetEnabled,
@@ -1160,7 +1160,7 @@ class RpcSession {
     );
     _on(
       ConduitMethodSpecs.hermesMcpAuthenticate,
-      (p) => _need(_hermesAdmin).authenticateMcp(p.name),
+      (p) => _need(_hermesAdmin).authenticateMcp(p),
     );
 
     // hermes.work.*, hermes.context.*, hermes.decisions.*: a Hermes chat's

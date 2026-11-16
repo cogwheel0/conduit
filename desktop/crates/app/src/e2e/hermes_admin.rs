@@ -686,7 +686,10 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     cx.update(|cx| {
         let stores = cx.global::<AppState>().stores.clone();
         let rpc = stores.connection.read(cx).rpc();
-        let call = rpc.call::<methods::HermesRunJob>(&conduit_protocol::HermesRef { id });
+        let call = rpc.call::<methods::HermesRunJob>(&conduit_protocol::HermesJobRef {
+            connection: stores.hermes_admin.read(cx).connection(),
+            id,
+        });
         crate::stores::hermes_admin::act(
             &stores,
             call,
@@ -711,7 +714,10 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     cx.update(|cx| {
         let stores = cx.global::<AppState>().stores.clone();
         let rpc = stores.connection.read(cx).rpc();
-        let call = rpc.call::<methods::HermesJobsStop>(&conduit_protocol::HermesRef { id });
+        let call = rpc.call::<methods::HermesJobsStop>(&conduit_protocol::HermesJobRef {
+            connection: stores.hermes_admin.read(cx).connection(),
+            id,
+        });
         crate::stores::hermes_admin::act(
             &stores,
             call,
@@ -744,7 +750,10 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         cx.update(|cx| {
             let stores = cx.global::<AppState>().stores.clone();
             let rpc = stores.connection.read(cx).rpc();
-            let call = rpc.call::<methods::HermesRunJob>(&conduit_protocol::HermesRef { id });
+            let call = rpc.call::<methods::HermesRunJob>(&conduit_protocol::HermesJobRef {
+                connection: stores.hermes_admin.read(cx).connection(),
+                id,
+            });
             crate::stores::hermes_admin::act(
                 &stores,
                 call,
@@ -821,6 +830,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         let call = rpc.call::<methods::HermesSetJobEnabled>(&conduit_protocol::HermesJobToggle {
             id,
             enabled: false,
+            connection: stores.hermes_admin.read(cx).connection(),
         });
         crate::stores::hermes_admin::act(
             &stores,

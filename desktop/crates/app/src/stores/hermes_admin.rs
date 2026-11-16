@@ -18,9 +18,9 @@ use std::time::Duration;
 
 use conduit_daemon::RpcError;
 use conduit_protocol::{
-    Event, HermesCatalog, HermesConnections, HermesJobNotice, HermesJobs, HermesMcpServers,
-    HermesRef, HermesSessionDto, HermesStatus, HermesToggle, NoParams, NoticeLevel, events,
-    methods,
+    Event, HermesCatalog, HermesConnections, HermesJobNotice, HermesJobRef, HermesJobs,
+    HermesMcpServers, HermesRef, HermesSessionDto, HermesStatus, HermesToggle, NoParams,
+    NoticeLevel, events, methods,
 };
 use gpui_kit::{App, AsyncApp, Context, Task, WeakEntity};
 
@@ -34,6 +34,14 @@ use crate::stores::rpc::Rpc;
 pub const LIVE_POLL: Duration = Duration::from_secs(2);
 /// How often an idle list is read, so a run started elsewhere shows up.
 pub const IDLE_POLL: Duration = Duration::from_secs(15);
+
+/// The connection a sheet or question was opened under.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Opened {
+    active_id: Option<String>,
+    /// The daemon's name for it, sent with the request.
+    pub connection: Option<String>,
+}
 
 /// Something read from the daemon: not yet, read, or refused.
 #[derive(Clone, Debug, PartialEq)]
@@ -130,18 +138,30 @@ impl HermesAdminStore {
         self.changed(cx);
     }
 
-    /// The saved connection in use, as this window last heard.
-    pub fn active_id(&self) -> Option<String> {
-        self.connections.as_ref()?.active_id.clone()
+    /// The connection in use as the daemon names it
+    /// (`HermesChanged.connection`): sent with a request bound to it, which
+    /// the daemon refuses once another is in use.
+    pub fn connection(&self) -> Option<String> {
+        self.connections.as_ref()?.connection.clone()
+    }
+
+    /// The connection in use now, for a sheet or question to keep.
+    pub fn opened(&self) -> Opened {
+        Opened {
+            active_id: self.connections.as_ref().and_then(|l| l.active_id.clone()),
+            connection: self.connection(),
+        }
     }
 
     /// Whether `opened` (the connection in use when a sheet opened) is
     /// still the one in use, as far as this window knows: a sheet sends
-    /// nothing once another has come into use.
-    pub fn still_in_use(&self, opened: &Option<String>) -> bool {
-        self.connections
-            .as_ref()
-            .is_none_or(|l| l.active_id == *opened)
+    /// nothing once another has come into use (and the daemon refuses
+    /// what this window has not heard of yet).
+    pub fn still_in_use(&self, opened: &Opened) -> bool {
+        self.connections.as_ref().is_none_or(|l| {
+            l.active_id == opened.active_id
+                && (opened.connection.is_none() || l.connection == opened.connection)
+        })
     }
 
     /// The connection in use, if any.
@@ -169,9 +189,16 @@ impl HermesAdminStore {
 
     /// The list an action answered with.
     pub fn adopt_connections(&mut self, list: HermesConnections, cx: &mut Context<Self>) {
+        // Another connection, Hermes turned off or on, or the one in use
+        // changed under the same name (another address, other credentials:
+        // the daemon names it anew).
         let switched = self.connections.as_ref().map(|l| l.active_id.clone())
             != Some(list.active_id.clone())
-            || self.connections.as_ref().map(|l| l.enabled) != Some(list.enabled);
+            || self.connections.as_ref().map(|l| l.enabled) != Some(list.enabled)
+            || self
+                .connections
+                .as_ref()
+                .is_some_and(|l| l.connection.is_some() && l.connection != list.connection);
         self.connections = Some(list);
         if switched {
             // Another connection's status, catalog, servers and jobs.
@@ -443,7 +470,10 @@ impl HermesAdminStore {
         if !self.runs.contains_key(id) {
             self.runs.insert(id.to_string(), Loaded::Loading);
         }
-        let call = rpc.call::<methods::HermesJobsRuns>(&HermesRef { id: id.to_string() });
+        let call = rpc.call::<methods::HermesJobsRuns>(&HermesJobRef {
+            id: id.to_string(),
+            connection: self.connection(),
+        });
         let id = id.to_string();
         let generation = self.generation;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -504,7 +534,7 @@ pub fn wire(stores: &Stores, cx: &mut App) {
             });
         }
         ConnectionEvent::Daemon(event) => {
-            if matches!(event.as_ref(), Event::HermesChanged) {
+            if matches!(event.as_ref(), Event::HermesChanged(_)) {
                 s.hermes_admin.update(cx, |a, cx| {
                     a.refresh_connections(cx);
                     if matches!(a.mcp, Some(Loaded::Ready(_))) {
@@ -737,6 +767,33 @@ mod tests {
         });
     }
 
+    /// The connection in use named anew by the daemon (another address,
+    /// other credentials, under the same saved connection) is another one:
+    /// what was read of it before is not kept.
+    #[gpui_kit::test]
+    fn a_connection_named_anew_is_another(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::HermesMcpList>(servers("seed-catalogue"));
+        let held = daemon.hold::<methods::HermesMcpList>();
+        let named = |key: &str| {
+            let mut l = list("a");
+            l.connection = Some(key.to_string());
+            l
+        };
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.adopt_connections(named("0a1b2c3d:1"), cx);
+            s.refresh_mcp(cx);
+            s.adopt_connections(named("0a1b2c3d:2"), cx);
+        });
+        drop(held);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.mcp, None, "the connection before's servers landed");
+            assert_eq!(s.connection().as_deref(), Some("0a1b2c3d:2"));
+        });
+    }
+
     /// An action's answer that comes back after a switch is not taken as
     /// the new connection's either.
     #[gpui_kit::test]
@@ -761,6 +818,7 @@ mod tests {
                 .call::<methods::HermesMcpSetEnabled>(&conduit_protocol::HermesMcpToggle {
                     name: "seed-catalogue".into(),
                     enabled: false,
+                    connection: None,
                 });
             act(
                 &stores,

@@ -83,7 +83,7 @@ pub struct HermesJobSheet {
     pub error: Option<String>,
     /// The connection in use when the editor opened: the job is saved to
     /// it, or to none.
-    opened_under: Option<String>,
+    opened: crate::stores::hermes_admin::Opened,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -147,7 +147,7 @@ impl HermesJobSheet {
             .filter(|d: &Vec<String>| !d.is_empty())
             .unwrap_or_else(|| vec!["local".to_string()]);
         name.update(cx, |i, cx| i.focus(window, cx));
-        let opened_under = stores.hermes_admin.read(cx).active_id();
+        let opened = stores.hermes_admin.read(cx).opened();
         let mut this = Self {
             stores,
             job,
@@ -163,7 +163,7 @@ impl HermesJobSheet {
             refused: None,
             busy: false,
             error: None,
-            opened_under,
+            opened,
             _subscriptions: subscriptions,
         };
         if scheduling {
@@ -265,7 +265,7 @@ impl HermesJobSheet {
         }
         let admin = self.stores.hermes_admin.read(cx);
         let editing = self.job.is_some();
-        if !admin.still_in_use(&self.opened_under) {
+        if !admin.still_in_use(&self.opened) {
             let l = cx.l10n();
             self.error = Some(if editing {
                 l.hermes_job_update_failed()
@@ -308,6 +308,7 @@ impl HermesJobSheet {
             deliver: (self.scheduling && deliver_changed).then(|| self.deliver.join(",")),
             catch_up: (self.scheduling && catch_up_changed)
                 .then(|| CATCH_UP[self.catch_up].to_string()),
+            connection: self.opened.connection.clone(),
         };
         let call = self
             .stores

@@ -119,6 +119,10 @@ abstract class HermesConnections with _$HermesConnections {
 
     /// The connection a save wrote (`hermes.connections.save`).
     String? savedId,
+
+    /// The connection in use now, as `HermesChanged.connection` names it:
+    /// what the window sends with a request bound to it.
+    String? connection,
   }) = _HermesConnections;
 
   factory HermesConnections.fromJson(Map<String, dynamic> json) =>
@@ -265,6 +269,11 @@ abstract class HermesMcpAdd with _$HermesMcpAdd {
 
     /// Sent as its bearer token; never kept by the daemon.
     String? apiKey,
+
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): refused once another is in use. Null
+    /// from an older window, not checked.
+    String? connection,
   }) = _HermesMcpAdd;
 
   factory HermesMcpAdd.fromJson(Map<String, dynamic> json) =>
@@ -274,7 +283,14 @@ abstract class HermesMcpAdd with _$HermesMcpAdd {
 /// Params naming an MCP server (or a catalog entry) by name.
 @freezed
 abstract class HermesMcpRef with _$HermesMcpRef {
-  const factory HermesMcpRef({required String name}) = _HermesMcpRef;
+  const factory HermesMcpRef({
+    required String name,
+
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): refused once another is in use. Null
+    /// from an older window, not checked.
+    String? connection,
+  }) = _HermesMcpRef;
 
   factory HermesMcpRef.fromJson(Map<String, dynamic> json) =>
       _$HermesMcpRefFromJson(json);
@@ -286,6 +302,11 @@ abstract class HermesMcpApiKey with _$HermesMcpApiKey {
   const factory HermesMcpApiKey({
     required String name,
     required String apiKey,
+
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): refused once another is in use. Null
+    /// from an older window, not checked.
+    String? connection,
   }) = _HermesMcpApiKey;
 
   factory HermesMcpApiKey.fromJson(Map<String, dynamic> json) =>
@@ -298,6 +319,11 @@ abstract class HermesMcpToggle with _$HermesMcpToggle {
   const factory HermesMcpToggle({
     required String name,
     required bool enabled,
+
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): refused once another is in use. Null
+    /// from an older window, not checked.
+    String? connection,
   }) = _HermesMcpToggle;
 
   factory HermesMcpToggle.fromJson(Map<String, dynamic> json) =>

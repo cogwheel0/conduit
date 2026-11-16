@@ -18,7 +18,7 @@ use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::ConduitTheme;
 use conduit_components::views::kit::{Button, Switch, raised_fill};
-use conduit_protocol::{HermesJobDto, HermesJobToggle, HermesRef, NoticeLevel, methods};
+use conduit_protocol::{HermesJobDto, HermesJobRef, HermesJobToggle, NoticeLevel, methods};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     AnyElement, App, AsyncApp, ElementId, FontWeight, Role, SharedString, Window, div, px, relative,
@@ -657,11 +657,21 @@ fn quiet(text: String, t: &ConduitTheme) -> AnyElement {
 
 use conduit_components::views::focus::ControlExt as _;
 
+/// Job `id` of the connection in use, as the daemon names it: refused once
+/// another is in use.
+fn job_ref(stores: &Stores, id: &str, cx: &App) -> HermesJobRef {
+    HermesJobRef {
+        id: id.to_string(),
+        connection: stores.hermes_admin.read(cx).connection(),
+    }
+}
+
 fn set_enabled(stores: &Stores, id: &str, enabled: bool, cx: &mut App) {
     let rpc = stores.connection.read(cx).rpc();
     let call = rpc.call::<methods::HermesSetJobEnabled>(&HermesJobToggle {
         id: id.to_string(),
         enabled,
+        connection: stores.hermes_admin.read(cx).connection(),
     });
     let l = cx.l10n().clone();
     let (failure, success) = if enabled {
@@ -674,7 +684,7 @@ fn set_enabled(stores: &Stores, id: &str, enabled: bool, cx: &mut App) {
 
 fn run_now(stores: &Stores, id: &str, cx: &mut App) {
     let rpc = stores.connection.read(cx).rpc();
-    let call = rpc.call::<methods::HermesRunJob>(&HermesRef { id: id.to_string() });
+    let call = rpc.call::<methods::HermesRunJob>(&job_ref(stores, id, cx));
     let l = cx.l10n().clone();
     busy_call(
         stores,
@@ -688,7 +698,7 @@ fn run_now(stores: &Stores, id: &str, cx: &mut App) {
 
 fn stop(stores: &Stores, id: &str, cx: &mut App) {
     let rpc = stores.connection.read(cx).rpc();
-    let call = rpc.call::<methods::HermesJobsStop>(&HermesRef { id: id.to_string() });
+    let call = rpc.call::<methods::HermesJobsStop>(&job_ref(stores, id, cx));
     let l = cx.l10n().clone();
     hermes_admin::act(
         stores,
@@ -759,7 +769,7 @@ pub fn confirm_delete(stores: &Stores, id: &str, window: &mut Window, cx: &mut A
     let stores = stores.clone();
     let id = id.to_string();
     // The job asked about is the connection in use now's.
-    let opened = stores.hermes_admin.read(cx).active_id();
+    let opened = stores.hermes_admin.read(cx).opened();
     cx.spawn(async move |cx: &mut AsyncApp| {
         if !ask.await {
             return;
@@ -769,7 +779,10 @@ pub fn confirm_delete(stores: &Stores, id: &str, window: &mut Window, cx: &mut A
                 return;
             }
             let rpc = stores.connection.read(cx).rpc();
-            let call = rpc.call::<methods::HermesDeleteJob>(&HermesRef { id: id.clone() });
+            let call = rpc.call::<methods::HermesDeleteJob>(&HermesJobRef {
+                id: id.clone(),
+                connection: opened.connection.clone(),
+            });
             let l = cx.l10n().clone();
             busy_call(
                 &stores,

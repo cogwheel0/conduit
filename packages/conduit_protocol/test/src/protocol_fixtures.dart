@@ -1632,6 +1632,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     schedule: 'every 1h',
   ),
   'hermesJobToggle': const HermesJobToggle(id: 'j1', enabled: true),
+  'hermesJobRef': const HermesJobRef(id: 'j1', connection: '0a1b2c3d:2'),
   'hermesSkillDto': const HermesSkillDto(
     name: 'review',
     description: 'Reviews code',
@@ -1717,6 +1718,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     ],
     canAdd: false,
     savedId: 'c1',
+    connection: '0a1b2c3d:2',
   ),
   'hermesConnectionEdit': const HermesConnectionEdit(
     id: 'c1',
@@ -1765,7 +1767,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     args: <String>['server.py', '--demo'],
     apiKey: 'demo-key',
   ),
-  'hermesMcpRef': const HermesMcpRef(name: 'shop'),
+  'hermesMcpRef': const HermesMcpRef(name: 'shop', connection: '0a1b2c3d:2'),
   'hermesMcpApiKey': const HermesMcpApiKey(name: 'shop', apiKey: 'demo-key'),
   'hermesMcpToggle': const HermesMcpToggle(name: 'shop', enabled: true),
   'hermesMcpTestResultDto': const HermesMcpTestResultDto(
@@ -4513,6 +4515,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'hermesJobs': HermesJobs.fromJson,
       'hermesJobEdit': HermesJobEdit.fromJson,
       'hermesJobToggle': HermesJobToggle.fromJson,
+      'hermesJobRef': HermesJobRef.fromJson,
       'hermesSkillDto': HermesSkillDto.fromJson,
       'hermesToolsetDto': HermesToolsetDto.fromJson,
       'hermesCatalog': HermesCatalog.fromJson,

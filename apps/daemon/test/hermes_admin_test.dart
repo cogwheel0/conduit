@@ -13,6 +13,7 @@ import 'support/null_sink.dart';
 
 /// Hermes's administration (`hermes.connections.*`, `hermes.jobs*`,
 /// `hermes.catalog`, `hermes.mcp.*`) against two fakes of its API server.
+/// Each test starts from no saved connection and saves what it needs.
 void main() {
   late Directory temporary;
   late CoreRuntime runtime;
@@ -21,7 +22,7 @@ void main() {
   late HermesAdminService admin;
   late List<String> announced;
 
-  setUpAll(() async {
+  setUp(() async {
     temporary = Directory.systemTemp.createTempSync('hermes-admin-test');
     runtime = await CoreRuntime.start(
       config: BootstrapConfig(
@@ -45,7 +46,13 @@ void main() {
     );
   });
 
-  tearDownAll(() async {
+  tearDown(() async {
+    // Saved connections outlive a runtime (the process's secure storage):
+    // the next test starts from none.
+    for (final c in (await admin.connections()).connections) {
+      await admin.deleteConnection(c.id);
+    }
+    await admin.setEnabled(false);
     admin.dispose();
     await first.close();
     await second.close();
@@ -55,6 +62,23 @@ void main() {
 
   HermesConnectionEdit apiServer(FakeHermesServer server, {String? id}) =>
       HermesConnectionEdit(id: id, baseUrl: server.baseUrl, apiKey: server.key);
+
+  /// The first server saved as Home (the first connection saved is put in
+  /// use).
+  Future<HermesConnectionDto> saveHome() async {
+    final list = await admin.saveConnection(
+      apiServer(first).copyWith(name: 'Home'),
+    );
+    return list.connections.firstWhere((c) => c.name == 'Home');
+  }
+
+  /// The second server saved beside it as [name].
+  Future<HermesConnectionDto> saveSecond(String name) async {
+    final list = await admin.saveConnection(
+      apiServer(second).copyWith(name: name),
+    );
+    return list.connections.firstWhere((c) => c.name == name);
+  }
 
   test(
     'the first connection saved is put in use and turns Hermes on',
@@ -105,6 +129,7 @@ void main() {
   );
 
   test('a second connection is saved beside it, then switched to', () async {
+    await saveHome();
     var list = await admin.saveConnection(
       apiServer(second).copyWith(name: 'Studio'),
     );
@@ -150,6 +175,8 @@ void main() {
   });
 
   test('Hermes is turned off and on, its connections kept', () async {
+    await saveHome();
+    await saveSecond('Studio');
     var list = await admin.setEnabled(false);
     expect(list.enabled, isFalse);
     expect(list.connections, hasLength(2));
@@ -158,6 +185,7 @@ void main() {
   });
 
   test('scheduled agents are made, paused, run and deleted', () async {
+    await saveHome();
     var jobs = await admin.saveJob(
       const HermesJobEdit(
         name: 'Morning brief',
@@ -212,6 +240,7 @@ void main() {
   });
 
   test('the catalog lists skills as the / commands', () async {
+    await saveHome();
     final catalog = await admin.catalog();
     expect(catalog.skills.single.name, 'review');
     expect(catalog.toolsets.single.tools, <String>['search', 'fetch']);
@@ -220,6 +249,7 @@ void main() {
   });
 
   test('an API server has no MCP servers to manage', () async {
+    await saveHome();
     final servers = await admin.mcpServers();
     expect(servers.available, isFalse);
     await expectLater(
@@ -234,7 +264,88 @@ void main() {
     );
   });
 
+  test('a request made under the connection before a switch is refused, '
+      'and nothing of it reaches the one in use', () async {
+    await saveHome();
+    final before = (await admin.connections()).connection;
+    expect(before, isNotNull, reason: 'the list names the connection in use');
+    final frame = await saveSecond('Cold frame');
+    final list = await admin.activate(frame.id);
+    final now = list.connection;
+    expect(now, isNot(before));
+    second.jobs['j-frame'] = <String, dynamic>{
+      'id': 'j-frame',
+      'name': 'Frame check',
+      'prompt': 'Open the vents',
+      'schedule': '0 7 * * *',
+      'enabled': true,
+    };
+
+    final stale = isA<RpcError>().having(
+      (e) => e.code,
+      'code',
+      ConduitErrorCodes.sessionExpired,
+    );
+    await expectLater(
+      admin.saveJob(
+        HermesJobEdit(
+          name: 'Seed sowing',
+          prompt: 'Sow the tomatoes',
+          schedule: '0 8 * * *',
+          connection: before,
+        ),
+      ),
+      throwsA(stale),
+    );
+    await expectLater(
+      admin.setJobEnabled(
+        HermesJobToggle(id: 'j-frame', enabled: false, connection: before),
+      ),
+      throwsA(stale),
+    );
+    for (final call in <Future<Object?> Function()>[
+      () => admin.runJob('j-frame', connection: before),
+      () => admin.stopJob('j-frame', connection: before),
+      () => admin.deleteJob('j-frame', connection: before),
+      () => admin.jobRuns('j-frame', connection: before),
+      () => admin.addMcp(
+        HermesMcpAdd(
+          name: 'seeds',
+          url: 'http://127.0.0.1:1/mcp',
+          connection: before,
+        ),
+      ),
+      () => admin.addMcpFromCatalog(
+        HermesMcpRef(name: 'seeds', connection: before),
+      ),
+      () => admin.setMcpApiKey(
+        HermesMcpApiKey(name: 'seeds', apiKey: 'sk-test', connection: before),
+      ),
+      () => admin.removeMcp(HermesMcpRef(name: 'seeds', connection: before)),
+      () => admin.testMcp(HermesMcpRef(name: 'seeds', connection: before)),
+      () => admin.setMcpEnabled(
+        HermesMcpToggle(name: 'seeds', enabled: false, connection: before),
+      ),
+      () => admin.authenticateMcp(
+        HermesMcpRef(name: 'seeds', connection: before),
+      ),
+    ]) {
+      await expectLater(call(), throwsA(stale));
+    }
+    expect(second.jobs.keys, <String>['j-frame'], reason: 'nothing was made');
+    expect(second.jobs['j-frame']!['enabled'], isTrue);
+
+    // Made under the connection in use, it goes through.
+    final jobs = await admin.setJobEnabled(
+      HermesJobToggle(id: 'j-frame', enabled: false, connection: now),
+    );
+    expect(jobs.jobs.single.enabled, isFalse);
+    second.jobs.clear();
+  });
+
   test('deleting the connection in use puts another in use', () async {
+    await saveHome();
+    await saveSecond('Studio agent');
     var list = await admin.connections();
     final home = list.connections.firstWhere((c) => c.active);
     list = await admin.deleteConnection(home.id);

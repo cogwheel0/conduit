@@ -196,6 +196,24 @@ abstract class HermesRef with _$HermesRef {
       _$HermesRefFromJson(json);
 }
 
+/// Params naming a scheduled job by id, for an action on the connection
+/// in use (`hermes.runJob`, `hermes.deleteJob`, `hermes.jobs.stop`,
+/// `hermes.jobs.runs`).
+@freezed
+abstract class HermesJobRef with _$HermesJobRef {
+  const factory HermesJobRef({
+    required String id,
+
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): refused once another is in use. Null
+    /// from an older window, not checked.
+    String? connection,
+  }) = _HermesJobRef;
+
+  factory HermesJobRef.fromJson(Map<String, dynamic> json) =>
+      _$HermesJobRefFromJson(json);
+}
+
 /// Params for `hermes.renameSession`.
 @freezed
 abstract class HermesRename with _$HermesRename {
@@ -367,6 +385,11 @@ abstract class HermesJobEdit with _$HermesJobEdit {
     /// `default`, `runOnce` or `skip` (a Desktop Gateway's); null leaves
     /// an edited job's as it is.
     String? catchUp,
+
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): refused once another is in use. Null
+    /// from an older window, not checked.
+    String? connection,
   }) = _HermesJobEdit;
 
   factory HermesJobEdit.fromJson(Map<String, dynamic> json) =>
@@ -376,8 +399,15 @@ abstract class HermesJobEdit with _$HermesJobEdit {
 /// Params for `hermes.setJobEnabled`.
 @freezed
 abstract class HermesJobToggle with _$HermesJobToggle {
-  const factory HermesJobToggle({required String id, required bool enabled}) =
-      _HermesJobToggle;
+  const factory HermesJobToggle({
+    required String id,
+    required bool enabled,
+
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): refused once another is in use. Null
+    /// from an older window, not checked.
+    String? connection,
+  }) = _HermesJobToggle;
 
   factory HermesJobToggle.fromJson(Map<String, dynamic> json) =>
       _$HermesJobToggleFromJson(json);

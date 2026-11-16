@@ -18,6 +18,7 @@ use gpui_kit::{
 use crate::l10n::ActiveL10n as _;
 use crate::shell::sheet::{SheetSpec, present_sheet};
 use crate::stores::Stores;
+use crate::stores::hermes_admin::Opened;
 use crate::views::forms;
 use crate::views::sheet::{self, SheetBody};
 
@@ -83,7 +84,7 @@ pub struct AddMcpSheet {
     pub error: Option<String>,
     /// The connection in use when the sheet opened: the server is added
     /// to it, or to none.
-    opened_under: Option<String>,
+    opened: Opened,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -116,7 +117,7 @@ impl AddMcpSheet {
             }
         }));
         name.update(cx, |i, cx| i.focus(window, cx));
-        let opened_under = stores.hermes_admin.read(cx).active_id();
+        let opened = stores.hermes_admin.read(cx).opened();
         Self {
             stores,
             name,
@@ -127,7 +128,7 @@ impl AddMcpSheet {
             by_command: false,
             busy: false,
             error: None,
-            opened_under,
+            opened,
             _subscriptions: subscriptions,
         }
     }
@@ -165,7 +166,7 @@ impl AddMcpSheet {
             return;
         }
         let admin = self.stores.hermes_admin.read(cx);
-        if !admin.still_in_use(&self.opened_under) {
+        if !admin.still_in_use(&self.opened) {
             self.error = Some(cx.l10n().desktop_hermes_mcp_action_failed());
             cx.notify();
             return;
@@ -191,6 +192,7 @@ impl AddMcpSheet {
                 vec![]
             },
             api_key: (!key.trim().is_empty()).then_some(key),
+            connection: self.opened.connection.clone(),
         };
         let call = self
             .stores
@@ -385,7 +387,7 @@ pub struct McpKeySheet {
     pub error: Option<String>,
     /// The connection in use when the sheet opened: the key goes to its
     /// server, or nowhere.
-    opened_under: Option<String>,
+    opened: Opened,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -411,14 +413,14 @@ impl McpKeySheet {
             },
         )];
         key.update(cx, |i, cx| i.focus(window, cx));
-        let opened_under = stores.hermes_admin.read(cx).active_id();
+        let opened = stores.hermes_admin.read(cx).opened();
         Self {
             stores,
             server,
             key,
             busy: false,
             error: None,
-            opened_under,
+            opened,
             _subscriptions: subscriptions,
         }
     }
@@ -432,7 +434,7 @@ impl McpKeySheet {
             return;
         }
         let admin = self.stores.hermes_admin.read(cx);
-        if !admin.still_in_use(&self.opened_under) {
+        if !admin.still_in_use(&self.opened) {
             self.error = Some(cx.l10n().desktop_hermes_mcp_action_failed());
             cx.notify();
             return;
@@ -448,6 +450,7 @@ impl McpKeySheet {
             .call::<methods::HermesMcpSetApiKey>(&HermesMcpApiKey {
                 name: name.clone(),
                 api_key: forms::raw(&self.key, cx),
+                connection: self.opened.connection.clone(),
             });
         self.busy = true;
         cx.notify();
@@ -644,6 +647,33 @@ mod tests {
             daemon.calls::<methods::HermesMcpRemove>().is_empty(),
             "the removal went to the connection in use now"
         );
+    }
+
+    /// The key goes with the daemon's name for the connection the sheet
+    /// opened under, so the daemon refuses it once another is in use.
+    #[gpui_kit::test]
+    fn a_key_names_the_connection_it_was_typed_for(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesMcpSetApiKey>(
+            serde_json::from_value(json!({"available": true})).unwrap(),
+        );
+        let mut named = list("a");
+        named.connection = Some("0a1b2c3d:1".into());
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.adopt_connections(named, cx));
+        let s = stores.clone();
+        vcx.update(|window, cx| open_key(&s, "seed-catalogue", window, cx));
+        vcx.run_until_parked();
+        on_sheet::<McpKeySheet>(vcx, |s, w, cx| {
+            s.key
+                .update(cx, |i, cx| i.set_value("sk-test-not-a-real-key", w, cx));
+            s.save(w, cx);
+        });
+        vcx.run_until_parked();
+        let calls = daemon.calls::<methods::HermesMcpSetApiKey>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["connection"], json!("0a1b2c3d:1"));
     }
 
     /// Add MCP Server opened for one connection adds nothing to another.

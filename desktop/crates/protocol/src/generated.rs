@@ -5880,6 +5880,20 @@ pub struct HermesRef {
     pub id: String,
 }
 
+/// Params naming a scheduled job by id, for an action on the connection
+/// in use (`hermes.runJob`, `hermes.deleteJob`, `hermes.jobs.stop`,
+/// `hermes.jobs.runs`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesJobRef {
+    pub id: String,
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): refused once another is in use. Null
+    /// from an older window, not checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
+}
+
 /// Params for `hermes.renameSession`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -6060,6 +6074,11 @@ pub struct HermesJobEdit {
     /// an edited job's as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catch_up: Option<String>,
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): refused once another is in use. Null
+    /// from an older window, not checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// Params for `hermes.setJobEnabled`.
@@ -6068,6 +6087,11 @@ pub struct HermesJobEdit {
 pub struct HermesJobToggle {
     pub id: String,
     pub enabled: bool,
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): refused once another is in use. Null
+    /// from an older window, not checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -6233,6 +6257,10 @@ pub struct HermesConnections {
     /// The connection a save wrote (`hermes.connections.save`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub saved_id: Option<String>,
+    /// The connection in use now, as `HermesChanged.connection` names it:
+    /// what the window sends with a request bound to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 impl Default for HermesConnections {
@@ -6243,6 +6271,7 @@ impl Default for HermesConnections {
             connections: Default::default(),
             can_add: default_hermes_connections_can_add(),
             saved_id: None,
+            connection: None,
         }
     }
 }
@@ -6391,6 +6420,11 @@ pub struct HermesMcpAdd {
     /// Sent as its bearer token; never kept by the daemon.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): refused once another is in use. Null
+    /// from an older window, not checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// Params naming an MCP server (or a catalog entry) by name.
@@ -6398,6 +6432,11 @@ pub struct HermesMcpAdd {
 #[serde(rename_all = "camelCase")]
 pub struct HermesMcpRef {
     pub name: String,
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): refused once another is in use. Null
+    /// from an older window, not checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// Params for `hermes.mcp.setApiKey`.
@@ -6406,6 +6445,11 @@ pub struct HermesMcpRef {
 pub struct HermesMcpApiKey {
     pub name: String,
     pub api_key: String,
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): refused once another is in use. Null
+    /// from an older window, not checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// Params for `hermes.mcp.setEnabled`: offer a server's tools or not.
@@ -6414,6 +6458,11 @@ pub struct HermesMcpApiKey {
 pub struct HermesMcpToggle {
     pub name: String,
     pub enabled: bool,
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): refused once another is in use. Null
+    /// from an older window, not checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// Reply to `hermes.mcp.test`.
@@ -16398,23 +16447,23 @@ pub mod methods {
 
     /// Runs a job now, whatever its schedule.
     ///
-    /// `hermes.runJob`: HermesRef -> HermesJobs.
+    /// `hermes.runJob`: HermesJobRef -> HermesJobs.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct HermesRunJob;
 
     impl RpcMethod for HermesRunJob {
         const NAME: &'static str = "hermes.runJob";
-        type Params = super::HermesRef;
+        type Params = super::HermesJobRef;
         type Result = super::HermesJobs;
     }
 
-    /// `hermes.deleteJob`: HermesRef -> HermesJobs.
+    /// `hermes.deleteJob`: HermesJobRef -> HermesJobs.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct HermesDeleteJob;
 
     impl RpcMethod for HermesDeleteJob {
         const NAME: &'static str = "hermes.deleteJob";
-        type Params = super::HermesRef;
+        type Params = super::HermesJobRef;
         type Result = super::HermesJobs;
     }
 
@@ -16433,26 +16482,26 @@ pub mod methods {
     /// The sessions a scheduled agent's runs wrote, newest first (a Desktop
     /// Gateway's).
     ///
-    /// `hermes.jobs.runs`: HermesRef -> HermesSessions.
+    /// `hermes.jobs.runs`: HermesJobRef -> HermesSessions.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct HermesJobsRuns;
 
     impl RpcMethod for HermesJobsRuns {
         const NAME: &'static str = "hermes.jobs.runs";
-        type Params = super::HermesRef;
+        type Params = super::HermesJobRef;
         type Result = super::HermesSessions;
     }
 
     /// Stops a scheduled agent's running run (its schedule stays); answers
     /// with the jobs, and how the Stop settles comes in their notices.
     ///
-    /// `hermes.jobs.stop`: HermesRef -> HermesJobs.
+    /// `hermes.jobs.stop`: HermesJobRef -> HermesJobs.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct HermesJobsStop;
 
     impl RpcMethod for HermesJobsStop {
         const NAME: &'static str = "hermes.jobs.stop";
-        type Params = super::HermesRef;
+        type Params = super::HermesJobRef;
         type Result = super::HermesJobs;
     }
 
@@ -18872,12 +18921,12 @@ pub const METHODS: &[MethodSpec] = &[
     },
     MethodSpec {
         name: "hermes.runJob",
-        params: Some("HermesRef"),
+        params: Some("HermesJobRef"),
         result: Some("HermesJobs"),
     },
     MethodSpec {
         name: "hermes.deleteJob",
-        params: Some("HermesRef"),
+        params: Some("HermesJobRef"),
         result: Some("HermesJobs"),
     },
     MethodSpec {
@@ -18887,12 +18936,12 @@ pub const METHODS: &[MethodSpec] = &[
     },
     MethodSpec {
         name: "hermes.jobs.runs",
-        params: Some("HermesRef"),
+        params: Some("HermesJobRef"),
         result: Some("HermesSessions"),
     },
     MethodSpec {
         name: "hermes.jobs.stop",
-        params: Some("HermesRef"),
+        params: Some("HermesJobRef"),
         result: Some("HermesJobs"),
     },
     MethodSpec {
@@ -20334,6 +20383,7 @@ pub mod conformance {
         "HermesJobDto",
         "HermesJobEdit",
         "HermesJobNotice",
+        "HermesJobRef",
         "HermesJobToggle",
         "HermesJobs",
         "HermesMcpAdd",
@@ -20938,6 +20988,7 @@ pub mod conformance {
             "HermesJobDto" => roundtrip::<super::HermesJobDto>(json),
             "HermesJobEdit" => roundtrip::<super::HermesJobEdit>(json),
             "HermesJobNotice" => roundtrip::<super::HermesJobNotice>(json),
+            "HermesJobRef" => roundtrip::<super::HermesJobRef>(json),
             "HermesJobToggle" => roundtrip::<super::HermesJobToggle>(json),
             "HermesJobs" => roundtrip::<super::HermesJobs>(json),
             "HermesMcpAdd" => roundtrip::<super::HermesMcpAdd>(json),

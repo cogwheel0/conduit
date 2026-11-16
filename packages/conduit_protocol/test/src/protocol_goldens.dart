@@ -3265,6 +3265,12 @@ const Map<String, String> protocolGoldens = <String, String>{
   "enabled": true
 }''',
 
+  'hermesJobRef': r'''
+{
+  "id": "j1",
+  "connection": "0a1b2c3d:2"
+}''',
+
   'hermesSkillDto': r'''
 {
   "name": "review",
@@ -3431,7 +3437,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     }
   ],
   "canAdd": false,
-  "savedId": "c1"
+  "savedId": "c1",
+  "connection": "0a1b2c3d:2"
 }''',
 
   'hermesConnectionEdit': r'''
@@ -3517,7 +3524,8 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'hermesMcpRef': r'''
 {
-  "name": "shop"
+  "name": "shop",
+  "connection": "0a1b2c3d:2"
 }''',
 
   'hermesMcpApiKey': r'''
