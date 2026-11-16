@@ -65,6 +65,11 @@ pub struct DirectPane {
     pub options: Option<DirectOptions>,
     pub search: Option<WebSearchSettings>,
     pub reloading: bool,
+    /// Where chats went as the daemon last said, before the history
+    /// switches still out: what a refused switch goes back to.
+    history_confirmed: Option<bool>,
+    /// History switches sent and not yet answered.
+    history_out: u32,
 }
 
 impl DirectPane {
@@ -77,6 +82,8 @@ impl DirectPane {
             options: None,
             search: None,
             reloading: false,
+            history_confirmed: None,
+            history_out: 0,
         };
         this.refresh(window, cx);
         this
@@ -211,7 +218,10 @@ impl DirectPane {
         let call = self
             .rpc(cx)
             .call::<methods::DirectSetHistory>(&DirectHistory { local_only: !sync });
-        let before = self.list.as_ref().map(|l| l.local_history);
+        if self.history_out == 0 {
+            self.history_confirmed = self.list.as_ref().map(|l| l.local_history);
+        }
+        self.history_out += 1;
         if let Some(l) = self.list.as_mut() {
             l.local_history = !sync;
         }
@@ -221,15 +231,24 @@ impl DirectPane {
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
+                    s.history_out = s.history_out.saturating_sub(1);
                     match result {
-                        Ok(l) => s.list = Some(l),
+                        Ok(l) => {
+                            s.history_confirmed = Some(l.local_history);
+                            s.list = Some(l);
+                        }
                         Err(e) => {
                             // Where chats go is what the daemon says: the
-                            // setting before, then read again (the switch
-                            // may have gone through all the same).
+                            // setting it last confirmed once no other switch
+                            // is out (a later one shows its own until it is
+                            // answered), then read again (the switch may
+                            // have gone through all the same).
                             log::warn!("direct.setHistory: {e}");
-                            if let (Some(l), Some(before)) = (s.list.as_mut(), before) {
-                                l.local_history = before;
+                            if s.history_out == 0
+                                && let (Some(l), Some(confirmed)) =
+                                    (s.list.as_mut(), s.history_confirmed)
+                            {
+                                l.local_history = confirmed;
                             }
                             s.refresh_quietly(cx);
                         }
@@ -1214,6 +1233,51 @@ mod tests {
         let (pane, vcx) = cx.add_window_view(move |window, cx| DirectPane::new(stores, window, cx));
         vcx.run_until_parked();
         pane.update_in(vcx, |p, window, cx| p.set_history(false, window, cx));
+        vcx.run_until_parked();
+        pane.read_with(vcx, |p, _| {
+            assert_eq!(
+                p.list.as_ref().map(|l| l.local_history),
+                Some(false),
+                "the pane says chats stay on this Mac; they still sync"
+            );
+        });
+    }
+
+    /// Two history switches out at once, both refused: the pane goes back
+    /// to the setting the daemon last confirmed, not to the first switch's
+    /// own guess.
+    #[gpui_kit::test]
+    fn overlapping_refused_history_switches_show_the_confirmed_setting(cx: &mut TestAppContext) {
+        use conduit_protocol::methods;
+
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-dhist-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        daemon.returns::<methods::DirectReload>(DirectConnectionList {
+            local_history: false,
+            ..Default::default()
+        });
+        // Nothing reads the list again: only the pane's own rule is left.
+        daemon.on::<methods::DirectList>(|_| {
+            Err(conduit_daemon::protocol::error(
+                "rpc.daemonUnavailable",
+                "offline",
+            ))
+        });
+        daemon.on::<methods::DirectSetHistory>(|_| {
+            Err(conduit_daemon::protocol::error("rpc.timeout", "slow"))
+        });
+        let (pane, vcx) = cx.add_window_view(move |window, cx| DirectPane::new(stores, window, cx));
+        vcx.run_until_parked();
+        let held = daemon.hold::<methods::DirectSetHistory>();
+        pane.update_in(vcx, |p, window, cx| p.set_history(false, window, cx));
+        pane.update_in(vcx, |p, window, cx| p.set_history(true, window, cx));
+        vcx.run_until_parked();
+        held.release();
         vcx.run_until_parked();
         pane.read_with(vcx, |p, _| {
             assert_eq!(
