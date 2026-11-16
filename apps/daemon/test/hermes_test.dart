@@ -7,7 +7,13 @@ import 'dart:io';
 
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
-    show hermesConfigProvider;
+    show hermesCapabilitiesProvider, hermesConfigProvider;
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show
+        activeServerProvider,
+        optimizedStorageServiceProvider,
+        serverConfigsProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
@@ -597,11 +603,15 @@ void main() {
     // A read begun on this server and still out at the switch back ends
     // in an error (refused, or its client closed), and keeps nothing for
     // the first server's chat.
-    other.holdMessages = Completer<void>();
+    other
+      ..messagesAsked = Completer<void>()
+      ..holdMessages = Completer<void>();
     final late = expectLater(
       hermes.transcript(shed, reload: true),
       throwsA(isA<RpcError>()),
     );
+    // Asked of this server before the switch back.
+    await other.messagesAsked.future;
     await hermes.saveSettings(
       HermesSettingsEdit(
         baseUrl: hermesServer.baseUrl,
@@ -614,6 +624,46 @@ void main() {
       (await hermes.transcript(shed)).single.content,
       'Shed roof',
       reason: 'the other server\'s late read was kept for this one',
+    );
+
+    // A read whose read-only check is still finding out what this server
+    // can do when the account's server changes: it is refused, and nothing
+    // of it is marked or kept.
+    await hermes.sessions();
+    // What it can do is asked again by the read below.
+    runtime.container.invalidate(hermesCapabilitiesProvider);
+    // The account's server changes while it is asked.
+    final storage = runtime.container.read(optimizedStorageServiceProvider);
+    addTearDown(() async {
+      await storage.setActiveServerId(null);
+      await storage.saveServerConfigs(const <ServerConfig>[]);
+      runtime.container
+        ..invalidate(serverConfigsProvider)
+        ..invalidate(activeServerProvider);
+    });
+    hermesServer.onCapabilities = () async {
+      await storage.saveServerConfigs(const <ServerConfig>[
+        ServerConfig(
+          id: 'second-server',
+          name: 'Second server',
+          url: 'https://second.invalid',
+        ),
+      ]);
+      await storage.setActiveServerId('second-server');
+      runtime.container
+        ..invalidate(serverConfigsProvider)
+        ..invalidate(activeServerProvider);
+      await runtime.container.read(activeServerProvider.future);
+    };
+    await expectLater(
+      hermes.transcript(shed, reload: true),
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
     );
   });
 

@@ -715,8 +715,19 @@ final class HermesService {
       _transcripts[sessionId] ?? _previous.remove(sessionId),
     );
     // Another Hermes app's session opens read-only on REST, as on a phone.
-    if (_known[sessionId] case final summary?
-        when await hermesSessionOpensReadOnly(_container, service, summary)) {
+    final summary = _known[sessionId];
+    final readOnly =
+        summary != null &&
+        await hermesSessionOpensReadOnly(_container, service, summary);
+    // Finding that out can wait on the server: checked again after it, so
+    // nothing of the last server is marked or kept for the next.
+    if (generation != _serverGeneration) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        debugMessage: 'the Hermes connection changed during the read',
+      );
+    }
+    if (readOnly) {
       _container
           .read(hermesReadOnlySessionsProvider.notifier)
           .mark(sessionId, source: summary.source);
