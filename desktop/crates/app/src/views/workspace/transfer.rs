@@ -213,6 +213,14 @@ pub fn import(
                 })
                 .await;
             let _ = cx.update(|window, cx| {
+                // Another account's workspace now: this import's results
+                // are not shown in it.
+                if !weak
+                    .upgrade()
+                    .is_some_and(|p| super::active_account(p.read(cx).stores(), cx) == account)
+                {
+                    return;
+                }
                 let l = cx.l10n().clone();
                 match result {
                     Ok(result) => {

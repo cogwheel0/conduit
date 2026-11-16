@@ -1969,6 +1969,75 @@ mod tests {
         let _ = std::fs::remove_file(&file);
     }
 
+    /// An import or a new knowledge base answered after another account
+    /// signed in shows nothing of it in the next account's workspace.
+    #[gpui_kit::test]
+    fn nothing_answered_for_one_account_shows_in_the_next(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::sheet::bench::{bench, switch_account};
+        let (daemon, stores, vcx) = bench(cx);
+        let file =
+            std::env::temp_dir().join(format!("conduit-import-r2-{}.json", std::process::id()));
+        std::fs::write(&file, "[]").unwrap();
+        vcx.update(|_, cx| {
+            cx.set_global(transfer::TransferHook {
+                export_dir: None,
+                import_file: Some(file.clone()),
+            })
+        });
+        daemon.returns::<methods::WorkspaceImport>(
+            serde_json::from_value(serde_json::json!({
+                "imported": 1, "failed": [{"label": "Trail Guide", "reason": ""}]
+            }))
+            .unwrap(),
+        );
+        daemon.returns::<methods::WorkspaceSave>(super::editor::bench::detail(
+            WorkspaceKind::Knowledge,
+            serde_json::json!({"id": "k2", "name": "Ridge notes", "description": "",
+                               "fileCount": 0, "external": false}),
+        ));
+        let pane = vcx.update(|window, cx| {
+            let stores = stores.clone();
+            cx.new(|cx| WorkspacePane::new(stores, WorkspaceSection::Knowledge, window, cx))
+        });
+        vcx.run_until_parked();
+        let importing = daemon.hold::<methods::WorkspaceImport>();
+        let making = daemon.hold::<methods::WorkspaceSave>();
+        vcx.update(|window, cx| {
+            pane.update(cx, |p, cx| {
+                transfer::import(p, WorkspaceSection::Models, window, cx)
+            })
+        });
+        let rpc = stores.connection.read_with(vcx, |c, _| c.rpc());
+        vcx.update(|window, cx| {
+            sheets::new_knowledge(pane.downgrade(), stores.clone(), rpc, window, cx)
+        });
+        vcx.run_until_parked();
+        let form = vcx
+            .update(|_, cx| crate::views::sheet::current::<sheets::FormSheet>(cx))
+            .expect("New Knowledge Base opens");
+        vcx.update(|window, cx| {
+            form.update(cx, |f, cx| {
+                f.set_value(0, "Ridge notes", window, cx);
+                f.confirm(window, cx);
+            })
+        });
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::WorkspaceImport>().len(), 1);
+        switch_account(&stores, vcx);
+        drop(importing);
+        drop(making);
+        vcx.run_until_parked();
+        assert!(
+            stores.toasts.read_with(vcx, |t, _| t.toasts.is_empty()),
+            "Avery's results showed in Blake's workspace"
+        );
+        assert!(
+            pane.read_with(vcx, |p, _| p.editors.is_empty()),
+            "Avery's new knowledge base opened in Blake's workspace"
+        );
+        let _ = std::fs::remove_file(&file);
+    }
+
     /// New Knowledge Base opens in place of the knowledge base shown: its
     /// unsaved edits are asked about first (the bench keeps editing).
     #[gpui_kit::test]

@@ -370,7 +370,9 @@ pub fn new_knowledge(
 ) {
     let l = cx.l10n().clone();
     let window_handle = window.window_handle();
+    let run_stores = stores.clone();
     let run: SheetRun = Rc::new(move |values, cx| {
+        let account = super::active_account(&run_stores, cx);
         let name = values
             .first()
             .cloned()
@@ -413,6 +415,11 @@ pub fn new_knowledge(
                 let id = editor::detail_id(&detail);
                 let _ = window_handle.update(cx, |_, window, cx| {
                     let _ = pane.update(cx, |p, cx| {
+                        // Made under one account: never opened in the next
+                        // one's workspace, over what it shows.
+                        if super::active_account(p.stores(), cx) != account {
+                            return;
+                        }
                         let l = cx.l10n().clone();
                         let toasts = p.stores().toasts.clone();
                         toasts.update(cx, |t, cx| {

@@ -556,8 +556,14 @@ impl PromptEditor {
                 let ask = present_sheet(window, spec, cx);
                 let call_rpc = self.rpc.clone();
                 let version_id = version.id.clone();
+                let stores = self.stores.clone();
+                let account = super::active_account(&stores, cx);
                 cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                     if !ask.await {
+                        return;
+                    }
+                    // Asked under one account: never deleted under the next.
+                    if cx.update(|cx| super::active_account(&stores, cx)) != account {
                         return;
                     }
                     let result = call_rpc
@@ -1136,10 +1142,10 @@ mod tests {
         });
     }
 
-    /// A comparison read under one account is not shown once another
-    /// signs in.
+    /// A comparison read, or a version delete asked, under one account is
+    /// neither shown nor done once another signs in.
     #[gpui_kit::test]
-    fn a_comparison_never_opens_on_another_account(cx: &mut gpui_kit::TestAppContext) {
+    fn nothing_asked_about_a_version_reaches_another_account(cx: &mut gpui_kit::TestAppContext) {
         use crate::views::sheet::bench::{bench, switch_account};
         use crate::views::workspace::editor::bench as editor_bench;
         let (daemon, stores, vcx) = bench(cx);
@@ -1178,8 +1184,13 @@ mod tests {
         vcx.run_until_parked();
         assert!(editor.read_with(vcx, |e, _| e.version("v2").is_some()));
         let held = daemon.hold::<methods::WorkspacePromptDiff>();
+        // Delete is answered "yes" only once the next account signed in.
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
         vcx.update(|window, cx| {
-            editor.update(cx, |e, cx| e.version_command("compare", "v2", window, cx))
+            editor.update(cx, |e, cx| {
+                e.version_command("compare", "v2", window, cx);
+                e.version_command("delete", "v2", window, cx);
+            })
         });
         switch_account(&stores, vcx);
         drop(held);
@@ -1188,6 +1199,12 @@ mod tests {
             vcx.update(|_, cx| crate::views::sheet::current::<sheets::DiffSheet>(cx))
                 .is_none(),
             "Avery's prompt was shown under Blake"
+        );
+        assert!(
+            daemon
+                .calls::<methods::WorkspacePromptDeleteVersion>()
+                .is_empty(),
+            "Avery's version was deleted under Blake"
         );
     }
 
