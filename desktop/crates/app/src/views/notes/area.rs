@@ -210,8 +210,9 @@ impl NotesArea {
         cx.notify();
     }
 
-    /// Saves now what the note shown, and the notes left still saving, have
-    /// not saved; one future per pane that had something to save.
+    /// Quit: the note shown and the notes left still saving save what they
+    /// have not, and their recordings and dictation finish; one future per
+    /// pane that had something to finish.
     fn flush_unsaved(
         &mut self,
         cx: &mut Context<Self>,
@@ -226,7 +227,7 @@ impl NotesArea {
             .cloned()
             .collect::<Vec<_>>()
             .into_iter()
-            .map(|pane| pane.update(cx, |p, cx| p.flush(cx)))
+            .map(|pane| pane.update(cx, |p, cx| p.finish_for_quit(cx)))
             .collect()
     }
 

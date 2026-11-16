@@ -210,6 +210,11 @@ pub struct NotePane {
     saving_rev: Option<(u64, String)>,
     save_again: bool,
     waiters: Vec<futures::channel::oneshot::Sender<()>>,
+    /// Quit waits on these: told once nothing is saving and no recording,
+    /// dictation or recording hand-off is still on its way.
+    quit_waiters: Vec<futures::channel::oneshot::Sender<()>>,
+    /// Recordings sent to conduitd (`notes.addRecording`) not answered yet.
+    recordings_out: u32,
     last_own_save: Option<Instant>,
     /// Saves wait (the E2E).
     hold: bool,
@@ -342,6 +347,8 @@ impl NotePane {
             saving_rev: None,
             save_again: false,
             waiters: vec![],
+            quit_waiters: vec![],
+            recordings_out: 0,
             last_own_save: None,
             hold: false,
             _debounce: None,
@@ -388,13 +395,15 @@ impl NotePane {
                 || self.resolved_title(cx) != self.saved_title)
     }
 
-    /// Still saving, something to save (a failed save's retry too), or a
-    /// recording or dictation still to come in.
+    /// Still saving, something to save (a failed save's retry too), a
+    /// recording or dictation still to come in or on its way to conduitd, or
+    /// a draft held for its account.
     pub fn is_busy(&self) -> bool {
         self.saving_rev.is_some()
             || self._debounce.is_some()
             || self.recorder.is_some()
             || self.run.is_some()
+            || self.recordings_out > 0
             || self.held_for_account
     }
 
@@ -795,7 +804,33 @@ impl NotePane {
         for waiter in self.waiters.drain(..) {
             let _ = waiter.send(());
         }
+        if !self.audio_pending() {
+            for waiter in self.quit_waiters.drain(..) {
+                let _ = waiter.send(());
+            }
+        }
         cx.emit(PaneEvent::Settled);
+    }
+
+    /// A recording or dictation still to come in, or a recording on its way
+    /// to conduitd.
+    fn audio_pending(&self) -> bool {
+        self.recorder.is_some() || self.run.is_some() || self.recordings_out > 0
+    }
+
+    /// Quit: the note is left (a recording and dictation end), what is
+    /// unsaved is saved, and the future resolves once that has landed and
+    /// the recording's audio or the dictation's last words are in.
+    pub fn finish_for_quit(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> impl std::future::Future<Output = ()> + use<> {
+        let (tx, rx) = futures::channel::oneshot::channel();
+        self.quit_waiters.push(tx);
+        self.leave(cx);
+        async move {
+            let _ = rx.await;
+        }
     }
 
     /// Saves now; resolves once the save has landed (or there was nothing
@@ -1231,6 +1266,7 @@ impl NotePane {
     }
 
     fn keep_recording(&mut self, path: std::path::PathBuf, page: String, cx: &mut Context<Self>) {
+        self.recordings_out += 1;
         let call = self
             .rpc
             .call::<methods::NotesAddRecording>(&NoteRecordingAdd {
@@ -1251,6 +1287,11 @@ impl NotePane {
                         log::warn!("notes.addRecording: {e}");
                         this.toast(NoticeLevel::Error, l.desktop_recording_save_failed(), cx);
                     }
+                }
+                this.recordings_out = this.recordings_out.saturating_sub(1);
+                // Quit waits until conduitd has the audio.
+                if this.leaving {
+                    this.settle(cx);
                 }
                 cx.notify();
             });
@@ -3150,7 +3191,7 @@ mod tests {
         assert_eq!(quits.get(), 1);
 
         // A save that never answers holds Quit back 3 s at most.
-        let _held = daemon.hold::<methods::NotesSave>();
+        let held = daemon.hold::<methods::NotesSave>();
         pane.update(vcx, |p, cx| {
             p.editor.update(cx, |e, cx| e.insert_text("again ", cx))
         });
@@ -3164,6 +3205,64 @@ mod tests {
             2,
             "a save that never answered kept the app from quitting"
         );
+        drop(held);
+        vcx.run_until_parked();
+
+        // A dictation still finishing on a saved note: Quit waits for its
+        // last words and their save.
+        pane.update(vcx, |p, _| {
+            p.run = Some(DictationRun {
+                anchor: 0,
+                len: 0,
+                started: false,
+                revision: 0,
+            })
+        });
+        quit(vcx);
+        vcx.run_until_parked();
+        assert_eq!(
+            quits.get(),
+            2,
+            "Quit went before the dictation's last words"
+        );
+        pane.update(vcx, |p, cx| {
+            p.on_dictation(
+                &DictationEvent::Text {
+                    text: "summit".into(),
+                    done: true,
+                },
+                cx,
+            );
+            p.on_dictation(&DictationEvent::Ended { restore: false }, cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(quits.get(), 3);
+        assert!(
+            daemon
+                .calls::<methods::NotesSave>()
+                .last()
+                .is_some_and(|s| s.to_string().contains("summit"))
+        );
+
+        // A recording on its way to conduitd: Quit waits until it has it.
+        daemon.returns::<methods::NotesAddRecording>(conduit_protocol::NoteRecordings {
+            note_id: "n1".into(),
+            recordings: vec![],
+        });
+        let handing = daemon.hold::<methods::NotesAddRecording>();
+        pane.update(vcx, |p, cx| {
+            p.keep_recording("/tmp/take.wav".into(), "main".into(), cx)
+        });
+        quit(vcx);
+        vcx.run_until_parked();
+        assert_eq!(
+            quits.get(),
+            3,
+            "Quit went before conduitd had the recording"
+        );
+        drop(handing);
+        vcx.run_until_parked();
+        assert_eq!(quits.get(), 4);
     }
 
     /// A dictation still finishing when the note is left keeps the pane
