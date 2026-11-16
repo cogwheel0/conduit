@@ -15,6 +15,7 @@ import 'package:conduit_core/features/librechat/models/librechat_session.dart';
 import 'package:conduit_core/features/librechat/services/librechat_api_service.dart';
 import 'package:conduit_core/features/librechat/services/librechat_auth_service.dart';
 import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
+import 'package:conduit_core/providers/account_change_superseded.dart';
 import 'package:conduit_core/features/librechat/services/librechat_http_client.dart';
 import 'package:conduit_core/features/librechat/services/librechat_registry_store.dart';
 import 'package:conduit_core/features/librechat/services/librechat_session_handle.dart';
@@ -452,7 +453,7 @@ final class LibreChatAccounts {
   ///
   /// [stillCurrent], from a sign-in step, is asked after every wait and
   /// last just before the session is written: once it answers false the
-  /// step was superseded, nothing is saved and [LibreChatSignInSuperseded]
+  /// step was superseded, nothing is saved and [AccountChangeSuperseded]
   /// is thrown.
   Future<LibreChatAccount> saveSignedIn({
     required LibreChatServer server,
@@ -463,7 +464,7 @@ final class LibreChatAccounts {
   }) async {
     void requireCurrent() {
       if (stillCurrent != null && !stillCurrent()) {
-        throw const LibreChatSignInSuperseded();
+        throw const AccountChangeSuperseded();
       }
     }
 

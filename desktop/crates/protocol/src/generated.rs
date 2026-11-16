@@ -6616,6 +6616,11 @@ pub struct LibreChatSsoPlan {
     /// The server's path below its origin (`/chat`), or empty.
     #[serde(default)]
     pub base_path: String,
+    /// This start's id. `librechat.completeSso` names it: only the single
+    /// sign-on started last completes, so cookies an older sign-in window
+    /// left put no account in charge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_id: Option<String>,
 }
 
 /// Params for `librechat.completeSso`.
@@ -6629,6 +6634,11 @@ pub struct LibreChatSsoCompletion {
     pub cookies: BTreeMap<String, String>,
     #[serde(default)]
     pub force: bool,
+    /// `LibreChatSsoPlan.startId` of the start these cookies came from. A
+    /// completion naming another start, or none, is refused with
+    /// `LibreChatSignInOutcome.expired`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_id: Option<String>,
 }
 
 /// How a sign-in step went.

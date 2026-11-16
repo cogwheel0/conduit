@@ -2,8 +2,7 @@ import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
-import 'package:conduit_core/features/librechat/services/librechat_errors.dart'
-    show LibreChatSignInSuperseded;
+import 'package:conduit_core/providers/account_change_superseded.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -132,22 +131,23 @@ final class PrimaryAccountSwitcher {
 
   /// Makes LibreChat account [accountId] the primary account.
   ///
-  /// A sign-in step passes [onlyFrom], the account in charge when it began,
-  /// and [stillCurrent]: at its turn the switch goes ahead only from that
-  /// account, and [stillCurrent] is asked again after each wait, last just
-  /// before the account is put in charge. A step superseded by then moves
-  /// nothing (Open WebUI is taken back out of its park) and the switch
-  /// throws [LibreChatSignInSuperseded].
+  /// [stillFrom] is asked at the switch's turn, once the switches before it
+  /// are done and before anything changes: whether the account it was asked
+  /// over is still the one in charge. A sign-in step also passes
+  /// [stillCurrent], asked then and again after each wait, last just before
+  /// the account is put in charge. Either answering false moves nothing
+  /// (Open WebUI is taken back out of its park) and the switch throws
+  /// [AccountChangeSuperseded].
   Future<PrimarySwitchResult> useLibreChat(
     String accountId, {
     bool force = false,
-    PrimaryAccountRef? onlyFrom,
+    bool Function()? stillFrom,
     bool Function()? stillCurrent,
   }) => _afterLastSwitch(
     () => _useLibreChat(
       accountId,
       force: force,
-      onlyFrom: onlyFrom,
+      stillFrom: stillFrom,
       stillCurrent: stillCurrent,
     ),
   );
@@ -158,7 +158,7 @@ final class PrimaryAccountSwitcher {
     String accountId, {
     required bool force,
     bool Function()? stillWanted,
-    PrimaryAccountRef? onlyFrom,
+    bool Function()? stillFrom,
     bool Function()? stillCurrent,
   }) async {
     bool current() => stillCurrent?.call() ?? true;
@@ -167,8 +167,8 @@ final class PrimaryAccountSwitcher {
       return PrimarySwitchResult.unknownAccount;
     }
     final from = _ref.read(primaryAccountProvider);
-    if ((onlyFrom != null && from != onlyFrom) || !current()) {
-      throw const LibreChatSignInSuperseded();
+    if (!(stillFrom?.call() ?? true) || !current()) {
+      throw const AccountChangeSuperseded();
     }
     final to = PrimaryAccountRef(PrimaryAccountKind.libreChat, accountId);
     if (from == to) return PrimarySwitchResult.done;
@@ -179,14 +179,14 @@ final class PrimaryAccountSwitcher {
     await PrimarySwitchIntent(from: from, to: to).write();
     if (!current()) {
       await PrimarySwitchIntent.clear();
-      throw const LibreChatSignInSuperseded();
+      throw const AccountChangeSuperseded();
     }
     if (from.kind == PrimaryAccountKind.openWebUi) {
       await _parkOpenWebUi();
       if (!current()) {
         await _takeOpenWebUiBack(from);
         await PrimarySwitchIntent.clear();
-        throw const LibreChatSignInSuperseded();
+        throw const AccountChangeSuperseded();
       }
     }
     await _ref.read(libreChatRegistryProvider.notifier).setActive(accountId);
@@ -220,19 +220,34 @@ final class PrimaryAccountSwitcher {
 
   /// Makes Open WebUI account [accountId] the primary account, un-parking
   /// Open WebUI. Its saved session is taken up when it still has one.
+  ///
+  /// [stillFrom], as for [useLibreChat]: asked at the switch's turn, and
+  /// after the saved accounts are read, before anything changes.
   Future<PrimarySwitchResult> useOpenWebUi(
     String accountId, {
     bool force = false,
-  }) => _afterLastSwitch(() => _useOpenWebUi(accountId, force: force));
+    bool Function()? stillFrom,
+  }) => _afterLastSwitch(
+    () => _useOpenWebUi(accountId, force: force, stillFrom: stillFrom),
+  );
 
   Future<PrimarySwitchResult> _useOpenWebUi(
     String accountId, {
     required bool force,
     bool Function()? stillWanted,
+    bool Function()? stillFrom,
   }) async {
+    void requireFrom() {
+      if (!(stillFrom?.call() ?? true)) {
+        throw const AccountChangeSuperseded();
+      }
+    }
+
+    requireFrom();
     final saved = await _ref
         .read(optimizedStorageServiceProvider)
         .getServerConfigsStrict();
+    requireFrom();
     if (!saved.any((account) => account.id == accountId)) {
       return PrimarySwitchResult.unknownAccount;
     }
@@ -241,7 +256,7 @@ final class PrimaryAccountSwitcher {
     if (from.kind == PrimaryAccountKind.openWebUi) {
       final result = await _ref
           .read(openWebUiAccountsControllerProvider)
-          .switchTo(accountId, force: force);
+          .switchTo(accountId, force: force, stillFrom: stillFrom);
       return result == OpenWebUiAccountChangeResult.blockedByActiveReply
           ? PrimarySwitchResult.blockedByActiveReply
           : PrimarySwitchResult.done;

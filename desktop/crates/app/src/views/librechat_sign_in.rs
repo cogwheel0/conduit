@@ -366,6 +366,9 @@ impl LibreChatSignInView {
                 if this.read_with(cx, |s, _| s.round != round).unwrap_or(true) {
                     return;
                 }
+                // The start these cookies belong to: conduitd completes only
+                // the single sign-on it started last.
+                let start_id = plan.start_id.clone();
                 let Ok(outcome) = cx.update(|_, cx| run_librechat_sso(plan, title, cx)) else {
                     return;
                 };
@@ -390,7 +393,7 @@ impl LibreChatSignInView {
                     }
                 };
                 let _ = this.update_in(cx, |s, window, cx| {
-                    s.complete_sso(round, server.base_url, cookies, window, cx)
+                    s.complete_sso(round, server.base_url, cookies, start_id, window, cx)
                 });
             },
         )
@@ -404,6 +407,7 @@ impl LibreChatSignInView {
         round: u64,
         url: String,
         cookies: BTreeMap<String, String>,
+        start_id: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -418,6 +422,7 @@ impl LibreChatSignInView {
                 url,
                 cookies,
                 force: false,
+                start_id,
             });
         cx.spawn_in(
             window,
@@ -564,7 +569,16 @@ impl LibreChatSignInView {
                 if let Ok(result) = task.await
                     && result.outcome != AccountChangeOutcome::BlockedByActiveReply
                 {
-                    let _ = this.update(cx, |s, cx| s.signed_in(cx));
+                    // The switch stands; the form tells it signed in only
+                    // when it has not started over meanwhile.
+                    let _ = this.update(cx, |s, cx| {
+                        if s.round == round {
+                            s.signed_in(cx);
+                        } else {
+                            s.stores.accounts.update(cx, |a, cx| a.refresh(cx));
+                            s.stores.session.update(cx, |s, cx| s.refresh(cx));
+                        }
+                    });
                 }
             },
         )
@@ -968,6 +982,8 @@ fn switch_while_in_charge(
     account_id: String,
     cx: &mut App,
 ) -> Option<Task<Result<AccountChangeResult, RpcError>>> {
+    // No account recorded (the list was not there): nothing is sent.
+    asked_over.as_ref()?;
     stores.accounts.update(cx, |a, cx| {
         (a.scope_key() == *asked_under).then(|| {
             a.change_asked_over(AccountChange::Switch { account_id }, true, asked_over, cx)
@@ -998,6 +1014,7 @@ mod tests {
                 round,
                 "https://harbour.example.org".into(),
                 cookies,
+                Some("sso-start-1".into()),
                 window,
                 cx,
             )
@@ -1054,6 +1071,15 @@ mod tests {
         let now = vcx.update(|_, cx| stores.accounts.read(cx).scope_key());
         let over = vcx.update(|_, cx| stores.accounts.read(cx).in_charge_id());
         assert!(over.is_some());
+        // No account recorded when the question opened (the list was not
+        // there): nothing is sent, whatever the list says now.
+        let sent = vcx.update(|_, cx| {
+            switch_while_in_charge(&stores, &now, None, "lc-harbour".into(), cx).is_some()
+        });
+        assert!(
+            !sent,
+            "a forced switch went out with no account it was asked over"
+        );
         let sent = vcx.update(|_, cx| {
             switch_while_in_charge(&stores, &now, over.clone(), "lc-harbour".into(), cx).is_some()
         });
@@ -1068,7 +1094,46 @@ mod tests {
         );
     }
 
-    /// A probe of the last address, answered after the form started over
+    /// Switch Anyway whose switch lands after the form started over tells
+    /// that newer form nothing: the switch stands, the form is not done.
+    #[gpui_kit::test]
+    fn a_switch_landing_after_the_form_started_over_signs_nothing_in(cx: &mut TestAppContext) {
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        daemon.returns::<methods::AccountsSwitch>(
+            serde_json::from_value::<AccountChangeResult>(serde_json::json!({
+                "outcome": "done",
+                "accounts": {"accounts": []},
+            }))
+            .unwrap(),
+        );
+        let held = daemon.hold::<methods::AccountsSwitch>();
+        let view = vcx
+            .update(|window, cx| cx.new(|cx| LibreChatSignInView::new(stores.clone(), window, cx)));
+        let signed_in = std::rc::Rc::new(std::cell::Cell::new(false));
+        let seen = signed_in.clone();
+        let _watch = vcx.update(|_, cx| {
+            cx.subscribe(&view, move |_, e: &LibreChatSignInEvent, _| {
+                if matches!(e, LibreChatSignInEvent::SignedIn) {
+                    seen.set(true);
+                }
+            })
+        });
+        let blocked: LibreChatSignInResult = serde_json::from_value(serde_json::json!({
+            "outcome": "blockedByActiveReply",
+            "accountId": "lc-harbour",
+        }))
+        .unwrap();
+        view.update_in(vcx, |v, window, cx| v.finish(Ok(blocked), window, cx));
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::AccountsSwitch>().len(), 1);
+        view.update_in(vcx, |v, window, cx| v.reset(window, cx));
+        held.release();
+        vcx.run_until_parked();
+        assert!(!signed_in.get(), "the newer form was told it signed in");
+    }
+
+    /// A probe of the last address, answered after the form started over    /// A probe of the last address, answered after the form started over
     /// at another, never puts its server under the new address: the
     /// password goes only to the server the form now shows.
     #[gpui_kit::test]

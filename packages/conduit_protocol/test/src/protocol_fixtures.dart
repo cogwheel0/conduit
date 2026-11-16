@@ -1581,10 +1581,12 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     startUrl: 'https://chat.example.org/oauth/openid',
     cookieUrl: 'https://chat.example.org/',
     serverOrigins: <String>['https://chat.example.org'],
+    startId: 'sso-start-1',
   ),
   'libreChatSsoCompletion': const LibreChatSsoCompletion(
     url: 'https://chat.example.org',
     cookies: <String, String>{'refreshToken': 'r1', 'token_provider': 'openid'},
+    startId: 'sso-start-1',
   ),
   'libreChatSignInResult': const LibreChatSignInResult(
     outcome: LibreChatSignInOutcome.twoFactorRequired,

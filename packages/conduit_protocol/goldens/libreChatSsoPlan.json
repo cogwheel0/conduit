@@ -4,5 +4,6 @@
   "serverOrigins": [
     "https://chat.example.org"
   ],
-  "basePath": ""
+  "basePath": "",
+  "startId": "sso-start-1"
 }

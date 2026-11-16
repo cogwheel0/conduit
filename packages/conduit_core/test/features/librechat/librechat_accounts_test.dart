@@ -10,6 +10,7 @@ import 'package:conduit_core/features/librechat/models/librechat_session.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/features/librechat/services/librechat_auth_service.dart';
 import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
+import 'package:conduit_core/providers/account_change_superseded.dart';
 import 'package:conduit_core/features/librechat/services/librechat_registry_store.dart';
 import 'package:conduit_core/features/librechat/services/librechat_session_store.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
@@ -741,7 +742,7 @@ void main() {
         activate: false,
         stillCurrent: () => current,
       );
-      final refused = check(signingIn).throws<LibreChatSignInSuperseded>();
+      final refused = check(signingIn).throws<AccountChangeSuperseded>();
       await pumpEventQueue();
 
       // A newer sign-in step begins while this one waits for the sign-out.

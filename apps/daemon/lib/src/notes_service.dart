@@ -31,6 +31,7 @@ import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:riverpod/riverpod.dart';
 
+import 'account_scope.dart';
 import 'event_bus.dart';
 import 'settled.dart';
 
@@ -136,7 +137,8 @@ final class NotesService {
     // The account it is read under, with its database: a read answered
     // after another account became active is refused, never shown or
     // remembered as that account's.
-    final scope = currentPreferenceAccountId();
+    final account = AccountScope.capture(_container);
+    final scope = account.preferenceAccount;
     final db = _container.read(appDatabaseProvider);
     final access = await _access();
     if (db != null) {
@@ -147,7 +149,7 @@ final class NotesService {
       final row = await db.notesDao.getNote(id);
       if (row != null && row.deleted) return null;
       if (row != null && (row.dirtyTitle || row.dirtyData || row.dirtyPinned)) {
-        _requireStill(scope, id);
+        account.require('note $id was read');
         return _detail(
           Note.fromJson(noteRowToServer(row)),
           access,
@@ -161,7 +163,7 @@ final class NotesService {
     _container.invalidate(noteByIdProvider(id));
     try {
       final note = await readSettled(_container, noteByIdProvider(id).future);
-      _requireStill(scope, id);
+      account.require('note $id was read');
       return note == null
           ? null
           : _detail(note, access, pageId: pageId, scope: scope);
@@ -373,7 +375,8 @@ final class NotesService {
   Future<NoteDetail> save(NoteSave request) async {
     // The account the save was asked under, before any wait: a new note is
     // made under it or not at all.
-    final scope = currentPreferenceAccountId();
+    final account = AccountScope.capture(_container);
+    final scope = account.preferenceAccount;
     // The editor's own account, when it says: another one active (a switch
     // this side has made and the window not yet heard of) takes nothing.
     _requireExpected(request.accountId, request.id);
@@ -394,7 +397,7 @@ final class NotesService {
     if (id == null) {
       // Save as My Own Note, begun under another account than the one
       // active now: the draft is not made into this account's note.
-      _requireStill(scope, 'a new note');
+      account.require('a new note was made');
     } else {
       // A note opened under another account is written by no path (a
       // rename, the core's updater, the text): its draft stays with the
@@ -540,17 +543,17 @@ final class NotesService {
   /// The account a recording request for note [id] comes under, captured
   /// before anything is awaited: refused at once when the note was handed
   /// out under another one.
-  String? _recordingAccount(String id) {
+  AccountScope _recordingAccount(String id) {
     _requireOpenedHere(id);
-    return currentPreferenceAccountId();
+    return AccountScope.capture(_container);
   }
 
   /// Refuses a recording request for note [id] begun under [account] once
   /// another account is active -- also for a note this daemon never handed
   /// out (it restarted under an open editor) -- or once the note was handed
   /// out under another account meanwhile.
-  void _requireRecordingStill(String id, String? account) {
-    _requireStill(account, id);
+  void _requireRecordingStill(String id, AccountScope account) {
+    account.require('a request for note $id answered');
     _requireOpenedHere(id);
   }
 
@@ -562,17 +565,6 @@ final class NotesService {
       code: ConduitErrorCodes.sessionExpired,
       args: const <String, String>{'reason': 'account'},
       debugMessage: 'note ${id ?? '(new)'} is for another account',
-    );
-  }
-
-  /// Refuses a read of note [id] begun under [scope] once another account
-  /// is active.
-  void _requireStill(String? scope, String id) {
-    if (scope == currentPreferenceAccountId()) return;
-    throw RpcError(
-      code: ConduitErrorCodes.sessionExpired,
-      args: const <String, String>{'reason': 'account'},
-      debugMessage: 'note $id was read under another account',
     );
   }
 
@@ -742,6 +734,9 @@ final class NotesService {
       file,
       pageId: request.pageId,
     );
+    // Another account may have opened and listed this note id meanwhile:
+    // its list is not this request's answer.
+    _requireRecordingStill(request.noteId, account);
     if (!staged) {
       throw const RpcError(
         code: ConduitErrorCodes.serverError,

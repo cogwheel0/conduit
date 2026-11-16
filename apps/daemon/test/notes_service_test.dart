@@ -16,9 +16,14 @@ import 'package:conduit_core/models/note.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/paths_port.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show PrimaryAccountKind;
+import 'package:conduit_core/providers/primary_account_providers.dart'
+    show PrimaryAccountRef, primaryAccountProvider;
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -29,6 +34,7 @@ import 'package:dio/dio.dart' show CancelToken;
 import 'package:drift/drift.dart'
     show QueryExecutor, QueryInterceptor, ApplyInterceptor, Value, driftRuntimeOptions;
 import 'package:drift/native.dart';
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -64,6 +70,9 @@ void main() {
           appDatabaseProvider.overrideWith((ref) => active),
           notesListProvider.overrideWith(_NoNotes.new),
           currentUserProvider2.overrideWithValue(null),
+          // Who is in charge, as the account scope reads it; the switches
+          // below move the active account's preference.
+          ..._signedIn,
           workspaceCapabilitiesProvider.overrideWith((ref) async {
             if (rightsAsked case final asked? when !asked.isCompleted) {
               asked.complete();
@@ -386,6 +395,7 @@ void main() {
         apiServiceProvider.overrideWith((ref) => api),
         isAuthenticatedProvider2.overrideWithValue(true),
         currentUserProvider2.overrideWithValue(_ren),
+        ..._signedIn,
         workspaceCapabilitiesProvider.overrideWith(
           (ref) async => throw StateError('offline'),
         ),
@@ -452,7 +462,111 @@ void main() {
     expect(listed.recordings, hasLength(1));
     expect(changed, contains(id));
   });
+  test('a recording kept while another account took charge is not this '
+      'request\'s to list', () async {
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    PreferencesStore.debugOverride(InMemoryKeyValueStore());
+    addTearDown(PreferencesStore.debugReset);
+    await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-a');
+    final api = _OfflineApi();
+    addTearDown(api.dispose);
+    final container = ProviderContainer(
+      overrides: [
+        appDatabaseProvider.overrideWith((ref) => db),
+        notesListProvider.overrideWith(_NoNotes.new),
+        apiServiceProvider.overrideWith((ref) => api),
+        isAuthenticatedProvider2.overrideWithValue(true),
+        currentUserProvider2.overrideWithValue(_ren),
+        ..._signedIn,
+        workspaceCapabilitiesProvider.overrideWith(
+          (ref) async => throw StateError('offline'),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await db
+        .into(db.notes)
+        .insert(
+          serverToNoteRow(<String, dynamic>{
+            'id': 'kiln-log',
+            'title': 'Kiln log',
+            'data': <String, dynamic>{
+              'content': <String, dynamic>{'md': 'Cone 6, slow cool'},
+            },
+            'created_at': 1,
+            'updated_at': 1,
+          }).copyWith(dirtyData: const Value(true)),
+        );
+    final dir = await Directory.systemTemp.createTemp('conduit-notes-rec-');
+    addTearDown(() => dir.delete(recursive: true));
+    final paths = _HeldPaths(DaemonDirectories.create(dir.path));
+    final notes = NotesService(container, paths: paths);
+    addTearDown(notes.dispose);
+    expect((await notes.get('kiln-log'))?.summary.title, 'Kiln log');
+    // The note's recorder is made under A, and settles.
+    await notes.removeRecording(
+      const NoteRecordingRef(noteId: 'kiln-log', id: 'take-0'),
+    );
+    await pumpEventQueue();
+
+    // A recording is kept; while it is written, B becomes active.
+    final take = File('${dir.path}/take.m4a')..writeAsBytesSync([1, 2, 3]);
+    final release = paths.hold();
+    final adding = notes.addRecording(
+      NoteRecordingAdd(noteId: 'kiln-log', path: take.path),
+    );
+    await paths.asked;
+    await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
+    release.complete();
+    await expectLater(
+      adding,
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+    );
+  });
 }
+
+/// A daemon's directories whose next application-support lookup waits once
+/// [hold] is called: [asked] completes as it arrives.
+final class _HeldPaths implements PathsPort {
+  _HeldPaths(this._inner);
+
+  final PathsPort _inner;
+  Completer<void>? _release;
+  final Completer<void> _asked = Completer<void>();
+
+  Future<void> get asked => _asked.future;
+
+  Completer<void> hold() => _release = Completer<void>();
+
+  @override
+  Future<Directory> applicationSupport() async {
+    final release = _release;
+    if (release != null) {
+      _release = null;
+      _asked.complete();
+      await release.future;
+    }
+    return _inner.applicationSupport();
+  }
+
+  @override
+  Future<Directory> cache() => _inner.cache();
+
+  @override
+  Future<Directory> logs() => _inner.logs();
+
+  @override
+  Future<Directory> staging() => _inner.staging();
+}
+
 
 const _ren = User(
   id: 'user-ren',
@@ -518,3 +632,13 @@ final class _ReadGate extends QueryInterceptor {
     return executor.runSelect(statement, args);
   }
 }
+
+/// The account in charge and its session, for services the account scope
+/// checks, without the core's storage behind them.
+final _session = Object();
+final _signedIn = <Override>[
+  primaryAccountProvider.overrideWith(
+    (ref) => const PrimaryAccountRef(PrimaryAccountKind.openWebUi, 'server-a'),
+  ),
+  openWebUiAuthSessionEpochProvider.overrideWith((ref) => _session),
+];

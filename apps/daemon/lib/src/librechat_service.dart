@@ -17,6 +17,7 @@ import 'package:conduit_core/features/librechat/services/librechat_api_service.d
 import 'package:conduit_core/features/librechat/services/librechat_auth_service.dart'
     show LibreChatAuthService, LibreChatSignedIn, LibreChatTwoFactorRequired;
 import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
+import 'package:conduit_core/providers/account_change_superseded.dart';
 import 'package:conduit_core/features/librechat/services/librechat_probe.dart'
     show
         LibreChatProbeFound,
@@ -26,13 +27,12 @@ import 'package:conduit_core/features/librechat/services/librechat_probe.dart'
 import 'package:conduit_core/features/librechat/services/librechat_sso.dart';
 import 'package:conduit_core/models/model.dart' as core;
 import 'package:conduit_core/providers/app_providers.dart' show modelsProvider;
-import 'package:conduit_core/providers/primary_account_providers.dart'
-    show PrimaryAccountRef, primaryAccountProvider;
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import 'account_scope.dart';
 import 'accounts_service.dart';
 import 'event_bus.dart';
 import 'models_service.dart' show currentModel;
@@ -87,25 +87,26 @@ final class LibreChatService {
   /// on in the round of the step that began it.
   int _signInRound = 0;
 
-  /// The round and account in charge of the single sign-on started last;
-  /// its completion goes ahead only in that round, under that account.
-  _Begun? _ssoStarted;
+  /// The single sign-on started last: its id, round and account; only its
+  /// completion goes ahead, in that round, under that account.
+  ({String id, _Begun begun})? _ssoStarted;
 
-  /// A newer sign-in begins: the ones before it are superseded.
+  /// A newer sign-in begins: the ones before it are superseded. Captured
+  /// before the step's first wait.
   _Begun _beginSignIn() {
     _flows.clear();
     _ssoStarted = null;
     return (
       round: ++_signInRound,
-      primary: _container.read(primaryAccountProvider),
+      account: AccountScope.capture(_container),
     );
   }
 
   /// Whether a step [begun] is still the sign-in under way: no newer one
-  /// began, and the account in charge is the one it began under.
+  /// began, and the account in charge is the one it began under (no account
+  /// change at all since).
   bool _current(_Begun begun) =>
-      begun.round == _signInRound &&
-      _container.read(primaryAccountProvider) == begun.primary;
+      begun.round == _signInRound && begun.account.isCurrent;
 
   // -------------------------------------------------------------------------
   // Probe
@@ -278,7 +279,8 @@ final class LibreChatService {
   /// follows too).
   Future<LibreChatSsoPlan> ssoStart(LibreChatSsoStart request) async {
     final begun = _beginSignIn();
-    _ssoStarted = begun;
+    final startId = _uuid.v4();
+    _ssoStarted = (id: startId, begun: begun);
     final target = await _server(request.url);
     if (target == null) {
       throw RpcError(
@@ -309,6 +311,7 @@ final class LibreChatService {
       cookieUrl: libreChatSsoCookieUrl(base).toString(),
       serverOrigins: <String>[base.origin],
       basePath: path,
+      startId: startId,
     );
   }
 
@@ -318,8 +321,12 @@ final class LibreChatService {
   Future<LibreChatSignInResult> completeSso(
     LibreChatSsoCompletion request,
   ) async {
-    final begun = _ssoStarted;
-    if (begun == null || !_current(begun)) return _superseded;
+    final started = _ssoStarted;
+    // Cookies from another start than the one started last (an older
+    // sign-in window), or naming none, put no account in charge.
+    if (started == null || started.id != request.startId) return _superseded;
+    final begun = started.begun;
+    if (!_current(begun)) return _superseded;
     final target = await _server(request.url);
     if (target == null) {
       return const LibreChatSignInResult(
@@ -381,7 +388,7 @@ final class LibreChatService {
             activate: false,
             stillCurrent: () => _current(begun),
           );
-    } on LibreChatSignInSuperseded {
+    } on AccountChangeSuperseded {
       return _superseded;
     } on Object catch (error, stackTrace) {
       return _failure(error, stackTrace);
@@ -393,10 +400,10 @@ final class LibreChatService {
       result = await _accounts.useLibreChat(
         account.id,
         force: force,
-        onlyFrom: begun.primary,
+        scope: begun.account,
         stillCurrent: () => begun.round == _signInRound,
       );
-    } on LibreChatSignInSuperseded {
+    } on AccountChangeSuperseded {
       return _superseded;
     }
     return LibreChatSignInResult(
@@ -634,7 +641,7 @@ final class LibreChatService {
 }
 
 /// A sign-in's round and the account in charge when it began.
-typedef _Begun = ({int round, PrimaryAccountRef primary});
+typedef _Begun = ({int round, AccountScope account});
 
 final class _TwoFactorFlow {
   _TwoFactorFlow({

@@ -3172,7 +3172,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "serverOrigins": [
     "https://chat.example.org"
   ],
-  "basePath": ""
+  "basePath": "",
+  "startId": "sso-start-1"
 }''',
 
   'libreChatSsoCompletion': r'''
@@ -3182,7 +3183,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     "refreshToken": "r1",
     "token_provider": "openid"
   },
-  "force": false
+  "force": false,
+  "startId": "sso-start-1"
 }''',
 
   'libreChatSignInResult': r'''

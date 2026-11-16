@@ -170,7 +170,7 @@ void main() {
       ..['openidLoginEnabled'] = true;
     final user = bench.fake.addUser(email: _casey, password: 'pw-casey');
     bench.fake.refreshTokens['refresh-from-the-browser'] = user.id;
-    await bench.service.ssoStart(
+    final plan = await bench.service.ssoStart(
       LibreChatSsoStart(url: bench.fake.baseUrl, provider: 'openid'),
     );
 
@@ -180,6 +180,7 @@ void main() {
       LibreChatSsoCompletion(
         url: bench.fake.baseUrl,
         cookies: const {'refreshToken': 'refresh-from-the-browser'},
+        startId: plan.startId,
       ),
     );
     expect(done.outcome, LibreChatSignInOutcome.expired);
@@ -222,6 +223,117 @@ void main() {
     );
     expect(bench.owuiSwitches, <String>['owui-3']);
   });
+
+  test('cookies from an older single sign-on window put no account in '
+      'charge', () async {
+    bench.fake.startupConfig
+      ..['socialLoginEnabled'] = true
+      ..['openidLoginEnabled'] = true;
+    final user = bench.fake.addUser(email: _casey, password: 'pw-casey');
+    bench.fake.refreshTokens['refresh-from-the-first-window'] = user.id;
+    bench.fake.refreshTokens['refresh-from-the-second-window'] = user.id;
+    const start = LibreChatSsoStart(
+      url: 'https://chat.example.com',
+      provider: 'openid',
+    );
+    final first = await bench.service.ssoStart(start);
+    final second = await bench.service.ssoStart(start);
+    expect(first.startId, isNotNull);
+    expect(second.startId, isNot(first.startId));
+
+    // The first window finishes last: its cookies are not the newer start's.
+    final stale = await bench.service.completeSso(
+      LibreChatSsoCompletion(
+        url: bench.fake.baseUrl,
+        cookies: const {'refreshToken': 'refresh-from-the-first-window'},
+        startId: first.startId,
+      ),
+    );
+    expect(stale.outcome, LibreChatSignInOutcome.expired);
+    expect((await bench.registry()).accounts, isEmpty);
+    expect(bench.preferred(), PreferredBackend.owui);
+
+    final done = await bench.service.completeSso(
+      LibreChatSsoCompletion(
+        url: bench.fake.baseUrl,
+        cookies: const {'refreshToken': 'refresh-from-the-second-window'},
+        startId: second.startId,
+      ),
+    );
+    expect(done.outcome, LibreChatSignInOutcome.signedIn);
+  });
+
+  test('a forced switch that names no account it was asked over is '
+      'refused', () async {
+    await expectLater(
+      bench.accounts.switchTo(
+        const AccountRef(accountId: 'owui-3', force: true),
+      ),
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.invalidParams,
+        ),
+      ),
+    );
+    expect(bench.owuiSwitches, isEmpty);
+    expect(bench.stops, 0);
+  });
+
+  test('a forced switch whose account left charge while it waited its turn '
+      'is refused at its turn, and stops nothing', () async {
+    final signedIn = await bench.service.signIn(
+      LibreChatSignIn(
+        url: bench.fake.baseUrl,
+        email: _avery,
+        password: 'pw-avery',
+      ),
+    );
+    expect(signedIn.outcome, LibreChatSignInOutcome.signedIn);
+    final avery = signedIn.accountId!;
+    bench.owuiSwitches.clear();
+    final stopsBefore = bench.stops;
+
+    // Another switch holds the queue while both are asked for, over avery.
+    final release = Completer<void>();
+    var holding = true;
+    final queued = bench.container
+        .read(primaryAccountSwitcherProvider)
+        .handOverUnclaimedTab(
+          unclaimed: () => holding,
+          candidates: () async {
+            await release.future;
+            holding = false;
+            return (libreChatId: null, openWebUiId: null);
+          },
+        );
+    final first = bench.accounts.switchTo(
+      AccountRef(accountId: 'owui-2', force: true, askedOver: avery),
+    );
+    final second = bench.accounts.switchTo(
+      AccountRef(accountId: 'owui-3', force: true, askedOver: avery),
+    );
+    final refusedLater = expectLater(
+      second,
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+    );
+    await pumpEventQueue();
+    expect(bench.owuiSwitches, isEmpty, reason: 'both wait their turn');
+    release.complete();
+    expect(await queued, isFalse);
+
+    await first;
+    await refusedLater;
+    expect(bench.owuiSwitches, <String>['owui-2']);
+    expect(bench.stops - stopsBefore, 1, reason: 'the second stopped answers');
+  });
 }
 
 const _avery = 'avery@example.com';
@@ -260,6 +372,7 @@ final class _OpenWebUiAccounts extends OpenWebUiAccountsController {
   Future<OpenWebUiAccountChangeResult> switchTo(
     String accountId, {
     bool force = false,
+    bool Function()? stillFrom,
   }) async {
     switches.add(accountId);
     await storage.switchActiveServer(
@@ -283,6 +396,7 @@ final class _Bench {
     this.accounts,
     this.service,
     this.owuiSwitches,
+    this._stops,
   );
 
   final Directory _tempDir;
@@ -293,6 +407,10 @@ final class _Bench {
   final AccountsService accounts;
   final LibreChatService service;
   final List<String> owuiSwitches;
+
+  /// Times a switch stopped the answers being written.
+  int get stops => _stops.value;
+  final _Count _stops;
 
   PreferredBackend preferred() => container.read(preferredBackendProvider);
 
@@ -377,6 +495,7 @@ final class _Bench {
       ..addUser(email: _avery, password: 'pw-avery')
       ..addUser(email: _blake, password: 'pw-blake');
     final switches = <String>[];
+    final stops = _Count();
     late _Auth auth;
     final container = ProviderContainer(
       overrides: [
@@ -388,7 +507,7 @@ final class _Bench {
           (ref) => _OpenWebUiAccounts(ref, storage, switches),
         ),
         accountChangeReplyGuardProvider.overrideWithValue(() => false),
-        accountChangeStopRepliesProvider.overrideWithValue(() {}),
+        accountChangeStopRepliesProvider.overrideWithValue(() => stops.value++),
         libreChatHttpAdapterProvider.overrideWithValue(fake),
       ],
       retry: (_, _) => null,
@@ -410,6 +529,7 @@ final class _Bench {
       accounts,
       service,
       switches,
+      stops,
     );
   }
 
@@ -420,4 +540,8 @@ final class _Bench {
     await Hive.close();
     if (_tempDir.existsSync()) _tempDir.deleteSync(recursive: true);
   }
+}
+
+final class _Count {
+  int value = 0;
 }

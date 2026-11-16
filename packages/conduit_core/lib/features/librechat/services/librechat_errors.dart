@@ -121,13 +121,3 @@ final class LibreChatIllegalRequestException extends LibreChatApiException {
         trimmed.contains('Illegal request');
   }
 }
-
-/// A sign-in step that a newer one superseded, or that began under another
-/// account than the one in charge when it came to save or switch: it saved
-/// and switched nothing.
-final class LibreChatSignInSuperseded implements Exception {
-  const LibreChatSignInSuperseded();
-
-  @override
-  String toString() => 'LibreChatSignInSuperseded';
-}
