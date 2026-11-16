@@ -2711,11 +2711,19 @@ void main() {
         "the server's terminal: live changes, a preview, Computer",
         () async {
           final events = EventBus();
-          final seen = <TerminalChanged>[];
+          final portsSeen = Completer<TerminalChanged>();
+          var filesSeen = Completer<void>();
+          var count = 0;
           events
             ..attach('window', (e) {
-              if (e.event == ConduitEvents.terminalChanged) {
-                seen.add(TerminalChanged.fromJson(e.payload));
+              if (e.event != ConduitEvents.terminalChanged) return;
+              count++;
+              final changed = TerminalChanged.fromJson(e.payload);
+              if (changed.ports != null && !portsSeen.isCompleted) {
+                portsSeen.complete(changed);
+              }
+              if (changed.files && !filesSeen.isCompleted) {
+                filesSeen.complete();
               }
             })
             ..subscribe(
@@ -2743,13 +2751,11 @@ void main() {
             TerminalWatch(handle: handle, path: '/home/demo'),
           );
           expect(watching.live, isTrue);
-          await _waitFor(() => seen.any((c) => c.ports != null), seconds: 15);
-          expect(
-            seen.firstWhere((c) => c.ports != null).ports!.single.port,
-            5173,
-          );
+          expect((await portsSeen.future).ports!.single.port, 5173);
           final folder =
               '/home/demo/live-${DateTime.now().millisecondsSinceEpoch}';
+          // Only the folder's own change counts: the wait starts here.
+          filesSeen = Completer<void>();
           await terminals.fileAction(
             TerminalFileAction(
               handle: handle,
@@ -2757,8 +2763,20 @@ void main() {
               path: folder,
             ),
           );
-          await _waitFor(() => seen.any((c) => c.files), seconds: 15);
-          expect(seen.any((c) => c.files), isTrue);
+          addTearDown(() async {
+            try {
+              await terminals.fileAction(
+                TerminalFileAction(
+                  handle: handle,
+                  op: TerminalFileOp.delete,
+                  path: folder,
+                ),
+              );
+            } on RpcError {
+              // Gone already, or the handle went with the test's end.
+            }
+          });
+          await filesSeen.future;
           await terminals.fileAction(
             TerminalFileAction(
               handle: handle,
@@ -2802,9 +2820,9 @@ void main() {
           expect(await utf8.decoder.bind(css).join(), contains('font:'));
 
           await terminals.detach(handle);
-          final count = seen.length;
+          final before = count;
           await terminals.detach(handle);
-          expect(seen.length, count);
+          expect(count, before);
 
           // Computer: the desktop streams through a relay that holds the
           // token; the viewer's own auth carries none.
