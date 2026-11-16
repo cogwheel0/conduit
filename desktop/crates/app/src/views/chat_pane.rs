@@ -84,6 +84,9 @@ pub struct ChatPane {
     starting: bool,
     /// The active account the composer's attachments belong to.
     account: Option<String>,
+    /// The read-only notice's Continue Here or Continue in a Copy is on its
+    /// way: its buttons wait.
+    hermes_continuing: bool,
     /// A new chat's first send handing over to its transcript: when it
     /// began, and the greeting that fades out (see [`Handoff`]).
     handoff: Option<Handoff>,
@@ -407,6 +410,7 @@ impl ChatPane {
             chat: None,
             starting: false,
             account,
+            hermes_continuing: false,
             handoff: None,
             handoff_ask: None,
             handoff_settled: Default::default(),
@@ -678,6 +682,11 @@ impl ChatPane {
     /// Follows the navigation store's selection.
     fn sync_selection(&mut self, cx: &mut Context<Self>) {
         let selection = self.stores.navigation.read(cx).selection().clone();
+        // A Hermes session's chat opens in this pane as any chat does.
+        let selection = match selection.chat_id() {
+            Some(id) => Selection::Chat(id),
+            None => selection,
+        };
         match selection {
             Selection::Chat(id) => {
                 self.temporary_hand_chosen = false;
@@ -748,6 +757,126 @@ impl ChatPane {
             }
         }
         cx.notify();
+    }
+
+    /// A Hermes session another Hermes app owns, in place of the composer
+    /// (the phone's `HermesReadOnlySessionNotice`): who owns it, what each
+    /// way on does, and the two ways on.
+    fn hermes_read_only_notice(
+        &self,
+        hermes: &conduit_protocol::HermesChatDto,
+        t: &conduit_components::theme::ConduitTheme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let l10n = cx.l10n().clone();
+        let r = t.roles;
+        let notice = if hermes.owner.trim().is_empty() {
+            l10n.hermes_read_only_session_notice()
+        } else {
+            l10n.hermes_read_only_session_notice_from(&hermes.owner)
+        };
+        let explanation = l10n.hermes_continue_choice_explanation();
+        let busy = self.hermes_continuing;
+        let button = |id: &'static str, label: String, copy: bool| {
+            let pane = cx.entity().downgrade();
+            let mut b = conduit_components::views::kit::Button::new(id, label)
+                .disabled(busy)
+                .on_click(Rc::new(move |_, _, cx| {
+                    let _ = pane.update(cx, |p, cx| p.continue_hermes(copy, cx));
+                }));
+            if copy {
+                b = b.primary();
+            }
+            b
+        };
+        div()
+            .id("hermes-read-only-notice")
+            .role(Role::Group)
+            .aria_label(SharedString::from(notice.clone()))
+            .w_full()
+            .px(px(14.))
+            .py(px(12.))
+            .rounded(px(12.))
+            .bg(conduit_components::views::kit::raised_fill(t))
+            .border_1()
+            .border_color(r.border)
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .child(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(px(10.))
+                    .child(div().pt(px(1.)).child(conduit_components::assets::icon(
+                        IconName::Eye,
+                        15.,
+                        r.text_subtle,
+                    )))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(4.))
+                            .child(
+                                div()
+                                    .text_size(px(t.metrics.control))
+                                    .text_color(r.text)
+                                    .child(SharedString::from(notice)),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(t.metrics.small))
+                                    .text_color(r.text_subtle)
+                                    .child(SharedString::from(explanation)),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap(px(8.))
+                    .child(button(
+                        "hermes-continue-here",
+                        l10n.hermes_continue_here(),
+                        false,
+                    ))
+                    .child(button(
+                        "hermes-continue-in-copy",
+                        l10n.hermes_continue_in_copy(),
+                        true,
+                    )),
+            )
+            .into_any_element()
+    }
+
+    /// Continue Here (`copy` false) or Continue in a Copy, from the open
+    /// read-only Hermes chat: the session it goes on in opens.
+    pub fn continue_hermes(&mut self, copy: bool, cx: &mut Context<Self>) {
+        let Some(chat_id) = self.open_chat_id(cx) else {
+            return;
+        };
+        if self.hermes_continuing {
+            return;
+        }
+        self.hermes_continuing = true;
+        cx.notify();
+        let pane = cx.entity().downgrade();
+        crate::views::hermes_sessions::continue_chat(
+            &self.stores,
+            &chat_id,
+            copy,
+            move |cx| {
+                let _ = pane.update(cx, |p, cx| {
+                    p.hermes_continuing = false;
+                    cx.notify();
+                });
+            },
+            cx,
+        );
     }
 
     /// Opens or closes the open chat's task checklist.
@@ -1629,7 +1758,13 @@ impl ChatPane {
                 Box::new(crate::actions::ToolSettings),
             ));
         }
-        if self.chat.is_some() {
+        // Branches are an Open WebUI chat's; a Hermes chat branches from a
+        // reply (Branch from Here).
+        if self
+            .chat
+            .as_ref()
+            .is_some_and(|c| c.store.read(cx).hermes().is_none())
+        {
             items.push((
                 l10n.desktop_menu_show_branches(),
                 Box::new(crate::actions::ShowBranches),
@@ -2128,7 +2263,7 @@ impl Render for ChatPane {
         let l10n = cx.l10n().clone();
         let t = cx.conduit().clone();
         let r = t.roles;
-        let (title, temporary, missing, read_only) = match &self.chat {
+        let (title, temporary, missing, read_only, hermes) = match &self.chat {
             Some(chat) => {
                 let s = chat.store.read(cx);
                 (
@@ -2139,6 +2274,7 @@ impl Render for ChatPane {
                     s.temporary,
                     s.missing,
                     s.read_only(),
+                    s.hermes().cloned(),
                 )
             }
             None => (
@@ -2146,8 +2282,10 @@ impl Render for ChatPane {
                 self.composer.read(cx).temporary,
                 false,
                 false,
+                None,
             ),
         };
+        let hermes_read_only = hermes.as_ref().is_some_and(|h| h.read_only);
         // The phone's header: a capsule with the chat's title over the
         // model, which opens the model picker.
         let model_name = self.composer.read(cx).model_name(cx);
@@ -2172,7 +2310,8 @@ impl Render for ChatPane {
             .bare()
             .pill(pill);
         // Another user's chat, shared through a folder: read, never answered.
-        if read_only {
+        // So is a Hermes session another Hermes app owns, until continued.
+        if read_only || hermes_read_only {
             toolbar = toolbar.note(l10n.read_only());
         }
         // With the sidebar hidden the toolbar starts under the traffic
@@ -2362,7 +2501,9 @@ impl Render for ChatPane {
                 .child(div().track_focus(&self.dock_focus).child(composer_dock(
                     toasts,
                     docked,
-                    if read_only {
+                    if let Some(hermes) = hermes.as_ref().filter(|h| h.read_only) {
+                        self.hermes_read_only_notice(hermes, &t, cx)
+                    } else if read_only {
                         div()
                             .id("read-only-notice")
                             .role(Role::Status)
@@ -2576,6 +2717,14 @@ fn show_chat_menu(
     };
     let sidebar = view.read(cx).sidebar.clone();
     let leading = view.read(cx).chat_pane.read(cx).more_menu_items(cx);
+    // A Hermes session's chat: its session's commands.
+    if let Some(session) = crate::stores::navigation::hermes_session_of(&chat_id) {
+        let session = session.to_string();
+        sidebar.update(cx, |s, cx| {
+            s.hermes_context_menu(&session, leading, position, window, cx)
+        });
+        return;
+    }
     sidebar.update(cx, |s, cx| {
         s.context_menu_with(&chat_id, leading, position, window, cx)
     });

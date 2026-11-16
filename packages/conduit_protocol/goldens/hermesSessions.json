@@ -5,7 +5,9 @@
       "chatId": "local:hermes_s2",
       "title": "",
       "pinned": false,
-      "archived": false
+      "archived": false,
+      "hidden": false,
+      "running": false
     }
   ],
   "archived": [
@@ -14,7 +16,10 @@
       "chatId": "local:hermes_s3",
       "title": "",
       "pinned": false,
-      "archived": true
+      "archived": true,
+      "hidden": false,
+      "running": false
     }
-  ]
+  ],
+  "archivedFailed": false
 }

@@ -83,6 +83,9 @@ pub struct AreasStore {
     pub notes: Option<Vec<NoteSummary>>,
     pub channels: Option<Vec<ChannelSummary>>,
     pub hermes: Option<HermesSessions>,
+    /// Hermes's Hidden Chats, read when its pane opens: `None` until read,
+    /// `Err` when the read failed.
+    pub hermes_hidden: Option<Result<Vec<HermesSessionDto>, String>>,
     pub terminals: Option<Vec<TerminalServerDto>>,
     /// The areas whose list could not be read (and none is held): the
     /// sidebar offers Try Again instead of a loading line.
@@ -94,6 +97,7 @@ pub struct AreasStore {
     /// Bumped per account: answers for the previous one are dropped.
     generation: u64,
     fetches: HashMap<Area, Task<()>>,
+    hidden_fetch: Option<Task<()>>,
 }
 
 impl AreasStore {
@@ -117,12 +121,48 @@ impl AreasStore {
         self.channels.iter().flatten().find(|c| c.id == id)
     }
 
-    /// A Hermes session, listed or archived.
+    /// A Hermes session, listed, archived or hidden.
     pub fn hermes_session(&self, id: &str) -> Option<&HermesSessionDto> {
         self.hermes
             .iter()
             .flat_map(|h| h.sessions.iter().chain(h.archived.iter()))
+            .chain(self.hermes_hidden.iter().flatten().flatten())
             .find(|s| s.id == id)
+    }
+
+    /// The Hermes list as an action on a session answered it.
+    pub fn adopt_hermes(&mut self, sessions: HermesSessions, cx: &mut Context<Self>) {
+        self.hermes = Some(sessions);
+        self.failed.remove(&Area::Hermes);
+        self.changed(cx);
+    }
+
+    /// Reads Hermes's Hidden Chats again (`hermes.hidden.list`).
+    pub fn refresh_hermes_hidden(&mut self, cx: &mut Context<Self>) {
+        let Some(rpc) = self.rpc.clone() else {
+            return;
+        };
+        let generation = self.generation;
+        let call = rpc.call::<methods::HermesHiddenList>(&NoParams);
+        self.hidden_fetch = Some(cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let result = call.await;
+                this.update(cx, |s, cx| {
+                    if s.generation != generation {
+                        return;
+                    }
+                    s.hermes_hidden = Some(match result {
+                        Ok(list) => Ok(list.sessions),
+                        Err(e) => {
+                            log::warn!("hermes.hidden.list: {e}");
+                            Err(e.to_string())
+                        }
+                    });
+                    s.changed(cx);
+                })
+                .ok();
+            },
+        ));
     }
 
     pub fn terminal(&self, id: &str) -> Option<&TerminalServerDto> {
@@ -154,7 +194,10 @@ impl AreasStore {
         match area {
             Area::Notes => self.notes = None,
             Area::Channels => self.channels = None,
-            Area::Hermes => self.hermes = None,
+            Area::Hermes => {
+                self.hermes = None;
+                self.hermes_hidden = None;
+            }
             Area::Terminal => self.terminals = None,
             _ => {}
         }
@@ -230,6 +273,10 @@ impl AreasStore {
                 })
             }
             Area::Hermes => {
+                // Hidden Chats, while its pane has been read, follows too.
+                if self.hermes_hidden.is_some() {
+                    self.refresh_hermes_hidden(cx);
+                }
                 let call = rpc.call::<methods::HermesSessions>(&NoParams);
                 cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                     let result = call.await;

@@ -802,6 +802,112 @@ final class TurnsService implements ChatTurns {
   /// [deleteChatMessageGroup], in the chat's scope); or, for a dry run,
   /// counts what would go. Answers with how many messages that is. Refused
   /// while the chat is answering.
+  /// Branch from Here on reply [request.messageId] of Hermes chat
+  /// [request.chatId]: a new session with the chat up to the end of that
+  /// reply's turn (the phone's `branchHermesChatFromMessage`), told to the
+  /// windows and answered with, to open.
+  Future<HermesSessionDto> branchHermes(HermesBranch request) async {
+    final hermes = _hermes;
+    final sessionId = hermesSessionOf(request.chatId);
+    if (hermes == null || sessionId == null) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{'chatId': request.chatId},
+        debugMessage: 'not a Hermes chat',
+      );
+    }
+    final session = await _sessionFor(request.chatId);
+    try {
+      _refuseReadOnlyHermes(hermes, sessionId);
+      // Never from a reply still being written.
+      await _requireIdle(session);
+      final scope = session.scope.container;
+      final messages = session.scope.messages;
+      final index = messages.indexWhere((m) => m.id == request.messageId);
+      if (index < 0) {
+        throw const RpcError(
+          code: ConduitErrorCodes.notFound,
+          debugMessage: 'no such reply in that chat',
+        );
+      }
+      final title = session.scope.conversation?.title ?? '';
+      final branch = await scope
+          .read(hermesSessionsProvider.notifier)
+          .branchFromMessage(
+            sessionId: sessionId,
+            title: title,
+            messages: messages,
+            index: index,
+          );
+      if (branch == null) {
+        throw const RpcError(
+          code: ConduitErrorCodes.conflict,
+          retryable: true,
+          debugMessage: 'a branch is already being made, or Hermes changed',
+        );
+      }
+      return await hermes.adopt(branch.session, transcript: branch.transcript);
+    } on StateError catch (error) {
+      throw RpcError(
+        code: ConduitErrorCodes.conflict,
+        retryable: true,
+        debugMessage: error.message,
+      );
+    } finally {
+      _release(session);
+    }
+  }
+
+  /// Undo Last Turn of Hermes chat [request.id] (a Desktop Gateway's): its
+  /// last question and everything after go, in the gateway's transcript
+  /// and in the chat. `ok` is false when there was nothing to undo.
+  /// Another Hermes app's session (read-only here): its history is not
+  /// this app's to branch or undo, whoever asks. Read after the session's
+  /// scope opened, which is when its owner is known.
+  static void _refuseReadOnlyHermes(HermesService hermes, String sessionId) {
+    if (hermes.chatState(sessionId).readOnly) {
+      throw RpcError(
+        code: ConduitErrorCodes.unsupported,
+        args: <String, String>{'sessionId': sessionId},
+        debugMessage: 'that Hermes session is read-only',
+      );
+    }
+  }
+
+  Future<OkResult> undoHermes(ChatRef request) async {
+    final sessionId = hermesSessionOf(request.id);
+    if (_hermes == null || sessionId == null) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{'chatId': request.id},
+        debugMessage: 'not a Hermes chat',
+      );
+    }
+    final session = await _sessionFor(request.id);
+    try {
+      _refuseReadOnlyHermes(_hermes, sessionId);
+      await _requireIdle(session);
+      final undone = await undoLastHermesTurn(session.scope.container);
+      if (undone) {
+        // The undone answer must not come back as the turn a window that
+        // subscribes is caught up on.
+        session.ended = null;
+        _hermes.forget(sessionId, latest: session.scope.messages);
+        _hermes.announceSessions();
+        _announce(request.id);
+      }
+      return OkResult(ok: undone);
+    } on StateError catch (error) {
+      throw RpcError(
+        code: ConduitErrorCodes.conflict,
+        retryable: true,
+        debugMessage: error.message,
+      );
+    } finally {
+      _release(session);
+    }
+  }
+
   Future<int> deleteMessages(DeleteMessages request) async {
     final session = await _sessionFor(request.chatId);
     var reserved = false;
@@ -1830,6 +1936,10 @@ final class TurnsService implements ChatTurns {
       ),
       scope: chatId,
     );
+    // A Hermes session's row shows it working.
+    if (hermesSessionOf(chatId) case final sessionId?) {
+      _hermes?.setRunning(sessionId, true);
+    }
     turn.ticker = Timer.periodic(
       _deltaInterval,
       (_) => _emitDelta(session, turn),
@@ -2190,6 +2300,9 @@ final class TurnsService implements ChatTurns {
         scope: turn.chatId,
       );
     }
+    if (hermesSessionOf(turn.chatId) case final sessionId?) {
+      _hermes?.setRunning(sessionId, false);
+    }
     // Unscoped: every window hears it, whichever chat it shows.
     _events.emit(
       ConduitEventSpecs.turnFinished,
@@ -2237,7 +2350,10 @@ final class TurnsService implements ChatTurns {
       }
       _announce(chatId);
     } else if (hermesSessionOf(chatId) case final sessionId?) {
-      _hermes?.forget(sessionId);
+      _hermes?.forget(
+        sessionId,
+        latest: session.scope.isDisposed ? null : session.scope.messages,
+      );
       _hermes?.announceSessions();
       _announce(chatId);
     } else if (_storedLocally(session, chatId)) {
@@ -2827,6 +2943,9 @@ final class TurnsService implements ChatTurns {
       if (turn != null && !turn.finished) {
         turn.finished = true;
         turn.ticker?.cancel();
+        if (hermesSessionOf(turn.chatId) case final sessionId?) {
+          _hermes?.setRunning(sessionId, false);
+        }
         _events
           ..emit(
             ConduitEventSpecs.turnFailed,

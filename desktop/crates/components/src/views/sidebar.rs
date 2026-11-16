@@ -9,8 +9,8 @@
 
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, App, Div, ElementId, FontWeight, Hsla, Role, SharedString, Stateful, Window, div,
-    px,
+    Animation, AnimationExt as _, AnyElement, App, Div, ElementId, FontWeight, Hsla, Role,
+    SharedString, Stateful, Transformation, Window, div, percentage, px,
 };
 
 use crate::assets::{IconName, icon};
@@ -286,12 +286,39 @@ pub fn chat_row(
                 .w(px(FOLDER_GLYPH))
                 .flex()
                 .justify_center()
-                .when(chat.streaming && state.checked.is_none(), |d| {
-                    d.child(div().size(px(6.)).rounded_full().bg(on_selection(
-                        r.sidebar_text,
-                        t,
-                        key,
-                    )))
+                .when(
+                    chat.streaming && !chat.working && state.checked.is_none(),
+                    |d| {
+                        d.child(div().size(px(6.)).rounded_full().bg(on_selection(
+                            r.sidebar_text,
+                            t,
+                            key,
+                        )))
+                    },
+                )
+                // A Hermes session at work: the phone's spinner, still
+                // under Reduce Motion.
+                .when(chat.working && state.checked.is_none(), |d| {
+                    let glyph = icon(
+                        IconName::LoaderCircle,
+                        12.,
+                        on_selection(r.sidebar_text_subtle, t, key),
+                    );
+                    d.child(if chat.reduce_motion {
+                        glyph.into_any_element()
+                    } else {
+                        glyph
+                            .with_animation(
+                                ElementId::Name(format!("working-{}", chat.id).into()),
+                                Animation::new(std::time::Duration::from_millis(900)).repeat(),
+                                |svg, delta| {
+                                    svg.with_transformation(Transformation::rotate(percentage(
+                                        delta,
+                                    )))
+                                },
+                            )
+                            .into_any_element()
+                    })
                 })
                 // Unread: a slightly larger dot, as Mail's, until it is read
                 // (none on the open chat, which is being read).

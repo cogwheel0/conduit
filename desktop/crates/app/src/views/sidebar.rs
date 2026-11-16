@@ -70,7 +70,9 @@ use conduit_components::views::sidebar::{
     RowAction, RowState, SECTION_HEADER_HEIGHT, SidebarFrame, area_header, chat_row, folder_row,
     item_row, more_row, quiet_section_header, section_header,
 };
-use conduit_protocol::{BulkChatAction, ChatSearchHit, ChatSummary, FolderSummary, NoticeLevel};
+use conduit_protocol::{
+    BulkChatAction, ChatSearchHit, ChatSummary, FolderSummary, HermesSessionDto, NoticeLevel,
+};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::native_menu::NativeMenu;
 use gpui_kit::component::{VirtualListScrollHandle, v_virtual_list};
@@ -316,6 +318,8 @@ struct RowsKey {
 pub enum NameTarget {
     Chat(String),
     Folder(String),
+    /// A Hermes session, by its session id.
+    HermesSession(String),
     /// A folder not made yet, in `parent` (`None`: the top level): Return
     /// (or leaving the field) makes it, Esc drops it.
     NewFolder {
@@ -365,6 +369,7 @@ pub fn item_icon(item: &AreaItem) -> IconName {
         AreaItem::Note(_) => IconName::FileText,
         AreaItem::Channel(_) => IconName::Hash,
         AreaItem::HermesSession(_) => IconName::Sparkles,
+        AreaItem::HermesHidden => IconName::EyeOff,
         AreaItem::Workspace(WorkspaceSection::Models) => IconName::Network,
         AreaItem::Workspace(WorkspaceSection::Knowledge) => IconName::LibraryBig,
         AreaItem::Workspace(WorkspaceSection::Prompts) => IconName::TextQuote,
@@ -384,6 +389,7 @@ pub fn item_title(item: &AreaItem, listed: Option<&str>, l: &L10n) -> String {
         AreaItem::Workspace(section) => workspace_label(*section, l),
         AreaItem::Calendar => l.desktop_calendar_upcoming(),
         AreaItem::Automations => l.desktop_scheduled_tasks_all(),
+        AreaItem::HermesHidden => l.hermes_hidden_chats_title(),
         AreaItem::HermesSession(_) => named
             .map(String::from)
             .unwrap_or_else(|| l.hermes_session_untitled()),
@@ -1085,7 +1091,7 @@ impl SidebarView {
             }
             SidebarItem::AreaHint { area, hint } => {
                 let text = area_hint_text(*area, *hint, &l);
-                let retry = matches!(hint, AreaHint::Failed);
+                let retry = matches!(hint, AreaHint::Failed | AreaHint::ArchivedFailed);
                 let area = *area;
                 div()
                     .id(ElementId::Name(
@@ -1102,6 +1108,7 @@ impl SidebarView {
                     .text_size(px(t.metrics.small))
                     .text_color(r.sidebar_text_subtle)
                     .child(div().flex_1().min_w_0().truncate().child(text))
+                    // As the phone's archived row: Try Again.
                     .when(retry, |d| {
                         let areas = self.stores.areas.downgrade();
                         d.child(
@@ -1250,6 +1257,9 @@ impl SidebarView {
         t: &ConduitTheme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if let Some(session) = &row.session {
+            return self.hermes_row(session, now, t, cx);
+        }
         let l = cx.l10n().clone();
         let item = row.item.clone();
         let id = area_item_id(&item);
@@ -1283,6 +1293,184 @@ impl SidebarView {
                     .update(cx, |n, cx| n.open_item(item, cx));
             }))
             .into_any_element()
+    }
+
+    /// A Hermes session: drawn as a chat's row (its date, its pin, a
+    /// spinner while a reply is written in it), its commands on "…" and in
+    /// its context menu, its name edited in place.
+    fn hermes_row(
+        &mut self,
+        session: &HermesSessionDto,
+        now: &DateTime<Local>,
+        t: &ConduitTheme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let l = cx.l10n().clone();
+        let item = AreaItem::HermesSession(session.id.clone());
+        let id = area_item_id(&item);
+        let title = hermes_title(session, &l);
+        let (time, spoken) = session
+            .updated_at_ms
+            .map(|ms| dates::stamp(ms, now, &l))
+            .unwrap_or_default();
+        let row = ChatRow {
+            id: id.clone().into(),
+            title: title.clone().into(),
+            time: time.into(),
+            time_spoken: spoken.into(),
+            pinned: session.pinned,
+            streaming: session.running,
+            working: session.running,
+            reduce_motion: cx.reduce_motion(),
+            status: Some(l.desktop_chat_running().into()),
+            ..Default::default()
+        };
+        let key = KeyRow::Item(item.clone());
+        let hovered = self.hovered.as_deref() == Some(id.as_str());
+        let field = self.name_field_for(&NameTarget::HermesSession(session.id.clone()), t, cx);
+        let actions = if hovered && field.is_none() {
+            let quoted = format!("\u{201c}{title}\u{201d}");
+            let this = cx.entity().downgrade();
+            let menu_id = session.id.clone();
+            vec![
+                RowAction::new(
+                    format!("more-{id}"),
+                    IconName::Ellipsis,
+                    l.desktop_more_actions_for(&quoted),
+                )
+                .tooltip(l.more())
+                .on_click(Rc::new(move |e, window, cx| {
+                    // The row under the button would open the chat too.
+                    cx.stop_propagation();
+                    let (id, position) = (menu_id.clone(), e.position());
+                    this.update(cx, |s, cx| {
+                        s.hermes_context_menu(&id, vec![], position, window, cx)
+                    })
+                    .ok();
+                })),
+            ]
+        } else {
+            vec![]
+        };
+        let state = RowState {
+            selected: self.is_selection(&key),
+            hovered,
+            context: self.context_target.as_deref() == Some(id.as_str()),
+            keyboard: self.list_focused,
+            ..Default::default()
+        };
+        let menu_id = session.id.clone();
+        chat_row(&row, state, 0., actions, field, t)
+            .when(self.is_cursor(&key), |d| d.aria_active_descendant())
+            .on_hover(self.hover_listener(id, cx))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.cursor = Some(KeyRow::Item(item.clone()));
+                let item = item.clone();
+                this.stores
+                    .navigation
+                    .update(cx, |n, cx| n.open_item(item, cx));
+            }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.hermes_context_menu(&menu_id, vec![], ev.position, window, cx)
+                }),
+            )
+            .into_any_element()
+    }
+
+    /// Opens Hermes session `session_id`'s menu at `position`, with the
+    /// open chat's own items (the toolbar's More) before Delete….
+    pub fn hermes_context_menu(
+        &mut self,
+        session_id: &str,
+        open_items: Vec<(String, Box<dyn Action>)>,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(session) = self
+            .stores
+            .areas
+            .read(cx)
+            .hermes_session(session_id)
+            .cloned()
+        else {
+            return;
+        };
+        let menu = crate::views::hermes_sessions::native_menu(&session, open_items, cx.l10n());
+        let target = area_item_id(&AreaItem::HermesSession(session.id));
+        self.context_target = Some(target);
+        cx.notify();
+        menu.show(position, window, cx);
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(300))
+                .await;
+            this.update(cx, |s, cx| {
+                s.context_target = None;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Carries out `command` on Hermes session `session_id`: Rename here,
+    /// in its row; the rest through the daemon.
+    pub fn run_hermes(
+        &mut self,
+        session_id: &str,
+        command: crate::views::hermes_sessions::HermesCommand,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::views::hermes_sessions::HermesCommand;
+        if command == HermesCommand::Rename {
+            self.start_rename_hermes(session_id, window, cx);
+            return;
+        }
+        crate::views::hermes_sessions::run(&self.stores, session_id, command, window, cx);
+    }
+
+    /// Starts renaming Hermes session `session_id` in its row, which is
+    /// shown first (its section open, its archived row too).
+    pub fn start_rename_hermes(
+        &mut self,
+        session_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(session) = self
+            .stores
+            .areas
+            .read(cx)
+            .hermes_session(session_id)
+            .cloned()
+            .filter(|s| !s.hidden)
+        else {
+            return;
+        };
+        let item = AreaItem::HermesSession(session.id.clone());
+        self.stores.sections.update(cx, |s, cx| {
+            s.set_collapsed(Area::Hermes.id(), false, cx);
+            // Past the first few: every session listed.
+            if !s.shows_all(Area::Hermes.id()) && !session.archived {
+                s.set_show_all(Area::Hermes.id(), true, cx);
+            }
+        });
+        if session.archived {
+            self.hermes_archived = true;
+        }
+        self.cursor = Some(KeyRow::Item(item.clone()));
+        self.reveal_row(|r| r.area_item() == Some(&item));
+        self.edit_name(
+            NameTarget::HermesSession(session.id),
+            session.title,
+            window,
+            cx,
+        );
     }
 
     /// Lists all of `area`, or its first few again.
@@ -1477,6 +1665,9 @@ impl SidebarView {
         let (placeholder, ax_id) = match target {
             NameTarget::Chat(id) => (l.desktop_rename_prompt(), format!("rename-{id}")),
             NameTarget::Folder(id) => (l.folder_name(), format!("rename-folder-{id}")),
+            NameTarget::HermesSession(id) => {
+                (l.hermes_session_name_hint(), format!("rename-hermes-{id}"))
+            }
             NameTarget::NewFolder { .. } => (l.folder_name(), "new-folder-name".to_string()),
         };
         Some(
@@ -1578,6 +1769,8 @@ impl SidebarView {
             time_spoken: spoken.into(),
             pinned: chat.pinned,
             streaming: false,
+            working: false,
+            reduce_motion: false,
             status: None,
             note: read_only.then(|| l.read_only().into()),
             unread: chat.unread,
@@ -2801,6 +2994,9 @@ impl SidebarView {
             NameTarget::Chat(id) => {
                 list.update(cx, |c, cx| c.rename(&id, &name, cx)).detach();
             }
+            NameTarget::HermesSession(id) => {
+                crate::views::hermes_sessions::rename(&self.stores, &id, &name, cx);
+            }
             NameTarget::Folder(id) => {
                 let parent = list.read(cx).folder(&id).and_then(|f| f.parent_id.clone());
                 if self.folder_name_taken(&name, parent.as_deref(), Some(&id), cx) {
@@ -3487,12 +3683,30 @@ fn row_height(item: &SidebarItem, previous: Option<&SidebarItem>, t: &ConduitThe
     }
 }
 
+/// A Hermes session's name in its row, as the phone's tile: its title,
+/// else (Hermes left it untitled: a cron or messaging session) the start
+/// of what it says, else "Untitled Conversation".
+pub fn hermes_title(session: &HermesSessionDto, l: &L10n) -> String {
+    let title = session.title.trim();
+    if !title.is_empty() && title != "Untitled session" {
+        return title.to_string();
+    }
+    session
+        .preview
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(|p| p.lines().next().unwrap_or(p).to_string())
+        .unwrap_or_else(|| l.hermes_session_untitled())
+}
+
 /// An area item's id among the rows (hover, AccessKit, the E2E).
 pub fn area_item_id(item: &AreaItem) -> String {
     match item {
         AreaItem::Note(id) => format!("note-{id}"),
         AreaItem::Channel(id) => format!("channel-{id}"),
         AreaItem::HermesSession(id) => format!("hermes-{id}"),
+        AreaItem::HermesHidden => "hermes-hidden".into(),
         AreaItem::Workspace(section) => format!("workspace-{}", section.id()),
         AreaItem::Terminal(id) => format!("terminal-{id}"),
         AreaItem::Calendar => "calendar".into(),
@@ -3510,7 +3724,9 @@ fn area_hint_text(area: Area, hint: AreaHint, l: &L10n) -> String {
         (_, AreaHint::Empty) => l.terminal_no_servers_configured(),
         (Area::Notes, AreaHint::Failed) => l.failed_to_load_notes(),
         (Area::Channels, AreaHint::Failed) => l.channel_load_error(),
+        (Area::Hermes, AreaHint::Failed) => l.desktop_hermes_sessions_failed(),
         (_, AreaHint::Failed) => l.desktop_action_failed(),
+        (_, AreaHint::ArchivedFailed) => l.hermes_archived_load_error(),
     }
 }
 

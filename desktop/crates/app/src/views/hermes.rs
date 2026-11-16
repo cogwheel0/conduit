@@ -163,6 +163,8 @@ impl HermesView {
                     .map(|s| s.desktop_auth_kind.clone())
                     .unwrap_or_else(|| "legacyToken".into())
             },
+            // Kept as saved: this form signs in natively.
+            legacy_token: None,
             allow_self_signed_certificates: self.self_signed,
             // Onboarding's choice makes Hermes the backend the app is used
             // through (the core's preferred backend), as on a phone.

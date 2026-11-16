@@ -1668,9 +1668,21 @@ impl ChatStore {
     }
 
     /// Edit, regenerate and rate apply: a stored chat of this account with
-    /// nothing streaming.
+    /// nothing streaming (and not a Hermes session another Hermes app owns).
     pub fn can_branch(&self) -> bool {
-        !self.temporary && !self.read_only() && !self.is_streaming()
+        !self.temporary && !self.read_only() && !self.hermes_read_only() && !self.is_streaming()
+    }
+
+    /// A Hermes session's chat: its session, and whether this app may
+    /// continue it.
+    pub fn hermes(&self) -> Option<&conduit_protocol::HermesChatDto> {
+        self.detail.as_ref().and_then(|d| d.hermes.as_ref())
+    }
+
+    /// A Hermes session another Hermes app owns: read here, continued in a
+    /// session of this app's (the read-only notice).
+    pub fn hermes_read_only(&self) -> bool {
+        self.hermes().is_some_and(|h| h.read_only)
     }
 
     /// The newest stored answer's id (Chat › Regenerate).
@@ -2477,6 +2489,7 @@ mod tests {
     fn chat(id: &str, messages: Vec<ChatMessageDto>) -> ChatResult {
         ChatResult {
             chat: Some(ChatDetail {
+                hermes: None,
                 abilities: Default::default(),
                 temporary: false,
                 share_id: None,

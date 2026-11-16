@@ -94,8 +94,11 @@ impl WorkspaceSection {
 pub enum AreaItem {
     Note(String),
     Channel(String),
-    /// A Hermes session, by its session id.
+    /// A Hermes session, by its session id: its chat
+    /// (`local:hermes_<id>`), in the chat pane.
     HermesSession(String),
+    /// Hermes's Hidden Chats: the sessions hidden from every list.
+    HermesHidden,
     Workspace(WorkspaceSection),
     /// A terminal server, by its id.
     Terminal(String),
@@ -108,7 +111,7 @@ impl AreaItem {
         match self {
             Self::Note(_) => Area::Notes,
             Self::Channel(_) => Area::Channels,
-            Self::HermesSession(_) => Area::Hermes,
+            Self::HermesSession(_) | Self::HermesHidden => Area::Hermes,
             Self::Workspace(_) => Area::Workspace,
             Self::Terminal(_) => Area::Terminal,
             Self::Calendar => Area::Calendar,
@@ -136,10 +139,36 @@ impl Selection {
         }
     }
 
-    /// The chat pane shows it (a chat, or a new one).
+    /// The chat pane shows it (a chat, a new one, or a Hermes session's
+    /// chat).
     pub fn is_chat(&self) -> bool {
-        matches!(self, Self::Chat(_) | Self::New { .. })
+        matches!(
+            self,
+            Self::Chat(_) | Self::New { .. } | Self::Area(AreaItem::HermesSession(_))
+        )
     }
+
+    /// The chat the chat pane shows for it: a stored chat's id, or a Hermes
+    /// session's `local:hermes_<id>`.
+    pub fn chat_id(&self) -> Option<String> {
+        match self {
+            Self::Chat(id) => Some(id.clone()),
+            Self::Area(AreaItem::HermesSession(session)) => Some(hermes_chat_id(session)),
+            _ => None,
+        }
+    }
+}
+
+/// The chat a Hermes session opens as (the daemon's and the phone's id).
+pub fn hermes_chat_id(session: &str) -> String {
+    format!("local:hermes_{session}")
+}
+
+/// The Hermes session behind chat `chat_id`, if it is one.
+pub fn hermes_session_of(chat_id: &str) -> Option<&str> {
+    chat_id
+        .strip_prefix("local:hermes_")
+        .filter(|session| !session.is_empty())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -200,8 +229,16 @@ impl NavigationStore {
         }
     }
 
+    /// Opens chat `id`. A Hermes session's chat opens as that session (the
+    /// sidebar's Hermes row), whichever way it was reached: a new Hermes
+    /// chat's first answer names its session.
     pub fn open(&mut self, id: impl Into<String>, cx: &mut Context<Self>) {
-        self.set(Selection::Chat(id.into()), cx);
+        let id = id.into();
+        let selection = match hermes_session_of(&id) {
+            Some(session) => Selection::Area(AreaItem::HermesSession(session.to_string())),
+            None => Selection::Chat(id),
+        };
+        self.set(selection, cx);
     }
 
     /// Shows `item` in its area's pane.
@@ -249,7 +286,12 @@ impl NavigationStore {
             }
         }
         if self.selected_chat() == Some(from) {
-            self.selection = Selection::Chat(to.to_string());
+            // A new Hermes chat's first answer names its session: the
+            // sidebar's row for it is selected from then on.
+            self.selection = match hermes_session_of(to) {
+                Some(session) => Selection::Area(AreaItem::HermesSession(session.to_string())),
+                None => Selection::Chat(to.to_string()),
+            };
             cx.notify();
         }
     }
@@ -421,5 +463,30 @@ mod tests {
         for area in Area::ALL {
             assert_eq!(Area::from_id(area.id()), Some(area));
         }
+    }
+
+    #[gpui_kit::test]
+    fn a_hermes_chat_opens_as_its_session_in_the_chat_pane(cx: &mut TestAppContext) {
+        let store = cx.new(|_| NavigationStore::new());
+        store.update(cx, |s, cx| {
+            s.open("local:hermes_s1", cx);
+            let session = Selection::Area(AreaItem::HermesSession("s1".into()));
+            assert_eq!(s.selection(), &session);
+            assert!(s.selection().is_chat());
+            assert_eq!(s.selection().area(), Area::Hermes);
+            assert_eq!(s.selection().chat_id().as_deref(), Some("local:hermes_s1"));
+            // Hidden Chats is a pane of its own.
+            s.open_item(AreaItem::HermesHidden, cx);
+            assert!(!s.selection().is_chat());
+            // A new chat whose first answer names its session.
+            s.open("local:new", cx);
+            s.on_remap("local:new", "local:hermes_s2", cx);
+            assert_eq!(
+                s.selection(),
+                &Selection::Area(AreaItem::HermesSession("s2".into()))
+            );
+        });
+        assert_eq!(hermes_session_of("local:hermes_"), None);
+        assert_eq!(hermes_chat_id("s3"), "local:hermes_s3");
     }
 }

@@ -3271,5 +3271,17 @@
   "desktopStopComparing": "Don't Compare",
   "@desktopStopComparing": {
     "description": "Tooltip and accessibility name of the chip's remove button: the next message goes to one model only. Title Case."
+  },
+  "desktopHermesChatHidden": "Chat hidden. Find it under Hidden Chats in the Hermes section.",
+  "@desktopHermesChatHidden": {
+    "description": "Toast after hiding a Hermes chat from the sidebar's Hermes section; Hidden Chats is a row at the end of that section."
+  },
+  "desktopHermesHiddenChatsFooter": "Chats hidden from the Hermes list on this Mac. Click one to open it, or unhide it to list it again.",
+  "@desktopHermesHiddenChatsFooter": {
+    "description": "Footer under the list of hidden Hermes chats in the Hidden Chats pane."
+  },
+  "desktopHermesSessionsFailed": "Couldn't load Hermes chats.",
+  "@desktopHermesSessionsFailed": {
+    "description": "Sidebar hint in the Hermes section when the session list could not be read; a Try Again button follows."
   }
 }

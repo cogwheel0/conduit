@@ -863,6 +863,25 @@ abstract final class ConduitMethods {
 
   /// A copy of a session to go on from; answers with the new one.
   static const String hermesForkSession = 'hermes.forkSession';
+
+  /// Pins, archives or hides a session, or undoes it; answers with the
+  /// sessions.
+  static const String hermesSessionsUpdate = 'hermes.sessions.update';
+
+  /// Continues a read-only session's chat in a session this app owns:
+  /// Hermes's fork (Continue Here) or a copy; answers with the session to
+  /// open.
+  static const String hermesSessionsContinue = 'hermes.sessions.continue';
+
+  /// The sessions hidden from every list (Hidden Chats).
+  static const String hermesHiddenList = 'hermes.hidden.list';
+
+  /// Branch from Here: a new session with a Hermes chat up to a reply;
+  /// answers with the session to open.
+  static const String hermesHistoryBranch = 'hermes.history.branch';
+
+  /// Undo Last Turn of a Desktop Gateway chat, there and in the chat.
+  static const String hermesHistoryUndo = 'hermes.history.undo';
   static const String hermesJobs = 'hermes.jobs';
 
   /// Creates or edits a scheduled agent; answers with the jobs.

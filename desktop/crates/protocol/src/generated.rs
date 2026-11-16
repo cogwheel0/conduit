@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.60.0";
+pub const PROTOCOL_VERSION: &str = "1.61.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: folders now, notes and Workspace items reuse it.
@@ -1822,6 +1822,10 @@ pub struct ChatDetail {
     /// has none. A running turn sends newer ones with `turn.blocks`.
     #[serde(default)]
     pub tasks: Vec<ChatTaskDto>,
+    /// A Hermes session's chat (`local:hermes_<session>`): its session, and
+    /// whether this app may continue it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hermes: Option<HermesChatDto>,
 }
 
 /// What one open chat offers right now, from the core's own rules (the
@@ -1864,6 +1868,14 @@ pub struct ChatAbilities {
     /// on, a stored Open WebUI chat).
     #[serde(default)]
     pub compare: bool,
+    /// Branch from Here on a reply of a Hermes chat this app may continue:
+    /// a new session with the chat up to that reply (`hermes.history.branch`).
+    #[serde(default)]
+    pub branch_from_here: bool,
+    /// Undo Last Turn on a Hermes chat's last reply: a Desktop Gateway
+    /// session, whose transcript the gateway keeps (`hermes.history.undo`).
+    #[serde(default)]
+    pub undo_last_turn: bool,
 }
 
 /// What a queued answer is waiting for.
@@ -3649,6 +3661,11 @@ pub struct HermesSettingsEdit {
     pub desktop_profile: String,
     #[serde(default = "default_hermes_settings_edit_desktop_auth_kind")]
     pub desktop_auth_kind: String,
+    /// A Desktop Gateway's legacy session token (`desktopAuthKind`
+    /// `legacyToken`, and what a loopback gateway asks for whatever the
+    /// kind). As the other secrets: null keeps it, empty clears it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legacy_token: Option<String>,
     #[serde(default)]
     pub allow_self_signed_certificates: bool,
     /// Saved by onboarding's Hermes choice: Hermes becomes the backend the
@@ -3758,6 +3775,16 @@ pub struct HermesSessionDto {
     /// Set aside in the list's Archived row.
     #[serde(default)]
     pub archived: bool,
+    /// Hidden from every list: only Hidden Chats reaches it.
+    #[serde(default)]
+    pub hidden: bool,
+    /// The Hermes app that started it, as Hermes names it (`api_server`,
+    /// `cli`, `telegram`, ...), when Hermes says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// A reply is being written in it now.
+    #[serde(default)]
+    pub running: bool,
 }
 
 /// Reply to `hermes.sessions`.
@@ -3770,6 +3797,10 @@ pub struct HermesSessions {
     /// The archived sessions, newest first.
     #[serde(default)]
     pub archived: Vec<HermesSessionDto>,
+    /// The archived sessions could not be read: the Archived row says so,
+    /// with Try Again. The conversations are listed all the same.
+    #[serde(default)]
+    pub archived_failed: bool,
 }
 
 /// Params naming a Hermes session, job, or anything else by id.
@@ -3785,6 +3816,61 @@ pub struct HermesRef {
 pub struct HermesRename {
     pub id: String,
     pub title: String,
+}
+
+/// Params for `hermes.sessions.update`: the flags to change on session
+/// `id`; a null one stays as it is. Archiving or hiding a pinned session
+/// unpins it, as on a phone.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesSessionUpdate {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+}
+
+/// Params for `hermes.sessions.continue`: a read-only session's chat
+/// `chatId`, continued in a session this app owns.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesContinue {
+    pub chat_id: String,
+    /// Continue in a Copy: a new session with the chat's messages, which
+    /// leaves the other app's chat alone. Otherwise Continue Here: Hermes's
+    /// fork, after which the other app starts a new chat on its next
+    /// message.
+    #[serde(default)]
+    pub copy: bool,
+}
+
+/// Params for `hermes.history.branch`: a new session with Hermes chat
+/// `chatId` up to the end of reply `messageId`'s turn.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesBranch {
+    pub chat_id: String,
+    pub message_id: String,
+}
+
+/// What a Hermes session's chat is, beside its messages
+/// (`ChatDetail.hermes`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesChatDto {
+    pub session_id: String,
+    /// Another Hermes app owns the session and Hermes refuses this app's
+    /// turns in it: it is read here, and continued in a session of this
+    /// app's (`hermes.sessions.continue`).
+    #[serde(default)]
+    pub read_only: bool,
+    /// The app that owns it, by name ("Hermes CLI", "Telegram"), or empty
+    /// when Hermes did not say.
+    #[serde(default)]
+    pub owner: String,
 }
 
 /// A scheduled agent.
@@ -11105,6 +11191,70 @@ pub mod methods {
         type Result = super::HermesSessionDto;
     }
 
+    /// Pins, archives or hides a session, or undoes it; answers with the
+    /// sessions.
+    ///
+    /// `hermes.sessions.update`: HermesSessionUpdate -> HermesSessions.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesSessionsUpdate;
+
+    impl RpcMethod for HermesSessionsUpdate {
+        const NAME: &'static str = "hermes.sessions.update";
+        type Params = super::HermesSessionUpdate;
+        type Result = super::HermesSessions;
+    }
+
+    /// Continues a read-only session's chat in a session this app owns:
+    /// Hermes's fork (Continue Here) or a copy; answers with the session to
+    /// open.
+    ///
+    /// `hermes.sessions.continue`: HermesContinue -> HermesSessionDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesSessionsContinue;
+
+    impl RpcMethod for HermesSessionsContinue {
+        const NAME: &'static str = "hermes.sessions.continue";
+        type Params = super::HermesContinue;
+        type Result = super::HermesSessionDto;
+    }
+
+    /// The sessions hidden from every list (Hidden Chats).
+    ///
+    /// `hermes.hidden.list`: no params -> HermesSessions.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesHiddenList;
+
+    impl RpcMethod for HermesHiddenList {
+        const NAME: &'static str = "hermes.hidden.list";
+        type Params = NoParams;
+        type Result = super::HermesSessions;
+    }
+
+    /// Branch from Here: a new session with a Hermes chat up to a reply;
+    /// answers with the session to open.
+    ///
+    /// `hermes.history.branch`: HermesBranch -> HermesSessionDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesHistoryBranch;
+
+    impl RpcMethod for HermesHistoryBranch {
+        const NAME: &'static str = "hermes.history.branch";
+        type Params = super::HermesBranch;
+        type Result = super::HermesSessionDto;
+    }
+
+    /// Undo Last Turn of a Desktop Gateway chat, there and in the chat.
+    ///
+    /// `hermes.history.undo`: ChatRef -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesHistoryUndo;
+
+    impl RpcMethod for HermesHistoryUndo {
+        const NAME: &'static str = "hermes.history.undo";
+        type Params = super::ChatRef;
+        type Result = super::OkResult;
+    }
+
     /// `hermes.jobs`: no params -> HermesJobs.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct HermesJobs;
@@ -12600,6 +12750,31 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("HermesSessionDto"),
     },
     MethodSpec {
+        name: "hermes.sessions.update",
+        params: Some("HermesSessionUpdate"),
+        result: Some("HermesSessions"),
+    },
+    MethodSpec {
+        name: "hermes.sessions.continue",
+        params: Some("HermesContinue"),
+        result: Some("HermesSessionDto"),
+    },
+    MethodSpec {
+        name: "hermes.hidden.list",
+        params: None,
+        result: Some("HermesSessions"),
+    },
+    MethodSpec {
+        name: "hermes.history.branch",
+        params: Some("HermesBranch"),
+        result: Some("HermesSessionDto"),
+    },
+    MethodSpec {
+        name: "hermes.history.undo",
+        params: Some("ChatRef"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
         name: "hermes.jobs",
         params: None,
         result: Some("HermesJobs"),
@@ -13484,8 +13659,11 @@ pub mod conformance {
         "HandoffSettled",
         "HandshakeRequest",
         "HandshakeResponse",
+        "HermesBranch",
         "HermesCapabilitiesDto",
         "HermesCatalog",
+        "HermesChatDto",
+        "HermesContinue",
         "HermesJobDto",
         "HermesJobEdit",
         "HermesJobToggle",
@@ -13493,6 +13671,7 @@ pub mod conformance {
         "HermesRef",
         "HermesRename",
         "HermesSessionDto",
+        "HermesSessionUpdate",
         "HermesSessions",
         "HermesSettings",
         "HermesSettingsEdit",
@@ -13900,8 +14079,11 @@ pub mod conformance {
             "HandoffSettled" => roundtrip::<super::HandoffSettled>(json),
             "HandshakeRequest" => roundtrip::<super::HandshakeRequest>(json),
             "HandshakeResponse" => roundtrip::<super::HandshakeResponse>(json),
+            "HermesBranch" => roundtrip::<super::HermesBranch>(json),
             "HermesCapabilitiesDto" => roundtrip::<super::HermesCapabilitiesDto>(json),
             "HermesCatalog" => roundtrip::<super::HermesCatalog>(json),
+            "HermesChatDto" => roundtrip::<super::HermesChatDto>(json),
+            "HermesContinue" => roundtrip::<super::HermesContinue>(json),
             "HermesJobDto" => roundtrip::<super::HermesJobDto>(json),
             "HermesJobEdit" => roundtrip::<super::HermesJobEdit>(json),
             "HermesJobToggle" => roundtrip::<super::HermesJobToggle>(json),
@@ -13909,6 +14091,7 @@ pub mod conformance {
             "HermesRef" => roundtrip::<super::HermesRef>(json),
             "HermesRename" => roundtrip::<super::HermesRename>(json),
             "HermesSessionDto" => roundtrip::<super::HermesSessionDto>(json),
+            "HermesSessionUpdate" => roundtrip::<super::HermesSessionUpdate>(json),
             "HermesSessions" => roundtrip::<super::HermesSessions>(json),
             "HermesSettings" => roundtrip::<super::HermesSettings>(json),
             "HermesSettingsEdit" => roundtrip::<super::HermesSettingsEdit>(json),

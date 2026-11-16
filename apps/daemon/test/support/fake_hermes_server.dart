@@ -8,6 +8,11 @@ import 'dart:io';
 /// Sessions, jobs, skills and toolsets are held in memory. A run answers
 /// `Echo: <input>` a word at a time; an input that mentions "approve"
 /// first asks for approval and answers with what the approval was.
+///
+/// As Hermes v0.22.1+, it says the API server owns its sessions
+/// (`run_unknown_resolution`) and refuses a run into a session another
+/// Hermes app started (`source` other than `api_server`) with
+/// `409 permission_denied`. [seedForeign] adds such a session.
 final class FakeHermesServer {
   FakeHermesServer._(this._server, this.key);
 
@@ -19,6 +24,14 @@ final class FakeHermesServer {
   final Map<String, Map<String, dynamic>> jobs = {};
   final List<Map<String, dynamic>> runRequests = [];
   final List<Map<String, dynamic>> approvals = [];
+
+  /// While set, a session's messages are answered only once it completes;
+  /// [messagesAsked] completes when such a request has come in.
+  Completer<void>? holdMessages;
+  Completer<void> messagesAsked = Completer<void>();
+
+  /// Run (once) when `/v1/capabilities` is asked, before it is answered.
+  Future<void> Function()? onCapabilities;
 
   /// Runs waiting on an approval, by run id.
   final Map<String, Completer<bool>> _waiting = {};
@@ -39,6 +52,38 @@ final class FakeHermesServer {
   }
 
   Future<void> close() => _server.close(force: true);
+
+  /// A session another Hermes app ([source]) started, with [turns] as its
+  /// questions and answers; answers with its id.
+  String seedForeign({
+    required String title,
+    String source = 'cli',
+    List<(String, String)> turns = const <(String, String)>[],
+    bool rowIds = true,
+  }) {
+    final id = _id('sess');
+    sessions[id] = <String, dynamic>{
+      'id': id,
+      'title': title,
+      'source': source,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    };
+    messages[id] = <Map<String, dynamic>>[
+      for (final (question, answer) in turns) ...<Map<String, dynamic>>[
+        <String, dynamic>{
+          if (rowIds) 'id': _id('msg'),
+          'role': 'user',
+          'content': question,
+        },
+        <String, dynamic>{
+          if (rowIds) 'id': _id('msg'),
+          'role': 'assistant',
+          'content': answer,
+        },
+      ],
+    ];
+    return id;
+  }
 
   String _id(String prefix) =>
       '${prefix}_${(++_next).toString().padLeft(6, '0')}';
@@ -73,6 +118,9 @@ final class FakeHermesServer {
           'active_sessions': sessions.length,
         });
       case ('GET', '/v1/capabilities'):
+        final hook = onCapabilities;
+        onCapabilities = null;
+        await hook?.call();
         return json(<String, dynamic>{
           'features': <String, dynamic>{
             'run_approval_response': true,
@@ -81,6 +129,7 @@ final class FakeHermesServer {
             'jobs': true,
             'jobs_admin': true,
             'session_resources': true,
+            'run_unknown_resolution': true,
           },
         });
       case ('GET', '/v1/models'):
@@ -108,19 +157,45 @@ final class FakeHermesServer {
           ],
         });
       case ('POST', '/api/sessions'):
+        final created = await body();
         final id = _id('sess');
-        final title = (await body())['title'] as String? ?? 'Untitled';
+        // Untitled when none is given, as a real server leaves it.
+        final title = created['title'] as String?;
+        // A seed (the E2E's) may say which Hermes app started it and what
+        // was said; a real server takes neither.
         sessions[id] = <String, dynamic>{
           'id': id,
           'title': title,
+          'source': created['source'] as String? ?? 'api_server',
           'updated_at': DateTime.now().toUtc().toIso8601String(),
         };
-        messages[id] = <Map<String, dynamic>>[];
+        messages[id] = <Map<String, dynamic>>[
+          for (final m in (created['messages'] as List? ?? const <Object>[]))
+            <String, dynamic>{
+              'id': _id('msg'),
+              ...(m as Map).cast<String, dynamic>(),
+            },
+        ];
         return json(<String, dynamic>{'id': id});
       case ('GET', '/api/sessions'):
-        return json(<String, dynamic>{'sessions': sessions.values.toList()});
+        // The API server lists no archived sessions.
+        return json(<String, dynamic>{
+          'sessions': sessions.values
+              .where((s) => s['archived'] != true)
+              .toList(),
+        });
       case ('POST', '/v1/runs'):
         final run = await body();
+        final into = sessions[run['session_id']];
+        final source = into?['source'] as String?;
+        if (into != null && source != null && source != 'api_server') {
+          return json(<String, dynamic>{
+            'error': <String, dynamic>{
+              'code': 'permission_denied',
+              'message': 'this session belongs to another Hermes app',
+            },
+          }, 409);
+        }
         runRequests.add(run);
         final id = _id('run');
         _runs[id] = run;
@@ -139,6 +214,10 @@ final class FakeHermesServer {
       final id = segments[2];
       if (!sessions.containsKey(id)) return json(null, 404);
       if (segments.length == 4 && segments[3] == 'messages') {
+        if (holdMessages case final hold?) {
+          if (!messagesAsked.isCompleted) messagesAsked.complete();
+          await hold.future;
+        }
         return json(<String, dynamic>{'messages': messages[id]});
       }
       if (segments.length == 4 && segments[3] == 'fork') {
@@ -147,18 +226,29 @@ final class FakeHermesServer {
           ...sessions[id]!,
           'id': copy,
           'title': '${sessions[id]!['title']} (fork)',
+          'source': 'api_server',
+          'pinned': false,
+          'archived': false,
+          'hidden': false,
         };
         messages[copy] = <Map<String, dynamic>>[...?messages[id]];
         return json(<String, dynamic>{'id': copy});
       }
       if (request.method == 'PATCH') {
-        sessions[id]!['title'] = (await body())['title'];
+        // A title, or the sidebar flags (pinned, archived, hidden).
+        final changes = await body();
+        for (final key in <String>['title', 'pinned', 'archived', 'hidden']) {
+          if (changes.containsKey(key)) sessions[id]![key] = changes[key];
+        }
         return json(sessions[id]);
       }
       if (request.method == 'DELETE') {
         sessions.remove(id);
         messages.remove(id);
         return json(<String, dynamic>{'ok': true});
+      }
+      if (request.method == 'GET' && segments.length == 3) {
+        return json(<String, dynamic>{'session': sessions[id]});
       }
     }
     if (segments.length >= 3 && segments[0] == 'v1' && segments[1] == 'runs') {

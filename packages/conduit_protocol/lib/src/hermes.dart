@@ -45,6 +45,11 @@ abstract class HermesSettingsEdit with _$HermesSettingsEdit {
     String? sessionKey,
     @Default('default') String desktopProfile,
     @Default('legacyToken') String desktopAuthKind,
+
+    /// A Desktop Gateway's legacy session token (`desktopAuthKind`
+    /// `legacyToken`, and what a loopback gateway asks for whatever the
+    /// kind). As the other secrets: null keeps it, empty clears it.
+    String? legacyToken,
     @Default(false) bool allowSelfSignedCertificates,
 
     /// Saved by onboarding's Hermes choice: Hermes becomes the backend the
@@ -123,6 +128,16 @@ abstract class HermesSessionDto with _$HermesSessionDto {
 
     /// Set aside in the list's Archived row.
     @Default(false) bool archived,
+
+    /// Hidden from every list: only Hidden Chats reaches it.
+    @Default(false) bool hidden,
+
+    /// The Hermes app that started it, as Hermes names it (`api_server`,
+    /// `cli`, `telegram`, ...), when Hermes says.
+    String? source,
+
+    /// A reply is being written in it now.
+    @Default(false) bool running,
   }) = _HermesSessionDto;
 
   factory HermesSessionDto.fromJson(Map<String, dynamic> json) =>
@@ -138,6 +153,10 @@ abstract class HermesSessions with _$HermesSessions {
 
     /// The archived sessions, newest first.
     @Default(<HermesSessionDto>[]) List<HermesSessionDto> archived,
+
+    /// The archived sessions could not be read: the Archived row says so,
+    /// with Try Again. The conversations are listed all the same.
+    @Default(false) bool archivedFailed,
   }) = _HermesSessions;
 
   factory HermesSessions.fromJson(Map<String, dynamic> json) =>
@@ -161,6 +180,74 @@ abstract class HermesRename with _$HermesRename {
 
   factory HermesRename.fromJson(Map<String, dynamic> json) =>
       _$HermesRenameFromJson(json);
+}
+
+/// Params for `hermes.sessions.update`: the flags to change on session
+/// [id]; a null one stays as it is. Archiving or hiding a pinned session
+/// unpins it, as on a phone.
+@freezed
+abstract class HermesSessionUpdate with _$HermesSessionUpdate {
+  const factory HermesSessionUpdate({
+    required String id,
+    bool? pinned,
+    bool? archived,
+    bool? hidden,
+  }) = _HermesSessionUpdate;
+
+  factory HermesSessionUpdate.fromJson(Map<String, dynamic> json) =>
+      _$HermesSessionUpdateFromJson(json);
+}
+
+/// Params for `hermes.sessions.continue`: a read-only session's chat
+/// [chatId], continued in a session this app owns.
+@freezed
+abstract class HermesContinue with _$HermesContinue {
+  const factory HermesContinue({
+    required String chatId,
+
+    /// Continue in a Copy: a new session with the chat's messages, which
+    /// leaves the other app's chat alone. Otherwise Continue Here: Hermes's
+    /// fork, after which the other app starts a new chat on its next
+    /// message.
+    @Default(false) bool copy,
+  }) = _HermesContinue;
+
+  factory HermesContinue.fromJson(Map<String, dynamic> json) =>
+      _$HermesContinueFromJson(json);
+}
+
+/// Params for `hermes.history.branch`: a new session with Hermes chat
+/// [chatId] up to the end of reply [messageId]'s turn.
+@freezed
+abstract class HermesBranch with _$HermesBranch {
+  const factory HermesBranch({
+    required String chatId,
+    required String messageId,
+  }) = _HermesBranch;
+
+  factory HermesBranch.fromJson(Map<String, dynamic> json) =>
+      _$HermesBranchFromJson(json);
+}
+
+/// What a Hermes session's chat is, beside its messages
+/// (`ChatDetail.hermes`).
+@freezed
+abstract class HermesChatDto with _$HermesChatDto {
+  const factory HermesChatDto({
+    required String sessionId,
+
+    /// Another Hermes app owns the session and Hermes refuses this app's
+    /// turns in it: it is read here, and continued in a session of this
+    /// app's (`hermes.sessions.continue`).
+    @Default(false) bool readOnly,
+
+    /// The app that owns it, by name ("Hermes CLI", "Telegram"), or empty
+    /// when Hermes did not say.
+    @Default('') String owner,
+  }) = _HermesChatDto;
+
+  factory HermesChatDto.fromJson(Map<String, dynamic> json) =>
+      _$HermesChatDtoFromJson(json);
 }
 
 /// A scheduled agent.

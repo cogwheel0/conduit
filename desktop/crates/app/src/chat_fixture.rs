@@ -164,6 +164,7 @@ fn chat_value() -> Value {
         .collect();
     serde_json::to_value(ChatResult {
         chat: Some(ChatDetail {
+            hermes: None,
             abilities: Default::default(),
             temporary: false,
             share_id: None,

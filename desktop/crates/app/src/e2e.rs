@@ -22,6 +22,11 @@
 //! * `hermes`: a fresh profile, Hermes in API-server mode against the fake
 //!   Hermes server (`FAKE_HERMES_URL`, `FAKE_HERMES_KEY`), Test, Save, and
 //!   the Hermes-only main frame.
+//! * `hermes-sessions`: Hermes sessions on a real local Desktop gateway
+//!   (`HERMES_GATEWAY_URL`, `HERMES_GATEWAY_TOKEN`): opened in the chat
+//!   pane and answered, pin, rename, fork, archive, hide and Hidden Chats,
+//!   Branch from Here, Undo Last Turn, delete; and a read-only session of
+//!   the fake API server continued in a copy ([`hermes_sessions`]).
 //! * `sidebar`: sign in to the seeded server, then the sidebar: folders as the
 //!   account left them, open, hover, rename, pin, move to folder (menu and
 //!   drop), remove from folder, archive and the archived section, delete,
@@ -63,6 +68,7 @@ mod chat;
 mod chat_settings;
 mod composer;
 mod dictation;
+mod hermes_sessions;
 mod integration;
 mod offline;
 mod read_aloud;
@@ -712,6 +718,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "sso" => sso(&inputs, &dir, cx).await,
         "direct" => direct(&inputs, &dir, cx).await,
         "hermes" => hermes(&inputs, &dir, cx).await,
+        "hermes-sessions" => hermes_sessions::run_scenario(&inputs, &dir, cx).await,
         "sidebar" => sidebar(&inputs, &dir, cx).await,
         "chat" | "chat-direct" | "chat-smoke" | "chat-read-only" => {
             chat::run(&inputs, &dir, cx).await

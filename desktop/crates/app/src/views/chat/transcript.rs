@@ -368,6 +368,7 @@ impl Transcript {
             merging: store.merging(),
             actions: self.action_prefs.clone(),
             reading: self.reading.clone(),
+            hermes: store.hermes().is_some(),
         }
     }
 
@@ -1522,6 +1523,7 @@ mod tests {
         let daemon = FakeDaemon::new();
         daemon.returns::<methods::ChatsGet>(ChatResult {
             chat: Some(ChatDetail {
+                hermes: None,
                 abilities: Default::default(),
                 temporary: false,
                 share_id: None,
@@ -1811,6 +1813,7 @@ mod tests {
         }];
         let detail = |messages: Vec<ChatMessageDto>| ChatResult {
             chat: Some(ChatDetail {
+                hermes: None,
                 abilities: Default::default(),
                 temporary: false,
                 share_id: None,
@@ -1895,6 +1898,7 @@ mod tests {
         };
         let detail = |answer: ChatMessageDto| ChatResult {
             chat: Some(ChatDetail {
+                hermes: None,
                 abilities: Default::default(),
                 temporary: false,
                 share_id: None,

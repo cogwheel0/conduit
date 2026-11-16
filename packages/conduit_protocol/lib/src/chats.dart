@@ -1,6 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'blocks.dart';
+import 'hermes.dart';
 
 part 'chats.freezed.dart';
 part 'chats.g.dart';
@@ -369,6 +370,10 @@ abstract class ChatDetail with _$ChatDetail {
     /// Open WebUI's task checklist for this chat, in order; empty when it
     /// has none. A running turn sends newer ones with `turn.blocks`.
     @Default(<ChatTaskDto>[]) List<ChatTaskDto> tasks,
+
+    /// A Hermes session's chat (`local:hermes_<session>`): its session, and
+    /// whether this app may continue it.
+    HermesChatDto? hermes,
   }) = _ChatDetail;
 
   factory ChatDetail.fromJson(Map<String, dynamic> json) =>
@@ -414,6 +419,14 @@ abstract class ChatAbilities with _$ChatAbilities {
     /// Compare Models: one question to two models side by side (Advanced is
     /// on, a stored Open WebUI chat).
     @Default(false) bool compare,
+
+    /// Branch from Here on a reply of a Hermes chat this app may continue:
+    /// a new session with the chat up to that reply (`hermes.history.branch`).
+    @Default(false) bool branchFromHere,
+
+    /// Undo Last Turn on a Hermes chat's last reply: a Desktop Gateway
+    /// session, whose transcript the gateway keeps (`hermes.history.undo`).
+    @Default(false) bool undoLastTurn,
   }) = _ChatAbilities;
 
   factory ChatAbilities.fromJson(Map<String, dynamic> json) =>

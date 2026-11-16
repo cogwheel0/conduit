@@ -486,6 +486,7 @@ mod tests {
         let daemon = FakeDaemon::new();
         daemon.returns::<methods::ChatsGet>(ChatResult {
             chat: Some(ChatDetail {
+                hermes: None,
                 abilities: Default::default(),
                 temporary: false,
                 share_id: None,

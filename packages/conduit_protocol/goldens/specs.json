@@ -1,5 +1,5 @@
 {
-  "protocolVersion": "1.60.0",
+  "protocolVersion": "1.61.0",
   "appOrigin": "app://conduit",
   "subprotocol": "conduit.v1",
   "subprotocolsExample": {
@@ -1175,6 +1175,31 @@
       "name": "hermes.forkSession",
       "params": "HermesRef",
       "result": "HermesSessionDto"
+    },
+    {
+      "name": "hermes.sessions.update",
+      "params": "HermesSessionUpdate",
+      "result": "HermesSessions"
+    },
+    {
+      "name": "hermes.sessions.continue",
+      "params": "HermesContinue",
+      "result": "HermesSessionDto"
+    },
+    {
+      "name": "hermes.hidden.list",
+      "params": null,
+      "result": "HermesSessions"
+    },
+    {
+      "name": "hermes.history.branch",
+      "params": "HermesBranch",
+      "result": "HermesSessionDto"
+    },
+    {
+      "name": "hermes.history.undo",
+      "params": "ChatRef",
+      "result": "OkResult"
     },
     {
       "name": "hermes.jobs",

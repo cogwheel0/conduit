@@ -619,6 +619,12 @@ fn register_actions(cx: &mut App) {
                 .update(cx, |s, cx| s.run(&id, command, window, cx))
         });
     });
+    cx.on_action(|a: &views::hermes_sessions::HermesMenu, cx| {
+        let (id, command) = (a.session_id.clone(), a.command);
+        with_main_view(cx, |view, window, cx| {
+            view.run_hermes(&id, command, window, cx)
+        });
+    });
     cx.on_action(|a: &views::sidebar::FolderMenu, cx| {
         let (id, command) = (a.folder_id.clone(), a.command.clone());
         with_main_view(cx, |view, window, cx| {

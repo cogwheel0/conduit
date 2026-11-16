@@ -1367,6 +1367,33 @@ abstract final class ConduitMethodSpecs {
         params: HermesRef.fromJson,
         result: HermesSessionDto.fromJson,
       );
+  static const hermesSessionsUpdate =
+      ConduitMethodSpec<HermesSessionUpdate, HermesSessions>(
+        ConduitMethods.hermesSessionsUpdate,
+        params: HermesSessionUpdate.fromJson,
+        result: HermesSessions.fromJson,
+      );
+  static const hermesSessionsContinue =
+      ConduitMethodSpec<HermesContinue, HermesSessionDto>(
+        ConduitMethods.hermesSessionsContinue,
+        params: HermesContinue.fromJson,
+        result: HermesSessionDto.fromJson,
+      );
+  static const hermesHiddenList = ConduitMethodSpec<void, HermesSessions>(
+    ConduitMethods.hermesHiddenList,
+    result: HermesSessions.fromJson,
+  );
+  static const hermesHistoryBranch =
+      ConduitMethodSpec<HermesBranch, HermesSessionDto>(
+        ConduitMethods.hermesHistoryBranch,
+        params: HermesBranch.fromJson,
+        result: HermesSessionDto.fromJson,
+      );
+  static const hermesHistoryUndo = ConduitMethodSpec<ChatRef, OkResult>(
+    ConduitMethods.hermesHistoryUndo,
+    params: ChatRef.fromJson,
+    result: OkResult.fromJson,
+  );
   static const hermesJobs = ConduitMethodSpec<void, HermesJobs>(
     ConduitMethods.hermesJobs,
     result: HermesJobs.fromJson,
@@ -1770,6 +1797,11 @@ abstract final class ConduitMethodSpecs {
         hermesRenameSession,
         hermesDeleteSession,
         hermesForkSession,
+        hermesSessionsUpdate,
+        hermesSessionsContinue,
+        hermesHiddenList,
+        hermesHistoryBranch,
+        hermesHistoryUndo,
         hermesJobs,
         hermesSaveJob,
         hermesSetJobEnabled,

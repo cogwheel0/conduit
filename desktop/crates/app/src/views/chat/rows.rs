@@ -149,6 +149,9 @@ pub struct RowFlags {
     pub actions: Option<Vec<String>>,
     /// The answer being read aloud (its shown version's id), if any.
     pub reading: Option<String>,
+    /// A Hermes session's chat: its answers are not rated, nor run again
+    /// with another model (the agent is the model).
+    pub hermes: bool,
 }
 
 /// The answer's More menu: rate it (`turns.rate`). Carries the chat's
@@ -282,6 +285,15 @@ impl AnswerActions {
         if pane && ab.fork && stored && flags.can_branch {
             available.push(A::Fork);
         }
+        // A Hermes chat's history, from the reply its session keeps (not an
+        // older version shown in its place); Undo from its last reply.
+        let kept = item.version.is_none_or(|(s, n)| s == n);
+        if pane && ab.branch_from_here && stored && flags.can_branch && kept {
+            available.push(A::BranchFromHere);
+        }
+        if pane && ab.undo_last_turn && stored && flags.can_branch && item.last_answer {
+            available.push(A::UndoLastTurn);
+        }
         if error.is_none() && !answer_markdown(item).is_empty() && !item.streaming {
             available.push(A::Share);
         }
@@ -291,8 +303,8 @@ impl AnswerActions {
         let current = item.version.is_none_or(|(s, n)| s == n) || !item.siblings.is_empty();
         Self {
             available,
-            rate: error.is_none() && flags.can_branch && current,
-            regenerate_with: error.is_none() && flags.can_branch,
+            rate: error.is_none() && flags.can_branch && current && !flags.hermes,
+            regenerate_with: error.is_none() && flags.can_branch && !flags.hermes,
             copy_markdown: error.is_none() || !answer_markdown(item).is_empty(),
             copy_error: error,
         }
@@ -311,6 +323,8 @@ fn action_icon(a: MessageAction, merging: bool, reading: bool) -> IconName {
         MessageAction::Merge => IconName::GitMerge,
         MessageAction::Usage => IconName::Info,
         MessageAction::Fork => IconName::GitBranch,
+        MessageAction::BranchFromHere => IconName::Split,
+        MessageAction::UndoLastTurn => IconName::Undo2,
         MessageAction::Share => IconName::Share,
         MessageAction::Delete => IconName::Trash,
     }
@@ -334,6 +348,8 @@ fn action_label(
         MessageAction::Merge => l10n.chat_merge_responses_action(),
         MessageAction::Usage => l10n.usage_info(),
         MessageAction::Fork => l10n.chat_branch_fork_chat(),
+        MessageAction::BranchFromHere => l10n.hermes_branch_from_here(),
+        MessageAction::UndoLastTurn => l10n.hermes_undo_last_turn(),
         MessageAction::Share => l10n.share_system_sheet(),
         MessageAction::Delete if menu => l10n.desktop_delete_ellipsis(),
         MessageAction::Delete => l10n.delete(),
@@ -351,6 +367,8 @@ fn action_command(a: MessageAction, item: &RowItem) -> RowCommand {
         MessageAction::Merge => RowCommand::Merge,
         MessageAction::Usage => RowCommand::Usage,
         MessageAction::Fork => RowCommand::Fork,
+        MessageAction::BranchFromHere => RowCommand::BranchFromHere,
+        MessageAction::UndoLastTurn => RowCommand::UndoLastTurn,
         MessageAction::Share => RowCommand::Share(answer_markdown(item)),
         MessageAction::Delete => RowCommand::Delete,
     }

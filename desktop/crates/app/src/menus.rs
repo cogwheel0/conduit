@@ -63,16 +63,20 @@ pub fn search_chats_stroke() -> KeyStroke {
 /// Chat menu, the sidebar's context menu and the toolbar's More menu.
 /// `MoveTo` stands for the Move To submenu; a menu leaves out what does not
 /// apply (Remove from Folder for a chat in none, Select in the menu bar).
-pub const CHAT_COMMAND_ORDER: [ChatCommandSlot; 11] = [
+/// Fork and Hide are a Hermes session's (its chat menus fill the slots
+/// they share with every chat: Pin, Rename…, Archive and Delete…).
+pub const CHAT_COMMAND_ORDER: [ChatCommandSlot; 13] = [
     ChatCommandSlot::Pin,
     ChatCommandSlot::MarkUnread,
     ChatCommandSlot::Rename,
     ChatCommandSlot::GenerateTitle,
     ChatCommandSlot::Share,
     ChatCommandSlot::Export,
+    ChatCommandSlot::Fork,
     ChatCommandSlot::MoveTo,
     ChatCommandSlot::RemoveFromFolder,
     ChatCommandSlot::Archive,
+    ChatCommandSlot::Hide,
     ChatCommandSlot::Select,
     ChatCommandSlot::Delete,
 ];
@@ -89,10 +93,14 @@ pub enum ChatCommandSlot {
     Share,
     /// The Export submenu (Backup, Transcript).
     Export,
+    /// A Hermes session's Fork.
+    Fork,
     MoveTo,
     RemoveFromFolder,
     /// Archive or Unarchive.
     Archive,
+    /// A Hermes session's Hide (Unhide in Hidden Chats).
+    Hide,
     Select,
     Delete,
 }
@@ -369,6 +377,8 @@ pub struct MenuState {
     pub full_screen: bool,
     /// The open chat, when it takes changes (not another user's).
     pub chat: Option<ChatMenuState>,
+    /// The open Hermes session, whose commands the Chat menu has instead.
+    pub hermes: Option<conduit_protocol::HermesSessionDto>,
     /// Folders a chat may be filed in: `(id, name)`, by name.
     pub folders: Vec<(String, String)>,
     /// The View menu's zoom items.
@@ -393,6 +403,7 @@ impl Default for MenuState {
             sidebar_visible: true,
             full_screen: false,
             chat: None,
+            hermes: None,
             folders: vec![],
             zoom: ZoomState::default(),
             chat_settings: false,
@@ -490,6 +501,12 @@ pub fn menu_state(cx: &App) -> MenuState {
         .as_ref()
         .filter(|_| main)
         .is_some_and(|v| v.read(cx).chat_pane.read(cx).can_save_temporary(cx));
+    let hermes = match navigation.selected_item() {
+        Some(crate::stores::navigation::AreaItem::HermesSession(id)) if main => {
+            state.stores.areas.read(cx).hermes_session(id).cloned()
+        }
+        _ => None,
+    };
     let dictating = state.main_view.as_ref().filter(|_| main).is_some_and(|v| {
         let composer = v.read(cx).chat_pane.read(cx).composer.clone();
         composer.read(cx).dictating(cx)
@@ -501,6 +518,7 @@ pub fn menu_state(cx: &App) -> MenuState {
         sidebar_visible,
         full_screen,
         chat,
+        hermes,
         folders,
         zoom,
         chat_settings: offer.chat_settings,
@@ -713,7 +731,29 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
     let move_disabled = move_to_disabled(state);
     let mut move_to = Some(move_to);
     let mut items = vec![];
+    // A Hermes session: its own commands, in the same slots.
+    let hermes = state.hermes.as_ref().map(|session| {
+        (
+            session.id.clone(),
+            crate::views::hermes_sessions::commands(session),
+        )
+    });
     for slot in CHAT_COMMAND_ORDER {
+        if let Some((session_id, commands)) = &hermes {
+            for command in commands.iter().filter(|c| c.slot() == slot) {
+                if slot == ChatCommandSlot::Delete {
+                    items.push(MenuItem::separator());
+                }
+                items.push(MenuItem::action(
+                    command.label(l10n),
+                    crate::views::hermes_sessions::HermesMenu {
+                        session_id: session_id.clone(),
+                        command: *command,
+                    },
+                ));
+            }
+            continue;
+        }
         match slot {
             ChatCommandSlot::Pin => items.push(
                 MenuItem::action(
@@ -785,8 +825,9 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
                 )
                 .disabled(no_chat),
             ),
-            // Selecting is the sidebar's own mode: its menus only.
-            ChatCommandSlot::Select => {}
+            // Selecting is the sidebar's own mode: its menus only. Fork and
+            // Hide are a Hermes session's.
+            ChatCommandSlot::Select | ChatCommandSlot::Fork | ChatCommandSlot::Hide => {}
             ChatCommandSlot::Delete => {
                 items.extend([
                     MenuItem::separator(),

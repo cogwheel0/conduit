@@ -444,6 +444,8 @@ final class ChatsService {
           updatedAtMs: DateTime.now().millisecondsSinceEpoch,
         ),
         messages: _messages(messages),
+        abilities: hermes.abilities(sessionId),
+        hermes: hermes.chatState(sessionId),
       );
     }
     // Never in the database, so never in the list. The transcript lives
