@@ -291,7 +291,7 @@ impl OllamaModels {
             if let Some(custom) = current.as_deref().filter(|c| !KEEP_ALIVES.contains(c)) {
                 choices.push(Choice::new(custom, custom).separated());
             }
-            choices.push(Choice::new(CUSTOM, l10n.desktop_ollama_custom_ellipsis()).separated());
+            choices.push(Choice::new(CUSTOM, l10n.desktop_custom_ellipsis()).separated());
             controls_row = controls_row.child(controls::popup(
                 &format!("{MENU_KEEP}{}", m.id),
                 &l10n.desktop_ollama_keep_alive_for(&m.name),

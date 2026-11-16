@@ -96,6 +96,10 @@ pub struct Strings {
     pub direct_detail: SharedString,
     pub hermes: SharedString,
     pub hermes_detail: SharedString,
+    pub librechat: SharedString,
+    pub librechat_detail: SharedString,
+    /// The mark beside a backend still new ("Beta").
+    pub beta: SharedString,
     /// The chooser's section titles, as the phone groups its backends.
     pub self_hosted_section: SharedString,
     pub model_apis_section: SharedString,
@@ -220,6 +224,11 @@ impl Default for Strings {
             ),
             hermes: s("Hermes Agent"),
             hermes_detail: s("Connect a self-hosted Hermes agent."),
+            librechat: s("LibreChat"),
+            librechat_detail: s(
+                "Sign in to your LibreChat server for synced chats, agents, and more.",
+            ),
+            beta: s("Beta"),
             self_hosted_section: s("Self-Hosted Services"),
             model_apis_section: s("Model APIs"),
             continue_label: s("Continue"),

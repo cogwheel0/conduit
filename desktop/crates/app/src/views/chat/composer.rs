@@ -58,6 +58,7 @@ use gpui_kit::{
 
 use super::dictation::{self as dictation_view, RecordingMenu};
 use crate::l10n::ActiveL10n as _;
+use crate::stores::composer::LibreChatTool;
 use crate::stores::composer::{
     Attachment, ComposerEvent, ComposerStore, MentionTarget, Trigger, TriggerKind, UploadState,
     match_models, match_prompts, mentions_in, model_label, trigger_at,
@@ -118,6 +119,8 @@ pub enum ComposerMenu {
     SaveAsNote,
     Tool(String),
     Filter(String),
+    /// A LibreChat MCP server to sign in to: its web app opens.
+    ConnectInLibreChat,
     /// A heading (disabled).
     Heading,
 }
@@ -1987,9 +1990,12 @@ impl ChatComposer {
                 ComposerMenu::SaveAsNote,
             );
         }
-        // Tools, then filters, each under its heading.
+        // Tools, then filters, each under its heading. A LibreChat model's
+        // own switches (web search, code, file search, the user's MCP
+        // servers) are tools here too.
         let tools: Vec<_> = options.tools.iter().chain(&options.mcp_tools).collect();
-        if !tools.is_empty() {
+        let librechat = store.librechat_tools();
+        if !tools.is_empty() || !librechat.is_empty() {
             entries.push(None);
             menu = menu.separator();
             menu = item(
@@ -2009,6 +2015,30 @@ impl ChatComposer {
                     Some(tool_ids.contains(&tool.id)),
                     ComposerMenu::Tool(tool.id.clone()),
                 );
+            }
+            for (id, tool) in librechat {
+                let (label, action) = match tool {
+                    LibreChatTool::WebSearch => (l10n.web_search(), ComposerMenu::Tool(id.clone())),
+                    LibreChatTool::CodeInterpreter => {
+                        (l10n.code_interpreter(), ComposerMenu::Tool(id.clone()))
+                    }
+                    LibreChatTool::FileSearch => (
+                        l10n.libre_chat_file_search(),
+                        ComposerMenu::Tool(id.clone()),
+                    ),
+                    // Signed in to in LibreChat's web app: the item opens it.
+                    LibreChatTool::Mcp {
+                        name,
+                        needs_connection: true,
+                    } => (
+                        format!("{name} — {}", l10n.libre_chat_mcp_connect()),
+                        ComposerMenu::ConnectInLibreChat,
+                    ),
+                    LibreChatTool::Mcp { name, .. } => (name, ComposerMenu::Tool(id.clone())),
+                };
+                let checked =
+                    matches!(action, ComposerMenu::Tool(_)).then(|| tool_ids.contains(&id));
+                menu = item(menu, &mut entries, label, false, checked, action);
             }
         }
         if !options.filters.is_empty() {
@@ -2096,6 +2126,12 @@ impl ChatComposer {
                 }
             }
             ComposerMenu::Tool(id) => composer.update(cx, |c, cx| c.toggle_tool(id, cx)),
+            ComposerMenu::ConnectInLibreChat => {
+                let url = composer.read(cx).librechat.web_url.clone();
+                if let Some(url) = url.as_deref().and_then(crate::shell::open_url::validate) {
+                    cx.open_url(url.as_str());
+                }
+            }
             ComposerMenu::Filter(id) => composer.update(cx, |c, cx| c.toggle_filter(id, cx)),
             ComposerMenu::Heading => {}
         }

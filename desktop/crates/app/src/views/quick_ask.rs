@@ -797,12 +797,15 @@ impl Render for QuickAskView {
     }
 }
 
-/// The active account and whether it has a session.
+/// The account in charge of the chats and whether it has a session.
 fn scope_of(stores: &Stores, cx: &App) -> (Option<String>, bool) {
-    match stores.accounts.read(cx).active() {
-        Some(a) => (Some(a.id.clone()), a.has_session),
-        None => (None, false),
-    }
+    let accounts = stores.accounts.read(cx);
+    let session = if accounts.libre_chat_in_charge() {
+        accounts.libre_chat_active().is_some() && accounts.libre_chat_needs_sign_in().is_none()
+    } else {
+        accounts.active().is_some_and(|a| a.has_session)
+    };
+    (accounts.scope_key(), session)
 }
 
 #[cfg(test)]

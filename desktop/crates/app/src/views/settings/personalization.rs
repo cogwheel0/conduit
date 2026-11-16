@@ -2,6 +2,8 @@
 //! with (or the server's), OpenRouter's image model, and for an Open WebUI
 //! account "Your system prompt" and Memory (on or off, and the memories
 //! themselves: add, edit, delete, clear all; type and path with Advanced).
+//! With a LibreChat account in charge, its memories instead
+//! ([`super::librechat_memories`]).
 
 use std::rc::Rc;
 
@@ -56,6 +58,8 @@ pub struct PersonalizationPane {
     /// Saved, or failed, under the system prompt.
     pub prompt_note: Option<bool>,
     pub memory_failed: bool,
+    /// A LibreChat account's memories, once shown.
+    pub librechat: Option<Entity<super::librechat_memories::LibreChatMemoriesView>>,
 }
 
 impl PersonalizationPane {
@@ -112,6 +116,7 @@ impl PersonalizationPane {
             busy: false,
             prompt_note: None,
             memory_failed: false,
+            librechat: None,
         };
         this.refresh(window, cx);
         this
@@ -122,6 +127,9 @@ impl PersonalizationPane {
     }
 
     pub fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(view) = self.librechat.clone() {
+            view.update(cx, |v, cx| v.refresh(window, cx));
+        }
         let rpc = self.rpc(cx);
         let models = rpc.call::<methods::ModelsList>(&NoParams);
         let account = rpc.call::<methods::SettingsGetAccount>(&NoParams);
@@ -825,6 +833,22 @@ impl Render for PersonalizationPane {
         }
         if let Some(list) = self.memories.clone().filter(|m| m.available) {
             sections.extend(self.memory_groups(&list, &l10n, window, cx));
+        }
+        if super::librechat_memories::shown(&self.stores, cx) {
+            let view = match self.librechat.clone() {
+                Some(view) => view,
+                None => {
+                    let rpc = self.rpc(cx);
+                    let view = cx.new(|cx| {
+                        super::librechat_memories::LibreChatMemoriesView::new(rpc, window, cx)
+                    });
+                    self.librechat = Some(view.clone());
+                    view
+                }
+            };
+            sections.push(view.into_any_element());
+        } else {
+            self.librechat = None;
         }
         div().flex().flex_col().gap(px(22.)).children(sections)
     }

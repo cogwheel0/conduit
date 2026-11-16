@@ -27,6 +27,7 @@ use crate::stores::Stores;
 use crate::stores::connection::Status;
 use crate::stores::session::Route;
 use crate::views::approvals::ApprovalsView;
+use crate::views::librechat_sign_in::LibreChatSignInView;
 use crate::views::onboarding::OnboardingView;
 use crate::views::sign_in::SignInView;
 use crate::views::status::{reconnect_banner, status_screen};
@@ -48,6 +49,8 @@ pub enum Page {
     Status,
     Onboarding,
     SignIn,
+    /// The LibreChat account in charge needs a sign-in (its session ended).
+    LibreChatSignIn,
 }
 
 /// The page for a route and status (`holding`: a server is being checked,
@@ -68,6 +71,10 @@ pub struct SetupWindow {
     pub stores: Stores,
     pub onboarding: Entity<OnboardingView>,
     pub sign_in: Entity<SignInView>,
+    /// Signing in again to the LibreChat account in charge.
+    pub librechat: Entity<LibreChatSignInView>,
+    /// The LibreChat account `librechat` was started for.
+    librechat_for: Option<String>,
     pub approvals: Entity<ApprovalsView>,
     focus: FocusHandle,
     /// The page drawn last.
@@ -79,6 +86,11 @@ impl SetupWindow {
     pub fn new(stores: Stores, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let onboarding = cx.new(|cx| OnboardingView::new(stores.clone(), window, cx));
         let sign_in = cx.new(|cx| SignInView::new(stores.clone(), window, cx));
+        let librechat = cx.new(|cx| {
+            let mut view = LibreChatSignInView::new(stores.clone(), window, cx);
+            view.sheet = false;
+            view
+        });
         let approvals = cx.new(|cx| ApprovalsView::new(stores.clone(), window, cx));
         let subscriptions = vec![
             cx.observe(&stores.connection, |_, _, cx| cx.notify()),
@@ -86,6 +98,7 @@ impl SetupWindow {
             cx.observe(&stores.accounts, |_, _, cx| cx.notify()),
             cx.observe(&stores.toasts, |_, _, cx| cx.notify()),
             cx.observe(&onboarding, |_, _, cx| cx.notify()),
+            cx.observe(&librechat, |_, _, cx| cx.notify()),
             cx.observe(&approvals, |_, _, cx| cx.notify()),
             // Keyboard Navigation may have been switched in System Settings.
             cx.observe_window_activation(window, |_, window, cx| {
@@ -100,6 +113,8 @@ impl SetupWindow {
             stores,
             onboarding,
             sign_in,
+            librechat,
+            librechat_for: None,
             approvals,
             focus,
             page: None,
@@ -115,7 +130,18 @@ impl SetupWindow {
     /// The page the window shows now.
     pub fn page(&self, cx: &App) -> Page {
         let (_, blocked) = self.status(cx);
-        page_for(self.route(cx), blocked, self.onboarding.read(cx).holds(cx))
+        let page = page_for(self.route(cx), blocked, self.onboarding.read(cx).holds(cx));
+        if page == Page::SignIn
+            && self
+                .stores
+                .accounts
+                .read(cx)
+                .libre_chat_needs_sign_in()
+                .is_some()
+        {
+            return Page::LibreChatSignIn;
+        }
+        page
     }
 
     fn status(&self, cx: &App) -> (Status, bool) {
@@ -186,7 +212,7 @@ impl Render for SetupWindow {
         let (status, blocked) = self.status(cx);
         let page = self.page(cx);
         let label: SharedString = match page {
-            Page::SignIn => l10n.desktop_sign_in().into(),
+            Page::SignIn | Page::LibreChatSignIn => l10n.desktop_sign_in().into(),
             _ => l10n.desktop_set_up_conduit().into(),
         };
         let content = match page {
@@ -199,7 +225,31 @@ impl Render for SetupWindow {
             .into_any_element(),
             Page::SignIn => setup_frame(self.sign_in.clone().into_any_element(), label.clone(), cx)
                 .into_any_element(),
+            Page::LibreChatSignIn => {
+                setup_frame(self.librechat.clone().into_any_element(), label.clone(), cx)
+                    .into_any_element()
+            }
         };
+        // The LibreChat account whose session ended: its server's sign-in,
+        // saying so, started once per account.
+        if page == Page::LibreChatSignIn {
+            let ended = self
+                .stores
+                .accounts
+                .read(cx)
+                .libre_chat_needs_sign_in()
+                .map(|a| (a.id.clone(), a.base_url.clone(), a.title.clone()));
+            if let Some((id, base_url, title)) = ended
+                && self.librechat_for.as_deref() != Some(id.as_str())
+            {
+                self.librechat_for = Some(id);
+                let title = crate::views::privacy::host(&title, cx);
+                self.librechat
+                    .update(cx, |l, cx| l.start_at(&base_url, Some(title), window, cx));
+            }
+        } else {
+            self.librechat_for = None;
+        }
         if self.page != Some(page) {
             // Titled for what it holds (the Window menu, Mission Control).
             window.set_window_title(&label);

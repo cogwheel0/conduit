@@ -1087,7 +1087,7 @@ impl WorkspacePane {
         }
         if access.share && writable {
             out.push(Some((
-                l.desktop_workspace_share_access(),
+                l.desktop_share_access_ellipsis(),
                 ItemCommand::Share,
             )));
         }

@@ -283,7 +283,7 @@ pub fn frame<V: 'static>(
                 command: ItemCommand::Share,
             };
             d.child(
-                Button::new("workspace-editor-share", l.desktop_workspace_share_access())
+                Button::new("workspace-editor-share", l.desktop_share_access_ellipsis())
                     .icon(IconName::Users)
                     .on_click(Rc::new(move |_, window, cx| {
                         window.dispatch_action(Box::new(action.clone()), cx)
@@ -359,7 +359,7 @@ pub fn frame<V: 'static>(
                 }))
         };
         let label = if frame.saving {
-            l.desktop_workspace_editor_saving()
+            l.desktop_saving()
         } else if frame.creating {
             l.create()
         } else {

@@ -77,6 +77,7 @@ mod direct;
 mod hermes_cards;
 mod hermes_sessions;
 mod integration;
+mod librechat;
 mod notes;
 mod offline;
 mod read_aloud;
@@ -153,9 +154,11 @@ impl E2eInputs {
         // The passes sign in with these credentials and photograph what
         // the server shows: only ever on this Mac's own test server.
         // The address itself is never logged: it may be private.
-        if env.get("OWUI_URL").is_some_and(|u| !is_local_url(u)) {
-            println!("SMOKE FAILED e2e OWUI_URL is not a local (loopback) address");
-            env.clear();
+        for key in ["OWUI_URL", "LIBRECHAT_URL"] {
+            if env.get(key).is_some_and(|u| !is_local_url(u)) {
+                println!("SMOKE FAILED e2e {key} is not a local (loopback) address");
+                env.clear();
+            }
         }
         Some(Self { scenario, env })
     }
@@ -738,6 +741,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "integration" => integration::run(&inputs, &dir, cx).await,
         "sections" => sections::run(&inputs, &dir, cx).await,
         "channels" => channels::run(&inputs, &dir, cx).await,
+        "librechat" => librechat::run(&inputs, &dir, cx).await,
         "composer" => composer::run(&inputs, &dir, cx).await,
         "chat-settings" => chat_settings::run(&inputs, &dir, cx).await,
         "shell" | "shell-notify" | "shell-close" => shell::run(&inputs, &dir, cx).await,
@@ -2174,6 +2178,25 @@ mod tests {
         assert!(!is_local_url("http://10.0.0.5:8080"));
         assert!(!is_local_url("http://localhost.example.org"));
         assert!(!is_local_url("file:///tmp/x"));
+        // An env file naming another machine is not used, for either kind
+        // of server.
+        for key in ["OWUI_URL", "LIBRECHAT_URL"] {
+            let file = std::env::temp_dir()
+                .join(format!("conduit-e2e-env-{key}-{}.env", std::process::id()));
+            std::fs::write(&file, format!("{key}=https://chat.example.org\nX=1\n")).unwrap();
+            let args: Vec<String> = ["app", "--e2e", "smoke", "--e2e-env"]
+                .into_iter()
+                .map(String::from)
+                .chain([file.display().to_string()])
+                .collect();
+            let inputs = E2eInputs::from_args(&args).unwrap();
+            assert_eq!(inputs.get(key), None, "{key} names another machine");
+            assert_eq!(
+                inputs.get("X"),
+                None,
+                "{key}: the rest of the file is still used"
+            );
+        }
     }
 
     #[test]

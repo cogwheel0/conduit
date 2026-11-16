@@ -804,6 +804,7 @@ pub fn backend_label(b: Backend, st: &Strings) -> SharedString {
         Backend::OpenWebUi => st.open_webui.clone(),
         Backend::Direct => st.direct.clone(),
         Backend::Hermes => st.hermes.clone(),
+        Backend::LibreChat => st.librechat.clone(),
     }
 }
 
@@ -838,6 +839,7 @@ fn backend_icon(b: Backend) -> IconName {
         Backend::OpenWebUi => IconName::Server,
         Backend::Direct => IconName::Zap,
         Backend::Hermes => IconName::Bot,
+        Backend::LibreChat => IconName::MessagesSquare,
     }
 }
 

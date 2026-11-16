@@ -25,6 +25,9 @@ use crate::stores::Stores;
 
 pub const WIDTH: f32 = 480.;
 pub const HEIGHT: f32 = 330.;
+/// A LibreChat link has no Who Has Access row (it is public), so its sheet
+/// is that row shorter.
+pub const LIBRECHAT_HEIGHT: f32 = HEIGHT - 56.;
 
 /// Opens Share Chat for `chat_id` on `window`.
 pub fn open(
@@ -35,7 +38,12 @@ pub fn open(
     let stores = cx
         .try_global::<crate::AppState>()
         .map(|s| s.stores.clone())?;
-    super::sheets::open(window, WIDTH, HEIGHT, cx, move |window, cx| {
+    let height = if stores.accounts.read(cx).libre_chat_in_charge() {
+        LIBRECHAT_HEIGHT
+    } else {
+        HEIGHT
+    };
+    super::sheets::open(window, WIDTH, height, cx, move |window, cx| {
         ShareSheet::new(stores, chat_id, window, cx)
     })
 }
@@ -244,6 +252,9 @@ impl Render for ShareSheet {
         };
         let url = self.share.as_ref().and_then(|s| s.url.clone());
         let audience = self.share.as_ref().and_then(|s| s.audience);
+        let librechat = cx
+            .try_global::<crate::AppState>()
+            .is_some_and(|s| s.stores.accounts.read(cx).libre_chat_in_charge());
         let row = |id: &'static str, title: String, detail: Option<String>| {
             div()
                 .id(id)
@@ -344,41 +355,45 @@ impl Render for ShareSheet {
                             })),
                     ),
             )
-            .when(linked, |d| {
-                d.child(div().h(px(1.)).bg(r.border))
-                    .child(
-                        row(
-                            "share-audience-row",
-                            l10n.chat_share_audience(),
-                            Some(
-                                // A link whose audience could not be read
-                                // may be open: never shown as private.
-                                audience
-                                    .map(|a| audience_label(a, &l10n))
-                                    .unwrap_or_else(|| l10n.resource_sharing_load_failed()),
-                            ),
-                        )
-                        .role(Role::Group)
-                        .aria_label(SharedString::from(l10n.chat_share_audience()))
-                        .child(audience_button),
-                    )
-                    .child(
-                        row(
-                            "share-delete-row",
-                            l10n.share_chat_delete_link(),
-                            Some(l10n.share_chat_delete_and_create()),
-                        )
-                        .child(
-                            Button::new("share-delete", l10n.delete())
-                                .disabled(self.busy)
-                                .on_click(std::rc::Rc::new({
-                                    let s = weak.clone();
-                                    move |_, _, cx| {
-                                        let _ = s.update(cx, |s, cx| s.delete_link(cx));
-                                    }
-                                })),
+            .when(linked, |d| d.child(div().h(px(1.)).bg(r.border)))
+            // Who may open it: Open WebUI's access grants. A LibreChat link
+            // is public, as the phone's sheet shows it.
+            .when(linked && !librechat, |d| {
+                d.child(
+                    row(
+                        "share-audience-row",
+                        l10n.chat_share_audience(),
+                        Some(
+                            // A link whose audience could not be read may
+                            // be open: never shown as private.
+                            audience
+                                .map(|a| audience_label(a, &l10n))
+                                .unwrap_or_else(|| l10n.resource_sharing_load_failed()),
                         ),
                     )
+                    .role(Role::Group)
+                    .aria_label(SharedString::from(l10n.chat_share_audience()))
+                    .child(audience_button),
+                )
+            })
+            .when(linked, |d| {
+                d.child(
+                    row(
+                        "share-delete-row",
+                        l10n.share_chat_delete_link(),
+                        Some(l10n.share_chat_delete_and_create()),
+                    )
+                    .child(
+                        Button::new("share-delete", l10n.delete())
+                            .disabled(self.busy)
+                            .on_click(std::rc::Rc::new({
+                                let s = weak.clone();
+                                move |_, _, cx| {
+                                    let _ = s.update(cx, |s, cx| s.delete_link(cx));
+                                }
+                            })),
+                    ),
+                )
             });
         let done = Button::new("share-done", l10n.done())
             .primary()

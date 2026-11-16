@@ -14,7 +14,7 @@ use crate::theme::{ActiveConduitTheme, UI_FONT, with_alpha};
 use crate::views::focus::{ControlExt as _, Ring, pressed_fill};
 use crate::views::kit::{
     Button, ClickHandler, SelectHandler, Switch, bare_input, form_field, grouped, grouped_section,
-    grouped_tones, heading, icon_tile, inline_field, nav_row, on_click_or_noop, setting_row,
+    grouped_tones, heading, icon_tile, inline_field, nav_row_badged, on_click_or_noop, setting_row,
 };
 use crate::views::model::Backend;
 use crate::window::{TOOLBAR_HEIGHT, drag_region};
@@ -99,7 +99,12 @@ pub fn title_block(title: &str, subtitle: &str, mark: bool, cx: &App) -> Div {
 }
 
 /// The order the chooser lists the backends in.
-pub const BACKENDS: [Backend; 3] = [Backend::OpenWebUi, Backend::Direct, Backend::Hermes];
+pub const BACKENDS: [Backend; 4] = [
+    Backend::OpenWebUi,
+    Backend::Direct,
+    Backend::Hermes,
+    Backend::LibreChat,
+];
 
 /// "How do you want to connect?" with three radio cards.
 #[derive(IntoElement)]
@@ -142,6 +147,7 @@ impl RenderOnce for BackendChooser {
         let row = |i: usize,
                    ic: IconName,
                    title: SharedString,
+                   badge: Option<SharedString>,
                    desc: SharedString,
                    window: &mut Window,
                    cx: &mut App| {
@@ -149,10 +155,11 @@ impl RenderOnce for BackendChooser {
             let busy = self.busy;
             // The backend chosen last (coming Back from its setup).
             let chosen = BACKENDS.get(i) == Some(&self.selected);
-            nav_row(
+            nav_row_badged(
                 ElementId::NamedInteger("backend".into(), i as u64),
                 ic,
                 title,
+                badge,
                 Some(desc),
                 cx,
             )
@@ -173,12 +180,23 @@ impl RenderOnce for BackendChooser {
             .keyboard_control(Ring::Inset(10.), window, cx)
             .into_any_element()
         };
+        // The phone's order: Open WebUI, LibreChat (Beta), Hermes Agent.
         let self_hosted = vec![
             row(
                 0,
                 IconName::Server,
                 st.open_webui.clone(),
+                None,
                 st.open_webui_detail.clone(),
+                window,
+                cx,
+            ),
+            row(
+                3,
+                IconName::MessagesSquare,
+                st.librechat.clone(),
+                Some(st.beta.clone()),
+                st.librechat_detail.clone(),
                 window,
                 cx,
             ),
@@ -186,6 +204,7 @@ impl RenderOnce for BackendChooser {
                 2,
                 IconName::Bot,
                 st.hermes.clone(),
+                None,
                 st.hermes_detail.clone(),
                 window,
                 cx,
@@ -195,6 +214,7 @@ impl RenderOnce for BackendChooser {
             1,
             IconName::Zap,
             st.direct.clone(),
+            None,
             st.direct_detail.clone(),
             window,
             cx,

@@ -48,7 +48,8 @@ use std::time::Duration;
 use conduit_daemon::{Handshake, RpcError};
 use conduit_protocol::{
     AccountList, AuthPhase, AuthSnapshot, Capabilities, DirectConnectionList, HandshakeRequest,
-    HandshakeResponse, HermesSettings, NoParams, ServerReachability, ServerStatus, methods,
+    HandshakeResponse, HermesSettings, LibreChatSessionPhase, NoParams, PrimaryAccount,
+    ServerReachability, ServerStatus, methods,
 };
 use gpui_kit::{AsyncApp, Context, Entity, EventEmitter, Subscription, Task, WeakEntity};
 use serde_json::Value;
@@ -93,7 +94,8 @@ pub enum Route {
     /// No backend chosen yet: the backend chooser.
     Onboarding,
     /// An Open WebUI account is active and needs a sign-in (a first sign-in,
-    /// an addition, or an expired session).
+    /// an addition, or an expired session), or the LibreChat account in
+    /// charge needs one (its session ended).
     SignIn,
     /// Ready: signed in, or a Direct-only or Hermes-only setup.
     Main,
@@ -103,6 +105,8 @@ pub enum Route {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Backend {
     OpenWebUi,
+    /// A LibreChat account owns the chats.
+    LibreChat,
     Direct,
     Hermes,
     /// The reviewer/demo session, with no server.
@@ -133,6 +137,17 @@ pub fn derive_route(inputs: RouteInputs<'_>) -> Route {
     }
     if accounts.adding_account {
         return Route::SignIn;
+    }
+    // A LibreChat account owns the chats: its own session routes, and Open
+    // WebUI (parked) does not.
+    if accounts.primary == PrimaryAccount::LibreChat
+        && accounts.active_libre_chat_account_id.is_some()
+    {
+        return match accounts.libre_chat_session {
+            LibreChatSessionPhase::SignedIn => Route::Main,
+            LibreChatSessionPhase::NeedsSignIn => Route::SignIn,
+            _ => Route::Unknown,
+        };
     }
     if accounts.active_account_id.is_some() {
         if auth.is_authenticated {
@@ -205,8 +220,18 @@ pub struct SessionStore {
 impl EventEmitter<SessionEvent> for SessionStore {}
 
 fn signature(list: &AccountList) -> String {
-    let mut s = format!("{:?}|{}", list.active_account_id, list.adding_account);
+    let mut s = format!(
+        "{:?}|{}|{:?}|{:?}|{:?}",
+        list.active_account_id,
+        list.adding_account,
+        list.primary,
+        list.active_libre_chat_account_id,
+        list.libre_chat_session,
+    );
     for a in &list.accounts {
+        s.push_str(&format!("|{}:{}", a.id, a.has_session));
+    }
+    for a in &list.libre_chat_accounts {
         s.push_str(&format!("|{}:{}", a.id, a.has_session));
     }
     s
@@ -276,6 +301,7 @@ impl SessionStore {
     /// Direct connections chosen and usable, with no Open WebUI account.
     pub fn direct_only(&self, cx: &gpui_kit::App) -> bool {
         self.accounts.read(cx).active().is_none()
+            && !self.accounts.read(cx).libre_chat_in_charge()
             && self
                 .direct
                 .as_ref()
@@ -285,6 +311,7 @@ impl SessionStore {
     /// Hermes usable, with no Open WebUI account and no Direct preference.
     pub fn hermes_only(&self, cx: &gpui_kit::App) -> bool {
         self.accounts.read(cx).active().is_none()
+            && !self.accounts.read(cx).libre_chat_in_charge()
             && !self.direct_only(cx)
             && self.hermes.as_ref().is_some_and(|h| h.usable)
     }
@@ -292,6 +319,11 @@ impl SessionStore {
     pub fn backend(&self, cx: &gpui_kit::App) -> Option<Backend> {
         if self.auth.as_ref().is_some_and(|a| a.is_reviewer_mode) {
             return Some(Backend::Demo);
+        }
+        if self.accounts.read(cx).libre_chat_in_charge()
+            && self.accounts.read(cx).libre_chat_active().is_some()
+        {
+            return Some(Backend::LibreChat);
         }
         if self.accounts.read(cx).active().is_some() {
             return Some(Backend::OpenWebUi);

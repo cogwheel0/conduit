@@ -21,6 +21,7 @@ pub mod hermes_diff_sheet;
 pub mod hermes_sessions;
 pub mod hermes_work_sheet;
 pub mod image_viewer;
+pub mod librechat_sign_in;
 pub mod main_window;
 pub mod model_logo;
 pub mod notes;

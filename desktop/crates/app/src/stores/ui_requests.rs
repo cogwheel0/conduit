@@ -142,6 +142,23 @@ pub fn card(request: &UiRequest) -> Card {
             confirm_label: arg(request, "confirmLabel"),
             cancel_label: arg(request, "cancelLabel"),
         },
+        // A LibreChat run paused on a tool: its description, then the
+        // arguments it would run with.
+        UiRequestKind::ToolApproval if request.message_code == "librechat.toolApproval" => {
+            let arguments = request
+                .detail
+                .get("arguments")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            Card::Tool {
+                title,
+                message: [message.as_str(), arguments]
+                    .into_iter()
+                    .filter(|s| !s.trim().is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n\n"),
+            }
+        }
         UiRequestKind::ToolApproval => Card::Tool { title, message },
         UiRequestKind::InputPrompt => {
             let input = match request.input_type {
@@ -164,8 +181,43 @@ pub fn card(request: &UiRequest) -> Card {
                 cancel_label: arg(request, "cancelLabel"),
             }
         }
-        // Not shown in a window yet.
-        UiRequestKind::LibreChatQuestion => Card::Unsupported,
+        // A LibreChat agent's question: its options to pick from, or words
+        // of one's own when it offers none. Cancel stops the reply.
+        UiRequestKind::LibreChatQuestion => {
+            let options: Vec<UiInputOption> = request
+                .detail
+                .get("options")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|o| o.get("label").and_then(Value::as_str))
+                        .map(|label| UiInputOption {
+                            value: label.to_string(),
+                            label: label.to_string(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let description = request
+                .detail
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            Card::Input {
+                title,
+                message: description,
+                placeholder: None,
+                initial: String::new(),
+                input: if options.is_empty() {
+                    InputKind::Text
+                } else {
+                    InputKind::Select(options)
+                },
+                confirm_label: None,
+                cancel_label: None,
+            }
+        }
         UiRequestKind::McpApproval => Card::Mcp {
             server: arg(request, "serverName").unwrap_or_default(),
             tool: arg(request, "toolName").unwrap_or_default(),

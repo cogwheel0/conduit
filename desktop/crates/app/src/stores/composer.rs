@@ -38,8 +38,9 @@ use conduit_daemon::RpcError;
 use conduit_protocol::{
     AppSettingsDto, ChatFileDto, ComposerMentionDto, ComposerOptions, ComposerSearch,
     ContextAttachmentDto, ContextSuggestion, Draft, DraftRef, DraftSave, FetchUrl, FetchedUrl,
-    KnowledgeSummary, MentionList, ModelList, ModelSummary, NoParams, PromptSummary, RenderPrompt,
-    RenderedPrompt, SelectModel, ServerFile, ServerFileList, SkillSummary, UploadedFile, methods,
+    KnowledgeSummary, LibreChatComposer, LibreChatComposerTarget, MentionList, ModelList,
+    ModelSummary, NoParams, PromptSummary, RenderPrompt, RenderedPrompt, SelectModel, ServerFile,
+    ServerFileList, SkillSummary, UploadedFile, methods,
 };
 use gpui_kit::{
     AppContext as _, AsyncApp, Context, EventEmitter, Image, ImageFormat, Task, WeakEntity,
@@ -336,6 +337,20 @@ pub enum ComposerEvent {
     DraftLoaded { key: DraftKey, text: String },
 }
 
+/// One of LibreChat's composer switches.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LibreChatTool {
+    WebSearch,
+    CodeInterpreter,
+    FileSearch,
+    /// One of the user's MCP servers; one that `needs_connection` is
+    /// connected in LibreChat's web app first.
+    Mcp {
+        name: String,
+        needs_connection: bool,
+    },
+}
+
 pub struct ComposerStore {
     rpc: Rpc,
     uploader: Option<Uploader>,
@@ -343,6 +358,9 @@ pub struct ComposerStore {
     pub prefs: ComposerPrefs,
     pub models: Option<ModelList>,
     pub options: ComposerOptions,
+    /// LibreChat's tools for the model, when it is a LibreChat one
+    /// (`librechat.composer`): chosen in `tool_ids`, as Open WebUI's are.
+    pub librechat: LibreChatComposer,
     pub prompts: Option<Vec<PromptSummary>>,
     /// `@`: the server's users and channels for the query typed.
     pub mention_results: MentionList,
@@ -431,6 +449,7 @@ impl ComposerStore {
             prefs: ComposerPrefs::default(),
             models: None,
             options: ComposerOptions::default(),
+            librechat: LibreChatComposer::default(),
             prompts: None,
             mention_results: MentionList::default(),
             channel: None,
@@ -757,7 +776,8 @@ impl ComposerStore {
         );
     }
 
-    /// `composer.options`; switches it no longer offers go off.
+    /// `composer.options` (and `librechat.composer` for the model);
+    /// switches they no longer offer go off.
     pub fn refresh_options(&mut self, cx: &mut Context<Self>) {
         // A channel's options are its own (`for_channel`), not a model's.
         if self.channel.is_some() {
@@ -765,17 +785,51 @@ impl ComposerStore {
         }
         let call = self.rpc.call::<methods::ComposerOptions>(&NoParams);
         let scope = self.scope;
+        let model_id = self.selected_model().map(|m| m.id.clone());
+        let librechat = self
+            .rpc
+            .call::<methods::LibrechatComposer>(&LibreChatComposerTarget { model_id });
         self._options = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                if let Ok(options) = call.await {
+                let (options, librechat) = futures::join!(call, librechat);
+                if let Ok(options) = options {
                     let _ = this.update(cx, |s, cx| {
-                        if s.scope == scope {
-                            s.set_options(options, cx)
+                        // Another account's answers never fill this one's.
+                        if s.scope != scope {
+                            return;
                         }
+                        // A daemon without LibreChat answers as none.
+                        s.librechat = librechat.unwrap_or_default();
+                        s.set_options(options, cx)
                     });
                 }
             }),
         );
+    }
+
+    /// LibreChat's switches for the model: `(tool id, which)`.
+    pub fn librechat_tools(&self) -> Vec<(String, LibreChatTool)> {
+        let lc = &self.librechat;
+        let mut tools = Vec::new();
+        if let Some(id) = &lc.web_search_tool_id {
+            tools.push((id.clone(), LibreChatTool::WebSearch));
+        }
+        if let Some(id) = &lc.code_interpreter_tool_id {
+            tools.push((id.clone(), LibreChatTool::CodeInterpreter));
+        }
+        if let Some(id) = &lc.file_search_tool_id {
+            tools.push((id.clone(), LibreChatTool::FileSearch));
+        }
+        for server in &lc.mcp_servers {
+            tools.push((
+                server.tool_id.clone(),
+                LibreChatTool::Mcp {
+                    name: server.name.clone(),
+                    needs_connection: server.needs_connection,
+                },
+            ));
+        }
+        tools
     }
 
     fn set_options(&mut self, options: ComposerOptions, cx: &mut Context<Self>) {
@@ -787,11 +841,13 @@ impl ComposerStore {
         if !options.code_interpreter && options.code_interpreter_block.is_none() {
             self.code_interpreter = false;
         }
+        let librechat = self.librechat_tools();
         let offered: BTreeSet<&str> = options
             .tools
             .iter()
             .chain(&options.mcp_tools)
             .map(|t| t.id.as_str())
+            .chain(librechat.iter().map(|(id, _)| id.as_str()))
             .collect();
         self.tool_ids.retain(|id| offered.contains(id.as_str()));
         // Filters start from the model's own defaults, until the user picks.
@@ -1822,6 +1878,7 @@ impl ComposerStore {
         self.model_options = None;
         self.models = None;
         self.options = ComposerOptions::default();
+        self.librechat = LibreChatComposer::default();
         self.prompts = None;
         self.mention_results = MentionList::default();
         self.context_results.clear();

@@ -621,7 +621,7 @@ impl McpServerSheet {
         } else {
             if connected {
                 buttons = buttons.child(
-                    Button::new("mcp-disconnect", l10n.desktop_mcp_sign_out())
+                    Button::new("mcp-disconnect", l10n.desktop_sign_out())
                         .disabled(self.busy)
                         .on_click(self.listener(cx, |s, w, cx| s.disconnect(w, cx))),
                 );

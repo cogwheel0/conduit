@@ -36,11 +36,11 @@ use gpui_kit::{
 };
 
 use crate::actions::{
-    AllowRequest, ArchiveChat, CloseWindow, DeleteChat, DenyRequest, ExportChatAs, FindChats,
-    FindInChat, FindNext, FindPrevious, GenerateChatTitle, GoBack, GoForward, GoToSection,
-    MarkChatUnread, MoveChatTo, NewChat, NewFolder, NewTemporaryChat, NextChat, OpenPalette,
-    PreviousChat, RegenerateLastAnswer, RenameChat, SaveTemporaryChat, ShareChat, ShowBranches,
-    TogglePinChat,
+    AllowRequest, ArchiveChat, CloseWindow, DeleteChat, DenyRequest, DuplicateChat, ExportChatAs,
+    FindChats, FindInChat, FindNext, FindPrevious, GenerateChatTitle, GoBack, GoForward,
+    GoToSection, MarkChatUnread, MoveChatTo, NewChat, NewFolder, NewTemporaryChat, NextChat,
+    OpenPalette, PreviousChat, RegenerateLastAnswer, RenameChat, SaveTemporaryChat, ShareChat,
+    ShowBranches, TogglePinChat,
 };
 use crate::l10n::ActiveL10n as _;
 use crate::stores::Stores;
@@ -814,6 +814,9 @@ impl Render for MainWindow {
                 }))
                 .on_action(cx.listener(|this, _: &GenerateChatTitle, window, cx| {
                     this.chat_command(|_| ChatCommand::GenerateTitle, window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &DuplicateChat, window, cx| {
+                    this.chat_command(|_| ChatCommand::Duplicate, window, cx)
                 }))
                 .on_action(cx.listener(|this, a: &ExportChatAs, window, cx| {
                     let format = a.format;
