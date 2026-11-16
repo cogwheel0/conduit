@@ -679,6 +679,20 @@ impl RoomInfoSheet {
                 let _ = this.update(cx, |s, cx| {
                     s.saving = false;
                     let l = cx.l10n().clone();
+                    // What went through is saved, whatever else failed: the
+                    // next Save compares with it.
+                    if let Some(initial) = &mut s.initial {
+                        if matches!(renamed, Some(Ok(_))) {
+                            initial.name = edit.name.clone();
+                        }
+                        if matches!(saved, Some(Ok(_))) {
+                            let context = edit.clone();
+                            initial.purpose = context.purpose;
+                            initial.notes = context.notes;
+                            initial.routing = context.routing;
+                            initial.lead = context.lead;
+                        }
+                    }
                     let error = renamed
                         .as_ref()
                         .and_then(|r| r.as_ref().err())
@@ -686,6 +700,11 @@ impl RoomInfoSheet {
                     if let Some(e) = error {
                         log::warn!("hermes room save: {e}");
                         s.failure = Some(failure_text(e, &l));
+                        if let Some(Ok(room)) = renamed {
+                            stores
+                                .hermes_rooms
+                                .update(cx, |h, cx| h.patch_listed(room, cx));
+                        }
                         cx.notify();
                         return;
                     }
@@ -874,6 +893,11 @@ impl RoomInfoSheet {
 }
 
 impl SheetBody for RoomInfoSheet {
+    /// Edits not saved yet: Quit asks first, as Cancel does.
+    fn unsaved(&self, _: &App) -> bool {
+        self.is_dirty()
+    }
+
     fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let l = cx.l10n().clone();
         let view = self.view(cx).cloned();
@@ -1115,5 +1139,90 @@ impl Render for RoomInfoSheet {
                 }
             }))
             .children(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use conduit_protocol::{Event, HermesRoomDto, HermesRoomView, RpcError, methods};
+    use gpui_kit::{Entity, TestAppContext, VisualTestContext};
+    use serde_json::json;
+
+    use super::RoomInfoSheet;
+    use crate::stores::Stores;
+    use crate::stores::rpc::fake::FakeDaemon;
+    use crate::views::sheet::SheetBody as _;
+
+    fn room() -> HermesRoomView {
+        serde_json::from_value(json!({
+            "roomId": "r1", "loaded": true, "running": true,
+            "room": {"id": "r1", "name": "Greenhouse crew", "members": [
+                {"memberId": "fern", "profile": "fern", "handle": "fern", "name": "Fern"},
+            ]},
+            "context": {"purpose": "Plan the spring beds", "notes": ""},
+        }))
+        .unwrap()
+    }
+
+    fn open<'a>(
+        cx: &'a mut TestAppContext,
+        daemon: &FakeDaemon,
+        tag: &str,
+    ) -> (Entity<RoomInfoSheet>, &'a mut VisualTestContext) {
+        daemon.returns::<methods::HermesRoomsWatch>(room());
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-hinfo-{tag}-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.hermes_rooms.update(cx, |h, cx| {
+            h.show(Some("r1"), cx);
+            h.on_event(&Event::HermesRoomsChanged(room()), cx);
+        });
+        let (sheet, vcx) = cx.add_window_view(move |window, cx| {
+            RoomInfoSheet::new(stores, "r1".into(), true, window, cx)
+        });
+        vcx.run_until_parked();
+        (sheet, vcx)
+    }
+
+    #[gpui_kit::test]
+    fn quit_asks_before_dropping_room_info_typed_but_not_saved(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let (sheet, vcx) = open(cx, &daemon, "unsaved");
+        sheet.read_with(vcx, |s, cx| assert!(!s.unsaved(cx)));
+        sheet.update_in(vcx, |s, window, cx| {
+            s.type_into("name", "Seed swap", window, cx)
+        });
+        sheet.read_with(vcx, |s, cx| assert!(s.unsaved(cx)));
+    }
+
+    #[gpui_kit::test]
+    fn a_save_that_half_failed_keeps_what_was_saved_as_saved(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::HermesRoomsRename>(
+            serde_json::from_value::<HermesRoomDto>(json!({"id": "r1", "name": "Seed swap"}))
+                .unwrap(),
+        );
+        daemon.once::<methods::HermesRoomsSaveContext>(Err(RpcError::internal("no context")));
+        daemon.returns::<methods::HermesRoomsSaveContext>(Default::default());
+        let (sheet, vcx) = open(cx, &daemon, "half");
+        sheet.update_in(vcx, |s, window, cx| {
+            s.type_into("name", "Seed swap", window, cx);
+            s.type_into("purpose", "Seed trays", window, cx);
+            s.save(window, cx);
+        });
+        vcx.run_until_parked();
+        sheet.read_with(vcx, |s, _| assert!(s.failure.is_some()));
+        // The rename went through; the name typed back is a rename of its own.
+        sheet.update_in(vcx, |s, window, cx| {
+            s.type_into("name", "Greenhouse crew", window, cx);
+            s.save(window, cx);
+        });
+        vcx.run_until_parked();
+        let renames = daemon.calls::<methods::HermesRoomsRename>();
+        assert_eq!(renames.len(), 2);
+        assert_eq!(renames[1]["name"], "Greenhouse crew");
     }
 }
