@@ -1854,6 +1854,26 @@ impl ComposerStore {
         true
     }
 
+    /// Another draft is shown in the same composer (a channel's thread
+    /// composer, another thread): what one message would use is taken with
+    /// it, to come back with [`Self::put_draft`], and a send still on its
+    /// way gives nothing back to the next draft.
+    pub fn take_draft(&mut self, cx: &mut Context<Self>) -> OneShot {
+        let used = self.one_shot();
+        self.start_over(cx);
+        used
+    }
+
+    /// Puts back what [`Self::take_draft`] (or a send that failed) took from
+    /// a draft shown again, under the same account only.
+    pub fn put_draft(&mut self, mut used: OneShot, cx: &mut Context<Self>) -> bool {
+        if used.scope != self.scope {
+            return false;
+        }
+        used.draft = self.draft_round;
+        self.give_back(used, cx)
+    }
+
     /// A new draft: what one message would use goes (attachments,
     /// knowledge, context, the `@` model), and a send still on its way gives
     /// nothing back to it.
