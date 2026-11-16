@@ -70,7 +70,7 @@ void main() {
           suffix: '(copy)',
         ),
       );
-      await Future<void>.delayed(Duration.zero);
+      await api.asked.future;
       // Another account signs in while the prompt is read.
       epoch = Object();
       c.invalidate(openWebUiAuthSessionEpochProvider);
@@ -107,10 +107,16 @@ final class _Api extends ApiService {
   _Api() : super(serverConfig: _server, workerManager: WorkerManager());
 
   Future<WorkspacePromptDetail?> Function() prompt = () async => null;
+
+  /// The prompt was asked for.
+  final asked = Completer<void>();
   final created = <WorkspacePromptForm>[];
 
   @override
-  Future<WorkspacePromptDetail?> getWorkspacePrompt(String id) => prompt();
+  Future<WorkspacePromptDetail?> getWorkspacePrompt(String id) {
+    asked.complete();
+    return prompt();
+  }
 
   @override
   Future<WorkspacePromptDetail?> createWorkspacePrompt(
