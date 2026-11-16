@@ -271,9 +271,13 @@ impl SkillEditor {
                 }
                 self.name.update(cx, |s, cx| s.set_value(value, window, cx))
             }
-            "id" => self
-                .skill_id
-                .update(cx, |s, cx| s.set_value(value, window, cx)),
+            "id" => {
+                // As typed: the name no longer moves it (a programmatic set
+                // sends no change event).
+                self.id_typed = true;
+                self.skill_id
+                    .update(cx, |s, cx| s.set_value(value, window, cx))
+            }
             "description" => self
                 .description
                 .update(cx, |s, cx| s.set_value(value, window, cx)),
@@ -808,6 +812,44 @@ mod tests {
             })
         });
         assert!(!fresh.read_with(vcx, |e, cx| e.valid(cx)));
+    }
+
+    /// An id a Markdown import brought stays when the name is changed
+    /// afterwards, as an id typed by hand does.
+    #[gpui_kit::test]
+    fn an_imported_id_stays_when_the_name_changes(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::workspace::editor::bench;
+        let (_daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        let editor = vcx.update(|window, cx| {
+            cx.new(|cx| {
+                SkillEditor::new(
+                    stores.clone(),
+                    WeakEntity::new_invalid(),
+                    None,
+                    bench::manage(),
+                    window,
+                    cx,
+                )
+            })
+        });
+        // As Import Markdown fills the form.
+        vcx.update(|window, cx| {
+            editor.update(cx, |e, cx| {
+                e.set_field("content", "Pick a trail.", window, cx);
+                e.set_field("name", "Trail skill", window, cx);
+                e.set_field("id", "ridge_walks", window, cx);
+            })
+        });
+        vcx.update(|window, cx| {
+            editor.update(cx, |e, cx| e.set_field("name", "Ridge walks", window, cx))
+        });
+        editor.read_with(vcx, |e, cx| {
+            assert_eq!(
+                e.skill_id.read(cx).value().to_string(),
+                "ridge_walks",
+                "the imported id followed the name"
+            );
+        });
     }
 
     /// Text typed while a save is out is kept, still to save.
