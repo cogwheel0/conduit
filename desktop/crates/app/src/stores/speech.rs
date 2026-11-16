@@ -281,6 +281,14 @@ impl SpeechStore {
         }
     }
 
+    /// A new daemon session (a reconnect, or a restarted daemon, which
+    /// numbers its readings from 0 again): its answer is the reading, older
+    /// number or not.
+    pub fn reconnected(&mut self, cx: &mut Context<Self>) {
+        self.progress.reading = i64::MIN;
+        self.refresh(cx);
+    }
+
     /// Fetches the reading (a window that connected late, or a gap).
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         let call = self.rpc.call::<methods::SpeechGet>(&NoParams {});
@@ -583,7 +591,10 @@ pub fn wire(stores: &Stores, cx: &mut App) {
     cx.subscribe(&stores.connection, move |_, event, cx| {
         use super::connection::ConnectionEvent;
         match event {
-            ConnectionEvent::Connected { .. } | ConnectionEvent::Gap => {
+            ConnectionEvent::Connected { .. } => {
+                s.update(cx, |s, cx| s.reconnected(cx));
+            }
+            ConnectionEvent::Gap => {
                 s.update(cx, |s, cx| s.refresh(cx));
             }
             ConnectionEvent::Daemon(event) => match event.as_ref() {
@@ -625,5 +636,55 @@ mod tests {
         ] {
             assert_eq!(yield_for_dictation(left), None, "{left:?}");
         }
+    }
+
+    /// A restarted daemon numbers its readings from 0 again: the reading
+    /// shown before it went is not kept over its answer.
+    #[gpui_kit::test]
+    fn a_restarted_daemon_ends_the_reading_shown(cx: &mut gpui_kit::TestAppContext) {
+        use super::super::connection::ConnectionEvent;
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::SpeechGet>(SpeechState {
+            progress: SpeechProgress::default(),
+            sentences: vec![],
+        });
+        let scratch = std::env::temp_dir().join(format!("conduit-speech-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            let stores = super::super::Stores::for_test(daemon.rpc(), &scratch, cx);
+            wire(&stores, cx);
+            stores
+        });
+        // Paused in the third reading of the daemon before.
+        stores.speech.update(cx, |s, _| {
+            s.progress = SpeechProgress {
+                status: SpeechStatus::Paused,
+                reading: 3,
+                message_id: Some("answer-1".into()),
+                ..Default::default()
+            };
+        });
+        stores.connection.update(cx, |_, cx| {
+            cx.emit(ConnectionEvent::Connected {
+                handshake: Box::new(conduit_daemon::rpc::Handshake::from_value(
+                    serde_json::json!({}),
+                )),
+                request: serde_json::from_value(serde_json::json!({
+                    "protocolVersion": "1", "clientName": "test", "clientVersion": "1",
+                    "windowKind": "main", "locale": "en"
+                }))
+                .unwrap(),
+            })
+        });
+        cx.run_until_parked();
+        stores.speech.read_with(cx, |s, _| {
+            assert_eq!(
+                s.progress.status,
+                SpeechStatus::Idle,
+                "the old reading stayed"
+            );
+            assert_eq!(s.progress.message_id, None);
+        });
     }
 }
