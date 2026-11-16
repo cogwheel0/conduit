@@ -274,11 +274,16 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= ok("conduit://quick-ask shows Quick Ask", shown);
     cx.update(desktop::hide_quick_ask);
     settle(cx, 400).await;
-    pass &= ok(
-        "a quiet stand-in for the call's microphone",
-        super::voice_call::prepare_quiet_call(dir, cx).await,
-    );
-    for link in ["conduit://call", "conduit://mic?homeWidget=true"] {
+    let quiet = super::voice_call::prepare_quiet_call(dir, cx).await;
+    pass &= ok("a quiet stand-in for the call's microphone", quiet);
+    // Never a call on the real microphone: without the stand-in, no links
+    // that start one.
+    let call_links: &[&str] = if quiet {
+        &["conduit://call", "conduit://mic?homeWidget=true"]
+    } else {
+        &[]
+    };
+    for &link in call_links {
         links(&[link], cx);
         // A voice call in a new chat, as the phone's widget starts one.
         let started = wait_until(cx, Duration::from_secs(10), |cx| {

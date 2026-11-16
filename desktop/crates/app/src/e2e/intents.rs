@@ -304,10 +304,12 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     settle(cx, 400).await;
 
     // ── Start Voice Call ──────────────────────────────────────────────
-    pass &= ok(
-        "a quiet stand-in for the call's microphone",
-        super::voice_call::prepare_quiet_call(dir, cx).await,
-    );
+    let quiet = super::voice_call::prepare_quiet_call(dir, cx).await;
+    pass &= ok("a quiet stand-in for the call's microphone", quiet);
+    if !quiet {
+        // Never a call on the real microphone.
+        return false;
+    }
     let call = step(json!({ "intent": "startVoiceCall" })).await;
     let started = cx.update(super::voice_call::call_on);
     pass &= ok(
