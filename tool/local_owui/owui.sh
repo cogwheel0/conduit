@@ -108,6 +108,13 @@ if [ -z "$TERMINAL_PORT" ] && [ -f "$STATE/terminal_port" ]; then TERMINAL_PORT=
 TERMINAL_PORT=${TERMINAL_PORT:-$((PORT + 3))}
 URL=http://127.0.0.1:$PORT
 
+# Each service needs a port of its own: two on one port would both pass the
+# free-port check and then fight over it.
+if [ "$(printf '%s\n' "$PORT" "$MODEL_PORT" "$HERMES_PORT" "$TERMINAL_PORT" | sort -u | wc -l)" -ne 4 ]; then
+  echo "the server, fake model, fake Hermes and fake terminal need four different ports (now $PORT, $MODEL_PORT, $HERMES_PORT, $TERMINAL_PORT)" >&2
+  exit 2
+fi
+
 # Pid files and the identity of what they name: tool/local_owui/pids.sh.
 . "$TOOL_DIR/pids.sh"
 
