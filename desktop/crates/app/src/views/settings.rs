@@ -434,8 +434,10 @@ impl SettingsView {
         let mut subscriptions = vec![
             cx.observe(&settings, |_, _, cx| cx.notify()),
             cx.observe(&connection, |_, _, cx| cx.notify()),
+            // The account in charge of the chats: an Open WebUI account, or
+            // a LibreChat one while the Open WebUI account stays parked.
             cx.observe(&stores.accounts, |this: &mut Self, accounts, cx| {
-                let active = accounts.read(cx).active().map(|a| a.id.clone());
+                let active = accounts.read(cx).scope_key();
                 if active != this.account {
                     this.account = active;
                     this.forget_account(cx);
@@ -460,7 +462,7 @@ impl SettingsView {
                 audio.update(cx, |a, cx| a.stop_preview(cx));
             }
         }));
-        let account = stores.accounts.read(cx).active().map(|a| a.id.clone());
+        let account = stores.accounts.read(cx).scope_key();
         // The system's answers may have changed since (System Settings).
         crate::desktop::refresh_statuses(cx);
         let focus = cx.focus_handle();
@@ -2314,6 +2316,37 @@ mod language_tests {
             assert!(v.personalization.is_none() && v.data_controls.is_none());
             assert!(v.about_info.is_none(), "About shows A's server");
             assert!(v.direct.is_none(), "Direct shows A's connections");
+        });
+
+        // LibreChat owns the chats, and its account changes while the Open
+        // WebUI account stays parked: the panes start over too.
+        let libre_chat = |id: &str| {
+            let mut l = list(vec![
+                account("a", "Avery", false, true),
+                account("b", "Blake", true, true),
+            ]);
+            l.primary = conduit_protocol::PrimaryAccount::LibreChat;
+            l.active_libre_chat_account_id = Some(id.into());
+            l
+        };
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(libre_chat("lc-1"), cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |v, window, cx| {
+            v.personalization_pane(window, cx);
+            v.profile_pane(window, cx);
+        });
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(libre_chat("lc-2"), cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, _| {
+            assert!(
+                v.personalization.is_none(),
+                "the second LibreChat account sees the first one's memories"
+            );
+            assert!(v.profile.is_none());
         });
     }
 
