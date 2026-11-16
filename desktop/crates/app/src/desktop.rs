@@ -429,6 +429,9 @@ fn toast(level: NoticeLevel, text: String, cx: &mut App) {
 /// How long a change waits before the snapshot is written: a burst (the
 /// list, then its sync, then the session) makes one write.
 pub const WIDGET_DELAY: Duration = Duration::from_millis(400);
+/// A failed write is tried again this many times (2 s, 4 s, … apart),
+/// each time with what the app holds then.
+pub const WIDGET_RETRIES: u32 = 5;
 
 /// The widget's snapshot as the app last wrote it ([`crate::shell::widget`]).
 #[derive(Default)]
@@ -438,11 +441,16 @@ pub struct WidgetFeed {
     bridge: Option<widget::Bridge>,
     /// What was last written: an unchanged snapshot isn't written again.
     written: Option<Vec<u8>>,
-    /// The account the last snapshot was for.
-    account: Option<Option<String>>,
+    /// Whose chats the snapshot on disk holds ([`widget::owner_tag`]), as
+    /// last written or as read at launch; `None` when unknown (nothing on
+    /// disk worth keeping).
+    owner: Option<String>,
     pending: Option<gpui_kit::Task<()>>,
     /// A write failed (the system refused the container): logged once.
     failed: bool,
+    /// Writes failed in a row, and the next try ([`WIDGET_RETRIES`]).
+    failures: u32,
+    retry: Option<gpui_kit::Task<()>>,
     /// Snapshots written, and reloads WidgetKit took (the E2E pass).
     pub writes: u32,
     pub reloads: u32,
@@ -466,9 +474,16 @@ impl WidgetFeed {
                 (None, _, false) => "no widget in this bundle",
             }
         );
+        Self::at(path, Some(bridge))
+    }
+
+    /// The feed for `path`, owned by whoever the snapshot already there
+    /// was written for: a list still loading at launch keeps its chats.
+    fn at(path: Option<PathBuf>, bridge: Option<widget::Bridge>) -> Self {
         Self {
+            owner: path.as_deref().and_then(widget::read_owner),
             path,
-            bridge: Some(bridge),
+            bridge,
             ..Self::default()
         }
     }
@@ -481,10 +496,12 @@ impl WidgetFeed {
     /// Sends the snapshot to `path` from now on (E2E); the next change
     /// writes it.
     pub fn redirect(&mut self, path: PathBuf) {
-        self.path = Some(path);
-        self.written = None;
-        self.account = None;
-        self.failed = false;
+        let bridge = self.bridge.take();
+        *self = Self {
+            writes: self.writes,
+            reloads: self.reloads,
+            ..Self::at(Some(path), bridge)
+        };
     }
 }
 
@@ -510,44 +527,59 @@ pub fn schedule_widget(cx: &mut App) {
     cx.global_mut::<Desktop>().widget.pending = Some(task);
 }
 
-/// The snapshot for what the app holds now, and the account it is for;
-/// `None` while that isn't known (the route, or a list still loading for
-/// the account the last snapshot showed).
-fn widget_snapshot(
-    last_account: Option<&Option<String>>,
-    cx: &App,
-) -> Option<(Snapshot, Option<String>)> {
+/// Whose chats the widget shows: the account in charge of the chats (the
+/// LibreChat account while LibreChat owns them), as a one-way tag.
+fn widget_owner(accounts: &crate::stores::accounts::AccountsStore) -> String {
+    widget::owner_tag(accounts.scope_key().as_deref())
+}
+
+/// The snapshot for what the app holds now; `None` while that isn't known
+/// (the route, or a list still loading for the owner of what is on disk).
+fn widget_snapshot(last_owner: Option<&str>, cx: &App) -> Option<Snapshot> {
     let state = cx.try_global::<AppState>()?;
     let stores = &state.stores;
     let l10n = cx.l10n();
-    let locale = l10n.locale();
-    let account = stores
-        .accounts
-        .read(cx)
+    let owner = widget_owner(stores.accounts.read(cx));
+    let list = stores.chat_list.read(cx);
+    // A few more than shown: a chat a link can't name is left out.
+    let recent = list
         .list
-        .as_ref()
-        .and_then(|l| l.active_account_id.clone());
-    let snapshot = match stores.session.read(cx).route(cx) {
+        .is_some()
+        .then(|| list.recent(widget::MAX_CHATS + 4));
+    snapshot_for(
+        stores.session.read(cx).route(cx),
+        recent.as_deref(),
+        owner,
+        last_owner,
+        l10n.locale(),
+        &l10n.new_chat(),
+    )
+}
+
+/// The snapshot for `route` and the list (`None` while it loads), owned by
+/// `owner`; `last_owner` owns what is on disk.
+fn snapshot_for(
+    route: Route,
+    recent: Option<&[conduit_protocol::ChatSummary]>,
+    owner: String,
+    last_owner: Option<&str>,
+    locale: &str,
+    untitled: &str,
+) -> Option<Snapshot> {
+    let snapshot = match route {
         Route::Unknown => return None,
         Route::Onboarding | Route::SignIn => Snapshot::signed_out(locale),
-        Route::Main => {
-            let list = stores.chat_list.read(cx);
-            if list.list.is_some() {
-                // A few more than shown: a chat a link can't name is
-                // left out.
-                let recent = list.recent(widget::MAX_CHATS + 4);
-                Snapshot::signed_in(&recent, locale, &l10n.new_chat())
-            } else if last_account == Some(&account) {
-                // Loading again for the same account: what the widget
-                // shows still stands.
-                return None;
-            } else {
-                // Another account: none of the last one's chats.
-                Snapshot::signed_in(&[], locale, &l10n.new_chat())
-            }
-        }
+        Route::Main => match recent {
+            Some(recent) => Snapshot::signed_in(recent, locale, untitled),
+            // Loading again for the same account: what the widget shows
+            // still stands.
+            None if last_owner == Some(owner.as_str()) => return None,
+            // Another account (or nobody known): none of the last one's
+            // chats.
+            None => Snapshot::signed_in(&[], locale, untitled),
+        },
     };
-    Some((snapshot, account))
+    Some(snapshot.owned_by(owner))
 }
 
 /// Writes the snapshot if it changed, then asks WidgetKit to read it.
@@ -555,25 +587,37 @@ pub fn write_widget(cx: &mut App) {
     let Some(feed) = cx.try_global::<Desktop>().map(|d| &d.widget) else {
         return;
     };
-    let Some(path) = feed.path.clone() else {
+    if feed.path.is_none() {
+        return;
+    }
+    let Some(snapshot) = widget_snapshot(feed.owner.as_deref(), cx) else {
         return;
     };
-    let Some((snapshot, account)) = widget_snapshot(feed.account.as_ref(), cx) else {
+    write_snapshot(snapshot, cx);
+}
+
+/// Writes `snapshot` (unless it is on disk already). A failed write is
+/// tried again ([`WIDGET_RETRIES`]) with what the app holds then; and when
+/// what is on disk must not stand (signed out, or another account's
+/// chats), the old file is taken away meanwhile.
+fn write_snapshot(snapshot: Snapshot, cx: &mut App) {
+    let feed = &mut cx.global_mut::<Desktop>().widget;
+    let Some(path) = feed.path.clone() else {
         return;
     };
     let bytes = snapshot.to_json();
     if feed.written.as_ref() == Some(&bytes) {
-        cx.global_mut::<Desktop>().widget.account = Some(account);
+        feed.owner = snapshot.owner;
         return;
     }
-    let result = widget::write(&path, &bytes);
-    let feed = &mut cx.global_mut::<Desktop>().widget;
-    match result {
+    match widget::write(&path, &bytes) {
         Ok(()) => {
             feed.written = Some(bytes);
-            feed.account = Some(account);
+            feed.owner = snapshot.owner.clone();
             feed.writes += 1;
             feed.failed = false;
+            feed.failures = 0;
+            feed.retry = None;
             if feed.bridge.as_ref().is_some_and(|b| b.reload_all()) {
                 feed.reloads += 1;
             }
@@ -585,11 +629,42 @@ pub fn write_widget(cx: &mut App) {
         }
         Err(e) => {
             if !feed.failed {
-                log::warn!("widget: the snapshot could not be written: {e}");
+                log::warn!("widget: the snapshot could not be written: {}", e.kind());
             }
             feed.failed = true;
+            let stale = !snapshot.signed_in || feed.owner != snapshot.owner;
+            if stale && widget::remove(&path).is_ok() {
+                feed.written = None;
+                feed.owner = None;
+            }
+            feed.failures += 1;
+            schedule_widget_retry(cx);
         }
     }
+}
+
+/// How long the `failures`th failed write in a row waits before the next
+/// try; `None` past [`WIDGET_RETRIES`].
+fn widget_retry_delay(failures: u32) -> Option<Duration> {
+    (1..=WIDGET_RETRIES)
+        .contains(&failures)
+        .then(|| Duration::from_secs(1 << failures))
+}
+
+fn schedule_widget_retry(cx: &mut App) {
+    let delay = widget_retry_delay(cx.global::<Desktop>().widget.failures);
+    let task = delay.map(|delay| {
+        cx.spawn(async move |cx| {
+            cx.background_executor().timer(delay).await;
+            cx.update(|cx| {
+                if cx.has_global::<Desktop>() {
+                    cx.global_mut::<Desktop>().widget.retry = None;
+                }
+                write_widget(cx);
+            });
+        })
+    });
+    cx.global_mut::<Desktop>().widget.retry = task;
 }
 
 // ── The main window ────────────────────────────────────────────────────────
@@ -1686,5 +1761,131 @@ mod on_screen_tests {
             ..OnScreen::default()
         };
         assert!(screen.shows("c1") && !screen.shows("local:hermes_s1"));
+    }
+}
+
+#[cfg(test)]
+mod widget_tests {
+    use conduit_protocol::{ChatSummary, PrimaryAccount};
+    use gpui_kit::TestAppContext;
+
+    use super::*;
+    use crate::stores::accounts::AccountsStore;
+    use crate::stores::accounts::tests::two;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    fn chat(id: &str, title: &str) -> ChatSummary {
+        ChatSummary {
+            id: id.into(),
+            title: title.into(),
+            updated_at_ms: 1,
+            pinned: false,
+            archived: false,
+            folder_id: None,
+            model: None,
+            tags: vec![],
+            shared: false,
+            read_only: false,
+            unread: false,
+            menu: Default::default(),
+        }
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("conduit-widget-feed-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// LibreChat owns the chats: another LibreChat account is another
+    /// owner, though the parked Open WebUI account stays the same.
+    #[test]
+    fn the_widget_belongs_to_the_account_in_charge_of_the_chats() {
+        let mut store = AccountsStore::new(FakeDaemon::new().rpc());
+        let mut list = two();
+        list.primary = PrimaryAccount::LibreChat;
+        list.active_libre_chat_account_id = Some("lc-river".into());
+        store.list = Some(list.clone());
+        let first = widget_owner(&store);
+        list.active_libre_chat_account_id = Some("lc-meadow".into());
+        store.list = Some(list);
+        assert_ne!(widget_owner(&store), first);
+    }
+
+    #[test]
+    fn a_list_loading_keeps_only_its_own_owners_chats() {
+        let snap = |last: Option<&str>| {
+            snapshot_for(Route::Main, None, "b".into(), last, "en", "New Chat")
+        };
+        // The same owner's list loading again: what is shown stands.
+        assert_eq!(snap(Some("b")), None);
+        // Another owner, or nobody known: no chats of the last one.
+        for last in [Some("a"), None] {
+            let s = snap(last).unwrap();
+            assert!(s.signed_in && s.chats.is_empty());
+            assert_eq!(s.owner.as_deref(), Some("b"));
+        }
+        let loaded = snapshot_for(
+            Route::Main,
+            Some(&[chat("c1", "Seed swap notes")]),
+            "b".into(),
+            Some("a"),
+            "en",
+            "New Chat",
+        )
+        .unwrap();
+        assert_eq!(loaded.chats.len(), 1);
+    }
+
+    /// At launch the feed knows whose snapshot is on disk: the same
+    /// account's list loading keeps it, instead of "No chats yet".
+    #[test]
+    fn the_snapshot_on_disk_keeps_its_owner_across_a_launch() {
+        let dir = scratch("launch");
+        let path = dir.join(widget::FILE_NAME);
+        let owner = widget::owner_tag(Some("a"));
+        let old = Snapshot::signed_in(&[chat("c1", "Seed swap notes")], "en", "New Chat")
+            .owned_by(owner.clone());
+        widget::write(&path, &old.to_json()).unwrap();
+        let feed = WidgetFeed::at(Some(path), None);
+        assert_eq!(feed.owner.as_deref(), Some(owner.as_str()));
+        assert_eq!(
+            snapshot_for(Route::Main, None, owner, feed.owner.as_deref(), "en", "x"),
+            None
+        );
+    }
+
+    /// Signing out while the container refuses the write: the old titles
+    /// don't stay on disk, and the write is tried again (a few times).
+    #[gpui_kit::test]
+    fn a_refused_sign_out_write_takes_the_titles_away_and_tries_again(cx: &mut TestAppContext) {
+        let dir = scratch("refused");
+        let path = dir.join(widget::FILE_NAME);
+        let owner = widget::owner_tag(Some("a"));
+        let old = Snapshot::signed_in(&[chat("c1", "Seed swap notes")], "en", "New Chat")
+            .owned_by(owner.clone());
+        widget::write(&path, &old.to_json()).unwrap();
+        // The temporary file can't be made: every write fails.
+        let tmp = dir.join(format!(".{}.{}.tmp", widget::FILE_NAME, std::process::id()));
+        std::fs::create_dir_all(tmp.join("inner")).unwrap();
+        cx.update(|cx| {
+            install_without_services(cx);
+            cx.global_mut::<Desktop>().widget.redirect(path.clone());
+            write_snapshot(Snapshot::signed_out("en").owned_by(owner.clone()), cx);
+        });
+        assert!(!path.exists(), "the last account's titles are gone");
+        cx.update(|cx| {
+            let feed = &cx.global::<Desktop>().widget;
+            assert_eq!(feed.failures, 1);
+            assert!(feed.retry.is_some(), "tried again");
+        });
+        cx.update(|cx| {
+            for _ in 0..WIDGET_RETRIES {
+                write_snapshot(Snapshot::signed_out("en").owned_by(owner.clone()), cx);
+            }
+            let feed = &cx.global::<Desktop>().widget;
+            assert!(feed.retry.is_none(), "but not forever");
+        });
     }
 }

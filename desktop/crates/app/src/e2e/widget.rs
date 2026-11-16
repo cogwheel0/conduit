@@ -145,7 +145,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     let keys_only = first.as_object().is_some_and(|o| {
         let mut k: Vec<&str> = o.keys().map(String::as_str).collect();
         k.sort();
-        k == ["chats", "locale", "signedIn", "version"]
+        k == ["chats", "locale", "owner", "signedIn", "version"]
     }) && first["chats"].as_array().is_some_and(|a| {
         a.iter().all(|c| {
             let mut k: Vec<&str> = c
@@ -157,8 +157,8 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         })
     });
     pass &= ok(
-        "only ids, titles and times: no message text, models or folders",
-        keys_only,
+        "only ids, titles and times (and the owner's one-way tag): no message text, models or folders",
+        keys_only && first["owner"].as_str().is_some_and(|o| !o.contains(&email)),
     );
     pass &= ok("the snapshot speaks English", first["locale"] == "en");
     #[cfg(unix)]

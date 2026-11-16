@@ -13,6 +13,12 @@
 //! read/write only, by replacing the old file in one rename; a write that
 //! fails leaves no copy of what it carried beside it.
 //!
+//! **Whose.** The file carries an `owner`: a one-way tag of the account in
+//! charge of the chats ([`owner_tag`]), never the account itself. The app
+//! compares it with the account in charge now, so a list still loading
+//! for the same account keeps the chats the widget shows (at launch too),
+//! and another account's list never shows the last one's.
+//!
 //! **Where.** `~/Library/Group Containers/<group>/widget-snapshot.json`,
 //! the group being the bundle's `ConduitAppGroup` (bundle.sh writes it from
 //! release.env). `CONDUIT_WIDGET_SNAPSHOT` names another file (tests and
@@ -52,6 +58,9 @@ pub struct Snapshot {
     pub locale: String,
     /// Newest first.
     pub chats: Vec<SnapshotChat>,
+    /// Whose chats these are ([`owner_tag`]); the widget doesn't read it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -70,6 +79,7 @@ impl Snapshot {
             signed_in: false,
             locale: locale.to_string(),
             chats: vec![],
+            owner: None,
         }
     }
 
@@ -97,7 +107,14 @@ impl Snapshot {
             signed_in: true,
             locale: locale.to_string(),
             chats,
+            owner: None,
         }
+    }
+
+    /// The same snapshot, for `owner` ([`owner_tag`]).
+    pub fn owned_by(mut self, owner: String) -> Self {
+        self.owner = Some(owner);
+        self
     }
 
     pub fn to_json(&self) -> Vec<u8> {
@@ -138,6 +155,40 @@ pub fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
         let _ = std::fs::remove_file(&tmp);
     }
     result
+}
+
+/// Takes the snapshot away altogether (a sign-out whose write failed):
+/// the widget then shows no chats rather than the last account's.
+pub fn remove(path: &Path) -> io::Result<()> {
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
+}
+
+/// The tag a snapshot carries for the account in charge of its chats
+/// (`scope`, [`crate::stores::accounts::AccountsStore::scope_key`]): one
+/// way, so the file never names the account. No account in charge (a
+/// Direct-only or Hermes-only setup, or signed out) has its own tag.
+pub fn owner_tag(scope: Option<&str>) -> String {
+    let Some(scope) = scope else {
+        return "none".to_string();
+    };
+    // FNV-1a over a salted scope: stable across builds, and short.
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in format!("conduit-widget-owner\n{scope}").bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
+/// The owner of the snapshot at `path`, as it was written; `None` when
+/// there is none, or it doesn't say (nothing on disk to keep).
+pub fn read_owner(path: &Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    value.get("owner")?.as_str().map(String::from)
 }
 
 /// Where the snapshot goes: [`PATH_ENV`] when set, else the app group's
@@ -506,6 +557,27 @@ mod tests {
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, ["blocked"], "nothing it carried stays beside it");
+    }
+
+    #[test]
+    fn the_owner_is_a_tag_that_never_names_the_account() {
+        let dir = scratch("owner");
+        let path = dir.join(FILE_NAME);
+        let tag = owner_tag(Some("librechat:lc-river"));
+        assert_ne!(tag, owner_tag(Some("librechat:lc-meadow")));
+        assert_eq!(tag, owner_tag(Some("librechat:lc-river")));
+        assert_ne!(owner_tag(None), tag);
+        let s = Snapshot::signed_out("en").owned_by(tag.clone());
+        write(&path, &s.to_json()).unwrap();
+        assert_eq!(read_owner(&path), Some(tag));
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("lc-river"));
+        // Nothing there, or no owner in it: nothing to keep.
+        assert_eq!(read_owner(&dir.join("missing.json")), None);
+        write(&path, b"{\"version\":1}\n").unwrap();
+        assert_eq!(read_owner(&path), None);
+        remove(&path).unwrap();
+        assert!(!path.exists());
+        remove(&path).unwrap();
     }
 
     #[test]
