@@ -136,6 +136,12 @@ impl AreasStore {
             .find(|s| s.id == id)
     }
 
+    /// Session `id` is gone (deleted): not found through the Hidden Chats
+    /// last listed either.
+    pub fn forget_hermes_hidden(&mut self, id: &str) {
+        self.hermes_hidden_known.retain(|s| s.id != id);
+    }
+
     /// The Hermes list as an action on a session answered it.
     pub fn adopt_hermes(&mut self, sessions: HermesSessions, cx: &mut Context<Self>) {
         self.hermes = Some(sessions);
