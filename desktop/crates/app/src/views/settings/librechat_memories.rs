@@ -76,20 +76,24 @@ impl LibreChatMemoriesView {
 
     pub fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let call = self.rpc.call::<methods::LibrechatMemoriesList>(&NoParams);
-        self.run(call, false, window, cx);
+        self.run(call, None, window, cx);
     }
 
+    /// Runs a `librechat.memories.*` call and shows the list it answers.
+    /// `saved` is the editor's Save, with what it sent: the editor closes
+    /// only while it still holds that, so words typed meanwhile stay.
     fn run(
         &mut self,
         call: impl std::future::Future<Output = Result<LibreChatMemories, RpcError>> + 'static,
-        closes_editor: bool,
+        saved: Option<LibreChatMemoryEdit>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let closes_editor = saved.is_some();
         self.busy = true;
         self.failed = false;
-        if let Some(e) = self.editor.as_mut() {
-            e.saving = closes_editor;
+        if closes_editor && let Some(e) = self.editor.as_mut() {
+            e.saving = true;
             e.error = None;
         }
         cx.notify();
@@ -102,8 +106,12 @@ impl LibreChatMemoriesView {
                     match result {
                         Ok(list) => {
                             s.memories = Some(list);
-                            if closes_editor {
-                                s.editor = None;
+                            if let Some(sent) = &saved {
+                                if s.holds(sent, cx) {
+                                    s.editor = None;
+                                } else if let Some(e) = s.editor.as_mut() {
+                                    e.saving = false;
+                                }
                             }
                         }
                         Err(e) => {
@@ -130,7 +138,17 @@ impl LibreChatMemoriesView {
         let call = self
             .rpc
             .call::<methods::LibrechatMemoriesSetEnabled>(&LibreChatMemoryToggle { enabled: on });
-        self.run(call, false, window, cx);
+        self.run(call, None, window, cx);
+    }
+
+    /// The editor still holds `sent`: the memory it edits, with the key
+    /// and value sent.
+    fn holds(&self, sent: &LibreChatMemoryEdit, cx: &App) -> bool {
+        self.editor
+            .as_ref()
+            .is_some_and(|e| e.original == sent.original_key)
+            && forms::text(&self.key, cx) == sent.key
+            && self.value.read(cx).value().trim() == sent.value
     }
 
     /// Add Memory… (none) or Edit… on one.
@@ -175,7 +193,7 @@ impl LibreChatMemoriesView {
             value,
         };
         let call = self.rpc.call::<methods::LibrechatMemoriesSave>(&edit);
-        self.run(call, true, window, cx);
+        self.run(call, Some(edit), window, cx);
     }
 
     /// Delete…: asks with a sheet, as the phone does.
@@ -199,7 +217,7 @@ impl LibreChatMemoriesView {
                     let call = s
                         .rpc
                         .call::<methods::LibrechatMemoriesDelete>(&LibreChatMemoryRef { key });
-                    s.run(call, false, window, cx);
+                    s.run(call, None, window, cx);
                 });
             },
         )
@@ -420,4 +438,46 @@ pub fn shown(stores: &crate::stores::Stores, cx: &App) -> bool {
         .capabilities()
         .libre_chat
         .is_some_and(|f| f.memories)
+}
+
+#[cfg(test)]
+mod tests {
+    use conduit_protocol::{LibreChatMemories, methods};
+    use gpui_kit::TestAppContext;
+
+    use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    /// Words typed while a Save is out stay: the answer closes the editor
+    /// only when it still holds what was sent.
+    #[gpui_kit::test]
+    fn words_typed_while_a_memory_saves_stay(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::LibrechatMemoriesList>(LibreChatMemories::default());
+        daemon.returns::<methods::LibrechatMemoriesSave>(LibreChatMemories::default());
+        cx.update(crate::views::test_globals);
+        let rpc = daemon.rpc();
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| LibreChatMemoriesView::new(rpc, window, cx));
+        vcx.run_until_parked();
+        let held = daemon.hold::<methods::LibrechatMemoriesSave>();
+        view.update_in(vcx, |v, window, cx| {
+            v.open_editor(None, window, cx);
+            v.key
+                .update(cx, |s, cx| s.set_value("trail_notes", window, cx));
+            v.value
+                .update(cx, |s, cx| s.set_value("Ridge loop", window, cx));
+            v.save(window, cx);
+            v.value.update(cx, |s, cx| {
+                s.set_value("Ridge loop, then the lake", window, cx)
+            });
+        });
+        held.release();
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, cx| {
+            assert!(v.editor.is_some(), "the editor closed over the newer words");
+            assert_eq!(v.value.read(cx).value(), "Ridge loop, then the lake");
+            assert!(!v.editor.as_ref().unwrap().saving, "Save stays busy");
+        });
+    }
 }
