@@ -113,10 +113,7 @@ impl HermesRoomsStore {
     }
 
     /// The daemon names the Hermes connection in use: another one than
-    /// what was shown so far drops everything read on the last one (the
-    /// open room's transcript and state, faces, Bot Chats) and reads it all
-    /// again on this one, the open room watched anew (the daemon closed its
-    /// watches on the edit).
+    /// what was shown so far drops everything read on the last one.
     fn follow_connection(&mut self, now: Option<&str>, cx: &mut Context<Self>) {
         let Some(now) = now else {
             self.refresh(cx);
@@ -128,12 +125,27 @@ impl HermesRoomsStore {
             .and_then(|r| r.view.as_ref())
             .and_then(|v| v.connection.clone());
         let last = self.connection.clone().or(shown);
-        self.connection = Some(now.to_string());
         if last.as_deref().is_none_or(|last| last == now) {
+            self.connection = Some(now.to_string());
             self.refresh(cx);
             return;
         }
+        self.drop_connection(Some(now.to_string()), cx);
+    }
+
+    /// The one place the store lets go of a Hermes connection: whenever
+    /// what names it is lost or changes (a connection edit, a reconnect, an
+    /// event gap, another account or none), everything read on it goes at
+    /// once -- the lists, the open room's transcript and state, faces, Bot
+    /// Chats, any open under way -- and every answer asked before is
+    /// dropped, so nothing shown can act on another connection. It is all
+    /// read again, the open room watched anew; `now` names the connection in
+    /// use when known (else the next answer names it).
+    fn drop_connection(&mut self, now: Option<String>, cx: &mut Context<Self>) {
+        self.connection = now;
         self.generation += 1;
+        self.bots = None;
+        self.rooms = None;
         self.avatars.clear();
         self.bot_sessions.clear();
         self.opening_bot = None;
@@ -149,9 +161,11 @@ impl HermesRoomsStore {
         self.changed(cx);
     }
 
-    /// A new daemon names its connections anew.
-    pub fn forget_connection(&mut self) {
-        self.connection = None;
+    /// The daemon connection was made again (a new daemon names its
+    /// connections anew), or events were lost: what names the Hermes
+    /// connection is gone.
+    pub fn connection_lost(&mut self, cx: &mut Context<Self>) {
+        self.drop_connection(None, cx);
     }
 
     /// Bumped whenever something listed changed (the sidebar's rows cache).
@@ -332,23 +346,7 @@ impl HermesRoomsStore {
 
     /// Another account (or none): everything goes.
     pub fn reset(&mut self, cx: &mut Context<Self>) {
-        self.generation += 1;
-        self.bots = None;
-        self.rooms = None;
-        self.avatars.clear();
-        self.bot_sessions.clear();
-        self.opening_bot = None;
-        self.fetches.clear();
-        // A watch asked under the last account is not answered here; the
-        // room still shown is watched anew.
-        self.watch = None;
-        self.connection = None;
-        if let Some(room) = &mut self.room {
-            room.view = None;
-            room.failed = false;
-        }
-        self.watch_open(cx);
-        self.changed(cx);
+        self.drop_connection(None, cx);
     }
 
     /// Lists the bots and the rooms again (while the area is shown).
@@ -557,17 +555,18 @@ pub fn wire(stores: &Stores, cx: &mut App) {
         let s = stores.clone();
         cx.subscribe(&stores.connection, move |_, event, cx| match event {
             ConnectionEvent::Connected { .. } | ConnectionEvent::Gap => {
-                s.hermes_rooms.update(cx, |h, cx| {
-                    h.forget_connection();
-                    h.refresh(cx);
-                    h.watch_open(cx);
-                });
+                // The bot whose Bot Chat is on screen, before its binding goes
+                // with the rest.
+                let bot = match s.navigation.read(cx).selection() {
+                    Selection::Area(AreaItem::HermesSession(session)) => {
+                        s.hermes_rooms.read(cx).bot_sessions.get(session).cloned()
+                    }
+                    _ => None,
+                };
+                s.hermes_rooms.update(cx, |h, cx| h.connection_lost(cx));
                 // A Bot Chat on screen is bound to its bot again: a new
                 // daemon knows nothing of the binding.
-                if let Selection::Area(AreaItem::HermesSession(session)) =
-                    s.navigation.read(cx).selection()
-                    && let Some(name) = s.hermes_rooms.read(cx).bot_sessions.get(session).cloned()
-                {
+                if let Some(name) = bot {
                     crate::views::hermes_rooms::open_bot(&s, &name, cx);
                 }
             }
@@ -633,6 +632,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::stores::Stores;
     use crate::stores::rpc::fake::FakeDaemon;
 
     fn view(room_id: &str, name: &str, items: usize) -> HermesRoomView {
@@ -809,6 +809,131 @@ mod tests {
                 s.bot_sessions.get("bc-new").map(String::as_str),
                 Some("fern")
             );
+        });
+    }
+
+    fn bots_on(connection: &str) -> HermesBots {
+        serde_json::from_value(json!({
+            "available": true, "connection": connection,
+            "bots": [{"name": "fern", "title": "Fern", "sessionId": "bc-1"}],
+        }))
+        .unwrap()
+    }
+
+    fn rooms_on(connection: &str, name: &str) -> HermesRooms {
+        serde_json::from_value(json!({
+            "available": true, "canCreate": true, "connection": connection,
+            "rooms": [{"id": "r1", "name": name}],
+        }))
+        .unwrap()
+    }
+
+    /// The connection is lost (`connected`: a reconnect, else an event gap)
+    /// while room r1 and the bots read on c1 show; the next list, read on
+    /// c2, comes before the room's own watch.
+    fn connection_lost(cx: &mut TestAppContext, connected: bool) {
+        use crate::stores::connection::ConnectionEvent;
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::HermesBotsList>(bots_on("c1"));
+        daemon.returns::<methods::HermesRoomsList>(rooms_on("c1", "Greenhouse crew"));
+        daemon.returns::<methods::HermesRoomsWatch>(view_on("r1", "Greenhouse crew", 3, "c1"));
+        let scratch = std::env::temp_dir().join(format!(
+            "conduit-hrooms-lost-{connected}-{}",
+            std::process::id()
+        ));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            let stores = Stores::for_test(daemon.rpc(), &scratch, cx);
+            wire(&stores, cx);
+            stores
+        });
+        let store = stores.hermes_rooms.clone();
+        store.update(cx, |s, cx| {
+            s.set_wanted(true, cx);
+            s.show(Some("r1"), cx);
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.view("r1").unwrap().items.len(), 3);
+            assert_eq!(s.bot_list().len(), 1);
+        });
+
+        // The replacement reads are slow; c2's list event comes first.
+        let watches = daemon.hold::<methods::HermesRoomsWatch>();
+        let bots = daemon.hold::<methods::HermesBotsList>();
+        let lists = daemon.hold::<methods::HermesRoomsList>();
+        daemon.returns::<methods::HermesRoomsWatch>(view_on("r1", "Seed swap", 0, "c2"));
+        daemon.returns::<methods::HermesBotsList>(bots_on("c2"));
+        daemon.returns::<methods::HermesRoomsList>(rooms_on("c2", "Seed swap"));
+        stores.connection.update(cx, |_, cx| {
+            if connected {
+                cx.emit(ConnectionEvent::Connected {
+                    handshake: Box::new(conduit_daemon::rpc::Handshake::from_value(json!({}))),
+                    request: serde_json::from_value(json!({
+                        "protocolVersion": "1", "clientName": "test", "clientVersion": "1",
+                        "windowKind": "main", "locale": "en"
+                    }))
+                    .unwrap(),
+                })
+            } else {
+                cx.emit(ConnectionEvent::Gap)
+            }
+        });
+        let gone = |s: &HermesRoomsStore| {
+            s.view("r1").is_none()
+                && s.bots.is_none()
+                && s.room("r1").is_none_or(|r| r.name != "Greenhouse crew")
+        };
+        store.read_with(cx, |s, _| {
+            assert!(gone(s), "c1's room and bots stay actionable")
+        });
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::HermesRoomsListChanged(rooms_on("c2", "Seed swap")),
+                cx,
+            );
+            s.on_event(&changed_to("c2"), cx);
+        });
+        store.read_with(cx, |s, _| {
+            assert!(gone(s), "c1's room shows under c2");
+            assert_eq!(s.connection().as_deref(), Some("c2"));
+        });
+        drop((watches, bots, lists));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.view("r1").unwrap().connection.as_deref(), Some("c2"));
+            assert_eq!(s.bots.as_ref().unwrap().connection.as_deref(), Some("c2"));
+        });
+        // The requests went out after the loss under no stale name.
+        let last = daemon.calls::<methods::HermesRoomsWatch>();
+        assert_ne!(last.last().unwrap()["connection"], "c1");
+    }
+
+    #[gpui_kit::test]
+    fn a_reconnect_drops_everything_the_last_connection_showed(cx: &mut TestAppContext) {
+        connection_lost(cx, true);
+    }
+
+    #[gpui_kit::test]
+    fn an_event_gap_drops_everything_the_last_connection_showed(cx: &mut TestAppContext) {
+        connection_lost(cx, false);
+    }
+
+    #[gpui_kit::test]
+    fn a_connection_edit_drops_the_last_connections_lists(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::HermesBotsList>(bots_on("c1"));
+        daemon.returns::<methods::HermesRoomsList>(rooms_on("c1", "Greenhouse crew"));
+        let store = cx.new(|_| HermesRoomsStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.set_wanted(true, cx));
+        cx.run_until_parked();
+        let _held = (
+            daemon.hold::<methods::HermesBotsList>(),
+            daemon.hold::<methods::HermesRoomsList>(),
+        );
+        store.update(cx, |s, cx| s.on_event(&changed_to("c2"), cx));
+        store.read_with(cx, |s, _| {
+            assert!(s.bots.is_none() && s.rooms.is_none() && !s.can_create());
         });
     }
 }
