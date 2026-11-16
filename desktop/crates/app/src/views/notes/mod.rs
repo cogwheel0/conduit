@@ -273,6 +273,7 @@ fn confirm_delete(stores: &Stores, id: &str, window: &mut Window, cx: &mut App) 
 /// its pane with the caret in its text.
 pub fn new_note(stores: &Stores, cx: &mut App) {
     let rpc = stores.connection.read(cx).rpc();
+    let asked_under = stores.accounts.read(cx).scope_key();
     let call = rpc.call::<methods::NotesSave>(&NoteSave {
         id: None,
         title: chrono::Local::now().format("%Y-%m-%d").to_string(),
@@ -286,6 +287,9 @@ pub fn new_note(stores: &Stores, cx: &mut App) {
     cx.spawn(async move |cx: &mut AsyncApp| {
         let result = call.await;
         cx.update(|cx| match result {
+            // Answered after another account took charge: the note made
+            // under the last one opens in nobody's window.
+            Ok(_) if stores.accounts.read(cx).scope_key() != asked_under => {}
             Ok(detail) => {
                 area::focus_body_next(cx);
                 stores.navigation.update(cx, |n, cx| {

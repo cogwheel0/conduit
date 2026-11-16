@@ -3157,6 +3157,39 @@ mod tests {
         }
     }
 
+    /// New Note answered after another account signed in: the note made
+    /// under the first account opens in nobody's window.
+    #[gpui_kit::test]
+    fn a_new_note_answered_after_a_switch_opens_nothing(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::accounts::tests::{account, list};
+        use crate::stores::navigation::{AreaItem, Selection};
+        let (daemon, stores, _area, vcx) = bench::open(cx);
+        daemon.on::<methods::NotesSave>(|_| {
+            Ok(serde_json::to_value(bench::detail("made-under-a", "main", "")).unwrap())
+        });
+        let late = daemon.hold::<methods::NotesSave>();
+        vcx.update(|_, cx| super::super::new_note(&stores, cx));
+        vcx.run_until_parked();
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blair", true, true),
+                ]),
+                cx,
+            )
+        });
+        drop(late);
+        vcx.run_until_parked();
+        assert_ne!(
+            stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone()),
+            Selection::Area(AreaItem::Note("made-under-a".into())),
+            "the last account's new note opened under the next"
+        );
+    }
+
     /// A note left while its save fails is kept, and saved again, until
     /// its text is kept: the departing pane is not let go with it.
     #[gpui_kit::test]
