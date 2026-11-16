@@ -123,6 +123,9 @@ pub type Writer = Box<dyn Fn(&[u8]) + Send + Sync>;
 struct Shared {
     writer: Mutex<Option<Writer>>,
     notes: Mutex<Vec<Note>>,
+    /// A note came since the feeder last looked: the UI needs waking even
+    /// when the screen is already waiting for its paint.
+    noted: AtomicBool,
     palette: Mutex<Option<Palette>>,
     /// The grid in cells and in pixels, for size requests (CSI 14/18 t).
     size: Mutex<Option<WindowSize>>,
@@ -142,6 +145,7 @@ impl Listener {
 
     fn note(&self, note: Note) {
         self.0.notes.lock().unwrap().push(note);
+        self.0.noted.store(true, Ordering::Release);
     }
 }
 
@@ -269,18 +273,21 @@ pub struct Emulator {
 /// The socket's side: parses output into the grid.
 pub struct Feeder {
     term: Arc<FairMutex<Term<Listener>>>,
+    listener: Listener,
     parser: Processor,
     dirty: Arc<AtomicBool>,
 }
 
 impl Feeder {
-    /// Parses `bytes` into the grid. True when this made the screen dirty
-    /// (it was clean before), which is when the UI needs waking.
+    /// Parses `bytes` into the grid. True when the UI needs waking: this
+    /// made the screen dirty (it was clean before), or left a note (a
+    /// title, a copy, a bell), which must not wait for a paint.
     pub fn feed(&mut self, bytes: &[u8]) -> bool {
         let mut term = self.term.lock();
         self.parser.advance(&mut *term, bytes);
         drop(term);
-        !self.dirty.swap(true, Ordering::AcqRel)
+        let noted = self.listener.0.noted.swap(false, Ordering::AcqRel);
+        !self.dirty.swap(true, Ordering::AcqRel) || noted
     }
 }
 
@@ -303,6 +310,7 @@ impl Emulator {
     pub fn feeder(&self) -> Feeder {
         Feeder {
             term: self.term.clone(),
+            listener: self.listener.clone(),
             parser: Processor::new(),
             dirty: self.dirty.clone(),
         }
@@ -790,5 +798,27 @@ mod tests {
         assert!(!feeder.feed(b"b"), "still dirty: no second wake");
         assert!(e.take_dirty());
         assert!(feeder.feed(b"c"));
+    }
+
+    /// A title, a copy or a bell wakes the UI even while the screen waits
+    /// to be painted (a console hidden behind Files, or before its first
+    /// paint): its notes do not wait for a paint that may not come.
+    #[test]
+    fn a_note_wakes_the_ui_even_while_the_screen_is_dirty() {
+        let e = emulator(10, 2);
+        let mut feeder = e.feeder();
+        assert!(
+            feeder.feed(b"\x1b]2;Tide tables\x07"),
+            "a title from a screen never painted woke nothing"
+        );
+        assert!(
+            !feeder.feed(b"plain"),
+            "output alone still waits for the paint"
+        );
+        assert!(feeder.feed(b"\x07"), "a bell while dirty woke nothing");
+        assert_eq!(
+            e.take_notes(),
+            vec![Note::Title(Some("Tide tables".into())), Note::Bell]
+        );
     }
 }
