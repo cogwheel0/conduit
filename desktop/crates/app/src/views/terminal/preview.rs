@@ -302,6 +302,7 @@ impl Render for PortPreview {
 
 /// Asks the daemon for a preview of `port` and opens it in a window.
 pub fn open(stores: Stores, handle: String, port: u16, cx: &mut App) {
+    let asked_under = cx.default_global::<super::AccountWindows>().0;
     let rpc = stores.connection.read(cx).rpc();
     let call = rpc.call::<methods::TerminalPreviewPort>(&TerminalPortRef {
         handle,
@@ -309,7 +310,13 @@ pub fn open(stores: Stores, handle: String, port: u16, cx: &mut App) {
     });
     cx.spawn(async move |cx| match call.await {
         Ok(preview) => {
-            cx.update(|cx| open_window(preview.url, preview.scripts, port, cx));
+            cx.update(|cx| {
+                // Another account signed in meanwhile: the preview was the
+                // last account's, and its windows are closed.
+                if cx.default_global::<super::AccountWindows>().0 == asked_under {
+                    open_window(preview.url, preview.scripts, port, cx);
+                }
+            });
         }
         Err(e) => {
             log::warn!("terminal.previewPort: {e}");
@@ -426,6 +433,35 @@ mod tests {
     use super::*;
 
     const ORIGIN: &str = "http://127.0.0.1:50123";
+
+    /// A preview answered after another account signed in opens no window:
+    /// the account change already ended the last account's previews.
+    #[gpui_kit::test]
+    fn a_preview_answered_after_an_account_change_opens_nothing(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::TerminalPreviewPort>(conduit_protocol::TerminalPreview {
+            url: "http://127.0.0.1:50123/?key=k".into(),
+            scripts: vec![],
+        });
+        let scratch = std::env::temp_dir().join(format!("conduit-preview-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let late = daemon.hold::<methods::TerminalPreviewPort>();
+        cx.update(|cx| open(stores.clone(), "handle-avery".into(), 5173, cx));
+        cx.run_until_parked();
+        cx.update(super::super::close_account_windows);
+        drop(late);
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert!(
+                cx.default_global::<OpenPreviews>().0.is_empty(),
+                "the last account's preview opened after the change"
+            )
+        });
+    }
 
     #[test]
     fn the_preview_keeps_its_own_pages_and_the_port() {

@@ -24,6 +24,7 @@ pub mod viewer;
 /// account's terminal with that account's credential, so another account
 /// (or none) signing in ends them.
 pub fn close_account_windows(cx: &mut gpui_kit::App) {
+    cx.default_global::<AccountWindows>().0 += 1;
     if let Some((_, handle, _)) = cx.default_global::<computer::OpenComputer>().0.take() {
         let _ = handle.update(cx, |_, window, _| window.remove_window());
     }
@@ -32,3 +33,11 @@ pub fn close_account_windows(cx: &mut gpui_kit::App) {
         let _ = handle.update(cx, |_, window, _| window.remove_window());
     }
 }
+
+/// Bumped each time an account change closes the terminal windows: a window
+/// asked for before it (a preview whose answer is still on its way) opens
+/// only if no change came in between.
+#[derive(Default)]
+pub struct AccountWindows(pub u64);
+
+impl gpui_kit::Global for AccountWindows {}
