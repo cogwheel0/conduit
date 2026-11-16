@@ -141,7 +141,22 @@ void main() {
     final lateWindow = json_rpc.Peer(socket.cast<String>());
     addTearDown(lateWindow.close);
     final seenLate = <EventEnvelope>[];
-    registerEventSink(lateWindow, onEvent: seenLate.add);
+    // The milestone: the settlement reaching this window, after the
+    // replayed question.
+    final settledHere = Completer<void>();
+    final newsHere = Completer<void>();
+    registerEventSink(
+      lateWindow,
+      onEvent: (envelope) {
+        seenLate.add(envelope);
+        if (!newsHere.isCompleted) newsHere.complete();
+        if (envelope.event == ConduitEvents.uiSettled &&
+            envelope.payload['requestId'] == request.requestId &&
+            !settledHere.isCompleted) {
+          settledHere.complete();
+        }
+      },
+    );
     unawaited(lateWindow.listen());
     await callTyped<HandshakeResponse>(
       lateWindow,
@@ -155,6 +170,10 @@ void main() {
       ).toJson(),
       decodeResult: HandshakeResponse.fromJson,
     );
+    // The window is attached from its connection: session-wide news goes
+    // to it before it subscribes, and numbers its events from there.
+    server.events.emit(ConduitEventSpecs.syncStatus, const SyncState());
+    await newsHere.future;
     await callTyped<EventSubscription>(
       lateWindow,
       ConduitMethods.eventsSubscribe,
@@ -167,10 +186,11 @@ void main() {
       UiResponse(requestId: request.requestId, choice: 'deny').toJson(),
     );
     expect(await answer, isFalse);
-    await Future<void>.delayed(const Duration(milliseconds: 150));
+    await settledHere.future;
 
-    // The replayed question is this window's first event and the
-    // settlement its second: no gap, and no number shared with another.
+    // The replayed question takes this window's next number after the
+    // news it had, and the settlement follows: no gap, and no number
+    // shared with another window.
     final mine = seenLate
         .where((e) => e.payload['requestId'] == request.requestId)
         .toList();
@@ -181,7 +201,11 @@ void main() {
     expect(seenLate.map((e) => e.seq).toList(), <int>[
       for (var i = 1; i <= seenLate.length; i++) i,
     ]);
-    expect(mine.first.seq, 1);
+    final news = seenLate.indexWhere(
+      (e) => e.event == ConduitEvents.syncStatus,
+    );
+    expect(news, isNonNegative);
+    expect(seenLate.indexOf(mine.first), greaterThan(news));
   });
 
   test('a second answer to the same question is refused', () async {
