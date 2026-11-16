@@ -167,12 +167,14 @@ final class UiRequestsService implements UiRequestPort {
   }
 
   /// Asks whether a LibreChat run may go on with tool [toolName]: a run that
-  /// paused for approval. Unanswered, it is rejected.
+  /// paused for approval. Unanswered, it is rejected; [until] completing
+  /// (the turn that asked ended) takes the card back.
   Future<bool> askLibreChatToolApproval({
     required String chatId,
     required String toolName,
     String? description,
     String? argumentsJson,
+    Future<void>? until,
   }) async {
     final response = await _ask(
       UiRequestKind.toolApproval,
@@ -186,12 +188,14 @@ final class UiRequestsService implements UiRequestPort {
         'backend': 'libreChat',
         'arguments': ?argumentsJson,
       },
+      until: until,
     );
     return response.choice == 'allow';
   }
 
   /// Puts a LibreChat agent's question to the user: its options, or words
-  /// of their own. Null when it was cancelled (or nobody could be asked).
+  /// of their own. Null when it was cancelled (or nobody could be asked);
+  /// [until] completing (the turn that asked ended) takes the card back.
   Future<String?> askLibreChatQuestion({
     required String chatId,
     required String question,
@@ -199,6 +203,7 @@ final class UiRequestsService implements UiRequestPort {
     List<Map<String, String>> options = const <Map<String, String>>[],
     bool multiSelect = false,
     String? progress,
+    Future<void>? until,
   }) async {
     final response = await _ask(
       UiRequestKind.libreChatQuestion,
@@ -215,6 +220,7 @@ final class UiRequestsService implements UiRequestPort {
         'multiSelect': multiSelect,
       },
       defaultChoice: 'cancel',
+      until: until,
     );
     // The window's question card answers `allow` with the text (the same
     // card as any server's question); `answer` is the plain word for it.

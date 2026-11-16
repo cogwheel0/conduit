@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:collection/collection.dart';
 
@@ -74,6 +73,7 @@ import 'event_bus.dart';
 import 'files_service.dart';
 import 'hermes_cards_service.dart';
 import 'hermes_service.dart';
+import 'librechat_pauses.dart';
 import 'message_blocks.dart';
 import 'models_service.dart';
 import 'queued_completions_service.dart';
@@ -2224,6 +2224,7 @@ final class TurnsService implements ChatTurns {
       return;
     }
     turn.finished = true;
+    if (!turn.ended.isCompleted) turn.ended.complete();
     turn.ticker?.cancel();
     session.ended = null;
     // The turn is over here, its send settled or not: the scope may close
@@ -2467,6 +2468,7 @@ final class TurnsService implements ChatTurns {
     // The whole answer, parsed whole: what the windows settle on.
     final blocks = _blocks(session, turn, finished: true);
     turn.finished = true;
+    if (!turn.ended.isCompleted) turn.ended.complete();
     turn.ticker?.cancel();
     final error = failure ?? answer?.error?.content;
     final failed = error != null || answer?.error != null;
@@ -2677,104 +2679,38 @@ final class TurnsService implements ChatTurns {
     }
   }
 
-  /// Puts what a LibreChat run paused on to the windows, one card at a
-  /// time -- each tool call to approve, or each question -- and resumes the
-  /// run with the answers, as the phone's overlay does. A question left
-  /// unanswered stops the reply; a tool call left unanswered is rejected.
+  /// Puts what a LibreChat run paused on to the windows and resumes it
+  /// ([answerLibreChatPause]), for the turn writing [messageId].
   Future<void> _answerLibreChatAction(
     _ChatSession session,
     String messageId,
     LibreChatPendingAction action,
   ) async {
-    final ask = _uiRequests;
-    final chatId = session.chatId ?? '';
     final scope = session.scope;
-    try {
-      if (action.isQuestion) {
-        final questions = action.questions;
-        final answers = <String, String>{};
-        for (final (index, question) in questions.indexed) {
-          final id = question['id']?.toString() ?? 'question';
-          final options = question['options'];
-          final answer = ask == null
-              ? null
-              : await ask.askLibreChatQuestion(
-                  chatId: chatId,
-                  question: question['question']?.toString() ?? '',
-                  description: question['description']?.toString(),
-                  options: <Map<String, String>>[
-                    if (options is List)
-                      for (final option in options)
-                        if (option is Map && option['label'] != null)
-                          <String, String>{
-                            'label': '${option['label']}',
-                            if (option['description'] != null)
-                              'description': '${option['description']}',
-                          },
-                  ],
-                  multiSelect: question['multiSelect'] == true,
-                  progress: questions.length > 1
-                      ? '${index + 1}/${questions.length}'
-                      : null,
-                );
-          if (answer == null) {
-            if (!scope.isDisposed) await stop(chatId);
-            return;
-          }
-          answers[id] = answer;
-        }
-        if (scope.isDisposed) return;
-        await resolveLibreChatPendingAction(
-          scope.container,
-          messageId,
-          answers: answers,
-        );
-        return;
-      }
-      if (!action.isToolApproval) return;
-      final decisions = <String, LibreChatToolDecisionInput>{};
-      for (final request in action.toolRequests) {
-        final allowed =
-            ask != null &&
-            request.allowed.contains(LibreChatToolDecision.approve) &&
-            await ask.askLibreChatToolApproval(
-              chatId: chatId,
-              toolName: request.name,
-              description: request.description,
-              argumentsJson: _argumentsJson(request.arguments),
-            );
-        decisions[request.toolCallId] = LibreChatToolDecisionInput(
-          allowed ? LibreChatToolDecision.approve : LibreChatToolDecision.reject,
-        );
-      }
-      if (scope.isDisposed) return;
-      await resolveLibreChatPendingAction(
+    final turn = session.turn;
+    if (turn == null) return;
+    // The turn that asked still runs, and still waits on this pause: a card
+    // answered or dismissed later touches no newer reply in the chat.
+    bool asking() =>
+        !turn.finished &&
+        identical(session.turn, turn) &&
+        !scope.isDisposed &&
+        libreChatPendingActionFor(scope.container, messageId)?.actionId ==
+            action.actionId;
+    await answerLibreChatPause(
+      action,
+      windows: _uiRequests,
+      chatId: session.chatId ?? turn.chatId,
+      asking: asking,
+      until: turn.ended.future,
+      resume: ({decisions, answers}) => resolveLibreChatPendingAction(
         scope.container,
         messageId,
         decisions: decisions,
-      );
-    } on Object catch (error, stackTrace) {
-      DebugLogger.error(
-        'librechat-action-failed',
-        scope: 'daemon/turns',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-  }
-
-  /// A tool call's arguments, as pretty JSON for the card.
-  static String? _argumentsJson(Object? arguments) {
-    if (arguments == null) return null;
-    Object? value = arguments;
-    if (arguments is String) {
-      try {
-        value = jsonDecode(arguments);
-      } on FormatException {
-        return arguments;
-      }
-    }
-    return const JsonEncoder.withIndent('  ').convert(value);
+        answers: answers,
+      ),
+      stop: () => stop(session.chatId ?? turn.chatId),
+    );
   }
 
   Future<void> _answerMcpApproval({
@@ -3311,6 +3247,7 @@ final class TurnsService implements ChatTurns {
       final turn = session.turn;
       if (turn != null && !turn.finished) {
         turn.finished = true;
+        if (!turn.ended.isCompleted) turn.ended.complete();
         turn.ticker?.cancel();
         if (hermesSessionOf(turn.chatId) case final sessionId?) {
           _hermes?.setRunning(sessionId, false);
@@ -3930,6 +3867,10 @@ final class _Turn {
   /// The send that started this turn; null for one followed from the
   /// queued-answer outbox. [session.pending] may already be the next send.
   _PendingTurn? pending;
+
+  /// Completes once the turn has finished (stopped, failed or done): what
+  /// it put to the windows goes with it.
+  final Completer<void> ended = Completer<void>();
 
   String text = '';
   bool dirty = false;
