@@ -7,7 +7,9 @@
 //! connected (external) base is read-only, as on the phone.
 
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::{IconName, icon};
@@ -100,9 +102,53 @@ pub struct KnowledgeEditor {
     _subscriptions: Vec<Subscription>,
     _load: Option<Task<()>>,
     _files: Option<Task<()>>,
+    /// How files go up: the daemon's `/upload` unless a test puts its own.
+    pub upload: Option<FileUpload>,
 }
 
 impl EventEmitter<EditorEvent> for KnowledgeEditor {}
+
+/// One file up through the daemon's `/upload`: its answer (the uploaded
+/// file, by id), or why not.
+pub type FileUpload = Arc<
+    dyn Fn(
+            String,
+            PathBuf,
+        ) -> Pin<
+            Box<dyn Future<Output = Result<serde_json::Value, conduit_daemon::RpcError>> + Send>,
+        > + Send
+        + Sync,
+>;
+
+/// [`FileUpload`] through the daemon's HTTP client: the file read and sent
+/// on the client's runtime, off the main thread.
+fn daemon_file_upload(http: conduit_daemon::http::HttpClient) -> FileUpload {
+    Arc::new(move |name: String, path: PathBuf| {
+        let http = http.clone();
+        let (tx, rx) = futures::channel::oneshot::channel();
+        conduit_daemon::runtime::shared().spawn(async move {
+            let result = match std::fs::read(&path) {
+                Ok(bytes) => {
+                    http.upload(&name, None, bytes::Bytes::from(bytes), None, 1)
+                        .await
+                }
+                Err(e) => Err(conduit_daemon::protocol::error(
+                    conduit_daemon::protocol::codes::INVALID_PARAMS,
+                    e.to_string(),
+                )),
+            };
+            let _ = tx.send(result);
+        });
+        Box::pin(async move {
+            rx.await.map_err(|_| {
+                conduit_daemon::protocol::error(
+                    conduit_daemon::protocol::codes::INTERNAL,
+                    "upload dropped",
+                )
+            })?
+        })
+    })
+}
 
 impl KnowledgeEditor {
     pub fn new(
@@ -159,6 +205,7 @@ impl KnowledgeEditor {
             _subscriptions: subscriptions,
             _load: None,
             _files: None,
+            upload: None,
         };
         this.reload(window, cx);
         this
@@ -324,8 +371,12 @@ impl KnowledgeEditor {
         if !self.writable() || paths.is_empty() {
             return;
         }
-        let Some(http) = self.stores.connection.read(cx).http().cloned() else {
-            return;
+        let upload = match self.upload.clone() {
+            Some(upload) => upload,
+            None => match self.stores.connection.read(cx).http().cloned() {
+                Some(http) => daemon_file_upload(http),
+                None => return,
+            },
         };
         let l = cx.l10n().clone();
         let files: Vec<PathBuf> = paths.into_iter().filter(|p| p.is_file()).collect();
@@ -338,39 +389,32 @@ impl KnowledgeEditor {
             .unwrap_or_default();
         let rpc = self.rpc.clone();
         let directory = self.directory.clone();
-        let call = async move {
+        // Begun under one account: no file of it goes to the next, and
+        // nothing is attached once the account changed.
+        let account = super::active_account(&self.stores, cx);
+        let same = move |this: &WeakEntity<Self>, cx: &mut AsyncApp| {
+            this.update(cx, |s, cx| super::active_account(&s.stores, cx) == account)
+                .unwrap_or(false)
+        };
+        let changed =
+            || conduit_daemon::protocol::error("auth.sessionExpired", "the account changed");
+        let call = cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let mut ids = vec![];
             for path in files {
+                if !same(&this, cx) {
+                    return Err(changed());
+                }
                 let name = path
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| "file".into());
-                let http = http.clone();
-                let (tx, rx) = futures::channel::oneshot::channel();
-                // Read and sent on the daemon client's runtime, off the main
-                // thread.
-                conduit_daemon::runtime::shared().spawn(async move {
-                    let result = match std::fs::read(&path) {
-                        Ok(bytes) => {
-                            http.upload(&name, None, bytes::Bytes::from(bytes), None, 1)
-                                .await
-                        }
-                        Err(e) => Err(conduit_daemon::protocol::error(
-                            conduit_daemon::protocol::codes::INVALID_PARAMS,
-                            e.to_string(),
-                        )),
-                    };
-                    let _ = tx.send(result);
-                });
-                let uploaded = rx.await.map_err(|_| {
-                    conduit_daemon::protocol::error(
-                        conduit_daemon::protocol::codes::INTERNAL,
-                        "upload dropped",
-                    )
-                })??;
+                let uploaded = upload(name, path).await?;
                 if let Some(id) = uploaded.get("id").and_then(|v| v.as_str()) {
                     ids.push(id.to_string());
                 }
+            }
+            if !same(&this, cx) {
+                return Err(changed());
             }
             rpc.call::<methods::WorkspaceAttachFiles>(&WorkspaceFilesAttach {
                 knowledge_id: id,
@@ -379,7 +423,7 @@ impl KnowledgeEditor {
                 uploaded: true,
             })
             .await
-        };
+        });
         self.files_call(
             l.desktop_workspace_knowledge_uploading(&first),
             call,
@@ -1532,6 +1576,79 @@ impl Render for KnowledgeEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A batch of files begun under one account: once another signs in,
+    /// no further file goes up and nothing is attached.
+    #[gpui_kit::test]
+    fn an_upload_stops_when_the_account_changes(cx: &mut gpui_kit::TestAppContext) {
+        use std::sync::Mutex;
+
+        use crate::views::sheet::bench::{bench, switch_account};
+        use crate::views::workspace::editor::bench as editor_bench;
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::WorkspaceGet>(editor_bench::detail(
+            WorkspaceKind::Knowledge,
+            serde_json::json!({"id": "k1", "name": "Trail notes", "description": "",
+                               "fileCount": 0, "external": false}),
+        ));
+        let dir = std::env::temp_dir().join(format!("conduit-kb-upload-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let files = ["ridge.pdf", "pass.pdf"].map(|name| {
+            let path = dir.join(name);
+            std::fs::write(&path, b"%PDF-1.4 synthetic").unwrap();
+            path
+        });
+        // The first file's upload is held until the test lets it finish.
+        let sent: Arc<Mutex<Vec<String>>> = Arc::default();
+        let (finish, held) = futures::channel::oneshot::channel::<()>();
+        let held = Arc::new(Mutex::new(Some(held)));
+        let upload: FileUpload = {
+            let sent = sent.clone();
+            Arc::new(move |name: String, _path: PathBuf| {
+                sent.lock().unwrap().push(name.clone());
+                let held = held.lock().unwrap().take();
+                Box::pin(async move {
+                    if let Some(held) = held {
+                        let _ = held.await;
+                    }
+                    Ok(serde_json::json!({"id": format!("file-{name}")}))
+                })
+            })
+        };
+        let editor = vcx.update(|window, cx| {
+            cx.new(|cx| {
+                KnowledgeEditor::new(
+                    stores.clone(),
+                    WeakEntity::new_invalid(),
+                    Some("k1".into()),
+                    editor_bench::manage(),
+                    window,
+                    cx,
+                )
+            })
+        });
+        vcx.run_until_parked();
+        editor.update(vcx, |e, cx| {
+            e.upload = Some(upload);
+            e.upload_paths(files.to_vec(), cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(*sent.lock().unwrap(), ["ridge.pdf"]);
+        // Another account signs in while the first file goes up.
+        switch_account(&stores, vcx);
+        let _ = finish.send(());
+        vcx.run_until_parked();
+        assert_eq!(
+            *sent.lock().unwrap(),
+            ["ridge.pdf"],
+            "Avery's next file went to Blake's server"
+        );
+        assert!(
+            daemon.calls::<methods::WorkspaceAttachFiles>().is_empty(),
+            "files were attached after the account changed"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// Delete File, Remove and a folder's Delete go only once confirmed:
     /// Cancel leaves the file and the folder where they are.
