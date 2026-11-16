@@ -1,6 +1,7 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -22,8 +23,11 @@ void main() {
   late HermesAdminService admin;
   late List<String> announced;
 
+  // Each resource's clean-up is registered as soon as it exists, so a
+  // setup step that throws still leaves nothing behind.
   setUp(() async {
     temporary = Directory.systemTemp.createTempSync('hermes-admin-test');
+    addTearDown(() => temporary.deleteSync(recursive: true));
     runtime = await CoreRuntime.start(
       config: BootstrapConfig(
         sessionToken: 'a' * 43,
@@ -33,8 +37,11 @@ void main() {
       directories: DaemonDirectories.create(temporary.path),
       log: DaemonLog(level: 'error', sink: NullSink()),
     );
+    addTearDown(runtime.dispose);
     first = await FakeHermesServer.start();
+    addTearDown(first.close);
     second = await FakeHermesServer.start(key: 'second-key');
+    addTearDown(second.close);
     final events = EventBus();
     announced = <String>[];
     events.attach('test', (envelope) => announced.add(envelope.event));
@@ -44,20 +51,15 @@ void main() {
       events: events,
       hermes: hermes,
     );
-  });
-
-  tearDown(() async {
-    // Saved connections outlive a runtime (the process's secure storage):
-    // the next test starts from none.
-    for (final c in (await admin.connections()).connections) {
-      await admin.deleteConnection(c.id);
-    }
-    await admin.setEnabled(false);
-    admin.dispose();
-    await first.close();
-    await second.close();
-    await runtime.dispose();
-    temporary.deleteSync(recursive: true);
+    addTearDown(() async {
+      // Saved connections outlive a runtime (the process's secure
+      // storage): the next test starts from none.
+      for (final c in (await admin.connections()).connections) {
+        await admin.deleteConnection(c.id);
+      }
+      await admin.setEnabled(false);
+      admin.dispose();
+    });
   });
 
   HermesConnectionEdit apiServer(FakeHermesServer server, {String? id}) =>
@@ -341,6 +343,50 @@ void main() {
     );
     expect(jobs.jobs.single.enabled, isFalse);
     second.jobs.clear();
+  });
+
+  test('the list names the connection it lists as in use, even when another '
+      'comes into use while it is read', () async {
+    await saveHome();
+    final frame = await saveSecond('Cold frame');
+    final home = (await admin.connections()).activeId!;
+    // Back and forth, each switch made while a list is being read.
+    for (final id in <String>[frame.id, home, frame.id, home, frame.id, home]) {
+      final before = (await admin.connections()).connection;
+      final reading = admin.connections();
+      final switching = admin.activate(id);
+      final read = await reading;
+      await switching;
+      final now = (await admin.connections()).connection;
+      expect(now, isNot(before));
+      expect(
+        read.connection,
+        read.activeId == id ? now : before,
+        reason: 'the list names one connection in use and another one\'s key',
+      );
+    }
+  });
+
+  test('what was read of one connection is never answered once another is '
+      'in use', () async {
+    await saveHome();
+    final frame = await saveSecond('Cold frame');
+    final hold = first.holdSkills = Completer<void>();
+    final reading = admin.catalog();
+    await first.skillsAsked.future;
+    await admin.activate(frame.id);
+    hold.complete();
+    await expectLater(
+      reading,
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+      reason: 'the catalog read of the last connection was answered',
+    );
   });
 
   test('deleting the connection in use puts another in use', () async {
