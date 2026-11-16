@@ -8,6 +8,7 @@
 use std::rc::Rc;
 
 use conduit_components::theme::ConduitTheme;
+use conduit_components::views::focus::ControlExt as _;
 use conduit_components::views::kit::{Button, raised_fill};
 use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, App, ElementId, FontWeight, Role, SharedString, div, px};
@@ -123,7 +124,10 @@ pub fn hidden_pane(stores: &Stores, t: &ConduitTheme, l: &L10n, cx: &App) -> Any
                                     open_stores
                                         .navigation
                                         .update(cx, |n, cx| n.open_item(item, cx));
-                                }),
+                                })
+                                // A Tab stop with Full Keyboard Access, as
+                                // the row's Unhide button is.
+                                .keyboard_outline(6., cx),
                         )
                         .child(
                             Button::new(
@@ -193,4 +197,68 @@ pub fn hidden_pane(stores: &Stores, t: &ConduitTheme, l: &L10n, cx: &App) -> Any
                 .children(body),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use conduit_components::theme::ActiveConduitTheme as _;
+    use conduit_components::views::focus::KeyboardAccess;
+    use gpui_kit::prelude::*;
+    use gpui_kit::{Context, TestAppContext, Window, div};
+
+    use crate::stores::Stores;
+    use crate::stores::navigation::{AreaItem, Selection};
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    struct Pane {
+        stores: Stores,
+    }
+
+    impl Render for Pane {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let t = cx.conduit().clone();
+            let l = cx.global::<crate::l10n::L10n>().clone();
+            div()
+                .size_full()
+                .child(super::hidden_pane(&self.stores, &t, &l, cx))
+        }
+    }
+
+    /// With Full Keyboard Access on, Tab reaches a hidden chat's row before
+    /// its Unhide button, and Return opens the chat.
+    #[gpui_kit::test]
+    fn tab_and_return_open_a_hidden_chat(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-hidden-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            cx.set_global(KeyboardAccess { all_controls: true });
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let session: conduit_protocol::HermesSessionDto = serde_json::from_value(
+            serde_json::json!({"id": "s1", "chatId": "local:hermes_s1", "title": "Tide tables"}),
+        )
+        .expect("a session");
+        stores.areas.update(cx, |a, cx| {
+            a.hermes_hidden = Some(Ok(vec![session]));
+            cx.notify();
+        });
+        let s = stores.clone();
+        let (_, vcx) = cx.add_window_view(move |_, _| Pane { stores: s });
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        vcx.update(|window, cx| window.focus_next(cx));
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        vcx.simulate_keystrokes("enter");
+        vcx.simulate_event(gpui_kit::KeyUpEvent {
+            keystroke: gpui_kit::Keystroke::parse("enter").unwrap(),
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone()),
+            Selection::Area(AreaItem::HermesSession("s1".into())),
+            "Return on the first Tab stop did not open the hidden chat"
+        );
+    }
 }
