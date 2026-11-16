@@ -3744,6 +3744,54 @@ mod tests {
         );
     }
 
+    /// Show Draft, chosen while another note is shown with unsaved text:
+    /// that note is left the usual way (saved) before the draft comes back.
+    #[gpui_kit::test]
+    fn show_draft_saves_the_note_shown_first(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::navigation::AreaItem;
+        let (daemon, stores, area, vcx) = bench::open(cx);
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(false))));
+        daemon.on::<methods::NotesSave>(|p| {
+            let id = p["id"].as_str().unwrap_or("n9").to_string();
+            if id == "n1" {
+                let mut e = conduit_daemon::protocol::error("conflict", "read-only now");
+                e.args.insert("reason".into(), "readOnly".into());
+                return Err(e);
+            }
+            Ok(serde_json::to_value(bench::detail(&id, "main", "kept")).unwrap())
+        });
+        let pane = bench::pane(&area, vcx);
+        let late = daemon.hold::<methods::NotesSave>();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx));
+            p.save_now(cx);
+        });
+        drop(pane);
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n2".into()), cx));
+        vcx.run_until_parked();
+        let shown = bench::pane(&area, vcx);
+        shown.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Basalt ", cx))
+        });
+        drop(shown);
+        // A's refusal comes in; Show Draft brings A back over B.
+        drop(late);
+        vcx.run_until_parked();
+        assert!(
+            daemon
+                .calls::<methods::NotesSave>()
+                .iter()
+                .any(|s| s["id"] == "n2" && s.to_string().contains("Basalt")),
+            "the note shown lost its unsaved text to Show Draft"
+        );
+        assert_eq!(
+            bench::pane(&area, vcx).read_with(vcx, |p, _| p.note_id().to_string()),
+            "n1"
+        );
+    }
+
     /// A refresh asked before a newer title was saved brings the old title
     /// back to nothing: the title saved stays (and a later save keeps it).
     #[gpui_kit::test]

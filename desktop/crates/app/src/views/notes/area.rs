@@ -202,9 +202,9 @@ impl NotesArea {
         );
         let ask = present_sheet(window, spec, cx);
         let stores = self.stores.clone();
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let keep = ask.await;
-            let _ = this.update(cx, |this, cx| {
+            let _ = this.update_in(cx, |this, window, cx| {
                 // Answered after another account became active: the draft
                 // goes nowhere, and is offered again under its own account.
                 if !pane.read(cx).account_active(cx) {
@@ -214,10 +214,12 @@ impl NotesArea {
                 if keep {
                     pane.update(cx, |p, cx| p.save_as_own_note(cx));
                 } else {
-                    // Back to the draft, where Discard Changes is.
+                    // Back to the draft, where Discard Changes is. The note
+                    // shown meanwhile is left as any note is (saved, and kept
+                    // until it has been).
                     this.retiring.retain(|p| p != &pane);
                     let id = pane.read(cx).note_id().to_string();
-                    this.note = None;
+                    this.leave_current(window, cx);
                     this.restore(pane, cx);
                     stores
                         .navigation
