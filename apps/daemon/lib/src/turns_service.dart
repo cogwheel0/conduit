@@ -844,6 +844,7 @@ final class TurnsService implements ChatTurns {
   /// reply's turn (the phone's `branchHermesChatFromMessage`), told to the
   /// windows and answered with, to open.
   Future<HermesSessionDto> branchHermes(HermesBranch request) async {
+    final account = AccountScope.capture(_container);
     final hermes = _hermes;
     final sessionId = hermesSessionOf(request.chatId);
     if (hermes == null || sessionId == null) {
@@ -853,11 +854,12 @@ final class TurnsService implements ChatTurns {
         debugMessage: 'not a Hermes chat',
       );
     }
-    final session = await _sessionFor(request.chatId);
+    final session = await _sessionFor(request.chatId, account: account);
     try {
       _refuseReadOnlyHermes(hermes, sessionId);
       // Never from a reply still being written.
       await _requireIdle(session);
+      account.require('the branch was made');
       final scope = session.scope.container;
       final messages = session.scope.messages;
       final index = messages.indexWhere((m) => m.id == request.messageId);
@@ -912,6 +914,7 @@ final class TurnsService implements ChatTurns {
   }
 
   Future<OkResult> undoHermes(ChatRef request) async {
+    final account = AccountScope.capture(_container);
     final sessionId = hermesSessionOf(request.id);
     if (_hermes == null || sessionId == null) {
       throw RpcError(
@@ -920,10 +923,11 @@ final class TurnsService implements ChatTurns {
         debugMessage: 'not a Hermes chat',
       );
     }
-    final session = await _sessionFor(request.id);
+    final session = await _sessionFor(request.id, account: account);
     try {
       _refuseReadOnlyHermes(_hermes, sessionId);
       await _requireIdle(session);
+      account.require('the last turn was undone');
       final undone = await undoLastHermesTurn(session.scope.container);
       if (undone) {
         // The undone answer must not come back as the turn a window that
@@ -946,7 +950,8 @@ final class TurnsService implements ChatTurns {
   }
 
   Future<int> deleteMessages(DeleteMessages request) async {
-    final session = await _sessionFor(request.chatId);
+    final account = AccountScope.capture(_container);
+    final session = await _sessionFor(request.chatId, account: account);
     var reserved = false;
     try {
       if (isRunning(request.chatId) ||
@@ -962,6 +967,8 @@ final class TurnsService implements ChatTurns {
       // it refuses, so a turn or merge started meanwhile would be lost.
       session.deleting = reserved = true;
       await _requireIdle(session, deleting: true);
+      // Counted or deleted for the account that asked, or not at all.
+      account.require('the messages were deleted');
       final scope = session.scope.container;
       final count = chatMessageIdsRemovedByDelete(
         session.scope.messages,
@@ -1095,6 +1102,7 @@ final class TurnsService implements ChatTurns {
       }
       final scope = session.scope.container;
       final model = target.model ?? displayed.model ?? '';
+      account.require('the merge started');
       // The hold [_sessionFor] took is the merge's now; [_endMerge] lets it
       // go.
       final admitted = run;
@@ -1200,13 +1208,14 @@ final class TurnsService implements ChatTurns {
   /// [saveTemporaryChat], in its scope). Windows showing it follow it to its
   /// new id (`route.remap`), which this answers with.
   Future<ChatForked> saveTemporary(String chatId) async {
+    final account = AccountScope.capture(_container);
     if (!temporary.contains(chatId)) {
       throw const RpcError(
         code: ConduitErrorCodes.invalidParams,
         debugMessage: 'only a temporary chat can be saved',
       );
     }
-    final session = await _sessionFor(chatId);
+    final session = await _sessionFor(chatId, account: account);
     // One save at a time: a second would make a second server chat.
     if (session.saving) {
       _release(session);
@@ -1220,6 +1229,7 @@ final class TurnsService implements ChatTurns {
     var closing = false;
     try {
       await _requireIdle(session, saving: true);
+      account.require('the temporary chat was read');
       final messages = session.scope.messages;
       if (messages.isEmpty) {
         throw const RpcError(
@@ -1233,6 +1243,8 @@ final class TurnsService implements ChatTurns {
           .lastOrNull
           ?.model;
       final model = await _resolveModel(answeredWith);
+      // Saved into the account that asked, or not at all.
+      account.require('the temporary chat was saved');
       _requireOpenWebUi();
       final scope = session.scope.container;
       _choose(scope, model, temporary: true);
@@ -1619,9 +1631,11 @@ final class TurnsService implements ChatTurns {
   }) async {
     final account = AccountScope.capture(_container);
     final chosen = await _resolveModel(model);
+    account.require('the call\'s model was read');
     await _requireBackendFor(chosen);
     final session = await _sessionFor(chatId, account: account);
     try {
+      account.require('the call took the chat');
       final scope = session.scope.container;
       final running = session.turn != null && !session.turn!.finished;
       if (!running) {
@@ -1767,8 +1781,10 @@ final class TurnsService implements ChatTurns {
   Future<SteerResult> steer(SteerTurn request) async {
     final text = composerWireText(request.text, request.mentions).trim();
     if (text.isEmpty) return const SteerResult(accepted: false);
-    final session = await _sessionFor(request.chatId);
+    final account = AccountScope.capture(_container);
+    final session = await _sessionFor(request.chatId, account: account);
     try {
+      account.require('the words were handed to the running answer');
       final accepted = await session.scope.container
           .read(hermesBusyTurnControllerProvider)
           .submit(
@@ -2353,9 +2369,11 @@ final class TurnsService implements ChatTurns {
 
   /// `turns.retryQueued`: sends a queued answer's request again now.
   Future<OkResult> retryQueued(QueuedTurnRef ref) async {
-    final session = await _sessionFor(ref.chatId);
+    final account = AccountScope.capture(_container);
+    final session = await _sessionFor(ref.chatId, account: account);
     try {
       final info = await _queuedInfo(session, ref.messageId);
+      account.require('the queued answer was sent again');
       final actions = session.scope.container.read(
         queuedCompletionActionsProvider,
       );
@@ -2373,9 +2391,11 @@ final class TurnsService implements ChatTurns {
 
   /// `turns.removeQueued`: removes a queued answer before it goes out.
   Future<OkResult> removeQueued(QueuedTurnRef ref) async {
-    final session = await _sessionFor(ref.chatId);
+    final account = AccountScope.capture(_container);
+    final session = await _sessionFor(ref.chatId, account: account);
     try {
       final info = await _queuedInfo(session, ref.messageId);
+      account.require('the queued answer was removed');
       final removed = await session.scope.container
           .read(queuedCompletionActionsProvider)
           .cancel(info);
@@ -3071,6 +3091,9 @@ final class TurnsService implements ChatTurns {
         debugMessage: 'the daemon is stopping',
       );
     }
+    // Whatever the caller waited for before this (a model, the backend),
+    // an open chat too is handed only to the account that asked.
+    account.require('the chat was asked for');
     _refuseDeleted(chatId);
     if (chatId != null) {
       final existing = _sessionOf(chatId);
