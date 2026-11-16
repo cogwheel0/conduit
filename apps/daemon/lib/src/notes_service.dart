@@ -373,8 +373,9 @@ final class NotesService {
   };
 
   Future<NoteDetail> save(NoteSave request) async {
-    // The account the save was asked under, before any wait: a new note is
-    // made under it or not at all.
+    // The account the save was asked under, before any wait, whether or not
+    // the editor names one: the note is written (or made) under it or not
+    // at all.
     final account = AccountScope.capture(_container);
     final scope = account.preferenceAccount;
     // The editor's own account, when it says: another one active (a switch
@@ -399,6 +400,9 @@ final class NotesService {
       // active now: the draft is not made into this account's note.
       account.require('a new note was made');
     } else {
+      // Begun under another account than the one active now (even when
+      // that account has since read the same note): written by no path.
+      account.require('note $id was saved');
       // A note opened under another account is written by no path (a
       // rename, the core's updater, the text): its draft stays with the
       // editor, never in this account's notes.
@@ -426,6 +430,7 @@ final class NotesService {
     // to save to: its text is kept as a new note.
     final resolved = await db.notesDao.resolveNoteRemapTarget(id);
     final existing = await db.notesDao.getNote(resolved);
+    account.require('note $id was saved');
     if (existing == null || existing.deleted) {
       return _recover(
         id,

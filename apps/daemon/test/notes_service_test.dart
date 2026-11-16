@@ -38,11 +38,18 @@ import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
-/// The list, settled at once: nothing here reads the server.
+/// The list, settled at once (or once [_listHold] lets it): nothing here
+/// reads the server.
 final class _NoNotes extends NotesList {
   @override
-  Future<List<Note>> build() async => const <Note>[];
+  Future<List<Note>> build() async {
+    await _listHold?.future;
+    return const <Note>[];
+  }
 }
+
+/// Holds the notes list's next read while set.
+Completer<void>? _listHold;
 
 void main() {
   group('an account switch', () {
@@ -341,6 +348,64 @@ void main() {
         ),
       );
       expect(await second.select(second.notes).get(), isEmpty);
+    });
+
+    test('writes no save begun under one account into the next one\'s note '
+        'of the same id, even once that account has read it', () async {
+      Future<void> seed(AppDatabase db, String md) => db
+          .into(db.notes)
+          .insert(
+            serverToNoteRow(<String, dynamic>{
+              'id': 'trail-log',
+              'title': 'Trail log',
+              'data': <String, dynamic>{
+                'content': <String, dynamic>{'md': md},
+              },
+              'created_at': 1,
+              'updated_at': 1,
+            }).copyWith(dirtyData: const Value(true)),
+          );
+      await seed(first, 'Ridge at dawn');
+      await seed(second, 'B text');
+      final notes = NotesService(container);
+      expect((await notes.get('trail-log'))?.summary.title, 'Trail log');
+
+      // A's editor saves (naming no account); the save waits for the list.
+      _listHold = Completer<void>();
+      addTearDown(() => _listHold = null);
+      container.invalidate(notesListProvider);
+      final saving = notes.save(
+        const NoteSave(
+          id: 'trail-log',
+          title: 'Trail log',
+          ops: <Map<String, dynamic>>[
+            <String, dynamic>{'insert': 'Ridge at dawn, then rain\n'},
+          ],
+        ),
+      );
+      final refused = expectLater(
+        saving,
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.sessionExpired,
+          ),
+        ),
+      );
+      final held = _listHold!;
+
+      // B becomes active and reads its own note of the same id.
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
+      active = second;
+      container.invalidate(appDatabaseProvider);
+      expect((await notes.get('trail-log'))?.summary.title, 'Trail log');
+
+      held.complete();
+      await refused;
+      final kept = await second.notesDao.getNote('trail-log');
+      expect(kept?.data, contains('B text'));
+      expect(kept?.data, isNot(contains('then rain')));
     });
 
     test('lists no recording for a request begun under the last account', () async {
