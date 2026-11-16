@@ -130,6 +130,20 @@ impl HermesAdminStore {
         self.changed(cx);
     }
 
+    /// The saved connection in use, as this window last heard.
+    pub fn active_id(&self) -> Option<String> {
+        self.connections.as_ref()?.active_id.clone()
+    }
+
+    /// Whether `opened` (the connection in use when a sheet opened) is
+    /// still the one in use, as far as this window knows: a sheet sends
+    /// nothing once another has come into use.
+    pub fn still_in_use(&self, opened: &Option<String>) -> bool {
+        self.connections
+            .as_ref()
+            .is_none_or(|l| l.active_id == *opened)
+    }
+
     /// The connection in use, if any.
     pub fn active(&self) -> Option<&conduit_protocol::HermesConnectionDto> {
         let list = self.connections.as_ref()?;

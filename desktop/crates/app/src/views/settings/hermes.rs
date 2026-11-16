@@ -965,11 +965,16 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
             .destructive();
             let ask = present_sheet(window, spec, cx);
             let stores = stores.clone();
+            // The server asked about is the connection in use now's.
+            let opened = stores.hermes_admin.read(cx).active_id();
             cx.spawn(async move |cx: &mut AsyncApp| {
                 if !ask.await {
                     return;
                 }
                 cx.update(|cx| {
+                    if !stores.hermes_admin.read(cx).still_in_use(&opened) {
+                        return;
+                    }
                     let l = cx.l10n().clone();
                     let rpc = stores.connection.read(cx).rpc();
                     let call =

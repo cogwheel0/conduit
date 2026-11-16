@@ -758,11 +758,16 @@ pub fn confirm_delete(stores: &Stores, id: &str, window: &mut Window, cx: &mut A
     let ask = present_sheet(window, spec, cx);
     let stores = stores.clone();
     let id = id.to_string();
+    // The job asked about is the connection in use now's.
+    let opened = stores.hermes_admin.read(cx).active_id();
     cx.spawn(async move |cx: &mut AsyncApp| {
         if !ask.await {
             return;
         }
         cx.update(|cx| {
+            if !stores.hermes_admin.read(cx).still_in_use(&opened) {
+                return;
+            }
             let rpc = stores.connection.read(cx).rpc();
             let call = rpc.call::<methods::HermesDeleteJob>(&HermesRef { id: id.clone() });
             let l = cx.l10n().clone();

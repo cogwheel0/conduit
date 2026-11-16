@@ -81,6 +81,9 @@ pub struct HermesJobSheet {
     pub refused: Option<(String, FieldError)>,
     pub busy: bool,
     pub error: Option<String>,
+    /// The connection in use when the editor opened: the job is saved to
+    /// it, or to none.
+    opened_under: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -144,6 +147,7 @@ impl HermesJobSheet {
             .filter(|d: &Vec<String>| !d.is_empty())
             .unwrap_or_else(|| vec!["local".to_string()]);
         name.update(cx, |i, cx| i.focus(window, cx));
+        let opened_under = stores.hermes_admin.read(cx).active_id();
         let mut this = Self {
             stores,
             job,
@@ -159,6 +163,7 @@ impl HermesJobSheet {
             refused: None,
             busy: false,
             error: None,
+            opened_under,
             _subscriptions: subscriptions,
         };
         if scheduling {
@@ -258,8 +263,34 @@ impl HermesJobSheet {
             cx.notify();
             return;
         }
-        let (name, prompt, schedule) = self.values(cx);
+        let admin = self.stores.hermes_admin.read(cx);
         let editing = self.job.is_some();
+        if !admin.still_in_use(&self.opened_under) {
+            let l = cx.l10n();
+            self.error = Some(if editing {
+                l.hermes_job_update_failed()
+            } else {
+                l.hermes_job_create_failed()
+            });
+            cx.notify();
+            return;
+        }
+        let generation = admin.generation();
+        // The jobs known before: a new one is the id the answer adds.
+        let known: Vec<String> = admin
+            .jobs
+            .as_ref()
+            .and_then(crate::stores::hermes_admin::Loaded::ready)
+            .map(|j| j.jobs.iter().map(|j| j.id.clone()).collect())
+            .unwrap_or_default();
+        let (name, prompt, schedule) = self.values(cx);
+        let sent = (
+            name.clone(),
+            prompt.clone(),
+            schedule.clone(),
+            self.catch_up,
+            self.deliver.clone(),
+        );
         let (_, _, _, c0, d0) = &self.initial;
         let deliver_changed = !editing || {
             let mut a = self.deliver.clone();
@@ -294,9 +325,20 @@ impl HermesJobSheet {
                 let l = cx.l10n().clone();
                 match result {
                     Ok(jobs) => {
-                        s.stores
-                            .hermes_admin
-                            .update(cx, |a, cx| a.adopt_jobs(jobs, cx));
+                        // What was sent is saved; a new job is edited from
+                        // now on, so a later Save changes it.
+                        if s.job.is_none() {
+                            let mut added = jobs.jobs.iter().filter(|j| !known.contains(&j.id));
+                            if let (Some(job), None) = (added.next(), added.next()) {
+                                s.job = Some(job.clone());
+                            }
+                        }
+                        s.initial = sent;
+                        s.stores.hermes_admin.update(cx, |a, cx| {
+                            if a.generation() == generation {
+                                a.adopt_jobs(jobs, cx);
+                            }
+                        });
                         let text = if editing {
                             l.hermes_job_updated()
                         } else {
@@ -305,7 +347,10 @@ impl HermesJobSheet {
                         s.stores
                             .toasts
                             .update(cx, |t, cx| t.show(NoticeLevel::Success, text, cx));
-                        sheet::dismiss(cx);
+                        // Words typed while the Save was out stay.
+                        if !s.dirty(cx) {
+                            sheet::dismiss(cx);
+                        }
                     }
                     Err(e) => match (e.args.get("field"), e.args.get("reason")) {
                         (Some(field), Some(reason)) => {
@@ -549,6 +594,11 @@ impl HermesJobSheet {
 }
 
 impl SheetBody for HermesJobSheet {
+    /// Edits not saved, or a Save still out: Quit asks first.
+    fn unsaved(&self, cx: &App) -> bool {
+        self.busy || self.dirty(cx)
+    }
+
     fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;
@@ -721,5 +771,153 @@ impl Render for HermesJobSheet {
                     .line_height(relative(1.35))
                     .text_color(t.roles.text_subtle),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui_kit::VisualTestContext;
+    use serde_json::json;
+
+    use super::*;
+    use crate::views::sheet::bench::bench;
+
+    fn list(active: &str) -> conduit_protocol::HermesConnections {
+        serde_json::from_value(json!({
+            "enabled": true,
+            "activeId": active,
+            "connections": [
+                {"id": "a", "name": "Potting shed", "baseUrl": "http://127.0.0.1:20401",
+                 "mode": "desktop", "active": active == "a"},
+                {"id": "b", "name": "Greenhouse", "baseUrl": "http://127.0.0.1:20402",
+                 "mode": "desktop", "active": active == "b"},
+            ],
+        }))
+        .unwrap()
+    }
+
+    fn job(name: &str) -> HermesJobDto {
+        serde_json::from_value(json!({
+            "id": "j1", "name": name, "prompt": "Water the seedlings", "schedule": "0 9 * * *",
+        }))
+        .unwrap()
+    }
+
+    fn jobs(name: &str) -> conduit_protocol::HermesJobs {
+        serde_json::from_value(json!({"jobs": [serde_json::to_value(job(name)).unwrap()]})).unwrap()
+    }
+
+    fn use_connection(stores: &Stores, vcx: &mut VisualTestContext, id: &str) {
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.adopt_connections(list(id), cx));
+        vcx.run_until_parked();
+    }
+
+    fn open_job(stores: &Stores, vcx: &mut VisualTestContext) -> Entity<HermesJobSheet> {
+        let s = stores.clone();
+        vcx.update(|window, cx| open(&s, Some(job("Morning watering")), window, cx));
+        vcx.run_until_parked();
+        vcx.update(|_, cx| sheet::current::<HermesJobSheet>(cx))
+            .expect("the editor opens")
+    }
+
+    fn on_sheet(
+        vcx: &mut VisualTestContext,
+        sheet: &Entity<HermesJobSheet>,
+        f: impl FnOnce(&mut HermesJobSheet, &mut Window, &mut Context<HermesJobSheet>),
+    ) {
+        vcx.update(|_, cx| {
+            let window = sheet::current_window(cx).expect("the sheet's window");
+            let _ = window.update(cx, |_, window, cx| {
+                sheet.update(cx, |s, cx| f(s, window, cx))
+            });
+        });
+    }
+
+    /// A prompt typed into the editor makes Quit ask before it goes.
+    #[gpui_kit::test]
+    fn a_typed_prompt_makes_quit_ask(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, stores, vcx) = bench(cx);
+        use_connection(&stores, vcx, "a");
+        let sheet = open_job(&stores, vcx);
+        vcx.update(|_, cx| assert!(!sheet::has_unsaved(cx)));
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.prompt.update(cx, |i, cx| {
+                i.set_value("Water the seedlings and the herbs", w, cx)
+            })
+        });
+        vcx.update(|_, cx| assert!(sheet::has_unsaved(cx), "Quit would drop the prompt"));
+    }
+
+    /// Words typed while a Save is out stay in the editor, still to save.
+    #[gpui_kit::test]
+    fn words_typed_during_a_save_stay(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        use_connection(&stores, vcx, "a");
+        daemon.returns::<methods::HermesSaveJob>(jobs("Evening watering"));
+        let held = daemon.hold::<methods::HermesSaveJob>();
+        let sheet = open_job(&stores, vcx);
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.name
+                .update(cx, |i, cx| i.set_value("Evening watering", w, cx));
+            s.save(w, cx);
+            s.prompt.update(cx, |i, cx| {
+                i.set_value("Water the seedlings at dusk", w, cx)
+            });
+        });
+        drop(held);
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            assert!(
+                sheet::current::<HermesJobSheet>(cx).is_some_and(|b| b == sheet),
+                "the editor closed with words not saved"
+            );
+            assert!(
+                sheet::has_unsaved(cx),
+                "the words typed later count as saved"
+            );
+        });
+    }
+
+    /// Delete… confirmed after another connection came into use deletes
+    /// nothing there.
+    #[gpui_kit::test]
+    fn a_delete_confirmed_after_a_switch_sends_nothing(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        use_connection(&stores, vcx, "a");
+        let s = stores.clone();
+        vcx.update(|window, cx| {
+            crate::views::panes::hermes_jobs::confirm_delete(&s, "j1", window, cx);
+            s.hermes_admin
+                .update(cx, |a, cx| a.adopt_connections(list("b"), cx));
+        });
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::HermesDeleteJob>().is_empty(),
+            "the delete went to the connection in use now"
+        );
+    }
+
+    /// An editor opened for one connection's job saves nothing once
+    /// another connection is in use.
+    #[gpui_kit::test]
+    fn a_job_is_saved_only_to_its_own_connection(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        use_connection(&stores, vcx, "a");
+        daemon.returns::<methods::HermesSaveJob>(jobs("Evening watering"));
+        let sheet = open_job(&stores, vcx);
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.name
+                .update(cx, |i, cx| i.set_value("Evening watering", w, cx))
+        });
+        use_connection(&stores, vcx, "b");
+        on_sheet(vcx, &sheet, |s, w, cx| s.save(w, cx));
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::HermesSaveJob>().is_empty(),
+            "the job was saved to the connection in use now"
+        );
     }
 }

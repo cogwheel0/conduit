@@ -81,6 +81,9 @@ pub struct AddMcpSheet {
     pub by_command: bool,
     pub busy: bool,
     pub error: Option<String>,
+    /// The connection in use when the sheet opened: the server is added
+    /// to it, or to none.
+    opened_under: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -113,6 +116,7 @@ impl AddMcpSheet {
             }
         }));
         name.update(cx, |i, cx| i.focus(window, cx));
+        let opened_under = stores.hermes_admin.read(cx).active_id();
         Self {
             stores,
             name,
@@ -123,6 +127,7 @@ impl AddMcpSheet {
             by_command: false,
             busy: false,
             error: None,
+            opened_under,
             _subscriptions: subscriptions,
         }
     }
@@ -143,10 +148,30 @@ impl AddMcpSheet {
             || !self.args.read(cx).value().trim().is_empty()
     }
 
+    /// What the form holds now, to tell words typed during an Add.
+    fn snapshot(&self, cx: &App) -> (Vec<String>, String, bool) {
+        (
+            [&self.name, &self.url, &self.command, &self.key]
+                .iter()
+                .map(|i| forms::raw(i, cx))
+                .collect(),
+            self.args.read(cx).value().to_string(),
+            self.by_command,
+        )
+    }
+
     pub fn add(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         if !self.can_add(cx) {
             return;
         }
+        let admin = self.stores.hermes_admin.read(cx);
+        if !admin.still_in_use(&self.opened_under) {
+            self.error = Some(cx.l10n().desktop_hermes_mcp_action_failed());
+            cx.notify();
+            return;
+        }
+        let generation = admin.generation();
+        let sent = self.snapshot(cx);
         let name = forms::text(&self.name, cx);
         let key = forms::raw(&self.key, cx);
         let request = HermesMcpAdd {
@@ -183,14 +208,19 @@ impl AddMcpSheet {
                 let l = cx.l10n().clone();
                 match result {
                     Ok(servers) => {
-                        s.stores
-                            .hermes_admin
-                            .update(cx, |a, cx| a.adopt_mcp(servers, cx));
+                        s.stores.hermes_admin.update(cx, |a, cx| {
+                            if a.generation() == generation {
+                                a.adopt_mcp(servers, cx);
+                            }
+                        });
                         let text = l.desktop_hermes_mcp_added(&name);
                         s.stores
                             .toasts
                             .update(cx, |t, cx| t.show(NoticeLevel::Success, text, cx));
-                        sheet::dismiss(cx);
+                        // Words typed while the Add was out stay.
+                        if s.snapshot(cx) == sent {
+                            sheet::dismiss(cx);
+                        }
                     }
                     Err(e) => {
                         log::info!("hermes.mcp.add: {e}");
@@ -205,6 +235,11 @@ impl AddMcpSheet {
 }
 
 impl SheetBody for AddMcpSheet {
+    /// A form typed, or an Add still out: Quit asks first.
+    fn unsaved(&self, cx: &App) -> bool {
+        self.busy || self.typed(cx)
+    }
+
     fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;
@@ -348,6 +383,9 @@ pub struct McpKeySheet {
     pub key: Entity<InputState>,
     pub busy: bool,
     pub error: Option<String>,
+    /// The connection in use when the sheet opened: the key goes to its
+    /// server, or nowhere.
+    opened_under: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -373,12 +411,14 @@ impl McpKeySheet {
             },
         )];
         key.update(cx, |i, cx| i.focus(window, cx));
+        let opened_under = stores.hermes_admin.read(cx).active_id();
         Self {
             stores,
             server,
             key,
             busy: false,
             error: None,
+            opened_under,
             _subscriptions: subscriptions,
         }
     }
@@ -391,6 +431,14 @@ impl McpKeySheet {
         if !self.can_save(cx) {
             return;
         }
+        let admin = self.stores.hermes_admin.read(cx);
+        if !admin.still_in_use(&self.opened_under) {
+            self.error = Some(cx.l10n().desktop_hermes_mcp_action_failed());
+            cx.notify();
+            return;
+        }
+        let generation = admin.generation();
+        let sent = forms::raw(&self.key, cx);
         let name = self.server.clone();
         let call = self
             .stores
@@ -410,14 +458,19 @@ impl McpKeySheet {
                 let l = cx.l10n().clone();
                 match result {
                     Ok(servers) => {
-                        s.stores
-                            .hermes_admin
-                            .update(cx, |a, cx| a.adopt_mcp(servers, cx));
+                        s.stores.hermes_admin.update(cx, |a, cx| {
+                            if a.generation() == generation {
+                                a.adopt_mcp(servers, cx);
+                            }
+                        });
                         let text = l.desktop_hermes_mcp_key_saved(&name);
                         s.stores
                             .toasts
                             .update(cx, |t, cx| t.show(NoticeLevel::Success, text, cx));
-                        sheet::dismiss(cx);
+                        // Another key typed while this one was saved stays.
+                        if forms::raw(&s.key, cx) == sent {
+                            sheet::dismiss(cx);
+                        }
                     }
                     Err(e) => {
                         log::info!("hermes.mcp.setApiKey: {e}");
@@ -432,6 +485,11 @@ impl McpKeySheet {
 }
 
 impl SheetBody for McpKeySheet {
+    /// A key typed, or a Save still out: Quit asks first.
+    fn unsaved(&self, cx: &App) -> bool {
+        self.busy || !forms::raw(&self.key, cx).is_empty()
+    }
+
     fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;
@@ -499,5 +557,118 @@ impl Render for McpKeySheet {
             .when_some(self.error.clone(), |d, e| {
                 d.child(forms::form_error("hermes-mcp-key-error", e, cx))
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui_kit::VisualTestContext;
+    use serde_json::json;
+
+    use super::*;
+    use crate::views::sheet::bench::bench;
+
+    fn list(active: &str) -> conduit_protocol::HermesConnections {
+        serde_json::from_value(json!({
+            "enabled": true,
+            "activeId": active,
+            "connections": [
+                {"id": "a", "name": "Potting shed", "baseUrl": "http://127.0.0.1:20401",
+                 "mode": "desktop", "active": active == "a"},
+                {"id": "b", "name": "Greenhouse", "baseUrl": "http://127.0.0.1:20402",
+                 "mode": "desktop", "active": active == "b"},
+            ],
+        }))
+        .unwrap()
+    }
+
+    fn use_connection(stores: &Stores, vcx: &mut VisualTestContext, id: &str) {
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.adopt_connections(list(id), cx));
+        vcx.run_until_parked();
+    }
+
+    fn on_sheet<V: SheetBody>(
+        vcx: &mut VisualTestContext,
+        f: impl FnOnce(&mut V, &mut Window, &mut Context<V>),
+    ) {
+        vcx.update(|_, cx| {
+            let body = sheet::current::<V>(cx).expect("the sheet is down");
+            let window = sheet::current_window(cx).expect("the sheet's window");
+            let _ = window.update(cx, |_, window, cx| {
+                body.update(cx, |s, cx| f(s, window, cx))
+            });
+        });
+    }
+
+    /// A key typed into the sheet opened for one connection is never sent
+    /// once another is in use: it would reach the other gateway's server.
+    #[gpui_kit::test]
+    fn a_key_goes_only_to_the_connection_it_was_typed_for(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        use_connection(&stores, vcx, "a");
+        let s = stores.clone();
+        vcx.update(|window, cx| open_key(&s, "seed-catalogue", window, cx));
+        vcx.run_until_parked();
+        on_sheet::<McpKeySheet>(vcx, |s, w, cx| {
+            s.key
+                .update(cx, |i, cx| i.set_value("sk-test-not-a-real-key", w, cx))
+        });
+        vcx.update(|_, cx| assert!(sheet::has_unsaved(cx), "Quit would drop the typed key"));
+        use_connection(&stores, vcx, "b");
+        on_sheet::<McpKeySheet>(vcx, |s, w, cx| s.save(w, cx));
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::HermesMcpSetApiKey>().is_empty(),
+            "the key went to the connection in use now"
+        );
+    }
+
+    /// Remove… confirmed after another connection came into use removes
+    /// nothing: a server of the same name there is not the one asked about.
+    #[gpui_kit::test]
+    fn a_removal_confirmed_after_a_switch_sends_nothing(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        use_connection(&stores, vcx, "a");
+        let s = stores.clone();
+        vcx.update(|window, cx| {
+            crate::views::settings::hermes::choose(&s, "mcp", "remove:seed-catalogue", window, cx);
+            // Another window puts B in use while the question is up.
+            s.hermes_admin
+                .update(cx, |a, cx| a.adopt_connections(list("b"), cx));
+        });
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::HermesMcpRemove>().is_empty(),
+            "the removal went to the connection in use now"
+        );
+    }
+
+    /// Add MCP Server opened for one connection adds nothing to another.
+    #[gpui_kit::test]
+    fn a_server_is_added_only_to_the_connection_it_was_typed_for(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let (daemon, stores, vcx) = bench(cx);
+        use_connection(&stores, vcx, "a");
+        let s = stores.clone();
+        vcx.update(|window, cx| open_add(&s, window, cx));
+        vcx.run_until_parked();
+        on_sheet::<AddMcpSheet>(vcx, |s, w, cx| {
+            s.name
+                .update(cx, |i, cx| i.set_value("seed-catalogue", w, cx));
+            s.url
+                .update(cx, |i, cx| i.set_value("http://127.0.0.1:20403/mcp", w, cx));
+        });
+        vcx.update(|_, cx| assert!(sheet::has_unsaved(cx), "Quit would drop the typed server"));
+        use_connection(&stores, vcx, "b");
+        on_sheet::<AddMcpSheet>(vcx, |s, w, cx| s.add(w, cx));
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::HermesMcpAdd>().is_empty(),
+            "the server was added to the connection in use now"
+        );
     }
 }
