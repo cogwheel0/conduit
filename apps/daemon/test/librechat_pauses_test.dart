@@ -72,6 +72,59 @@ void main() {
     expect(await withdrawn, LibreChatPauseOutcome.left);
     expect(stops, 0);
   });
+
+  test('a resume that fails puts the card back, to be answered again', () async {
+    var resumes = 0;
+    final sent = <Map<String, String>?>[];
+    var card = nextCard();
+    final outcome = answerLibreChatPause(
+      _question,
+      windows: windows,
+      chatId: 'chat-1',
+      asking: () => true,
+      resume: ({decisions, answers}) async {
+        sent.add(answers);
+        if (++resumes == 1) throw StateError('the server could not be reached');
+      },
+      stop: () async => fail('nothing was to stop'),
+    );
+    final first = await card;
+    card = nextCard();
+    windows.respond(
+      UiResponse(requestId: first.requestId, choice: 'allow', text: 'Ridge'),
+    );
+    // The resume fails: the card comes back, or the pause is given up.
+    final again = await Future.any<UiRequest?>([
+      card,
+      outcome.then((_) => null),
+    ]);
+    expect(again, isNotNull, reason: 'the card was not put back');
+    windows.respond(
+      UiResponse(requestId: again!.requestId, choice: 'allow', text: 'Lake'),
+    );
+    expect(await outcome, LibreChatPauseOutcome.resumed);
+    expect(sent, [
+      {'call-1': 'Ridge'},
+      {'call-1': 'Lake'},
+    ]);
+
+    // With no window to answer, a failed resume is given up at once (the
+    // turn offers the pause again later), not tried over and over.
+    var tries = 0;
+    final alone = await answerLibreChatPause(
+      _toolCall(const ['approve', 'reject']),
+      windows: UiRequestsService(EventBus()),
+      chatId: 'chat-1',
+      asking: () => true,
+      resume: ({decisions, answers}) async {
+        tries++;
+        throw StateError('the server could not be reached');
+      },
+      stop: () async => fail('nothing was to stop'),
+    );
+    expect(alone, LibreChatPauseOutcome.failed);
+    expect(tries, 1);
+  });
 }
 
 /// A run paused on one question.
@@ -89,3 +142,18 @@ const _question = LibreChatPendingAction(<String, dynamic>{
     },
   },
 });
+
+/// A run paused on one tool call, allowing [allowed].
+LibreChatPendingAction _toolCall(List<String> allowed) =>
+    LibreChatPendingAction(<String, dynamic>{
+      'actionId': 'act-2',
+      'payload': <String, dynamic>{
+        'type': 'tool_approval',
+        'action_requests': <Map<String, dynamic>>[
+          {'tool_call_id': 'call-2', 'name': 'trail_map', 'arguments': '{}'},
+        ],
+        'review_configs': <Map<String, dynamic>>[
+          {'tool_call_id': 'call-2', 'allowed_decisions': allowed},
+        ],
+      },
+    });

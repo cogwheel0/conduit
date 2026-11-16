@@ -2697,7 +2697,7 @@ final class TurnsService implements ChatTurns {
         !scope.isDisposed &&
         libreChatPendingActionFor(scope.container, messageId)?.actionId ==
             action.actionId;
-    await answerLibreChatPause(
+    final outcome = await answerLibreChatPause(
       action,
       windows: _uiRequests,
       chatId: session.chatId ?? turn.chatId,
@@ -2711,6 +2711,12 @@ final class TurnsService implements ChatTurns {
       ),
       stop: () => stop(session.chatId ?? turn.chatId),
     );
+    // Not sent, and nobody to ask again now: the pause is offered once more
+    // the next time the answer is followed (a window that subscribes, a
+    // reconnect), rather than left marked as asked.
+    if (outcome == LibreChatPauseOutcome.failed) {
+      session.asked.remove('librechat:${action.actionId}');
+    }
   }
 
   Future<void> _answerMcpApproval({

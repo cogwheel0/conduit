@@ -166,6 +166,10 @@ final class UiRequestsService implements UiRequestPort {
     return response.choice == 'allow';
   }
 
+  /// Whether a window is there to answer: without one a question takes its
+  /// default at once.
+  bool get canAsk => _events.subscriberCount > 0;
+
   /// Asks whether a LibreChat run may go on with tool [toolName]: a run that
   /// paused for approval. Unanswered, it is rejected; [until] completing
   /// (the turn that asked ended) takes the card back.

@@ -38,7 +38,39 @@ typedef LibreChatResume =
 /// [asking] says whether the turn that asked still runs and still waits on
 /// [action]. [until] completes when that turn ends: its cards go. [stop]
 /// stops the reply.
+///
+/// Answers that could not be sent (the server unreachable, a retryable
+/// refusal) leave the run waiting on them: the cards are put to the windows
+/// again for as long as a window can answer and the turn still asks.
 Future<LibreChatPauseOutcome> answerLibreChatPause(
+  LibreChatPendingAction action, {
+  required UiRequestsService? windows,
+  required String chatId,
+  required bool Function() asking,
+  required LibreChatResume resume,
+  required Future<void> Function() stop,
+  Future<void>? until,
+}) async {
+  while (true) {
+    final outcome = await _answerOnce(
+      action,
+      windows: windows,
+      chatId: chatId,
+      asking: asking,
+      resume: resume,
+      stop: stop,
+      until: until,
+    );
+    if (outcome != LibreChatPauseOutcome.failed ||
+        windows == null ||
+        !windows.canAsk ||
+        !asking()) {
+      return outcome;
+    }
+  }
+}
+
+Future<LibreChatPauseOutcome> _answerOnce(
   LibreChatPendingAction action, {
   required UiRequestsService? windows,
   required String chatId,
