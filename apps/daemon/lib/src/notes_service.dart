@@ -515,6 +515,8 @@ final class NotesService {
     if (recorder != null) {
       _recorders[recovered.id] = recorder;
       recorder.note = recovered;
+      // Its news is the recovered note's from now on.
+      recorder.noteId = recovered.id;
       unawaited(recorder.controller.rebindTo(previous, recovered));
     }
     return _detail(recovered, access).copyWith(recoveredFrom: id);
@@ -774,15 +776,17 @@ final class NotesService {
         recorder.note = note;
         _seen[note.id] = note;
         _container.invalidate(noteByIdProvider(note.id));
-        _changed(noteId);
+        _changed(recorder.noteId);
       },
       // Only a change of the list is news: the controller also notifies
       // after every scan, and an editor asks for the list again on
       // `notes.changed` -- announcing each scan fed back without end.
-      onChanged: () => _recordingsChanged(noteId),
+      // By the id the recorder is kept under now: a recovered note's
+      // recorder moved to the new note's id.
+      onChanged: () => _recordingsChanged(recorder.noteId),
       onNotice: (notice) => recorder.lastNotice = notice,
     );
-    recorder = _NoteRecorder(controller)..note = note;
+    recorder = _NoteRecorder(controller, noteId)..note = note;
     _recorders[noteId] = recorder;
     controller.start();
     return recorder;
@@ -911,9 +915,13 @@ typedef _Access = ({String? accountId, bool sharing});
 
 /// A note's recordings controller and the note it works on.
 final class _NoteRecorder {
-  _NoteRecorder(this.controller);
+  _NoteRecorder(this.controller, this.noteId);
 
   final NoteAttachmentsController controller;
+
+  /// The note it is kept under in `_recorders`: the recovered note's id
+  /// once a deleted note's draft was kept as a new one.
+  String noteId;
   Note? note;
   NoteAudioNotice? lastNotice;
 

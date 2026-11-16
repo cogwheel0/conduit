@@ -4,19 +4,28 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/note_mapper.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/notes/providers/notes_providers.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart';
+import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/note.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/src/daemon_paths.dart';
+import 'package:conduitd/src/event_bus.dart';
 import 'package:conduitd/src/notes_service.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
@@ -349,4 +358,125 @@ void main() {
       );
     });
   });
+
+  test('a recovered note hears of its own recordings', () async {
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    PreferencesStore.debugOverride(InMemoryKeyValueStore());
+    addTearDown(PreferencesStore.debugReset);
+    await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-a');
+    final api = _OfflineApi();
+    addTearDown(api.dispose);
+    final container = ProviderContainer(
+      overrides: [
+        appDatabaseProvider.overrideWith((ref) => db),
+        notesListProvider.overrideWith(_NoNotes.new),
+        apiServiceProvider.overrideWith((ref) => api),
+        isAuthenticatedProvider2.overrideWithValue(true),
+        currentUserProvider2.overrideWithValue(_ren),
+        workspaceCapabilitiesProvider.overrideWith(
+          (ref) async => throw StateError('offline'),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await db
+        .into(db.notes)
+        .insert(
+          serverToNoteRow(<String, dynamic>{
+            'id': 'glaze-tests',
+            'title': 'Glaze tests',
+            'data': <String, dynamic>{
+              'content': <String, dynamic>{'md': 'Celadon, thin'},
+            },
+            'created_at': 1,
+            'updated_at': 1,
+          }).copyWith(dirtyData: const Value(true)),
+        );
+    final dir = await Directory.systemTemp.createTemp('conduit-notes-rec-');
+    addTearDown(() => dir.delete(recursive: true));
+    final events = EventBus();
+    final changed = <String?>[];
+    events.attach('window', (envelope) {
+      if (envelope.event == ConduitEventSpecs.notesChanged.name) {
+        changed.add(envelope.payload['noteId'] as String?);
+      }
+    });
+    final notes = NotesService(
+      container,
+      events: events,
+      paths: DaemonDirectories.create(dir.path),
+    );
+    addTearDown(notes.dispose);
+    expect((await notes.get('glaze-tests'))?.summary.title, 'Glaze tests');
+    // The editor's recordings are asked for: the note's recorder is made.
+    await notes.removeRecording(
+      const NoteRecordingRef(noteId: 'glaze-tests', id: 'take-0'),
+    );
+
+    // The note is deleted behind the editor; its next save keeps the text
+    // as a new note, and the recorder moves to it.
+    await (db.update(db.notes)..where((n) => n.id.equals('glaze-tests')))
+        .write(const NotesCompanion(deleted: Value(true)));
+    final recovered = await notes.save(
+      const NoteSave(
+        id: 'glaze-tests',
+        title: 'Glaze tests',
+        ops: <Map<String, dynamic>>[
+          <String, dynamic>{'insert': 'Celadon, thin; shino next\n'},
+        ],
+      ),
+    );
+    expect(recovered.recoveredFrom, 'glaze-tests');
+    final id = recovered.summary.id;
+    expect(id, isNot('glaze-tests'));
+
+    // A recording made in the recovered note: its window is told.
+    final take = File('${dir.path}/take.m4a')..writeAsBytesSync(<int>[0, 1, 2]);
+    changed.clear();
+    final listed = await notes.addRecording(
+      NoteRecordingAdd(noteId: id, path: take.path),
+    );
+    expect(listed.recordings, hasLength(1));
+    expect(changed, contains(id));
+  });
+}
+
+const _ren = User(
+  id: 'user-ren',
+  username: 'ren',
+  email: 'ren@example.com',
+  name: 'Ren',
+  role: 'user',
+);
+
+/// A signed-in account whose server cannot be reached: every recording
+/// stays waiting.
+final class _OfflineApi extends ApiService {
+  _OfflineApi()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'server-a',
+          name: 'Studio server',
+          url: 'https://studio.invalid',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  @override
+  Future<List<FileInfo>> getUserFilesForSession({
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) async => throw StateError('offline');
+
+  @override
+  Future<String> uploadFile(
+    String filePath,
+    String fileName, {
+    String? contentType,
+    Map<String, dynamic>? metadata,
+    CancelToken? cancelToken,
+    ApiAuthSnapshot? authSnapshot,
+  }) async => throw StateError('offline');
 }
