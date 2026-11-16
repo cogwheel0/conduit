@@ -714,6 +714,7 @@ impl TaskEditor {
         &self,
         fields: &AutomationFields,
         l: &L10n,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let t = cx.conduit().clone();
@@ -732,6 +733,10 @@ impl TaskEditor {
             .child(
                 div()
                     .id("task-advanced")
+                    .debug_selector(|| "task-advanced".into())
+                    // Tab reaches it with Full Keyboard Access, as the
+                    // editor's other controls.
+                    .keyboard_control(Ring::Outset(6.), window, cx)
                     .role(Role::Button)
                     .aria_label(SharedString::from(l.scheduled_task_advanced_schedule()))
                     .aria_expanded(open)
@@ -1130,7 +1135,7 @@ impl Render for TaskEditor {
             }
             group = group
                 .child(forms::group_footer(l.scheduled_task_timezone_note(), cx))
-                .child(self.advanced_section(&fields, &l, cx));
+                .child(self.advanced_section(&fields, &l, window, cx));
             body.push(group.into_any_element());
             // Destination.
             let destination = self.destination_rows(&fields, &editor, &l, window, cx);
@@ -1295,5 +1300,77 @@ mod tests {
                 "the rule kept is not the one typed"
             );
         });
+    }
+
+    /// With Full Keyboard Access on, Tab reaches Advanced Schedule and
+    /// Space opens it, as every other control in the editor.
+    #[gpui_kit::test]
+    fn tab_reaches_advanced_schedule(cx: &mut gpui_kit::TestAppContext) {
+        let app = cx.clone();
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| {
+            cx.set_global(conduit_components::views::focus::KeyboardAccess { all_controls: true })
+        });
+        daemon.on::<methods::AutomationsEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "te-1",
+                "isNew": true,
+                "fields": {
+                    "name": "Allotment digest",
+                    "prompt": "List what to sow this week",
+                    "modelId": "m1",
+                    "active": true,
+                    "schedule": {
+                        "kind": "daily", "year": 0, "month": 0, "day": 0,
+                        "hour": 9, "minute": 0, "days": [],
+                        "rrule": "RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
+                    },
+                    "target": "chat"
+                },
+                "terminal": false
+            }))
+        });
+        daemon.on::<methods::AutomationsCheckDraft>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": false}))
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(s, None, window, cx));
+        vcx.run_until_parked();
+        draw_sheet(vcx);
+        let task = vcx
+            .update(|_, cx| sheet::current::<TaskEditor>(cx))
+            .expect("the editor opens");
+        let window = vcx
+            .update(|_, cx| sheet::current_window(cx))
+            .expect("the sheet's window");
+        let mut sheet_cx = VisualTestContext::from_window(window, &app);
+        let disclosure = sheet_cx
+            .debug_bounds("task-advanced")
+            .expect("Advanced Schedule is drawn");
+        let mut reached = false;
+        for _ in 0..40 {
+            sheet_cx.update(|window, cx| {
+                window.focus_next(cx);
+                window.draw(cx).clear(cx)
+            });
+            if sheet_cx
+                .debug_bounds("focus-ring")
+                .is_some_and(|ring| ring.intersects(&disclosure))
+            {
+                reached = true;
+                break;
+            }
+        }
+        assert!(reached, "Tab never reached Advanced Schedule");
+        assert!(!task.read_with(vcx, |e, _| e.advanced));
+        sheet_cx.simulate_keystrokes("space");
+        sheet_cx.simulate_event(gpui_kit::KeyUpEvent {
+            keystroke: gpui_kit::Keystroke::parse("space").unwrap(),
+        });
+        vcx.run_until_parked();
+        assert!(
+            task.read_with(vcx, |e, _| e.advanced),
+            "Space on Advanced Schedule did not open it"
+        );
     }
 }
