@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_provider.dart';
@@ -14,6 +15,7 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
+import 'package:conduitd/src/daemon_paths.dart';
 import 'package:conduitd/src/notes_service.dart';
 import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
 import 'package:drift/native.dart';
@@ -297,6 +299,54 @@ void main() {
         ),
       );
       expect(await second.select(second.notes).get(), isEmpty);
+    });
+
+    test('lists or removes no recording of a note opened under the last account', () async {
+      await first
+          .into(first.notes)
+          .insert(
+            serverToNoteRow(<String, dynamic>{
+              'id': 'kiln-log',
+              'title': 'Kiln log',
+              'data': <String, dynamic>{
+                'content': <String, dynamic>{'md': 'Cone 6, slow cool'},
+              },
+              'created_at': 1,
+              'updated_at': 1,
+            }).copyWith(dirtyData: const Value(true)),
+          );
+      final dir = await Directory.systemTemp.createTemp('conduit-notes-rec-');
+      addTearDown(() => dir.delete(recursive: true));
+      final notes = NotesService(
+        container,
+        paths: DaemonDirectories.create(dir.path),
+      );
+      addTearDown(notes.dispose);
+      expect((await notes.get('kiln-log'))?.summary.title, 'Kiln log');
+      // A's editor takes a recording off the note: the note's recorder is
+      // made under A.
+      await notes.removeRecording(
+        const NoteRecordingRef(noteId: 'kiln-log', id: 'take-0'),
+      );
+
+      // Account B becomes active; the recorder is still A's.
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
+      active = second;
+      container.invalidate(appDatabaseProvider);
+      final refused = throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      );
+      await expectLater(notes.recordings('kiln-log'), refused);
+      await expectLater(
+        notes.removeRecording(
+          const NoteRecordingRef(noteId: 'kiln-log', id: 'take-1'),
+        ),
+        refused,
+      );
     });
   });
 }

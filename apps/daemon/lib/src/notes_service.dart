@@ -693,7 +693,11 @@ final class NotesService {
   /// [noteId]'s recordings not attached yet; uploads the waiting ones when
   /// the server can be reached.
   Future<NoteRecordings> recordings(String noteId) async {
+    // A note opened under another account: its recordings are that
+    // account's, listed to no other (checked again after the read).
+    _requireOpenedHere(noteId);
     final recorder = await _recorderFor(noteId);
+    _requireOpenedHere(noteId);
     await recorder.controller.loadPending();
     return _recordingsOf(noteId, recorder);
   }
@@ -738,7 +742,9 @@ final class NotesService {
   }
 
   Future<NoteRecordings> removeRecording(NoteRecordingRef request) async {
+    _requireOpenedHere(request.noteId);
     final recorder = await _recorderFor(request.noteId);
+    _requireOpenedHere(request.noteId);
     await recorder.controller.removePending(request.id);
     return _recordingsOf(request.noteId, recorder);
   }
