@@ -962,6 +962,21 @@ final class WorkspaceService {
   Future<WorkspaceDetail> duplicate(WorkspaceDuplicate request) => _guard(
     () async {
       final api = _api();
+      final session = _container.read(openWebUiAuthSessionEpochProvider);
+      // Read under one account, never made under the next: checked after
+      // the read, with no await before the copy is sent.
+      void sameAccount() {
+        if (!identical(
+          session,
+          _container.read(openWebUiAuthSessionEpochProvider),
+        )) {
+          throw const RpcError(
+            code: ConduitErrorCodes.sessionExpired,
+            debugMessage: 'the account changed',
+          );
+        }
+      }
+
       final id = request.id;
       final suffix = request.suffix.trim().isEmpty
           ? '(copy)'
@@ -972,6 +987,7 @@ final class WorkspaceService {
           final model =
               await api.getWorkspaceModel(id) ??
               (throw _notFound(request.kind, id));
+          sameAccount();
           final source = WorkspaceModelDraft.fromSummary(model);
           final copy = source.deepCopy(
             id: WorkspaceClone.modelId(source.id),
@@ -986,6 +1002,7 @@ final class WorkspaceService {
           final prompt =
               await api.getWorkspacePrompt(id) ??
               (throw _notFound(request.kind, id));
+          sameAccount();
           final saved = await _container
               .read(workspacePromptsProvider.notifier)
               .create(
@@ -999,6 +1016,7 @@ final class WorkspaceService {
           copyId = saved.id;
         case WorkspaceKind.tools:
           final tool = WorkspaceToolSummary.fromJson(await api.getTool(id));
+          sameAccount();
           final saved = await _container
               .read(workspaceToolsProvider.notifier)
               .create(
@@ -1014,6 +1032,7 @@ final class WorkspaceService {
           final skill =
               await api.getWorkspaceSkill(id) ??
               (throw _notFound(request.kind, id));
+          sameAccount();
           final description = (skill.description ?? '').trim();
           final saved = await _container
               .read(workspaceSkillsProvider.notifier)
