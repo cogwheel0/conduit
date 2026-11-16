@@ -221,6 +221,9 @@ pub struct NotePane {
     /// refresh, an upload or a file taken out) applies only while no other
     /// page was asked for since.
     page_asked: u64,
+    /// Another page is being read over the one shown: the shown one takes
+    /// no typing and no refresh until the asked page's answer is in.
+    page_loading: bool,
     saving_rev: Option<(u64, String)>,
     save_again: bool,
     waiters: Vec<futures::channel::oneshot::Sender<()>>,
@@ -369,6 +372,7 @@ impl NotePane {
             opened_under,
             held_for_account: false,
             page_asked: 0,
+            page_loading: false,
             saving_rev: None,
             save_again: false,
             waiters: vec![],
@@ -403,6 +407,7 @@ impl NotePane {
     /// nothing was refused.
     pub fn editable(&self) -> bool {
         self.load == Load::Ready
+            && !self.page_loading
             && self.refused.is_none()
             && self.detail.as_ref().is_some_and(|d| d.summary.can_edit)
             && self.ai != Some(AiAction::Enhance)
@@ -483,6 +488,7 @@ impl NotePane {
         // would be replaced by it.
         if self.load == Load::Ready {
             self.editor.update(cx, |e, cx| e.set_read_only(true, cx));
+            self.page_loading = true;
         }
         self.page_asked += 1;
         let asked = self.page_asked;
@@ -495,14 +501,18 @@ impl NotePane {
             let _ = this.update_in(cx, |this, window, cx| match result {
                 // A later page was asked for: this answer is old.
                 _ if this.page_asked != asked => {}
-                Ok(found) => match found.note {
-                    Some(detail) => this.show_detail(detail, true, window, cx),
-                    None => {
-                        this.load = Load::Missing;
-                        cx.notify();
+                Ok(found) => {
+                    this.page_loading = false;
+                    match found.note {
+                        Some(detail) => this.show_detail(detail, true, window, cx),
+                        None => {
+                            this.load = Load::Missing;
+                            cx.notify();
+                        }
                     }
-                },
+                }
                 Err(e) => {
+                    this.page_loading = false;
                     log::warn!("notes.get: {e}");
                     this.load = Load::Failed(e.to_string());
                     cx.notify();
@@ -558,6 +568,7 @@ impl NotePane {
     /// when nothing here is waiting to be saved; the recordings always.
     fn changed_elsewhere(&mut self, cx: &mut Context<Self>) {
         if self.load != Load::Ready
+            || self.page_loading
             || self.saving_rev.is_some()
             || self.dirty(cx)
             || self.refused.is_some()
@@ -592,6 +603,7 @@ impl NotePane {
             let result = call.await;
             let _ = this.update(cx, |this, cx| {
                 if this.page_asked != asked
+                    || this.page_loading
                     || this.saves_landed != landed
                     || this.refresh_asked != refresh
                     || this.editor.read(cx).revision() != revision
@@ -1158,7 +1170,7 @@ impl NotePane {
                 this.ai = None;
                 let can_edit = this.detail.as_ref().is_some_and(|d| d.summary.can_edit);
                 this.editor.update(cx, |e, cx| {
-                    e.set_read_only(!can_edit || this.refused.is_some(), cx)
+                    e.set_read_only(!can_edit || this.refused.is_some() || this.page_loading, cx)
                 });
                 let l = this.l(cx);
                 match result {
@@ -3342,6 +3354,30 @@ mod tests {
         );
         drop(held);
         vcx.run_until_parked();
+    }
+
+    /// A note change heard while the next page is read does not make the
+    /// page being left take typing again (its words would be replaced when
+    /// the next page shows).
+    #[gpui_kit::test]
+    fn a_change_heard_while_a_page_opens_takes_no_typing(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        let held = daemon.hold_one::<methods::NotesGet>(0);
+        pane.update_in(vcx, |p, window, cx| p.show_page("p2".into(), window, cx));
+        vcx.run_until_parked();
+        pane.update(vcx, |p, cx| p.changed_elsewhere(cx));
+        vcx.run_until_parked();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        assert!(
+            !bench::text(&pane, vcx).contains("Cairn"),
+            "a refresh made the page being left take typing"
+        );
+        held.release();
+        vcx.run_until_parked();
+        assert_eq!(bench::text(&pane, vcx), "Second page");
     }
     /// Typing while another page is read goes nowhere: the page being left
     /// takes no words until the next one shows, so nothing typed is
