@@ -119,29 +119,37 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         if bridge { "carries" } else { "lacks" }
     );
 
+    // English whatever the Mac's own language is: the checks below
+    // compare with English.
+    let settings = cx.update(|cx| cx.global::<AppState>().settings.clone());
+    cx.update(|cx| settings.update(cx, |s, cx| s.set_locale(Some("en".into()), cx)));
     let mut pass = sign_in(&url, &email, &password, cx).await;
     let _ = wait_models(cx).await;
-    let signed_in = wait_snapshot(&path, cx, |v| {
-        v["signedIn"] == true && !v["chats"].as_array().is_none_or(|a| a.is_empty())
+    // The newest chats, as the list has them, once the snapshot shows
+    // them (the list can still be syncing when the first one lands).
+    let mut seen = None;
+    let mut want = (vec![], vec![]);
+    let matched = wait_until(cx, Duration::from_secs(30), |cx| {
+        want = expected(cx);
+        seen = snapshot_at(&path);
+        seen.as_ref().is_some_and(|v| {
+            v["signedIn"] == true && !want.0.is_empty() && ids(v) == want.0 && titles(v) == want.1
+        })
     })
     .await;
+    let (want_ids, _) = want;
     pass &= ok(
-        "the widget's snapshot says signed in, with chats",
-        signed_in.is_some(),
+        &format!(
+            "the snapshot says signed in and lists the newest chats, newest first ({} of them)",
+            want_ids.len()
+        ),
+        matched,
     );
-    let Some(first) = signed_in else {
+    let Some(first) = seen.filter(|_| matched) else {
         return false;
     };
 
-    // The newest chats, as the list has them; four fields each, no more.
-    let (want_ids, want_titles) = cx.update(expected);
-    pass &= ok(
-        &format!(
-            "the snapshot lists the newest chats, newest first ({} of them)",
-            want_ids.len()
-        ),
-        ids(&first) == want_ids && titles(&first) == want_titles,
-    );
+    // Four fields each, no more.
     let keys_only = first.as_object().is_some_and(|o| {
         let mut k: Vec<&str> = o.keys().map(String::as_str).collect();
         k.sort();
@@ -237,11 +245,10 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= ok("the new chat heads the snapshot", after_new.is_some());
 
     // The app's language goes with it.
-    let settings = cx.update(|cx| cx.global::<AppState>().settings.clone());
     cx.update(|cx| settings.update(cx, |s, cx| s.set_locale(Some("de".into()), cx)));
     let german = wait_snapshot(&path, cx, |v| v["locale"] == "de").await;
     pass &= ok("the snapshot follows the app's language", german.is_some());
-    cx.update(|cx| settings.update(cx, |s, cx| s.set_locale(None, cx)));
+    cx.update(|cx| settings.update(cx, |s, cx| s.set_locale(Some("en".into()), cx)));
     let english = wait_snapshot(&path, cx, |v| v["locale"] == "en").await;
     pass &= ok("…and back", english.is_some());
 
