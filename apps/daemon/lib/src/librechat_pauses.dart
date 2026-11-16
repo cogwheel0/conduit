@@ -45,8 +45,10 @@ typedef LibreChatResume =
 /// again for as long as a window can answer and the turn still asks. Only a
 /// window's answer sends again: after a failure even a tool call the pause
 /// lets refuse without asking (approve not allowed) waits for its card, so
-/// nothing goes out over and over on its own; a pause with no card to put
-/// to anyone is not tried again.
+/// nothing goes out over and over on its own. A send is tried again only
+/// after a card was put up and answered in that attempt (or, the first
+/// time, when the next attempt puts one up); a failure before anything is
+/// sent -- a card that could not be put up -- ends the reply once.
 Future<LibreChatPauseOutcome> answerLibreChatPause(
   LibreChatPendingAction action, {
   required UiRequestsService? windows,
@@ -58,8 +60,10 @@ Future<LibreChatPauseOutcome> answerLibreChatPause(
 }) async {
   var recovering = false;
   while (true) {
+    final attempt = _Attempt();
     final outcome = await _answerOnce(
       action,
+      attempt,
       windows: windows,
       chatId: chatId,
       asking: asking,
@@ -72,16 +76,23 @@ Future<LibreChatPauseOutcome> answerLibreChatPause(
         windows == null ||
         !windows.canAsk ||
         !asking() ||
-        // Nothing to put to a window: trying again would only send the
-        // same thing, with nothing to wait on in between.
-        !_carded(action)) {
+        // Only a window's answer sends again: this attempt's card was
+        // answered, or (the first time) the next attempt puts one up.
+        !(attempt.answered || (!recovering && _carded(action)))) {
       return outcome;
     }
     recovering = true;
   }
 }
 
-/// Whether a round after a failed send puts a card to the windows: each
+/// One attempt at a pause: whether a card was put up and answered, and
+/// whether the answers began going out.
+final class _Attempt {
+  bool answered = false;
+  bool sending = false;
+}
+
+/// Whether an attempt after a failed send puts a card to the windows: each
 /// question, and (then) each tool call, waits for its answer.
 bool _carded(LibreChatPendingAction action) =>
     action.isQuestion && action.questions.isNotEmpty ||
@@ -89,7 +100,8 @@ bool _carded(LibreChatPendingAction action) =>
 
 
 Future<LibreChatPauseOutcome> _answerOnce(
-  LibreChatPendingAction action, {
+  LibreChatPendingAction action,
+  _Attempt attempt, {
   required UiRequestsService? windows,
   required String chatId,
   required bool Function() asking,
@@ -134,6 +146,7 @@ Future<LibreChatPauseOutcome> _answerOnce(
                     : null,
                 until: until,
               );
+        if (windows != null) attempt.answered = true;
         // Answered or dismissed after its turn ended (a newer reply may run
         // in the chat now): nothing of that newer one is touched.
         if (!asking()) return LibreChatPauseOutcome.left;
@@ -143,6 +156,7 @@ Future<LibreChatPauseOutcome> _answerOnce(
         }
         answers[id] = answer;
       }
+      attempt.sending = true;
       await resume(answers: answers);
       return LibreChatPauseOutcome.resumed;
     }
@@ -157,16 +171,18 @@ Future<LibreChatPauseOutcome> _answerOnce(
       final carded = windows != null && (approvable || recovering);
       // A call that cannot be approved is refused without a card -- except
       // after a failed send, when the window's answer is what sends again.
-      final allowed =
-          carded &&
-          await windows.askLibreChatToolApproval(
-            chatId: chatId,
-            toolName: request.name,
-            description: request.description,
-            argumentsJson: _argumentsJson(request.arguments),
-            until: until,
-          ) &&
-          approvable;
+      var allowed = false;
+      if (carded) {
+        final yes = await windows.askLibreChatToolApproval(
+          chatId: chatId,
+          toolName: request.name,
+          description: request.description,
+          argumentsJson: _argumentsJson(request.arguments),
+          until: until,
+        );
+        attempt.answered = true;
+        allowed = yes && approvable;
+      }
       final decision = allowed
           ? LibreChatToolDecision.approve
           : LibreChatToolDecision.reject;
@@ -181,6 +197,7 @@ Future<LibreChatPauseOutcome> _answerOnce(
       decisions[request.toolCallId] = LibreChatToolDecisionInput(decision);
     }
     if (!asking()) return LibreChatPauseOutcome.left;
+    attempt.sending = true;
     await resume(decisions: decisions);
     return LibreChatPauseOutcome.resumed;
   } on Object catch (error, stackTrace) {
@@ -190,8 +207,22 @@ Future<LibreChatPauseOutcome> _answerOnce(
       error: error,
       stackTrace: stackTrace,
     );
-    return LibreChatPauseOutcome.failed;
+    if (attempt.sending) return LibreChatPauseOutcome.failed;
   }
+  // Nothing was sent: a card could not be put up. The reply ends, once,
+  // rather than waiting on a card nobody can see.
+  if (!asking()) return LibreChatPauseOutcome.left;
+  try {
+    await stop();
+  } on Object catch (error, stackTrace) {
+    DebugLogger.error(
+      'librechat-action-stop-failed',
+      scope: 'daemon/turns',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+  return LibreChatPauseOutcome.stopped;
 }
 
 /// A tool call's arguments, as pretty JSON for the card.
@@ -205,5 +236,11 @@ String? _argumentsJson(Object? arguments) {
       return arguments;
     }
   }
-  return const JsonEncoder.withIndent('  ').convert(value);
+  try {
+    return const JsonEncoder.withIndent('  ').convert(value);
+  } on Object {
+    // Decoded but not writable as JSON (an infinite number, say): shown as
+    // sent.
+    return arguments is String ? arguments : '$arguments';
+  }
 }

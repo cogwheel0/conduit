@@ -236,6 +236,70 @@ void main() {
     expect(sends, 1, reason: 'sent over and over with nobody asked');
     expect(asked, isEmpty);
   });
+
+  test('a card that cannot be put up ends the reply once, never spinning', () async {
+    // Each round checks the turn; a loop that never waits runs out of
+    // checks and ends (failing the test) rather than hanging it.
+    var checks = 0;
+    bool asking() => ++checks < 50;
+
+    // Arguments that decode but cannot be pretty-printed (an infinite
+    // number): the card shows them as sent, and the answer goes out.
+    var sends = 0;
+    final card = nextCard();
+    final infinite = answerLibreChatPause(
+      _toolCall(const ['approve', 'reject'], arguments: '{"limit":1e999}'),
+      windows: windows,
+      chatId: 'chat-1',
+      asking: asking,
+      resume: ({decisions, answers}) async => sends++,
+      stop: () async => fail('nothing was to stop'),
+    );
+    final shown = await Future.any<UiRequest?>([
+      card,
+      infinite.then((_) => null),
+    ]);
+    expect(shown, isNotNull, reason: 'no card for arguments it could not format');
+    expect(shown!.detail['arguments'], '{"limit":1e999}');
+    windows.respond(UiResponse(requestId: shown.requestId, choice: 'allow'));
+    expect(await infinite, LibreChatPauseOutcome.resumed);
+    expect(sends, 1);
+
+    // Anything else that throws before a card is up ends the reply once,
+    // and is not tried again.
+    checks = 0;
+    var stops = 0;
+    final broken = await answerLibreChatPause(
+      LibreChatPendingAction(<String, dynamic>{
+        'actionId': 'act-5',
+        'payload': <String, dynamic>{
+          'type': 'ask_user_question',
+          'tool_call_id': 'call-5',
+          'question': <String, dynamic>{
+            'question': 'Which trail?',
+            'options': [
+              {'label': _Unreadable()},
+            ],
+          },
+        },
+      }),
+      windows: windows,
+      chatId: 'chat-1',
+      asking: asking,
+      resume: ({decisions, answers}) async => sends++,
+      stop: () async => stops++,
+    );
+    expect(broken, LibreChatPauseOutcome.stopped);
+    expect(stops, 1);
+    expect(checks, lessThan(5), reason: 'tried over and over with no card up');
+    expect(sends, 1, reason: 'something went out for a card never shown');
+  });
+}
+
+/// A value whose text cannot be read (any throw before a card is up).
+final class _Unreadable {
+  @override
+  String toString() => throw StateError('unreadable');
 }
 
 /// A run paused on one question.
@@ -255,13 +319,19 @@ const _question = LibreChatPendingAction(<String, dynamic>{
 });
 
 /// A run paused on one tool call, allowing [allowed].
-LibreChatPendingAction _toolCall(List<String> allowed) =>
-    LibreChatPendingAction(<String, dynamic>{
+LibreChatPendingAction _toolCall(
+  List<String> allowed, {
+  String arguments = '{}',
+}) => LibreChatPendingAction(<String, dynamic>{
       'actionId': 'act-2',
       'payload': <String, dynamic>{
         'type': 'tool_approval',
         'action_requests': <Map<String, dynamic>>[
-          {'tool_call_id': 'call-2', 'name': 'trail_map', 'arguments': '{}'},
+          {
+            'tool_call_id': 'call-2',
+            'name': 'trail_map',
+            'arguments': arguments,
+          },
         ],
         'review_configs': <Map<String, dynamic>>[
           {'tool_call_id': 'call-2', 'allowed_decisions': allowed},
