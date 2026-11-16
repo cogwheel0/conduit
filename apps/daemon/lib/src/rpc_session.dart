@@ -1178,7 +1178,9 @@ class RpcSession {
     // error.
     _on(
       ConduitMethodSpecs.notesGet,
-      (ref) async => NoteResult(note: await _requireNotes().get(ref.id)),
+      (open) async => NoteResult(
+        note: await _requireNotes().get(open.id, pageId: open.pageId),
+      ),
     );
     _on(ConduitMethodSpecs.notesSave, (r) => _requireNotes().save(r));
     _on(ConduitMethodSpecs.notesDelete, (ref) async {
@@ -1192,6 +1194,22 @@ class RpcSession {
     _on(ConduitMethodSpecs.notesEnhance, (r) => _requireNotes().enhance(r));
     _on(ConduitMethodSpecs.notesAttach, (r) => _requireNotes().attach(r));
     _on(ConduitMethodSpecs.notesDetach, (r) => _requireNotes().detach(r));
+    _on(
+      ConduitMethodSpecs.notesRecordings,
+      (ref) => _requireNotes().recordings(ref.id),
+    );
+    _on(
+      ConduitMethodSpecs.notesAddRecording,
+      (r) => _requireNotes().addRecording(r),
+    );
+    _on(
+      ConduitMethodSpecs.notesRetryRecording,
+      (r) => _requireNotes().retryRecording(r),
+    );
+    _on(
+      ConduitMethodSpecs.notesRemoveRecording,
+      (r) => _requireNotes().removeRecording(r),
+    );
     _on(
       ConduitMethodSpecs.notesSetPinned,
       (r) => _requireNotes().setPinned(r.id, pinned: r.pinned),

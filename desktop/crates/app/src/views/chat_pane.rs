@@ -1405,6 +1405,9 @@ impl ChatPane {
             ops: Some(vec![
                 serde_json::json!({ "insert": format!("{}\n", text.trim_end()) }),
             ]),
+            page_id: None,
+            base_ops: None,
+            account_id: None,
         };
         let call = self
             .stores

@@ -23,6 +23,7 @@ pub mod hermes_work_sheet;
 pub mod image_viewer;
 pub mod main_window;
 pub mod model_logo;
+pub mod notes;
 pub mod onboarding;
 pub mod palette;
 pub mod panes;

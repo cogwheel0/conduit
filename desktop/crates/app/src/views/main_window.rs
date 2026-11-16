@@ -153,7 +153,7 @@ impl MainWindow {
         let sidebar = cx.new(|cx| SidebarView::new(stores.clone(), window, cx));
         let area_pane = {
             let (stores, layout) = (stores.clone(), layout.clone());
-            cx.new(|cx| AreaPane::new(stores, layout, cx))
+            cx.new(|cx| AreaPane::new(stores, layout, window, cx))
         };
         let palette = cx.new(|cx| PaletteView::new(stores.clone(), window, cx));
         let subscriptions = vec![

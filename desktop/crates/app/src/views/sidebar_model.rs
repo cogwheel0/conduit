@@ -576,12 +576,17 @@ pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Ve
     };
     match area {
         Area::Chats => vec![],
-        Area::Notes => listed(area, lists.notes, all, missing(area), |n| AreaRow {
-            title: n.title.clone(),
-            updated_at_ms: Some(n.updated_at_ms),
-            pinned: n.pinned,
-            ..AreaRow::of(AreaItem::Note(n.id.clone()))
-        }),
+        // All Notes first, as Mail's All Inboxes: the list pane, with
+        // search and the time groups. It shows while the list loads or is
+        // empty too, where New Note is.
+        Area::Notes => std::iter::once(SidebarItem::AreaRow(AreaRow::of(AreaItem::AllNotes)))
+            .chain(listed(area, lists.notes, all, missing(area), |n| AreaRow {
+                title: n.title.clone(),
+                updated_at_ms: Some(n.updated_at_ms),
+                pinned: n.pinned,
+                ..AreaRow::of(AreaItem::Note(n.id.clone()))
+            }))
+            .collect(),
         Area::Channels => listed(area, lists.channels, all, missing(area), |c| AreaRow {
             // A direct message is titled by the people in it.
             title: if c.title.trim().is_empty() {
@@ -1434,7 +1439,12 @@ mod tests {
             ..Default::default()
         };
         let first = area_rows(Area::Notes, &lists, false, false);
-        assert_eq!(first.len(), AREA_FIRST + 1);
+        // All Notes, the first few, Show All.
+        assert_eq!(first.len(), 1 + AREA_FIRST + 1);
+        assert_eq!(
+            first[0],
+            SidebarItem::AreaRow(AreaRow::of(AreaItem::AllNotes))
+        );
         assert_eq!(
             first.last(),
             Some(&SidebarItem::ShowAll {
@@ -1443,7 +1453,7 @@ mod tests {
             })
         );
         let all = area_rows(Area::Notes, &lists, true, false);
-        assert_eq!(all.len(), 7 + 1, "every note, then Show Less");
+        assert_eq!(all.len(), 1 + 7 + 1, "every note, then Show Less");
         // Nothing listed yet, or nothing at all: a hint.
         assert_eq!(
             labels(&area_rows(
@@ -1473,9 +1483,10 @@ mod tests {
         for area in [Area::Channels, Area::Hermes] {
             assert_eq!(labels(&area_rows(area, &failed, false, false)), ["Failed"]);
         }
+        // All Notes leads the section whatever its list does.
         assert_eq!(
             labels(&area_rows(Area::Notes, &failed, false, false)),
-            ["Loading"]
+            ["AllNotes", "Loading"]
         );
         // A list still held shows, whatever the last read did.
         let held = AreaLists {

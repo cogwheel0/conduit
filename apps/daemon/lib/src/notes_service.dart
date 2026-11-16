@@ -1,15 +1,27 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/note_mapper.dart';
 import 'package:conduit_core/error/api_error.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
+    show currentUserProvider2;
 import 'package:conduit_core/features/notes/providers/notes_providers.dart';
-import 'package:conduit_core/features/notes/services/note_attachments_controller.dart'
-    show noteDataWithFileLink;
+import 'package:conduit_core/features/notes/services/deleted_note_draft_recovery.dart';
+import 'package:conduit_core/features/notes/services/note_attachments_controller.dart';
+import 'package:conduit_core/features/notes/services/note_audio_upload_service.dart';
+import 'package:conduit_core/features/notes/utils/note_access.dart';
 import 'package:conduit_core/features/notes/utils/note_page_data.dart';
+import 'package:conduit_core/features/notes/utils/note_page_entries.dart';
+import 'package:conduit_core/features/notes/utils/note_persistence.dart';
 import 'package:conduit_core/features/notes/utils/note_quill_delta.dart';
+import 'package:conduit_core/features/workspace/models/workspace_capabilities.dart';
+import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit_core/models/note.dart';
+import 'package:conduit_core/persistence/account_scoped_preferences.dart'
+    show currentPreferenceAccountId;
+import 'package:conduit_core/ports/paths_port.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -29,12 +41,40 @@ import 'settled.dart';
 /// when the network returns. What the desktop adds is only the editor's
 /// format: a note is stored as markdown and edited as Quill ops, and the
 /// conversion goes through the Parchment codec mobile's editor uses.
+///
+/// Pages, the file-link merge, refusals and the recovery of a deleted
+/// note's draft follow the phone's editor: a save goes to the page the
+/// editor shows through the core's `persistNoteUpdate`, a refusal leaves
+/// the text with the editor, and a note the server deleted is kept as a
+/// new note ([createNoteFromDeletedDraft]). Recordings go through the
+/// core's [NoteAttachmentsController], one per note asked about.
 final class NotesService {
-  NotesService(this._container, {EventBus? events}) {
+  NotesService(this._container, {EventBus? events, PathsPort? paths})
+    : _events = events,
+      _audioStore = paths == null
+          ? null
+          : NoteAudioUploadStore.withPaths(paths) {
     if (events != null) _announceChanges(events);
   }
 
   final ProviderContainer _container;
+  final EventBus? _events;
+
+  /// Where recordings wait until the server has them; none in tests that
+  /// do not record.
+  final NoteAudioUploadStore? _audioStore;
+
+  /// The notes handed to an editor, by id: what a deleted note's draft is
+  /// recovered over.
+  final Map<String, Note> _seen = <String, Note>{};
+
+  /// The account (active server) each note in [_seen] was handed out
+  /// under: a draft is recovered only under that account, never into the
+  /// next one's notes.
+  final Map<String, String?> _seenUnder = <String, String?>{};
+
+  /// One recordings controller per note asked about.
+  final Map<String, _NoteRecorder> _recorders = <String, _NoteRecorder>{};
 
   Future<NoteList> list(String query) async {
     final notes = query.trim().isEmpty
@@ -46,12 +86,33 @@ final class NotesService {
         return b.updatedAt.compareTo(a.updatedAt);
       });
     final conflicts = await _conflictCopyIds();
+    final access = await _access();
     return NoteList(
       notes: <NoteSummary>[
         for (final note in sorted)
-          _summarize(note).copyWith(conflictCopy: conflicts.contains(note.id)),
+          _summarize(
+            note,
+            access,
+          ).copyWith(conflictCopy: conflicts.contains(note.id)),
       ],
     );
+  }
+
+  /// Who is asking, and whether the server lets them share notes: what
+  /// each summary's access flags depend on.
+  Future<_Access> _access() async {
+    final accountId = _container.read(currentUserProvider2)?.id;
+    var sharing = false;
+    try {
+      final caps = await readSettled(
+        _container,
+        workspaceCapabilitiesProvider.future,
+      ).timeout(const Duration(milliseconds: 1500));
+      sharing = caps.notes.section.share;
+    } on Object {
+      // Unknown (offline, or another backend): Share Access is not offered.
+    }
+    return (accountId: accountId, sharing: sharing);
   }
 
   /// The notes that are conflict copies. The flag is the row's; the core's
@@ -65,18 +126,34 @@ final class NotesService {
     return <String>{for (final row in rows) row.id};
   }
 
-  Future<NoteDetail?> get(String id) async {
+  Future<NoteDetail?> get(String requested, {String? pageId}) async {
+    var id = requested;
     // This computer's copy first, when it knows something the server does
     // not yet: a deletion or an edit still waiting in the outbox. Online,
     // the core's reader goes to the server, which would hand back the note
     // as it was before -- reopening a note just edited showed the old text,
     // and a deleted one came back.
+    // The account it is read under, with its database: a read answered
+    // after another account became active is refused, never shown or
+    // remembered as that account's.
+    final scope = currentPreferenceAccountId();
     final db = _container.read(appDatabaseProvider);
+    final access = await _access();
     if (db != null) {
+      // A note made here (a `local:` id) the outbox has since created on
+      // the server goes by the server's id: answered under it, so the
+      // editor follows (the phone's editor resolves it the same way).
+      id = await db.notesDao.resolveNoteRemapTarget(id);
       final row = await db.notesDao.getNote(id);
       if (row != null && row.deleted) return null;
       if (row != null && (row.dirtyTitle || row.dirtyData || row.dirtyPinned)) {
-        return _detail(Note.fromJson(noteRowToServer(row)));
+        _requireStill(scope, id);
+        return _detail(
+          Note.fromJson(noteRowToServer(row)),
+          access,
+          pageId: pageId,
+          scope: scope,
+        );
       }
     }
     // Read fresh: the provider caches by id, and a note edited in another
@@ -84,14 +161,31 @@ final class NotesService {
     _container.invalidate(noteByIdProvider(id));
     try {
       final note = await readSettled(_container, noteByIdProvider(id).future);
-      return note == null ? null : _detail(note);
+      _requireStill(scope, id);
+      return note == null
+          ? null
+          : _detail(note, access, pageId: pageId, scope: scope);
     } on Object catch (error) {
       if (_notFound(error)) return null;
       rethrow;
     }
   }
 
-  static NoteDetail _detail(Note note) {
+  /// The note as the editor shows page [pageId] of it (the main page when
+  /// it has no such page), remembered for a recovery.
+  ///
+  /// [scope]: the account it was read or written under (the active one when
+  /// not given).
+  NoteDetail _detail(
+    Note note,
+    _Access access, {
+    String? pageId,
+    String? scope,
+  }) {
+    _seen[note.id] = note;
+    _seenUnder[note.id] = scope ?? currentPreferenceAccountId();
+    final page = _pageOf(note, pageId);
+    final markdown = _pageMarkdown(note, page);
     final files = <NoteFile>[
       for (final file in note.data.files ?? const <Map<String, dynamic>>[])
         if (file['id'] case final Object id)
@@ -104,16 +198,49 @@ final class NotesService {
     ];
     final listed = <String>{for (final file in files) file.id};
     return NoteDetail(
-      summary: _summarize(note),
-      ops: quillOpsFromMarkdown(note.markdownContent),
+      summary: _summarize(note, access),
+      ops: quillOpsFromMarkdown(markdown),
+      pageId: page,
+      markdown: markdown,
+      pages: <NotePageDto>[
+        if (note.isMultiPage)
+          for (final entry in notePageEntries(note.data.pages, note.title))
+            NotePageDto(
+              id: entry.id,
+              title: entry.title,
+              path: entry.path,
+              depth: entry.depth,
+            ),
+      ],
       files: <NoteFile>[
         ...files,
         // Open WebUI 0.12.5 keeps attachments as links in the content, and
         // the mobile editor lists those beside the file list.
-        for (final link in noteFileLinksInMarkdown(note.markdownContent))
+        for (final link in noteFileLinksInMarkdown(markdown))
           if (listed.add(link.id)) NoteFile(id: link.id, name: link.name),
       ],
     );
+  }
+
+  /// The page of [note] shown for [pageId]: that page when the note has
+  /// it, else the main page.
+  static String _pageOf(Note note, String? pageId) {
+    if (pageId == null || pageId == kNoteMainPageId) return kNoteMainPageId;
+    final has =
+        note.isMultiPage && note.data.pages.any((page) => page.id == pageId);
+    return has ? pageId : kNoteMainPageId;
+  }
+
+  /// The stored markdown of page [pageId] of [note]; a note in the older
+  /// shape, or with one page, has its content (as the phone's editor reads
+  /// it).
+  static String _pageMarkdown(Note note, String pageId) {
+    if (note.isMultiPage) {
+      for (final page in note.data.pages) {
+        if (page.id == pageId) return page.content.md;
+      }
+    }
+    return note.markdownContent;
   }
 
   /// Attaches an uploaded file to a note, written with its outbox
@@ -126,7 +253,7 @@ final class NotesService {
   /// file in its main page's content, which is where such a server looks;
   /// an older one gets the file in the note's file list.
   Future<NoteDetail> attach(NoteAttach request) =>
-      _changeData(request.noteId, (data, pagesServer) {
+      _changeData(request.noteId, pageId: request.pageId, (data, pagesServer) {
         final attachment = <String, dynamic>{
           'type': 'file',
           'file': '',
@@ -143,7 +270,11 @@ final class NotesService {
         };
         if (noteDataHasPages(data) || pagesServer) {
           // Null when the link is there already.
-          return noteDataWithFileLink(data, attachment);
+          return noteDataWithFileLink(
+            data,
+            attachment,
+            pageId: notePageIdIn(data, request.pageId),
+          );
         }
         final files = _filesIn(data);
         if (files.any((file) => '${file['id']}' == request.file.id)) {
@@ -158,10 +289,11 @@ final class NotesService {
   /// Takes a file off a note, from its file list and from links to it in
   /// the main page. The file stays on the server.
   Future<NoteDetail> detach(NoteDetach request) =>
-      _changeData(request.noteId, (data, _) {
-        final patch = noteDataWithoutFile(data, request.fileId);
+      _changeData(request.noteId, pageId: request.pageId, (data, _) {
+        final page = notePageIdIn(data, request.pageId);
+        final patch = noteDataWithoutFile(data, request.fileId, pageId: page);
         if (patch.isEmpty) return null;
-        return applyNoteContentEdit(data, patch, pageId: kNoteMainPageId);
+        return applyNoteContentEdit(data, patch, pageId: page);
       });
 
   static List<Map<String, dynamic>> _filesIn(Map<String, dynamic> data) =>
@@ -177,8 +309,9 @@ final class NotesService {
   Future<NoteDetail> _changeData(
     String noteId,
     Map<String, dynamic>? Function(Map<String, dynamic> data, bool pagesServer)
-    change,
-  ) async {
+    change, {
+    String? pageId,
+  }) async {
     await readSettled(_container, notesListProvider.future);
     // Whether the server has note pages comes from its config, which
     // nothing else in the daemon may have read yet.
@@ -222,7 +355,11 @@ final class NotesService {
     );
     _container.invalidate(noteByIdProvider(id));
     final row = await db.notesDao.getNote(id);
-    return _detail(Note.fromJson(noteRowToServer(row!)));
+    return _detail(
+      Note.fromJson(noteRowToServer(row!)),
+      await _access(),
+      pageId: pageId,
+    );
   }
 
   /// A note the server no longer has: gone, not an error.
@@ -234,6 +371,12 @@ final class NotesService {
   };
 
   Future<NoteDetail> save(NoteSave request) async {
+    // The account the save was asked under, before any wait: a new note is
+    // made under it or not at all.
+    final scope = currentPreferenceAccountId();
+    // The editor's own account, when it says: another one active (a switch
+    // this side has made and the window not yet heard of) takes nothing.
+    _requireExpected(request.accountId, request.id);
     // Settled first. The providers check that the session they started in
     // is still current when their request returns; straight after signing
     // in the account's database is still being certified, appears during
@@ -245,37 +388,187 @@ final class NotesService {
     final markdown = request.ops == null
         ? null
         : markdownFromQuillOps(request.ops!);
-    final Note? saved;
-    if (request.id == null) {
-      saved = await _container
+    final access = await _access();
+    final id = request.id;
+    _requireExpected(request.accountId, id);
+    if (id == null) {
+      // Save as My Own Note, begun under another account than the one
+      // active now: the draft is not made into this account's note.
+      _requireStill(scope, 'a new note');
+    } else {
+      // A note opened under another account is written by no path (a
+      // rename, the core's updater, the text): its draft stays with the
+      // editor, never in this account's notes.
+      _requireOpenedHere(id);
+    }
+    if (id == null) {
+      final created = await _container
           .read(noteCreatorProvider.notifier)
           .createNote(title: title, markdownContent: markdown ?? '');
-    } else {
-      saved = await _container
-          .read(noteUpdaterProvider.notifier)
-          .updateNote(request.id!, title: title, markdownContent: markdown);
-      _container.invalidate(noteByIdProvider(request.id!));
+      if (created == null) throw _saveFailed(creating: true);
+      return _detail(created, access, scope: scope);
     }
-    if (saved == null) {
-      // The providers report why in their state, not by throwing.
-      final state = request.id == null
-          ? _container.read(noteCreatorProvider)
-          : _container.read(noteUpdaterProvider);
-      throw RpcError(
-        code: ConduitErrorCodes.serverError,
-        args: <String, String>{
-          if (state.error case final error?) 'detail': '$error',
-        },
-        debugMessage: request.id == null
-            ? 'the note could not be created'
-            : 'the note could not be saved',
+    final db = _container.read(appDatabaseProvider);
+    if (markdown == null || db == null) {
+      // A rename, or no database (reviewer mode): the core's updater.
+      final saved = await _container
+          .read(noteUpdaterProvider.notifier)
+          .updateNote(id, title: title, markdownContent: markdown);
+      _container.invalidate(noteByIdProvider(id));
+      if (saved == null) throw _saveFailed(creating: false);
+      return _detail(saved, access, pageId: request.pageId, scope: scope);
+    }
+    // A note deleted meanwhile -- by another device (a pull removed its
+    // row) or behind this editor (its row is a tombstone) -- has nowhere
+    // to save to: its text is kept as a new note.
+    final resolved = await db.notesDao.resolveNoteRemapTarget(id);
+    final existing = await db.notesDao.getNote(resolved);
+    if (existing == null || existing.deleted) {
+      return _recover(
+        id,
+        title: title,
+        markdown: markdown,
+        access: access,
+        previous: existing == null
+            ? null
+            : Note.fromJson(noteRowToServer(existing)),
       );
     }
-    return NoteDetail(
-      summary: _summarize(saved),
-      ops: quillOpsFromMarkdown(markdown ?? saved.markdownContent),
+    final pageId = request.pageId ?? kNoteMainPageId;
+    final base = request.baseOps == null
+        ? null
+        : markdownFromQuillOps(request.baseOps!);
+    final Note? saved;
+    try {
+      saved = await persistNoteUpdate(
+        _container,
+        noteId: id,
+        writeId: _seen[id]?.id,
+        api: _container.read(apiServiceProvider),
+        db: db,
+        title: title,
+        data: noteContentData(markdown),
+        // Read inside the note lock: a file link the stored page gained
+        // since the editor loaded it is kept, and one the user took out
+        // stays out.
+        dataFrom: base == null
+            ? null
+            : (existing) => noteContentData(
+                mergeNoteFileLinks(
+                  base: base,
+                  stored: notePageMarkdown(existing, pageId),
+                  mine: markdown,
+                ),
+              ),
+        pageId: pageId,
+      );
+    } on NoteWriteDeniedException {
+      throw RpcError(
+        code: ConduitErrorCodes.conflict,
+        args: const <String, String>{'reason': 'readOnly'},
+        debugMessage: 'the account may not edit note $id',
+      );
+    } on NotePageMissingException {
+      throw _pageMissing(id, pageId);
+    } on NotePageRequiredException {
+      throw _pageMissing(id, pageId);
+    }
+    if (saved != null) {
+      _container.invalidate(noteByIdProvider(id));
+      return _detail(saved, access, pageId: pageId, scope: scope);
+    }
+    // Nothing was written. A note deleted while it was being written keeps
+    // the text as a new note, as the phone's editor recovers it; anything
+    // else is a failed save the editor retries.
+    final row = await db.notesDao.getNote(resolved);
+    if (row != null && !row.deleted) throw _saveFailed(creating: false);
+    return _recover(id, title: title, markdown: markdown, access: access);
+  }
+
+  /// Keeps the draft of [id], which the server deleted, as a new note.
+  Future<NoteDetail> _recover(
+    String id, {
+    required String title,
+    required String markdown,
+    required _Access access,
+    Note? previous,
+  }) async {
+    // Its row is missing because another account is active now (each has
+    // its own database): the draft stays out of that account's notes.
+    _requireOpenedHere(id);
+    final db = _container.read(appDatabaseProvider)!;
+    previous ??=
+        _seen[id] ?? Note(id: id, title: title, createdAt: 0, updatedAt: 0);
+    final recovered = await createNoteFromDeletedDraft(
+      _container,
+      db,
+      previous: previous,
+      userId: access.accountId,
+      title: title,
+      markdown: markdown,
+    );
+    if (recovered == null) throw _saveFailed(creating: true);
+    _container.invalidate(noteByIdProvider(id));
+    _container.invalidate(noteByIdProvider(recovered.id));
+    // Recordings still waiting move with the text.
+    final recorder = _recorders.remove(id);
+    if (recorder != null) {
+      _recorders[recovered.id] = recorder;
+      recorder.note = recovered;
+      unawaited(recorder.controller.rebindTo(previous, recovered));
+    }
+    return _detail(recovered, access).copyWith(recoveredFrom: id);
+  }
+
+  /// Refuses work for note [id] when it was handed out under another
+  /// account than the one active now: a draft or recording of one account
+  /// never goes into the next one's notes, storage or server. (A note this
+  /// daemon has not handed out -- it restarted under an open editor -- is
+  /// taken as the active account's, as before.)
+  void _requireOpenedHere(String id) {
+    if (!_seenUnder.containsKey(id)) return;
+    if (_seenUnder[id] == currentPreferenceAccountId()) return;
+    throw RpcError(
+      code: ConduitErrorCodes.sessionExpired,
+      args: const <String, String>{'reason': 'account'},
+      debugMessage: 'note $id was opened under another account',
     );
   }
+
+  /// Refuses a save the editor made for account [expected] while another
+  /// account is active (nothing is checked when the editor names none).
+  void _requireExpected(String? expected, String? id) {
+    if (expected == null || expected == currentPreferenceAccountId()) return;
+    throw RpcError(
+      code: ConduitErrorCodes.sessionExpired,
+      args: const <String, String>{'reason': 'account'},
+      debugMessage: 'note ${id ?? '(new)'} is for another account',
+    );
+  }
+
+  /// Refuses a read of note [id] begun under [scope] once another account
+  /// is active.
+  void _requireStill(String? scope, String id) {
+    if (scope == currentPreferenceAccountId()) return;
+    throw RpcError(
+      code: ConduitErrorCodes.sessionExpired,
+      args: const <String, String>{'reason': 'account'},
+      debugMessage: 'note $id was read under another account',
+    );
+  }
+
+  static RpcError _saveFailed({required bool creating}) => RpcError(
+    code: ConduitErrorCodes.serverError,
+    debugMessage: creating
+        ? 'the note could not be created'
+        : 'the note could not be saved',
+  );
+
+  static RpcError _pageMissing(String id, String pageId) => RpcError(
+    code: ConduitErrorCodes.notFound,
+    args: const <String, String>{'reason': 'page'},
+    debugMessage: 'note $id has no page $pageId',
+  );
 
   Future<void> delete(String id) async {
     final deleted = await _container
@@ -326,7 +619,7 @@ final class NotesService {
         debugMessage: 'the note could not be pinned',
       );
     }
-    return _summarize(updated);
+    return _summarize(updated, await _access());
   }
 
   /// A short title for the note's text, from a model on the server.
@@ -395,27 +688,229 @@ final class NotesService {
     return (api, model, markdown);
   }
 
+  // Recordings.
+
+  /// [noteId]'s recordings not attached yet; uploads the waiting ones when
+  /// the server can be reached.
+  Future<NoteRecordings> recordings(String noteId) async {
+    final recorder = await _recorderFor(noteId);
+    await recorder.controller.loadPending();
+    return _recordingsOf(noteId, recorder);
+  }
+
+  /// Keeps the audio file at [request.path] for the note (the core moves it
+  /// into the account's storage before anything else), then uploads and
+  /// attaches it.
+  Future<NoteRecordings> addRecording(NoteRecordingAdd request) async {
+    _requireOpenedHere(request.noteId);
+    final recorder = await _recorderFor(request.noteId);
+    // Checked again after the reads: a switch meanwhile keeps the audio out
+    // of the next account's storage.
+    _requireOpenedHere(request.noteId);
+    final file = File(request.path);
+    if (!file.existsSync()) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'no recording at ${request.path}',
+      );
+    }
+    final staged = await recorder.controller.stage(
+      file,
+      pageId: request.pageId,
+    );
+    if (!staged) {
+      throw const RpcError(
+        code: ConduitErrorCodes.serverError,
+        debugMessage: 'the recording could not be kept',
+      );
+    }
+    return _recordingsOf(request.noteId, recorder);
+  }
+
+  Future<NoteRecordings> retryRecording(NoteRecordingRef request) async {
+    _requireOpenedHere(request.noteId);
+    final recorder = await _recorderFor(request.noteId);
+    _requireOpenedHere(request.noteId);
+    unawaited(
+      recorder.controller.retry(ids: <String>[request.id], showFeedback: true),
+    );
+    return _recordingsOf(request.noteId, recorder);
+  }
+
+  Future<NoteRecordings> removeRecording(NoteRecordingRef request) async {
+    final recorder = await _recorderFor(request.noteId);
+    await recorder.controller.removePending(request.id);
+    return _recordingsOf(request.noteId, recorder);
+  }
+
+  Future<_NoteRecorder> _recorderFor(String noteId) async {
+    final store = _audioStore;
+    if (store == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'recordings need the daemon\'s storage',
+      );
+    }
+    final note = await _storedNote(noteId);
+    final existing = _recorders[noteId];
+    if (existing != null) {
+      existing.note = note ?? existing.note;
+      return existing;
+    }
+    late final _NoteRecorder recorder;
+    final controller = NoteAttachmentsController(
+      container: _container,
+      store: store,
+      noteId: noteId,
+      currentNote: () => recorder.note,
+      resolvedTitle: () => recorder.note?.title ?? '',
+      onNoteUpdated: (note) {
+        recorder.note = note;
+        _seen[note.id] = note;
+        _container.invalidate(noteByIdProvider(note.id));
+        _changed(noteId);
+      },
+      // Only a change of the list is news: the controller also notifies
+      // after every scan, and an editor asks for the list again on
+      // `notes.changed` -- announcing each scan fed back without end.
+      onChanged: () => _recordingsChanged(noteId),
+      onNotice: (notice) => recorder.lastNotice = notice,
+    );
+    recorder = _NoteRecorder(controller)..note = note;
+    _recorders[noteId] = recorder;
+    controller.start();
+    return recorder;
+  }
+
+  /// The note as stored on this computer, or as last handed to an editor.
+  Future<Note?> _storedNote(String noteId) async {
+    final db = _container.read(appDatabaseProvider);
+    if (db != null) {
+      final id = await db.notesDao.resolveNoteRemapTarget(noteId);
+      final stored = await readLocalNote(db, id);
+      if (stored != null) return stored;
+    }
+    return _seen[noteId];
+  }
+
+  static NoteRecordings _recordingsOf(String noteId, _NoteRecorder recorder) {
+    final controller = recorder.controller;
+    return NoteRecordings(
+      noteId: noteId,
+      recordings: <NoteRecordingDto>[
+        for (final item in controller.pending)
+          NoteRecordingDto(
+            id: item.id,
+            name: item.fileName,
+            size: item.fileSize,
+            createdAtMs: item.createdAt.millisecondsSinceEpoch,
+            pageId: item.pageId,
+            state:
+                controller.isInFlight(item.id) ||
+                    item.status == NoteAudioUploadStatus.uploading ||
+                    item.status == NoteAudioUploadStatus.attaching
+                ? NoteRecordingState.uploading
+                : item.status == NoteAudioUploadStatus.failed
+                ? NoteRecordingState.failed
+                : NoteRecordingState.waiting,
+          ),
+      ],
+    );
+  }
+
+  void _recordingsChanged(String noteId) {
+    final recorder = _recorders[noteId];
+    if (recorder == null) return;
+    final now = _recordingsOf(noteId, recorder);
+    if (now == recorder.announced) return;
+    recorder.announced = now;
+    _changed(noteId);
+  }
+
+  void _changed(String noteId) => _events?.emit(
+    ConduitEventSpecs.notesChanged,
+    NotesChanged(noteId: noteId),
+  );
+
+  /// Stops every recordings controller (the daemon is stopping).
+  void dispose() {
+    for (final recorder in _recorders.values) {
+      recorder.controller.dispose();
+    }
+    _recorders.clear();
+  }
+
   /// `notes.changed` whenever the list does: an edit here, a sync, another
   /// window.
   void _announceChanges(EventBus events) {
-    _container.listen<AsyncValue<List<Note>>>(notesListProvider, (_, next) {
-      if (next.hasValue) {
+    void changed() =>
         events.emit(ConduitEventSpecs.notesChanged, const NotesChanged());
-      }
+    _container.listen<AsyncValue<List<Note>>>(notesListProvider, (_, next) {
+      if (next.hasValue) changed();
     });
+    // And when the server's sharing permission arrives, which each
+    // summary's Share Access… depends on: straight after signing in the
+    // list can come first. The phone's list watches it and redraws; here
+    // the app lists again. (The list itself waits for the account.)
+    _container.listen<AsyncValue<WorkspaceCapabilities>>(
+      workspaceCapabilitiesProvider,
+      (previous, next) {
+        final was = previous?.asData?.value.notes.section.share;
+        final now = next.asData?.value.notes.section.share;
+        if (now != null && now != was) changed();
+      },
+    );
   }
 
-  static NoteSummary _summarize(Note note) => NoteSummary(
-    id: note.id,
-    title: note.title,
-    // Open WebUI stamps notes in nanoseconds.
-    updatedAtMs: note.updatedAt ~/ 1000000,
-    pinned: note.isPinned,
-    preview: _preview(note.listPreviewMarkdown),
-  );
+  static NoteSummary _summarize(Note note, _Access access) {
+    final writeAccess = noteWriteAccess(note, accountId: access.accountId);
+    final canEdit = writeAccess == NoteWriteAccess.allowed;
+    return NoteSummary(
+      id: note.id,
+      title: note.title,
+      // Open WebUI stamps notes in nanoseconds.
+      updatedAtMs: note.updatedAt ~/ 1000000,
+      pinned: note.isPinned,
+      preview: _preview(note.listPreviewMarkdown),
+      section: _section(note),
+      canEdit: canEdit,
+      accessUnverified: writeAccess == NoteWriteAccess.unknown,
+      canShare: noteShareable(
+        note,
+        accountId: access.accountId,
+        notesSharingAllowed: access.sharing,
+      ),
+      owner: noteSharedOwner(note, accountId: access.accountId)?.name?.trim(),
+    );
+  }
+
+  /// The note's time group, on the core's calendar days.
+  static NoteSection _section(Note note) => switch (getTimeRangeForTimestamp(
+    DateTime.fromMicrosecondsSinceEpoch(note.updatedAt ~/ 1000),
+  )) {
+    TimeRange.today => NoteSection.today,
+    TimeRange.yesterday => NoteSection.yesterday,
+    TimeRange.previousSevenDays => NoteSection.previous7Days,
+    TimeRange.previousThirtyDays => NoteSection.previous30Days,
+    TimeRange.older => NoteSection.older,
+  };
 
   static String _preview(String markdown) {
     final text = markdown.trim();
     return text.length <= 200 ? text : '${text.substring(0, 200)}…';
   }
+}
+
+typedef _Access = ({String? accountId, bool sharing});
+
+/// A note's recordings controller and the note it works on.
+final class _NoteRecorder {
+  _NoteRecorder(this.controller);
+
+  final NoteAttachmentsController controller;
+  Note? note;
+  NoteAudioNotice? lastNotice;
+
+  /// The list as last announced with `notes.changed`.
+  NoteRecordings? announced;
 }

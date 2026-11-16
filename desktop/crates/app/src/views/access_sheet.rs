@@ -55,6 +55,20 @@ pub fn open_for_folder(
     });
 }
 
+/// A note's Share Access…: who may read it, or read and change it.
+pub fn open_for_note(
+    stores: Stores,
+    note_id: &str,
+    title: String,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let id = note_id.to_string();
+    sheet::open(window, WIDTH, cx, move |w, cx| {
+        AccessSheet::new(stores, AccessResourceKind::Note, id, title, w, cx)
+    });
+}
+
 /// Share Chat's Who Has Access: the access sheet for chat `chat_id`, named
 /// `title`. Share Chat comes back once it is saved or cancelled, as the
 /// phone's share flow returns to its sheet.
@@ -598,11 +612,13 @@ impl AccessSheet {
 
 impl AccessSheet {
     /// The sheet's title: Who Has Access for a chat (the Share Chat row that
-    /// opens it), Share Folder for a folder.
+    /// opens it), Share Note for a note (the phone's Share Note), Share
+    /// Folder for a folder.
     fn title(&self, l10n: &L10n) -> String {
         match self.kind {
             AccessResourceKind::Chat => l10n.chat_share_audience(),
-            AccessResourceKind::Folder | AccessResourceKind::Note => l10n.folder_share_settings(),
+            AccessResourceKind::Folder => l10n.folder_share_settings(),
+            AccessResourceKind::Note => l10n.note_share(),
             _ => l10n.desktop_workspace_share_access_title(),
         }
     }

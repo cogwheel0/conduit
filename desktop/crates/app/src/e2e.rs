@@ -77,6 +77,7 @@ mod direct;
 mod hermes_cards;
 mod hermes_sessions;
 mod integration;
+mod notes;
 mod offline;
 mod read_aloud;
 mod rendering;
@@ -747,6 +748,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "read-aloud" => read_aloud::run(&inputs, &dir, cx).await,
         "rendering" => rendering::run(&inputs, &dir, cx).await,
         "dictation" => dictation::run(&inputs, &dir, cx).await,
+        "notes" => notes::run(&inputs, &dir, cx).await,
         "dictation-recovered" => dictation::recovered(&inputs, &dir, cx).await,
         "voice-call" => voice_call::run(&inputs, &dir, cx).await,
         "workspace" => workspace::run(&inputs, &dir, cx).await,

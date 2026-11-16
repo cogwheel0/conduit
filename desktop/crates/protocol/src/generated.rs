@@ -6264,6 +6264,26 @@ pub struct SetFastTier {
     pub on: bool,
 }
 
+/// Where a note falls in the notes list's time groups, by when it last
+/// changed: the core's own calendar days, as the phone groups them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum NoteSection {
+    #[serde(rename = "today")]
+    Today,
+    #[serde(rename = "yesterday")]
+    Yesterday,
+    #[serde(rename = "previous7Days")]
+    Previous7Days,
+    #[serde(rename = "previous30Days")]
+    Previous30Days,
+    #[serde(rename = "older")]
+    Older,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
 /// A note, as the list shows it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -6280,6 +6300,32 @@ pub struct NoteSummary {
     /// computer's version, while another device's won the original.
     #[serde(default)]
     pub conflict_copy: bool,
+    /// Its time group in the notes list (pinned notes have one too).
+    #[serde(default = "default_note_summary_section")]
+    pub section: NoteSection,
+    /// The account may change it: its own note, or one shared with write
+    /// access. Any other note opens read-only and offers no Delete.
+    #[serde(default = "default_note_summary_can_edit")]
+    pub can_edit: bool,
+    /// Not editable only because the server has not said yet whether the
+    /// account may edit this shared note (offline): reconnecting tells.
+    #[serde(default)]
+    pub access_unverified: bool,
+    /// Share Access… is offered: a note on the server the account may
+    /// edit, on a server that lets it share notes.
+    #[serde(default)]
+    pub can_share: bool,
+    /// Who shared it, when it is someone else's note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+}
+
+fn default_note_summary_section() -> NoteSection {
+    NoteSection::Older
+}
+
+fn default_note_summary_can_edit() -> bool {
+    true
 }
 
 /// Reply to `notes.list`: pinned first, then most recently changed.
@@ -6307,11 +6353,126 @@ pub struct NoteQuery {
 #[serde(rename_all = "camelCase")]
 pub struct NoteDetail {
     pub summary: NoteSummary,
+    /// The body of page `pageId`, as Quill ops.
     #[serde(default)]
     pub ops: Vec<serde_json::Value>,
     /// Files attached to the note: recordings, documents.
     #[serde(default)]
     pub files: Vec<NoteFile>,
+    /// An Open WebUI 0.12.5 note's pages, parents before their subpages;
+    /// empty for a note with one page.
+    #[serde(default)]
+    pub pages: Vec<NotePageDto>,
+    /// The page `ops` are: the main page (`main`) unless asked for another.
+    #[serde(default = "default_note_detail_page_id")]
+    pub page_id: String,
+    /// Page `pageId`'s stored markdown (Copy copies it, as the phone's
+    /// Copy does).
+    #[serde(default)]
+    pub markdown: String,
+    /// Set by `notes.save` when the note had been deleted elsewhere: the
+    /// text was kept as this new note, and this is the deleted one's id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovered_from: Option<String>,
+}
+
+fn default_note_detail_page_id() -> String {
+    "main".to_owned()
+}
+
+/// A page of a note with several (Open WebUI 0.12.5 and later). Adding,
+/// renaming and moving pages is done on the web.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotePageDto {
+    pub id: String,
+    pub title: String,
+    /// The titles down to it (`Plans / Spring`), as VoiceOver reads it.
+    #[serde(default)]
+    pub path: String,
+    /// How deep it is nested: 0 for a top-level page.
+    #[serde(default)]
+    pub depth: i64,
+}
+
+/// Params for `notes.get`: the note, and the page to read (by default the
+/// main page).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteOpen {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_id: Option<String>,
+}
+
+/// The state of a recording made in a note, while it waits to be attached.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum NoteRecordingState {
+    /// Saved on this Mac; it uploads when the server can be reached.
+    #[serde(rename = "waiting")]
+    Waiting,
+    /// Uploading, or being attached to the note.
+    #[serde(rename = "uploading")]
+    Uploading,
+    /// The upload failed; it is kept for another try.
+    #[serde(rename = "failed")]
+    Failed,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// A recording made in a note and not attached yet. It is kept on this Mac
+/// until the server has it, through a lost connection or a relaunch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteRecordingDto {
+    pub id: String,
+    pub name: String,
+    #[serde(default = "default_note_recording_dto_state")]
+    pub state: NoteRecordingState,
+    #[serde(default)]
+    pub size: i64,
+    #[serde(default)]
+    pub created_at_ms: i64,
+    /// The page it was made on, which it is attached to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_id: Option<String>,
+}
+
+fn default_note_recording_dto_state() -> NoteRecordingState {
+    NoteRecordingState::Waiting
+}
+
+/// Reply to `notes.recordings` and the calls that change them: a note's
+/// recordings not attached yet, oldest first.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteRecordings {
+    pub note_id: String,
+    #[serde(default)]
+    pub recordings: Vec<NoteRecordingDto>,
+}
+
+/// Params for `notes.addRecording`: an audio file the window recorded, which
+/// the daemon moves into the account's storage before anything else, then
+/// uploads and attaches to page `pageId` (by default the main page).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteRecordingAdd {
+    pub note_id: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_id: Option<String>,
+}
+
+/// Params naming one of a note's waiting recordings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteRecordingRef {
+    pub note_id: String,
+    pub id: String,
 }
 
 /// A file attached to a note, stored as an Open WebUI file.
@@ -6327,25 +6488,49 @@ pub struct NoteFile {
     pub content_type: Option<String>,
 }
 
-/// Params for `notes.attach`: a file already uploaded through `/upload`.
+/// Params for `notes.attach`: a file already uploaded through `/upload`,
+/// linked from page `pageId` (by default the main page) on a server with
+/// pages.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteAttach {
     pub note_id: String,
     pub file: NoteFile,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_id: Option<String>,
 }
 
-/// Params for `notes.detach`.
+/// Params for `notes.detach`: the file comes out of the file list and out
+/// of page `pageId`'s links (by default the main page's).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteDetach {
     pub note_id: String,
     pub file_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_id: Option<String>,
 }
 
 /// Params for `notes.save`: a new note when `id` is null.
 ///
-/// `ops` null leaves the body alone (a rename); otherwise it replaces it.
+/// `ops` null leaves the body alone (a rename); otherwise it replaces the
+/// body of page `pageId` (by default the main page).
+///
+/// `baseOps` is that page as the editor last loaded or saved it. A file
+/// the stored page gained since (a recording attached meanwhile) is kept,
+/// and a file link the user took out stays out, as the phone merges them.
+///
+/// Refusals, as errors: `resource.conflict` with `reason: readOnly` when
+/// the account may no longer edit the note (the text stays in the
+/// editor); `resource.notFound` with `reason: page` when the page was
+/// removed elsewhere. A note deleted elsewhere is not refused: the text
+/// is kept as a new note (`NoteDetail.recoveredFrom`).
+///
+/// `accountId`: the account the editor opened the note under (an account's
+/// id, as `AccountRef.accountId`). When another account is active, the save
+/// -- a new note too -- is refused with `auth.sessionExpired`, `reason:
+/// account`, and nothing is written: the text stays with the editor for
+/// that account.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteSave {
@@ -6354,6 +6539,12 @@ pub struct NoteSave {
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ops: Option<Vec<serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_ops: Option<Vec<serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
 }
 
 /// Params naming one note.
@@ -12520,13 +12711,13 @@ pub mod methods {
 
     /// One note, its body as Quill ops.
     ///
-    /// `notes.get`: NoteRef -> NoteResult.
+    /// `notes.get`: NoteOpen -> NoteResult.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct NotesGet;
 
     impl RpcMethod for NotesGet {
         const NAME: &'static str = "notes.get";
-        type Params = super::NoteRef;
+        type Params = super::NoteOpen;
         type Result = super::NoteResult;
     }
 
@@ -12612,6 +12803,56 @@ pub mod methods {
         const NAME: &'static str = "notes.detach";
         type Params = super::NoteDetach;
         type Result = super::NoteDetail;
+    }
+
+    /// A note's recordings that are not attached yet; starts uploading the
+    /// ones waiting when the server can be reached.
+    ///
+    /// `notes.recordings`: NoteRef -> NoteRecordings.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct NotesRecordings;
+
+    impl RpcMethod for NotesRecordings {
+        const NAME: &'static str = "notes.recordings";
+        type Params = super::NoteRef;
+        type Result = super::NoteRecordings;
+    }
+
+    /// Keeps a recording the window made, then uploads it and attaches it to
+    /// the note, surviving a lost connection and a relaunch.
+    ///
+    /// `notes.addRecording`: NoteRecordingAdd -> NoteRecordings.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct NotesAddRecording;
+
+    impl RpcMethod for NotesAddRecording {
+        const NAME: &'static str = "notes.addRecording";
+        type Params = super::NoteRecordingAdd;
+        type Result = super::NoteRecordings;
+    }
+
+    /// Tries a waiting recording's upload again.
+    ///
+    /// `notes.retryRecording`: NoteRecordingRef -> NoteRecordings.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct NotesRetryRecording;
+
+    impl RpcMethod for NotesRetryRecording {
+        const NAME: &'static str = "notes.retryRecording";
+        type Params = super::NoteRecordingRef;
+        type Result = super::NoteRecordings;
+    }
+
+    /// Deletes a recording that is not attached yet.
+    ///
+    /// `notes.removeRecording`: NoteRecordingRef -> NoteRecordings.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct NotesRemoveRecording;
+
+    impl RpcMethod for NotesRemoveRecording {
+        const NAME: &'static str = "notes.removeRecording";
+        type Params = super::NoteRecordingRef;
+        type Result = super::NoteRecordings;
     }
 
     /// Every channel the user can see, with unread counts.
@@ -14729,7 +14970,7 @@ pub const METHODS: &[MethodSpec] = &[
     },
     MethodSpec {
         name: "notes.get",
-        params: Some("NoteRef"),
+        params: Some("NoteOpen"),
         result: Some("NoteResult"),
     },
     MethodSpec {
@@ -14766,6 +15007,26 @@ pub const METHODS: &[MethodSpec] = &[
         name: "notes.detach",
         params: Some("NoteDetach"),
         result: Some("NoteDetail"),
+    },
+    MethodSpec {
+        name: "notes.recordings",
+        params: Some("NoteRef"),
+        result: Some("NoteRecordings"),
+    },
+    MethodSpec {
+        name: "notes.addRecording",
+        params: Some("NoteRecordingAdd"),
+        result: Some("NoteRecordings"),
+    },
+    MethodSpec {
+        name: "notes.retryRecording",
+        params: Some("NoteRecordingRef"),
+        result: Some("NoteRecordings"),
+    },
+    MethodSpec {
+        name: "notes.removeRecording",
+        params: Some("NoteRecordingRef"),
+        result: Some("NoteRecordings"),
     },
     MethodSpec {
         name: "channels.list",
@@ -16226,8 +16487,14 @@ pub mod conformance {
         "NoteDetail",
         "NoteFile",
         "NoteList",
+        "NoteOpen",
+        "NotePageDto",
         "NotePin",
         "NoteQuery",
+        "NoteRecordingAdd",
+        "NoteRecordingDto",
+        "NoteRecordingRef",
+        "NoteRecordings",
         "NoteRef",
         "NoteResult",
         "NoteSave",
@@ -16711,8 +16978,14 @@ pub mod conformance {
             "NoteDetail" => roundtrip::<super::NoteDetail>(json),
             "NoteFile" => roundtrip::<super::NoteFile>(json),
             "NoteList" => roundtrip::<super::NoteList>(json),
+            "NoteOpen" => roundtrip::<super::NoteOpen>(json),
+            "NotePageDto" => roundtrip::<super::NotePageDto>(json),
             "NotePin" => roundtrip::<super::NotePin>(json),
             "NoteQuery" => roundtrip::<super::NoteQuery>(json),
+            "NoteRecordingAdd" => roundtrip::<super::NoteRecordingAdd>(json),
+            "NoteRecordingDto" => roundtrip::<super::NoteRecordingDto>(json),
+            "NoteRecordingRef" => roundtrip::<super::NoteRecordingRef>(json),
+            "NoteRecordings" => roundtrip::<super::NoteRecordings>(json),
             "NoteRef" => roundtrip::<super::NoteRef>(json),
             "NoteResult" => roundtrip::<super::NoteResult>(json),
             "NoteSave" => roundtrip::<super::NoteSave>(json),

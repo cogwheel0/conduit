@@ -13,6 +13,10 @@ Usage (owui.sh seed runs it):
 - A saved settings record for the fake model, as an admin makes by
   editing a model, so it counts as a base model for workspace models.
 - Two prompts, one with a select variable, and an uploaded text file.
+- For the notes pane, made before the others so the newest stay as
+  they were: a note with pages (Open WebUI 0.12.5), a note with every
+  format the editor offers and the uploaded file attached, and a note of
+  the admin's shared read-only with the second user.
 - Seven notes of the admin's, two pinned, and three channels: a standard
   one, an empty one, and a group with the second user, who posts three
   messages there so the admin has unread ones. The notes are written in
@@ -97,6 +101,29 @@ NOTES = [
      'herbs in the corners.'),
 ]
 PINNED_NOTES = ('Garden plan for spring', 'Bread ratios')
+
+# The notes pane's: (title, markdown). FILE_LINK is replaced by a link
+# to the uploaded file, which attaches it (Open WebUI 0.12.5 keeps
+# attachments as links in a page).
+PAGED_NOTE = ('Field trip journal', 'Notes from the spring field trip.\n\nThe pages hold each day.')
+PAGES = [
+    # (title, markdown, nested under the page before)
+    ('Day one', '- Heron at the weir\n- Two kingfishers', False),
+    ('Day two', 'Rain until noon, then **clear skies**.', False),
+    ('Evening walk', 'Bats over the pond at dusk.', True),
+]
+FORMATS_NOTE = ('Seed swap flyer', '\n\n'.join([
+    '# Seed swap',
+    'Bring **labelled** packets, *any* size. ~~No hybrids~~ and `F1` seeds welcome. '
+    'Details on [the club page](https://example.com/seed-swap).',
+    '- Beans\n- Squash\n  - Winter squash',
+    '1. Sign in\n2. Swap',
+    '- [x] Book the hall\n- [ ] Print the flyer',
+    '> Share what grows well here.',
+    '```\nsaturday 10:00\n```',
+    'FILE_LINK',
+]))
+SHARED_NOTE = ('Allotment rota', 'Watering turns for June:\n\n- Week one: plots 1 to 4\n- Week two: plots 5 to 8')
 
 CHANNELS = [
     # (name, description, type): None is a standard channel.
@@ -367,8 +394,48 @@ def main():
     uploaded = server.upload(token, FILE_NAME, FILE_TEXT.encode(), 'text/plain')
     print('file', uploaded['id'])
 
-    # Notes, oldest first, so the newest is listed first; two pinned.
+    # The notes pane's notes first, so the ones below stay the newest.
     notes = {}
+    title, text = PAGED_NOTE
+    paged = server.ok('POST', '/api/v1/notes/create', {
+        'title': title,
+        'data': {'content': {'json': None, 'html': markdown_html(text), 'md': text}},
+    }, token)
+    notes[title] = paged['id']
+    revision = 0
+    parent = None
+    last = None
+    for page_title, page_text, nested in PAGES:
+        page_id = str(uuid.uuid4())
+        server.ok('POST', f"/api/v1/notes/{paged['id']}/pages/update", {
+            'action': 'create', 'new_id': page_id, 'title': page_title,
+            'parent_id': last if nested else parent, 'revision': revision,
+        }, token)
+        revision += 1
+        server.ok('POST', f"/api/v1/notes/{paged['id']}/update", {
+            'page_id': page_id,
+            'data': {'content': {'json': None, 'html': '', 'md': page_text}},
+        }, token)
+        last = page_id
+    title, text = FORMATS_NOTE
+    text = text.replace('FILE_LINK', f"[{FILE_NAME}](/api/v1/files/{uploaded['id']}/content)")
+    formats = server.ok('POST', '/api/v1/notes/create', {
+        'title': title,
+        'data': {'content': {'json': None, 'html': '', 'md': text}},
+    }, token)
+    notes[title] = formats['id']
+    title, text = SHARED_NOTE
+    shared_note = server.ok('POST', '/api/v1/notes/create', {
+        'title': title,
+        'data': {'content': {'json': None, 'html': markdown_html(text), 'md': text}},
+    }, token)
+    notes[title] = shared_note['id']
+    server.ok('POST', f"/api/v1/notes/{shared_note['id']}/access/update", {'access_grants': [
+        {'principal_type': 'user', 'principal_id': second['id'], 'permission': 'read'},
+    ]}, token)
+    print('notes pane: paged', len(PAGES), 'pages, formats, shared read-only')
+
+    # Notes, oldest first, so the newest is listed first; two pinned.
     for title, text in NOTES:
         created = server.ok('POST', '/api/v1/notes/create', {
             'title': title,
@@ -434,6 +501,9 @@ def main():
         f'OWUI_FILE={uploaded["id"]}',
         f"OWUI_NOTE={notes['Garden plan for spring']}",
         f'OWUI_NOTE_COUNT={len(notes)}',
+        f"OWUI_PAGED_NOTE={notes[PAGED_NOTE[0]]}",
+        f"OWUI_FORMATS_NOTE={notes[FORMATS_NOTE[0]]}",
+        f"OWUI_SHARED_NOTE={notes[SHARED_NOTE[0]]}",
         f"OWUI_CHANNEL={channels['trail-crew']}",
         f"OWUI_VALVE_TOOL={VALVE_TOOL['id']}",
         f"OWUI_GROUP={group['id']}",

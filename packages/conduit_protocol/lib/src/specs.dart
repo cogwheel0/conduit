@@ -1136,9 +1136,9 @@ abstract final class ConduitMethodSpecs {
     params: NoteQuery.fromJson,
     result: NoteList.fromJson,
   );
-  static const notesGet = ConduitMethodSpec<NoteRef, NoteResult>(
+  static const notesGet = ConduitMethodSpec<NoteOpen, NoteResult>(
     ConduitMethods.notesGet,
-    params: NoteRef.fromJson,
+    params: NoteOpen.fromJson,
     result: NoteResult.fromJson,
   );
   static const notesSave = ConduitMethodSpec<NoteSave, NoteDetail>(
@@ -1176,6 +1176,29 @@ abstract final class ConduitMethodSpecs {
     params: NoteDetach.fromJson,
     result: NoteDetail.fromJson,
   );
+  static const notesRecordings = ConduitMethodSpec<NoteRef, NoteRecordings>(
+    ConduitMethods.notesRecordings,
+    params: NoteRef.fromJson,
+    result: NoteRecordings.fromJson,
+  );
+  static const notesAddRecording =
+      ConduitMethodSpec<NoteRecordingAdd, NoteRecordings>(
+        ConduitMethods.notesAddRecording,
+        params: NoteRecordingAdd.fromJson,
+        result: NoteRecordings.fromJson,
+      );
+  static const notesRetryRecording =
+      ConduitMethodSpec<NoteRecordingRef, NoteRecordings>(
+        ConduitMethods.notesRetryRecording,
+        params: NoteRecordingRef.fromJson,
+        result: NoteRecordings.fromJson,
+      );
+  static const notesRemoveRecording =
+      ConduitMethodSpec<NoteRecordingRef, NoteRecordings>(
+        ConduitMethods.notesRemoveRecording,
+        params: NoteRecordingRef.fromJson,
+        result: NoteRecordings.fromJson,
+      );
 
   // channels.*
 
@@ -1947,6 +1970,10 @@ abstract final class ConduitMethodSpecs {
         notesEnhance,
         notesAttach,
         notesDetach,
+        notesRecordings,
+        notesAddRecording,
+        notesRetryRecording,
+        notesRemoveRecording,
         channelsList,
         channelsSave,
         channelsDelete,

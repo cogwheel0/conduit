@@ -589,6 +589,15 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     updatedAtMs: 1790000000000,
     pinned: true,
     preview: '- milk',
+    section: NoteSection.yesterday,
+    canShare: true,
+  ),
+  'noteSummaryShared': const NoteSummary(
+    id: 'n4',
+    title: 'Allotment rota',
+    updatedAtMs: 1790000000002,
+    canEdit: false,
+    owner: 'Wren Okafor',
   ),
   'noteList': const NoteList(
     notes: <NoteSummary>[
@@ -620,6 +629,55 @@ final Map<String, Object> protocolFixtures = <String, Object>{
       <String, dynamic>{'insert': 'Hello'},
     ],
   ),
+  'noteSavePage': const NoteSave(
+    id: 'n1',
+    title: 'Garden plan',
+    pageId: 'p2',
+    ops: <Map<String, dynamic>>[
+      <String, dynamic>{'insert': 'Sow beans'},
+    ],
+    baseOps: <Map<String, dynamic>>[
+      <String, dynamic>{'insert': 'Sow peas'},
+    ],
+    accountId: 'account-1',
+  ),
+  'noteDetailPaged': const NoteDetail(
+    summary: NoteSummary(id: 'n2', title: 'Garden plan', updatedAtMs: 2),
+    pageId: 'p2',
+    markdown: '- [ ] Sow beans',
+    pages: <NotePageDto>[
+      NotePageDto(id: 'main', title: 'Garden plan', path: 'Garden plan'),
+      NotePageDto(
+        id: 'p2',
+        title: 'Beds',
+        path: 'Garden plan / Beds',
+        depth: 1,
+      ),
+    ],
+    recoveredFrom: 'n0',
+  ),
+  'noteOpen': const NoteOpen(id: 'n2', pageId: 'p2'),
+  'notePage': const NotePageDto(id: 'p2', title: 'Beds'),
+  'noteRecordingDto': const NoteRecordingDto(
+    id: 'r1',
+    name: 'recording_1790000000000.wav',
+    state: NoteRecordingState.failed,
+    size: 64044,
+    createdAtMs: 1790000000000,
+    pageId: 'p2',
+  ),
+  'noteRecordings': const NoteRecordings(
+    noteId: 'n2',
+    recordings: <NoteRecordingDto>[
+      NoteRecordingDto(id: 'r2', name: 'recording_2.wav'),
+    ],
+  ),
+  'noteRecordingAdd': const NoteRecordingAdd(
+    noteId: 'n2',
+    path: '/tmp/conduit/recording.wav',
+    pageId: 'p2',
+  ),
+  'noteRecordingRef': const NoteRecordingRef(noteId: 'n2', id: 'r1'),
   'noteRef': const NoteRef(id: 'n1'),
   'notePin': const NotePin(id: 'n1', pinned: true),
   'channelSummary': const ChannelSummary(
@@ -3453,6 +3511,15 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'noteQuery': NoteQuery.fromJson,
       'noteDetail': NoteDetail.fromJson,
       'noteSave': NoteSave.fromJson,
+      'noteSavePage': NoteSave.fromJson,
+      'noteSummaryShared': NoteSummary.fromJson,
+      'noteDetailPaged': NoteDetail.fromJson,
+      'noteOpen': NoteOpen.fromJson,
+      'notePage': NotePageDto.fromJson,
+      'noteRecordingDto': NoteRecordingDto.fromJson,
+      'noteRecordings': NoteRecordings.fromJson,
+      'noteRecordingAdd': NoteRecordingAdd.fromJson,
+      'noteRecordingRef': NoteRecordingRef.fromJson,
       'noteRef': NoteRef.fromJson,
       'notePin': NotePin.fromJson,
       'channelSummary': ChannelSummary.fromJson,

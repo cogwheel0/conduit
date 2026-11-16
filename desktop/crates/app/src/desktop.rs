@@ -1291,7 +1291,8 @@ pub fn on_tray_command(command: crate::shell::tray::TrayCommand, cx: &mut App) {
         }
         T::QuickAsk => show_quick_ask(cx),
         T::Settings => crate::open_settings(None, cx),
-        T::Quit => cx.quit(),
+        // As ⌘Q: a sheet down ends first, and unsaved notes are saved.
+        T::Quit => crate::views::sheet::quit(cx),
         T::ShowCall => {
             show_main(cx);
             cx.dispatch_action(&crate::actions::ShowCall);
