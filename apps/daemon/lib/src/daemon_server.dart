@@ -575,11 +575,15 @@ class DaemonServer {
     // Which try this is, for the core's retry rules (1 for the first).
     final attempt =
         int.tryParse(request.headers['x-conduit-attempt'] ?? '') ?? 1;
+    // The account the request began under: a body still arriving when
+    // another signs in never goes to the next account's server.
+    final session = files.session();
     try {
       final bytes = await _collect(request.read());
       final uploaded = await files.upload(
         name: name,
         bytes: bytes,
+        session: session,
         contentType: request.headers['content-type'],
       );
       return shelf.Response.ok(

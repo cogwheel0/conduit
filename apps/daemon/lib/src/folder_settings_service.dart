@@ -127,9 +127,11 @@ final class FolderSettingsService {
         );
       }
       ensureOwner();
+      // An icon-only change sends no name: one read before a rename still
+      // on its way would put the old name back on the server.
       await api.updateFolder(
         folder.id,
-        name: name ?? folder.name,
+        name: name,
         meta: icon == null ? null : meta,
       );
       // Answered after a switch: the next account's folders keep theirs.

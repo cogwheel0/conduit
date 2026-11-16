@@ -204,10 +204,13 @@ pub enum UploadState {
 
 /// The draft a new chat's settings were set in, its round, and which
 /// assignment they were in it ([`ComposerStore::params_owner`]): every save
-/// is its own owner, even two in one round.
+/// is its own owner, even two in one round. `folder`: the new chat's folder
+/// (a temporary one keeps no draft key), so another folder's new chat
+/// never takes them.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ParamsOwner {
     draft: Option<DraftKey>,
+    folder: Option<String>,
     round: u64,
     rev: u64,
 }
@@ -358,8 +361,8 @@ pub struct ComposerStore {
     /// message.
     pub context: Vec<ContextAttachmentDto>,
     /// A new chat's own settings (Chat Settings on a new chat): its first
-    /// message takes them. Dropped once another chat opens, as mobile drops
-    /// its pending settings.
+    /// message takes them. Dropped once another chat, or another folder's
+    /// new chat, opens, as mobile drops its pending settings.
     pub draft_params: serde_json::Value,
     /// Whose [`Self::draft_params`] they are: the draft (and its round)
     /// they were set in. A send forgets only settings it still owns.
@@ -377,6 +380,10 @@ pub struct ComposerStore {
     _model_options: Option<Task<()>>,
     /// The draft the composer holds, and what was last kept of it.
     draft: Option<DraftKey>,
+    /// A new chat's folder, kept apart from [`Self::draft`]: a temporary
+    /// new chat keeps no draft, and its first send still goes to the
+    /// folder, with the folder's model, prompt and knowledge.
+    new_chat_folder: Option<String>,
     draft_saved: String,
     next_id: u64,
     /// Bumped by [`Self::reset`]: answers to an older account are dropped.
@@ -433,6 +440,7 @@ impl ComposerStore {
             model_options: None,
             _model_options: None,
             draft: None,
+            new_chat_folder: None,
             draft_saved: String::new(),
             next_id: 0,
             scope: 0,
@@ -1303,11 +1311,7 @@ impl ComposerStore {
                 .as_ref()
                 .map(|m| m.id.clone())
                 .or_else(|| self.offered_draft_model()),
-            folder_id: self
-                .draft
-                .as_ref()
-                .filter(|k| k.chat_id.is_none())
-                .and_then(|k| k.folder_id.clone()),
+            folder_id: new_chat.then(|| self.new_chat_folder.clone()).flatten(),
             chat_params: (new_chat && has_params(&self.draft_params))
                 .then(|| self.draft_params.clone()),
             tool_ids: self.tool_ids.iter().cloned().collect(),
@@ -1373,6 +1377,7 @@ impl ComposerStore {
         self.params_rev += 1;
         self.params_owner = (!params.is_null()).then(|| ParamsOwner {
             draft: self.draft.clone(),
+            folder: self.new_chat_folder.clone(),
             round: self.draft_round,
             rev: self.params_rev,
         });
@@ -1413,6 +1418,7 @@ impl ComposerStore {
         // temporary chat keeps no draft key to tell it by) saves nowhere.
         self.draft_round += 1;
         self.set_params(serde_json::Value::Null);
+        self.new_chat_folder = None;
         self.draft_model = None;
         self._draft_model = None;
         cx.notify();
@@ -1429,9 +1435,8 @@ impl ComposerStore {
             async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
-                    let still = s.draft.as_ref().is_some_and(|k| {
-                        k.chat_id.is_none() && k.folder_id.as_deref() == Some(&folder_id)
-                    });
+                    let still = s.draft.as_ref().is_none_or(|k| k.chat_id.is_none())
+                        && s.new_chat_folder.as_deref() == Some(folder_id.as_str());
                     if !still {
                         return;
                     }
@@ -1512,7 +1517,39 @@ impl ComposerStore {
     /// [`ComposerEvent::DraftLoaded`]). `None`: a chat that keeps none (a
     /// temporary one).
     pub fn switch_draft(&mut self, key: Option<DraftKey>, text: &str, cx: &mut Context<Self>) {
-        if self.draft == key {
+        let folder = key
+            .as_ref()
+            .filter(|k| k.chat_id.is_none())
+            .and_then(|k| k.folder_id.clone());
+        self.switch_to(key, folder, text, cx);
+    }
+
+    /// A new chat opened in `folder` (or none): one that keeps a draft, or
+    /// a `temporary` one, which keeps none but still starts in the folder.
+    pub fn switch_new_chat(
+        &mut self,
+        folder: Option<String>,
+        temporary: bool,
+        text: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let key = (!temporary).then(|| DraftKey {
+            chat_id: None,
+            folder_id: folder.clone(),
+        });
+        self.switch_to(key, folder, text, cx);
+    }
+
+    /// [`Self::switch_draft`] with the new chat's folder (None for an
+    /// opened chat).
+    fn switch_to(
+        &mut self,
+        key: Option<DraftKey>,
+        folder: Option<String>,
+        text: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if self.draft == key && self.new_chat_folder == folder {
             return;
         }
         if let Some(old) = self.draft.take()
@@ -1523,6 +1560,7 @@ impl ComposerStore {
         self._draft = None;
         self.draft_saved = String::new();
         self.draft = key.clone();
+        self.new_chat_folder = folder.clone();
         // Another chat's draft: a send still on its way from the last one
         // gives nothing back to this one.
         self.draft_round += 1;
@@ -1530,15 +1568,18 @@ impl ComposerStore {
         // drops a new chat's settings (mobile drops its pending ones).
         self.draft_model = None;
         self._draft_model = None;
-        match key.as_ref() {
-            Some(DraftKey {
-                chat_id: None,
-                folder_id: Some(folder),
-            }) => self.resolve_draft_model(folder.clone(), cx),
-            Some(DraftKey {
-                chat_id: Some(_), ..
-            }) => self.set_params(serde_json::Value::Null),
-            _ => {}
+        // Another folder's new chat: settings saved on this one stay
+        // behind (a temporary switch in the same folder keeps them).
+        let opened = key.as_ref().is_some_and(|k| k.chat_id.is_some());
+        let elsewhere = self
+            .params_owner
+            .as_ref()
+            .is_some_and(|o| o.folder != folder);
+        if opened || elsewhere {
+            self.set_params(serde_json::Value::Null);
+        }
+        if !opened && let Some(folder) = folder {
+            self.resolve_draft_model(folder, cx);
         }
         cx.emit(ComposerEvent::DraftSwitched);
         let Some(key) = key else {
@@ -1734,6 +1775,7 @@ impl ComposerStore {
         self.image_generation = false;
         self.code_interpreter = false;
         self.draft = None;
+        self.new_chat_folder = None;
         self.draft_saved = String::new();
         self._draft = None;
         self.set_params(serde_json::Value::Null);
@@ -2465,6 +2507,43 @@ mod tests {
             assert!(
                 s.draft_params.is_null(),
                 "the new chat's settings came back"
+            );
+        });
+    }
+
+    /// Chat Settings saved on one folder's new chat are that chat's: another
+    /// folder's new chat starts without them, and a temporary switch in the
+    /// same folder keeps them.
+    #[gpui_kit::test]
+    fn a_new_chats_settings_stay_with_its_folder(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let store = store(&daemon, Arc::default(), cx);
+        let saved = serde_json::json!({"temperature": 0.3});
+        let new_chat = |folder: &str| DraftKey {
+            chat_id: None,
+            folder_id: Some(folder.into()),
+        };
+        store.update(cx, |s, cx| {
+            s.switch_draft(Some(new_chat("trips")), "", cx);
+            s.set_draft_params(saved.clone(), cx);
+            s.switch_new_chat(Some("trips".into()), true, "", cx);
+        });
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.turn_options(vec![]).chat_params,
+                Some(saved.clone()),
+                "a temporary switch in the same folder dropped them"
+            );
+        });
+        store.update(cx, |s, cx| {
+            s.switch_draft(Some(new_chat("recipes")), "", cx)
+        });
+        store.read_with(cx, |s, _| {
+            let options = s.turn_options(vec![]);
+            assert_eq!(options.folder_id.as_deref(), Some("recipes"));
+            assert_eq!(
+                options.chat_params, None,
+                "Trips' settings went with the other folder's first message"
             );
         });
     }

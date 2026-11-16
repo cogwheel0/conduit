@@ -1411,6 +1411,12 @@ final class TurnsService implements ChatTurns {
         modelId: model.id,
         userMessageId: null,
         start: (onPlaceholder) async {
+          // A delete that is out puts back the transcript it found if the
+          // server refuses it, without this batch: the batch waits for it
+          // (held, not refused, so no queued message is dropped).
+          while (session.deleting && !session.scope.isDisposed) {
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+          }
           // As before any turn ([_requireIdle]): the last turn's stored copy
           // first, then a quiet transcript. A turn started while a pull
           // adopts the stored rows is dropped by the server's copy, and the
@@ -1568,8 +1574,10 @@ final class TurnsService implements ChatTurns {
           error: error,
           stackTrace: stackTrace,
         );
+        // Only the turn this send started: one handed off to the outbox
+        // has ended already, and the chat's turn may be a later one now.
         final turn = session.turn;
-        if (turn != null && !turn.finished) {
+        if (turn != null && !turn.finished && identical(turn.pending, pending)) {
           _finish(
             session,
             turn,

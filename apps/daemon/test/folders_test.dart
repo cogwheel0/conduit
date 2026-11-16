@@ -68,7 +68,9 @@ final class _FolderApi extends ApiService {
     Map<String, dynamic>? data,
     Map<String, dynamic>? meta,
   }) async {
-    calls.add('rename $id to $name');
+    calls.add(
+      name == null ? 'icon of $id to ${meta?['icon']}' : 'rename $id to $name',
+    );
     return null;
   }
 
@@ -481,6 +483,21 @@ void main() {
         (container.read(foldersProvider.notifier) as _Folders).savedPrompts,
         <String?>[null],
       );
+    });
+
+    // A rename still on its way when the icon changes: the name read
+    // before it is not sent back over it.
+    test('an icon-only change sends no name', () async {
+      final folders = settings(const <Folder>[Folder(id: 'work', name: 'Work')]);
+      await container.read(activeServerProvider.future);
+      listed.complete();
+      try {
+        await folders.update(const FolderUpdate(id: 'work', icon: 'briefcase'));
+      } on RpcError {
+        // Read back from a server this test does not run; the update is
+        // what is checked.
+      }
+      expect(api.calls, <String>['icon of work to briefcase']);
     });
 
     test('a new system prompt needs the right to edit prompts', () async {

@@ -323,9 +323,11 @@ impl ChatPane {
                         let on = *on;
                         this.temporary_chosen = true;
                         this.temporary_hand_chosen = true;
+                        // The same new chat, in its folder, with the
+                        // settings saved on it.
                         this.stores
                             .navigation
-                            .update(cx, |n, cx| n.new_chat(on, cx));
+                            .update(cx, |n, cx| n.set_new_chat_temporary(on, cx));
                     }
                     ChatComposerEvent::PickerChanged => cx.notify(),
                     ChatComposerEvent::SaveAsNote(text) => {
@@ -683,20 +685,17 @@ impl ChatPane {
                 } else {
                     temporary || self.composer_store.read(cx).prefs.temporary_by_default
                 };
-                // A temporary chat keeps no draft.
+                // A temporary chat keeps no draft, but starts in its folder
+                // all the same.
                 let folder = self
                     .stores
                     .navigation
                     .read(cx)
                     .new_chat_folder()
                     .map(str::to_string);
-                self.switch_draft(
-                    (!temporary).then_some(DraftKey {
-                        chat_id: None,
-                        folder_id: folder,
-                    }),
-                    cx,
-                );
+                let text = self.composer.read(cx).text(cx);
+                self.composer_store
+                    .update(cx, |c, cx| c.switch_new_chat(folder, temporary, &text, cx));
                 self.chat = None;
                 self.prompt_card.update(cx, |p, cx| p.set_store(None, cx));
                 self.queue_edit = None;
@@ -992,9 +991,9 @@ impl ChatPane {
             .read(cx)
             .rpc()
             .call::<methods::TurnsSend>(&turn);
-        // "New Chat in Folder": the daemon makes the chat in the folder (its
-        // draft key says which), so the folder's prompt and knowledge apply
-        // to the first answer.
+        // "New Chat in Folder": the daemon makes the chat in the folder (the
+        // composer keeps which, a temporary chat's too), so the folder's
+        // prompt and knowledge apply to the first answer.
         self.starting = true;
         // The new chat this send came from: if the user has gone elsewhere
         // by the reply, the chat is made but not opened over their choice.
@@ -2841,6 +2840,110 @@ mod tests {
             );
             drop(held);
             vcx.run_until_parked();
+        }
+
+        #[gpui_kit::test]
+        fn a_temporary_new_chat_in_a_folder_is_sent_to_the_folder(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::FoldersDraftModel>(
+                serde_json::from_value(
+                    serde_json::json!({"folderId": "f1", "modelIds": ["trip-model"]}),
+                )
+                .unwrap(),
+            );
+            daemon.returns::<methods::ModelsList>(conduit_protocol::ModelList {
+                models: vec![
+                    serde_json::from_value(serde_json::json!({"id": "base", "name": "Base"}))
+                        .unwrap(),
+                    serde_json::from_value(
+                        serde_json::json!({"id": "trip-model", "name": "Trip Model"}),
+                    )
+                    .unwrap(),
+                ],
+                selected_id: Some("base".into()),
+                ..Default::default()
+            });
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "c1", "userMessageId": "m1", "assistantMessageId": "a1"
+                }))
+                .unwrap(),
+            );
+            pane.update(vcx, |p, cx| {
+                p.composer_store.update(cx, |c, cx| {
+                    c.prefs.temporary_by_default = true;
+                    c.refresh_models(cx);
+                })
+            });
+            stores
+                .navigation
+                .update(vcx, |n, cx| n.new_chat_in_folder("f1".into(), cx));
+            vcx.run_until_parked();
+            assert!(pane.read_with(vcx, |p, cx| p.composer.read(cx).temporary));
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Plan the trip".into(), vec![], window, cx)
+            });
+            vcx.run_until_parked();
+            let sent = daemon.calls::<methods::TurnsSend>();
+            assert_eq!(sent.len(), 1);
+            assert_eq!(sent[0]["temporary"], true);
+            assert_eq!(
+                sent[0]["folderId"], "f1",
+                "the folder's prompt and knowledge were left out"
+            );
+            assert_eq!(sent[0]["model"], "trip-model", "not the folder's model");
+        }
+
+        /// The composer's Temporary switch on a folder's new chat keeps the
+        /// folder and the Chat Settings saved on it.
+        #[gpui_kit::test]
+        fn the_temporary_switch_keeps_a_folders_new_chat_and_its_settings(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::ModelsList>(
+                serde_json::from_value(serde_json::json!({
+                    "models": [{"id": "m", "name": "M"}], "selectedId": "m"
+                }))
+                .unwrap(),
+            );
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "local:t1", "userMessageId": "m1", "assistantMessageId": "a1"
+                }))
+                .unwrap(),
+            );
+            pane.update(vcx, |p, cx| {
+                p.composer_store.update(cx, |c, cx| c.refresh_models(cx))
+            });
+            stores
+                .navigation
+                .update(vcx, |n, cx| n.new_chat_in_folder("f1".into(), cx));
+            vcx.run_until_parked();
+            let saved = serde_json::json!({"temperature": 0.3});
+            pane.update(vcx, |p, cx| {
+                p.composer_store
+                    .update(cx, |c, cx| c.set_draft_params(saved.clone(), cx))
+            });
+            pane.update(vcx, |p, cx| {
+                p.composer.update(cx, |_, cx| {
+                    cx.emit(crate::views::chat::composer::ChatComposerEvent::Temporary(
+                        true,
+                    ))
+                })
+            });
+            vcx.run_until_parked();
+            assert!(pane.read_with(vcx, |p, cx| p.composer.read(cx).temporary));
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Plan the trip".into(), vec![], window, cx)
+            });
+            vcx.run_until_parked();
+            let sent = daemon.calls::<methods::TurnsSend>();
+            assert_eq!(sent.len(), 1);
+            assert_eq!(sent[0]["temporary"], true);
+            assert_eq!(sent[0]["folderId"], "f1", "the switch lost the folder");
+            assert_eq!(
+                sent[0]["chatParams"], saved,
+                "the switch dropped the settings saved on this new chat"
+            );
         }
 
         #[gpui_kit::test]

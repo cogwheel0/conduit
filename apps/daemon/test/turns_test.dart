@@ -8,6 +8,8 @@ import 'dart:io';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatSessionRegistryProvider;
 import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
+import 'package:conduit_core/features/chat/services/chat_draft_queue.dart'
+    show chatDraftQueueSendProvider;
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
     show terminalDisplayFileProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
@@ -530,7 +532,8 @@ void main() {
     await until(() => ended('linger', next.assistantMessageId));
   });
 
-  test('a temporary chat is saved once at a time', () async {
+  test('a temporary chat being saved takes no second save and no turn',
+      () async {
     open('saving');
     final chat = await turns.send(
       SendTurn(model: model, text: 'keep me', temporary: true),
@@ -539,35 +542,16 @@ void main() {
     await until(() => ended('saving', chat.assistantMessageId));
     final first = turns.saveTemporary(chat.chatId);
     final second = turns.saveTemporary(chat.chatId);
-    await expectLater(
-      second,
-      throwsA(
-        isA<RpcError>().having((e) => e.code, 'code', ConduitErrorCodes.conflict),
-      ),
-    );
-    // This account has no Open WebUI server to save to.
-    await expectLater(first, throwsA(isA<RpcError>()));
-  });
-
-  test('a temporary chat being saved takes no other turn meanwhile', () async {
-    open('saving-send');
-    final chat = await turns.send(
-      SendTurn(model: model, text: 'keep me', temporary: true),
-    );
-    subscribeWindow(events, turns, 'saving-send', <String>[chat.chatId]);
-    await until(() => ended('saving-send', chat.assistantMessageId));
-    final saving = turns.saveTemporary(chat.chatId);
     final sending = turns.send(
       SendTurn(model: model, chatId: chat.chatId, text: 'and this'),
     );
-    await expectLater(
-      sending,
-      throwsA(
-        isA<RpcError>().having((e) => e.code, 'code', ConduitErrorCodes.conflict),
-      ),
+    final conflict = throwsA(
+      isA<RpcError>().having((e) => e.code, 'code', ConduitErrorCodes.conflict),
     );
+    await expectLater(second, conflict);
+    await expectLater(sending, conflict);
     // This account has no Open WebUI server to save to.
-    await expectLater(saving, throwsA(isA<RpcError>()));
+    await expectLater(first, throwsA(isA<RpcError>()));
   });
 
   test('a chat whose messages are being deleted takes no turn meanwhile',
@@ -592,6 +576,45 @@ void main() {
       ),
     );
     await deleting;
+  });
+
+  // The queue's batch is the core's own send: it can come while a delete
+  // is out, and a delete the server refuses puts the transcript back as it
+  // was before, without the batch. So the batch waits for the delete.
+  test('a queued batch that comes while messages are deleted waits', () async {
+    open('deleting-queue');
+    final chat = await turns.send(SendTurn(model: model, text: 'drop this'));
+    subscribeWindow(events, turns, 'deleting-queue', <String>[chat.chatId]);
+    await until(() => ended('deleting-queue', chat.assistantMessageId));
+    final scope = runtime.container
+        .read(chatSessionRegistryProvider)
+        .scopes
+        .lastWhere((s) => s.conversation?.id == chat.chatId);
+    var deleted = false;
+    final deleting = turns
+        .deleteMessages(
+          DeleteMessages(
+            chatId: chat.chatId,
+            messageIds: <String>[chat.assistantMessageId],
+          ),
+        )
+        .whenComplete(() => deleted = true);
+    // The delete is admitted, and waits for a quiet transcript (at least
+    // half a second) when the batch comes.
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    final queued = scope.container.read(chatDraftQueueSendProvider)(
+      scope.container,
+      'queued words',
+      null,
+    );
+    await until(
+      () => scope.messages.any(
+        (m) => m.role == 'user' && m.content == 'queued words',
+      ),
+    );
+    expect(deleted, isTrue, reason: 'the batch went in while the delete was out');
+    expect(await deleting, 1);
+    await queued;
   });
 
   test('a merge naming one answer twice is refused', () async {
