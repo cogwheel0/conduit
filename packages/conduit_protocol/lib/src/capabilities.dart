@@ -78,6 +78,10 @@ abstract class Capabilities with _$Capabilities {
     @Default(false) bool messageRating,
     @Default(false) bool tags,
     @Default(false) bool bulkSelection,
+
+    /// A LibreChat account owns the chats, and what its role may use there.
+    /// Null otherwise.
+    LibreChatFeatures? libreChat,
   }) = _Capabilities;
 
   factory Capabilities.fromJson(Map<String, dynamic> json) =>
@@ -86,4 +90,28 @@ abstract class Capabilities with _$Capabilities {
   /// Everything off. The state a fresh daemon reports before a server is
   /// selected, and the safe default if a capability probe fails.
   static const Capabilities none = Capabilities();
+}
+
+/// What the signed-in LibreChat user may use: the server's interface
+/// switches, the role's permissions and the agents endpoint's capabilities
+/// (the core's `LibreChatCapabilities`).
+@freezed
+abstract class LibreChatFeatures with _$LibreChatFeatures {
+  const factory LibreChatFeatures({
+    @Default(false) bool prompts,
+    @Default(false) bool memories,
+    @Default(false) bool createMemories,
+    @Default(false) bool updateMemories,
+    @Default(false) bool optOutMemories,
+    @Default(false) bool webSearch,
+    @Default(false) bool codeInterpreter,
+    @Default(false) bool fileSearch,
+    @Default(false) bool mcpServers,
+    @Default(false) bool agents,
+    @Default(false) bool sharedLinks,
+    @Default(false) bool temporaryChat,
+  }) = _LibreChatFeatures;
+
+  factory LibreChatFeatures.fromJson(Map<String, dynamic> json) =>
+      _$LibreChatFeaturesFromJson(json);
 }

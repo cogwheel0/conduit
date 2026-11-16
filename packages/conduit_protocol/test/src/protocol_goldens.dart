@@ -415,7 +415,10 @@ const Map<String, String> protocolGoldens = <String, String>{
     }
   ],
   "activeAccountId": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
-  "addingAccount": true
+  "addingAccount": true,
+  "libreChatAccounts": [],
+  "primary": "openWebUi",
+  "libreChatSession": "none"
 }''',
 
   'addAccount': r'''
@@ -445,7 +448,10 @@ const Map<String, String> protocolGoldens = <String, String>{
   "outcome": "blockedByActiveReply",
   "accounts": {
     "accounts": [],
-    "addingAccount": false
+    "addingAccount": false,
+    "libreChatAccounts": [],
+    "primary": "openWebUi",
+    "libreChatSession": "none"
   }
 }''',
 
@@ -3036,6 +3042,216 @@ const Map<String, String> protocolGoldens = <String, String>{
   "modelId": "fake-model"
 }''',
 
+  'libreChatAccountList': r'''
+{
+  "accounts": [],
+  "addingAccount": false,
+  "libreChatAccounts": [
+    {
+      "id": "librechat:0f9d1c2e4b6a4d8f9a1b2c3d4e5f6071",
+      "baseUrl": "https://chat.example.org",
+      "title": "Harbour LibreChat",
+      "user": {
+        "name": "Rowan Vale",
+        "email": "rowan@example.test"
+      },
+      "isActive": true,
+      "hasSession": true,
+      "lastUsedMs": 1767225600000
+    }
+  ],
+  "primary": "libreChat",
+  "activeLibreChatAccountId": "librechat:0f9d1c2e4b6a4d8f9a1b2c3d4e5f6071",
+  "libreChatSession": "signedIn"
+}''',
+
+  'libreChatAccountSummary': r'''
+{
+  "id": "librechat:0f9d1c2e4b6a4d8f9a1b2c3d4e5f6071",
+  "baseUrl": "https://chat.example.org/chat",
+  "title": "chat.example.org",
+  "isActive": false,
+  "hasSession": false
+}''',
+
+  'libreChatFeatures': r'''
+{
+  "prompts": true,
+  "memories": true,
+  "createMemories": true,
+  "updateMemories": false,
+  "optOutMemories": false,
+  "webSearch": true,
+  "codeInterpreter": false,
+  "fileSearch": false,
+  "mcpServers": false,
+  "agents": false,
+  "sharedLinks": true,
+  "temporaryChat": false
+}''',
+
+  'libreChatSsoProviderDto': r'''
+{
+  "kind": "openid",
+  "label": "Harbour ID"
+}''',
+
+  'libreChatServerDto': r'''
+{
+  "baseUrl": "https://chat.example.org",
+  "title": "Harbour LibreChat",
+  "passwordSignIn": true,
+  "ldap": false,
+  "ldapUsesUsername": false,
+  "ssoProviders": [
+    {
+      "kind": "openid",
+      "label": "Harbour ID"
+    },
+    {
+      "kind": "github"
+    }
+  ]
+}''',
+
+  'libreChatProbe': r'''
+{
+  "url": "chat.example.org"
+}''',
+
+  'libreChatProbeResult': r'''
+{
+  "outcome": "found",
+  "server": {
+    "baseUrl": "https://chat.example.org",
+    "title": "Harbour LibreChat",
+    "passwordSignIn": true,
+    "ldap": true,
+    "ldapUsesUsername": true,
+    "ssoProviders": []
+  }
+}''',
+
+  'libreChatSignIn': r'''
+{
+  "url": "https://chat.example.org",
+  "email": "rowan@example.test",
+  "password": "pw",
+  "force": false
+}''',
+
+  'libreChatVerify': r'''
+{
+  "flowId": "flow-1",
+  "code": "246810",
+  "backupCode": false,
+  "force": true
+}''',
+
+  'libreChatSsoStart': r'''
+{
+  "url": "https://chat.example.org",
+  "provider": "openid"
+}''',
+
+  'libreChatSsoPlan': r'''
+{
+  "startUrl": "https://chat.example.org/oauth/openid",
+  "cookieUrl": "https://chat.example.org/",
+  "serverOrigins": [
+    "https://chat.example.org"
+  ],
+  "basePath": ""
+}''',
+
+  'libreChatSsoCompletion': r'''
+{
+  "url": "https://chat.example.org",
+  "cookies": {
+    "refreshToken": "r1",
+    "token_provider": "openid"
+  },
+  "force": false
+}''',
+
+  'libreChatSignInResult': r'''
+{
+  "outcome": "twoFactorRequired",
+  "flowId": "flow-1"
+}''',
+
+  'libreChatComposerTarget': r'''
+{
+  "modelId": "librechat-model-1"
+}''',
+
+  'libreChatMcpServerDto': r'''
+{
+  "name": "ledger_sync",
+  "toolId": "librechat:mcp:ledger_sync",
+  "toolCount": 1,
+  "needsConnection": true
+}''',
+
+  'libreChatComposer': r'''
+{
+  "libreChat": true,
+  "webSearchToolId": "librechat:web_search",
+  "mcpServers": [
+    {
+      "name": "harbour_docs",
+      "toolId": "librechat:mcp:harbour_docs",
+      "toolCount": 1,
+      "needsConnection": false
+    }
+  ],
+  "prompts": true,
+  "webUrl": "https://chat.example.org"
+}''',
+
+  'libreChatMemoryDto': r'''
+{
+  "key": "favourite_tea",
+  "value": "Smoky lapsang, no sugar",
+  "tokenCount": 4,
+  "updatedMs": 1767225600000
+}''',
+
+  'libreChatMemories': r'''
+{
+  "enabled": true,
+  "memories": [
+    {
+      "key": "home_harbour",
+      "value": "Port Wren",
+      "tokenCount": 0
+    }
+  ],
+  "totalTokens": 12,
+  "tokenLimit": 2000,
+  "usagePercent": 1,
+  "canCreate": true,
+  "canUpdate": true,
+  "canOptOut": true
+}''',
+
+  'libreChatMemoryEdit': r'''
+{
+  "originalKey": "home_harbour",
+  "key": "home_port",
+  "value": "Port Wren"
+}''',
+
+  'libreChatMemoryRef': r'''
+{
+  "key": "home_port"
+}''',
+
+  'libreChatMemoryToggle': r'''
+{
+  "enabled": false
+}''',
+
   'terminalDisplayFile': r'''
 {
   "chatId": "c1",
@@ -3908,7 +4124,15 @@ const Map<String, String> protocolGoldens = <String, String>{
       "tags": [],
       "shared": false,
       "readOnly": false,
-      "unread": false
+      "unread": false,
+      "menu": {
+        "share": false,
+        "duplicate": false,
+        "move": false,
+        "markUnread": false,
+        "generateTitle": false,
+        "export": false
+      }
     }
   ]
 }''',
@@ -4028,7 +4252,46 @@ const Map<String, String> protocolGoldens = <String, String>{
   ],
   "shared": true,
   "readOnly": true,
-  "unread": false
+  "unread": false,
+  "menu": {
+    "share": false,
+    "duplicate": false,
+    "move": false,
+    "markUnread": false,
+    "generateTitle": false,
+    "export": false
+  }
+}''',
+
+  'chatSummaryMenu': r'''
+{
+  "id": "chat-4e2a9b10",
+  "title": "Harbour tide tables",
+  "updatedAtMs": 1758412900000,
+  "pinned": false,
+  "archived": false,
+  "tags": [],
+  "shared": false,
+  "readOnly": false,
+  "unread": false,
+  "menu": {
+    "share": true,
+    "duplicate": false,
+    "move": true,
+    "markUnread": true,
+    "generateTitle": true,
+    "export": true
+  }
+}''',
+
+  'chatMenuAbilities': r'''
+{
+  "share": true,
+  "duplicate": true,
+  "move": true,
+  "markUnread": true,
+  "generateTitle": true,
+  "export": true
 }''',
 
   'chatList': r'''
@@ -4043,7 +4306,15 @@ const Map<String, String> protocolGoldens = <String, String>{
       "tags": [],
       "shared": false,
       "readOnly": false,
-      "unread": false
+      "unread": false,
+      "menu": {
+        "share": false,
+        "duplicate": false,
+        "move": false,
+        "markUnread": false,
+        "generateTitle": false,
+        "export": false
+      }
     }
   ],
   "hasMore": true,
@@ -4112,7 +4383,15 @@ const Map<String, String> protocolGoldens = <String, String>{
     "tags": [],
     "shared": false,
     "readOnly": true,
-    "unread": false
+    "unread": false,
+    "menu": {
+      "share": false,
+      "duplicate": false,
+      "move": false,
+      "markUnread": false,
+      "generateTitle": false,
+      "export": false
+    }
   },
   "messages": [
     {
@@ -4448,7 +4727,15 @@ const Map<String, String> protocolGoldens = <String, String>{
       "tags": [],
       "shared": false,
       "readOnly": false,
-      "unread": false
+      "unread": false,
+      "menu": {
+        "share": false,
+        "duplicate": false,
+        "move": false,
+        "markUnread": false,
+        "generateTitle": false,
+        "export": false
+      }
     },
     "messages": [],
     "systemPrompt": "Answer briefly.",
@@ -5684,7 +5971,15 @@ const Map<String, String> protocolGoldens = <String, String>{
   "tags": [],
   "shared": false,
   "readOnly": false,
-  "unread": true
+  "unread": true,
+  "menu": {
+    "share": false,
+    "duplicate": false,
+    "move": false,
+    "markUnread": false,
+    "generateTitle": false,
+    "export": false
+  }
 }''',
 
   'comparisonSlotDto': r'''
@@ -5797,7 +6092,15 @@ const Map<String, String> protocolGoldens = <String, String>{
     "tags": [],
     "shared": false,
     "readOnly": false,
-    "unread": false
+    "unread": false,
+    "menu": {
+      "share": false,
+      "duplicate": false,
+      "move": false,
+      "markUnread": false,
+      "generateTitle": false,
+      "export": false
+    }
   },
   "messages": [],
   "readOnly": false,
@@ -5837,7 +6140,15 @@ const Map<String, String> protocolGoldens = <String, String>{
     "tags": [],
     "shared": true,
     "readOnly": false,
-    "unread": false
+    "unread": false,
+    "menu": {
+      "share": false,
+      "duplicate": false,
+      "move": false,
+      "markUnread": false,
+      "generateTitle": false,
+      "export": false
+    }
   },
   "messages": [],
   "readOnly": false,
@@ -5954,7 +6265,15 @@ const Map<String, String> protocolGoldens = <String, String>{
       "tags": [],
       "shared": false,
       "readOnly": false,
-      "unread": false
+      "unread": false,
+      "menu": {
+        "share": false,
+        "duplicate": false,
+        "move": false,
+        "markUnread": false,
+        "generateTitle": false,
+        "export": false
+      }
     },
     "messages": [],
     "readOnly": false,

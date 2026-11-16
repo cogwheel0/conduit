@@ -1,0 +1,14 @@
+{
+  "libreChat": true,
+  "webSearchToolId": "librechat:web_search",
+  "mcpServers": [
+    {
+      "name": "harbour_docs",
+      "toolId": "librechat:mcp:harbour_docs",
+      "toolCount": 1,
+      "needsConnection": false
+    }
+  ],
+  "prompts": true,
+  "webUrl": "https://chat.example.org"
+}

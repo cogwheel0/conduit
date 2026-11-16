@@ -58,6 +58,43 @@ abstract class AccountSummary with _$AccountSummary {
       _$AccountSummaryFromJson(json);
 }
 
+/// Which kind of account owns the chats: an Open WebUI account, or a
+/// LibreChat one. Hermes and Direct have no accounts and sit beside either.
+@JsonEnum(fieldRename: FieldRename.none)
+enum PrimaryAccount { openWebUi, libreChat }
+
+/// One saved LibreChat account.
+///
+/// Its id (`librechat:…`) never collides with an Open WebUI account's, so
+/// `accounts.switch` and `accounts.remove` take either kind.
+@freezed
+abstract class LibreChatAccountSummary with _$LibreChatAccountSummary {
+  const factory LibreChatAccountSummary({
+    required String id,
+
+    /// The server's address, as signed in to.
+    required String baseUrl,
+
+    /// The server's own name, else its host.
+    required String title,
+    AccountUser? user,
+
+    /// The LibreChat account in use: in charge of the chats when
+    /// [AccountList.primary] is [PrimaryAccount.libreChat].
+    @Default(false) bool isActive,
+
+    /// Whether it has a saved session. One without needs a sign-in, from
+    /// its server's sign-in form ("session ended").
+    @Default(false) bool hasSession,
+
+    /// UTC milliseconds of the last switch to it or sign-in on it.
+    int? lastUsedMs,
+  }) = _LibreChatAccountSummary;
+
+  factory LibreChatAccountSummary.fromJson(Map<String, dynamic> json) =>
+      _$LibreChatAccountSummaryFromJson(json);
+}
+
 /// Reply to `accounts.list`, and part of every account change's reply.
 @freezed
 abstract class AccountList with _$AccountList {
@@ -65,17 +102,49 @@ abstract class AccountList with _$AccountList {
     @Default(<AccountSummary>[]) List<AccountSummary> accounts,
 
     /// Null when no Open WebUI account is in use: a Direct-only or
-    /// Hermes-only setup, or one that has not chosen a backend yet.
+    /// Hermes-only setup, a LibreChat account in charge, or one that has not
+    /// chosen a backend yet.
     String? activeAccountId,
 
     /// Whether an account is being added: `accounts.add` made a new account
     /// active, signed out, and its sign-in has not finished. The window shows
     /// sign-in with a Cancel back to the account it was added from.
     @Default(false) bool addingAccount,
+
+    /// The saved LibreChat accounts.
+    @Default(<LibreChatAccountSummary>[])
+    List<LibreChatAccountSummary> libreChatAccounts,
+
+    /// Who owns the chats. With [PrimaryAccount.libreChat] the window
+    /// routes on [libreChatSession], not on `auth.status`.
+    @Default(PrimaryAccount.openWebUi) PrimaryAccount primary,
+
+    /// The LibreChat account in use, whether or not it owns the chats.
+    String? activeLibreChatAccountId,
+
+    /// Where the LibreChat account in use stands.
+    @Default(LibreChatSessionPhase.none) LibreChatSessionPhase libreChatSession,
   }) = _AccountList;
 
   factory AccountList.fromJson(Map<String, dynamic> json) =>
       _$AccountListFromJson(json);
+}
+
+/// Where the session of the LibreChat account in use stands.
+@JsonEnum(fieldRename: FieldRename.none)
+enum LibreChatSessionPhase {
+  /// No LibreChat account is in use.
+  none,
+
+  /// Its saved session is being read.
+  loading,
+
+  /// Signed in.
+  signedIn,
+
+  /// Its session ended (expired, revoked, or never saved): it needs a
+  /// sign-in. Its chats stay.
+  needsSignIn,
 }
 
 /// Params for `accounts.add`.

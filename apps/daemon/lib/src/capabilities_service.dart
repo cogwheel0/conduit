@@ -1,3 +1,5 @@
+import 'package:conduit_core/features/librechat/models/librechat_capabilities.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/features/navigation/models/account_features.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit_core/features/navigation/providers/account_features_provider.dart';
@@ -5,6 +7,7 @@ import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -39,6 +42,15 @@ final class CapabilitiesService {
       activeServerProvider,
       (_, _) => _update(),
     );
+    // A LibreChat account in charge: what its role may use.
+    _libreChat = _container.listen<AsyncValue<LibreChatCapabilities>>(
+      libreChatCapabilitiesProvider,
+      (_, _) => _update(),
+    );
+    _primary = _container.listen<PrimaryAccountKind>(
+      primaryAccountKindProvider,
+      (_, _) => _update(),
+    );
     _update();
   }
 
@@ -48,6 +60,9 @@ final class CapabilitiesService {
   late final ProviderSubscription<AccountFeatures> _features;
   late final ProviderSubscription<AsyncValue<BackendConfig?>> _config;
   late final ProviderSubscription<AsyncValue<ServerConfig?>> _server;
+  late final ProviderSubscription<AsyncValue<LibreChatCapabilities>>
+  _libreChat;
+  late final ProviderSubscription<PrimaryAccountKind> _primary;
 
   Capabilities _current = Capabilities.none;
 
@@ -55,9 +70,15 @@ final class CapabilitiesService {
   Capabilities get current => _current;
 
   void _update() {
+    final libreChat =
+        _container.read(primaryAccountKindProvider) ==
+            PrimaryAccountKind.libreChat
+        ? _container.read(libreChatCapabilitiesProvider).asData?.value
+        : null;
     final next = capabilitiesOf(
       _container.read(accountFeaturesProvider),
       config: _activeServersConfig(),
+      libreChat: libreChat,
     );
     if (next == _current) return;
     _current = next;
@@ -83,6 +104,8 @@ final class CapabilitiesService {
     _features.close();
     _config.close();
     _server.close();
+    _libreChat.close();
+    _primary.close();
   }
 
   /// The protocol's flags for [features]. [config] is the signed-in Open
@@ -91,6 +114,7 @@ final class CapabilitiesService {
   static Capabilities capabilitiesOf(
     AccountFeatures features, {
     BackendConfig? config,
+    LibreChatCapabilities? libreChat,
   }) {
     final tabs = features.sidebarTabs;
     final sections = features.workspaceSections;
@@ -118,6 +142,22 @@ final class CapabilitiesService {
       codeInterpreter: features.codeInterpreter,
       imageGeneration: features.imageGeneration,
       webSearch: features.webSearch,
+      libreChat: libreChat == null
+          ? null
+          : LibreChatFeatures(
+              prompts: libreChat.prompts,
+              memories: libreChat.memories,
+              createMemories: libreChat.createMemories,
+              updateMemories: libreChat.updateMemories,
+              optOutMemories: libreChat.optOutMemories,
+              webSearch: libreChat.webSearch,
+              codeInterpreter: libreChat.codeInterpreter,
+              fileSearch: libreChat.fileSearch,
+              mcpServers: libreChat.mcpServers,
+              agents: libreChat.agents,
+              sharedLinks: libreChat.sharedLinks,
+              temporaryChat: libreChat.temporaryChat,
+            ),
     );
   }
 }

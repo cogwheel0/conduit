@@ -1,0 +1,11 @@
+{
+  "outcome": "found",
+  "server": {
+    "baseUrl": "https://chat.example.org",
+    "title": "Harbour LibreChat",
+    "passwordSignIn": true,
+    "ldap": true,
+    "ldapUsesUsername": true,
+    "ssoProviders": []
+  }
+}

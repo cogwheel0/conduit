@@ -8,10 +8,19 @@ import 'package:conduit_core/features/notes/providers/notes_providers.dart'
     show activeNoteProvider;
 import 'package:conduit_core/features/prompts/providers/prompts_providers.dart'
     show activePromptCommandProvider;
+import 'package:conduit_core/features/librechat/models/librechat_account.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
+    show persistOpenWebUiBackendPreference;
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    as backend;
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart'
+    show PrimaryAccountRef, primaryAccountProvider;
+import 'package:conduit_core/providers/primary_account_switcher.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/misc.dart' show ProviderOrFamily;
@@ -54,10 +63,39 @@ final class AccountsService {
           (state) => state.asData?.value.isAuthenticated ?? false,
         ),
         (previous, next) {
-          if (next) _endFinishedAddition();
+          if (next) {
+            _endFinishedAddition();
+            unawaited(_endLibreChatAddition());
+          }
           _container.invalidate(openWebUiAccountsProvider);
           _announceSoon();
         },
+      ),
+      // The LibreChat account in charge changing (to another LibreChat
+      // account, to Open WebUI, or signed out) ends what it owned: the
+      // composer's context, as mobile's startup listener does. The lists,
+      // models and settings follow on their own, since they watch who owns
+      // the chats.
+      _container.listen<PrimaryAccountRef>(primaryAccountProvider, (
+        previous,
+        next,
+      ) {
+        if (previous != null &&
+            previous.kind == backend.PrimaryAccountKind.libreChat &&
+            previous.id != null &&
+            previous != next) {
+          _container.read(contextAttachmentsProvider.notifier).clear();
+        }
+        _announceSoon();
+      }),
+      // LibreChat accounts saved, removed, signed in or out.
+      _container.listen<Object?>(
+        libreChatRegistryProvider,
+        (_, _) => _announceSoon(),
+      ),
+      _container.listen<Object?>(
+        libreChatSessionProvider,
+        (_, _) => _announceSoon(),
       ),
     ];
   }
@@ -70,6 +108,11 @@ final class AccountsService {
   final TurnsService? turns;
 
   late final List<ProviderSubscription<Object?>> _watches;
+
+  /// An Open WebUI account being added while a LibreChat account owns the
+  /// chats: that LibreChat account, which Cancel goes back to. The core's
+  /// own addition tracking is Open WebUI's (it parks no LibreChat account).
+  String? _libreChatAdditionFrom;
   bool _announceScheduled = false;
   String? _lastAnnounced;
 
@@ -203,11 +246,166 @@ final class AccountsService {
         ),
       );
     }
+    final libreChat = await _libreChatAccounts();
+    final primary = _primary();
     return AccountList(
       accounts: accounts,
-      activeAccountId: activeId,
-      addingAccount: _container.read(accountAdditionOriginProvider) != null,
+      // An Open WebUI account parked for a LibreChat one in charge is not
+      // in use, even while its id is still being let go of.
+      activeAccountId:
+          primary == PrimaryAccount.libreChat && _libreChatAdditionFrom == null
+          ? null
+          : activeId,
+      addingAccount:
+          _container.read(accountAdditionOriginProvider) != null ||
+          _libreChatAdditionFrom != null,
+      libreChatAccounts: libreChat.accounts,
+      primary: primary,
+      activeLibreChatAccountId: libreChat.activeId,
+      libreChatSession: _libreChatSession(),
     );
+  }
+
+  PrimaryAccount _primary() =>
+      _container.read(backend.primaryAccountKindProvider) ==
+          backend.PrimaryAccountKind.libreChat
+      ? PrimaryAccount.libreChat
+      : PrimaryAccount.openWebUi;
+
+  /// The saved LibreChat accounts, newest-used first, as the phone's
+  /// Accounts page lists them.
+  Future<({List<LibreChatAccountSummary> accounts, String? activeId})>
+  _libreChatAccounts() async {
+    final LibreChatRegistry registry;
+    try {
+      registry = await readSettled(
+        _container,
+        libreChatRegistryProvider.future,
+      );
+    } on Object catch (error) {
+      DebugLogger.warning(
+        'librechat-registry-unread',
+        scope: 'daemon/accounts',
+        data: <String, Object?>{'errorType': error.runtimeType.toString()},
+      );
+      return (accounts: const <LibreChatAccountSummary>[], activeId: null);
+    }
+    final store = _container.read(libreChatRegistryStoreProvider);
+    final sorted = [...registry.accounts]
+      ..sort(
+        (a, b) => (b.lastUsedAt ?? DateTime(0)).compareTo(
+          a.lastUsedAt ?? DateTime(0),
+        ),
+      );
+    final accounts = <LibreChatAccountSummary>[];
+    for (final account in sorted) {
+      var hasSession = false;
+      try {
+        hasSession = await store.sessionStore(account.id).read() != null;
+      } on Object {
+        // Unreadable reads as needing a sign-in, as the core treats it.
+      }
+      final name = account.displayName.trim();
+      accounts.add(
+        LibreChatAccountSummary(
+          id: account.id,
+          baseUrl: account.server.baseUrl,
+          title: (account.serverTitle?.trim().isNotEmpty ?? false)
+              ? account.serverTitle!.trim()
+              : account.host,
+          user: name.isEmpty && account.email == null
+              ? null
+              : AccountUser(
+                  name: name.isEmpty ? null : name,
+                  email: account.email,
+                ),
+          isActive: account.id == registry.activeId,
+          hasSession: hasSession,
+          lastUsedMs: account.lastUsedAt?.millisecondsSinceEpoch,
+        ),
+      );
+    }
+    return (accounts: accounts, activeId: registry.activeId);
+  }
+
+  LibreChatSessionPhase _libreChatSession() =>
+      switch (_container.read(libreChatSessionProvider)) {
+        AsyncData(value: LibreChatSignedInState()) =>
+          LibreChatSessionPhase.signedIn,
+        AsyncData(value: LibreChatNeedsSignIn()) ||
+        AsyncError() => LibreChatSessionPhase.needsSignIn,
+        AsyncData(value: LibreChatNoAccount()) => LibreChatSessionPhase.none,
+        _ => LibreChatSessionPhase.loading,
+      };
+
+  /// Puts LibreChat account [accountId] in charge of the chats, parking
+  /// Open WebUI: the core's switch, as the phone's account rows and sign-in
+  /// use it. Refused while an answer is being written, unless [force].
+  Future<AccountChangeResult> useLibreChat(
+    String accountId, {
+    bool force = false,
+  }) async {
+    final inCharge =
+        _primary() == PrimaryAccount.libreChat &&
+        _container.read(activeLibreChatAccountProvider)?.id == accountId;
+    if (inCharge) {
+      return _result(AccountChangeOutcome.alreadyActive, announce: true);
+    }
+    if (!await _mayLeave(force: force)) {
+      return _result(AccountChangeOutcome.blockedByActiveReply);
+    }
+    final result = await _container
+        .read(primaryAccountSwitcherProvider)
+        .useLibreChat(accountId, force: true);
+    return _result(
+      switch (result) {
+        PrimarySwitchResult.done => await _libreChatSettled(),
+        PrimarySwitchResult.blockedByActiveReply =>
+          AccountChangeOutcome.blockedByActiveReply,
+        PrimarySwitchResult.unknownAccount => throw RpcError(
+          code: ConduitErrorCodes.notFound,
+          args: <String, String>{'accountId': accountId},
+          debugMessage: 'no saved LibreChat account with that id',
+        ),
+      },
+      announce: true,
+    );
+  }
+
+  /// Whether the LibreChat account now in charge is signed in, once its
+  /// saved session has been read (briefly waited for).
+  Future<AccountChangeOutcome> _libreChatSettled() async {
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (DateTime.now().isBefore(deadline)) {
+      switch (_libreChatSession()) {
+        case LibreChatSessionPhase.signedIn:
+          return AccountChangeOutcome.done;
+        case LibreChatSessionPhase.needsSignIn:
+          return AccountChangeOutcome.needsSignIn;
+        case LibreChatSessionPhase.none:
+        case LibreChatSessionPhase.loading:
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+    }
+    return AccountChangeOutcome.done;
+  }
+
+  /// Signs out of LibreChat account [accountId] with its local chats; the
+  /// next account takes over when it was in charge (the core's hand-over:
+  /// the LibreChat account used last, else an Open WebUI account, else the
+  /// backend is chosen again).
+  Future<AccountChangeResult> _removeLibreChat(
+    String accountId, {
+    required bool force,
+  }) async {
+    final inCharge =
+        _primary() == PrimaryAccount.libreChat &&
+        _container.read(activeLibreChatAccountProvider)?.id == accountId;
+    if (inCharge && !await _mayLeave(force: force)) {
+      return _result(AccountChangeOutcome.blockedByActiveReply);
+    }
+    await signOutOfLibreChatAndHandOver(_container, accountId);
+    return _result(AccountChangeOutcome.done, announce: true);
   }
 
   /// Begins adding an account on [request]'s server: a new account there
@@ -218,9 +416,16 @@ final class AccountsService {
     final url = ServersService.validateUrl(draft.url);
     final name = ServersService.validateName(draft.name);
     final activeId = _container.read(settledActiveAccountIdProvider);
-    if (activeId != null && !await _mayLeave(force: request.force)) {
+    // Added while a LibreChat account owns the chats: its sign-in shows
+    // (the window routes on the addition), and Cancel goes back to it.
+    final fromLibreChat = _primary() == PrimaryAccount.libreChat
+        ? _container.read(activeLibreChatAccountProvider)?.id
+        : null;
+    if ((activeId != null || fromLibreChat != null) &&
+        !await _mayLeave(force: request.force)) {
       return _result(AccountChangeOutcome.blockedByActiveReply);
     }
+    if (fromLibreChat != null) _libreChatAdditionFrom = fromLibreChat;
     final config = ServerConfig(
       id: _uuid.v4(),
       name: name,
@@ -249,6 +454,7 @@ final class AccountsService {
           .selectUnauthenticatedServerConfig(config, canCommit: stillAdding);
     } on Object catch (error) {
       if (activeId != null) addition.end(activeId);
+      _libreChatAdditionFrom = null;
       throw RpcError(
         code: ConduitErrorCodes.serverError,
         args: <String, String>{'detail': '$error'},
@@ -262,6 +468,18 @@ final class AccountsService {
   /// Leaves an addition whose sign-in has not finished: the new account is
   /// dropped and the one it was added from is active again.
   Future<AccountChangeResult> cancelAdd() async {
+    final libreChat = _libreChatAdditionFrom;
+    if (libreChat != null) {
+      // The new account goes (it never signed in), and the LibreChat account
+      // it was added from owns the chats again.
+      _libreChatAdditionFrom = null;
+      final storage = _container.read(optimizedStorageServiceProvider);
+      final pending = await storage.getEffectiveActiveServerId();
+      if (pending != null) {
+        await _controller.signOut(pending, force: true);
+      }
+      return useLibreChat(libreChat, force: true);
+    }
     final origin = _container.read(accountAdditionOriginProvider);
     if (origin == null) return _result(AccountChangeOutcome.unchanged);
     final left = await _controller.abandonPendingSignIn();
@@ -276,7 +494,23 @@ final class AccountsService {
   }
 
   Future<AccountChangeResult> switchTo(AccountRef request) async {
+    if (LibreChatAccount.isLibreChatAccountId(request.accountId)) {
+      return useLibreChat(request.accountId, force: request.force);
+    }
     await _requireAccount(request.accountId);
+    if (_primary() == PrimaryAccount.libreChat) {
+      // Open WebUI comes back out of its park, through the core's switch.
+      if (!await _mayLeave(force: request.force)) {
+        return _result(AccountChangeOutcome.blockedByActiveReply);
+      }
+      await _container
+          .read(primaryAccountSwitcherProvider)
+          .useOpenWebUi(request.accountId, force: true);
+      return _result(
+        await _settled(AccountChangeOutcome.needsSignIn),
+        announce: true,
+      );
+    }
     final activeId = _container.read(settledActiveAccountIdProvider);
     if (activeId != request.accountId &&
         !await _mayLeave(force: request.force)) {
@@ -292,6 +526,9 @@ final class AccountsService {
   /// Signs out of [request]'s account and removes it with its local data,
   /// handing over to the next account when it was the active one.
   Future<AccountChangeResult> remove(AccountRef request) async {
+    if (LibreChatAccount.isLibreChatAccountId(request.accountId)) {
+      return _removeLibreChat(request.accountId, force: request.force);
+    }
     await _requireAccount(request.accountId);
     final activeId = _container.read(settledActiveAccountIdProvider);
     if (activeId == request.accountId &&
@@ -308,6 +545,12 @@ final class AccountsService {
   /// Signs out of the active account, as mobile's Sign out does: the next
   /// account takes over, and the others keep their sessions and data.
   Future<AccountChangeResult> signOut(AccountSignOut request) async {
+    if (_primary() == PrimaryAccount.libreChat) {
+      final active = _container.read(activeLibreChatAccountProvider);
+      if (active != null) {
+        return _removeLibreChat(active.id, force: request.force);
+      }
+    }
     final storage = _container.read(optimizedStorageServiceProvider);
     final activeId = await storage.getEffectiveActiveServerId();
     if (activeId == null) {
@@ -349,6 +592,27 @@ final class AccountsService {
         debugMessage: 'no saved account with that id',
       );
     }
+  }
+
+  /// An Open WebUI account added from LibreChat signed in: Open WebUI owns
+  /// the chats now, as a sign-in on the phone makes it (the core's
+  /// `persistOpenWebUiBackendPreference`).
+  Future<void> _endLibreChatAddition() async {
+    if (_libreChatAdditionFrom == null) return;
+    _libreChatAdditionFrom = null;
+    try {
+      await persistOpenWebUiBackendPreference(
+        current: _container.read(backend.preferredBackendProvider),
+        persist: _container.read(backend.preferredBackendProvider.notifier).set,
+      );
+    } on Object catch (error) {
+      DebugLogger.warning(
+        'librechat-addition-prefer-failed',
+        scope: 'daemon/accounts',
+        data: <String, Object?>{'errorType': error.runtimeType.toString()},
+      );
+    }
+    _announceSoon();
   }
 
   /// Ends an addition whose sign-in has finished: the account it added is
@@ -424,6 +688,11 @@ final class AccountsService {
       accounts.activeAccountId ?? '',
       '${accounts.addingAccount}',
       for (final account in accounts.accounts)
+        '${account.id}:${account.hasSession}:${account.user?.name ?? ''}',
+      accounts.primary.name,
+      accounts.activeLibreChatAccountId ?? '',
+      accounts.libreChatSession.name,
+      for (final account in accounts.libreChatAccounts)
         '${account.id}:${account.hasSession}:${account.user?.name ?? ''}',
     ].join('|');
     if (signature == _lastAnnounced) return;

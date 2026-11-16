@@ -851,6 +851,7 @@ mod tests {
             model: None,
             tags: vec![],
             shared: false,
+            menu: Default::default(),
         }
     }
 

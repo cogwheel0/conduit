@@ -1100,6 +1100,43 @@ abstract final class ConduitMethods {
 
   /// A saved recording, as text: by the model's backend or by whisper.
   static const String recordingsTranscribe = 'recordings.transcribe';
+  static const String librechatPrefix = 'librechat.';
+
+  // librechat.* -- LibreChat accounts (signing in; the list and switching
+  // are `accounts.*`), and what only LibreChat has: its composer tools,
+  // memories and Duplicate.
+
+  /// Checks an address for a LibreChat server and how to sign in there.
+  static const String librechatProbe = 'librechat.probe';
+
+  /// Signs in with an email (or LDAP username) and password.
+  static const String librechatSignIn = 'librechat.signIn';
+
+  /// The second step: an authenticator code or a backup code.
+  static const String librechatVerify = 'librechat.verify';
+
+  /// Where single sign-on starts, for the window's sign-in browser.
+  static const String librechatSsoStart = 'librechat.ssoStart';
+
+  /// Finishes single sign-on with the cookies the window captured.
+  static const String librechatCompleteSso = 'librechat.completeSso';
+
+  /// The tools the composer may offer a LibreChat turn.
+  static const String librechatComposer = 'librechat.composer';
+
+  /// The user's memories and whether the assistant uses them.
+  static const String librechatMemoriesList = 'librechat.memories.list';
+
+  /// Adds a memory, or changes one (and its key).
+  static const String librechatMemoriesSave = 'librechat.memories.save';
+  static const String librechatMemoriesDelete = 'librechat.memories.delete';
+
+  /// Turns the assistant's use of memories on or off.
+  static const String librechatMemoriesSetEnabled =
+      'librechat.memories.setEnabled';
+
+  /// Copies a LibreChat chat whole into a new chat on its server.
+  static const String librechatDuplicate = 'librechat.duplicate';
   static const String settingsPrefix = 'settings.';
   static const String syncPrefix = 'sync.';
   static const String socketPrefix = 'socket.';
@@ -1145,6 +1182,7 @@ abstract final class ConduitMethods {
     voicePrefix,
     dictationPrefix,
     recordingsPrefix,
+    librechatPrefix,
     settingsPrefix,
     syncPrefix,
     socketPrefix,

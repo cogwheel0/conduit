@@ -164,6 +164,8 @@ pub fn card(request: &UiRequest) -> Card {
                 cancel_label: arg(request, "cancelLabel"),
             }
         }
+        // Not shown in a window yet.
+        UiRequestKind::LibreChatQuestion => Card::Unsupported,
         UiRequestKind::McpApproval => Card::Mcp {
             server: arg(request, "serverName").unwrap_or_default(),
             tool: arg(request, "toolName").unwrap_or_default(),

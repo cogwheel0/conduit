@@ -114,6 +114,19 @@ enum UiRequestKind {
   /// `hermes.decisions.answer` (`value`), which is never logged or kept.
   @JsonValue('hermesSecret')
   hermesSecret,
+
+  /// A LibreChat agent paused its run to ask the user something.
+  /// `detail` has `question`, an optional `description`, `options` (a list
+  /// of `{label, description?}`) and `multiSelect`; `messageArgs.chatId`
+  /// names the chat. The answer goes back as [UiResponse.text] (an
+  /// option's label, several joined with ", ", or the user's own words)
+  /// with choice `answer` (or `allow`, as the window's question card says
+  /// it); `cancel` stops the reply.
+  ///
+  /// A LibreChat tool call waiting for approval is a [toolApproval] with
+  /// `detail.backend` `libreChat`.
+  @JsonValue('libreChatQuestion')
+  libreChatQuestion,
 }
 
 /// How an [UiRequestKind.inputPrompt] wants its value entered.

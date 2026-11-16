@@ -102,6 +102,7 @@ pub fn synthetic(n: usize) -> ChatList {
                 model: None,
                 tags: vec![],
                 shared: false,
+                menu: Default::default(),
             }
         })
         .collect::<Vec<_>>();

@@ -335,6 +335,7 @@ impl MainWindow {
                 shared: false,
                 read_only: false,
                 unread: false,
+                menu: Default::default(),
             };
             let hermes = match command(&probe) {
                 ChatCommand::Pin => Some(HermesCommand::Pin),
