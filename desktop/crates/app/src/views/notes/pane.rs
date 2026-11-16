@@ -183,6 +183,9 @@ pub struct NotePane {
     saved_title: String,
     pub save: SaveState,
     pub refused: Option<Refusal>,
+    /// The refused draft's choices were offered (Save as My Own Note, Show
+    /// Draft): once per refusal.
+    pub refusal_offered: bool,
     /// A deleted note's text was kept as this new note.
     pub recovered: bool,
     pub recordings: Vec<NoteRecordingDto>,
@@ -334,6 +337,7 @@ impl NotePane {
             saved_title: String::new(),
             save: SaveState::Saved,
             refused: None,
+            refusal_offered: false,
             recovered: false,
             recordings: vec![],
             ai: None,
@@ -768,6 +772,7 @@ impl NotePane {
             }
             Err(e) if is_refusal(&e, "readOnly") => {
                 self.refused = Some(Refusal::ReadOnly);
+                self.refusal_offered = false;
                 self.editor.update(cx, |e, cx| e.set_read_only(true, cx));
                 self.save = SaveState::Failed;
                 self.save_again = false;
@@ -790,6 +795,7 @@ impl NotePane {
             }
             Err(e) if is_refusal(&e, "page") => {
                 self.refused = Some(Refusal::PageMissing);
+                self.refusal_offered = false;
                 self.editor.update(cx, |e, cx| e.set_read_only(true, cx));
                 self.save = SaveState::Failed;
                 self.save_again = false;
@@ -3142,6 +3148,39 @@ mod tests {
             2,
             "the note left was dropped with its unsaved text"
         );
+    }
+
+    /// A save refused (the note read-only now) after the note was left: the
+    /// draft's choices are offered then, and keeping it saves it as a note of
+    /// its own.
+    #[gpui_kit::test]
+    fn a_draft_refused_after_leaving_is_offered_back(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::navigation::AreaItem;
+        let (daemon, stores, area, vcx) = bench::open(cx);
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        daemon.on::<methods::NotesSave>(|p| {
+            if p["id"].is_string() {
+                let mut e = conduit_daemon::protocol::error("conflict", "read-only now");
+                e.args.insert("reason".into(), "readOnly".into());
+                return Err(e);
+            }
+            Ok(serde_json::to_value(bench::detail("n2", "main", "kept")).unwrap())
+        });
+        let pane = bench::pane(&area, vcx);
+        let late = daemon.hold::<methods::NotesSave>();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        drop(pane);
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::AllNotes, cx));
+        vcx.run_until_parked();
+        drop(late);
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::NotesSave>();
+        assert_eq!(saves.len(), 2, "the refused draft was not offered back");
+        assert!(saves[1]["id"].is_null() && saves[1].to_string().contains("Cairn"));
     }
 
     /// A note's draft that conduitd refuses because another account is

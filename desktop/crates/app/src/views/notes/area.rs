@@ -145,11 +145,19 @@ impl NotesArea {
         &mut self,
         pane: Entity<NotePane>,
         e: &PaneEvent,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match e {
             PaneEvent::Settled => {
+                // A save refused after the note was left: its draft's choices
+                // are offered now, as they are when a refused note is left.
+                if self.retiring.contains(&pane)
+                    && !pane.read(cx).refusal_offered
+                    && let Some(title) = pane.read(cx).refused_draft()
+                {
+                    self.ask_about_refused(pane.clone(), title, window, cx);
+                }
                 // A failed save's retry, or a recording or dictation still to
                 // come in, keeps the pane until they are done.
                 let pane_now = pane.read(cx);
@@ -175,6 +183,7 @@ impl NotesArea {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        pane.update(cx, |p, _| p.refusal_offered = true);
         let l = cx.l10n().clone();
         let spec = SheetSpec::new(
             l.desktop_note_unsaved_title(&title),
