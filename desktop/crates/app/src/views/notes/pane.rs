@@ -82,6 +82,9 @@ pub const NOTE_PANE_CONTEXT: &str = "NotePane";
 const SAVE_DELAY: Duration = Duration::from_millis(800);
 /// A failed save is tried again after this.
 const RETRY_DELAY: Duration = Duration::from_secs(5);
+/// A failed save tried again while Quit waits (well within its 3 s).
+const QUIT_RETRY_DELAY: Duration = Duration::from_secs(1);
+
 /// The longest a page change waits for a dictation's last words.
 const RUN_END_WAIT: Duration = Duration::from_secs(3);
 /// The text column's widest.
@@ -218,6 +221,8 @@ pub struct NotePane {
     /// Quit waits on these: told once nothing is saving and no recording,
     /// dictation or recording hand-off is still on its way.
     quit_waiters: Vec<futures::channel::oneshot::Sender<()>>,
+    /// A failed save waits to be tried again ([`Self::retry_after`]).
+    retrying: bool,
     /// Recordings sent to conduitd (`notes.addRecording`) not answered yet.
     recordings_out: u32,
     /// Counts this pane's saves that landed: a refresh asked before one is
@@ -362,6 +367,7 @@ impl NotePane {
             save_again: false,
             waiters: vec![],
             quit_waiters: vec![],
+            retrying: false,
             recordings_out: 0,
             saves_landed: 0,
             refresh_asked: 0,
@@ -701,6 +707,8 @@ impl NotePane {
     /// Saves now what differs from the server's copy.
     pub fn save_now(&mut self, cx: &mut Context<Self>) {
         self._debounce = None;
+        // This save is the retry any failed one waited for.
+        self.retrying = false;
         if self.hold {
             return;
         }
@@ -837,7 +845,13 @@ impl NotePane {
             Err(e) => {
                 log::warn!("notes.save: {e}");
                 self.save = SaveState::Failed;
-                self.retry_later(cx);
+                // Quit waits on it: tried again soon, within Quit's wait.
+                let delay = if self.quit_waiters.is_empty() {
+                    RETRY_DELAY
+                } else {
+                    QUIT_RETRY_DELAY
+                };
+                self.retry_after(delay, cx);
             }
         }
         cx.notify();
@@ -850,9 +864,16 @@ impl NotePane {
 
     /// A failed save is tried again after a while (or on the next edit).
     fn retry_later(&mut self, cx: &mut Context<Self>) {
+        self.retry_after(RETRY_DELAY, cx);
+    }
+
+    /// [`Self::retry_later`], after `delay`. Quit waits for the retry (its
+    /// text is not saved yet).
+    fn retry_after(&mut self, delay: Duration, cx: &mut Context<Self>) {
+        self.retrying = true;
         self._debounce = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                cx.background_executor().timer(RETRY_DELAY).await;
+                cx.background_executor().timer(delay).await;
                 let _ = this.update(cx, |this, cx| {
                     this._debounce = None;
                     this.save_now(cx);
@@ -869,7 +890,9 @@ impl NotePane {
         for waiter in self.waiters.drain(..) {
             let _ = waiter.send(());
         }
-        if !self.audio_pending() {
+        // A failed save still to be tried again keeps Quit waiting too
+        // (within its wait).
+        if !self.audio_pending() && !self.retrying {
             for waiter in self.quit_waiters.drain(..) {
                 let _ = waiter.send(());
             }
@@ -956,6 +979,7 @@ impl NotePane {
     /// it (it is not kept as a new note, as a note deleted elsewhere is).
     pub fn forget_edits(&mut self, cx: &mut Context<Self>) {
         self._debounce = None;
+        self.retrying = false;
         self.hold = true;
         self.refused = None;
         self.saved_ops = self.editor.read(cx).ops();
@@ -3261,6 +3285,41 @@ mod tests {
             !pane.read_with(vcx, |p, cx| p.editor.read(cx).is_read_only()),
             "the page shown takes no typing"
         );
+    }
+
+    /// Quit after a failed save waits for the save tried again, within
+    /// Quit's wait: the note's text is not left unsaved.
+    #[gpui_kit::test]
+    fn quit_waits_for_a_failed_saves_retry(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        daemon.once::<methods::NotesSave>(Err(conduit_daemon::protocol::error(
+            "rpc.daemonUnavailable",
+            "away",
+        )));
+        daemon.on::<methods::NotesSave>(|p| {
+            let page = p["pageId"].as_str().unwrap_or("main").to_string();
+            Ok(serde_json::to_value(bench::detail("n1", &page, "kept")).unwrap())
+        });
+        let quits = Rc::new(std::cell::Cell::new(0));
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        let q = quits.clone();
+        vcx.update(|_, cx| {
+            crate::views::sheet::quit_with(cx, Rc::new(move |_| q.set(q.get() + 1)))
+        });
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::NotesSave>().len(), 1);
+        assert_eq!(
+            quits.get(),
+            0,
+            "the app quit after a failed save, the note's text unsaved"
+        );
+        vcx.executor().advance_clock(QUIT_RETRY_DELAY);
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::NotesSave>().len(), 2);
+        assert_eq!(quits.get(), 1);
     }
 
     /// A note left while its save fails is kept, and saved again, until
