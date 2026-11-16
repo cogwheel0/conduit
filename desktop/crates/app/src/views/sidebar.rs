@@ -1315,6 +1315,8 @@ impl SidebarView {
                         return;
                     };
                     let menu = crate::views::channels::channel_menu(&channel, true, cx.l10n());
+                    // Its own menu only: not the list's New Folder after it.
+                    cx.stop_propagation();
                     menu.show(e.position, window, cx);
                 }),
             )
