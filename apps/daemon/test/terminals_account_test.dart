@@ -196,6 +196,30 @@ void main() {
       );
     });
 
+    test('a new tab asked for as the account changes is not made', () async {
+      final (next, _) = await awayAccount();
+      final computer = ComputerRpcService(container);
+      addTearDown(computer.dispose);
+      final hold = Completer<void>();
+      server.settingsHold = hold;
+      final open = computer.open(
+        const ComputerOpen(
+          chatId: chat,
+          surface: ComputerSurfaceKind.browser,
+          newTab: true,
+        ),
+      );
+      await server.settingsAsked.future;
+      switchAccount(next);
+      hold.complete();
+      await check(open).throws<RpcError>(
+        (e) => e.has((e) => e.code, 'code').equals(
+          ConduitErrorCodes.sessionExpired,
+        ),
+      );
+      check(server.writes).isEmpty();
+    });
+
     test('nothing opens once the service is shut down', () async {
       final computer = ComputerRpcService(container);
       final hold = Completer<void>();

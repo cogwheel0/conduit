@@ -136,6 +136,9 @@ final class ComputerRpcService {
     final account = _session();
     _requireSession(account);
     final service = await _require(request.chatId);
+    // Nothing is asked of the last account's terminal (a new tab, say) once
+    // another account is in use.
+    _requireSession(account);
     final surface = request.surface == ComputerSurfaceKind.desktop
         ? ComputerSurface.desktop
         : ComputerSurface.browser;
