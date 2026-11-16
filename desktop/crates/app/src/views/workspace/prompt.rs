@@ -365,9 +365,15 @@ impl PromptEditor {
                             let id = editor::detail_id(&detail).unwrap_or_default();
                             // Typed on while it saved: that stays, still to
                             // save, in this editor.
-                            let kept = s.form(cx) != sent;
+                            // Update Details saves the name, command and
+                            // tags only: the words stay as typed, unsaved.
+                            let mut saved = sent.clone();
+                            if metadata_only && let Some(p) = detail.prompt.as_ref() {
+                                saved.content = p.content.clone();
+                            }
+                            let kept = s.form(cx) != saved;
                             if kept {
-                                s.saved_under_edits(detail, sent);
+                                s.saved_under_edits(detail, saved);
                             } else {
                                 s.adopt(detail, window, cx);
                             }
@@ -1082,6 +1088,53 @@ impl Render for PromptEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Update Details saves the name, command and tags: words changed
+    /// beside them stay, still to save.
+    #[gpui_kit::test]
+    fn update_details_keeps_the_words_changed_beside_them(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::workspace::editor::bench;
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        let item = |name: &str| {
+            bench::detail(
+                WorkspaceKind::Prompts,
+                serde_json::json!({"id": "p1", "command": "trail", "name": name,
+                                   "content": "Plan a hike", "tags": [], "active": true,
+                                   "production": true}),
+            )
+        };
+        daemon.returns::<methods::WorkspaceGet>(item("Trail"));
+        daemon.returns::<methods::WorkspaceSave>(item("Trail walk"));
+        let editor = vcx.update(|window, cx| {
+            cx.new(|cx| {
+                PromptEditor::new(
+                    stores.clone(),
+                    WeakEntity::new_invalid(),
+                    Some("p1".into()),
+                    bench::manage(),
+                    window,
+                    cx,
+                )
+            })
+        });
+        vcx.run_until_parked();
+        vcx.update(|window, cx| {
+            editor.update(cx, |e, cx| {
+                e.set_field("name", "Trail walk", window, cx);
+                e.set_field("content", "Plan a day hike", window, cx);
+                e.submit(true, window, cx);
+            })
+        });
+        vcx.run_until_parked();
+        editor.read_with(vcx, |e, cx| {
+            assert_eq!(
+                e.content.read(cx).value().to_string(),
+                "Plan a day hike",
+                "Update Details put the saved words back over the changed ones"
+            );
+            assert!(e.is_dirty(cx), "the changed words count as saved");
+        });
+    }
 
     /// A comparison read under one account is not shown once another
     /// signs in.
