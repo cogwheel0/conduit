@@ -61,7 +61,7 @@ pub struct AreaPane {
     last_item: Option<AreaItem>,
     /// Each terminal server's pane, once opened: its shell and folder live
     /// on while another item shows, as mobile's terminal tab keeps alive.
-    /// Dropped (and their handles let go) when the account changes.
+    /// Dropped (and their handles let go) as soon as the account changes.
     terminals: HashMap<String, Entity<crate::views::terminal::pane::TerminalPane>>,
     /// The account the terminal panes belong to.
     terminals_account: Option<String>,
@@ -101,9 +101,15 @@ impl AreaPane {
                 cx.notify()
             }),
             cx.observe(&stores.areas, |_, _, cx| cx.notify()),
+            // Another account (or none): the last one's terminals go now,
+            // not when the next terminal opens.
+            cx.observe(&stores.accounts, |this: &mut Self, _, cx| {
+                this.follow_account(cx)
+            }),
             cx.observe(&layout, |_, _, cx| cx.notify()),
             cx.observe(&notes, |_, _, cx| cx.notify()),
         ];
+        let terminals_account = stores.accounts.read(cx).active().map(|a| a.id.clone());
         Self {
             stores,
             layout,
@@ -114,7 +120,7 @@ impl AreaPane {
             tasks: None,
             last_item: None,
             terminals: HashMap::new(),
-            terminals_account: None,
+            terminals_account,
             _subscriptions: subscriptions,
         }
     }
@@ -126,13 +132,7 @@ impl AreaPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<crate::views::terminal::pane::TerminalPane> {
-        let account = self.stores.accounts.read(cx).active().map(|a| a.id.clone());
-        if account != self.terminals_account {
-            for (_, pane) in self.terminals.drain() {
-                pane.update(cx, |p, cx| p.release(cx));
-            }
-            self.terminals_account = account;
-        }
+        self.follow_account(cx);
         if let Some(pane) = self.terminals.get(id) {
             return pane.clone();
         }
@@ -144,6 +144,22 @@ impl AreaPane {
             .push(cx.observe(&pane, |_, _, cx| cx.notify()));
         self.terminals.insert(id.to_string(), pane.clone());
         pane
+    }
+
+    /// When the account in use is another than the terminals', lets every
+    /// terminal pane's handle go and closes the Computer viewer and the port
+    /// previews: all of them hold the last account's terminal.
+    fn follow_account(&mut self, cx: &mut Context<Self>) {
+        let account = self.stores.accounts.read(cx).active().map(|a| a.id.clone());
+        if account == self.terminals_account {
+            return;
+        }
+        self.terminals_account = account;
+        for (_, pane) in self.terminals.drain() {
+            pane.update(cx, |p, cx| p.release(cx));
+        }
+        crate::views::terminal::close_account_windows(cx);
+        cx.notify();
     }
 
     /// The pane of the terminal server shown now, if any.
@@ -447,5 +463,64 @@ impl Render for AreaPane {
             .child(toolbar)
             .child(body)
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use conduit_protocol::{TerminalAttached, methods};
+    use gpui_kit::{AppContext as _, TestAppContext};
+
+    use super::AreaPane;
+    use crate::stores::Stores;
+    use crate::stores::accounts::tests::{account, list};
+    use crate::stores::layout::LayoutStore;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    /// Another account signing in lets the last one's terminal go at once:
+    /// its handle is detached without another terminal being opened.
+    #[gpui_kit::test]
+    fn an_account_change_lets_the_last_accounts_terminals_go(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::TerminalAttach>(TerminalAttached {
+            handle: "handle-avery".into(),
+            cwd: "/".into(),
+            supported: false,
+        });
+        let scratch = std::env::temp_dir().join(format!("conduit-panes-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        let layout = cx.new(|_| LayoutStore::load(scratch.join("layout.json")));
+        let s = stores.clone();
+        let (area, vcx) =
+            cx.add_window_view(move |window, cx| AreaPane::new(s, layout, window, cx));
+        vcx.update(|window, cx| {
+            area.update(cx, |a, cx| {
+                a.terminal("box", window, cx);
+            })
+        });
+        vcx.run_until_parked();
+        assert!(daemon.calls::<methods::TerminalDetach>().is_empty());
+
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blair", true, true),
+                ]),
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::TerminalDetach>(),
+            vec![serde_json::json!({"handle": "handle-avery"})],
+            "the last account's terminal stayed attached"
+        );
     }
 }

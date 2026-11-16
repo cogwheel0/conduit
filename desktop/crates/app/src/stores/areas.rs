@@ -221,7 +221,11 @@ impl AreasStore {
                 self.hermes_hidden = None;
                 self.hermes_hidden_known.clear();
             }
-            Area::Terminal => self.terminals = None,
+            Area::Terminal => {
+                self.terminals = None;
+                // The account's pick: the next account's list says its own.
+                self.terminal_selected = None;
+            }
             _ => {}
         }
     }
@@ -356,6 +360,9 @@ impl AreasStore {
         servers: conduit_protocol::TerminalServers,
         cx: &mut Context<Self>,
     ) {
+        // A list read asked before this answer is older: it must not put
+        // the last pick back.
+        self.fetches.remove(&Area::Terminal);
         self.terminals = Some(servers.servers);
         self.terminal_selected = servers.selected_id;
         self.changed(cx);
@@ -641,6 +648,53 @@ mod tests {
         store.read_with(cx, |s, _| {
             assert_eq!(s.notes.as_ref().map(Vec::len), Some(1));
             assert!(s.failed.is_empty());
+        });
+    }
+
+    fn servers(selected: &str) -> conduit_protocol::TerminalServers {
+        serde_json::from_value(serde_json::json!({
+            "servers": [
+                {"id": "box", "name": "Workbench", "kind": "system"},
+                {"id": "lab", "name": "Lab", "kind": "system"},
+            ],
+            "selectedId": selected,
+        }))
+        .unwrap()
+    }
+
+    /// Another account: the terminal chats send goes with the list, and a
+    /// `terminal.select` answer is not undone by a list read asked before it.
+    #[gpui_kit::test]
+    fn the_terminal_selection_is_the_accounts_and_the_newest(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::TerminalServers>(servers("box"));
+        let store = cx.new(|_| AreasStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.set_wanted(&[Area::Chats, Area::Terminal], cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.terminal_selected.as_deref(), Some("box"))
+        });
+
+        store.update(cx, |s, cx| s.reset(cx));
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.terminal_selected, None,
+                "the last account's terminal outlived its list"
+            )
+        });
+
+        let older = daemon.hold::<methods::TerminalServers>();
+        store.update(cx, |s, cx| s.set_wanted(&[Area::Chats, Area::Terminal], cx));
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.set_terminals(servers("lab"), cx));
+        drop(older);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.terminal_selected.as_deref(),
+                Some("lab"),
+                "a list read asked before the pick undid it"
+            )
         });
     }
 }
