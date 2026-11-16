@@ -90,6 +90,10 @@ final class HermesRoomsService implements HermesBotChats {
 
   void dispose() {
     _connectionWatch.close();
+    for (final hold in _unsentHolds.values.toList()) {
+      hold.close();
+    }
+    _unsentHolds.clear();
     for (final watch in _watches.values.toList()) {
       _close(watch);
     }
@@ -486,6 +490,32 @@ final class HermesRoomsService implements HermesBotChats {
   core.HermesRoomController _controller(String roomId) =>
       _container.read(core.hermesRoomProvider(roomId).notifier);
 
+  /// Rooms kept alive for words Hermes may have, by room.
+  final Map<String, ProviderSubscription<core.HermesRoomView>> _unsentHolds =
+      <String, ProviderSubscription<core.HermesRoomView>>{};
+
+  /// Keeps room [roomId]'s controller -- and with it the id its words went
+  /// out under -- while it sends, or holds words Hermes may have: nothing
+  /// that shows or acts on the room may let it go before then, or sending
+  /// the words again would post them twice. Let go once they are settled
+  /// (posted, refused, or seen in the log).
+  void _holdWhileUnsent(String roomId) {
+    if (_unsentHolds.containsKey(roomId)) return;
+    bool unsettled(core.HermesRoomView view) =>
+        view.sending || view.unsentText != null;
+    if (!unsettled(_container.read(core.hermesRoomProvider(roomId)))) return;
+    late final ProviderSubscription<core.HermesRoomView> hold;
+    hold = _container.listen<core.HermesRoomView>(
+      core.hermesRoomProvider(roomId),
+      (_, next) {
+        if (unsettled(next)) return;
+        if (identical(_unsentHolds[roomId], hold)) _unsentHolds.remove(roomId);
+        hold.close();
+      },
+    );
+    _unsentHolds[roomId] = hold;
+  }
+
   void _schedule(_RoomWatch watch) {
     watch.timer?.cancel();
     watch.timer = Timer.periodic(
@@ -498,6 +528,7 @@ final class HermesRoomsService implements HermesBotChats {
     if (_watches[watch.roomId] != watch) return;
     _watches.remove(watch.roomId);
     watch.timer?.cancel();
+    _holdWhileUnsent(watch.roomId);
     watch.subscription.close();
     watch.closed = true;
   }
@@ -798,6 +829,7 @@ final class HermesRoomsService implements HermesBotChats {
       connection.stillCurrent(began);
       return await body(controller, began);
     } finally {
+      _holdWhileUnsent(roomId);
       hold.close();
     }
   });

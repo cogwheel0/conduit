@@ -13,6 +13,8 @@ import 'package:conduit_core/features/hermes/providers/hermes_room_providers.dar
     as core;
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/features/hermes/services/hermes_room_projection.dart'
+    as core;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:conduitd/src/hermes_connection.dart';
@@ -138,7 +140,17 @@ final class _ScriptedRoom extends core.HermesRoomController {
   @override
   Future<void> send(String text) async {
     script.sent.add(text);
-    if (script.sendError case final error?) throw error;
+    state = state.copyWith(sending: true, unsentText: text);
+    final gate = script.sendGate;
+    if (gate != null) await gate.future;
+    final error = script.sendError;
+    // An unclear answer keeps the words (Hermes may have them); a post or a
+    // refusal settles them.
+    final keeps = error != null && !core.hermesRoomSendAdmittedNothing(error);
+    if (ref.mounted) {
+      state = state.copyWith(sending: false, unsentText: keeps ? text : null);
+    }
+    if (error != null) throw error;
   }
 
   @override
@@ -173,6 +185,9 @@ final class _Script {
 
   /// Runs once inside the next roster read.
   void Function()? duringRoster;
+
+  /// Holds a send until completed.
+  Completer<void>? sendGate;
   final List<String> sent = <String>[];
   final List<String> answers = <String>[];
 }
@@ -658,6 +673,57 @@ void main() {
       final second = rooms.connection.current;
       expect(second, isNot(first));
       expect((await rooms.rooms('w1')).connection, second);
+    });
+  });
+
+  group('words Hermes may have stay with their room until settled', () {
+    test('after the room is left', () async {
+      await rooms.watch('w1', 'room-1');
+      script.sendError = TimeoutException('no answer');
+      final result = await rooms.send(
+        const HermesRoomMessage(roomId: 'room-1', text: 'hello'),
+      );
+      expect((result.sent, result.refused), (false, false));
+      rooms.unwatch('w1', 'room-1');
+      await container.pump();
+      final view = await rooms.watch('w1', 'room-1');
+      expect(view.unsentText, 'hello');
+    });
+
+    test('when the room is left while they are being sent', () async {
+      await rooms.watch('w1', 'room-1');
+      script.sendError = TimeoutException('no answer');
+      script.sendGate = Completer<void>();
+      final sending = rooms.send(
+        const HermesRoomMessage(roomId: 'room-1', text: 'hello'),
+      );
+      rooms.unwatch('w1', 'room-1');
+      await container.pump();
+      script.sendGate!.complete();
+      await sending;
+      await container.pump();
+      final view = await rooms.watch('w1', 'room-1');
+      expect(view.unsentText, 'hello');
+    });
+
+    test('and go once the room settles them', () async {
+      await rooms.watch('w1', 'room-1');
+      script.sendError = TimeoutException('no answer');
+      await rooms.send(
+        const HermesRoomMessage(roomId: 'room-1', text: 'hello'),
+      );
+      rooms.unwatch('w1', 'room-1');
+      await container.pump();
+      // The log shows them: the room lets them go, and is let go itself.
+      final controller = container.read(
+        core.hermesRoomProvider('room-1').notifier,
+      );
+      controller.state = controller.state.copyWith(unsentText: null);
+      await container.pump();
+      expect(
+        container.read(core.hermesRoomProvider('room-1').notifier),
+        isNot(same(controller)),
+      );
     });
   });
 }

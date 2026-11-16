@@ -332,11 +332,11 @@ pub struct HermesRoomPane {
     sending: Option<String>,
     /// Decision cards being answered.
     answering: HashSet<String>,
-    /// The last unclearly answered words, to give up once the log has them.
+    /// The words Hermes may have, as the room last said.
     unsent: Option<String>,
-    /// The field gives its words up at the next frame (the log settled
-    /// them).
-    clear_pending: bool,
+    /// Words the log settled while a send was still out: the field gives
+    /// them up once that send's answer is in.
+    settled: Option<String>,
     tick: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -378,7 +378,9 @@ impl HermesRoomPane {
                     _ => {}
                 },
             ),
-            cx.observe(&stores.hermes_rooms, |this, _, cx| this.sync(cx)),
+            cx.observe_in(&stores.hermes_rooms, window, |this, _, window, cx| {
+                this.sync(window, cx)
+            }),
             cx.observe(&stores.app_settings, |this, store, cx| {
                 let on_enter = store.read(cx).settings().send_on_enter;
                 this.input
@@ -423,11 +425,11 @@ impl HermesRoomPane {
             sending: None,
             answering: HashSet::new(),
             unsent: None,
-            clear_pending: false,
+            settled: None,
             tick: None,
             _subscriptions: subscriptions,
         };
-        this.sync(cx);
+        this.sync(window, cx);
         this
     }
 
@@ -436,8 +438,9 @@ impl HermesRoomPane {
     }
 
     /// The store changed: the timeline follows, the tick runs while a bot
-    /// works, and words the log settled leave the field.
-    fn sync(&mut self, cx: &mut Context<Self>) {
+    /// works, words the log settled leave the field, and words Hermes may
+    /// have come back to an empty one (the room opened again).
+    fn sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let view = self.view(cx).cloned();
         let rows: Vec<Row> = match &view {
             Some(v) if v.room.is_some() => {
@@ -485,24 +488,45 @@ impl HermesRoomPane {
         } else if !working {
             self.tick = None;
         }
-        // Words Hermes may have had: once its log settles them (with no
-        // send under way), the field gives them up so Send cannot post
-        // them twice.
+        // Words stay with their room until Hermes has them or the user
+        // lets them go. Once the log settles words Hermes may have had, the
+        // field gives them up (after any send still out), so Send cannot
+        // post them twice; words Hermes may have come back to an empty
+        // field when the room is opened again.
         let unsent = view.as_ref().and_then(|v| v.unsent_text.clone());
-        if let Some(settled) = self.unsent.take()
-            && unsent.is_none()
-            && self.sending.is_none()
-            && self.text(cx).trim() == settled
-        {
-            self.clear_on_next_frame(cx);
+        match (&self.unsent, &unsent) {
+            (Some(was), None) => self.settled = Some(was.clone()),
+            (None, Some(words)) if self.sending.is_none() && self.text(cx).is_empty() => {
+                let words = words.clone();
+                let at = words.len();
+                self.input.update(cx, |s, cx| {
+                    s.set_value(words, window, cx);
+                    s.set_selected_range(at..at, cx);
+                });
+            }
+            _ => {}
+        }
+        if unsent.is_some() {
+            self.settled = None;
         }
         self.unsent = unsent;
+        self.give_up_settled(window, cx);
         cx.notify();
     }
 
-    fn clear_on_next_frame(&mut self, cx: &mut Context<Self>) {
-        self.clear_pending = true;
-        cx.notify();
+    /// Words the log settled leave the field -- once no send is out, and
+    /// only while the field still holds exactly those words (words typed
+    /// since are a message of their own).
+    fn give_up_settled(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.sending.is_some() {
+            return;
+        }
+        let Some(settled) = self.settled.take() else {
+            return;
+        };
+        if self.text(cx).trim() == settled {
+            self.input.update(cx, |s, cx| s.set_value("", window, cx));
+        }
     }
 
     /// The timeline's list (the perf fixture scrolls it).
@@ -677,6 +701,9 @@ impl HermesRoomPane {
                                 .update(cx, |t, cx| t.show(NoticeLevel::Warning, text, cx));
                         }
                     }
+                    // The room's log may have settled the words while the
+                    // answer was out.
+                    p.give_up_settled(window, cx);
                     cx.notify();
                 });
             });
@@ -1474,7 +1501,7 @@ fn route_text(item: &HermesRoomItemDto, l: &L10n) -> String {
 }
 
 impl Render for HermesRoomPane {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = cx.conduit().clone();
         let l = cx.l10n().clone();
         let r = t.roles;
@@ -1548,9 +1575,6 @@ impl Render for HermesRoomPane {
         let mention = self.mention_list(&t, &l, cx);
         let banners = self.banners(&t, &l, cx);
         let composer = self.composer(&t, &l, cx);
-        if std::mem::take(&mut self.clear_pending) {
-            self.input.update(cx, |s, cx| s.set_value("", window, cx));
-        }
         div()
             .id("hermes-room")
             .role(Role::Group)
@@ -1636,5 +1660,92 @@ mod tests {
         assert_eq!(format_elapsed(80_000), "1m20s");
         assert_eq!(format_elapsed(3_900_000), "1h05m");
         assert_eq!(format_elapsed(-5), "0s");
+    }
+
+    mod pane {
+        use conduit_protocol::{Event, HermesRoomSendResult, methods};
+        use gpui_kit::{Entity, TestAppContext, VisualTestContext};
+        use serde_json::json;
+
+        use super::super::HermesRoomPane;
+        use crate::stores::Stores;
+        use crate::stores::rpc::fake::FakeDaemon;
+
+        fn room(unsent: Option<&str>) -> conduit_protocol::HermesRoomView {
+            serde_json::from_value(json!({
+                "roomId": "r1", "loaded": true, "running": true,
+                "room": {"id": "r1", "name": "Greenhouse crew", "members": [
+                    {"memberId": "fern", "profile": "fern", "handle": "fern", "name": "Fern"},
+                ]},
+                "unsentText": unsent,
+            }))
+            .unwrap()
+        }
+
+        fn open<'a>(
+            cx: &'a mut TestAppContext,
+            daemon: &FakeDaemon,
+            tag: &str,
+        ) -> (Stores, Entity<HermesRoomPane>, &'a mut VisualTestContext) {
+            let scratch =
+                std::env::temp_dir().join(format!("conduit-hroom-{tag}-{}", std::process::id()));
+            let stores = cx.update(|cx| {
+                crate::views::test_globals(cx);
+                Stores::for_test(daemon.rpc(), &scratch, cx)
+            });
+            stores
+                .hermes_rooms
+                .update(cx, |h, cx| h.show(Some("r1"), cx));
+            let pane_stores = stores.clone();
+            let (pane, vcx) = cx.add_window_view(move |window, cx| {
+                HermesRoomPane::new(pane_stores, "r1".into(), window, cx)
+            });
+            vcx.run_until_parked();
+            (stores, pane, vcx)
+        }
+
+        fn changed(
+            stores: &Stores,
+            view: conduit_protocol::HermesRoomView,
+            vcx: &mut VisualTestContext,
+        ) {
+            stores.hermes_rooms.update(vcx, |h, cx| {
+                h.on_event(&Event::HermesRoomsChanged(view), cx)
+            });
+            vcx.run_until_parked();
+        }
+
+        #[gpui_kit::test]
+        fn words_the_log_settles_during_a_send_leave_the_field_when_it_ends(
+            cx: &mut TestAppContext,
+        ) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(None));
+            // The send's answer is unclear and late.
+            daemon.returns::<methods::HermesRoomsSend>(HermesRoomSendResult::default());
+            let held = daemon.hold::<methods::HermesRoomsSend>();
+            let (stores, pane, vcx) = open(cx, &daemon, "settle");
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("hello", window, cx);
+                p.send(window, cx);
+            });
+            // Hermes posted them: the room holds the words, then its log
+            // settles them, all before the send's answer comes back.
+            changed(&stores, room(Some("hello")), vcx);
+            changed(&stores, room(None), vcx);
+            drop(held);
+            vcx.run_until_parked();
+            pane.read_with(vcx, |p, cx| {
+                assert_eq!(p.text(cx), "", "a second Send would post them twice")
+            });
+        }
+
+        #[gpui_kit::test]
+        fn a_room_opened_again_gives_back_words_hermes_may_have(cx: &mut TestAppContext) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(Some("plant the beans")));
+            let (_stores, pane, vcx) = open(cx, &daemon, "reopen");
+            pane.read_with(vcx, |p, cx| assert_eq!(p.text(cx), "plant the beans"));
+        }
     }
 }
