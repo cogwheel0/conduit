@@ -19,6 +19,8 @@ import 'package:conduit_core/features/notes/utils/note_quill_delta.dart';
 import 'package:conduit_core/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit_core/models/note.dart';
+import 'package:conduit_core/persistence/account_scoped_preferences.dart'
+    show currentPreferenceAccountId;
 import 'package:conduit_core/ports/paths_port.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -65,6 +67,11 @@ final class NotesService {
   /// The notes handed to an editor, by id: what a deleted note's draft is
   /// recovered over.
   final Map<String, Note> _seen = <String, Note>{};
+
+  /// The account (active server) each note in [_seen] was handed out
+  /// under: a draft is recovered only under that account, never into the
+  /// next one's notes.
+  final Map<String, String?> _seenUnder = <String, String?>{};
 
   /// One recordings controller per note asked about.
   final Map<String, _NoteRecorder> _recorders = <String, _NoteRecorder>{};
@@ -159,6 +166,7 @@ final class NotesService {
   /// it has no such page), remembered for a recovery.
   NoteDetail _detail(Note note, _Access access, {String? pageId}) {
     _seen[note.id] = note;
+    _seenUnder[note.id] = currentPreferenceAccountId();
     final page = _pageOf(note, pageId);
     final markdown = _pageMarkdown(note, page);
     final files = <NoteFile>[
@@ -451,6 +459,9 @@ final class NotesService {
     required _Access access,
     Note? previous,
   }) async {
+    // Its row is missing because another account is active now (each has
+    // its own database): the draft stays out of that account's notes.
+    _requireOpenedHere(id);
     final db = _container.read(appDatabaseProvider)!;
     previous ??=
         _seen[id] ?? Note(id: id, title: title, createdAt: 0, updatedAt: 0);
@@ -473,6 +484,21 @@ final class NotesService {
       unawaited(recorder.controller.rebindTo(previous, recovered));
     }
     return _detail(recovered, access).copyWith(recoveredFrom: id);
+  }
+
+  /// Refuses work for note [id] when it was handed out under another
+  /// account than the one active now: a draft or recording of one account
+  /// never goes into the next one's notes, storage or server. (A note this
+  /// daemon has not handed out -- it restarted under an open editor -- is
+  /// taken as the active account's, as before.)
+  void _requireOpenedHere(String id) {
+    if (!_seenUnder.containsKey(id)) return;
+    if (_seenUnder[id] == currentPreferenceAccountId()) return;
+    throw RpcError(
+      code: ConduitErrorCodes.sessionExpired,
+      args: const <String, String>{'reason': 'account'},
+      debugMessage: 'note $id was opened under another account',
+    );
   }
 
   static RpcError _saveFailed({required bool creating}) => RpcError(
@@ -620,7 +646,11 @@ final class NotesService {
   /// into the account's storage before anything else), then uploads and
   /// attaches it.
   Future<NoteRecordings> addRecording(NoteRecordingAdd request) async {
+    _requireOpenedHere(request.noteId);
     final recorder = await _recorderFor(request.noteId);
+    // Checked again after the reads: a switch meanwhile keeps the audio out
+    // of the next account's storage.
+    _requireOpenedHere(request.noteId);
     final file = File(request.path);
     if (!file.existsSync()) {
       throw RpcError(
@@ -642,7 +672,9 @@ final class NotesService {
   }
 
   Future<NoteRecordings> retryRecording(NoteRecordingRef request) async {
+    _requireOpenedHere(request.noteId);
     final recorder = await _recorderFor(request.noteId);
+    _requireOpenedHere(request.noteId);
     unawaited(
       recorder.controller.retry(ids: <String>[request.id], showFeedback: true),
     );

@@ -723,6 +723,14 @@ impl NotePane {
                 self.save = SaveState::Failed;
                 self.save_again = false;
             }
+            Err(e) if is_reason(&e, "account") => {
+                // Opened under an account no longer signed in here: the text
+                // cannot go to it, and never goes to the next one.
+                log::warn!("notes.save: {e}");
+                self.hold = true;
+                self.save = SaveState::Saved;
+                self.save_again = false;
+            }
             Err(e) if is_refusal(&e, "page") => {
                 self.refused = Some(Refusal::PageMissing);
                 self.editor.update(cx, |e, cx| e.set_read_only(true, cx));
@@ -3005,6 +3013,28 @@ mod tests {
             2,
             "the note left was dropped with its unsaved text"
         );
+    }
+
+    /// A note opened under an account no longer signed in is not saved
+    /// (conduitd refuses it for the next account) and not tried again.
+    #[gpui_kit::test]
+    fn a_save_refused_for_another_account_is_not_tried_again(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        daemon.on::<methods::NotesSave>(|_| {
+            let mut e = conduit_daemon::protocol::error("auth.sessionExpired", "another account");
+            e.args.insert("reason".into(), "account".into());
+            Err(e)
+        });
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx));
+            p.save_now(cx);
+        });
+        vcx.run_until_parked();
+        vcx.executor().advance_clock(RETRY_DELAY * 3);
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::NotesSave>().len(), 1);
+        assert!(!pane.read_with(vcx, |p, _| p.is_busy()));
     }
 
     /// A dictation still finishing when the note is left keeps the pane
