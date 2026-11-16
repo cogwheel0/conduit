@@ -110,6 +110,12 @@ impl LibreChatMemoriesView {
                                 if s.holds(sent, cx) {
                                     s.editor = None;
                                 } else if let Some(e) = s.editor.as_mut() {
+                                    // The memory is saved under the key sent
+                                    // (made, or renamed): this editor's next
+                                    // Save updates it there.
+                                    if e.original == sent.original_key {
+                                        e.original = Some(sent.key.clone());
+                                    }
                                     e.saving = false;
                                 }
                             }
@@ -479,5 +485,47 @@ mod tests {
             assert_eq!(v.value.read(cx).value(), "Ridge loop, then the lake");
             assert!(!v.editor.as_ref().unwrap().saving, "Save stays busy");
         });
+        // Saved again: the memory made by the first Save is updated, not
+        // made a second time.
+        view.update_in(vcx, |v, window, cx| v.save(window, cx));
+        vcx.run_until_parked();
+        let sent = |daemon: &FakeDaemon| {
+            daemon
+                .calls::<methods::LibrechatMemoriesSave>()
+                .last()
+                .map(|p| p["originalKey"].clone())
+        };
+        assert_eq!(
+            sent(&daemon),
+            Some(serde_json::json!("trail_notes")),
+            "the second Save made the memory again"
+        );
+
+        // A rename with words typed while it saves: the next Save goes to
+        // the new key.
+        let held = daemon.hold::<methods::LibrechatMemoriesSave>();
+        view.update_in(vcx, |v, window, cx| {
+            let memory = LibreChatMemoryDto {
+                key: "old_key".into(),
+                value: "Lake loop".into(),
+                token_count: 2,
+                updated_ms: None,
+            };
+            v.open_editor(Some(&memory), window, cx);
+            v.key
+                .update(cx, |s, cx| s.set_value("lake_notes", window, cx));
+            v.save(window, cx);
+            v.value
+                .update(cx, |s, cx| s.set_value("Lake loop, twice", window, cx));
+        });
+        held.release();
+        vcx.run_until_parked();
+        view.update_in(vcx, |v, window, cx| v.save(window, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            sent(&daemon),
+            Some(serde_json::json!("lake_notes")),
+            "the next Save went to the old key"
+        );
     }
 }
