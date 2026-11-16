@@ -3418,6 +3418,309 @@
   "@desktopChannelsUnavailable": {
     "description": "Toast when a conduit://channel link is opened and the account has no channels."
   },
+  "desktopNewChannel": "New Channel…",
+  "@desktopNewChannel": {
+    "description": "Button on the sidebar's Channels heading and menu item that opens the New Channel sheet. Title Case with an ellipsis: a sheet follows."
+  },
+  "desktopNewChannelTitle": "New Channel",
+  "@desktopNewChannelTitle": {
+    "description": "Title of the sheet that makes a channel."
+  },
+  "desktopChannelPrivateFooter": "Only the people you add can see a private channel.",
+  "@desktopChannelPrivateFooter": {
+    "description": "Footer under the Private Channel switch in the New Channel sheet."
+  },
+  "desktopChannelNameRequired": "Enter a name for the channel.",
+  "@desktopChannelNameRequired": {
+    "description": "Error under the name field when a channel is made or saved without a name."
+  },
+  "desktopChannelSaveFailed": "The channel wasn't saved.",
+  "@desktopChannelSaveFailed": {
+    "description": "Error in the channel sheet when the server did not make or change the channel."
+  },
+  "desktopChannelMarkRead": "Mark as Read",
+  "@desktopChannelMarkRead": {
+    "description": "Context menu item on a channel in the sidebar that clears its unread count."
+  },
+  "desktopChannelEditMenu": "Edit Channel…",
+  "@desktopChannelEditMenu": {
+    "description": "Menu item that opens the Edit Channel sheet (name and description). Ellipsis: a sheet follows."
+  },
+  "desktopChannelLeaveMenu": "Leave Channel…",
+  "@desktopChannelLeaveMenu": {
+    "description": "Menu item that asks before leaving a channel or direct message."
+  },
+  "desktopChannelDeleteMenu": "Delete Channel…",
+  "@desktopChannelDeleteMenu": {
+    "description": "Menu item that asks before deleting a channel for everyone."
+  },
+  "desktopChannelLeaveTitle": "Leave “{name}”?",
+  "@desktopChannelLeaveTitle": {
+    "description": "Title of the alert that asks before leaving channel {name}.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopChannelLeaveMessage": "You'll stop seeing its messages.",
+  "@desktopChannelLeaveMessage": {
+    "description": "Informative text of the alert that asks before leaving a channel."
+  },
+  "desktopChannelLeave": "Leave",
+  "@desktopChannelLeave": {
+    "description": "Default button of the alert that leaves a channel."
+  },
+  "desktopChannelDeleteTitle": "Delete “{name}”?",
+  "@desktopChannelDeleteTitle": {
+    "description": "Title of the alert that asks before deleting channel {name}.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopChannelDeleteMessage": "Its messages are deleted for everyone. This can't be undone.",
+  "@desktopChannelDeleteMessage": {
+    "description": "Informative text of the alert that asks before deleting a channel."
+  },
+  "desktopChannelChangeFailed": "The channel wasn't changed.",
+  "@desktopChannelChangeFailed": {
+    "description": "Toast when leaving, deleting, muting or marking a channel read failed on the server."
+  },
+  "desktopChannelUnavailable": "This channel is no longer available.",
+  "@desktopChannelUnavailable": {
+    "description": "Shown in the channel pane when the channel was deleted or the user may no longer see it."
+  },
+  "desktopChannelMembers": "Members",
+  "@desktopChannelMembers": {
+    "description": "Title of the channel's members sheet, and the tooltip of its toolbar button before the count is known."
+  },
+  "desktopChannelLoadingOlder": "Loading earlier messages…",
+  "@desktopChannelLoadingOlder": {
+    "description": "Row at the top of a channel while its earlier messages load."
+  },
+  "desktopChannelOlderFailed": "Earlier messages didn't load.",
+  "@desktopChannelOlderFailed": {
+    "description": "Toast when a channel's earlier messages did not load."
+  },
+  "desktopChannelEdited": "(edited)",
+  "@desktopChannelEdited": {
+    "description": "Small note after a channel message's time when it was edited after it was posted."
+  },
+  "desktopChannelReplies": "{count, plural, =1{1 reply} other{{count} replies}}",
+  "@desktopChannelReplies": {
+    "description": "Link under a channel message that opens its thread, with how many replies it has.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopChannelAddReaction": "Add Reaction",
+  "@desktopChannelAddReaction": {
+    "description": "Tooltip and VoiceOver name of the button that opens the emoji picker for a channel message."
+  },
+  "desktopChannelAddReactionMenu": "Add Reaction…",
+  "@desktopChannelAddReactionMenu": {
+    "description": "Context menu item on a channel message that opens the emoji picker. Ellipsis: a picker follows."
+  },
+  "desktopChannelReplyInThread": "Reply in Thread",
+  "@desktopChannelReplyInThread": {
+    "description": "Button and menu item that opens a channel message's thread beside the channel."
+  },
+  "desktopChannelCopyText": "Copy Text",
+  "@desktopChannelCopyText": {
+    "description": "Context menu item that copies a channel message's text."
+  },
+  "desktopChannelDeleteMessageMenu": "Delete Message…",
+  "@desktopChannelDeleteMessageMenu": {
+    "description": "Context menu item that asks before deleting a channel message."
+  },
+  "desktopChannelDeleteMessageTitle": "Delete this message?",
+  "@desktopChannelDeleteMessageTitle": {
+    "description": "Title of the alert that asks before deleting a channel message."
+  },
+  "desktopChannelDeleteMessageMessage": "It's deleted for everyone in the channel.",
+  "@desktopChannelDeleteMessageMessage": {
+    "description": "Informative text of the alert that asks before deleting a channel message."
+  },
+  "desktopChannelReactedBy": "{names} reacted with {emoji}",
+  "@desktopChannelReactedBy": {
+    "description": "Tooltip of a reaction under a channel message: who reacted ({names}, a list) with {emoji}.",
+    "placeholders": {
+      "names": {
+        "type": "String"
+      },
+      "emoji": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopChannelEditHint": "Esc to cancel, Return to save",
+  "@desktopChannelEditHint": {
+    "description": "Hint under the field where a channel message is edited in place."
+  },
+  "desktopChannelCancelReply": "Cancel Reply",
+  "@desktopChannelCancelReply": {
+    "description": "Tooltip of the close button on the \"Replying to …\" bar above the channel composer."
+  },
+  "desktopChannelTypingOne": "{name} is typing…",
+  "@desktopChannelTypingOne": {
+    "description": "Line above a channel's composer while one person ({name}) is typing.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopChannelTypingTwo": "{first} and {second} are typing…",
+  "@desktopChannelTypingTwo": {
+    "description": "Line above a channel's composer while two people are typing.",
+    "placeholders": {
+      "first": {
+        "type": "String"
+      },
+      "second": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopChannelTypingMany": "Several people are typing…",
+  "@desktopChannelTypingMany": {
+    "description": "Line above a channel's composer while three or more people are typing."
+  },
+  "desktopChannelMessageHint": "Message {channel}",
+  "@desktopChannelMessageHint": {
+    "description": "Placeholder of a channel's composer; {channel} is its name or, for a direct message, the people in it.",
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopChannelThreadHint": "Reply in thread…",
+  "@desktopChannelThreadHint": {
+    "description": "Placeholder of the composer in a thread beside a channel."
+  },
+  "desktopChannelCloseThread": "Close Thread",
+  "@desktopChannelCloseThread": {
+    "description": "Tooltip of the button that closes the thread beside a channel."
+  },
+  "desktopChannelSendFailed": "Your message wasn't sent.",
+  "@desktopChannelSendFailed": {
+    "description": "Toast when a channel message was not sent."
+  },
+  "desktopChannelEditFailed": "Your edit wasn't saved.",
+  "@desktopChannelEditFailed": {
+    "description": "Toast when an edit to a channel message was not saved."
+  },
+  "desktopChannelDeleteFailed": "The message wasn't deleted.",
+  "@desktopChannelDeleteFailed": {
+    "description": "Toast when a channel message was not deleted."
+  },
+  "desktopChannelReactFailed": "Your reaction wasn't saved.",
+  "@desktopChannelReactFailed": {
+    "description": "Toast when a reaction to a channel message was not saved."
+  },
+  "desktopChannelPinFailed": "The pin wasn't changed.",
+  "@desktopChannelPinFailed": {
+    "description": "Toast when pinning or unpinning a channel message failed."
+  },
+  "desktopChannelAddPeople": "Add People…",
+  "@desktopChannelAddPeople": {
+    "description": "Button in the members sheet that opens the list of people and groups to add. Ellipsis: a list follows."
+  },
+  "desktopChannelAddPeopleTitle": "Add People",
+  "@desktopChannelAddPeopleTitle": {
+    "description": "Heading of the members sheet while people and groups are being chosen to add."
+  },
+  "desktopChannelAddSearchHint": "Search people and groups",
+  "@desktopChannelAddSearchHint": {
+    "description": "Placeholder of the search field that finds people and groups to add to a channel."
+  },
+  "desktopNotifyChannels": "Notify About Channel Messages",
+  "@desktopNotifyChannels": {
+    "description": "Settings › Desktop switch: a notification when someone posts in a channel that is not in front of the user."
+  },
+  "desktopNotifyChannelsFooter": "A channel set to Mentions Only notifies only when you're mentioned. Notifications never show the message.",
+  "@desktopNotifyChannelsFooter": {
+    "description": "Footer under the channel notifications switch in Settings › Desktop."
+  },
+  "desktopChannelNotificationTitle": "{author} in {channel}",
+  "@desktopChannelNotificationTitle": {
+    "description": "Title of a notification for a channel message: {author} posted in {channel}.",
+    "placeholders": {
+      "author": {
+        "type": "String"
+      },
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopChannelNotificationMessage": "New message",
+  "@desktopChannelNotificationMessage": {
+    "description": "Body of a notification for a new channel message (the message itself is never shown)."
+  },
+  "desktopChannelNotificationMention": "Mentioned you",
+  "@desktopChannelNotificationMention": {
+    "description": "Body of a notification for a channel message that mentions the user."
+  },
+  "desktopChannelEmojiPicker": "Choose a Reaction",
+  "@desktopChannelEmojiPicker": {
+    "description": "VoiceOver name of the emoji picker that adds a reaction to a channel message."
+  },
+  "desktopChannelDownloadFailed": "The file wasn't saved.",
+  "@desktopChannelDownloadFailed": {
+    "description": "Toast when an app's report could not be saved to a file."
+  },
+  "desktopChannelJumpToLatest": "Jump to Latest",
+  "@desktopChannelJumpToLatest": {
+    "description": "Button at the bottom of a channel, shown while scrolled up, that goes to the newest message."
+  },
+  "desktopChannelDirectMessage": "Direct message",
+  "@desktopChannelDirectMessage": {
+    "description": "What VoiceOver says a direct-message conversation is, after its title."
+  },
+  "desktopChannelGroup": "Group channel",
+  "@desktopChannelGroup": {
+    "description": "What VoiceOver says a group channel (one with its own members) is, after its title."
+  },
+  "desktopChannelMembersAdded": "Members added",
+  "@desktopChannelMembersAdded": {
+    "description": "Toast after people or groups were added to a channel."
+  },
+  "desktopChannelMemberRemoved": "{name} removed",
+  "@desktopChannelMemberRemoved": {
+    "description": "Toast after {name} was removed from a channel.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopChannelRemoveMember": "Remove",
+  "@desktopChannelRemoveMember": {
+    "description": "Default button of the alert that removes a member from a channel."
+  },
+  "desktopChannelRemoveMemberTitle": "Remove {name}?",
+  "@desktopChannelRemoveMemberTitle": {
+    "description": "Title of the alert that asks before removing {name} from a channel.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopChannelRemoveMemberMessage": "They'll no longer see this channel or its messages.",
+  "@desktopChannelRemoveMemberMessage": {
+    "description": "Informative text of the alert that asks before removing someone from a channel."
+  },
+  "desktopChannelYou": "(You)",
+  "@desktopChannelYou": {
+    "description": "Shown after the signed-in user's own name in the members list."
+  },
   "desktopNotesUnavailable": "Notes aren't available for this account.",
   "@desktopNotesUnavailable": {
     "description": "Toast when a conduit://note link is opened and the account has no notes."

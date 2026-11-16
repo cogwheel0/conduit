@@ -1623,8 +1623,15 @@ impl SettingsView {
             prefs.notify_answers,
             |d, on| d.notify_answers = on,
         );
+        let notify_channels = toggle(
+            "notify-channels",
+            l10n.desktop_notify_channels(),
+            prefs.notify_channels,
+            |d, on| d.notify_channels = on,
+        );
         let mut notify_footer = l10n.desktop_notify_answers_footer();
-        let denied = notifications == NotificationAccess::Denied && prefs.notify_answers;
+        let denied = notifications == NotificationAccess::Denied
+            && (prefs.notify_answers || prefs.notify_channels);
         if denied {
             notify_footer = format!("{notify_footer}\n\n{}", l10n.desktop_notifications_denied());
         } else if notifications == NotificationAccess::Unavailable {
@@ -1633,8 +1640,16 @@ impl SettingsView {
                 l10n.desktop_notifications_unavailable()
             );
         }
-        let mut notify_rows =
-            vec![setting_row(l10n.desktop_notify_answers(), None, notify, cx).into_any_element()];
+        let mut notify_rows = vec![
+            setting_row(l10n.desktop_notify_answers(), None, notify, cx).into_any_element(),
+            setting_row(
+                l10n.desktop_notify_channels(),
+                Some(l10n.desktop_notify_channels_footer().into()),
+                notify_channels,
+                cx,
+            )
+            .into_any_element(),
+        ];
         if denied {
             notify_rows.push(
                 setting_row(

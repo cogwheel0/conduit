@@ -153,15 +153,28 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
     )
     .detach();
     // `turn.finished` is unscoped: it comes for chats that are not open.
+    // `channels.posted` too: someone else posted in a channel not in front.
     connection.update(cx, |c, _| {
-        c.subscribe(NOTIFICATIONS_KEY, &[events::TURN_FINISHED], vec![])
+        c.subscribe(
+            NOTIFICATIONS_KEY,
+            &[events::TURN_FINISHED, events::CHANNELS_POSTED],
+            vec![],
+        )
     });
     cx.subscribe(&connection, |_, event, cx| {
-        if let ConnectionEvent::Daemon(event) = event
-            && let Event::TurnFinished(finished) = event.as_ref()
-        {
-            let finished = finished.clone();
-            cx.defer(move |cx| on_turn_finished(&finished, cx));
+        let ConnectionEvent::Daemon(event) = event else {
+            return;
+        };
+        match event.as_ref() {
+            Event::TurnFinished(finished) => {
+                let finished = finished.clone();
+                cx.defer(move |cx| on_turn_finished(&finished, cx));
+            }
+            Event::ChannelsPosted(posted) => {
+                let posted = posted.clone();
+                cx.defer(move |cx| on_channel_posted(&posted, cx));
+            }
+            _ => {}
         }
     })
     .detach();
@@ -619,6 +632,41 @@ fn on_turn_finished(finished: &TurnFinished, cx: &mut App) {
     post(n, cx);
 }
 
+/// Someone else posted in a channel not in front of the user: a
+/// notification, by mobile's rules (the daemon's `alert`) and the setting.
+fn on_channel_posted(posted: &conduit_protocol::ChannelPosted, cx: &mut App) {
+    let Some(state) = cx.try_global::<AppState>() else {
+        return;
+    };
+    let enabled = state.settings.read(cx).prefs.desktop.notify_channels;
+    let on_screen = on_screen(cx);
+    if !notify::decide_channel(enabled, posted.alert, &posted.channel_id, &on_screen) {
+        return;
+    }
+    let l10n = cx.l10n().clone();
+    let title_in =
+        |author: &str, channel: &str| l10n.desktop_channel_notification_title(author, channel);
+    let (message, mention, unknown) = (
+        l10n.desktop_channel_notification_message(),
+        l10n.desktop_channel_notification_mention(),
+        l10n.channel_unknown_member(),
+    );
+    let n = notify::channel_notification(
+        &posted.channel_id,
+        &posted.author,
+        &posted.channel_title,
+        posted.mention,
+        &notify::ChannelWords {
+            title_in: &title_in,
+            message: &message,
+            mention: &mention,
+            unknown: &unknown,
+        },
+    );
+    log::info!("notification: channel message");
+    post(n, cx);
+}
+
 /// What the user can see now, for [`notify::decide`].
 pub fn on_screen(cx: &mut App) -> OnScreen {
     let mut out = OnScreen::default();
@@ -643,6 +691,10 @@ pub fn on_screen(cx: &mut App) -> OnScreen {
         }
     }
     out.main_chat = main_chat(navigation.read(cx));
+    out.main_channel = match navigation.read(cx).selected_item() {
+        Some(crate::stores::navigation::AreaItem::Channel(id)) => Some(id.clone()),
+        _ => None,
+    };
     out
 }
 
@@ -810,6 +862,25 @@ fn post(n: notify::Notification, cx: &mut App) {
 
 /// A notification was clicked: the main window on that chat.
 fn on_notification_click(identifier: String, cx: &mut App) {
+    // A channel's: the main window on that channel.
+    if let Some(channel_id) = notify::channel_for(&identifier) {
+        #[cfg(target_os = "macos")]
+        if let Some(n) = cx
+            .try_global::<Desktop>()
+            .and_then(|d| d.platform.notifier.as_ref())
+        {
+            n.remove(&identifier);
+        }
+        log::info!("notification click: opening its channel");
+        if let Some(shell) = shell(cx) {
+            shell.update(cx, |s, cx| {
+                s.push(OpenRequest::Channel { id: channel_id }, cx)
+            });
+        }
+        show_main(cx);
+        drain(cx);
+        return;
+    }
     let Some(chat_id) = notify::chat_for(&identifier) else {
         log::info!("ignored a click on a notification this app did not post");
         return;

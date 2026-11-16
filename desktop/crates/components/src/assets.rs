@@ -13,22 +13,24 @@ pub use gpui_kit::assets::IconName;
 gpui_kit::assets::icon_assets!(
     pub ConduitIcons,
     [
-        AppWindow, Archive, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, AtSign, AudioLines,
-        AudioWaveform, Bell, BookOpen, Bot, Brain, Calendar, CalendarClock, Captions, Check,
-        ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, ChevronUp, Circle, CircleAlert,
-        CircleCheck, CircleSlash, CircleUser, CircleX, Clock, ClockFading, Cloud, CloudOff, Code,
-        Coffee, Columns2, Command, Copy, CornerDownLeft, Cpu, Database, DatabaseBackup, Download,
-        Ellipsis, ExternalLink, Eye, EyeOff, FileCode, FileDown, FileText, Film, FlaskConical,
-        Folder, FolderClosed, FolderOpen, Funnel, GitBranch, Github, GitMerge, Globe, Hash, Heart,
-        Image, ImageOff, Info, Keyboard, KeyRound, Laptop, Layers, LibraryBig, Lightbulb, Link,
-        List, ListChecks, ListTree, LoaderCircle, Lock, LogOut, Mail, Maximize2, Megaphone,
-        MessageSquare, MessageSquareDot, MessageSquarePlus, Mic, MicOff, Minimize2, Monitor, Moon,
-        Network, NotebookPen, OctagonAlert, Palette, PanelLeft, Paperclip, Pause, Pencil, PhoneOff,
-        Pin, PinOff, Play, Plus, RefreshCw, RotateCcw, Save, ScrollText, Search, Server, Settings,
-        Share, ShieldAlert, ShieldCheck, SkipBack, SkipForward, SlidersHorizontal, Smartphone,
-        Sparkles, Split, Square, SquarePen, SquareTerminal, Sun, Terminal, TextCursorInput,
-        TextQuote, ThumbsDown, ThumbsUp, Timer, Trash, TriangleAlert, Undo2, Upload, User,
-        UserPlus, Users, WandSparkles, Wifi, Wrench, X, Zap, ZoomIn, ZoomOut
+        AppWindow, Archive, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, AtSign,
+        AudioLines, AudioWaveform, Bell, BellOff, BookOpen, Bot, Brain, Calendar, CalendarClock,
+        Captions, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, ChevronUp, Circle,
+        CircleAlert, CircleCheck, CircleSlash, CircleUser, CircleX, Clock, ClockFading, Cloud,
+        CloudOff, Code, Coffee, Columns2, Command, Copy, CornerDownLeft, Cpu, Database,
+        DatabaseBackup, Download, Ellipsis, ExternalLink, Eye, EyeOff, FaceSlightlySmilingPlus,
+        FileCode, FileDown, FileText, Film, FlaskConical, Folder, FolderClosed, FolderOpen, Funnel,
+        GitBranch, Github, GitMerge, Globe, Hash, Heart, Image, ImageOff, Info, Keyboard, KeyRound,
+        Laptop, Layers, LayoutGrid, LibraryBig, Lightbulb, Link, List, ListChecks, ListTree,
+        LoaderCircle, Lock, LogOut, Mail, Maximize2, Megaphone, MessageSquare, MessageSquareDot,
+        MessageSquarePlus, MessagesSquare, Mic, MicOff, Minimize2, Monitor, Moon, Network,
+        NotebookPen, OctagonAlert, Palette, PanelLeft, Paperclip, Pause, Pencil, PhoneOff, Pin,
+        PinOff, Play, Plus, RefreshCw, Reply, RotateCcw, Save, ScrollText, Search, Server,
+        Settings, Share, ShieldAlert, ShieldCheck, SkipBack, SkipForward, SlidersHorizontal,
+        Smartphone, Sparkles, Split, Square, SquarePen, SquareTerminal, Sun, Terminal,
+        TextCursorInput, TextQuote, ThumbsDown, ThumbsUp, Timer, Trash, TriangleAlert, Undo2,
+        Upload, User, UserMinus, UserPlus, Users, WandSparkles, Wifi, Wrench, X, Zap, ZoomIn,
+        ZoomOut
     ]
 );
 

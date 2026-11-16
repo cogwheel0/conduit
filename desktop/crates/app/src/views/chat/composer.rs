@@ -283,6 +283,10 @@ pub struct ChatComposer {
     placeholder: String,
     /// The window this composer is in: Esc cancels dictation there only.
     window_handle: gpui_kit::AnyWindowHandle,
+    /// A channel's composer: `@` is the only menu, and a model chosen there
+    /// is a mention in the text (`<@M:id|Name>`), which answers in the
+    /// channel, rather than the model for the next message.
+    pub channel_mode: bool,
     _dictation: Vec<Subscription>,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
@@ -489,6 +493,7 @@ impl ChatComposer {
             dictation_base: None,
             placeholder: placeholder.to_string(),
             window_handle: window.window_handle(),
+            channel_mode: false,
             _dictation: vec![],
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
@@ -1023,7 +1028,9 @@ impl ChatComposer {
         let options = self.composer.read(cx).options.clone();
         // A trigger the model cannot take is plain text: `$` without Open
         // WebUI skills, `#` with Hermes.
+        let channel_mode = self.channel_mode;
         let trigger = trigger_at(&value, cursor).filter(|t| match t.kind {
+            _ if channel_mode => t.kind == TriggerKind::Model,
             TriggerKind::Skill => options.skills,
             TriggerKind::Knowledge => options.context,
             _ => true,
@@ -1348,6 +1355,9 @@ impl ChatComposer {
                     return;
                 };
                 self.render_prompt(prompt, at, BTreeMap::new(), window, cx);
+            }
+            Pick::Model(model) if self.channel_mode => {
+                self.insert_mention(MentionTarget::Model(model.id), &model.name, window, cx)
             }
             Pick::Model(model) => {
                 self.take_trigger(window, cx);

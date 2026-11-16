@@ -635,6 +635,7 @@ impl Render for MainWindow {
         // Find in Chat: over any open chat, read-only ones too.
         let findable = shows_main && self.shows_chat(cx) && self.chat_pane.read(cx).chat.is_some();
         let makes_folders = shows_main && self.sidebar.read(cx).can_make_folders(cx);
+        let makes_channels = shows_main && self.stores.areas.read(cx).channels_can_create;
 
         div()
             .id("main-window")
@@ -685,6 +686,35 @@ impl Render for MainWindow {
                 this.sidebar
                     .update(cx, |s, cx| s.bulk(action, None, window, cx));
             }))
+            // A channel's menu (the sidebar's row, the pane's More), a
+            // message's, and New Channel….
+            .on_action(cx.listener(
+                |this, a: &crate::views::channels::ChannelMenu, window, cx| {
+                    let shown = this
+                        .area_pane
+                        .read(cx)
+                        .channel
+                        .clone()
+                        .and_then(|p| p.read(cx).summary(cx));
+                    crate::views::channels::run_channel_command(&this.stores, a, shown, window, cx)
+                },
+            ))
+            .on_action(cx.listener(
+                |this, a: &crate::views::channels::MessageMenu, window, cx| {
+                    if let Some(pane) = this.area_pane.read(cx).channel.clone() {
+                        pane.update(cx, |p, cx| p.run_message(a, window, cx));
+                    }
+                },
+            ))
+            // File › New Channel… and the sidebar's +: greyed where the
+            // account may not make one (no handler answers it then).
+            .when(makes_channels, |d| {
+                d.on_action(cx.listener(
+                    |this, _: &crate::views::channels::NewChannel, window, cx| {
+                        crate::views::channels::form::open_new(this.stores.clone(), window, cx)
+                    },
+                ))
+            })
             .on_action(cx.listener(|this, a: &FolderMenu, window, cx| {
                 let (id, command) = (a.folder_id.clone(), a.command.clone());
                 this.sidebar

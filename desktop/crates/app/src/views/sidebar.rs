@@ -1240,7 +1240,20 @@ impl SidebarView {
         let l = cx.l10n().clone();
         let label: SharedString = area_label(area, &l).into();
         let row = KeyRow::Area(area);
+        // Channels carry New Channel… ("+"), as Folders carry New Folder,
+        // for an account that may make one.
+        let add =
+            (area == Area::Channels && self.stores.areas.read(cx).channels_can_create).then(|| {
+                IconButton::new("new-channel", IconName::Plus, l.desktop_new_channel())
+                    .size(20., 13.)
+                    .on_click(Rc::new(|_, window, cx| {
+                        // The heading under it would close the section.
+                        cx.stop_propagation();
+                        window.dispatch_action(Box::new(crate::views::channels::NewChannel), cx);
+                    }))
+            });
         area_header(area.id(), &label, expanded, self.row_state(&row, ""), t)
+            .children(add)
             .when(self.is_cursor(&row), |d| d.aria_active_descendant())
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.cursor = Some(KeyRow::Area(area));
@@ -1270,20 +1283,43 @@ impl SidebarView {
         } else if let Some(ms) = row.updated_at_ms {
             let (time, spoken) = dates::stamp(ms, now, &l);
             (Some(time), Some(spoken), false)
+        } else if row.dimmed {
+            // A channel set to mentions only says so.
+            (None, Some(l.channel_notify_mentions_only()), false)
         } else {
             (None, None, false)
         };
         let line = ItemLine {
             id: id.clone().into(),
-            icon: item_icon(&item),
+            icon: row.icon.unwrap_or_else(|| item_icon(&item)),
             title: item_title(&item, Some(&row.title), &l).into(),
             trailing: trailing.map(Into::into),
             description: description.map(Into::into),
             pinned: row.pinned,
             emphasized,
         };
+        // A channel's own menu: Mark as Read, Notifications, Edit, Leave,
+        // Delete.
+        let menu_item = item.clone();
         item_row(&line, self.row_state(&key, &id), t)
+            .when(row.dimmed, |d| d.opacity(0.6))
             .when(self.is_cursor(&key), |d| d.aria_active_descendant())
+            .on_mouse_down(
+                gpui_kit::MouseButton::Right,
+                cx.listener(move |this, e: &gpui_kit::MouseDownEvent, window, cx| {
+                    let AreaItem::Channel(channel_id) = &menu_item else {
+                        return;
+                    };
+                    let Some(channel) = this.stores.areas.read(cx).channel(channel_id).cloned()
+                    else {
+                        return;
+                    };
+                    let menu = crate::views::channels::channel_menu(&channel, true, cx.l10n());
+                    // Its own menu only: not the list's New Folder after it.
+                    cx.stop_propagation();
+                    menu.show(e.position, window, cx);
+                }),
+            )
             .on_hover(self.hover_listener(id, cx))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.cursor = Some(KeyRow::Item(item.clone()));

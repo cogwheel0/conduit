@@ -82,6 +82,8 @@ pub struct AreasStore {
     /// `None` until listed (for this account).
     pub notes: Option<Vec<NoteSummary>>,
     pub channels: Option<Vec<ChannelSummary>>,
+    /// The account may make a channel (New Channel…).
+    pub channels_can_create: bool,
     pub hermes: Option<HermesSessions>,
     /// Hermes's Hidden Chats, read when its pane opens: `None` until read,
     /// `Err` when the read failed.
@@ -267,7 +269,10 @@ impl AreasStore {
                     this.update(cx, |s, cx| {
                         if s.generation == generation {
                             match result {
-                                Ok(list) => s.channels = Some(list.channels),
+                                Ok(list) => {
+                                    s.channels_can_create = list.can_create;
+                                    s.channels = Some(list.channels);
+                                }
                                 Err(e) => {
                                     log::warn!("channels.list: {e}");
                                     s.failed.insert(Area::Channels);

@@ -97,6 +97,21 @@ impl HttpClient {
         progress: Option<Progress>,
         attempt: u32,
     ) -> Result<Value, RpcError> {
+        self.upload_to(name, content_type, body, progress, attempt, None)
+            .await
+    }
+
+    /// [`Self::upload`], filed under `channel` (`x-conduit-channel`) when
+    /// given: a channel's attachment, which its members may read.
+    pub async fn upload_to(
+        &self,
+        name: &str,
+        content_type: Option<&str>,
+        body: Bytes,
+        progress: Option<Progress>,
+        attempt: u32,
+        channel: Option<&str>,
+    ) -> Result<Value, RpcError> {
         let total = body.len() as u64;
         let sent = Arc::new(AtomicU64::new(0));
         let chunks: Vec<Bytes> = (0..body.len())
@@ -120,6 +135,9 @@ impl HttpClient {
             .body(reqwest::Body::wrap_stream(stream));
         if let Some(ct) = content_type {
             request = request.header("content-type", ct);
+        }
+        if let Some(channel) = channel {
+            request = request.header("x-conduit-channel", channel);
         }
         let response = request.send().await.map_err(transport)?;
         let status = response.status();

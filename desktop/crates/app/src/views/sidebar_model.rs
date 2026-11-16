@@ -340,6 +340,12 @@ pub struct AreaRow {
     /// A Hermes session's row: the session (its commands, its running
     /// reply), drawn as a chat's row is.
     pub session: Option<HermesSessionDto>,
+    /// Its own glyph, where its kind says more than its area's (a direct
+    /// message, a group, a private channel).
+    pub icon: Option<conduit_components::assets::IconName>,
+    /// Drawn quieter: a channel set to notify for mentions only (as Open
+    /// WebUI's sidebar dims it), which shows no unread count either.
+    pub dimmed: bool,
 }
 
 impl AreaRow {
@@ -351,6 +357,8 @@ impl AreaRow {
             unread: 0,
             pinned: false,
             session: None,
+            icon: None,
+            dimmed: false,
         }
     }
 }
@@ -575,8 +583,15 @@ pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Ve
             ..AreaRow::of(AreaItem::Note(n.id.clone()))
         }),
         Area::Channels => listed(area, lists.channels, all, missing(area), |c| AreaRow {
-            title: c.name.clone(),
-            unread: c.unread,
+            // A direct message is titled by the people in it.
+            title: if c.title.trim().is_empty() {
+                c.name.clone()
+            } else {
+                c.title.clone()
+            },
+            unread: if c.muted { 0 } else { c.unread },
+            icon: Some(crate::views::channels::channel_icon(c)),
+            dimmed: c.muted,
             ..AreaRow::of(AreaItem::Channel(c.id.clone()))
         }),
         Area::Terminal => listed(area, lists.terminals, all, missing(area), |t| AreaRow {

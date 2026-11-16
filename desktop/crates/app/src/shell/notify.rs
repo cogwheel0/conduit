@@ -31,6 +31,8 @@ pub struct OnScreen {
     pub quick_ask_key: bool,
     /// The chat the Quick Ask window shows.
     pub quick_ask_chat: Option<String>,
+    /// The channel the main window shows.
+    pub main_channel: Option<String>,
 }
 
 impl OnScreen {
@@ -141,6 +143,76 @@ fn truncate(s: &str, max: usize) -> String {
     out
 }
 
+// ── Channel messages ─────────────────────────────────────────────────────
+
+/// Whether someone else's message in `channel_id` notifies: the setting is
+/// on, the daemon says it alerts (the channel notifies for every message,
+/// or it mentions the user), and the channel is not in front of the user.
+pub fn decide_channel(enabled: bool, alert: bool, channel_id: &str, on_screen: &OnScreen) -> bool {
+    enabled
+        && alert
+        && !(on_screen.main_key && on_screen.main_channel.as_deref() == Some(channel_id))
+}
+
+/// The words a channel notification uses (localized by the caller).
+pub struct ChannelWords<'a> {
+    /// "{author} in {channel}", for `author` and `channel`.
+    pub title_in: &'a dyn Fn(&str, &str) -> String,
+    /// "New message".
+    pub message: &'a str,
+    /// "Mentioned you".
+    pub mention: &'a str,
+    /// Someone the server did not name.
+    pub unknown: &'a str,
+}
+
+/// A channel message's notification: who posted where, and whether it
+/// mentions the user, never the message. One per channel: a newer one
+/// replaces it.
+pub fn channel_notification(
+    channel_id: &str,
+    author: &str,
+    channel_title: &str,
+    mention: bool,
+    words: &ChannelWords<'_>,
+) -> Notification {
+    let author = Some(author.trim())
+        .filter(|a| !a.is_empty())
+        .unwrap_or(words.unknown);
+    let channel = channel_title.trim();
+    // A direct message is named by who wrote it.
+    let title = if channel.is_empty() {
+        author.to_string()
+    } else {
+        (words.title_in)(author, channel)
+    };
+    Notification {
+        id: channel_identifier(channel_id),
+        title: truncate(&title, MAX_TITLE),
+        body: if mention {
+            words.mention
+        } else {
+            words.message
+        }
+        .to_string(),
+    }
+}
+
+const CHANNEL_PREFIX: &str = "channel:";
+
+/// The request identifier for a channel's notification.
+pub fn channel_identifier(channel_id: &str) -> String {
+    format!("{CHANNEL_PREFIX}{channel_id}")
+}
+
+/// The channel a clicked notification opens.
+pub fn channel_for(identifier: &str) -> Option<String> {
+    identifier
+        .strip_prefix(CHANNEL_PREFIX)
+        .filter(|id| valid_id(id))
+        .map(str::to_string)
+}
+
 const PREFIX: &str = "chat:";
 
 /// The request identifier for a chat's notification.
@@ -173,7 +245,40 @@ mod tests {
             main_chat: main.map(String::from),
             quick_ask_key: qa_key,
             quick_ask_chat: qa.map(String::from),
+            main_channel: None,
         }
+    }
+
+    #[test]
+    fn a_channel_message_notifies_unless_its_channel_is_in_front() {
+        let mut on_screen = screen(true, None, false, None);
+        on_screen.main_channel = Some("c1".into());
+        assert!(!decide_channel(true, true, "c1", &on_screen));
+        assert!(decide_channel(true, true, "c2", &on_screen));
+        // Not alerting (mentions only, no mention), or switched off.
+        assert!(!decide_channel(true, false, "c2", &on_screen));
+        assert!(!decide_channel(false, true, "c2", &on_screen));
+        // The window not key: the channel is not in front.
+        on_screen.main_key = false;
+        assert!(decide_channel(true, true, "c1", &on_screen));
+        let title_in = |a: &str, c: &str| format!("{a} in {c}");
+        let words = ChannelWords {
+            title_in: &title_in,
+            message: "New message",
+            mention: "Mentioned you",
+            unknown: "Unknown",
+        };
+        let n = channel_notification("c1", "Juniper", "garden-club", false, &words);
+        assert_eq!(n.title, "Juniper in garden-club");
+        assert_eq!(n.body, "New message");
+        assert_eq!(channel_for(&n.id), Some("c1".into()));
+        let dm = channel_notification("d1", "", "", true, &words);
+        assert_eq!(
+            (dm.title.as_str(), dm.body.as_str()),
+            ("Unknown", "Mentioned you")
+        );
+        assert_eq!(channel_for("chat:c1"), None);
+        assert_eq!(chat_for(&n.id), None);
     }
 
     #[test]
