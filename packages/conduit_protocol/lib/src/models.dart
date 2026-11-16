@@ -23,6 +23,11 @@ abstract class ModelSummary with _$ModelSummary {
     /// server's own. Two connections can offer a model of the same name,
     /// and the server may too.
     String? connection,
+
+    /// A direct model's maker (or provider): the id of a logo in the
+    /// app's bundled models.dev catalog (`openai`, `ollama-cloud`). Null
+    /// draws the model's initial.
+    String? logo,
   }) = _ModelSummary;
 
   factory ModelSummary.fromJson(Map<String, dynamic> json) =>

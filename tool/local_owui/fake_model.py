@@ -56,7 +56,10 @@ long as the text would take to say, for the server's speech features;
 "read aloud" in a prompt gets four long sentences to read. `/mcp` is a
 small MCP server (streamable HTTP, JSON answers)
 with one MCP App, `show_tides`, whose page shows the tool's result, for
-Open WebUI's MCP Apps. Every answer is invented. The log gets each request's roles, tool names,
+Open WebUI's MCP Apps. `fake_direct.py` adds what the desktop's Direct
+pass needs: a local Ollama API under `/ollama`, the Responses API, and an
+OAuth-protected MCP server (`/oauth-mcp`) with its authorization server; a
+"ferry" prompt offered that server's tool calls it. Every answer is invented. The log gets each request's roles, tool names,
 whether it streamed, its system text, its last user text and its generation
 params (temperature, seed, reasoning effort, ...): what a test needs to check
 that a chat's or a folder's settings reached the model. The text is the seed's
@@ -69,12 +72,18 @@ import hashlib
 import io
 import json
 import math
+import os
 import re
 import struct
+import sys
 import threading
 import time
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+# Run with -I, which leaves this directory off the path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fake_direct  # noqa: E402
 
 MODEL = 'fake-model'
 # Request keys the log keeps: what a chat's settings may send.
@@ -357,6 +366,15 @@ def answer_for(text):
     else:
         body = 'Hello from the fake model. Ask for code, math, reasoning or a long answer.'
     return reasoning, body
+
+
+def direct_answer(text):
+    """The reasoning (or None) and answer for a direct request's user text,
+    as the chat completions route answers a plain prompt."""
+    word = WORD.search(text)
+    if word:
+        return None, word.group(1)
+    return answer_for(text)
 
 
 def task_answer(text):
@@ -706,10 +724,20 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', '0')
         self.end_headers()
 
+    def do_HEAD(self):
+        # As a real server answers HEAD on a POST-only route: the route is
+        # there (the app's connection test with manual model ids asks).
+        self.send_response(405)
+        self.send_header('Allow', 'POST')
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
     def do_GET(self):
         if (self.path.split('?')[0].rstrip('/').endswith('/realtime')
                 and self.headers.get('Upgrade', '').lower() == 'websocket'):
             self._realtime()
+            return
+        if fake_direct.handle_get(self):
             return
         if self.path.split('?')[0].rstrip('/').endswith('/mcp'):
             # No server-to-client stream.
@@ -797,6 +825,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         raw = self._body()
         path = self.path.split('?')[0].rstrip('/')
+        if fake_direct.handle_post(self, raw, direct_answer):
+            return
         if path.endswith('/audio/transcriptions'):
             summary = upload_summary(raw, self.headers.get('Content-Type', ''))
             if self.log_path:
@@ -868,10 +898,13 @@ class Handler(BaseHTTPRequestHandler):
             system = [text_of(m) for m in messages if m.get('role') == 'system']
             users = [text_of(m) for m in messages if m.get('role') == 'user']
             params = {k: body[k] for k in LOGGED_PARAMS if k in body}
+            entry = {'model': body.get('model'), 'roles': [m.get('role') for m in messages],
+                     'tools': tool_names, 'stream': stream, 'system': system,
+                     'user': users[-1] if users else '', 'params': params}
+            # How it was sent: custom headers, the key's header, api-version.
+            entry.update(fake_direct.request_facts(self))
             with open(self.log_path, 'a') as log:
-                log.write(json.dumps({'model': body.get('model'), 'roles': [m.get('role') for m in messages],
-                                      'tools': tool_names, 'stream': stream, 'system': system,
-                                      'user': users[-1] if users else '', 'params': params}) + '\n')
+                log.write(json.dumps(entry) + '\n')
 
         model = str(body.get('model') or MODEL)
         if model.endswith(REFUSED_MODEL):
@@ -887,6 +920,8 @@ class Handler(BaseHTTPRequestHandler):
         fetch_answered = called(after_user, 'web_fetch')
         asked = tool_result(after_user, 'ask_user')
         planned = called(after_user, 'create_tasks')
+        ferry = fake_direct.ferry_tool(tool_names)
+        ferried = tool_result(after_user, ferry) if ferry else None
 
         reasoning = None
         call = None
@@ -914,6 +949,8 @@ class Handler(BaseHTTPRequestHandler):
             ]
             chosen = [c for c in chosen if c]
             text = f"You chose {' and '.join(chosen)}." if chosen else 'You did not answer.'
+        elif ferried is not None:
+            text = f'The ferry tool says: {ferried}'
         elif planned:
             text = 'The plan is ready: one task done, one under way.'
         elif fetch_answered:
@@ -926,6 +963,9 @@ class Handler(BaseHTTPRequestHandler):
             facts = [COLOUR_FACT.search(text_of(m)) for m in users[:-1]]
             facts = [f.group(1) for f in facts if f]
             text = facts[-1] if facts else 'You have not told me.'
+        elif 'ferry' in lower and ferry:
+            call = tool_call(ferry, {'harbour': 'North'})
+            text = ''
         elif 'ask me' in lower and 'ask_user' in tool_names:
             call = tool_call('ask_user', ASK_USER)
             text = ''

@@ -50,6 +50,7 @@ export 'src/specs.dart';
 export 'src/turns.dart';
 export 'src/valves.dart';
 export 'src/voice.dart';
+export 'src/web_search.dart';
 export 'src/workspace.dart';
 export 'src/subprotocol.dart';
 export 'src/system.dart';

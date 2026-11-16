@@ -87,7 +87,7 @@ async fn wait_streaming(cx: &mut AsyncApp, timeout: Duration) -> bool {
     .await
 }
 
-fn last_answer_text(cx: &mut App) -> String {
+pub(super) fn last_answer_text(cx: &mut App) -> String {
     let Some(store) = chat_store(cx) else {
         return String::new();
     };

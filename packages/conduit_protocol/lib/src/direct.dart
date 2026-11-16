@@ -91,6 +91,11 @@ abstract class DirectConnectionList with _$DirectConnectionList {
     /// At least one connection on this computer is on and complete, so the
     /// app can be used with no server at all.
     @Default(false) bool usable,
+
+    /// The connections kept in the Open WebUI account could not be read
+    /// this time (`direct.reload` tries again). The ones listed, if any,
+    /// are the last that were.
+    @Default(false) bool openWebUiLoadFailed,
   }) = _DirectConnectionList;
 
   factory DirectConnectionList.fromJson(Map<String, dynamic> json) =>
@@ -201,6 +206,9 @@ abstract class OllamaModelStatus with _$OllamaModelStatus {
     /// For Ollama Cloud: `disabled`, `low`, `medium` or `high`. Null
     /// leaves it to the model.
     String? thinking,
+
+    /// Its maker's bundled models.dev logo, as `ModelSummary.logo`.
+    String? logo,
   }) = _OllamaModelStatus;
 
   factory OllamaModelStatus.fromJson(Map<String, dynamic> json) =>
@@ -245,4 +253,74 @@ abstract class DirectPreferred with _$DirectPreferred {
 
   factory DirectPreferred.fromJson(Map<String, dynamic> json) =>
       _$DirectPreferredFromJson(json);
+}
+
+/// One model that reports no context window, with the limit the app
+/// compacts its chats at.
+@freezed
+abstract class DirectContextModel with _$DirectContextModel {
+  const factory DirectContextModel({
+    /// The picker's id.
+    required String id,
+    required String name,
+
+    /// The connection that offers it, by name.
+    String? connection,
+
+    /// Tokens: the user's choice, or the default.
+    required int limit,
+
+    /// A model on the user's own Ollama server, where the limit is also
+    /// the context window it is loaded with (`num_ctx`).
+    @Default(false) bool ollama,
+
+    /// Its maker's bundled models.dev logo, as `ModelSummary.logo`.
+    String? logo,
+  }) = _DirectContextModel;
+
+  factory DirectContextModel.fromJson(Map<String, dynamic> json) =>
+      _$DirectContextModelFromJson(json);
+}
+
+/// Reply to `direct.options` and its setters: what applies to every
+/// connection's models.
+@freezed
+abstract class DirectOptions with _$DirectOptions {
+  const factory DirectOptions({
+    /// How many of a chat's newest images one request carries.
+    @Default(10) int imagesPerRequest,
+    @Default(<int>[]) List<int> imagesPerRequestChoices,
+
+    /// Models with no reported context window; empty when every model
+    /// reports one.
+    @Default(<DirectContextModel>[]) List<DirectContextModel> contextModels,
+
+    /// The limits a model may be given, in tokens.
+    @Default(<int>[]) List<int> contextLimitChoices,
+  }) = _DirectOptions;
+
+  factory DirectOptions.fromJson(Map<String, dynamic> json) =>
+      _$DirectOptionsFromJson(json);
+}
+
+/// Params for `direct.setImagesPerRequest`: one of the choices.
+@freezed
+abstract class DirectImagesPerRequest with _$DirectImagesPerRequest {
+  const factory DirectImagesPerRequest({required int count}) =
+      _DirectImagesPerRequest;
+
+  factory DirectImagesPerRequest.fromJson(Map<String, dynamic> json) =>
+      _$DirectImagesPerRequestFromJson(json);
+}
+
+/// Params for `direct.setContextLimit`.
+@freezed
+abstract class DirectContextLimit with _$DirectContextLimit {
+  const factory DirectContextLimit({
+    required String modelId,
+    required int tokens,
+  }) = _DirectContextLimit;
+
+  factory DirectContextLimit.fromJson(Map<String, dynamic> json) =>
+      _$DirectContextLimitFromJson(json);
 }

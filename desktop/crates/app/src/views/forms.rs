@@ -476,6 +476,29 @@ pub fn headers_from_rows(
     Ok(out)
 }
 
+/// The custom headers an edit sends, from the rows typed: the window knows
+/// saved headers by name only, so the daemon adds the ones sent to them (an
+/// empty value takes one away). With Clear, every saved header not typed
+/// again is taken away; nothing typed and no Clear sends nothing.
+pub fn headers_edit(
+    typed: BTreeMap<String, String>,
+    clear: bool,
+    saved: &[String],
+) -> Option<BTreeMap<String, String>> {
+    if typed.is_empty() {
+        return clear.then(BTreeMap::new);
+    }
+    let mut out = typed;
+    if clear {
+        for name in saved {
+            if !out.keys().any(|k| k.eq_ignore_ascii_case(name)) {
+                out.insert(name.clone(), String::new());
+            }
+        }
+    }
+    Some(out)
+}
+
 /// Called with a row's index.
 pub type RowHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 

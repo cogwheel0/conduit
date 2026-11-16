@@ -1,0 +1,8 @@
+{
+  "id": "ollama/llama3.2:1b",
+  "name": "llama3.2:1b",
+  "connection": "Home Ollama",
+  "limit": 8192,
+  "ollama": true,
+  "logo": "meta"
+}

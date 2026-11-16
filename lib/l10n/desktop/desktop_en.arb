@@ -1941,6 +1941,304 @@
       }
     }
   },
+  "desktopDirectOpenRouterUrl": "Use OpenRouter's address, https://openrouter.ai/api/v1.",
+  "@desktopDirectOpenRouterUrl": {
+    "description": "Error under a Direct connection's address when OpenRouter is chosen but the address is not its HTTPS API root."
+  },
+  "desktopDirectKeyRequired": "Enter an API key, or choose No Authentication.",
+  "@desktopDirectKeyRequired": {
+    "description": "Error under the API Key field of a new Direct connection with no key. 'No Authentication' names the Authentication pop-up's choice."
+  },
+  "desktopDirectHeaderNameRequired": "Give this header a name, or remove it.",
+  "@desktopDirectHeaderNameRequired": {
+    "description": "Error under a custom header row that has a value but no name."
+  },
+  "desktopDirectOllamaUrlHelp": "Ollama on this Mac listens at http://localhost:11434. For Ollama Cloud, use https://ollama.com with an API key.",
+  "@desktopDirectOllamaUrlHelp": {
+    "description": "Help under the server address of an Ollama Direct connection."
+  },
+  "desktopDirectSecretsStayBehind": "This is a different server: the saved key and headers stay with the old one. Enter them again to use them here.",
+  "@desktopDirectSecretsStayBehind": {
+    "description": "Help under a Direct connection's address once it was changed to another server while a key or headers are saved."
+  },
+  "desktopDirectAuthentication": "Authentication",
+  "@desktopDirectAuthentication": {
+    "description": "Form label of the pop-up choosing how a Direct connection or MCP server sends its credentials."
+  },
+  "desktopCompletionApi": "Completion API",
+  "@desktopCompletionApi": {
+    "description": "Form label of the pop-up choosing Chat Completions or Responses (OpenAI API names, keep them in English)."
+  },
+  "desktopDirectApiVersionHelp": "Optional. Azure OpenAI needs its api-version here.",
+  "@desktopDirectApiVersionHelp": {
+    "description": "Help under the API Version field. 'api-version' is a literal parameter name."
+  },
+  "desktopDirectOpenRouterApiHelp": "OpenRouter uses Chat Completions, for its web search, image generation and PDF reading.",
+  "@desktopDirectOpenRouterApiHelp": {
+    "description": "Note under the Completion API row for an OpenRouter connection. 'Chat Completions' is an API name."
+  },
+  "desktopDirectResponsesHelp": "Uses the Responses API. Choose it only if the provider offers /responses.",
+  "@desktopDirectResponsesHelp": {
+    "description": "Note under the Completion API row when Responses is chosen. 'Responses' is an API name, '/responses' a literal path."
+  },
+  "desktopDirectPrefixHelp": "Optional. Shows the models as prefix.model-name, without changing the IDs sent to the provider.",
+  "@desktopDirectPrefixHelp": {
+    "description": "Help under the Model ID Prefix field. 'prefix.model-name' is an example, keep it as is."
+  },
+  "desktopDirectTagsHelp": "Optional. Labels for these models in the picker, separated by commas.",
+  "@desktopDirectTagsHelp": {
+    "description": "Help under the Model Tags field."
+  },
+  "desktopTesting": "Testing…",
+  "@desktopTesting": {
+    "description": "A Test Connection button while the test runs."
+  },
+  "desktopDirectEditorSubtitle": "Your key is kept securely on this Mac and sent only to this provider.",
+  "@desktopDirectEditorSubtitle": {
+    "description": "Subtitle of the Add Connection / Edit Connection sheet for a Direct connection on this Mac."
+  },
+  "desktopDirectDeleteTitle": "Delete “{name}”?",
+  "@desktopDirectDeleteTitle": {
+    "description": "Title of the alert confirming a Direct connection's deletion.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopDirectDeleteMessage": "Its key and settings are removed from this Mac.",
+  "@desktopDirectDeleteMessage": {
+    "description": "Message of the alert confirming a Direct connection's deletion."
+  },
+  "desktopDirectHistoryLocalHelp": "New direct chats stay on this Mac only.",
+  "@desktopDirectHistoryLocalHelp": {
+    "description": "Footer under the Open WebUI History switch when it is off."
+  },
+  "desktopDirectThisMacSection": "On This Mac",
+  "@desktopDirectThisMacSection": {
+    "description": "Section title over the Direct connections kept on this Mac (beside those kept in the Open WebUI account)."
+  },
+  "desktopDirectConnectionsHelp": "Connect to model providers without Open WebUI. Keys are kept securely on this Mac and sent only to their provider.",
+  "@desktopDirectConnectionsHelp": {
+    "description": "Footer under this Mac's Direct connections in Settings."
+  },
+  "desktopImagesPerRequest": "Images per Request",
+  "@desktopImagesPerRequest": {
+    "description": "Row label: how many of a chat's newest images one request to a Direct model carries."
+  },
+  "desktopContextLimitFor": "Context Limit for {name}",
+  "@desktopContextLimitFor": {
+    "description": "VoiceOver label of a model's context limit pop-up.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopWebSearchRegion": "Region",
+  "@desktopWebSearchRegion": {
+    "description": "Row label: the region on-device web searches ask for results from."
+  },
+  "desktopWebSearchRegionThisMac": "Match This Mac",
+  "@desktopWebSearchRegionThisMac": {
+    "description": "Region choice that follows the Mac's language and region; the region it gives follows in parentheses."
+  },
+  "desktopWebSearchFooterAuto": "For direct models that have no web search of their own. Searches run from this Mac: queries go to DuckDuckGo, then to Brave, Bing, Mojeek or Wikipedia if it doesn't answer. Pages the model reads are fetched from this Mac too.",
+  "@desktopWebSearchFooterAuto": {
+    "description": "Footer under the Web Search settings when the engine is Auto. Engine names are brands."
+  },
+  "desktopWebSearchFooterEngine": "For direct models that have no web search of their own. Searches run from this Mac, and queries go only to {engine}. Pages the model reads are fetched from this Mac too.",
+  "@desktopWebSearchFooterEngine": {
+    "description": "Footer under the Web Search settings when one engine is chosen.",
+    "placeholders": {
+      "engine": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopMcpSectionHelp": "Tools from these servers can be offered to the models of your direct connections. You're asked before a tool runs.",
+  "@desktopMcpSectionHelp": {
+    "description": "Footer under the MCP Servers list in Settings › Direct Connections."
+  },
+  "desktopMcpAddEllipsis": "Add Server…",
+  "@desktopMcpAddEllipsis": {
+    "description": "Button that opens the Add MCP Server sheet."
+  },
+  "desktopMcpLoadFailed": "MCP servers couldn't be loaded.",
+  "@desktopMcpLoadFailed": {
+    "description": "Row shown when the MCP server list can't be read; a Retry button follows."
+  },
+  "desktopMcpNameHint": "My Tools",
+  "@desktopMcpNameHint": {
+    "description": "Example placeholder in an MCP server's Server Name field."
+  },
+  "desktopMcpEndpoint": "Endpoint",
+  "@desktopMcpEndpoint": {
+    "description": "Form label of an MCP server's Streamable HTTP address."
+  },
+  "desktopMcpAuthNone": "None",
+  "@desktopMcpAuthNone": {
+    "description": "Authentication choice for an MCP server that takes no credentials."
+  },
+  "desktopMcpAuthOauth": "OAuth",
+  "@desktopMcpAuthOauth": {
+    "description": "Authentication choice for an MCP server that signs in with OAuth (a protocol name)."
+  },
+  "desktopMcpEditorSubtitle": "A Streamable HTTP MCP server. Its token and headers are kept securely on this Mac.",
+  "@desktopMcpEditorSubtitle": {
+    "description": "Subtitle of the Add MCP Server / Edit MCP Server sheet."
+  },
+  "desktopMcpEnabledHelp": "Offer this server's tools to direct models.",
+  "@desktopMcpEnabledHelp": {
+    "description": "Subtitle of an MCP server's Enabled switch."
+  },
+  "desktopMcpWaitingForBrowser": "Waiting for you to sign in in your browser…",
+  "@desktopMcpWaitingForBrowser": {
+    "description": "Status while an MCP server's OAuth sign-in is open in the browser."
+  },
+  "desktopMcpNoScopes": "no scopes reported",
+  "@desktopMcpNoScopes": {
+    "description": "Shown in place of the granted OAuth scopes when the server reported none (inside a sentence, lower case)."
+  },
+  "desktopMcpConnectedTo": "Connected to {host} · {scopes}",
+  "@desktopMcpConnectedTo": {
+    "description": "An MCP server's OAuth status: the authorization server's host and the scopes it granted.",
+    "placeholders": {
+      "host": {
+        "type": "String"
+      },
+      "scopes": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopMcpSignInHelp": "Sign in with the server's provider in your browser.",
+  "@desktopMcpSignInHelp": {
+    "description": "Status under an MCP server's OAuth row before signing in."
+  },
+  "desktopMcpSignOut": "Sign Out",
+  "@desktopMcpSignOut": {
+    "description": "Button that forgets an MCP server's OAuth sign-in."
+  },
+  "desktopMcpSignInFailed": "Signing in didn't finish. Try again.",
+  "@desktopMcpSignInFailed": {
+    "description": "Error after an MCP server's OAuth sign-in failed or timed out."
+  },
+  "desktopMcpSignOutFailed": "Couldn't sign out of this server.",
+  "@desktopMcpSignOutFailed": {
+    "description": "Error when forgetting an MCP server's OAuth sign-in failed."
+  },
+  "desktopMcpSignedInNote": "Signed in.",
+  "@desktopMcpSignedInNote": {
+    "description": "Status line after an MCP server's OAuth sign-in worked."
+  },
+  "desktopMcpRevoke": "Revoke",
+  "@desktopMcpRevoke": {
+    "description": "Button that forgets one always-allowed MCP tool."
+  },
+  "desktopMcpRevokeFailed": "That approval couldn't be revoked.",
+  "@desktopMcpRevokeFailed": {
+    "description": "Error when forgetting an always-allowed MCP tool failed."
+  },
+  "desktopMcpApprovalsHelp": "These tools run without asking while the server and their inputs stay the same.",
+  "@desktopMcpApprovalsHelp": {
+    "description": "Footer under an MCP server's Always Allowed Tools list."
+  },
+  "desktopMcpTestFailed": "Couldn't list this server's tools.",
+  "@desktopMcpTestFailed": {
+    "description": "Status after Test Connection on an MCP server failed."
+  },
+  "desktopMcpDeleteTitle": "Delete “{name}”?",
+  "@desktopMcpDeleteTitle": {
+    "description": "Title of the alert confirming an MCP server's deletion.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopMcpDeleteMessage": "The server, its token and its approvals are removed from this Mac.",
+  "@desktopMcpDeleteMessage": {
+    "description": "Message of the alert confirming an MCP server's deletion."
+  },
+  "desktopOllamaModels": "Models",
+  "@desktopOllamaModels": {
+    "description": "Section title over an Ollama connection's models in its editor sheet."
+  },
+  "desktopOllamaModelsFailed": "This server's models couldn't be listed.",
+  "@desktopOllamaModelsFailed": {
+    "description": "Shown when an Ollama server's model list can't be read."
+  },
+  "desktopOllamaInMemory": "In Memory",
+  "@desktopOllamaInMemory": {
+    "description": "An Ollama model's status: loaded into RAM or VRAM now."
+  },
+  "desktopOllamaNotInMemory": "Not Loaded",
+  "@desktopOllamaNotInMemory": {
+    "description": "An Ollama model's status: not in memory now."
+  },
+  "desktopOllamaKeepAliveFor": "Keep Alive for {name}",
+  "@desktopOllamaKeepAliveFor": {
+    "description": "VoiceOver label of an Ollama model's keep-alive pop-up.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopOllamaThinkingFor": "Thinking for {name}",
+  "@desktopOllamaThinkingFor": {
+    "description": "VoiceOver label of an Ollama Cloud model's thinking-level pop-up.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopOllamaFiveMinutes": "5 Minutes",
+  "@desktopOllamaFiveMinutes": {
+    "description": "Keep-alive choice for an Ollama model."
+  },
+  "desktopOllamaThirtyMinutes": "30 Minutes",
+  "@desktopOllamaThirtyMinutes": {
+    "description": "Keep-alive choice for an Ollama model."
+  },
+  "desktopOllamaOneHour": "1 Hour",
+  "@desktopOllamaOneHour": {
+    "description": "Keep-alive choice for an Ollama model."
+  },
+  "desktopOllamaCustomEllipsis": "Custom…",
+  "@desktopOllamaCustomEllipsis": {
+    "description": "Keep-alive choice that opens a field for any duration."
+  },
+  "desktopOllamaKeepAliveHelp": "Seconds, or a duration such as 10m or 24h. -1 keeps it loaded; 0 unloads it after each answer.",
+  "@desktopOllamaKeepAliveHelp": {
+    "description": "Help under the custom keep-alive field. 10m, 24h, -1 and 0 are literal values."
+  },
+  "desktopOllamaKeepAliveInvalid": "Use seconds or a duration such as 10m or 24h.",
+  "@desktopOllamaKeepAliveInvalid": {
+    "description": "Error for a keep-alive Ollama doesn't understand."
+  },
+  "desktopOllamaActionFailed": "Ollama couldn't change this model's memory.",
+  "@desktopOllamaActionFailed": {
+    "description": "Error when loading, unloading or setting an Ollama model failed."
+  },
+  "desktopOllamaMemoryHelp": "Load a model to make its first answer faster. Keep Alive is how long it stays in memory after each chat.",
+  "@desktopOllamaMemoryHelp": {
+    "description": "Footer under a local Ollama server's models. 'Keep Alive' names the pop-up."
+  },
+  "desktopOllamaThinkingHelp": "How much each model reasons before it answers. The levels on offer depend on the model.",
+  "@desktopOllamaThinkingHelp": {
+    "description": "Footer under an Ollama Cloud connection's models, whose pop-ups set the thinking level."
+  },
+  "desktopThinkingOff": "Off",
+  "@desktopThinkingOff": {
+    "description": "Thinking-level choice that turns an Ollama Cloud model's thinking off."
+  },
+  "desktopSet": "Set",
+  "@desktopSet": {
+    "description": "Button that applies a typed custom keep-alive."
+  },
   "desktopHermesModeApi": "API Server",
   "@desktopHermesModeApi": {
     "description": "Hermes connection type: the API server with a key."

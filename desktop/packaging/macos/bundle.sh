@@ -209,6 +209,10 @@ assemble() {
   # plus the whisper library next to libsqlite3, where conduitd looks.
   ditto "$daemon_bundle" "$app/Contents/Resources/conduitd"
   cp "$whisper_lib" "$app/Contents/Resources/conduitd/lib/"
+  # The models.dev logo catalog direct models' logos are picked from;
+  # conduitd looks for it beside its bin/ (the app has the SVGs built in).
+  mkdir -p "$app/Contents/Resources/conduitd/model_logos"
+  cp "$DESKTOP_DIR/../assets/model_logos/catalog.json" "$app/Contents/Resources/conduitd/model_logos/"
 
   # The icon: an asset catalog for macOS 26+ and the .icns for 14 and 15
   # (both from icon.sh; Info.plist names them).

@@ -45,6 +45,7 @@ import 'capabilities_service.dart';
 import 'system_service.dart';
 import 'turns_service.dart';
 import 'valves_service.dart';
+import 'web_search_service.dart';
 import 'workspace_service.dart';
 import 'terminals_service.dart';
 import 'handoff_service.dart';
@@ -123,6 +124,7 @@ class DaemonServer {
   PromptsService? _prompts;
   DirectService? _direct;
   McpService? _mcp;
+  WebSearchService? _webSearch;
   NotesService? _notes;
   ChannelsService? _channels;
   WorkspaceService? _workspace;
@@ -254,6 +256,7 @@ class DaemonServer {
     _prompts = PromptsService(core.container);
     _direct = DirectService(core.container);
     _mcp = McpService(core.container);
+    _webSearch = WebSearchService(core.container);
     _notes = NotesService(core.container, events: events);
     _channels = ChannelsService(core.container, events: events);
     _workspace = WorkspaceService(core.container, events: events);
@@ -317,6 +320,7 @@ class DaemonServer {
       prompts: _prompts,
       direct: _direct,
       mcp: _mcp,
+      webSearch: _webSearch,
       notes: _notes,
       channels: _channels,
       workspace: _workspace,

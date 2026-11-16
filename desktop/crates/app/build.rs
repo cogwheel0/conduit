@@ -214,6 +214,7 @@ fn main() {
 
     let dest = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("l10n_generated.rs");
     std::fs::write(dest, out).unwrap();
+    model_logos(&manifest);
 }
 
 const RUST_KEYWORDS: &[&str] = &[
@@ -268,4 +269,47 @@ fn snake(s: &str) -> String {
         out.insert(0, '_');
     }
     out
+}
+
+/// `$OUT_DIR/model_logos.rs`: the models.dev logos the app bundles
+/// (`assets/model_logos/*.svg`, the same set mobile ships), as a sorted
+/// table of `(logo id, SVG bytes)`, and the catalog the daemon picks them
+/// from (`MODEL_LOGO_CATALOG_DIR`, for a run from the checkout).
+fn model_logos(manifest: &Path) {
+    let dir = manifest.join("../../../assets/model_logos");
+    println!("cargo:rerun-if-changed={}", dir.display());
+    let mut logos: Vec<(String, PathBuf)> = std::fs::read_dir(&dir)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|x| x == "svg"))
+                .filter_map(|p| {
+                    let id = p.file_stem()?.to_str()?.to_string();
+                    Some((id, p))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    logos.sort();
+    let mut out = String::from("pub static MODEL_LOGOS: &[(&str, &[u8])] = &[\n");
+    for (id, path) in &logos {
+        let path = path.canonicalize().unwrap_or_else(|_| path.clone());
+        writeln!(
+            out,
+            "    ({id:?}, include_bytes!({:?})),",
+            path.display().to_string()
+        )
+        .unwrap();
+    }
+    out.push_str("];\n");
+    let catalog = dir.canonicalize().unwrap_or(dir);
+    writeln!(
+        out,
+        "pub const MODEL_LOGO_CATALOG_DIR: &str = {:?};",
+        catalog.display().to_string()
+    )
+    .unwrap();
+    let dest = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("model_logos.rs");
+    std::fs::write(dest, out).unwrap();
 }

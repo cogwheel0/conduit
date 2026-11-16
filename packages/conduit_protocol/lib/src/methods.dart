@@ -417,6 +417,20 @@ abstract final class ConduitMethods {
   /// Sets an Ollama Cloud model's thinking level.
   static const String directOllamaThinking = 'direct.ollamaThinking';
 
+  /// Reads the Open WebUI account's connections again; answers with the
+  /// list.
+  static const String directReload = 'direct.reload';
+
+  /// What applies to every connection's models: images per request and the
+  /// context limits of models that report none.
+  static const String directOptions = 'direct.options';
+
+  /// Sets how many of a chat's newest images one request carries.
+  static const String directSetImagesPerRequest = 'direct.setImagesPerRequest';
+
+  /// Sets the context limit chats with a model are compacted at.
+  static const String directSetContextLimit = 'direct.setContextLimit';
+
   // ---------------------------------------------------------------------
   // mcp.* -- MCP servers the app talks to itself.
   // ---------------------------------------------------------------------
@@ -459,6 +473,16 @@ abstract final class ConduitMethods {
 
   /// Reads one of a server's resources, to preview and insert.
   static const String mcpReadResource = 'mcp.readResource';
+
+  // ---------------------------------------------------------------------
+  // webSearch.* -- the web search the app runs itself for direct models.
+  // ---------------------------------------------------------------------
+
+  /// The engine, safe search and region on-device searches use.
+  static const String webSearchGet = 'webSearch.get';
+
+  /// Changes them; answers with all of them.
+  static const String webSearchSet = 'webSearch.set';
 
   // ---------------------------------------------------------------------
   // turns.* -- sending and stopping generation.
@@ -868,6 +892,7 @@ abstract final class ConduitMethods {
   static const String workspaceKnowledgeCleanup = 'workspace.knowledgeCleanup';
   static const String directPrefix = 'direct.';
   static const String mcpPrefix = 'mcp.';
+  static const String webSearchPrefix = 'webSearch.';
   static const String hermesPrefix = 'hermes.';
 
   // hermes.*: the Hermes Agent connection, its sessions -- chats with

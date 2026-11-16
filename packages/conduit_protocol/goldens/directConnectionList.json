@@ -40,5 +40,6 @@
   "localHistory": true,
   "openWebUiAvailable": true,
   "preferred": true,
-  "usable": true
+  "usable": true,
+  "openWebUiLoadFailed": true
 }
