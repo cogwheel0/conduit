@@ -634,8 +634,14 @@ pub fn on_screen(cx: &mut App) -> OnScreen {
             out.quick_ask_chat = view.read(cx).chat_id(cx);
         }
     }
-    out.main_chat = navigation.read(cx).selected_chat().map(str::to_string);
+    out.main_chat = main_chat(navigation.read(cx));
     out
+}
+
+/// The chat the main window's chat pane shows, for [`on_screen`]: a stored
+/// chat, or a Hermes session's chat.
+fn main_chat(navigation: &crate::stores::navigation::NavigationStore) -> Option<String> {
+    navigation.selection().chat_id()
 }
 
 /// A chat's title, from the sidebar's list or an open chat.
@@ -1306,5 +1312,34 @@ mod quick_ask_draft_tests {
                 Some(Some("first".to_string()))
             );
         });
+    }
+}
+
+#[cfg(test)]
+mod on_screen_tests {
+    use gpui_kit::TestAppContext;
+
+    use super::*;
+    use crate::stores::navigation::NavigationStore;
+
+    /// A Hermes session's chat in the main window is in front of the user:
+    /// its answers notify no more than a stored chat's do.
+    #[gpui_kit::test]
+    fn a_hermes_chat_in_the_main_window_counts_as_on_screen(cx: &mut TestAppContext) {
+        let navigation = cx.new(|_| NavigationStore::new());
+        navigation.update(cx, |n, cx| n.open("local:hermes_s1", cx));
+        let screen = OnScreen {
+            main_key: true,
+            main_chat: navigation.read_with(cx, |n, _| main_chat(n)),
+            ..OnScreen::default()
+        };
+        assert!(screen.shows("local:hermes_s1"));
+        navigation.update(cx, |n, cx| n.open("c1", cx));
+        let screen = OnScreen {
+            main_key: true,
+            main_chat: navigation.read_with(cx, |n, _| main_chat(n)),
+            ..OnScreen::default()
+        };
+        assert!(screen.shows("c1") && !screen.shows("local:hermes_s1"));
     }
 }
