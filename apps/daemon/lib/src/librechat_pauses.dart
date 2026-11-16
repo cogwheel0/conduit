@@ -72,6 +72,18 @@ Future<LibreChatPauseOutcome> answerLibreChatPause(
       until: until,
       recovering: recovering,
     );
+    // Not sent, and no window is there to put the card to (one is
+    // reconnecting): the pause waits for a window while its turn runs,
+    // rather than being left with no card to answer.
+    if (outcome == LibreChatPauseOutcome.failed &&
+        windows != null &&
+        until != null &&
+        !windows.canAsk &&
+        asking()) {
+      if (!await windows.windowBack(until) || !asking()) return outcome;
+      recovering = true;
+      continue;
+    }
     if (outcome != LibreChatPauseOutcome.failed ||
         windows == null ||
         !windows.canAsk ||

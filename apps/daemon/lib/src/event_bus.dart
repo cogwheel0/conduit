@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit_protocol/conduit_protocol.dart';
 
 /// Fan-out of daemon events to every connected window, with per-client
@@ -23,6 +25,20 @@ class EventBus {
   /// reconnecting window, which is a new session, starts again too.
   void attach(String sessionId, void Function(EventEnvelope envelope) deliver) {
     _subscribers[sessionId] = _Subscriber(deliver);
+    final waiting = List<Completer<void>>.of(_attachWaiters);
+    _attachWaiters.clear();
+    for (final waiter in waiting) {
+      waiter.complete();
+    }
+  }
+
+  final List<Completer<void>> _attachWaiters = <Completer<void>>[];
+
+  /// Completes when the next client attaches (a window reconnecting).
+  Future<void> nextAttach() {
+    final waiter = Completer<void>();
+    _attachWaiters.add(waiter);
+    return waiter.future;
   }
 
   void detach(String sessionId) => _subscribers.remove(sessionId);

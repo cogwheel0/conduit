@@ -163,6 +163,80 @@ void main() {
     expect(tries, 1);
   });
 
+  test('a failed resume with no window waits for one, and puts the card to it', () async {
+    var resumes = 0;
+    final sent = <Map<String, String>?>[];
+    final ended = Completer<void>();
+    addTearDown(() {
+      if (!ended.isCompleted) ended.complete();
+    });
+    var card = nextCard();
+    final outcome = answerLibreChatPause(
+      _question,
+      windows: windows,
+      chatId: 'chat-1',
+      asking: () => !ended.isCompleted,
+      until: ended.future,
+      resume: ({decisions, answers}) async {
+        sent.add(answers);
+        if (++resumes == 1) {
+          // The window goes away (a reconnect) as the send fails.
+          events.detach('w1');
+          throw StateError('the server could not be reached');
+        }
+      },
+      stop: () async => fail('nothing was to stop'),
+    );
+    final first = await card;
+    card = nextCard();
+    windows.respond(
+      UiResponse(requestId: first.requestId, choice: 'allow', text: 'Ridge'),
+    );
+    // The resume fails with nobody to ask (one event-loop turn: the failed
+    // send settles first). The window comes back: the pause is put to it,
+    // rather than left with no card to answer.
+    await Future<void>.delayed(Duration.zero);
+    events.attach('w2', (envelope) {
+      if (envelope.event != ConduitEvents.uiRequest) return;
+      cards.add(UiRequest.fromJson(envelope.payload));
+    });
+    final again = await Future.any<UiRequest?>([
+      card,
+      outcome.then((_) => null),
+    ]);
+    expect(again, isNotNull, reason: 'the pause was given up');
+    windows.respond(
+      UiResponse(requestId: again!.requestId, choice: 'allow', text: 'Lake'),
+    );
+    expect(await outcome, LibreChatPauseOutcome.resumed);
+    expect(sent, [
+      {'call-1': 'Ridge'},
+      {'call-1': 'Lake'},
+    ]);
+
+    // The turn ends while no window is there: the wait ends with it.
+    events.detach('w2');
+    final over = Completer<void>();
+    var tries = 0;
+    final waiting = answerLibreChatPause(
+      _toolCall(const ['approve', 'reject']),
+      windows: windows,
+      chatId: 'chat-1',
+      asking: () => !over.isCompleted,
+      until: over.future,
+      resume: ({decisions, answers}) async {
+        tries++;
+        throw StateError('the server could not be reached');
+      },
+      stop: () async => fail('nothing was to stop'),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(tries, 1);
+    over.complete();
+    expect(await waiting, LibreChatPauseOutcome.failed);
+    expect(tries, 1);
+  });
+
   test('a tool call is refused only where the pause allows refusing', () async {
     // Approve only: the window says no, and no `reject` goes out; the
     // reply stops instead.

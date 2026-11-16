@@ -170,6 +170,16 @@ final class UiRequestsService implements UiRequestPort {
   /// default at once.
   bool get canAsk => _events.subscriberCount > 0;
 
+  /// True once a window is there to answer, at once when one is; false
+  /// when [until] completes first.
+  Future<bool> windowBack(Future<void> until) async {
+    if (canAsk) return true;
+    return Future.any<bool>([
+      _events.nextAttach().then((_) => true),
+      until.then((_) => false),
+    ]);
+  }
+
   /// Asks whether a LibreChat run may go on with tool [toolName]: a run that
   /// paused for approval. Unanswered, it is rejected; [until] completing
   /// (the turn that asked ended) takes the card back.

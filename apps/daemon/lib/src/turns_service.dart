@@ -2790,9 +2790,9 @@ final class TurnsService implements ChatTurns {
       ),
       stop: () => stop(session.chatId ?? turn.chatId),
     );
-    // Not sent, and nobody to ask again now: the pause is offered once more
-    // the next time the answer is followed (a window that subscribes, a
-    // reconnect), rather than left marked as asked.
+    // Not sent, and nobody to ask (the pause waited for a window while its
+    // turn ran): not left marked as asked, so the answer's next projection
+    // offers it again.
     if (outcome == LibreChatPauseOutcome.failed) {
       session.asked.remove('librechat:${action.actionId}');
     }
