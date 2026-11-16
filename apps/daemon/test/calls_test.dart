@@ -9,6 +9,7 @@ import 'dart:typed_data';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatSessionRegistryProvider;
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_ports.dart';
+import 'package:conduit_core/features/chat/voice_mode/chat_voice_send.dart';
 
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -188,6 +189,29 @@ void main() {
         contains('garden'),
         reason: 'the call\'s first turn left its folder',
       );
+      await calls.end();
+
+      // The call ends while its first words wait for the chat to settle:
+      // the turn already under way still makes the chat as the call chose.
+      final hold = await turns.holdForCall(model: model, temporary: true);
+      final callScope = hold.scope.container;
+      // What the call's start does to the scope: a new chat again, with the
+      // app's own temporary default (off) and no folder.
+      callScope.read(temporaryChatEnabledProvider.notifier).set(false);
+      callScope.read(pendingFolderIdProvider.notifier).set(null);
+      final words = callScope.read(chatVoiceSendProvider)(
+        null,
+        'is it too late for garlic',
+      );
+      hold.release();
+      await words;
+      final made = hold.chatId;
+      expect(
+        made,
+        startsWith('local:'),
+        reason: 'a temporary call\'s first turn was saved as a chat',
+      );
+      expect(turns.temporary.contains(made!), isTrue);
     },
   );
 

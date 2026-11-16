@@ -1654,6 +1654,9 @@ final class TurnsService implements ChatTurns {
       }
     }
     final model = scope.read(selectedModelProvider);
+    // The call's choice for a new chat, as these words began: a call that
+    // ends while they wait below still makes the chat as it chose.
+    final choice = session.callNewChat;
     final sent = Completer<void>();
     session.holds++;
     try {
@@ -1666,7 +1669,6 @@ final class TurnsService implements ChatTurns {
           await _afterLastTurn(session);
           // The call's first turn makes its chat: temporary or not, and in
           // the folder, as the window chose, whatever the call's start reset.
-          final choice = session.callNewChat;
           if (choice != null && !session.scope.isDisposed) {
             if (scope.read(activeConversationProvider) == null) {
               scope
