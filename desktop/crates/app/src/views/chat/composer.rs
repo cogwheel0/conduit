@@ -818,6 +818,15 @@ impl ChatComposer {
         !self.offline && !composer.uploading() && (has_text || composer.has_attachments())
     }
 
+    /// The call button stands where Send would: nothing to send.
+    fn offers_call(&self, cx: &App) -> bool {
+        // Not "not ready": a message waiting on an upload or the connection
+        // keeps its Send.
+        self.call_offer
+            && self.text(cx).trim().is_empty()
+            && !self.composer.read(cx).has_attachments()
+    }
+
     /// Hermes on a Desktop Gateway takes a message while it works.
     pub fn steers(&self, cx: &App) -> bool {
         self.follow_ups && self.composer.read(cx).options.steer
@@ -3536,7 +3545,7 @@ impl Render for ChatComposer {
                 .children(busy_buttons)
                 .child(stop)
                 .into_any_element()
-        } else if self.call_offer && !can_send && !self.ready(cx) {
+        } else if self.offers_call(cx) {
             // Nothing to send: a voice call, as on the phone.
             let weak = cx.entity().downgrade();
             super::call::call_button(
@@ -4258,6 +4267,29 @@ mod tests {
         // A saved recording's words are added at the end.
         emit(DictationEvent::Transcribed("Then rest.".into()), cx);
         assert_eq!(value(&view, cx), "Draft: plant the beans Then rest.");
+    }
+
+    /// The call button takes Send's place only with nothing to send: a
+    /// message waiting on its file keeps its Send.
+    #[gpui_kit::test]
+    fn a_message_waiting_on_its_upload_keeps_send(cx: &mut TestAppContext) {
+        use crate::stores::composer::{Attachment, UploadState};
+        let (view, cx, _) = composer(cx);
+        cx.update(|_, cx| view.update(cx, |c, _| c.call_offer = true));
+        assert!(view.read_with(cx, |c, cx| c.offers_call(cx)));
+        let mut uploading = Attachment::uploaded_for_test(0, "map.pdf", "file-map");
+        uploading.state = UploadState::Uploading { sent: 1, total: 3 };
+        cx.update(|window, cx| {
+            view.update(cx, |c, cx| {
+                c.composer
+                    .update(cx, |s, cx| s.adopt_attachments(vec![uploading], cx));
+                c.set_text("Read this", window, cx);
+            })
+        });
+        assert!(
+            !view.read_with(cx, |c, cx| c.offers_call(cx)),
+            "a call stood where the waiting message's Send was"
+        );
     }
 
     #[gpui_kit::test]
