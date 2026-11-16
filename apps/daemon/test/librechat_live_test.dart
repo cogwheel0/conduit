@@ -684,7 +684,11 @@ void main() {
         final cookies = await _signInAtProvider(plan.startUrl);
         expect(cookies.keys, contains('refreshToken'));
         final done = await libreChat.completeSso(
-          LibreChatSsoCompletion(url: server.url, cookies: cookies),
+          LibreChatSsoCompletion(
+            url: server.url,
+            cookies: cookies,
+            startId: plan.startId,
+          ),
         );
         expect(done.outcome, LibreChatSignInOutcome.signedIn);
         final list = await accounts.list();
@@ -696,8 +700,13 @@ void main() {
               ?.name,
           'Sage Ito',
         );
+        // A fresh start that comes back with no cookies (the window closed
+        // before the server set them).
+        final again = await libreChat.ssoStart(
+          LibreChatSsoStart(url: server.url, provider: 'openid'),
+        );
         final unfinished = await libreChat.completeSso(
-          LibreChatSsoCompletion(url: server.url),
+          LibreChatSsoCompletion(url: server.url, startId: again.startId),
         );
         expect(unfinished.outcome, LibreChatSignInOutcome.ssoUnfinished);
       });

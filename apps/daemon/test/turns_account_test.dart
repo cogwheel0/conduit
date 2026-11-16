@@ -265,12 +265,11 @@ void main() {
         'asked', () async {
       turns.temporary.start('local:sketch-ideas');
       turns.temporary.replace('local:sketch-ideas', chat.messages);
-      listed = Completer<void>();
       final saving = turns.saveTemporary('local:sketch-ideas');
       await pumpEventQueue();
-      // Its model is read; another account takes charge meanwhile.
+      // It waits for the chat to settle (half a second without a change);
+      // another account takes charge meanwhile, before the chat is read.
       anotherTakesCharge();
-      listed.complete();
       await expectLater(saving, refused);
     });
   });
