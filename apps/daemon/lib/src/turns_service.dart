@@ -53,6 +53,8 @@ import 'package:conduit_core/models/openwebui_chat_settings.dart'
 import 'package:conduit_core/ports/ui_request_port.dart';
 import 'package:conduit_core/persistence/account_scoped_preferences.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart'
+    show PrimaryAccountRef, primaryAccountProvider;
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/message_rating.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -160,6 +162,16 @@ final class TurnsService implements ChatTurns {
       }),
       _container.listen<Object?>(apiServiceProvider, (previous, next) {
         if (!identical(previous, next)) _closeAll(reason: 'session-changed');
+      }),
+      // The account in charge of the chats: one LibreChat account after
+      // another changes neither Open WebUI's session nor its client.
+      _container.listen<PrimaryAccountRef>(primaryAccountProvider, (
+        previous,
+        next,
+      ) {
+        if (previous == null || previous == next) return;
+        _closeAll(reason: 'account-changed');
+        this.temporary.clear();
       }),
     ];
     _remaps = _container
