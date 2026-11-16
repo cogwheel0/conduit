@@ -4196,6 +4196,8 @@ fn content_with_mentions(text: &str, mentions: &[ComposerMentionDto]) -> InputCo
             (conduit_protocol::MentionKind::Skill, _) => MentionTarget::Skill(m.id.clone()),
             (_, "U") => MentionTarget::User(m.id.clone()),
             (_, "C") => MentionTarget::Channel(m.id.clone()),
+            // A model asked in a channel.
+            (_, "M") => MentionTarget::Model(m.id.clone()),
             _ => continue,
         };
         let (Some(start), Some(end)) = (byte(m.start), byte(m.end)) else {
@@ -5054,6 +5056,40 @@ mod tests {
         });
         assert_eq!(value(&view, cx), "Ask @Avery and @Blake ");
         assert_eq!(token_ids(&view, cx), vec!["U:u-1", "U:u-2"]);
+    }
+
+    /// A model asked in a channel comes back with a refused post as the
+    /// model's mention, so the post sent again still asks it.
+    #[gpui_kit::test]
+    fn a_refused_post_keeps_its_model_mention(cx: &mut TestAppContext) {
+        let (view, cx, seen) = composer(cx);
+        cx.simulate_input("Ask @Ke");
+        view.update_in(cx, |c, window, cx| {
+            c.text_changed(cx);
+            c.insert_mention(
+                MentionTarget::Model("kestrel-8b".into()),
+                "Kestrel 8B",
+                window,
+                cx,
+            );
+        });
+        cx.simulate_keystrokes("enter");
+        let ChatComposerEvent::Submit { text, mentions } = seen.borrow()[0].clone() else {
+            panic!("not sent");
+        };
+        view.update_in(cx, |c, window, cx| {
+            let used = c
+                .composer
+                .read(cx)
+                .one_shot()
+                .with_mentions(mentions.clone());
+            c.give_back(&text, used, window, cx);
+        });
+        assert_eq!(
+            token_ids(&view, cx),
+            vec!["M:kestrel-8b"],
+            "the model's mention came back as plain text"
+        );
     }
 
     #[gpui_kit::test]
