@@ -668,6 +668,14 @@ impl NotePane {
         if self.hold {
             return;
         }
+        // Opened under another account than the one active now: its text is
+        // held, not sent, so it never reaches the other account (which may
+        // hold the same note, shared with it). A list being read again names
+        // nobody: no change.
+        let active = self.stores.accounts.read(cx).active().map(|a| a.id.clone());
+        if self.opened_under.is_some() && active.is_some() && active != self.opened_under {
+            self.held_for_account = true;
+        }
         // Held for its account: nothing is sent until that account is back
         // (those waiting for a save are not kept waiting for it).
         if self.held_for_account {
@@ -3168,12 +3176,14 @@ mod tests {
             let page = p["pageId"].as_str().unwrap_or("main").to_string();
             Ok(serde_json::to_value(bench::detail("n1", &page, "kept")).unwrap())
         });
+        // Account B may have opened the same (shared) note: conduitd would
+        // take the save. The pane sends none while B is active.
+        refuse.store(false, std::sync::atomic::Ordering::SeqCst);
         pane.update(vcx, |p, cx| {
             p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
         });
         let weak = pane.downgrade();
         drop(pane);
-        // Account B becomes active; the note is left and its save refused.
         stores
             .accounts
             .update(vcx, |a, cx| a.adopt(accounts("b"), cx));
@@ -3185,12 +3195,11 @@ mod tests {
         vcx.run_until_parked();
         assert_eq!(
             daemon.calls::<methods::NotesSave>().len(),
-            1,
-            "tried again for account B"
+            0,
+            "account A's draft was sent while account B was active"
         );
-        assert!(weak.upgrade().is_some(), "the refused draft was dropped");
+        assert!(weak.upgrade().is_some(), "the held draft was dropped");
         // Account A again: the draft is saved, under it.
-        refuse.store(false, std::sync::atomic::Ordering::SeqCst);
         stores
             .accounts
             .update(vcx, |a, cx| a.adopt(accounts("a"), cx));
@@ -3198,24 +3207,26 @@ mod tests {
         let saves = daemon.calls::<methods::NotesSave>();
         assert_eq!(
             saves.len(),
-            2,
+            1,
             "the draft was not saved once its account was back"
         );
-        assert!(saves[1].to_string().contains("Cairn"));
+        assert!(saves[0].to_string().contains("Cairn"));
 
-        // A refusal answered only once account A is back (sent while B was
-        // active): the draft is tried again under A, not held for good.
+        // A save sent under A that conduitd refused as another account's
+        // (B active by then), the refusal answered only once A is back: the
+        // draft is tried again under A, not held for good.
         stores
             .navigation
             .update(vcx, |n, cx| n.open_item(AreaItem::Note("n1".into()), cx));
         vcx.run_until_parked();
         let pane = bench::pane(&area, vcx);
-        pane.update(vcx, |p, cx| {
-            p.editor.update(cx, |e, cx| e.insert_text("Ledge ", cx))
-        });
-        drop(pane);
         refuse.store(true, std::sync::atomic::Ordering::SeqCst);
         let late = daemon.hold::<methods::NotesSave>();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Ledge ", cx));
+            p.save_now(cx);
+        });
+        drop(pane);
         stores
             .accounts
             .update(vcx, |a, cx| a.adopt(accounts("b"), cx));
@@ -3227,9 +3238,9 @@ mod tests {
             .accounts
             .update(vcx, |a, cx| a.adopt(accounts("a"), cx));
         vcx.run_until_parked();
-        refuse.store(false, std::sync::atomic::Ordering::SeqCst);
         drop(late);
         vcx.run_until_parked();
+        refuse.store(false, std::sync::atomic::Ordering::SeqCst);
         vcx.executor().advance_clock(RETRY_DELAY);
         vcx.run_until_parked();
         let saves = daemon.calls::<methods::NotesSave>();
@@ -3237,7 +3248,7 @@ mod tests {
             saves
                 .last()
                 .is_some_and(|s| s.to_string().contains("Ledge"))
-                && saves.len() == 4,
+                && saves.len() == 3,
             "the draft stayed held with its account back: {} saves",
             saves.len()
         );
