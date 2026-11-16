@@ -1544,6 +1544,13 @@ impl ChatPane {
         }
     }
 
+    /// Chat › Read Aloud has a chat to read from: any chat shown, whether
+    /// it takes changes or not (read-only, temporary, Hermes). Without an
+    /// answer yet it reads nothing.
+    pub fn can_read_aloud(&self) -> bool {
+        self.chat.is_some()
+    }
+
     /// Chat › Read Aloud: the newest answer, or Stop Speaking while it is
     /// read (Resume while paused), as its own Read Aloud does.
     pub fn read_aloud_last(&mut self, cx: &mut Context<Self>) {
