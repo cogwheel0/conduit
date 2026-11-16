@@ -34,6 +34,8 @@ void main() {
     late ProviderContainer container;
     // Holds the account's sharing rights read (`_access`) while set.
     Completer<void>? rights;
+    // Told when that read has begun (the read is then waiting on [rights]).
+    Completer<void>? rightsAsked;
 
     setUp(() async {
       // Two accounts, two databases, as the app keeps them.
@@ -42,6 +44,7 @@ void main() {
       second = AppDatabase(NativeDatabase.memory());
       active = first;
       rights = null;
+      rightsAsked = null;
       PreferencesStore.debugOverride(InMemoryKeyValueStore());
       await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-a');
       container = ProviderContainer(
@@ -50,6 +53,9 @@ void main() {
           notesListProvider.overrideWith(_NoNotes.new),
           currentUserProvider2.overrideWithValue(null),
           workspaceCapabilitiesProvider.overrideWith((ref) async {
+            if (rightsAsked case final asked? when !asked.isCompleted) {
+              asked.complete();
+            }
             await rights?.future;
             throw StateError('offline');
           }),
@@ -241,9 +247,10 @@ void main() {
       // The read waits on the account's rights; account B becomes active
       // meanwhile.
       rights = Completer<void>();
+      rightsAsked = Completer<void>();
       container.invalidate(workspaceCapabilitiesProvider);
       final reading = notes.get('ridge-notes');
-      await pumpEventQueue();
+      await rightsAsked!.future;
       await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
       active = second;
       container.invalidate(appDatabaseProvider);
@@ -264,6 +271,7 @@ void main() {
       active = first;
       container.invalidate(appDatabaseProvider);
       rights = Completer<void>();
+      rightsAsked = Completer<void>();
       container.invalidate(workspaceCapabilitiesProvider);
       final making = notes.save(
         const NoteSave(
@@ -273,7 +281,7 @@ void main() {
           ],
         ),
       );
-      await pumpEventQueue();
+      await rightsAsked!.future;
       await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
       active = second;
       container.invalidate(appDatabaseProvider);
