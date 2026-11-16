@@ -534,8 +534,10 @@ mod tests {
             "the next Save went to the old key"
         );
 
-        // A Save answered after its editor closed and another Add opened:
-        // the new editor stays a new memory, and its Save makes one.
+        // A new memory's Save (A) is out; the opt-out switch answers
+        // meanwhile; Cancel, Add Memory… (B), and B's own Save goes out too.
+        // A's answer leaves B a new memory, still saving, with no error.
+        daemon.returns::<methods::LibrechatMemoriesSetEnabled>(LibreChatMemories::default());
         let held = daemon.hold::<methods::LibrechatMemoriesSave>();
         view.update_in(vcx, |v, window, cx| {
             v.open_editor(None, window, cx);
@@ -544,6 +546,13 @@ mod tests {
             v.value
                 .update(cx, |s, cx| s.set_value("Tent by the lake", window, cx));
             v.save(window, cx);
+            v.set_enabled(false, window, cx);
+        });
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, _| {
+            assert!(!v.busy, "the switch's answer left it busy")
+        });
+        view.update_in(vcx, |v, window, cx| {
             // Cancel, then Add Memory… again.
             v.editor = None;
             v.open_editor(None, window, cx);
@@ -551,10 +560,20 @@ mod tests {
                 .update(cx, |s, cx| s.set_value("gear_notes", window, cx));
             v.value
                 .update(cx, |s, cx| s.set_value("Stove and fuel", window, cx));
+            v.save(window, cx);
+        });
+        held.release_one();
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, _| {
+            let b = v.editor.as_ref().expect("the new editor closed");
+            assert_eq!(
+                b.original, None,
+                "the new editor took the first memory's key"
+            );
+            assert!(b.saving, "the new editor's Save no longer shows as out");
+            assert_eq!(b.error, None);
         });
         held.release();
-        vcx.run_until_parked();
-        view.update_in(vcx, |v, window, cx| v.save(window, cx));
         vcx.run_until_parked();
         assert_eq!(
             sent(&daemon),

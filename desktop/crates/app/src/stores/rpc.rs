@@ -131,6 +131,17 @@ pub mod fake {
     impl Hold {
         /// Answers the held calls, and every later call at once.
         pub fn release(self) {}
+
+        /// Answers only the oldest call held so far ([`FakeDaemon::hold`]);
+        /// later ones stay held.
+        pub fn release_one(&self) {
+            let mut state = self.daemon.0.lock().unwrap();
+            if let Some(waiters) = state.held.get_mut(self.method)
+                && !waiters.is_empty()
+            {
+                let _ = waiters.remove(0).send(());
+            }
+        }
     }
 
     impl Drop for Hold {
