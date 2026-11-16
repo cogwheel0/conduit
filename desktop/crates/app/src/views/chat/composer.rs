@@ -266,6 +266,8 @@ pub struct ChatComposer {
     pub(crate) panel: Option<Panel>,
     /// Dictation into this field (the chat pane gives it one).
     pub dictation: Option<Entity<DictationStore>>,
+    /// The recordings the last message took ([`Self::take_sent_recordings`]).
+    sent_recordings: Option<u64>,
     /// The text before the dictation under way; its words follow it.
     dictation_base: Option<String>,
     /// The field's placeholder, put back after "Listening…".
@@ -471,6 +473,7 @@ impl ChatComposer {
             compare_ui: true,
             panel: None,
             dictation: None,
+            sent_recordings: None,
             dictation_base: None,
             placeholder: placeholder.to_string(),
             window_handle: window.window_handle(),
@@ -849,9 +852,10 @@ impl ChatComposer {
         self.input.update(cx, |s, cx| s.set_value("", window, cx));
         self.menu = None;
         self.composer.update(cx, |c, cx| c.clear_draft(cx));
-        // The draft's recordings go with it, as on the phone.
+        // The draft's recordings go with it, as on the phone, once it is
+        // taken ([`Self::take_sent_recordings`]).
         if let Some(store) = self.dictation.clone() {
-            store.update(cx, |s, cx| s.sent(cx));
+            self.sent_recordings = store.update(cx, |s, cx| s.sent(cx));
         }
         (text, mentions)
     }
@@ -921,8 +925,25 @@ impl ChatComposer {
         cx: &mut Context<Self>,
     ) {
         let mentions = used.mentions.clone();
+        // Not sent: the draft's recordings stay, whoever's draft it is now.
+        if let (Some(held), Some(store)) = (used.recordings, self.dictation.clone()) {
+            store.update(cx, |s, cx| s.send_settled(held, false, cx));
+        }
         if self.composer.update(cx, |c, cx| c.give_back(used, cx)) {
             self.restore_with(text, &mentions, window, cx);
+        }
+    }
+
+    /// The recordings the last message took from the draft, held until its
+    /// send says how it went (into its [`OneShot`], for [`Self::give_back`]).
+    pub fn take_sent_recordings(&mut self) -> Option<u64> {
+        self.sent_recordings.take()
+    }
+
+    /// The message holding recordings `held` was taken: they go.
+    pub fn recordings_taken(&mut self, held: Option<u64>, cx: &mut Context<Self>) {
+        if let (Some(held), Some(store)) = (held, self.dictation.clone()) {
+            store.update(cx, |s, cx| s.send_settled(held, true, cx));
         }
     }
 

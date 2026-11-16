@@ -960,11 +960,13 @@ impl ChatPane {
             .next_model()
             .map(|m| m.name.clone());
         // Given back with the text if the send fails.
+        let held = self.composer.update(cx, |c, _| c.take_sent_recordings());
         let used = self
             .composer_store
             .read(cx)
             .one_shot()
-            .with_mentions(mentions.clone());
+            .with_mentions(mentions.clone())
+            .with_recordings(held);
         let options = self
             .composer_store
             .update(cx, |c, cx| c.take_turn(mentions, cx));
@@ -989,6 +991,8 @@ impl ChatPane {
                 if task.await.is_err() {
                     let _ = composer
                         .update_in(cx, |c, window, cx| c.give_back(&text, used, window, cx));
+                } else {
+                    let _ = composer.update(cx, |c, cx| c.recordings_taken(held, cx));
                 }
                 // `turns.send` with no model lets the daemon pick (and keep)
                 // one: the label shows it without opening the picker.
@@ -1042,8 +1046,12 @@ impl ChatPane {
                     Ok(_) if !still_here => {
                         this.composer_store
                             .update(cx, |m, cx| m.forget_sent_params(sent_params.as_ref(), cx));
+                        this.composer
+                            .update(cx, |c, cx| c.recordings_taken(held, cx));
                     }
                     Ok(accepted) => {
+                        this.composer
+                            .update(cx, |c, cx| c.recordings_taken(held, cx));
                         // Its folder's model and its own settings went with it.
                         this.composer_store.update(cx, |m, cx| m.new_chat_sent(cx));
                         let greeting = this.greeting(cx);
@@ -1105,11 +1113,13 @@ impl ChatPane {
         };
         let chat_id = chat.store.read(cx).chat_id().to_string();
         // Given back with the text if the queue refuses it.
+        let held = self.composer.update(cx, |c, _| c.take_sent_recordings());
         let used = self
             .composer_store
             .read(cx)
             .one_shot()
-            .with_mentions(mentions.clone());
+            .with_mentions(mentions.clone())
+            .with_recordings(held);
         let add = self
             .composer_store
             .update(cx, |c, cx| c.take_turn(mentions, cx))
@@ -1119,6 +1129,8 @@ impl ChatPane {
             let queued = task.await;
             let _ = this.update_in(cx, |this, window, cx| {
                 if queued {
+                    this.composer
+                        .update(cx, |c, cx| c.recordings_taken(held, cx));
                     // The queue lives only while Conduit is open: said once.
                     if !std::mem::replace(&mut this.queue_noted, true) {
                         let note = cx.l10n().queued_drafts_session_note();
@@ -1147,11 +1159,13 @@ impl ChatPane {
         let Some(chat) = &self.chat else {
             return;
         };
+        let held = self.composer.update(cx, |c, _| c.take_sent_recordings());
         let used = self
             .composer_store
             .read(cx)
             .text_only()
-            .with_mentions(mentions.clone());
+            .with_mentions(mentions.clone())
+            .with_recordings(held);
         let task = chat
             .store
             .update(cx, |s, cx| s.steer(text.clone(), mentions, steer, cx));
@@ -1172,6 +1186,9 @@ impl ChatPane {
                     this.composer
                         .update(cx, |c, cx| c.give_back(&text, used, window, cx));
                     this.toast(NoticeLevel::Warning, message, cx);
+                } else {
+                    this.composer
+                        .update(cx, |c, cx| c.recordings_taken(held, cx));
                 }
             });
         })
@@ -1199,12 +1216,18 @@ impl ChatPane {
             .call::<methods::NotesSave>(&note);
         let used = self.composer_store.read(cx).text_only();
         self.composer.update(cx, |c, cx| c.clear_text(window, cx));
+        let held = self.composer.update(cx, |c, _| c.take_sent_recordings());
+        let used = used.with_recordings(held);
         cx.spawn_in(window, async move |this, cx| {
             let result = call.await;
             let _ = this.update_in(cx, |this, window, cx| {
                 let l10n = cx.l10n().clone();
                 match result {
-                    Ok(_) => this.toast(NoticeLevel::Info, l10n.desktop_saved_as_note(), cx),
+                    Ok(_) => {
+                        this.composer
+                            .update(cx, |c, cx| c.recordings_taken(held, cx));
+                        this.toast(NoticeLevel::Info, l10n.desktop_saved_as_note(), cx)
+                    }
                     Err(e) => {
                         log::warn!("notes.save: {e}");
                         this.composer
@@ -3425,6 +3448,74 @@ mod tests {
                 pane.read_with(vcx, |p, cx| p.composer_store.read(cx).draft_key().is_some()),
                 "B's new chat keeps no draft"
             );
+        }
+
+        /// A draft's recordings go with its message only once the message
+        /// is taken: a refused send keeps them with the draft it gives back.
+        #[gpui_kit::test]
+        fn a_refused_send_keeps_the_drafts_recordings(cx: &mut TestAppContext) {
+            let (daemon, _stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::RecordingsList>(
+                serde_json::from_value(serde_json::json!({
+                    "stored": true,
+                    "recordings": [{"id": "r1", "createdAt": 0, "byteCount": 64000,
+                                    "durationMs": 2000}]
+                }))
+                .unwrap(),
+            );
+            daemon.returns::<methods::RecordingsDiscard>(
+                serde_json::from_value(serde_json::json!({"stored": true, "recordings": []}))
+                    .unwrap(),
+            );
+            pane.update(vcx, |p, cx| {
+                let dictation = p.composer.read(cx).dictation.clone().unwrap();
+                dictation.update(cx, |d, cx| d.refresh_recordings(cx))
+            });
+            vcx.run_until_parked();
+            let submit = |vcx: &mut VisualTestContext| {
+                pane.update_in(vcx, |p, window, cx| {
+                    p.composer.update(cx, |c, cx| {
+                        // The bench has no connection to say it is online.
+                        c.offline = false;
+                        c.set_text("Plan the trip", window, cx);
+                        c.submit(window, cx);
+                    })
+                });
+                vcx.run_until_parked();
+            };
+            // No `turns.send` answer: refused.
+            submit(vcx);
+            assert_eq!(composer_text(&pane, vcx), "Plan the trip", "not given back");
+            assert!(
+                daemon.calls::<methods::RecordingsDiscard>().is_empty(),
+                "a refused send discarded the draft's recording"
+            );
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p
+                    .composer
+                    .read(cx)
+                    .dictation
+                    .as_ref()
+                    .map(|d| d.read(cx).recordings.len())),
+                Some(1),
+                "the recording is no longer listed with the draft"
+            );
+            // Taken: the recording goes with it.
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "c1", "userMessageId": "m1", "assistantMessageId": "a1"
+                }))
+                .unwrap(),
+            );
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer.update(cx, |c, cx| {
+                    c.input.update(cx, |s, cx| s.set_value("", window, cx))
+                })
+            });
+            submit(vcx);
+            let discarded = daemon.calls::<methods::RecordingsDiscard>();
+            assert_eq!(discarded.len(), 1);
+            assert_eq!(discarded[0]["id"], "r1");
         }
 
         /// A saved recording's words that come back after another account

@@ -161,6 +161,11 @@ pub struct DictationStore {
     pub recordings: Vec<RecordingDto>,
     /// The recording being transcribed or exported.
     pub busy: Option<String>,
+    /// Recordings a message took with it ([`Self::sent`]), by hold, with
+    /// their draft: discarded once the message is taken, listed again if
+    /// it is refused ([`Self::send_settled`]).
+    held: Vec<(u64, Target, Vec<String>)>,
+    next_held: u64,
     /// How the last dictation ended.
     pub last_end: Option<EndReason>,
     _run: Option<Task<()>>,
@@ -191,6 +196,8 @@ impl DictationStore {
             generation: 0,
             recordings: vec![],
             busy: None,
+            held: vec![],
+            next_held: 0,
             last_end: None,
             _run: None,
             _list: None,
@@ -296,19 +303,43 @@ impl DictationStore {
         );
     }
 
-    /// The draft was sent: its recordings go with it, as on the phone.
-    pub fn sent(&mut self, cx: &mut Context<Self>) {
+    /// The draft was sent: its recordings go with it, as on the phone,
+    /// once the message is taken. They leave the list now and are held
+    /// (the hold returned) until [`Self::send_settled`] says how it went.
+    pub fn sent(&mut self, cx: &mut Context<Self>) -> Option<u64> {
         let keep = self.active_recording().map(str::to_string);
-        for recording in std::mem::take(&mut self.recordings) {
-            if Some(&recording.id) == keep.as_ref() {
-                continue;
-            }
-            drop(
-                self.rpc
-                    .call::<methods::RecordingsDiscard>(&self.reference(&recording.id)),
-            );
-        }
+        let ids: Vec<String> = std::mem::take(&mut self.recordings)
+            .into_iter()
+            .map(|r| r.id)
+            .filter(|id| Some(id) != keep.as_ref())
+            .collect();
         cx.notify();
+        if ids.is_empty() {
+            return None;
+        }
+        self.next_held += 1;
+        self.held.push((self.next_held, self.target.clone(), ids));
+        Some(self.next_held)
+    }
+
+    /// The message holding recordings `held` was taken (`accepted`): they
+    /// are discarded. Refused: they stay with their draft, listed again
+    /// when it is the one shown.
+    pub fn send_settled(&mut self, held: u64, accepted: bool, cx: &mut Context<Self>) {
+        let Some(at) = self.held.iter().position(|(h, _, _)| *h == held) else {
+            return;
+        };
+        let (_, target, ids) = self.held.remove(at);
+        if accepted {
+            for id in ids {
+                drop(
+                    self.rpc
+                        .call::<methods::RecordingsDiscard>(&reference(&target, &id)),
+                );
+            }
+        } else if self.target.same_draft(&target) {
+            self.refresh_recordings(cx);
+        }
     }
 
     fn reference(&self, id: &str) -> RecordingRef {
@@ -1183,8 +1214,11 @@ mod tests {
         });
         cx.run_until_parked();
         assert_eq!(daemon.calls::<methods::RecordingsList>().len(), 1);
-        // Sent: each goes, for its draft.
-        store.update(cx, |s, cx| s.sent(cx));
+        // Sent: each goes, for its draft, once the message is taken.
+        let held = store.update(cx, |s, cx| s.sent(cx)).unwrap();
+        cx.run_until_parked();
+        assert!(daemon.calls::<methods::RecordingsDiscard>().is_empty());
+        store.update(cx, |s, cx| s.send_settled(held, true, cx));
         cx.run_until_parked();
         let discarded = daemon.calls::<methods::RecordingsDiscard>();
         assert_eq!(discarded.len(), 2);
