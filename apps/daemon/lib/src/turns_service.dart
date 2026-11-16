@@ -123,7 +123,12 @@ final class TurnsService implements ChatTurns {
     FilesService? files,
     ChatPromptsService? chatPrompts,
     QueuedCompletionsService? queued,
+    DateTime Function()? now,
+    Future<void> Function(Duration)? pause,
   }) : temporary = temporary ?? TemporaryChats(),
+       _now = now ?? DateTime.now,
+       _pause = pause ?? Future<void>.delayed,
+       _ownClock = pause != null,
        _uiRequests = uiRequests,
        _hermes = hermes,
        _files = files,
@@ -166,6 +171,12 @@ final class TurnsService implements ChatTurns {
 
   final ProviderContainer _container;
   final EventBus _events;
+
+  /// The clock and the pause the waits before a turn ([_afterLastTurn],
+  /// [_settleBeforeTurn]) measure and wait with; a test passes its own.
+  final DateTime Function() _now;
+  final Future<void> Function(Duration) _pause;
+  final bool _ownClock;
 
   /// Conversations the server never stores. Shared with `ChatsService`,
   /// which answers `chats.get` for them from the same memory.
@@ -1294,6 +1305,12 @@ final class TurnsService implements ChatTurns {
     final session = _sessionOf(chatId);
     final turn = session?.turn;
     if (session == null || turn == null || turn.finished) return;
+    await _stopTurn(session, turn);
+  }
+
+  /// Stops [turn]'s answer as Stop does: its generation ends in the core,
+  /// then the turn is finished.
+  Future<void> _stopTurn(_ChatSession session, _Turn turn) async {
     turn.stopped = true;
     try {
       await session.scope.container.read(stopGenerationSettledProvider)();
@@ -1535,43 +1552,50 @@ final class TurnsService implements ChatTurns {
       );
     }
     final sent = Completer<void>();
-    unawaited(
-      _run(
-        session,
-        modelId: model.id,
-        userMessageId: null,
-        start: (onPlaceholder) async {
-          // The queue's batch follows an answer that has only just ended.
-          await _afterLastTurn(session);
-          final sending = durableSend(
-            scope,
-            text,
-            fileIds,
-            toolIds: toolIds,
-            contextAttachments: contextAttachments,
-            onAssistantPlaceholderCreated: (handle) {
-              onPlaceholder(handle);
-              onAssistantPlaceholderCreated?.call(handle);
-            },
-            onAdmissionCommitted: onAdmissionCommitted,
-          );
-          sending.then(
-            (_) {
-              if (!sent.isCompleted) sent.complete();
-            },
-            onError: (Object error, StackTrace stackTrace) {
-              if (!sent.isCompleted) sent.completeError(error, stackTrace);
-            },
-          );
-          await sending;
-        },
-      ).then<void>(
-        (_) {},
-        onError: (Object error, StackTrace stackTrace) {
-          if (!sent.isCompleted) sent.completeError(error, stackTrace);
-        },
-      ),
-    );
+    unawaited(() async {
+      try {
+        // The core sent the batch once it found no answer on screen, but a
+        // turn asked for before it (words in a call) may start one
+        // meanwhile: the batch goes after that answer has ended, however
+        // long it runs, never on top of it. Waited out before this send's
+        // turn, so words said meanwhile can still talk over that answer.
+        await _afterRunningAnswer(session);
+        await _run(
+          session,
+          modelId: model.id,
+          userMessageId: null,
+          start: (onPlaceholder) async {
+            // And one started while this waited for its turn.
+            await _afterRunningAnswer(session, ownPending: true);
+            // The queue's batch follows an answer that has only just ended.
+            await _afterLastTurn(session);
+            final sending = durableSend(
+              scope,
+              text,
+              fileIds,
+              toolIds: toolIds,
+              contextAttachments: contextAttachments,
+              onAssistantPlaceholderCreated: (handle) {
+                onPlaceholder(handle);
+                onAssistantPlaceholderCreated?.call(handle);
+              },
+              onAdmissionCommitted: onAdmissionCommitted,
+            );
+            sending.then(
+              (_) {
+                if (!sent.isCompleted) sent.complete();
+              },
+              onError: (Object error, StackTrace stackTrace) {
+                if (!sent.isCompleted) sent.completeError(error, stackTrace);
+              },
+            );
+            await sending;
+          },
+        );
+      } on Object catch (error, stackTrace) {
+        if (!sent.isCompleted) sent.completeError(error, stackTrace);
+      }
+    }());
     return sent.future;
   }
 
@@ -1658,17 +1682,13 @@ final class TurnsService implements ChatTurns {
         session,
         modelId: model?.id ?? '',
         userMessageId: null,
-        // The user talked over the answer (barge-in), and the call stopped
-        // it: its turn ends here before the next starts (once words said
-        // before these have started theirs).
-        onAdmitted: () {
+        // The user talked over the answer (barge-in): it stops as Stop
+        // stops it, generation and all, before these words go (once words
+        // said before them have started their turn).
+        onAdmitted: () async {
           final running = session.turn;
           if (running != null && !running.finished) {
-            running.stopped = true;
-            _project(session);
-            if (!running.finished) {
-              _finish(session, running, _answerOf(session, running));
-            }
+            await _stopTurn(session, running);
           }
         },
         start: (onPlaceholder) async {
@@ -1809,7 +1829,7 @@ final class TurnsService implements ChatTurns {
     bool compare = false,
     String? assistantMessageId,
     bool refuseIfBusy = false,
-    void Function()? onAdmitted,
+    Future<void> Function()? onAdmitted,
     required Future<void> Function(
       void Function(ChatSendPlaceholderHandle handle) onPlaceholder,
     )
@@ -1833,7 +1853,13 @@ final class TurnsService implements ChatTurns {
           debugMessage: 'that chat is already generating',
         );
       }
-      onAdmitted?.call();
+      await onAdmitted?.call();
+      if (session.scope.isDisposed) {
+        throw const RpcError(
+          code: ConduitErrorCodes.sessionExpired,
+          debugMessage: 'the chat closed before this turn could start',
+        );
+      }
       return await _runAdmitted(
         session,
         modelId: modelId,
@@ -3609,9 +3635,7 @@ final class TurnsService implements ChatTurns {
     // The last turn's stored copy first: until it has the answer, the
     // pulls that bring it keep replacing the transcript a new turn reads.
     final settling = session.settling;
-    if (settling != null) {
-      await settling.timeout(_settleTimeout, onTimeout: () {});
-    }
+    if (settling != null) await _atMost(settling, _settleTimeout);
     if (session.requestedChatId != null || session.scope.conversation != null) {
       await _settleBeforeTurn(session);
     }
@@ -3632,13 +3656,44 @@ final class TurnsService implements ChatTurns {
   /// queued message is dropped).
   Future<void> _afterLastTurn(_ChatSession session) async {
     while (session.deleting && !session.scope.isDisposed) {
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await _pause(const Duration(milliseconds: 50));
     }
-    final settling = session.settling;
-    if (settling != null) {
-      await settling.timeout(_settleTimeout, onTimeout: () {});
+    // A turn or merge that ended during the quiet wait has started its own
+    // stored copy: that one is waited for too, then quiet again.
+    Future<void>? awaited;
+    while (!session.scope.isDisposed) {
+      final settling = session.settling;
+      if (settling != null && !identical(settling, awaited)) {
+        awaited = settling;
+        await _atMost(settling, _settleTimeout);
+      }
+      await _settleBeforeTurn(session);
+      final now = session.settling;
+      if (now == null || identical(now, awaited)) return;
     }
-    await _settleBeforeTurn(session);
+  }
+
+  /// Waits until no answer runs in [session], nor is about to start (a
+  /// turn asked for and not started yet, unless it is the caller's own,
+  /// [ownPending]). Each wait ends with that turn: no time limit, and no
+  /// turn outlives the chat ([dispose] ends them all).
+  Future<void> _afterRunningAnswer(
+    _ChatSession session, {
+    bool ownPending = false,
+  }) async {
+    while (!session.scope.isDisposed) {
+      final pending = session.pending;
+      if (!ownPending && pending != null && !pending.started.isCompleted) {
+        await pending.started.future.then((_) {}, onError: (Object _) {});
+        continue;
+      }
+      final turn = session.turn;
+      if (turn != null && !turn.finished) {
+        await turn.ended.future;
+        continue;
+      }
+      return;
+    }
   }
 
   static const Duration _settleBudget = Duration(seconds: 6);
@@ -3649,19 +3704,26 @@ final class TurnsService implements ChatTurns {
   static const Duration _settleTimeout = Duration(seconds: 20);
   static const Duration _settleQuiet = Duration(milliseconds: 500);
 
+  /// [future], or [limit] on this service's clock, whichever comes first.
+  Future<void> _atMost(Future<void> future, Duration limit) {
+    final ended = future.then((_) {}, onError: (Object _) {});
+    if (!_ownClock) return ended.timeout(limit, onTimeout: () {});
+    return Future.any(<Future<void>>[ended, _pause(limit)]);
+  }
+
   Future<void> _settleBeforeTurn(_ChatSession session) async {
     if (session.scope.isDisposed) return;
-    var lastChange = DateTime.now();
+    var lastChange = _now();
     final watch = session.scope.container.listen<List<ChatMessage>>(
       chatMessagesProvider,
-      (_, _) => lastChange = DateTime.now(),
+      (_, _) => lastChange = _now(),
     );
     try {
-      final deadline = DateTime.now().add(_settleBudget);
-      while (DateTime.now().isBefore(deadline) && !session.scope.isDisposed) {
-        final quiet = DateTime.now().difference(lastChange) >= _settleQuiet;
+      final deadline = _now().add(_settleBudget);
+      while (_now().isBefore(deadline) && !session.scope.isDisposed) {
+        final quiet = _now().difference(lastChange) >= _settleQuiet;
         if (quiet && !session.scope.isStreaming) return;
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await _pause(const Duration(milliseconds: 50));
       }
     } finally {
       watch.close();
