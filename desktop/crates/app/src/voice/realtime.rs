@@ -437,6 +437,49 @@ impl Drop for AudioHandle {
     }
 }
 
+/// The microphone's way to the voice: frames while capture is on, none
+/// while it is off.
+pub struct Capture {
+    on: bool,
+    framer: Framer,
+}
+
+impl Default for Capture {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Capture {
+    pub fn new() -> Self {
+        Self {
+            on: false,
+            framer: Framer::new(),
+        }
+    }
+
+    pub fn on(&self) -> bool {
+        self.on
+    }
+
+    pub fn set(&mut self, on: bool) {
+        // Turned on or off: what the framer holds of the time before is
+        // not sent with what comes next.
+        if on != self.on {
+            self.framer = Framer::new();
+        }
+        self.on = on;
+    }
+
+    /// The whole frames `samples` make, to send (none while off).
+    pub fn push(&mut self, samples: &[f32], rate: u32) -> Vec<Vec<u8>> {
+        if !self.on {
+            return vec![];
+        }
+        self.framer.push(samples, rate)
+    }
+}
+
 /// Starts the audio on a thread of its own; what it says goes to `out`
 /// ([`AudioOut::Started`] first, or [`AudioOut::Failure`]).
 pub fn spawn(devices: DevicesFactory, out: UnboundedSender<AudioOut>) -> AudioHandle {
@@ -470,8 +513,7 @@ fn run(
         latency_ms: latency.as_millis() as u64,
     });
     let mut playback = Playback::new();
-    let mut framer = Framer::new();
-    let mut capture = false;
+    let mut capture = Capture::new();
     let mut input_level = 0.0f32;
     let mut played = 0usize;
     // Bumped by each stop, so buffers it dropped are not counted as heard.
@@ -482,7 +524,7 @@ fn run(
         let now = Instant::now();
         match message {
             Ok(EngineMsg::Command(command)) => match command {
-                AudioCommand::Capture(on) => capture = on,
+                AudioCommand::Capture(on) => capture.set(on),
                 AudioCommand::Enqueue {
                     response_id,
                     item_id,
@@ -528,8 +570,8 @@ fn run(
             },
             Ok(EngineMsg::Samples(samples, rate)) => {
                 input_level = pcm::meter(pcm::level_db(&samples)).max(input_level * 0.7);
-                for frame in framer.push(&samples, rate) {
-                    if capture && out.unbounded_send(AudioOut::Frame(frame)).is_err() {
+                for frame in capture.push(&samples, rate) {
+                    if out.unbounded_send(AudioOut::Frame(frame)).is_err() {
                         break;
                     }
                 }
@@ -554,7 +596,7 @@ fn run(
                 playback_active: playback.take_active(),
                 queued_samples: playback.queued(),
                 received_samples: playback.received(),
-                input_level: if capture { input_level } else { 0.0 },
+                input_level: if capture.on() { input_level } else { 0.0 },
                 output_level: playback.output_level(),
             };
             input_level *= 0.5;
@@ -742,6 +784,25 @@ mod tests {
         // The next buffer plays on from there.
         p.tick(t0 + ms(260), Some(0));
         assert_eq!(p.queued(), 1_200);
+    }
+
+    /// Unmuted, only what is said from then on goes: nothing heard while
+    /// muted is sent with the first frame.
+    #[test]
+    fn nothing_said_while_muted_goes_out_after() {
+        let mut capture = Capture::new();
+        capture.set(true);
+        assert_eq!(capture.push(&vec![0.1f32; FRAME], RATE).len(), 1);
+        capture.set(false);
+        // Muted: half a frame of words that must stay here.
+        assert!(capture.push(&vec![0.5f32; FRAME / 2], RATE).is_empty());
+        capture.set(true);
+        let frames = capture.push(&vec![-0.25f32; FRAME], RATE);
+        assert_eq!(frames.len(), 1);
+        assert!(
+            samples_of(&frames[0]).iter().all(|&s| s < 0),
+            "words said while muted went out after it"
+        );
     }
 
     #[test]
