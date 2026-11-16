@@ -360,9 +360,13 @@ impl NotePane {
                 || self.resolved_title(cx) != self.saved_title)
     }
 
-    /// Still saving, or something to save.
+    /// Still saving, something to save (a failed save's retry too), or a
+    /// recording or dictation still to come in.
     pub fn is_busy(&self) -> bool {
-        self.saving_rev.is_some() || self._debounce.is_some()
+        self.saving_rev.is_some()
+            || self._debounce.is_some()
+            || self.recorder.is_some()
+            || self.run.is_some()
     }
 
     pub fn has_refused_draft(&self) -> bool {
@@ -750,7 +754,7 @@ impl NotePane {
             self.dictation.update(cx, |d, cx| d.stop(cx));
         }
         if let Some(recorder) = &self.recorder {
-            recorder.update(cx, |r, _| r.stop());
+            recorder.update(cx, |r, cx| r.stop(cx));
         }
         self.save_now(cx);
     }
@@ -1107,6 +1111,10 @@ impl NotePane {
                         e.replace_run(run.anchor, run.len, "", false, cx)
                     });
                 }
+                // A note left while dictating goes once the words are in.
+                if self.leaving {
+                    self.save_now(cx);
+                }
             }
         }
         cx.notify();
@@ -1134,6 +1142,10 @@ impl NotePane {
                     this.toast(NoticeLevel::Error, l.recording_failed(), cx)
                 }
                 RecorderEvent::Cancelled => {}
+            }
+            // A note left while recording goes once the audio is handed on.
+            if this.leaving {
+                this.save_now(cx);
             }
             cx.notify();
         });
@@ -2201,7 +2213,7 @@ impl NotePane {
                 .child(
                     Button::new("note-recording-cancel", l.cancel()).on_click(Rc::new(
                         move |_, _, cx| {
-                            cancel.update(cx, |r, _| r.cancel()).ok();
+                            cancel.update(cx, |r, cx| r.cancel(cx)).ok();
                         },
                     )),
                 )
@@ -2210,7 +2222,7 @@ impl NotePane {
                         .primary()
                         .disabled(phase == RecordPhase::Saving)
                         .on_click(Rc::new(move |_, _, cx| {
-                            stop.update(cx, |r, _| r.stop()).ok();
+                            stop.update(cx, |r, cx| r.stop(cx)).ok();
                         })),
                 )
                 .into_any_element(),
@@ -2812,5 +2824,193 @@ mod tests {
         assert_eq!(mime_for("Recording.WAV"), Some("audio/wav"));
         assert_eq!(mime_for("notes.pdf"), Some("application/pdf"));
         assert_eq!(mime_for("archive"), None);
+    }
+
+    mod bench {
+        use conduit_protocol::{NoteList, NoteRecordings, NoteResult, NoteSection, NoteSummary};
+        use gpui_kit::{TestAppContext, VisualTestContext};
+
+        use super::super::super::area::NotesArea;
+        use super::*;
+        use crate::stores::navigation::AreaItem;
+        use crate::stores::rpc::fake::FakeDaemon;
+
+        /// Page `page` of note `id`, its text `text`; the note has pages
+        /// `main`, `p2` and `p3`.
+        pub fn detail(id: &str, page: &str, text: &str) -> NoteDetail {
+            NoteDetail {
+                summary: NoteSummary {
+                    id: id.into(),
+                    title: "Trail log".into(),
+                    updated_at_ms: 1,
+                    pinned: false,
+                    preview: String::new(),
+                    conflict_copy: false,
+                    section: NoteSection::Today,
+                    can_edit: true,
+                    access_unverified: false,
+                    can_share: false,
+                    owner: None,
+                },
+                ops: vec![serde_json::json!({ "insert": format!("{text}\n") })],
+                files: vec![],
+                pages: ["main", "p2", "p3"]
+                    .iter()
+                    .map(|p| NotePageDto {
+                        id: (*p).into(),
+                        title: (*p).into(),
+                        path: (*p).into(),
+                        depth: 0,
+                    })
+                    .collect(),
+                page_id: page.into(),
+                markdown: text.into(),
+                recovered_from: None,
+            }
+        }
+
+        /// The text a page holds on the fake server.
+        pub fn page_text(page: &str) -> &'static str {
+            match page {
+                "p2" => "Second page",
+                "p3" => "Third page",
+                _ => "Ridge at dawn",
+            }
+        }
+
+        /// The notes area with note `n1` open.
+        pub fn open(
+            cx: &mut TestAppContext,
+        ) -> (
+            FakeDaemon,
+            Stores,
+            Entity<NotesArea>,
+            &mut VisualTestContext,
+        ) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::NotesList>(NoteList { notes: vec![] });
+            daemon.returns::<methods::NotesRecordings>(NoteRecordings {
+                note_id: "n1".into(),
+                recordings: vec![],
+            });
+            daemon.on::<methods::NotesGet>(|p| {
+                let page = p["pageId"].as_str().unwrap_or("main");
+                let id = p["id"].as_str().unwrap_or("n1");
+                Ok(serde_json::to_value(NoteResult {
+                    note: Some(detail(id, page, page_text(page))),
+                })
+                .unwrap())
+            });
+            let scratch =
+                std::env::temp_dir().join(format!("conduit-notes-{}", std::process::id()));
+            let stores = cx.update(|cx| {
+                crate::views::test_globals(cx);
+                Stores::for_test(daemon.rpc(), &scratch, cx)
+            });
+            stores
+                .navigation
+                .update(cx, |n, cx| n.open_item(AreaItem::Note("n1".into()), cx));
+            let s = stores.clone();
+            let (area, vcx) = cx.add_window_view(move |window, cx| NotesArea::new(s, window, cx));
+            vcx.run_until_parked();
+            (daemon, stores, area, vcx)
+        }
+
+        pub fn pane(area: &Entity<NotesArea>, vcx: &mut VisualTestContext) -> Entity<NotePane> {
+            area.read_with(vcx, |a, _| a.note_pane().cloned())
+                .expect("a note shown")
+        }
+
+        pub fn text(pane: &Entity<NotePane>, vcx: &mut VisualTestContext) -> String {
+            pane.read_with(vcx, |p, cx| p.editor.read(cx).doc.plain_text())
+        }
+    }
+
+    /// A note left while its save fails is kept, and saved again, until
+    /// its text is kept: the departing pane is not let go with it.
+    #[gpui_kit::test]
+    fn a_note_left_is_saved_again_after_a_failed_save(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::navigation::AreaItem;
+        let (daemon, stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        daemon.once::<methods::NotesSave>(Err(conduit_daemon::protocol::error(
+            "rpc.daemonUnavailable",
+            "away",
+        )));
+        daemon.on::<methods::NotesSave>(|p| {
+            let page = p["pageId"].as_str().unwrap_or("main").to_string();
+            Ok(serde_json::to_value(bench::detail("n1", &page, "kept")).unwrap())
+        });
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        // Only the area holds the pane from here.
+        drop(pane);
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::AllNotes, cx));
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::NotesSave>().len(), 1);
+        vcx.executor().advance_clock(RETRY_DELAY);
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::NotesSave>().len(),
+            2,
+            "the note left was dropped with its unsaved text"
+        );
+    }
+
+    /// A dictation still finishing when the note is left keeps the pane
+    /// until it ends: its last words are saved, then the pane goes.
+    #[gpui_kit::test]
+    fn a_note_left_while_dictating_stays_until_the_words_are_in(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::navigation::AreaItem;
+        let (daemon, stores, area, vcx) = bench::open(cx);
+        daemon.on::<methods::NotesSave>(|p| {
+            let page = p["pageId"].as_str().unwrap_or("main").to_string();
+            Ok(serde_json::to_value(bench::detail("n1", &page, "kept")).unwrap())
+        });
+        let pane = bench::pane(&area, vcx);
+        pane.update(vcx, |p, _| {
+            p.run = Some(DictationRun {
+                anchor: 0,
+                len: 0,
+                started: false,
+            })
+        });
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::AllNotes, cx));
+        vcx.run_until_parked();
+        let weak = pane.downgrade();
+        drop(pane);
+        let pane = weak
+            .upgrade()
+            .expect("the pane went before its dictation ended");
+        pane.update(vcx, |p, cx| {
+            p.on_dictation(
+                &DictationEvent::Text {
+                    text: "summit".into(),
+                    done: true,
+                },
+                cx,
+            );
+            p.on_dictation(&DictationEvent::Ended { restore: false }, cx);
+        });
+        vcx.run_until_parked();
+        let saved = daemon.calls::<methods::NotesSave>();
+        assert!(
+            saved
+                .last()
+                .is_some_and(|s| s.to_string().contains("summit")),
+            "the dictation's words were not saved: {saved:?}"
+        );
+        drop(pane);
+        vcx.executor().advance_clock(SAVE_DELAY);
+        vcx.run_until_parked();
+        assert!(
+            weak.upgrade().is_none(),
+            "the pane stayed once its words were in"
+        );
     }
 }

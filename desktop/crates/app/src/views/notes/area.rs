@@ -137,7 +137,10 @@ impl NotesArea {
     ) {
         match e {
             PaneEvent::Settled => {
-                if !pane.read(cx).has_refused_draft() {
+                // A failed save's retry, or a recording or dictation still to
+                // come in, keeps the pane until they are done.
+                let pane_now = pane.read(cx);
+                if !pane_now.has_refused_draft() && !pane_now.is_busy() {
                     self.retiring.retain(|p| p != &pane);
                 }
             }

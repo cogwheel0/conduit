@@ -148,17 +148,26 @@ impl Recorder {
     }
 
     /// Stop: keep what was recorded.
-    pub fn stop(&mut self) {
-        if let Some(session) = &self.session {
-            session.stop();
+    pub fn stop(&mut self, cx: &mut Context<Self>) {
+        match &self.session {
+            Some(session) => session.stop(),
+            None => self.end_unstarted(cx),
         }
     }
 
     /// Cancel: keep nothing.
-    pub fn cancel(&mut self) {
+    pub fn cancel(&mut self, cx: &mut Context<Self>) {
         match &self.session {
             Some(session) => session.cancel(),
-            None => self._run = None,
+            None => self.end_unstarted(cx),
+        }
+    }
+
+    /// Stop or Cancel before the microphone is set up (its permission
+    /// still asked): the recording never starts, and says so.
+    fn end_unstarted(&mut self, cx: &mut Context<Self>) {
+        if self.phase == Phase::Starting && self._run.take().is_some() {
+            cx.emit(RecorderEvent::Cancelled);
         }
     }
 
@@ -168,5 +177,34 @@ impl Recorder {
             Phase::Recording { since } => since.elapsed(),
             _ => std::time::Duration::ZERO,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use gpui_kit::{AppContext as _, TestAppContext};
+
+    use super::*;
+
+    /// Stop while the microphone is still being set up ends the recording
+    /// before it starts: nothing goes on recording after Stop.
+    #[gpui_kit::test]
+    fn stop_before_the_microphone_is_ready_records_nothing(cx: &mut TestAppContext) {
+        let heard = Rc::new(RefCell::new(vec![]));
+        let recorder = cx.new(|cx| Recorder::start(Some(InputOverride::Denied), cx));
+        let h = heard.clone();
+        cx.update(|cx| {
+            cx.subscribe(&recorder, move |_, e: &RecorderEvent, _| {
+                h.borrow_mut().push(e.clone())
+            })
+            .detach()
+        });
+        recorder.update(cx, |r, cx| r.stop(cx));
+        cx.run_until_parked();
+        assert_eq!(*heard.borrow(), vec![RecorderEvent::Cancelled]);
+        assert!(recorder.read_with(cx, |r, _| r.session.is_none()));
     }
 }
