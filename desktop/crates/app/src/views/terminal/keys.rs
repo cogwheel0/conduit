@@ -152,14 +152,17 @@ fn control_byte(c: char) -> Option<u8> {
 
 /// `text` pasted: bracketed when the shell asked for it (so it is not run
 /// line by line), with line ends as Return; and stripped of the bracket
-/// markers a hostile clipboard could carry.
+/// markers a hostile clipboard could carry. Inside brackets nothing can end
+/// the paste early: markers are taken out until none is left (one can hide
+/// inside another), then every Escape and Ctrl-C, as Alacritty does.
 pub fn paste_bytes(text: &str, mode: TermMode) -> Vec<u8> {
-    let clean = text
-        .replace("\x1b[200~", "")
-        .replace("\x1b[201~", "")
-        .replace("\r\n", "\r")
-        .replace('\n', "\r");
+    let mut clean = text.to_string();
+    while clean.contains("\x1b[200~") || clean.contains("\x1b[201~") {
+        clean = clean.replace("\x1b[200~", "").replace("\x1b[201~", "");
+    }
+    let clean = clean.replace("\r\n", "\r").replace('\n', "\r");
     if mode.contains(TermMode::BRACKETED_PASTE) {
+        let clean = clean.replace(['\x1b', '\x03'], "");
         let mut out = b"\x1b[200~".to_vec();
         out.extend(clean.as_bytes());
         out.extend(b"\x1b[201~");
@@ -348,6 +351,17 @@ mod tests {
         assert_eq!(
             paste_bytes("x\x1b[201~rm", TermMode::BRACKETED_PASTE),
             b"\x1b[200~xrm\x1b[201~"
+        );
+        // A marker that only appears once an inner one is taken out, and a
+        // bare Escape or Ctrl-C, cannot end the paste before its last line.
+        let nested = paste_bytes(
+            "\x1b[20\x1b[201~1~printf hello\n",
+            TermMode::BRACKETED_PASTE,
+        );
+        assert_eq!(nested, b"\x1b[200~printf hello\r\x1b[201~");
+        assert_eq!(
+            paste_bytes("a\x1bb\x03c", TermMode::BRACKETED_PASTE),
+            b"\x1b[200~abc\x1b[201~"
         );
     }
 
