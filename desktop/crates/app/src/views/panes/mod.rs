@@ -523,4 +523,48 @@ mod tests {
             "the last account's terminal stayed attached"
         );
     }
+
+    /// The terminals are the Open WebUI account's: when it is parked for a
+    /// LibreChat account taking charge, they go with it.
+    #[gpui_kit::test]
+    fn the_open_webui_account_parked_for_librechat_takes_its_terminals(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::TerminalAttach>(TerminalAttached {
+            handle: "handle-avery".into(),
+            cwd: "/".into(),
+            supported: false,
+        });
+        let scratch = std::env::temp_dir().join(format!("conduit-panes-lc-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        let layout = cx.new(|_| LayoutStore::load(scratch.join("layout.json")));
+        let s = stores.clone();
+        let (area, vcx) =
+            cx.add_window_view(move |window, cx| AreaPane::new(s, layout, window, cx));
+        vcx.update(|window, cx| {
+            area.update(cx, |a, cx| {
+                a.terminal("box", window, cx);
+            })
+        });
+        vcx.run_until_parked();
+
+        // LibreChat takes charge: the Open WebUI account is parked (no
+        // longer the one in use).
+        let mut parked = list(vec![account("a", "Avery", false, true)]);
+        parked.primary = conduit_protocol::PrimaryAccount::LibreChat;
+        parked.active_account_id = None;
+        parked.active_libre_chat_account_id = Some("lc-blake".into());
+        stores.accounts.update(vcx, |a, cx| a.adopt(parked, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::TerminalDetach>(),
+            vec![serde_json::json!({"handle": "handle-avery"})],
+            "the parked account's terminal stayed attached"
+        );
+    }
 }
