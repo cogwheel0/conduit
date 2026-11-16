@@ -84,6 +84,12 @@ pub struct HermesJobSheet {
     /// The connection in use when the editor opened: the job is saved to
     /// it, or to none.
     opened: crate::stores::hermes_admin::Opened,
+    /// The job a save made, as its answer named it: saved to from then on,
+    /// whether or not the list that came with it has it yet.
+    saved_id: Option<String>,
+    /// A save made a job but named none: Save sends nothing more (it could
+    /// only make another), the words stay.
+    made_unnamed: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -164,6 +170,8 @@ impl HermesJobSheet {
             busy: false,
             error: None,
             opened,
+            saved_id: None,
+            made_unnamed: false,
             _subscriptions: subscriptions,
         };
         if scheduling {
@@ -263,8 +271,18 @@ impl HermesJobSheet {
             cx.notify();
             return;
         }
+        if self.made_unnamed {
+            self.error = Some(cx.l10n().notification_targets_stale());
+            cx.notify();
+            return;
+        }
         let admin = self.stores.hermes_admin.read(cx);
-        let editing = self.job.is_some();
+        let id = self
+            .job
+            .as_ref()
+            .map(|j| j.id.clone())
+            .or_else(|| self.saved_id.clone());
+        let editing = id.is_some();
         if !admin.still_in_use(&self.opened) {
             let l = cx.l10n();
             self.error = Some(if editing {
@@ -275,7 +293,6 @@ impl HermesJobSheet {
             cx.notify();
             return;
         }
-        let generation = admin.generation();
         let (name, prompt, schedule) = self.values(cx);
         let sent = (
             name.clone(),
@@ -294,7 +311,7 @@ impl HermesJobSheet {
         };
         let catch_up_changed = !editing || self.catch_up != *c0;
         let edit = HermesJobEdit {
-            id: self.job.as_ref().map(|j| j.id.clone()),
+            id: id.clone(),
             name: Some(name),
             prompt,
             schedule,
@@ -309,6 +326,8 @@ impl HermesJobSheet {
             .read(cx)
             .rpc()
             .call::<methods::HermesSaveJob>(&edit);
+        // Its list is taken in the order it was asked, against the polls.
+        let ticket = self.stores.hermes_admin.update(cx, |a, _| a.ask_jobs());
         self.busy = true;
         self.error = None;
         cx.notify();
@@ -320,17 +339,21 @@ impl HermesJobSheet {
                 match result {
                     Ok(jobs) => {
                         // What was sent is saved; a new job is edited from
-                        // now on, so a later Save changes it.
-                        if s.job.is_none()
-                            && let Some(id) = &jobs.saved_id
-                        {
-                            s.job = jobs.jobs.iter().find(|j| &j.id == id).cloned();
+                        // now on (by the id the answer names), so a later
+                        // Save changes it. A made job the answer does not
+                        // name could only be made again: Save stops there.
+                        if !editing {
+                            match &jobs.saved_id {
+                                Some(id) => {
+                                    s.saved_id = Some(id.clone());
+                                    s.job = jobs.jobs.iter().find(|j| &j.id == id).cloned();
+                                }
+                                None => s.made_unnamed = true,
+                            }
                         }
                         s.initial = sent;
                         s.stores.hermes_admin.update(cx, |a, cx| {
-                            if a.generation() == generation {
-                                a.adopt_jobs(jobs, cx);
-                            }
+                            a.answer_jobs(ticket, jobs, cx);
                         });
                         let text = if editing {
                             l.hermes_job_updated()
@@ -343,6 +366,8 @@ impl HermesJobSheet {
                         // Words typed while the Save was out stay.
                         if !s.dirty(cx) {
                             sheet::dismiss(cx);
+                        } else if s.made_unnamed {
+                            s.error = Some(l.notification_targets_stale());
                         }
                     }
                     Err(e) => match (e.args.get("field"), e.args.get("reason")) {
@@ -646,7 +671,7 @@ impl SheetBody for HermesJobSheet {
                     },
                 )
                 .primary()
-                .disabled(self.busy)
+                .disabled(self.busy || self.made_unnamed)
                 .on_click(Rc::new(move |_, window, cx| {
                     let _ = view.update(cx, |v, cx| v.save(window, cx));
                 }))
@@ -937,6 +962,77 @@ mod tests {
             json!("j-new"),
             "the second Save made another job"
         );
+    }
+
+    fn type_and_save_held(
+        daemon: &crate::stores::rpc::fake::FakeDaemon,
+        stores: &Stores,
+        vcx: &mut VisualTestContext,
+        answer: serde_json::Value,
+    ) -> Entity<HermesJobSheet> {
+        daemon.returns::<methods::HermesSaveJob>(serde_json::from_value(answer).unwrap());
+        let held = daemon.hold::<methods::HermesSaveJob>();
+        let s = stores.clone();
+        vcx.update(|window, cx| open(&s, None, window, cx));
+        vcx.run_until_parked();
+        let sheet = vcx
+            .update(|_, cx| sheet::current::<HermesJobSheet>(cx))
+            .expect("the editor opens");
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.name
+                .update(cx, |i, cx| i.set_value("Evening watering", w, cx));
+            s.prompt.update(cx, |i, cx| i.set_value("Water", w, cx));
+            s.save(w, cx);
+            s.prompt.update(cx, |i, cx| {
+                i.set_value("Water the seedlings at dusk", w, cx)
+            });
+        });
+        held.release();
+        vcx.run_until_parked();
+        sheet
+    }
+
+    /// The job a save names is the one saved to next, even when the list
+    /// that came with the answer does not have it yet.
+    #[gpui_kit::test]
+    fn a_new_job_named_but_not_listed_is_saved_to_again(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        use_connection(&stores, vcx, "a");
+        let sheet = type_and_save_held(
+            &daemon,
+            &stores,
+            vcx,
+            json!({"jobs": [], "savedId": "j-new"}),
+        );
+        on_sheet(vcx, &sheet, |s, w, cx| s.save(w, cx));
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::HermesSaveJob>();
+        assert_eq!(saves.len(), 2);
+        assert_eq!(
+            saves[1]["id"],
+            json!("j-new"),
+            "the second Save made another job"
+        );
+    }
+
+    /// A save that names no job is never followed by another create: the
+    /// editor keeps the words and says so, and Save sends nothing more.
+    #[gpui_kit::test]
+    fn a_new_job_saved_without_its_id_is_not_made_again(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        use_connection(&stores, vcx, "a");
+        let sheet = type_and_save_held(&daemon, &stores, vcx, json!({"jobs": []}));
+        on_sheet(vcx, &sheet, |s, w, cx| s.save(w, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::HermesSaveJob>().len(),
+            1,
+            "a second Save made another job"
+        );
+        vcx.update(|_, cx| {
+            assert!(sheet.read(cx).error.is_some(), "the editor says nothing");
+            assert!(sheet::has_unsaved(cx), "the words typed later are dropped");
+        });
     }
 
     /// An editor opened for one connection's job saves nothing once
