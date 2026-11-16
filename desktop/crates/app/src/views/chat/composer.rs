@@ -947,6 +947,14 @@ impl ChatComposer {
         }
     }
 
+    /// The message holding recordings `held` was not sent: they stay with
+    /// their draft.
+    pub fn recordings_kept(&mut self, held: Option<u64>, cx: &mut Context<Self>) {
+        if let (Some(held), Some(store)) = (held, self.dictation.clone()) {
+            store.update(cx, |s, cx| s.send_settled(held, false, cx));
+        }
+    }
+
     /// Puts text back after a refused send.
     pub fn restore(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.restore_with(text, &[], window, cx);

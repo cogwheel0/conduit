@@ -949,8 +949,12 @@ impl ChatPane {
         // A new chat's first message is still on its way: keep this one in
         // the composer rather than starting a second chat.
         if self.chat.is_none() && self.starting {
-            self.composer
-                .update(cx, |c, cx| c.restore_with(&text, &mentions, window, cx));
+            self.composer.update(cx, |c, cx| {
+                // Not sent: its recordings stay with the draft too.
+                let held = c.take_sent_recordings();
+                c.recordings_kept(held, cx);
+                c.restore_with(&text, &mentions, window, cx)
+            });
             return;
         }
         let files = self.composer_store.read(cx).pending_files();
@@ -3516,6 +3520,65 @@ mod tests {
             let discarded = daemon.calls::<methods::RecordingsDiscard>();
             assert_eq!(discarded.len(), 1);
             assert_eq!(discarded[0]["id"], "r1");
+        }
+
+        /// A second message refused while the first new chat is still being
+        /// made keeps its recordings with the draft it gives back.
+        #[gpui_kit::test]
+        fn a_send_refused_while_a_new_chat_starts_keeps_its_recordings(cx: &mut TestAppContext) {
+            let (daemon, _stores, pane, vcx) = bench(cx);
+            let listed = |id: &str| -> conduit_protocol::RecordingList {
+                serde_json::from_value(serde_json::json!({
+                    "stored": true,
+                    "recordings": [{"id": id, "createdAt": 0, "byteCount": 64000,
+                                    "durationMs": 2000}]
+                }))
+                .unwrap()
+            };
+            daemon.once::<methods::RecordingsList>(Ok(listed("r1")));
+            daemon.returns::<methods::RecordingsList>(listed("r2"));
+            daemon.returns::<methods::RecordingsDiscard>(listed("r2"));
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "c1", "userMessageId": "m1", "assistantMessageId": "a1"
+                }))
+                .unwrap(),
+            );
+            let dictation =
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).dictation.clone().unwrap());
+            dictation.update(vcx, |d, cx| d.refresh_recordings(cx));
+            vcx.run_until_parked();
+            let submit = |text: &str, vcx: &mut VisualTestContext| {
+                pane.update_in(vcx, |p, window, cx| {
+                    p.composer.update(cx, |c, cx| {
+                        c.offline = false;
+                        c.set_text(text, window, cx);
+                        c.submit(window, cx);
+                    })
+                });
+                vcx.run_until_parked();
+            };
+            // The first message is on its way, its new chat not made yet.
+            let held = daemon.hold::<methods::TurnsSend>();
+            submit("Plan the trip", vcx);
+            // Another recording, then a second message: refused for now.
+            dictation.update(vcx, |d, cx| d.refresh_recordings(cx));
+            vcx.run_until_parked();
+            submit("And the packing list", vcx);
+            assert_eq!(composer_text(&pane, vcx), "And the packing list");
+            assert_eq!(
+                dictation.read_with(vcx, |d, _| d.recordings.len()),
+                1,
+                "the refused message's recording is no longer listed"
+            );
+            held.release();
+            vcx.run_until_parked();
+            let discarded = daemon.calls::<methods::RecordingsDiscard>();
+            assert_eq!(discarded.len(), 1);
+            assert_eq!(
+                discarded[0]["id"], "r1",
+                "only the sent message's recording goes"
+            );
         }
 
         /// A saved recording's words that come back after another account
