@@ -209,6 +209,22 @@ impl Failure {
         }
     }
 
+    /// Which way it failed, for the log: none of what it carries.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::NeedsSignIn => "needs sign-in",
+            Self::NotReady => "not ready",
+            Self::EmptyQuestion => "empty question",
+            Self::Offline => "offline",
+            Self::Queued => "queued",
+            Self::TimedOut { .. } => "timed out",
+            Self::AnswerFailed { .. } => "answer failed",
+            Self::ChatMissing => "chat missing",
+            Self::CallFailed { .. } => "call failed",
+            Self::Unexpected => "unexpected",
+        }
+    }
+
     /// What a failed daemon call means to the user.
     pub fn from_rpc(error: &RpcError) -> Self {
         match error.code {
@@ -226,6 +242,12 @@ impl Failure {
             _ => Self::Unexpected,
         }
     }
+}
+
+/// The log's line for a failed intent: which way it failed, never what
+/// the failure carries (a chat's title, the server's words, a call's reason).
+fn failed_line(failure: &Failure) -> String {
+    format!("intent failed: {}", failure.kind())
 }
 
 fn detail(text: Option<&str>) -> Option<String> {
@@ -399,7 +421,7 @@ async fn handle(request: Request, cx: &mut AsyncApp) -> Response {
     match result {
         Ok(response) => response,
         Err(failure) => {
-            log::info!("intent failed: {failure:?}");
+            log::info!("{}", failed_line(&failure));
             let message = cx.update(|cx| failure.message(cx.l10n()));
             Response::failed(message)
         }
@@ -708,6 +730,31 @@ pub async fn self_test(script: &serde_json::Value) -> Option<serde_json::Value> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The log keeps no chat title, no server words and no call reason:
+    /// only which way the intent failed.
+    #[test]
+    fn a_failure_is_logged_without_what_it_carries() {
+        for failure in [
+            Failure::TimedOut {
+                title: Some("Weekend hiking plan".into()),
+            },
+            Failure::AnswerFailed {
+                detail: Some("quota of the hiking team exceeded".into()),
+            },
+            Failure::CallFailed {
+                reason: "hiking microphone busy".into(),
+            },
+        ] {
+            let line = failed_line(&failure);
+            assert!(!line.contains("hiking"), "{line}");
+            assert!(line.starts_with("intent failed: "), "{line}");
+        }
+        assert_eq!(
+            failed_line(&Failure::TimedOut { title: None }),
+            "intent failed: timed out"
+        );
+    }
     use std::sync::Arc;
 
     fn parse(json: &str) -> Request {
