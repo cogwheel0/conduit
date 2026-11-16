@@ -64,6 +64,23 @@ pub enum DirectNote {
     Saved,
 }
 
+/// OpenRouter's API root, global or EU (the core's
+/// `isOpenRouterApiBaseUrl`): the address the core tells OpenRouter apart
+/// by, so an OpenRouter connection saves only with it.
+pub fn is_open_router_url(value: &str) -> bool {
+    let Ok(url) = url::Url::parse(value.trim()) else {
+        return false;
+    };
+    url.scheme() == "https"
+        && matches!(url.host_str(), Some("openrouter.ai" | "eu.openrouter.ai"))
+        && url.port().is_none_or(|p| p == 443)
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && matches!(url.path(), "/api/v1" | "/api/v1/")
+}
+
 /// The provider choice, as mobile's: OpenRouter is an OpenAI-compatible
 /// server the core tells apart by its address.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -546,7 +563,7 @@ impl DirectView {
                 cx,
             );
         };
-        if self.preset == Preset::OpenRouter && !base_url.starts_with("https://") {
+        if self.preset == Preset::OpenRouter && !is_open_router_url(&base_url) {
             return fail(
                 self,
                 Invalid::Url,
@@ -1502,6 +1519,40 @@ mod tests {
         });
         let (view, vcx) = cx.add_window_view(move |window, cx| make(stores, window, cx));
         (daemon, view, vcx)
+    }
+
+    /// A saved connection switched to OpenRouter keeps its address, so Save
+    /// asks for OpenRouter's (the core tells OpenRouter apart by it), as on a
+    /// phone: it is never saved as an OpenAI-compatible server instead.
+    #[gpui_kit::test]
+    fn openrouter_takes_only_openrouters_address(cx: &mut TestAppContext) {
+        let mut elsewhere = connection("c1");
+        elsewhere.base_url = "https://llm.example.com/v1".into();
+        let (daemon, view, vcx) = bench(cx, move |stores, window, cx| {
+            DirectView::editing(stores, elsewhere, window, cx)
+        });
+        daemon.returns::<methods::DirectSave>(list(vec![connection("c1")]));
+        view.update_in(vcx, |v, window, cx| {
+            v.set_preset(Preset::OpenRouter, window, cx);
+            v.save(window, cx);
+        });
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::DirectSave>().is_empty(),
+            "saved as OpenRouter with another server's address"
+        );
+        view.read_with(vcx, |v, _| assert_eq!(v.invalid, Some(Invalid::Url)));
+        // OpenRouter's own address (or its EU one) goes.
+        view.update_in(vcx, |v, window, cx| {
+            v.base_url.update(cx, |i, cx| {
+                i.set_value("https://eu.openrouter.ai/api/v1", window, cx)
+            });
+            v.api_key
+                .update(cx, |i, cx| i.set_value("sk-or-synthetic", window, cx));
+            v.save(window, cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::DirectSave>().len(), 1);
     }
 
     #[gpui_kit::test]
