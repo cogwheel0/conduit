@@ -149,6 +149,16 @@ abstract final class ConduitEvents {
   /// The daemon asks the window to listen, or to open the realtime audio,
   /// for the call. Payload [CallCommand]; answered with `calls.report`.
   static const String callsCommand = 'calls.command';
+  /// The calendars or the agenda changed: `calendar.agenda` again. No
+  /// payload.
+  static const String calendarChanged = 'calendar.changed';
+
+  /// The scheduled tasks changed: `automations.list` again (and the open
+  /// task). No payload.
+  static const String automationsChanged = 'automations.changed';
+
+  /// A Run Now moved on. Payload [AutomationRunProgress].
+  static const String automationsRunProgress = 'automations.runProgress';
 
   /// Every event name, for subscription validation and tests.
   static const Set<String> all = {
@@ -191,6 +201,9 @@ abstract final class ConduitEvents {
     hermesWorkChanged,
     callsChanged,
     callsCommand,
+    calendarChanged,
+    automationsChanged,
+    automationsRunProgress,
   };
 }
 

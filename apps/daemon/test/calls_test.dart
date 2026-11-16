@@ -9,6 +9,9 @@ import 'dart:typed_data';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatSessionRegistryProvider;
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_ports.dart';
+import 'package:conduit_core/features/chat/services/chat_draft_queue.dart'
+    show chatDraftQueueSendProvider;
+import 'package:conduit_core/features/chat/voice_mode/chat_voice_send.dart';
 
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -65,7 +68,18 @@ void main() {
     );
     model = DirectModelId.encode(saved.connections.single.id, 'scripted-model');
     events = EventBus();
-    turns = TurnsService(runtime.container, events);
+    // The waits before a turn run on a clock of the test's own: each pause
+    // moves it on and lets the event loop turn once, never the wall clock.
+    var now = DateTime(2026, 11, 16, 9);
+    turns = TurnsService(
+      runtime.container,
+      events,
+      now: () => now,
+      pause: (duration) {
+        now = now.add(duration);
+        return Future<void>(() {});
+      },
+    );
     speech = SpeechService(
       runtime.container,
       events: events,
@@ -187,6 +201,171 @@ void main() {
         folders.skipWhile((f) => f != null),
         contains('garden'),
         reason: 'the call\'s first turn left its folder',
+      );
+      await calls.end();
+
+      // The call ends while its first words wait for the chat to settle:
+      // the turn already under way still makes the chat as the call chose.
+      final hold = await turns.holdForCall(model: model, temporary: true);
+      final callScope = hold.scope.container;
+      // What the call's start does to the scope: a new chat again, with the
+      // app's own temporary default (off) and no folder.
+      callScope.read(temporaryChatEnabledProvider.notifier).set(false);
+      callScope.read(pendingFolderIdProvider.notifier).set(null);
+      final words = callScope.read(chatVoiceSendProvider)(
+        null,
+        'is it too late for garlic',
+      );
+      hold.release();
+      await words;
+      final made = hold.chatId;
+      expect(
+        made,
+        startsWith('local:'),
+        reason: 'a temporary call\'s first turn was saved as a chat',
+      );
+      expect(turns.temporary.contains(made!), isTrue);
+    },
+  );
+
+  /// Every send's turn starts, in order, each with its own answer, and the
+  /// chat is left with nothing running once they are done. (The scope then
+  /// lingers out on its own timer; a send's future completes only after its
+  /// hold on the chat is let go.)
+  Future<void> bothGoInOrder(
+    CallScopeHold hold,
+    Future<void> first,
+    Future<void> Function() then,
+    List<String> said,
+  ) async {
+    var firstDone = false;
+    unawaited(first.whenComplete(() => firstDone = true));
+    await then();
+    await pumpEventQueue();
+    expect(firstDone, isTrue, reason: 'the first words never got their turn');
+    await first;
+    final messages = hold.scope.messages;
+    expect([
+      for (final m in messages)
+        if (m.role == 'user') m.content,
+    ], said);
+    expect(
+      [for (final m in messages) m.role],
+      ['user', 'assistant', 'user', 'assistant'],
+      reason: 'each words have their own answer',
+    );
+    final chatId = hold.chatId!;
+    hold.release();
+    expect(
+      turns.isRunning(chatId),
+      isFalse,
+      reason: 'a send still holds the chat',
+    );
+  }
+
+  test(
+    'words said while the last ones wait go after them, each with its answer',
+    () async {
+      final hold = await turns.holdForCall(model: model);
+      addTearDown(hold.release);
+      final send = hold.scope.container.read(chatVoiceSendProvider);
+      // The first words wait for the chat to settle; the next come meanwhile.
+      final first = send(null, 'is the soil warm yet');
+      await bothGoInOrder(hold, first, () => send(null, 'and the beans'), [
+        'is the soil warm yet',
+        'and the beans',
+      ]);
+    },
+  );
+
+  test('a queued batch that comes while words wait goes after them', () async {
+    final hold = await turns.holdForCall(model: model);
+    addTearDown(hold.release);
+    final scope = hold.scope.container;
+    // The words wait for the chat to settle; the queue's batch comes
+    // meanwhile.
+    final words = scope.read(chatVoiceSendProvider)(
+      null,
+      'is the soil warm yet',
+    );
+    await bothGoInOrder(
+      hold,
+      words,
+      () => scope.read(chatDraftQueueSendProvider)(null, 'and the beans', null),
+      ['is the soil warm yet', 'and the beans'],
+    );
+  });
+
+  test('words said over an answer stop it before they go out', () async {
+    final hold = await turns.holdForCall(model: model);
+    addTearDown(hold.release);
+    addTearDown(() => provider.release('tide'));
+    final send = hold.scope.container.read(chatVoiceSendProvider);
+    final secondAsked = provider.asked('and the beans');
+    // The first answer streams, and holds there.
+    await send(null, 'hold:tide is the soil warm yet', isVoiceMode: true);
+    // The user talks over it.
+    final second = send(null, 'and the beans', isVoiceMode: true);
+    await secondAsked;
+    final answers = [
+      for (final m in hold.scope.messages)
+        if (m.role == 'assistant') m,
+    ];
+    expect(
+      answers.first.isStreaming,
+      isFalse,
+      reason: 'the first answer still ran when the next words went out',
+    );
+    await second;
+  });
+
+  test(
+    'a queued batch waits for the answer running when it comes, however long',
+    () async {
+      final hold = await turns.holdForCall(model: model);
+      addTearDown(hold.release);
+      addTearDown(() => provider.release('soil'));
+      final scope = hold.scope.container;
+      final before = provider.requests.length;
+      bool asked(String text) => provider.requests
+          .skip(before)
+          .any((r) => r.isNotEmpty && r.last['content'] == text);
+      final answerRuns = provider.asked('hold:soil');
+      // Words whose answer will run, and hold, past every quiet wait.
+      final words = scope.read(chatVoiceSendProvider)(
+        null,
+        'hold:soil is the soil warm yet',
+      );
+      // The queue's batch comes meanwhile, as the core's queue sends it once
+      // it found no answer on screen.
+      final batch = scope.read(chatDraftQueueSendProvider)(
+        null,
+        'and the beans',
+        null,
+      );
+      await answerRuns;
+      // Turns of the event loop only (each wait before a turn takes one on
+      // the test's clock): time for the batch to have gone, were it going.
+      await pumpEventQueue(times: 2000);
+      expect(
+        asked('and the beans'),
+        isFalse,
+        reason: 'the queued batch went out over the running answer',
+      );
+      // The answer ends: the batch goes, after it, with its own answer.
+      provider.release('soil');
+      await words;
+      await batch;
+      expect(
+        [
+          for (final m in hold.scope.messages)
+            if (m.role == 'user') m.content,
+        ],
+        ['hold:soil is the soil warm yet', 'and the beans'],
+      );
+      expect(
+        [for (final m in hold.scope.messages) m.role],
+        ['user', 'assistant', 'user', 'assistant'],
       );
     },
   );

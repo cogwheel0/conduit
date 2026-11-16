@@ -7,7 +7,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.62.0",
+  "protocolVersion": "1.63.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -16,7 +16,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.62.0",
+  "protocolVersion": "1.63.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -27,6 +27,7 @@ const Map<String, String> protocolGoldens = <String, String>{
     "terminal": false,
     "calendar": false,
     "automations": false,
+    "scheduledTasks": false,
     "hermesOnly": false,
     "workspaceModels": false,
     "workspaceKnowledge": false,
@@ -72,6 +73,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "terminal": false,
   "calendar": false,
   "automations": false,
+  "scheduledTasks": false,
   "hermesOnly": false,
   "workspaceModels": false,
   "workspaceKnowledge": false,
@@ -107,6 +109,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "terminal": true,
   "calendar": true,
   "automations": true,
+  "scheduledTasks": true,
   "hermesOnly": false,
   "workspaceModels": false,
   "workspaceKnowledge": true,
@@ -142,6 +145,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "terminal": false,
   "calendar": false,
   "automations": false,
+  "scheduledTasks": false,
   "hermesOnly": true,
   "workspaceModels": false,
   "workspaceKnowledge": false,
@@ -4506,6 +4510,7 @@ const Map<String, String> protocolGoldens = <String, String>{
     "terminal": false,
     "calendar": false,
     "automations": false,
+    "scheduledTasks": false,
     "hermesOnly": false,
     "workspaceModels": false,
     "workspaceKnowledge": false,
@@ -4547,6 +4552,7 @@ const Map<String, String> protocolGoldens = <String, String>{
     "terminal": false,
     "calendar": false,
     "automations": false,
+    "scheduledTasks": false,
     "hermesOnly": false,
     "workspaceModels": false,
     "workspaceKnowledge": false,
@@ -4589,6 +4595,7 @@ const Map<String, String> protocolGoldens = <String, String>{
     "terminal": false,
     "calendar": false,
     "automations": false,
+    "scheduledTasks": false,
     "hermesOnly": false,
     "workspaceModels": false,
     "workspaceKnowledge": false,
@@ -4631,6 +4638,7 @@ const Map<String, String> protocolGoldens = <String, String>{
     "terminal": false,
     "calendar": false,
     "automations": false,
+    "scheduledTasks": false,
     "hermesOnly": false,
     "workspaceModels": false,
     "workspaceKnowledge": false,
@@ -7122,6 +7130,631 @@ const Map<String, String> protocolGoldens = <String, String>{
   "listen": 2,
   "done": false,
   "failure": "serverUnavailable"
+}''',
+
+  'calendarWallTime': r'''
+{
+  "year": 2026,
+  "month": 11,
+  "day": 12,
+  "hour": 9,
+  "minute": 30
+}''',
+
+  'calendarDto': r'''
+{
+  "id": "cal-garden",
+  "name": "Garden club",
+  "color": "#22c55e",
+  "isDefault": true,
+  "scheduled": false,
+  "owned": true,
+  "writable": true,
+  "canMakeDefault": false,
+  "visible": true
+}''',
+
+  'calendarRowTime': r'''
+{
+  "kind": "range",
+  "start": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 9,
+    "minute": 0
+  },
+  "end": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 10,
+    "minute": 0
+  }
+}''',
+
+  'calendarItem': r'''
+{
+  "key": "ev-seed|ev-seed_1762938000000000000",
+  "kind": "event",
+  "id": "ev-seed",
+  "calendarId": "cal-garden",
+  "title": "Seed swap",
+  "location": "Community hall",
+  "color": "#22c55e",
+  "recurring": true,
+  "allDay": false,
+  "cancelled": false,
+  "start": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 9,
+    "minute": 0
+  },
+  "end": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 10,
+    "minute": 0
+  },
+  "lastDay": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 0,
+    "minute": 0
+  },
+  "time": {
+    "kind": "range",
+    "start": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 9,
+      "minute": 0
+    },
+    "end": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 10,
+      "minute": 0
+    }
+  },
+  "invited": true,
+  "answer": "tentative",
+  "editable": true
+}''',
+
+  'calendarScheduledItem': r'''
+{
+  "key": "run_r1|",
+  "kind": "scheduled",
+  "id": "run_r1",
+  "calendarId": "__scheduled_tasks__",
+  "title": "Morning digest",
+  "recurring": false,
+  "allDay": false,
+  "cancelled": false,
+  "start": {
+    "year": 2026,
+    "month": 11,
+    "day": 11,
+    "hour": 8,
+    "minute": 0
+  },
+  "time": {
+    "kind": "at",
+    "start": {
+      "year": 2026,
+      "month": 11,
+      "day": 11,
+      "hour": 8,
+      "minute": 0
+    }
+  },
+  "invited": false,
+  "editable": false,
+  "automationId": "task-digest",
+  "runId": "r1",
+  "resultChatId": "chat-digest-1",
+  "scheduledState": "finished"
+}''',
+
+  'calendarAgendaDay': r'''
+{
+  "day": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 0,
+    "minute": 0
+  },
+  "items": []
+}''',
+
+  'calendarAgenda': r'''
+{
+  "available": true,
+  "stale": false,
+  "firstDay": {
+    "year": 2026,
+    "month": 11,
+    "day": 11,
+    "hour": 0,
+    "minute": 0
+  },
+  "endDay": {
+    "year": 2026,
+    "month": 11,
+    "day": 25,
+    "hour": 0,
+    "minute": 0
+  },
+  "dayCount": 14,
+  "today": {
+    "year": 2026,
+    "month": 11,
+    "day": 11,
+    "hour": 0,
+    "minute": 0
+  },
+  "calendars": [
+    {
+      "id": "cal-garden",
+      "name": "Garden club",
+      "isDefault": false,
+      "scheduled": false,
+      "owned": true,
+      "writable": false,
+      "canMakeDefault": false,
+      "visible": true
+    }
+  ],
+  "filterable": true,
+  "scheduledTasks": true,
+  "canCreate": true,
+  "days": []
+}''',
+
+  'calendarAgendaQuery': r'''
+{
+  "shift": 1,
+  "today": false,
+  "refresh": true
+}''',
+
+  'calendarVisibility': r'''
+{
+  "calendarId": "cal-garden",
+  "visible": false
+}''',
+
+  'calendarRef': r'''
+{
+  "calendarId": "cal-garden"
+}''',
+
+  'calendarCreate': r'''
+{
+  "name": "Hikes",
+  "color": "#3b82f6"
+}''',
+
+  'calendarItemRef': r'''
+{
+  "key": "ev-seed|"
+}''',
+
+  'calendarEventDetail': r'''
+{
+  "item": {
+    "key": "ev-seed|",
+    "kind": "event",
+    "id": "ev-seed",
+    "calendarId": "",
+    "title": "Seed swap",
+    "recurring": false,
+    "allDay": false,
+    "cancelled": false,
+    "start": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 9,
+      "minute": 0
+    },
+    "time": {
+      "kind": "allDay"
+    },
+    "invited": false,
+    "editable": false
+  },
+  "description": "Bring labelled envelopes.",
+  "calendarName": "Garden club",
+  "repeat": "weekly",
+  "organizer": "Riley Park",
+  "attendeeCount": 2,
+  "canEdit": true,
+  "status": "fresh"
+}''',
+
+  'calendarRsvpEdit': r'''
+{
+  "key": "ev-seed|",
+  "answer": "accepted"
+}''',
+
+  'calendarAttendee': r'''
+{
+  "userId": "user-riley",
+  "name": "Riley Park"
+}''',
+
+  'calendarEventFields': r'''
+{
+  "title": "Seed swap",
+  "description": "",
+  "location": "",
+  "calendarId": "cal-garden",
+  "allDay": false,
+  "start": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 9,
+    "minute": 0
+  },
+  "end": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 10,
+    "minute": 0
+  },
+  "repeat": "weekdays",
+  "attendees": [
+    {
+      "userId": "user-riley"
+    }
+  ]
+}''',
+
+  'calendarEditorOpen': r'''
+{
+  "day": {
+    "year": 2026,
+    "month": 11,
+    "day": 13,
+    "hour": 0,
+    "minute": 0
+  }
+}''',
+
+  'calendarEditor': r'''
+{
+  "token": "ed-1",
+  "isNew": false,
+  "series": true,
+  "rule": "FREQ=WEEKLY;INTERVAL=2",
+  "fields": {
+    "title": "Seed swap",
+    "description": "",
+    "location": "",
+    "calendarId": "",
+    "allDay": false,
+    "start": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 9,
+      "minute": 0
+    },
+    "repeat": "custom",
+    "attendees": []
+  },
+  "calendars": []
+}''',
+
+  'calendarDraftEdit': r'''
+{
+  "token": "ed-1",
+  "fields": {
+    "title": "",
+    "description": "",
+    "location": "",
+    "calendarId": "",
+    "allDay": false,
+    "start": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 9,
+      "minute": 0
+    },
+    "repeat": "none",
+    "attendees": []
+  },
+  "movedStart": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 11,
+    "minute": 0
+  }
+}''',
+
+  'calendarDraftState': r'''
+{
+  "fields": {
+    "title": "",
+    "description": "",
+    "location": "",
+    "calendarId": "",
+    "allDay": false,
+    "start": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 9,
+      "minute": 0
+    },
+    "repeat": "none",
+    "attendees": []
+  },
+  "issues": [
+    "titleRequired"
+  ],
+  "changed": true,
+  "saved": false
+}''',
+
+  'automationSchedule': r'''
+{
+  "kind": "weekly",
+  "year": 0,
+  "month": 0,
+  "day": 0,
+  "hour": 8,
+  "minute": 0,
+  "days": [
+    "MO",
+    "TH"
+  ],
+  "rrule": "RRULE:FREQ=WEEKLY;BYDAY=MO,TH;BYHOUR=8;BYMINUTE=0"
+}''',
+
+  'automationSummary': r'''
+{
+  "id": "task-digest",
+  "name": "Morning digest",
+  "active": true,
+  "schedule": {
+    "kind": "daily",
+    "year": 0,
+    "month": 0,
+    "day": 0,
+    "hour": 8,
+    "minute": 0,
+    "days": [],
+    "rrule": "RRULE:FREQ=DAILY;BYHOUR=8;BYMINUTE=0"
+  },
+  "nextRunAt": 1762934400000,
+  "lastRunAt": 1762848000000,
+  "lastRunFailed": true
+}''',
+
+  'automationList': r'''
+{
+  "available": true,
+  "stale": false,
+  "query": "digest",
+  "status": "active",
+  "items": [],
+  "total": 3,
+  "hasMore": true
+}''',
+
+  'automationQuery': r'''
+{
+  "query": "digest",
+  "status": "paused",
+  "refresh": false
+}''',
+
+  'automationRef': r'''
+{
+  "id": "task-digest"
+}''',
+
+  'automationRun': r'''
+{
+  "id": "run-1",
+  "status": "success",
+  "succeeded": true,
+  "createdAt": 1762848000000,
+  "resultChannelId": "trail-crew"
+}''',
+
+  'automationDetail': r'''
+{
+  "summary": {
+    "id": "task-digest",
+    "name": "Morning digest",
+    "active": false,
+    "schedule": {
+      "kind": "custom",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 0,
+      "minute": 0,
+      "days": [],
+      "rrule": "FREQ=MONTHLY"
+    },
+    "lastRunFailed": false
+  },
+  "prompt": "Summarize the garden notes.",
+  "modelId": "fake-model",
+  "modelName": "Fake Model",
+  "target": "channel",
+  "channelId": "trail-crew",
+  "channelName": "trail-crew",
+  "terminal": true,
+  "nextRuns": [
+    1762934400000
+  ]
+}''',
+
+  'automationRunsQuery': r'''
+{
+  "id": "task-digest",
+  "skip": 50
+}''',
+
+  'automationRuns': r'''
+{
+  "items": [
+    {
+      "id": "run-2",
+      "status": "error",
+      "succeeded": false,
+      "error": "Model offline"
+    }
+  ],
+  "hasMore": true
+}''',
+
+  'automationToggle': r'''
+{
+  "id": "task-digest",
+  "active": false
+}''',
+
+  'automationRunProgress': r'''
+{
+  "id": "task-digest",
+  "phase": "finished",
+  "run": {
+    "id": "run-3",
+    "status": "",
+    "succeeded": true,
+    "resultChatId": "c-9"
+  }
+}''',
+
+  'automationFields': r'''
+{
+  "name": "Morning digest",
+  "prompt": "Summarize the garden notes.",
+  "modelId": "fake-model",
+  "active": true,
+  "schedule": {
+    "kind": "once",
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 7,
+    "minute": 45,
+    "days": [],
+    "rrule": ""
+  },
+  "target": "chat",
+  "folderId": "folder-garden"
+}''',
+
+  'automationOption': r'''
+{
+  "id": "fake-model",
+  "name": "Fake"
+}''',
+
+  'automationEditorOpen': r'''
+{
+  "id": "task-digest"
+}''',
+
+  'automationEditor': r'''
+{
+  "token": "te-1",
+  "isNew": false,
+  "fields": {
+    "name": "",
+    "prompt": "",
+    "modelId": "",
+    "active": true,
+    "schedule": {
+      "kind": "daily",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 9,
+      "minute": 0,
+      "days": [],
+      "rrule": ""
+    },
+    "target": "chat"
+  },
+  "models": [
+    {
+      "id": "fake-model",
+      "name": ""
+    }
+  ],
+  "terminal": true
+}''',
+
+  'automationDraftEdit': r'''
+{
+  "token": "te-1",
+  "fields": {
+    "name": "",
+    "prompt": "",
+    "modelId": "",
+    "active": true,
+    "schedule": {
+      "kind": "daily",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 9,
+      "minute": 0,
+      "days": [],
+      "rrule": ""
+    },
+    "target": "chat"
+  },
+  "chooseKind": "weekly"
+}''',
+
+  'automationDraftState': r'''
+{
+  "fields": {
+    "name": "",
+    "prompt": "",
+    "modelId": "",
+    "active": true,
+    "schedule": {
+      "kind": "daily",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 9,
+      "minute": 0,
+      "days": [],
+      "rrule": ""
+    },
+    "target": "chat"
+  },
+  "issues": [
+    "nameRequired",
+    "channelNoWrite"
+  ],
+  "changed": true,
+  "saved": false,
+  "failure": "Schedule too frequent."
 }''',
 
 };

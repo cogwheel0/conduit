@@ -1,5 +1,5 @@
 {
-  "protocolVersion": "1.62.0",
+  "protocolVersion": "1.63.0",
   "appOrigin": "app://conduit",
   "subprotocol": "conduit.v1",
   "subprotocolsExample": {
@@ -967,6 +967,111 @@
       "result": "OkResult"
     },
     {
+      "name": "calendar.agenda",
+      "params": "CalendarAgendaQuery",
+      "result": "CalendarAgenda"
+    },
+    {
+      "name": "calendar.setVisible",
+      "params": "CalendarVisibility",
+      "result": "CalendarAgenda"
+    },
+    {
+      "name": "calendar.makeDefault",
+      "params": "CalendarRef",
+      "result": "CalendarAgenda"
+    },
+    {
+      "name": "calendar.createCalendar",
+      "params": "CalendarCreate",
+      "result": "CalendarDto"
+    },
+    {
+      "name": "calendar.event",
+      "params": "CalendarItemRef",
+      "result": "CalendarEventDetail"
+    },
+    {
+      "name": "calendar.deleteEvent",
+      "params": "CalendarItemRef",
+      "result": "CalendarAgenda"
+    },
+    {
+      "name": "calendar.respond",
+      "params": "CalendarRsvpEdit",
+      "result": "CalendarEventDetail"
+    },
+    {
+      "name": "calendar.editor",
+      "params": "CalendarEditorOpen",
+      "result": "CalendarEditor"
+    },
+    {
+      "name": "calendar.checkDraft",
+      "params": "CalendarDraftEdit",
+      "result": "CalendarDraftState"
+    },
+    {
+      "name": "calendar.save",
+      "params": "CalendarDraftEdit",
+      "result": "CalendarDraftState"
+    },
+    {
+      "name": "automations.list",
+      "params": "AutomationQuery",
+      "result": "AutomationList"
+    },
+    {
+      "name": "automations.loadMore",
+      "params": null,
+      "result": "AutomationList"
+    },
+    {
+      "name": "automations.get",
+      "params": "AutomationRef",
+      "result": "AutomationDetail"
+    },
+    {
+      "name": "automations.runs",
+      "params": "AutomationRunsQuery",
+      "result": "AutomationRuns"
+    },
+    {
+      "name": "automations.setActive",
+      "params": "AutomationToggle",
+      "result": "AutomationDetail"
+    },
+    {
+      "name": "automations.run",
+      "params": "AutomationRef",
+      "result": "AutomationRunProgress"
+    },
+    {
+      "name": "automations.runState",
+      "params": "AutomationRef",
+      "result": "AutomationRunProgress"
+    },
+    {
+      "name": "automations.delete",
+      "params": "AutomationRef",
+      "result": "AutomationList"
+    },
+    {
+      "name": "automations.editor",
+      "params": "AutomationEditorOpen",
+      "result": "AutomationEditor"
+    },
+    {
+      "name": "automations.checkDraft",
+      "params": "AutomationDraftEdit",
+      "result": "AutomationDraftState"
+    },
+    {
+      "name": "automations.save",
+      "params": "AutomationDraftEdit",
+      "result": "AutomationDraftState"
+    },
+    {
       "name": "notes.list",
       "params": "NoteQuery",
       "result": "NoteList"
@@ -1781,6 +1886,21 @@
     {
       "name": "calls.command",
       "payload": "CallCommand",
+      "scoped": false
+    },
+    {
+      "name": "calendar.changed",
+      "payload": null,
+      "scoped": false
+    },
+    {
+      "name": "automations.changed",
+      "payload": null,
+      "scoped": false
+    },
+    {
+      "name": "automations.runProgress",
+      "payload": "AutomationRunProgress",
       "scoped": false
     }
   ]

@@ -25,6 +25,8 @@ Usage (owui.sh seed runs it):
   with a file of its own.
 - For a chat's Tool Settings and Share Folder: a public tool with personal
   valves (a choice, a switch and a text), and a group with the second user.
+- For the calendar's answers: an event in the second user's calendar, three
+  days ahead, that invites the admin.
 
 Writes the env file (mode 600) the daemon's live tests and the desktop
 E2E read. Every name, address, password and text is invented. Prints only
@@ -32,6 +34,7 @@ counts and ids.
 """
 
 import argparse
+import datetime
 import json
 import os
 import secrets
@@ -47,6 +50,8 @@ SECOND_MODEL = 'fake-model-b'
 REFUSED_MODEL = 'fake-refused'
 ADMIN = {'name': 'Avery Tester', 'email': 'avery@example.test'}
 SECOND = {'name': 'Riley Example', 'email': 'riley@example.test'}
+# The calendar event the second user invites the admin to.
+INVITE_TITLE = 'Seed swap at the garden'
 
 TOPICS = [
     ('Sourdough starter schedule', 'How often should I feed a rye starter?',
@@ -484,6 +489,26 @@ def main():
     server.ok('POST', f"/api/v1/groups/id/{group['id']}/users/add", {'user_ids': [second_id]}, token)
     print('valve tool', VALVE_TOOL['id'], 'group', group['id'])
 
+    # Calendar: an event in the second user's own calendar, three days from
+    # now at 15:00 local time, that invites the admin. The admin can answer
+    # it but not change it (the calendar is not theirs or shared with them).
+    riley_calendars = server.ok('GET', '/api/v1/calendars/', None, second_token)
+    riley_calendar = next(c for c in riley_calendars if not c.get('is_system'))
+    day = datetime.datetime.now().astimezone().replace(hour=15, minute=0, second=0, microsecond=0)
+    day = day + datetime.timedelta(days=3)
+    start_ns = int(day.timestamp()) * 1_000_000_000
+    server.ok('POST', '/api/v1/calendars/events/create', {
+        'calendar_id': riley_calendar['id'],
+        'title': INVITE_TITLE,
+        'description': 'Bring labelled envelopes of saved seeds to trade.',
+        'location': 'Community garden shed',
+        'start_at': start_ns,
+        'end_at': start_ns + 3600 * 1_000_000_000,
+        'all_day': False,
+        'attendees': [{'user_id': admin_id}],
+    }, second_token)
+    print('calendar invitation', riley_calendar['id'])
+
     private_file(args.env_file, '\n'.join([
         '# A throwaway local Open WebUI, made by tool/local_owui/owui.sh.',
         '# Every account and password here is synthetic and local to this machine.',
@@ -508,6 +533,7 @@ def main():
         f"OWUI_VALVE_TOOL={VALVE_TOOL['id']}",
         f"OWUI_GROUP={group['id']}",
         f'OWUI_GROUP_NAME={GROUP[0]}',
+        f'OWUI_INVITE_TITLE={INVITE_TITLE}',
         f'OWUI_CHANNEL_UNREAD={len(TRAIL_MESSAGES)}',
         f'FAKE_OPENAI_URL={args.fake_model_url}',
         # Each request the fake model saw (its tool names, for instance).

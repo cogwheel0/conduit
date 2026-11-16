@@ -130,6 +130,7 @@ final class CapabilitiesService {
       terminal: tabs.contains(SidebarTabId.terminal),
       calendar: features.calendar,
       automations: features.automations,
+      scheduledTasks: features.scheduledTasks,
       hermesOnly: features.sidebar.hermesOnly,
       workspaceModels: sections.contains(WorkspaceSection.models),
       workspaceKnowledge: sections.contains(WorkspaceSection.knowledge),

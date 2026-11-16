@@ -64,6 +64,20 @@ void main() {
       expect(capabilities.bulkSelection, isTrue);
     });
 
+    test('scheduled tasks are offered only with Advanced on', () {
+      Capabilities of({required bool advanced}) =>
+          CapabilitiesService.capabilitiesOf(
+            AccountFeatures(
+              sidebar: openWebUi,
+              automations: true,
+              scheduledTasks: advanced,
+            ),
+          );
+      expect(of(advanced: false).automations, isTrue);
+      expect(of(advanced: false).scheduledTasks, isFalse);
+      expect(of(advanced: true).scheduledTasks, isTrue);
+    });
+
     test('with no server, the server-only flags stay off', () {
       final capabilities = CapabilitiesService.capabilitiesOf(
         const AccountFeatures(),

@@ -1,0 +1,26 @@
+{
+  "token": "ed-1",
+  "fields": {
+    "title": "",
+    "description": "",
+    "location": "",
+    "calendarId": "",
+    "allDay": false,
+    "start": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 9,
+      "minute": 0
+    },
+    "repeat": "none",
+    "attendees": []
+  },
+  "movedStart": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 11,
+    "minute": 0
+  }
+}

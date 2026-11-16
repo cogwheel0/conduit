@@ -1,0 +1,18 @@
+{
+  "id": "task-digest",
+  "name": "Morning digest",
+  "active": true,
+  "schedule": {
+    "kind": "daily",
+    "year": 0,
+    "month": 0,
+    "day": 0,
+    "hour": 8,
+    "minute": 0,
+    "days": [],
+    "rrule": "RRULE:FREQ=DAILY;BYHOUR=8;BYMINUTE=0"
+  },
+  "nextRunAt": 1762934400000,
+  "lastRunAt": 1762848000000,
+  "lastRunFailed": true
+}
