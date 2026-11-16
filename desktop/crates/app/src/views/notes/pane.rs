@@ -767,11 +767,18 @@ impl NotePane {
             Err(e) if is_reason(&e, "account") => {
                 // Opened under an account no longer active: the text never
                 // goes to the next one. It stays here, unsaved, until its own
-                // account is back ([`Self::held_for_account`]).
+                // account is back ([`Self::held_for_account`]). A refusal
+                // answered once that account is back already (sent while the
+                // other was active) is tried again, as a failed save is.
                 log::warn!("notes.save: {e}");
-                self.held_for_account = true;
                 self.save = SaveState::Failed;
                 self.save_again = false;
+                let active = self.stores.accounts.read(cx).active().map(|a| a.id.clone());
+                if active.is_some() && active == self.opened_under {
+                    self.retry_later(cx);
+                } else {
+                    self.held_for_account = true;
+                }
             }
             Err(e) if is_refusal(&e, "page") => {
                 self.refused = Some(Refusal::PageMissing);
@@ -782,16 +789,7 @@ impl NotePane {
             Err(e) => {
                 log::warn!("notes.save: {e}");
                 self.save = SaveState::Failed;
-                // Tried again after a while (or on the next edit).
-                self._debounce = Some(cx.spawn(
-                    async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                        cx.background_executor().timer(RETRY_DELAY).await;
-                        let _ = this.update(cx, |this, cx| {
-                            this._debounce = None;
-                            this.save_now(cx);
-                        });
-                    },
-                ));
+                self.retry_later(cx);
             }
         }
         cx.notify();
@@ -800,6 +798,19 @@ impl NotePane {
         } else {
             self.settle(cx);
         }
+    }
+
+    /// A failed save is tried again after a while (or on the next edit).
+    fn retry_later(&mut self, cx: &mut Context<Self>) {
+        self._debounce = Some(
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                cx.background_executor().timer(RETRY_DELAY).await;
+                let _ = this.update(cx, |this, cx| {
+                    this._debounce = None;
+                    this.save_now(cx);
+                });
+            }),
+        );
     }
 
     /// Nothing is saving: those waiting for it hear so.
@@ -3191,6 +3202,45 @@ mod tests {
             "the draft was not saved once its account was back"
         );
         assert!(saves[1].to_string().contains("Cairn"));
+
+        // A refusal answered only once account A is back (sent while B was
+        // active): the draft is tried again under A, not held for good.
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n1".into()), cx));
+        vcx.run_until_parked();
+        let pane = bench::pane(&area, vcx);
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Ledge ", cx))
+        });
+        drop(pane);
+        refuse.store(true, std::sync::atomic::Ordering::SeqCst);
+        let late = daemon.hold::<methods::NotesSave>();
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("b"), cx));
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::AllNotes, cx));
+        vcx.run_until_parked();
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("a"), cx));
+        vcx.run_until_parked();
+        refuse.store(false, std::sync::atomic::Ordering::SeqCst);
+        drop(late);
+        vcx.run_until_parked();
+        vcx.executor().advance_clock(RETRY_DELAY);
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::NotesSave>();
+        assert!(
+            saves
+                .last()
+                .is_some_and(|s| s.to_string().contains("Ledge"))
+                && saves.len() == 4,
+            "the draft stayed held with its account back: {} saves",
+            saves.len()
+        );
     }
 
     /// Quit saves the note's unsaved text first: the app quits (and the
