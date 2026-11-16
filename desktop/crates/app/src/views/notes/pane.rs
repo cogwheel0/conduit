@@ -929,6 +929,13 @@ impl NotePane {
 
     /// The note is left (another note or area shown): dictation and a
     /// recording end, and what is unsaved is saved.
+    /// Shown again after it was left (its save still out): no longer
+    /// leaving.
+    pub fn shown_again(&mut self, cx: &mut Context<Self>) {
+        self.leaving = false;
+        cx.notify();
+    }
+
     pub fn leave(&mut self, cx: &mut Context<Self>) {
         self.leaving = true;
         if self.dictation.read(cx).is_active() {
@@ -3188,6 +3195,41 @@ mod tests {
             Selection::Area(AreaItem::Note("made-under-a".into())),
             "the last account's new note opened under the next"
         );
+    }
+
+    /// A note opened again while its save is still out shows the pane that
+    /// is saving it, not a fresh one reading the stored text from before
+    /// that save (whose own later save would write over it).
+    #[gpui_kit::test]
+    fn a_note_reopened_while_saving_shows_the_pane_saving_it(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::navigation::AreaItem;
+        let (daemon, stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        daemon.on::<methods::NotesSave>(|p| {
+            let page = p["pageId"].as_str().unwrap_or("main").to_string();
+            Ok(serde_json::to_value(bench::detail("n1", &page, "kept")).unwrap())
+        });
+        let held = daemon.hold::<methods::NotesSave>();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::AllNotes, cx));
+        vcx.run_until_parked();
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n1".into()), cx));
+        vcx.run_until_parked();
+        let shown = bench::pane(&area, vcx);
+        assert_eq!(
+            shown.entity_id(),
+            pane.entity_id(),
+            "a second pane opened over the save still out"
+        );
+        assert!(bench::text(&shown, vcx).contains("Cairn"));
+        drop(held);
+        vcx.run_until_parked();
     }
 
     /// A note left while its save fails is kept, and saved again, until

@@ -109,6 +109,19 @@ impl NotesArea {
                 }
                 self.leave_current(window, cx);
                 let focus_body = FOCUS_BODY_NEXT.with(|f| f.replace(false));
+                // Left while its save is still out: shown again, rather than
+                // a fresh pane reading the stored text from before that save
+                // (its own later save would write over it).
+                if let Some(at) = self.retiring.iter().position(|p| {
+                    let p = p.read(cx);
+                    p.shows(&id) && !p.has_refused_draft()
+                }) {
+                    let pane = self.retiring.remove(at);
+                    pane.update(cx, |p, cx| p.shown_again(cx));
+                    self.note = Some(pane);
+                    cx.notify();
+                    return;
+                }
                 let stores = self.stores.clone();
                 let pane = cx.new(|cx| NotePane::new(stores, id, focus_body, window, cx));
                 let sub =
