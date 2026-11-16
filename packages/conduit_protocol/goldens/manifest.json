@@ -12,6 +12,7 @@
   "accountChangeResult": "AccountChangeResult",
   "accountList": "AccountList",
   "accountRef": "AccountRef",
+  "accountRefAskedOver": "AccountRef",
   "accountSettingsDto": "AccountSettingsDto",
   "accountSettingsPatch": "AccountSettingsPatch",
   "accountSignOut": "AccountSignOut",

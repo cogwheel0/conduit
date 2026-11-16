@@ -7,7 +7,10 @@ import 'dart:io';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/features/librechat/models/librechat_account.dart'
     show LibreChatRegistry;
+import 'package:conduit_core/features/librechat/models/librechat_server.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/librechat/services/librechat_auth_service.dart'
+    show LibreChatAuthService, LibreChatSignedIn;
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/hive_boxes.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -183,6 +186,42 @@ void main() {
     expect(bench.preferred(), PreferredBackend.owui);
     expect((await bench.registry()).accounts, isEmpty);
   });
+
+  test('a Switch Anyway asked over one account switches nothing once '
+      'another is in charge', () async {
+    final avery = await bench.saveLibreChatAccount();
+    // Asked over owui; owui-2 takes charge before the answer arrives.
+    await bench.useOtherOpenWebUi();
+    bench.owuiSwitches.clear();
+
+    for (final target in <String>['owui-3', avery]) {
+      await expectLater(
+        bench.accounts.switchTo(
+          AccountRef(accountId: target, force: true, askedOver: 'owui'),
+        ),
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.sessionExpired,
+          ),
+        ),
+      );
+    }
+    expect(bench.owuiSwitches, isEmpty);
+    expect(bench.preferred(), PreferredBackend.owui);
+    expect(await bench.activeLibreChat(), isNull);
+    expect(
+      bench.container.read(primaryAccountProvider),
+      const PrimaryAccountRef(PrimaryAccountKind.openWebUi, 'owui-2'),
+    );
+
+    // Asked over the account in charge, it goes ahead.
+    await bench.accounts.switchTo(
+      const AccountRef(accountId: 'owui-3', force: true, askedOver: 'owui-2'),
+    );
+    expect(bench.owuiSwitches, <String>['owui-3']);
+  });
 }
 
 const _avery = 'avery@example.com';
@@ -241,6 +280,7 @@ final class _Bench {
     this.fake,
     this.container,
     this.auth,
+    this.accounts,
     this.service,
     this.owuiSwitches,
   );
@@ -250,6 +290,7 @@ final class _Bench {
   final FakeLibreChatServer fake;
   final ProviderContainer container;
   final _Auth auth;
+  final AccountsService accounts;
   final LibreChatService service;
   final List<String> owuiSwitches;
 
@@ -259,6 +300,25 @@ final class _Bench {
       container.read(libreChatRegistryProvider.future);
 
   Future<String?> activeLibreChat() async => (await registry()).activeId;
+
+  /// Saves avery's LibreChat account (signed in, not in charge); its id.
+  Future<String> saveLibreChatAccount() async {
+    const server = LibreChatServer(baseUrl: 'https://chat.example.com');
+    final auth = LibreChatAuthService(server, adapter: fake);
+    addTearDown(auth.close);
+    final signedIn = await auth.signIn(
+      email: _avery,
+      password: 'pw-avery',
+    ) as LibreChatSignedIn;
+    final account = await container
+        .read(libreChatAccountsProvider)
+        .saveSignedIn(
+          server: server,
+          session: signedIn.session,
+          activate: false,
+        );
+    return account.id;
+  }
 
   /// The user puts the other Open WebUI account in charge.
   Future<void> useOtherOpenWebUi() async {
@@ -301,6 +361,11 @@ final class _Bench {
         name: 'owui-2',
         url: 'https://owui-2.example.com',
       ),
+      ServerConfig(
+        id: 'owui-3',
+        name: 'owui-3',
+        url: 'https://owui-3.example.com',
+      ),
     ]);
     await storage.setActiveServerId('owui');
     await storage.saveAuthToken('owui-token');
@@ -330,12 +395,22 @@ final class _Bench {
     );
     await container.read(authStateManagerProvider.future);
     container.read(openWebUiAccountsControllerProvider);
+    final accounts = AccountsService(container, events: EventBus());
     final service = LibreChatService(
       container,
       events: EventBus(),
-      accounts: AccountsService(container, events: EventBus()),
+      accounts: accounts,
     );
-    return _Bench._(tempDir, workers, fake, container, auth, service, switches);
+    return _Bench._(
+      tempDir,
+      workers,
+      fake,
+      container,
+      auth,
+      accounts,
+      service,
+      switches,
+    );
   }
 
   Future<void> close() async {

@@ -250,6 +250,12 @@ impl AccountsStore {
         list.accounts.iter().find(|a| a.id == id)
     }
 
+    /// The id of the account in charge of the chats: the active Open WebUI
+    /// account, or the LibreChat account in use while LibreChat owns them.
+    pub fn in_charge_id(&self) -> Option<String> {
+        in_charge(self.list.as_ref()?).map(str::to_string)
+    }
+
     /// The account in charge of the chats, as a scope: the active Open
     /// WebUI account, or the LibreChat account in use while LibreChat owns
     /// the chats. Another scope means nothing chosen carries over.
@@ -367,7 +373,20 @@ impl AccountsStore {
         force: bool,
         cx: &mut Context<Self>,
     ) -> Task<Result<AccountChangeResult, RpcError>> {
-        let call = self.call(&change, force);
+        self.change_asked_over(change, force, None, cx)
+    }
+
+    /// [`Self::change`], for a switch the user was asked about while
+    /// `asked_over` was in charge (Switch Anyway): conduitd refuses it, and
+    /// stops nothing, once another account is in charge.
+    pub fn change_asked_over(
+        &mut self,
+        change: AccountChange,
+        force: bool,
+        asked_over: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<AccountChangeResult, RpcError>> {
+        let call = self.call(&change, force, asked_over);
         // Names in the notice come from the list as it was: by the time the
         // reply arrives, accounts.changed may have refetched it already.
         let before = self.list.clone();
@@ -386,7 +405,12 @@ impl AccountsStore {
         })
     }
 
-    fn call(&self, change: &AccountChange, force: bool) -> ChangeFuture {
+    fn call(
+        &self,
+        change: &AccountChange,
+        force: bool,
+        asked_over: Option<String>,
+    ) -> ChangeFuture {
         let rpc = &self.rpc;
         match change {
             AccountChange::Add(server) => Box::pin(rpc.call::<methods::AccountsAdd>(&AddAccount {
@@ -398,12 +422,14 @@ impl AccountsStore {
                 Box::pin(rpc.call::<methods::AccountsSwitch>(&AccountRef {
                     account_id: account_id.clone(),
                     force,
+                    asked_over,
                 }))
             }
             AccountChange::Remove { account_id } => {
                 Box::pin(rpc.call::<methods::AccountsRemove>(&AccountRef {
                     account_id: account_id.clone(),
                     force,
+                    asked_over: None,
                 }))
             }
             AccountChange::SignOut => {

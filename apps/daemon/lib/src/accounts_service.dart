@@ -518,16 +518,47 @@ final class AccountsService {
     return _result(AccountChangeOutcome.done, announce: true);
   }
 
+  /// Switches to [request]'s account. A switch asked over another account
+  /// than the one in charge now (`askedOver`) is refused before anything is
+  /// stopped, and again after each wait.
   Future<AccountChangeResult> switchTo(AccountRef request) async {
+    final askedOver = request.askedOver;
+    final from = _container.read(primaryAccountProvider);
+    final refused = RpcError(
+      code: ConduitErrorCodes.sessionExpired,
+      args: const <String, String>{'reason': 'account'},
+      debugMessage:
+          'the switch to ${request.accountId} was asked over another '
+          'account than the one in charge',
+    );
+    void requireAskedOver() {
+      if (askedOver == null) return;
+      if (_container.read(primaryAccountProvider).id != askedOver) {
+        throw refused;
+      }
+    }
+
+    requireAskedOver();
     if (LibreChatAccount.isLibreChatAccountId(request.accountId)) {
-      return useLibreChat(request.accountId, force: request.force);
+      try {
+        return await useLibreChat(
+          request.accountId,
+          force: request.force,
+          onlyFrom: askedOver == null ? null : from,
+        );
+      } on LibreChatSignInSuperseded {
+        // Another account took charge on the way (onlyFrom).
+        throw refused;
+      }
     }
     await _requireAccount(request.accountId);
+    requireAskedOver();
     if (_primary() == PrimaryAccount.libreChat) {
       // Open WebUI comes back out of its park, through the core's switch.
       if (!await _mayLeave(force: request.force)) {
         return _result(AccountChangeOutcome.blockedByActiveReply);
       }
+      requireAskedOver();
       await _container
           .read(primaryAccountSwitcherProvider)
           .useOpenWebUi(request.accountId, force: true);
@@ -541,6 +572,7 @@ final class AccountsService {
         !await _mayLeave(force: request.force)) {
       return _result(AccountChangeOutcome.blockedByActiveReply);
     }
+    requireAskedOver();
     final outcome = await _controller.switchTo(
       request.accountId,
       force: request.force,

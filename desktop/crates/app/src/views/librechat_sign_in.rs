@@ -544,6 +544,7 @@ impl LibreChatSignInView {
             l10n.cancel(),
         );
         let asked_under = self.stores.accounts.read(cx).scope_key();
+        let asked_over = self.stores.accounts.read(cx).in_charge_id();
         let ask = crate::views::sheet::ask_for_account(&self.stores, window, spec, cx);
         let stores = self.stores.clone();
         let round = self.round;
@@ -555,9 +556,9 @@ impl LibreChatSignInView {
                 }
                 // The answer is read some time after the question closed:
                 // another account may have taken charge since.
-                let Ok(Some(task)) = cx
-                    .update(|_, cx| switch_while_in_charge(&stores, &asked_under, account_id, cx))
-                else {
+                let Ok(Some(task)) = cx.update(|_, cx| {
+                    switch_while_in_charge(&stores, &asked_under, asked_over, account_id, cx)
+                }) else {
                     return;
                 };
                 if let Ok(result) = task.await
@@ -958,16 +959,19 @@ fn server_chip(
 /// The forced switch to `account_id` (it stops the answer being written),
 /// sent only while the account in charge is still `asked_under`, the one
 /// the question was asked over: checked here, with no wait between the
-/// check and the call.
+/// check and the call, and by conduitd against `asked_over` (that
+/// account's id), since this list can lag an account change.
 fn switch_while_in_charge(
     stores: &Stores,
     asked_under: &Option<String>,
+    asked_over: Option<String>,
     account_id: String,
     cx: &mut App,
 ) -> Option<Task<Result<AccountChangeResult, RpcError>>> {
     stores.accounts.update(cx, |a, cx| {
-        (a.scope_key() == *asked_under)
-            .then(|| a.change(AccountChange::Switch { account_id }, true, cx))
+        (a.scope_key() == *asked_under).then(|| {
+            a.change_asked_over(AccountChange::Switch { account_id }, true, asked_over, cx)
+        })
     })
 }
 
@@ -1035,9 +1039,11 @@ mod tests {
         use crate::views::sheet::bench::{bench, switch_account};
         let (daemon, stores, vcx) = bench(cx);
         let asked_under = vcx.update(|_, cx| stores.accounts.read(cx).scope_key());
+        let asked_over = vcx.update(|_, cx| stores.accounts.read(cx).in_charge_id());
         switch_account(&stores, vcx);
         let sent = vcx.update(|_, cx| {
-            switch_while_in_charge(&stores, &asked_under, "lc-harbour".into(), cx).is_some()
+            switch_while_in_charge(&stores, &asked_under, asked_over, "lc-harbour".into(), cx)
+                .is_some()
         });
         vcx.run_until_parked();
         assert!(!sent, "a switch was sent for the account before");
@@ -1046,10 +1052,20 @@ mod tests {
             "the forced switch went out under another account"
         );
         let now = vcx.update(|_, cx| stores.accounts.read(cx).scope_key());
+        let over = vcx.update(|_, cx| stores.accounts.read(cx).in_charge_id());
+        assert!(over.is_some());
         let sent = vcx.update(|_, cx| {
-            switch_while_in_charge(&stores, &now, "lc-harbour".into(), cx).is_some()
+            switch_while_in_charge(&stores, &now, over.clone(), "lc-harbour".into(), cx).is_some()
         });
         assert!(sent, "the account still in charge can switch");
+        vcx.run_until_parked();
+        let calls = daemon.calls::<methods::AccountsSwitch>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(
+            calls[0]["askedOver"].as_str(),
+            over.as_deref(),
+            "conduitd is told which account the question was asked over"
+        );
     }
 
     /// A probe of the last address, answered after the form started over
