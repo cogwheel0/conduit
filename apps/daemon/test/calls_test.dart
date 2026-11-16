@@ -9,6 +9,8 @@ import 'dart:typed_data';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatSessionRegistryProvider;
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_ports.dart';
+import 'package:conduit_core/features/chat/services/chat_draft_queue.dart'
+    show chatDraftQueueSendProvider;
 import 'package:conduit_core/features/chat/voice_mode/chat_voice_send.dart';
 
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
@@ -215,37 +217,73 @@ void main() {
     },
   );
 
+  /// Every send's turn starts, in order, each with its own answer, and the
+  /// chat is left with nothing running once they are done. (The scope then
+  /// lingers out on its own timer; a send's future completes only after its
+  /// hold on the chat is let go.)
+  Future<void> bothGoInOrder(
+    CallScopeHold hold,
+    Future<void> first,
+    Future<void> Function() then,
+    List<String> said,
+  ) async {
+    var firstDone = false;
+    unawaited(first.whenComplete(() => firstDone = true));
+    await then();
+    await pumpEventQueue();
+    expect(firstDone, isTrue, reason: 'the first words never got their turn');
+    await first;
+    final messages = hold.scope.messages;
+    expect([
+      for (final m in messages)
+        if (m.role == 'user') m.content,
+    ], said);
+    expect(
+      [for (final m in messages) m.role],
+      ['user', 'assistant', 'user', 'assistant'],
+      reason: 'each words have their own answer',
+    );
+    final chatId = hold.chatId!;
+    hold.release();
+    expect(
+      turns.isRunning(chatId),
+      isFalse,
+      reason: 'a send still holds the chat',
+    );
+  }
+
   test(
     'words said while the last ones wait go after them, each with its answer',
     () async {
       final hold = await turns.holdForCall(model: model);
+      addTearDown(hold.release);
       final send = hold.scope.container.read(chatVoiceSendProvider);
       // The first words wait for the chat to settle; the next come meanwhile.
-      var firstDone = false;
       final first = send(null, 'is the soil warm yet');
-      unawaited(first.whenComplete(() => firstDone = true));
-      final second = send(null, 'and the beans');
-      await second;
-      await pumpEventQueue();
-      expect(firstDone, isTrue, reason: 'the first words never got their turn');
-      await first;
-      final messages = hold.scope.messages;
-      expect(
-        [
-          for (final m in messages)
-            if (m.role == 'user') m.content,
-        ],
-        ['is the soil warm yet', 'and the beans'],
-      );
-      expect(
-        [for (final m in messages) m.role],
-        ['user', 'assistant', 'user', 'assistant'],
-        reason: 'each words have their own answer',
-      );
-      hold.release();
-      await window.until(() => hold.scope.isDisposed);
+      await bothGoInOrder(hold, first, () => send(null, 'and the beans'), [
+        'is the soil warm yet',
+        'and the beans',
+      ]);
     },
   );
+
+  test('a queued batch that comes while words wait goes after them', () async {
+    final hold = await turns.holdForCall(model: model);
+    addTearDown(hold.release);
+    final scope = hold.scope.container;
+    // The words wait for the chat to settle; the queue's batch comes
+    // meanwhile.
+    final words = scope.read(chatVoiceSendProvider)(
+      null,
+      'is the soil warm yet',
+    );
+    await bothGoInOrder(
+      hold,
+      words,
+      () => scope.read(chatDraftQueueSendProvider)(null, 'and the beans', null),
+      ['is the soil warm yet', 'and the beans'],
+    );
+  });
 
   test('with barge-in the user talks over the answer', () async {
     await runtime.container

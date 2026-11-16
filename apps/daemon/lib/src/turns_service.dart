@@ -529,6 +529,7 @@ final class TurnsService implements ChatTurns {
       }
       return await _run(
         session,
+        refuseIfBusy: true,
         modelId: model.id,
         userMessageId: null,
         start: (onPlaceholder) => durableSend(
@@ -639,6 +640,7 @@ final class TurnsService implements ChatTurns {
     try {
       return await _run(
         session,
+        refuseIfBusy: true,
         modelId: models.first.id,
         userMessageId: null,
         compare: true,
@@ -730,6 +732,7 @@ final class TurnsService implements ChatTurns {
       }
       return await _run(
         session,
+        refuseIfBusy: true,
         modelId: model.id,
         userMessageId: target.userMessage.id,
         start: (_) => regenerateHistoricalMessageById(
@@ -792,6 +795,7 @@ final class TurnsService implements ChatTurns {
       _choose(session.scope.container, model);
       return await _run(
         session,
+        refuseIfBusy: true,
         modelId: model.id,
         userMessageId: null,
         start: (_) async {
@@ -1646,30 +1650,27 @@ final class TurnsService implements ChatTurns {
     // The call's choice for a new chat, as these words began: a call that
     // ends while they wait below still makes the chat as it chose.
     final choice = session.callNewChat;
-    // Words said while earlier words still wait for their turn go after
-    // them, in order: one pending turn at a time, so each has its own answer.
-    final earlier = session.voiceStarting;
-    final started = Completer<void>();
-    session.voiceStarting = started.future;
+    final model = scope.read(selectedModelProvider);
     final sent = Completer<void>();
     session.holds++;
     try {
-      if (earlier != null) await earlier;
-      // The user talked over the answer (barge-in), and the call stopped it:
-      // its turn ends here before the next starts.
-      final running = session.turn;
-      if (running != null && !running.finished) {
-        running.stopped = true;
-        _project(session);
-        if (!running.finished) {
-          _finish(session, running, _answerOf(session, running));
-        }
-      }
-      final model = scope.read(selectedModelProvider);
       await _run(
         session,
         modelId: model?.id ?? '',
         userMessageId: null,
+        // The user talked over the answer (barge-in), and the call stopped
+        // it: its turn ends here before the next starts (once words said
+        // before these have started theirs).
+        onAdmitted: () {
+          final running = session.turn;
+          if (running != null && !running.finished) {
+            running.stopped = true;
+            _project(session);
+            if (!running.finished) {
+              _finish(session, running, _answerOf(session, running));
+            }
+          }
+        },
         start: (onPlaceholder) async {
           // A reply the user talked over has only just ended.
           await _afterLastTurn(session);
@@ -1715,11 +1716,6 @@ final class TurnsService implements ChatTurns {
     } on Object catch (error, stackTrace) {
       if (!sent.isCompleted) sent.completeError(error, stackTrace);
     } finally {
-      // Started (or refused): words said after these may go now.
-      started.complete();
-      if (identical(session.voiceStarting, started.future)) {
-        session.voiceStarting = null;
-      }
       _release(session);
     }
     // A Standard call's words are sent once their turn has started: a
@@ -1798,12 +1794,69 @@ final class TurnsService implements ChatTurns {
   /// stream is attached; a direct or Hermes turn returns when the answer is
   /// finished. So the send runs on its own and this waits for the answer to
   /// appear in the scope.
+  ///
+  /// One send at a time takes the chat's pending turn: a send that comes
+  /// while an earlier one has not started its turn yet (words in a call or a
+  /// queue's batch, waiting for the last answer to settle) goes after it, in
+  /// order, so each turn has its own answer and every send's turn starts.
+  /// [onAdmitted] runs once it is this send's turn, before it is pending.
+  /// A window's own turn ([refuseIfBusy], after [_requireIdle]) is refused
+  /// if an answer has started meanwhile: two answers would interleave.
   Future<SendTurnAccepted> _run(
     _ChatSession session, {
     required String modelId,
     required String? userMessageId,
     bool compare = false,
     String? assistantMessageId,
+    bool refuseIfBusy = false,
+    void Function()? onAdmitted,
+    required Future<void> Function(
+      void Function(ChatSendPlaceholderHandle handle) onPlaceholder,
+    )
+    start,
+  }) async {
+    final earlier = session.admitting;
+    final admitted = Completer<void>();
+    session.admitting = admitted.future;
+    try {
+      if (earlier != null) await earlier;
+      if (session.scope.isDisposed) {
+        throw const RpcError(
+          code: ConduitErrorCodes.sessionExpired,
+          debugMessage: 'the chat closed before this turn could start',
+        );
+      }
+      final running = session.turn;
+      if (refuseIfBusy && running != null && !running.finished) {
+        throw const RpcError(
+          code: ConduitErrorCodes.conflict,
+          debugMessage: 'that chat is already generating',
+        );
+      }
+      onAdmitted?.call();
+      return await _runAdmitted(
+        session,
+        modelId: modelId,
+        userMessageId: userMessageId,
+        compare: compare,
+        assistantMessageId: assistantMessageId,
+        start: start,
+      );
+    } finally {
+      // Started (or refused): the next send may take its turn.
+      admitted.complete();
+      if (identical(session.admitting, admitted.future)) {
+        session.admitting = null;
+      }
+    }
+  }
+
+  Future<SendTurnAccepted> _runAdmitted(
+    _ChatSession session, {
+    required String modelId,
+    required String? userMessageId,
+    required bool compare,
+    required String? assistantMessageId,
     required Future<void> Function(
       void Function(ChatSendPlaceholderHandle handle) onPlaceholder,
     )
@@ -2873,6 +2926,7 @@ final class TurnsService implements ChatTurns {
       }
       await _run(
         session,
+        refuseIfBusy: true,
         modelId: answer.model ?? '',
         userMessageId: null,
         assistantMessageId: pending.messageId,
@@ -3802,9 +3856,9 @@ final class _ChatSession {
   /// the turn that makes the chat.
   ({bool temporary, String? folderId})? callNewChat;
 
-  /// The last voice turn asked for, until it has started: words said
-  /// meanwhile wait for it ([TurnsService._voiceSend]).
-  Future<void>? voiceStarting;
+  /// The last send asked for, until its turn has started (or it failed): a
+  /// send that comes meanwhile waits for it ([TurnsService._run]).
+  Future<void>? admitting;
 
   String? get chatId {
     if (!scope.isDisposed) {
