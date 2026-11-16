@@ -40,7 +40,7 @@ use gpui_kit::{
 };
 
 use crate::l10n::{ActiveL10n as _, L10n};
-use crate::shell::sheet::{SheetSpec, present_sheet};
+use crate::shell::sheet::SheetSpec;
 use crate::shell::sso::{SsoOutcome, run_librechat_sso};
 use crate::stores::Stores;
 use crate::stores::accounts::AccountChange;
@@ -499,7 +499,9 @@ impl LibreChatSignInView {
     }
 
     /// Asks before stopping the answer still being written, then switches
-    /// to the account signed in to.
+    /// to the account signed in to: only while the account it was asked
+    /// over is still in charge (the question closes when another takes
+    /// charge) and the form has not started over.
     fn ask_to_switch(&mut self, account_id: String, window: &mut Window, cx: &mut Context<Self>) {
         let l10n = cx.l10n().clone();
         let spec = SheetSpec::new(
@@ -508,12 +510,13 @@ impl LibreChatSignInView {
             l10n.desktop_switch_anyway(),
             l10n.cancel(),
         );
-        let ask = present_sheet(window, spec, cx);
+        let ask = crate::views::sheet::ask_for_account(&self.stores, window, spec, cx);
         let stores = self.stores.clone();
+        let round = self.round;
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
-                if !ask.await {
+                if !ask.await || this.read_with(cx, |s, _| s.round != round).unwrap_or(true) {
                     return;
                 }
                 let task = stores.accounts.update(cx, |a, cx| {
@@ -920,6 +923,28 @@ mod tests {
 
     use super::*;
     use crate::stores::rpc::fake::FakeDaemon;
+
+    /// Switch Anyway, answered after another account took charge, switches
+    /// to nothing: the forced switch would stop that account's reply.
+    #[gpui_kit::test]
+    fn a_stale_switch_question_switches_nothing(cx: &mut TestAppContext) {
+        use crate::views::sheet::bench::{bench, switch_account};
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        let view = vcx
+            .update(|window, cx| cx.new(|cx| LibreChatSignInView::new(stores.clone(), window, cx)));
+        let blocked: LibreChatSignInResult = serde_json::from_value(serde_json::json!({
+            "outcome": "blockedByActiveReply",
+            "accountId": "lc-harbour",
+        }))
+        .unwrap();
+        view.update_in(vcx, |v, window, cx| v.finish(Ok(blocked), window, cx));
+        switch_account(&stores, vcx);
+        assert!(
+            daemon.calls::<methods::AccountsSwitch>().is_empty(),
+            "the stale question switched accounts"
+        );
+    }
 
     /// A probe of the last address, answered after the form started over
     /// at another, never puts its server under the new address: the

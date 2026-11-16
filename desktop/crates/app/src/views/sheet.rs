@@ -386,14 +386,16 @@ pub fn ask_for_account(
     spec: crate::shell::sheet::SheetSpec,
     cx: &mut App,
 ) -> gpui_kit::Task<bool> {
+    // The account in charge: one LibreChat account after another changes
+    // no Open WebUI id.
     let accounts = stores.accounts.clone();
-    let opened = accounts.read(cx).active().map(|a| a.id.clone());
+    let opened = accounts.read(cx).scope_key();
     let (asked, closer) = crate::shell::sheet::present_sheet_closable(window, spec, cx);
     let watch = {
         let opened = opened.clone();
         cx.observe(&accounts, move |accounts, cx| {
             // A list being read again (a reconnect) names nobody: no change.
-            let now = accounts.read(cx).active().map(|a| a.id.clone());
+            let now = accounts.read(cx).scope_key();
             if now.is_some() && now != opened {
                 closer.close(cx);
             }
@@ -402,7 +404,7 @@ pub fn ask_for_account(
     cx.spawn(async move |cx| {
         let yes = asked.await;
         drop(watch);
-        yes && cx.update(|cx| accounts.read(cx).active().map(|a| a.id.clone()) == opened)
+        yes && cx.update(|cx| accounts.read(cx).scope_key() == opened)
     })
 }
 
