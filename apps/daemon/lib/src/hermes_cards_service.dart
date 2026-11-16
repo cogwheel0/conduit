@@ -20,6 +20,7 @@ import 'package:conduit_core/features/hermes/providers/hermes_context_providers.
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_working_directory_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -569,6 +570,7 @@ final class HermesCardsService {
       decision: decision,
       container: container,
       owner: ownerConversationId,
+      service: container.read(hermesApiServiceProvider),
     );
     _offers[offer.requestId] = offer;
     _offered[key] = offer.requestId;
@@ -633,6 +635,16 @@ final class HermesCardsService {
     }
     if (offer.answering) {
       return const HermesDecisionResult(status: HermesDecisionStatus.failed);
+    }
+    // Asked by another connection than the one now set: a password or
+    // secret typed for it never goes to this one. The question ended with
+    // its connection.
+    if (!identical(
+      offer.container.read(hermesApiServiceProvider),
+      offer.service,
+    )) {
+      _settle(offer, choice: 'deny');
+      return const HermesDecisionResult(status: HermesDecisionStatus.settled);
     }
     offer.answering = true;
     final decision = offer.decision;
@@ -750,6 +762,7 @@ final class _Offer {
     required this.decision,
     required this.container,
     required this.owner,
+    required this.service,
   });
 
   final String chatId;
@@ -760,6 +773,9 @@ final class _Offer {
 
   /// The conversation that asked, as the scope opened it.
   final String owner;
+
+  /// The Hermes connection that asked: only it is answered.
+  final HermesBackendService? service;
   bool answering = false;
   bool held = false;
   bool done = false;

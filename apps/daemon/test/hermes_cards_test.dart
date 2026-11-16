@@ -1,10 +1,17 @@
 @TestOn('vm')
 library;
 
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
 import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:conduitd/src/message_blocks.dart';
@@ -162,6 +169,76 @@ void main() {
       expect(late.status, HermesDecisionStatus.settled);
     });
 
+    // A password typed for one gateway never goes to another: once the
+    // connection changed, the card closes and nothing is sent.
+    test(
+      'a password asked by one connection is not sent to the next',
+      () async {
+        final connects = <String>[];
+        HermesDesktopApiService gateway(String host) {
+          final service = HermesDesktopApiService(
+            config: HermesConfig(
+              enabled: true,
+              baseUrl: 'https://$host',
+              mode: HermesBackendMode.desktopGateway,
+              desktopAuthKind: HermesDesktopAuthKind.legacyToken,
+              desktopCredentials: HermesDesktopCredentials(
+                legacyToken: 'token',
+              ),
+            ),
+            rpc: HermesDesktopRpcClient(
+              channelFactory: (uri, _, {httpClient}) {
+                connects.add(uri.host);
+                throw StateError('No gateway in this test.');
+              },
+            ),
+          );
+          addTearDown(service.close);
+          return service;
+        }
+
+        HermesBackendService current = gateway('hermes-a.example');
+        final chat = ProviderContainer(
+          overrides: [
+            hermesApiServiceProvider.overrideWith((ref) => current),
+            activeConversationProvider.overrideWith(
+              () => _Chat(
+                Conversation(
+                  id: 'c1',
+                  title: 'Garden shed',
+                  createdAt: DateTime.utc(2026, 11, 11),
+                  updatedAt: DateTime.utc(2026, 11, 11),
+                  metadata: const <String, dynamic>{
+                    'hermesSessionId': 'session-1',
+                  },
+                ),
+              ),
+            ),
+          ],
+        );
+        addTearDown(chat.dispose);
+        chat.read(hermesApiServiceProvider);
+        cards.project(
+          'local:hermes_session-1',
+          chat,
+          'c1',
+          answer(<String, dynamic>{'kind': 'sudo'}),
+        );
+        await pumpEventQueue();
+        final request = requests().single;
+
+        current = gateway('hermes-b.example');
+        chat.invalidate(hermesApiServiceProvider);
+        final result = await cards.answer(
+          HermesDecisionAnswer(requestId: request.requestId, value: 'hunter2'),
+        );
+
+        expect(connects, isNot(contains('hermes-b.example')));
+        expect(result.status, HermesDecisionStatus.settled);
+        expect(settled(), <String>[request.requestId]);
+      },
+    );
+
     test('an MCP set-up asks as a Hermes decision', () async {
       cards.project(
         'local:hermes_session-1',
@@ -268,4 +345,13 @@ void main() {
       expect(file.lines.map((l) => l.kind), contains(DiffLineKind.hunk));
     });
   });
+}
+
+final class _Chat extends ActiveConversationNotifier {
+  _Chat(this.conversation);
+
+  final Conversation conversation;
+
+  @override
+  Conversation? build() => conversation;
 }
