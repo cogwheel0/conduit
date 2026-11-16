@@ -320,6 +320,34 @@ struct Mention {
     index: usize,
 }
 
+/// Words sent to a room whose fate is not known yet.
+#[derive(Clone, Debug)]
+struct Awaiting {
+    /// As sent (trimmed).
+    text: String,
+    /// The newest event the room showed when they went out: only a message
+    /// after it can be them.
+    after: i64,
+}
+
+impl Awaiting {
+    /// Whether `view`'s log shows these words posted: the user's own
+    /// message with them, newer than the send.
+    fn posted_in(&self, view: &HermesRoomView) -> bool {
+        view.items.iter().any(|item| {
+            item.kind == HermesRoomItemKind::Message
+                && item.own
+                && item.seq > self.after
+                && item.text.trim() == self.text
+        })
+    }
+}
+
+/// The newest event `view` shows.
+fn newest_seq(view: &HermesRoomView) -> i64 {
+    view.items.iter().map(|i| i.seq).max().unwrap_or(i64::MIN)
+}
+
 pub struct HermesRoomPane {
     stores: Stores,
     pub room_id: String,
@@ -332,11 +360,12 @@ pub struct HermesRoomPane {
     sending: Option<String>,
     /// Decision cards being answered.
     answering: HashSet<String>,
-    /// The words Hermes may have, as the room last said.
-    unsent: Option<String>,
-    /// Words the log settled while a send was still out: the field gives
-    /// them up once that send's answer is in.
-    settled: Option<String>,
+    /// The room's view has been read once (words Hermes may have come back
+    /// only then: the room opened again).
+    seen_view: bool,
+    /// Words sent whose fate is not known yet: they leave the field only
+    /// once confirmed posted.
+    awaiting: Option<Awaiting>,
     tick: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -424,8 +453,8 @@ impl HermesRoomPane {
             texts: HashMap::new(),
             sending: None,
             answering: HashSet::new(),
-            unsent: None,
-            settled: None,
+            seen_view: false,
+            awaiting: None,
             tick: None,
             _subscriptions: subscriptions,
         };
@@ -438,7 +467,7 @@ impl HermesRoomPane {
     }
 
     /// The store changed: the timeline follows, the tick runs while a bot
-    /// works, words the log settled leave the field, and words Hermes may
+    /// works, words the log shows posted leave the field, and words Hermes may
     /// have come back to an empty one (the room opened again).
     fn sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let view = self.view(cx).cloned();
@@ -488,43 +517,50 @@ impl HermesRoomPane {
         } else if !working {
             self.tick = None;
         }
-        // Words stay with their room until Hermes has them or the user
-        // lets them go. Once the log settles words Hermes may have had, the
-        // field gives them up (after any send still out), so Send cannot
-        // post them twice; words Hermes may have come back to an empty
-        // field when the room is opened again.
-        let unsent = view.as_ref().and_then(|v| v.unsent_text.clone());
-        match (&self.unsent, &unsent) {
-            (Some(was), None) => self.settled = Some(was.clone()),
-            (None, Some(words)) if self.sending.is_none() && self.text(cx).is_empty() => {
-                let words = words.clone();
-                let at = words.len();
-                self.input.update(cx, |s, cx| {
-                    s.set_value(words, window, cx);
-                    s.set_selected_range(at..at, cx);
-                });
-            }
-            _ => {}
+        // Words stay in the field until Hermes is known to have them: a
+        // send it answered as sent, or the log showing them posted after the
+        // send. Words the room lets go of without that (a refusal, a room
+        // not read) stay. Words Hermes may have come back to an empty field
+        // when the room is opened again.
+        if let Some(v) = &view
+            && !std::mem::replace(&mut self.seen_view, true)
+            && let Some(words) = v.unsent_text.clone()
+            && self.sending.is_none()
+            && self.text(cx).is_empty()
+        {
+            self.awaiting = Some(Awaiting {
+                text: words.trim().to_string(),
+                after: newest_seq(v),
+            });
+            let at = words.len();
+            self.input.update(cx, |s, cx| {
+                s.set_value(words, window, cx);
+                s.set_selected_range(at..at, cx);
+            });
         }
-        if unsent.is_some() {
-            self.settled = None;
-        }
-        self.unsent = unsent;
-        self.give_up_settled(window, cx);
+        self.give_up_posted(window, cx);
         cx.notify();
     }
 
-    /// Words the log settled leave the field -- once no send is out, and
-    /// only while the field still holds exactly those words (words typed
-    /// since are a message of their own).
-    fn give_up_settled(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Words awaited leave the field once the room's log shows them posted
+    /// after they were sent -- with no send out, and only while the field
+    /// still holds exactly those words (words typed since are a message of
+    /// their own).
+    fn give_up_posted(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.sending.is_some() {
             return;
         }
-        let Some(settled) = self.settled.take() else {
+        let posted = match (&self.awaiting, self.view(cx)) {
+            (Some(awaiting), Some(view)) => awaiting.posted_in(view),
+            _ => false,
+        };
+        if !posted {
+            return;
+        }
+        let Some(awaiting) = self.awaiting.take() else {
             return;
         };
-        if self.text(cx).trim() == settled {
+        if self.text(cx).trim() == awaiting.text {
             self.input.update(cx, |s, cx| s.set_value("", window, cx));
         }
     }
@@ -665,6 +701,10 @@ impl HermesRoomPane {
         };
         // Sent to the room as it is shown: on the connection it was read on.
         let connection = self.view(cx).and_then(|v| v.connection.clone());
+        self.awaiting = Some(Awaiting {
+            text: text.clone(),
+            after: self.view(cx).map(newest_seq).unwrap_or(i64::MIN),
+        });
         self.sending = Some(typed.clone());
         self.mention = None;
         cx.notify();
@@ -683,11 +723,14 @@ impl HermesRoomPane {
                     let l = cx.l10n().clone();
                     match result {
                         Ok(r) if r.sent => {
+                            p.awaiting = None;
                             if p.text(cx) == sent_text {
                                 p.input.update(cx, |s, cx| s.set_value("", window, cx));
                             }
                         }
+                        // Nothing was posted: the words stay, to edit or send.
                         Ok(r) if r.refused => {
+                            p.awaiting = None;
                             let text = match r.detail {
                                 Some(d) if !d.trim().is_empty() => l.hermes_room_refused(&d),
                                 _ => l.hermes_room_action_failed(),
@@ -706,9 +749,9 @@ impl HermesRoomPane {
                                 .update(cx, |t, cx| t.show(NoticeLevel::Warning, text, cx));
                         }
                     }
-                    // The room's log may have settled the words while the
-                    // answer was out.
-                    p.give_up_settled(window, cx);
+                    // Unclear: the room's log may have shown the words posted
+                    // while the answer was out.
+                    p.give_up_posted(window, cx);
                     cx.notify();
                 });
             });
@@ -1677,12 +1720,26 @@ mod tests {
         use crate::stores::rpc::fake::FakeDaemon;
 
         fn room(unsent: Option<&str>) -> conduit_protocol::HermesRoomView {
+            posted(unsent, &[])
+        }
+
+        /// The room with the user's own messages `own` (seq, words) in its
+        /// timeline.
+        fn posted(unsent: Option<&str>, own: &[(i64, &str)]) -> conduit_protocol::HermesRoomView {
+            let items: Vec<_> = own
+                .iter()
+                .map(|(seq, text)| {
+                    json!({"kind": "message", "key": format!("message:{seq}"), "seq": seq,
+                           "own": true, "text": text})
+                })
+                .collect();
             serde_json::from_value(json!({
                 "roomId": "r1", "loaded": true, "running": true,
                 "room": {"id": "r1", "name": "Greenhouse crew", "members": [
                     {"memberId": "fern", "profile": "fern", "handle": "fern", "name": "Fern"},
                 ]},
                 "unsentText": unsent,
+                "items": items,
             }))
             .unwrap()
         }
@@ -1721,7 +1778,7 @@ mod tests {
         }
 
         #[gpui_kit::test]
-        fn words_the_log_settles_during_a_send_leave_the_field_when_it_ends(
+        fn words_the_log_shows_posted_during_a_send_leave_the_field_when_it_ends(
             cx: &mut TestAppContext,
         ) {
             let daemon = FakeDaemon::new();
@@ -1735,14 +1792,59 @@ mod tests {
                 p.send(window, cx);
             });
             // Hermes posted them: the room holds the words, then its log
-            // settles them, all before the send's answer comes back.
+            // shows them posted, all before the send's answer comes back.
             changed(&stores, room(Some("hello")), vcx);
-            changed(&stores, room(None), vcx);
+            changed(&stores, posted(None, &[(1, "hello")]), vcx);
             drop(held);
             vcx.run_until_parked();
             pane.read_with(vcx, |p, cx| {
                 assert_eq!(p.text(cx), "", "a second Send would post them twice")
             });
+        }
+
+        #[gpui_kit::test]
+        fn words_hermes_refused_stay_even_when_the_room_lets_them_go_first(
+            cx: &mut TestAppContext,
+        ) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(posted(None, &[(1, "hello")]));
+            daemon.returns::<methods::HermesRoomsSend>(HermesRoomSendResult {
+                refused: true,
+                ..Default::default()
+            });
+            let held = daemon.hold::<methods::HermesRoomsSend>();
+            let (stores, pane, vcx) = open(cx, &daemon, "refused");
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("hello", window, cx);
+                p.send(window, cx);
+            });
+            // The room drops the words on the refusal before its answer
+            // comes back; the log shows nothing new (the earlier "hello" is
+            // an older message).
+            changed(&stores, posted(Some("hello"), &[(1, "hello")]), vcx);
+            changed(&stores, posted(None, &[(1, "hello")]), vcx);
+            drop(held);
+            vcx.run_until_parked();
+            pane.read_with(vcx, |p, cx| assert_eq!(p.text(cx), "hello"));
+        }
+
+        #[gpui_kit::test]
+        fn words_left_unclear_stay_until_the_log_shows_them(cx: &mut TestAppContext) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(None));
+            daemon.returns::<methods::HermesRoomsSend>(HermesRoomSendResult::default());
+            let (stores, pane, vcx) = open(cx, &daemon, "unclear");
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("hello", window, cx);
+                p.send(window, cx);
+            });
+            vcx.run_until_parked();
+            changed(&stores, room(Some("hello")), vcx);
+            // Gone from the room, but not shown posted: not proof.
+            changed(&stores, room(None), vcx);
+            pane.read_with(vcx, |p, cx| assert_eq!(p.text(cx), "hello"));
+            changed(&stores, posted(None, &[(4, "hello")]), vcx);
+            pane.read_with(vcx, |p, cx| assert_eq!(p.text(cx), ""));
         }
 
         #[gpui_kit::test]
