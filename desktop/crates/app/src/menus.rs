@@ -761,16 +761,6 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
     });
     for slot in CHAT_COMMAND_ORDER {
         if let Some((session_id, commands)) = &hermes {
-            // Its one sheet, just before Delete… as a chat's are.
-            if slot == ChatCommandSlot::Delete && state.hermes_context {
-                items.extend([
-                    MenuItem::separator(),
-                    MenuItem::action(
-                        l10n.desktop_hermes_context_usage_menu(),
-                        crate::actions::ShowContextUsage,
-                    ),
-                ]);
-            }
             for command in commands.iter().filter(|c| c.slot() == slot) {
                 if slot == ChatCommandSlot::Delete {
                     items.push(MenuItem::separator());
