@@ -2,6 +2,8 @@ import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/librechat/services/librechat_errors.dart'
+    show LibreChatSignInSuperseded;
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -129,10 +131,26 @@ final class PrimaryAccountSwitcher {
   });
 
   /// Makes LibreChat account [accountId] the primary account.
+  ///
+  /// A sign-in step passes [onlyFrom], the account in charge when it began,
+  /// and [stillCurrent]: at its turn the switch goes ahead only from that
+  /// account, and [stillCurrent] is asked again after each wait, last just
+  /// before the account is put in charge. A step superseded by then moves
+  /// nothing (Open WebUI is taken back out of its park) and the switch
+  /// throws [LibreChatSignInSuperseded].
   Future<PrimarySwitchResult> useLibreChat(
     String accountId, {
     bool force = false,
-  }) => _afterLastSwitch(() => _useLibreChat(accountId, force: force));
+    PrimaryAccountRef? onlyFrom,
+    bool Function()? stillCurrent,
+  }) => _afterLastSwitch(
+    () => _useLibreChat(
+      accountId,
+      force: force,
+      onlyFrom: onlyFrom,
+      stillCurrent: stillCurrent,
+    ),
+  );
 
   /// [stillWanted], from a recovery, is asked just before the switch puts
   /// the backend in charge: one the user chose meanwhile stands.
@@ -140,12 +158,18 @@ final class PrimaryAccountSwitcher {
     String accountId, {
     required bool force,
     bool Function()? stillWanted,
+    PrimaryAccountRef? onlyFrom,
+    bool Function()? stillCurrent,
   }) async {
+    bool current() => stillCurrent?.call() ?? true;
     final registry = await _ref.read(libreChatRegistryProvider.future);
     if (registry.byId(accountId) == null) {
       return PrimarySwitchResult.unknownAccount;
     }
     final from = _ref.read(primaryAccountProvider);
+    if ((onlyFrom != null && from != onlyFrom) || !current()) {
+      throw const LibreChatSignInSuperseded();
+    }
     final to = PrimaryAccountRef(PrimaryAccountKind.libreChat, accountId);
     if (from == to) return PrimarySwitchResult.done;
     if (!force && _ref.read(accountChangeReplyGuardProvider)()) {
@@ -153,8 +177,17 @@ final class PrimaryAccountSwitcher {
     }
     _ref.read(accountChangeStopRepliesProvider)();
     await PrimarySwitchIntent(from: from, to: to).write();
+    if (!current()) {
+      await PrimarySwitchIntent.clear();
+      throw const LibreChatSignInSuperseded();
+    }
     if (from.kind == PrimaryAccountKind.openWebUi) {
       await _parkOpenWebUi();
+      if (!current()) {
+        await _takeOpenWebUiBack(from);
+        await PrimarySwitchIntent.clear();
+        throw const LibreChatSignInSuperseded();
+      }
     }
     await _ref.read(libreChatRegistryProvider.notifier).setActive(accountId);
     final registryNow = await _ref.read(libreChatRegistryProvider.future);
@@ -162,11 +195,7 @@ final class PrimaryAccountSwitcher {
       // Signed out of while Open WebUI was parked for it: there is nothing
       // to put in charge. The account that was takes the tab back, Open
       // WebUI out of its park as a start-up recovery would take it.
-      if (from.kind == PrimaryAccountKind.openWebUi && from.id != null) {
-        await _ref
-            .read(openWebUiAccountsControllerProvider)
-            .switchTo(from.id!, force: true);
-      }
+      await _takeOpenWebUiBack(from);
       await PrimarySwitchIntent.clear();
       return PrimarySwitchResult.unknownAccount;
     }
@@ -177,6 +206,16 @@ final class PrimaryAccountSwitcher {
     await _preferBackend(PreferredBackend.libreChat);
     await PrimarySwitchIntent.clear();
     return PrimarySwitchResult.done;
+  }
+
+  /// Takes Open WebUI out of the park a switch from [from] put it in, as a
+  /// start-up recovery would.
+  Future<void> _takeOpenWebUiBack(PrimaryAccountRef from) async {
+    if (from.kind == PrimaryAccountKind.openWebUi && from.id != null) {
+      await _ref
+          .read(openWebUiAccountsControllerProvider)
+          .switchTo(from.id!, force: true);
+    }
   }
 
   /// Makes Open WebUI account [accountId] the primary account, un-parking

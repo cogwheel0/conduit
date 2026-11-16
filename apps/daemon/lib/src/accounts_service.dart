@@ -10,6 +10,8 @@ import 'package:conduit_core/features/prompts/providers/prompts_providers.dart'
     show activePromptCommandProvider;
 import 'package:conduit_core/features/librechat/models/librechat_account.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/librechat/services/librechat_errors.dart'
+    show LibreChatSignInSuperseded;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
     show persistOpenWebUiBackendPreference;
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
@@ -341,10 +343,27 @@ final class AccountsService {
   /// Puts LibreChat account [accountId] in charge of the chats, parking
   /// Open WebUI: the core's switch, as the phone's account rows and sign-in
   /// use it. Refused while an answer is being written, unless [force].
+  ///
+  /// A sign-in passes [onlyFrom], the account in charge when its step
+  /// began, and [stillCurrent]: both are asked again after every wait here
+  /// and in the core's switch, last just before the account is put in
+  /// charge. A step superseded by then switches nothing and this throws
+  /// [LibreChatSignInSuperseded].
   Future<AccountChangeResult> useLibreChat(
     String accountId, {
     bool force = false,
+    PrimaryAccountRef? onlyFrom,
+    bool Function()? stillCurrent,
   }) async {
+    void requireCurrent() {
+      if ((onlyFrom != null &&
+              _container.read(primaryAccountProvider) != onlyFrom) ||
+          !(stillCurrent?.call() ?? true)) {
+        throw const LibreChatSignInSuperseded();
+      }
+    }
+
+    requireCurrent();
     final inCharge =
         _primary() == PrimaryAccount.libreChat &&
         _container.read(activeLibreChatAccountProvider)?.id == accountId;
@@ -354,9 +373,15 @@ final class AccountsService {
     if (!await _mayLeave(force: force)) {
       return _result(AccountChangeOutcome.blockedByActiveReply);
     }
+    requireCurrent();
     final result = await _container
         .read(primaryAccountSwitcherProvider)
-        .useLibreChat(accountId, force: true);
+        .useLibreChat(
+          accountId,
+          force: true,
+          onlyFrom: onlyFrom,
+          stillCurrent: stillCurrent,
+        );
     return _result(
       switch (result) {
         PrimarySwitchResult.done => await _libreChatSettled(),

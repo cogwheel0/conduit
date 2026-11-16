@@ -721,6 +721,43 @@ void main() {
       ).isEmpty();
     });
 
+    test('a sign-in step superseded while it waits to be saved saves '
+        'nothing', () async {
+      final held = _HeldSessionDeletes();
+      secure = held;
+      final container = newContainer();
+      final accounts = container.read(libreChatAccountsProvider);
+      final account = await accounts.saveSignedIn(
+        server: server,
+        session: await signIn(),
+      );
+      final release = held.hold = Completer<void>();
+      final signingOut = accounts.signOut(account.id);
+      await held.deleting.future;
+      var current = true;
+      final signingIn = accounts.saveSignedIn(
+        server: server,
+        session: await signIn(),
+        activate: false,
+        stillCurrent: () => current,
+      );
+      final refused = check(signingIn).throws<LibreChatSignInSuperseded>();
+      await pumpEventQueue();
+
+      // A newer sign-in step begins while this one waits for the sign-out.
+      current = false;
+      held.hold = null;
+      release.complete();
+      await signingOut;
+
+      await refused;
+      check(await SecureLibreChatSessionStore(held, account.id).read())
+          .isNull();
+      check(
+        (await container.read(libreChatRegistryStoreProvider).read()).accounts,
+      ).isEmpty();
+    });
+
     test('a sign-in waiting on a session that is ending is not saved after '
         'a full sign-out', () async {
       final held = _HeldSessionDeletes();

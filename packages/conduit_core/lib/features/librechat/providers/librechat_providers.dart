@@ -449,12 +449,25 @@ final class LibreChatAccounts {
   /// and makes it the LibreChat account in use when [activate]. Sign-in
   /// screens save without activating and switch through
   /// `PrimaryAccountSwitcher`, which asks before stopping a reply.
+  ///
+  /// [stillCurrent], from a sign-in step, is asked after every wait and
+  /// last just before the session is written: once it answers false the
+  /// step was superseded, nothing is saved and [LibreChatSignInSuperseded]
+  /// is thrown.
   Future<LibreChatAccount> saveSignedIn({
     required LibreChatServer server,
     required LibreChatSession session,
     LibreChatServerInfo? info,
     bool activate = true,
+    bool Function()? stillCurrent,
   }) async {
+    void requireCurrent() {
+      if (stillCurrent != null && !stillCurrent()) {
+        throw const LibreChatSignInSuperseded();
+      }
+    }
+
+    requireCurrent();
     final registryController = _ref.read(libreChatRegistryProvider.notifier);
     if (registryController.isBlockedForAppDataClear) {
       throw StateError('LibreChat accounts are being cleared.');
@@ -462,6 +475,7 @@ final class LibreChatAccounts {
     final store = _store;
     final clears = store.clears;
     final registry = await _ref.read(libreChatRegistryProvider.future);
+    requireCurrent();
     final id = LibreChatAccount.idFor(server.baseUrl, session.user.id);
     final existing = registry.byId(id);
     final account =
@@ -477,6 +491,7 @@ final class LibreChatAccounts {
       if (store.clears != clears) {
         throw StateError('LibreChat accounts were cleared meanwhile.');
       }
+      requireCurrent();
       // A session this replaces may still be saving a renewal or a cookie:
       // what it is writing lands first, and nothing it writes later
       // overwrites this one.
@@ -487,6 +502,7 @@ final class LibreChatAccounts {
         if (store.clears != clears) {
           throw StateError('LibreChat accounts were cleared meanwhile.');
         }
+        requireCurrent();
         await store.sessionStore(account.id).write(session);
         _signIns.update(account.id, (count) => count + 1, ifAbsent: () => 1);
         await _ref
