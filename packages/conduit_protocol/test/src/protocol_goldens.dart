@@ -2928,7 +2928,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "needsYou": false
     }
   ],
-  "failed": true
+  "failed": true,
+  "connection": "run1:2"
 }''',
 
   'hermesRoomsEmpty': r'''
@@ -2942,7 +2943,8 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'hermesRoomRef': r'''
 {
-  "roomId": "room-1"
+  "roomId": "room-1",
+  "connection": "run1:2"
 }''',
 
   'hermesRoomCreate': r'''
@@ -2987,7 +2989,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   'hermesRoomMessage': r'''
 {
   "roomId": "room-1",
-  "text": "@fern how many seed trays?"
+  "text": "@fern how many seed trays?",
+  "connection": "run1:2"
 }''',
 
   'hermesRoomSendResult': r'''
@@ -3192,7 +3195,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "executionGeneration": 2,
       "choices": []
     }
-  ]
+  ],
+  "connection": "run1:2"
 }''',
 
   'hermesRoomViewGone': r'''

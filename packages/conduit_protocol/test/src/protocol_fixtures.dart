@@ -1465,9 +1465,10 @@ final Map<String, Object> protocolFixtures = <String, Object>{
       HermesRoomDto(id: 'room-1', name: 'Greenhouse crew'),
     ],
     failed: true,
+    connection: 'run1:2',
   ),
   'hermesRoomsEmpty': const HermesRooms(),
-  'hermesRoomRef': const HermesRoomRef(roomId: 'room-1'),
+  'hermesRoomRef': const HermesRoomRef(roomId: 'room-1', connection: 'run1:2'),
   'hermesRoomCreate': const HermesRoomCreate(
     name: 'Greenhouse crew',
     bots: <String>['fern', 'moss'],
@@ -1493,6 +1494,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   'hermesRoomMessage': const HermesRoomMessage(
     roomId: 'room-1',
     text: '@fern how many seed trays?',
+    connection: 'run1:2',
   ),
   'hermesRoomSendResult': const HermesRoomSendResult(sent: true),
   'hermesRoomSendRefused': const HermesRoomSendResult(
@@ -1607,6 +1609,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
         executionGeneration: 2,
       ),
     ],
+    connection: 'run1:2',
   ),
   'hermesRoomViewGone': const HermesRoomView(roomId: 'room-2', gone: true),
   'hermesJobDto': const HermesJobDto(

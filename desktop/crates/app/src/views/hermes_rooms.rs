@@ -139,31 +139,33 @@ pub fn failure_text(error: &RpcError, l: &L10n) -> String {
 /// in the chat pane, and its row is selected.
 pub fn open_bot(stores: &Stores, name: &str, cx: &mut App) {
     let rooms = stores.hermes_rooms.clone();
-    if rooms.read(cx).opening_bot.is_some() {
-        return;
-    }
     // The chat opens once the daemon has bound its session to the bot's
     // profile: before that, a message would go to the connection's own.
     let Some(rpc) = rooms.read(cx).rpc() else {
         return;
     };
-    rooms.update(cx, |r, cx| r.set_opening_bot(Some(name.to_string()), cx));
+    let Some(token) = rooms.update(cx, |r, cx| r.begin_opening_bot(name, cx)) else {
+        return;
+    };
     let call = rpc.call::<methods::HermesBotsOpen>(&HermesBotRef {
         name: name.to_string(),
+        connection: rooms.read(cx).connection(),
     });
     let stores = stores.clone();
-    let name = name.to_string();
     cx.spawn(async move |cx: &mut AsyncApp| {
         let result = call.await;
         cx.update(|cx| {
-            stores
+            // Asked under another account or connection: nothing of it is
+            // kept, opened or said.
+            let session = result.as_ref().ok().map(|s| s.id.as_str());
+            let current = stores
                 .hermes_rooms
-                .update(cx, |r, cx| r.set_opening_bot(None, cx));
+                .update(cx, |r, cx| r.finish_opening_bot(token, session, cx));
+            if !current {
+                return;
+            }
             match result {
                 Ok(session) => {
-                    stores
-                        .hermes_rooms
-                        .update(cx, |r, cx| r.note_bot_session(&session.id, &name, cx));
                     let chat = session.chat_id.clone();
                     let shown = stores.navigation.read(cx).selection().chat_id();
                     if shown.as_deref() != Some(chat.as_str()) {
@@ -208,6 +210,7 @@ pub fn stop(stores: &Stores, room_id: &str, cx: &mut App) {
     };
     let call = rpc.call::<methods::HermesRoomsStop>(&HermesRoomRef {
         room_id: room_id.to_string(),
+        connection: stores.hermes_rooms.read(cx).connection(),
     });
     let stores = stores.clone();
     cx.spawn(async move |cx: &mut AsyncApp| {
@@ -248,6 +251,9 @@ pub fn confirm_disband(stores: &Stores, room_id: &str, window: &mut Window, cx: 
         l.cancel(),
     )
     .destructive();
+    // Asked of the room on this connection: the daemon refuses it once
+    // another one is in use.
+    let connection = stores.hermes_rooms.read(cx).connection();
     let ask = present_sheet(window, spec, cx);
     let stores = stores.clone();
     let room_id = room_id.to_string();
@@ -259,6 +265,7 @@ pub fn confirm_disband(stores: &Stores, room_id: &str, window: &mut Window, cx: 
             stores.hermes_rooms.read(cx).rpc().map(|rpc| {
                 rpc.call::<methods::HermesRoomsDisband>(&HermesRoomRef {
                     room_id: room_id.clone(),
+                    connection,
                 })
             })
         });
@@ -292,6 +299,7 @@ pub fn continue_discussion(stores: &Stores, room_id: &str, discussion: &str, cx:
     let call = rpc.call::<methods::HermesRoomsContinue>(&HermesRoomContinue {
         room_id: room_id.to_string(),
         discussion_event_id: discussion.to_string(),
+        connection: stores.hermes_rooms.read(cx).connection(),
     });
     let stores = stores.clone();
     cx.spawn(async move |cx: &mut AsyncApp| {

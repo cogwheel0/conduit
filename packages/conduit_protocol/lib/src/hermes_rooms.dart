@@ -53,6 +53,9 @@ abstract class HermesBots with _$HermesBots {
     /// sidebar's Bots group shows only then.
     @Default(false) bool available,
     @Default(<HermesBotDto>[]) List<HermesBotDto> bots,
+
+    /// The Hermes connection this answer is for (`HermesChanged.connection`).
+    String? connection,
   }) = _HermesBots;
 
   factory HermesBots.fromJson(Map<String, dynamic> json) =>
@@ -62,7 +65,13 @@ abstract class HermesBots with _$HermesBots {
 /// Params naming a bot, by its profile name.
 @freezed
 abstract class HermesBotRef with _$HermesBotRef {
-  const factory HermesBotRef({required String name}) = _HermesBotRef;
+  const factory HermesBotRef({
+    required String name,
+
+    /// The Hermes connection this was asked under (`HermesChanged.connection`):
+    /// refused (`sessionExpired`) once another connection is in use.
+    String? connection,
+  }) = _HermesBotRef;
 
   factory HermesBotRef.fromJson(Map<String, dynamic> json) =>
       _$HermesBotRefFromJson(json);
@@ -146,6 +155,9 @@ abstract class HermesRooms with _$HermesRooms {
 
     /// The list could not be read (one read before stays).
     @Default(false) bool failed,
+
+    /// The Hermes connection this answer is for (`HermesChanged.connection`).
+    String? connection,
   }) = _HermesRooms;
 
   factory HermesRooms.fromJson(Map<String, dynamic> json) =>
@@ -155,7 +167,13 @@ abstract class HermesRooms with _$HermesRooms {
 /// Params naming a room.
 @freezed
 abstract class HermesRoomRef with _$HermesRoomRef {
-  const factory HermesRoomRef({required String roomId}) = _HermesRoomRef;
+  const factory HermesRoomRef({
+    required String roomId,
+
+    /// The Hermes connection this was asked under (`HermesChanged.connection`):
+    /// refused (`sessionExpired`) once another connection is in use.
+    String? connection,
+  }) = _HermesRoomRef;
 
   factory HermesRoomRef.fromJson(Map<String, dynamic> json) =>
       _$HermesRoomRefFromJson(json);
@@ -169,6 +187,10 @@ abstract class HermesRoomCreate with _$HermesRoomCreate {
 
     /// The bots to seat, by profile name, in the order picked.
     required List<String> bots,
+
+    /// The Hermes connection this was asked under (`HermesChanged.connection`):
+    /// refused (`sessionExpired`) once another connection is in use.
+    String? connection,
   }) = _HermesRoomCreate;
 
   factory HermesRoomCreate.fromJson(Map<String, dynamic> json) =>
@@ -181,6 +203,10 @@ abstract class HermesRoomRename with _$HermesRoomRename {
   const factory HermesRoomRename({
     required String roomId,
     required String name,
+
+    /// The Hermes connection this was asked under (`HermesChanged.connection`):
+    /// refused (`sessionExpired`) once another connection is in use.
+    String? connection,
   }) = _HermesRoomRename;
 
   factory HermesRoomRename.fromJson(Map<String, dynamic> json) =>
@@ -223,6 +249,10 @@ abstract class HermesRoomContextEdit with _$HermesRoomContextEdit {
   const factory HermesRoomContextEdit({
     required String roomId,
     required HermesRoomContextDto context,
+
+    /// The Hermes connection this was asked under (`HermesChanged.connection`):
+    /// refused (`sessionExpired`) once another connection is in use.
+    String? connection,
   }) = _HermesRoomContextEdit;
 
   factory HermesRoomContextEdit.fromJson(Map<String, dynamic> json) =>
@@ -235,6 +265,10 @@ abstract class HermesRoomMessage with _$HermesRoomMessage {
   const factory HermesRoomMessage({
     required String roomId,
     required String text,
+
+    /// The Hermes connection this was asked under (`HermesChanged.connection`):
+    /// refused (`sessionExpired`) once another connection is in use.
+    String? connection,
   }) = _HermesRoomMessage;
 
   factory HermesRoomMessage.fromJson(Map<String, dynamic> json) =>
@@ -277,6 +311,10 @@ abstract class HermesRoomContinue with _$HermesRoomContinue {
   const factory HermesRoomContinue({
     required String roomId,
     required String discussionEventId,
+
+    /// The Hermes connection this was asked under (`HermesChanged.connection`):
+    /// refused (`sessionExpired`) once another connection is in use.
+    String? connection,
   }) = _HermesRoomContinue;
 
   factory HermesRoomContinue.fromJson(Map<String, dynamic> json) =>
@@ -292,6 +330,10 @@ abstract class HermesRoomAnswer with _$HermesRoomAnswer {
     required String taskId,
     required int executionGeneration,
     String? choice,
+
+    /// The Hermes connection this was asked under (`HermesChanged.connection`):
+    /// refused (`sessionExpired`) once another connection is in use.
+    String? connection,
   }) = _HermesRoomAnswer;
 
   factory HermesRoomAnswer.fromJson(Map<String, dynamic> json) =>
@@ -501,6 +543,9 @@ abstract class HermesRoomView with _$HermesRoomView {
     @Default(<HermesRoomMemberStatusDto>[])
     List<HermesRoomMemberStatusDto> members,
     @Default(<HermesRoomActionDto>[]) List<HermesRoomActionDto> actions,
+
+    /// The Hermes connection this view was read on (`HermesChanged.connection`).
+    String? connection,
   }) = _HermesRoomView;
 
   factory HermesRoomView.fromJson(Map<String, dynamic> json) =>

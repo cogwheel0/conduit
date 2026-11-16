@@ -1,3 +1,4 @@
 {
-  "roomId": "room-1"
+  "roomId": "room-1",
+  "connection": "run1:2"
 }

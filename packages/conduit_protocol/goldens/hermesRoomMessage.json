@@ -1,4 +1,5 @@
 {
   "roomId": "room-1",
-  "text": "@fern how many seed trays?"
+  "text": "@fern how many seed trays?",
+  "connection": "run1:2"
 }

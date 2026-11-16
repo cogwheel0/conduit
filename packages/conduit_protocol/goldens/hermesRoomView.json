@@ -53,5 +53,6 @@
       "executionGeneration": 2,
       "choices": []
     }
-  ]
+  ],
+  "connection": "run1:2"
 }

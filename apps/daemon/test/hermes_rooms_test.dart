@@ -123,6 +123,9 @@ final class _ScriptedRoom extends core.HermesRoomController {
   @override
   Future<void> refresh() async {
     script.reads++;
+    final during = script.duringRead;
+    script.duringRead = null;
+    during?.call();
     final json = script.state;
     state = state.copyWith(
       snapshot: core.HermesRoomState.fromJson(json),
@@ -164,6 +167,12 @@ final class _Script {
   int reads = 0;
   int stops = 0;
   Object? sendError;
+
+  /// Runs once inside the next read (a connection edit while it is out).
+  void Function()? duringRead;
+
+  /// Runs once inside the next roster read.
+  void Function()? duringRoster;
   final List<String> sent = <String>[];
   final List<String> answers = <String>[];
 }
@@ -181,6 +190,9 @@ final _connection = NotifierProvider<_Connection, HermesDesktopApiService?>(
   _Connection.new,
 );
 
+/// The gateways a test's services tried to reach: none is reachable.
+final _reached = <String>[];
+
 HermesDesktopApiService _gateway(String address) {
   final service = HermesDesktopApiService(
     config: HermesConfig(
@@ -188,6 +200,12 @@ HermesDesktopApiService _gateway(String address) {
       baseUrl: address,
       mode: HermesBackendMode.desktopGateway,
       desktopCredentials: HermesDesktopCredentials(legacyToken: 'token'),
+    ),
+    rpc: HermesDesktopRpcClient(
+      channelFactory: (uri, _, {httpClient}) {
+        _reached.add(uri.host);
+        throw StateError('No gateway in this test.');
+      },
     ),
   );
   addTearDown(service.close);
@@ -213,15 +231,20 @@ void main() {
       ),
     );
     script = _Script();
+    _reached.clear();
     container = ProviderContainer(
       overrides: [
         hermesApiServiceProvider.overrideWith((ref) => ref.watch(_connection)),
-        hermesBotsProvider.overrideWith(
-          (ref) async => const <core.HermesBot>[
+        hermesBotsProvider.overrideWith((ref) async {
+          await Future<void>.value();
+          final during = script.duringRoster;
+          script.duringRoster = null;
+          during?.call();
+          return const <core.HermesBot>[
             core.HermesBot(name: 'fern', title: 'Fern', chatSessionId: 'bc-1'),
             core.HermesBot(name: 'moss', title: 'Moss'),
-          ],
-        ),
+          ];
+        }),
         core.hermesRoomCapabilitiesProvider.overrideWith(
           (ref) async => const core.HermesRoomCapabilities(driver: true),
         ),
@@ -521,5 +544,120 @@ void main() {
     key.require(second);
     // Another daemon run never names a connection as this one did.
     expect(second.split(':').first, isNotEmpty);
+  });
+
+  group('a room request belongs to the connection it was asked under', () {
+    final expired = throwsA(
+      isA<RpcError>().having(
+        (e) => e.code,
+        'code',
+        ConduitErrorCodes.sessionExpired,
+      ),
+    );
+    void switchConnection() => container
+        .read(_connection.notifier)
+        .use(_gateway('https://hermes-b.example'));
+
+    test('an action begun before a connection edit is not done on the next '
+        'one, even when the edit lands during its first read', () async {
+      final began = rooms.connection.current;
+      script.duringRead = switchConnection;
+      await expectLater(
+        rooms.send(
+          HermesRoomMessage(roomId: 'room-1', text: 'hello', connection: began),
+        ),
+        expired,
+      );
+      expect(script.sent, isEmpty);
+    });
+
+    test('a request named for the last connection is refused before it '
+        'reads or sends anything', () async {
+      final last = rooms.connection.current;
+      switchConnection();
+      final reads = script.reads;
+      for (final request in <Future<Object?> Function()>[
+        () => rooms.watch('w1', 'room-1', connection: last),
+        () => rooms.send(
+          HermesRoomMessage(roomId: 'room-1', text: 'hi', connection: last),
+        ),
+        () => rooms.stop('room-1', connection: last),
+        () => rooms.continueDiscussion(
+          HermesRoomContinue(
+            roomId: 'room-1',
+            discussionEventId: 'user:d1',
+            connection: last,
+          ),
+        ),
+        () => rooms.answer(
+          HermesRoomAnswer(
+            roomId: 'room-1',
+            taskId: 't-3',
+            executionGeneration: 2,
+            connection: last,
+          ),
+        ),
+        () => rooms.rename(
+          HermesRoomRename(
+            roomId: 'room-1',
+            name: 'Seed swap',
+            connection: last,
+          ),
+        ),
+        () => rooms.saveContext(
+          HermesRoomContextEdit(
+            roomId: 'room-1',
+            context: const HermesRoomContextDto(purpose: 'Beds'),
+            connection: last,
+          ),
+        ),
+        () => rooms.disband('room-1', connection: last),
+        () => rooms.create(
+          HermesRoomCreate(
+            name: 'Crew',
+            bots: const ['fern', 'moss'],
+            connection: last,
+          ),
+        ),
+        () => rooms.avatar('fern', connection: last),
+      ]) {
+        await expectLater(request(), expired);
+      }
+      expect(script.reads, reads);
+      expect(script.sent, isEmpty);
+      expect(script.stops, 0);
+      expect(_reached, isEmpty);
+    });
+
+    test('a room is not made on the last gateway with bots checked on the '
+        'next one', () async {
+      container
+          .read(_connection.notifier)
+          .use(_gateway('https://hermes-a.example'));
+      // The roster read made for the new room sees the edit happen.
+      script.duringRoster = switchConnection;
+      await expectLater(
+        rooms.create(
+          HermesRoomCreate(
+            name: 'Crew',
+            bots: const ['fern', 'moss'],
+            connection: rooms.connection.current,
+          ),
+        ),
+        expired,
+      );
+      expect(_reached, isNot(contains('hermes-a.example')));
+    });
+
+    test('views and lists say which connection they were read on', () async {
+      final first = rooms.connection.current;
+      expect((await rooms.watch('w1', 'room-1')).connection, first);
+      expect((await rooms.rooms('w1')).connection, first);
+      expect((await rooms.bots()).connection, first);
+      switchConnection();
+      final second = rooms.connection.current;
+      expect(second, isNot(first));
+      expect((await rooms.rooms('w1')).connection, second);
+    });
   });
 }

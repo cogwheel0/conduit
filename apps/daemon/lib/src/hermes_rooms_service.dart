@@ -21,6 +21,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'event_bus.dart';
+import 'hermes_connection.dart';
 import 'hermes_service.dart';
 import 'settled.dart';
 
@@ -57,7 +58,11 @@ const Duration kHermesRoomListInterval = Duration(seconds: 15);
 ///   said since this device last showed it (`latest_seq` against the last
 ///   one shown, kept across launches).
 final class HermesRoomsService implements HermesBotChats {
-  HermesRoomsService(this._container, this._events) {
+  HermesRoomsService(
+    this._container,
+    this._events, {
+    HermesConnectionKey? connection,
+  }) : connection = connection ?? HermesConnectionKey(_container) {
     _seen = _readSeen();
     // Another connection (or none): what was known of the last one goes.
     _connectionWatch = _container.listen<Object?>(hermesApiServiceProvider, (
@@ -67,6 +72,7 @@ final class HermesRoomsService implements HermesBotChats {
       if (identical(previous, next)) return;
       _botSessions.clear();
       _flags.clear();
+      _rooms.clear();
       for (final watch in _watches.values.toList()) {
         _close(watch);
       }
@@ -77,6 +83,9 @@ final class HermesRoomsService implements HermesBotChats {
 
   final ProviderContainer _container;
   final EventBus _events;
+
+  /// The connection every room request and answer is bound to.
+  final HermesConnectionKey connection;
   late final ProviderSubscription<Object?> _connectionWatch;
 
   void dispose() {
@@ -116,57 +125,68 @@ final class HermesRoomsService implements HermesBotChats {
   }
 
   Future<HermesBots> bots() => _guard(() async {
+    final began = connection.current;
     final roster = await _roster(fresh: true);
+    connection.stillCurrent(began);
     return HermesBots(
       available: roster.isNotEmpty,
       bots: <HermesBotDto>[for (final bot in roster) botDto(bot)],
+      connection: began,
     );
   });
 
-  Future<HermesBotAvatar> avatar(String name) => _guard(() async {
-    final service = _requireDesktop();
-    final image = await service.botAvatar(name).catchError((Object _) => null);
-    return HermesBotAvatar(name: name, image: image);
-  });
+  Future<HermesBotAvatar> avatar(String name, {String? connection}) =>
+      _guard(() async {
+        this.connection.require(connection);
+        final began = this.connection.current;
+        final service = _requireDesktop();
+        final image = await service
+            .botAvatar(name)
+            .catchError((Object _) => null);
+        this.connection.stillCurrent(began);
+        return HermesBotAvatar(name: name, image: image);
+      });
 
   /// Bot [name]'s Bot Chat, made when it has none, as a session to open.
-  Future<HermesSessionDto> openBot(String name, HermesService hermes) =>
-      _guard(() async {
-        final service = _requireDesktop();
-        var bot = _botNamed(await _roster(), name);
-        bot ??= _botNamed(await _roster(fresh: true), name);
-        if (bot == null) {
-          throw RpcError(
-            code: ConduitErrorCodes.notFound,
-            args: <String, String>{'bot': name},
-            debugMessage: 'no such bot',
-          );
-        }
-        final storedId = await service.openBotChat(bot);
-        // A connection edit during the open: the id belongs to another one.
-        if (!identical(_desktop, service)) {
-          throw const RpcError(
-            code: ConduitErrorCodes.conflict,
-            retryable: true,
-            debugMessage: 'the Hermes connection changed; try again',
-          );
-        }
-        String? avatar;
-        if (bot.hasAvatar) {
-          // The shape face stands in when the picture cannot be read.
-          avatar = await service.botAvatar(bot.name).catchError((Object _) {
-            return null;
-          });
-        }
-        _botSessions[storedId] = (bot: bot, avatar: avatar);
-        return hermes.adopt(
-          HermesSessionSummary(
-            id: storedId,
-            title: bot.title,
-            updatedAt: bot.lastActive,
-          ),
-        );
+  Future<HermesSessionDto> openBot(
+    String name,
+    HermesService hermes, {
+    String? connection,
+  }) => _guard(() async {
+    this.connection.require(connection);
+    final began = this.connection.current;
+    final service = _requireDesktop();
+    var bot = _botNamed(await _roster(), name);
+    bot ??= _botNamed(await _roster(fresh: true), name);
+    if (bot == null) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        args: <String, String>{'bot': name},
+        debugMessage: 'no such bot',
+      );
+    }
+    this.connection.stillCurrent(began);
+    final storedId = await service.openBotChat(bot);
+    // A connection edit during the open: the id belongs to another one.
+    this.connection.stillCurrent(began);
+    String? avatar;
+    if (bot.hasAvatar) {
+      // The shape face stands in when the picture cannot be read.
+      avatar = await service.botAvatar(bot.name).catchError((Object _) {
+        return null;
       });
+      // Nor is the last connection's bot kept, or its session adopted.
+      this.connection.stillCurrent(began);
+    }
+    _botSessions[storedId] = (bot: bot, avatar: avatar);
+    return hermes.adopt(
+      HermesSessionSummary(
+        id: storedId,
+        title: bot.title,
+        updatedAt: bot.lastActive,
+      ),
+    );
+  });
 
   static core.HermesBot? _botNamed(List<core.HermesBot> bots, String name) =>
       bots.where((b) => b.name == name).firstOrNull;
@@ -234,7 +254,9 @@ final class HermesRoomsService implements HermesBotChats {
       kHermesRoomListInterval,
       (_) => unawaited(_announceList()),
     );
+    final began = connection.current;
     final list = await _list(fresh: true);
+    connection.stillCurrent(began);
     _lastList = list;
     return list;
   }
@@ -243,7 +265,10 @@ final class HermesRoomsService implements HermesBotChats {
   Future<void> _announceList({bool fresh = true}) async {
     if (_listWindows.isEmpty) return;
     try {
+      final began = connection.current;
       final list = await _list(fresh: fresh);
+      // Read across a connection edit: the edit's own announcement follows.
+      if (connection.current != began) return;
       if (list == _lastList) return;
       _lastList = list;
       _events.emit(ConduitEventSpecs.hermesRoomsListChanged, list);
@@ -253,7 +278,8 @@ final class HermesRoomsService implements HermesBotChats {
   }
 
   Future<HermesRooms> _list({bool fresh = false}) async {
-    if (_desktop == null) return const HermesRooms();
+    final key = connection.current;
+    if (_desktop == null) return HermesRooms(connection: key);
     if (fresh) {
       _container
         ..invalidate(core.hermesRoomCapabilitiesProvider)
@@ -267,9 +293,9 @@ final class HermesRoomsService implements HermesBotChats {
       );
     } on Object {
       // A failed read hides the section until the list is read again.
-      return const HermesRooms(failed: true);
+      return HermesRooms(failed: true, connection: key);
     }
-    if (capabilities == null) return const HermesRooms();
+    if (capabilities == null) return HermesRooms(connection: key);
     final bots = await _roster().catchError((Object _) => <core.HermesBot>[]);
     final seatable = core.hermesSeatableBots(bots, capabilities);
     final canCreate = core.hermesRoomsCanCreate(capabilities, bots);
@@ -284,6 +310,10 @@ final class HermesRoomsService implements HermesBotChats {
           ?_rooms[room.id],
       ];
     }
+    // Read across a connection edit: the next connection keeps none of it.
+    if (connection.current != key) {
+      return HermesRooms(failed: true, connection: key);
+    }
     for (final room in rooms) {
       _rooms[room.id] = room;
       _baseline(room);
@@ -294,6 +324,7 @@ final class HermesRoomsService implements HermesBotChats {
       seatable: <String>[for (final bot in seatable) bot.name],
       rooms: <HermesRoomDto>[for (final room in rooms) _roomDto(room)],
       failed: failed,
+      connection: key,
     );
   }
 
@@ -378,27 +409,35 @@ final class HermesRoomsService implements HermesBotChats {
 
   final Map<String, _RoomWatch> _watches = <String, _RoomWatch>{};
 
-  Future<HermesRoomView> watch(String sessionId, String roomId) =>
-      _guard(() async {
-        _requireDesktop();
-        final watch = _watchFor(roomId);
-        final first = watch.windows.add(sessionId);
-        watch.lingering = false;
-        _schedule(watch);
-        // The first read before answering, so the pane opens on the room;
-        // it is the answer, not an event.
-        watch.opening++;
-        HermesRoomView view;
-        try {
-          await _controller(roomId).refresh();
-        } finally {
-          watch.opening--;
-        }
-        view = _snapshot(watch);
-        watch.last = view;
-        if (first) unawaited(_announceList(fresh: false));
-        return view;
-      });
+  Future<HermesRoomView> watch(
+    String sessionId,
+    String roomId, {
+    String? connection,
+  }) => _guard(() async {
+    this.connection.require(connection);
+    final began = this.connection.current;
+    _requireDesktop();
+    final watch = _watchFor(roomId);
+    final first = watch.windows.add(sessionId);
+    watch.lingering = false;
+    _schedule(watch);
+    // The first read before answering, so the pane opens on the room;
+    // it is the answer, not an event.
+    watch.opening++;
+    HermesRoomView view;
+    try {
+      await _controller(roomId).refresh();
+    } finally {
+      watch.opening--;
+    }
+    // The connection changed during the read: the edit closed the watch,
+    // and what was read belongs to the last connection.
+    this.connection.stillCurrent(began);
+    view = _snapshot(watch);
+    watch.last = view;
+    if (first) unawaited(_announceList(fresh: false));
+    return view;
+  });
 
   OkResult unwatch(String sessionId, String roomId) {
     final watch = _watches[roomId];
@@ -544,8 +583,11 @@ final class HermesRoomsService implements HermesBotChats {
         (driver?.memberActivity.isNotEmpty ?? false);
   }
 
-  HermesRoomView _snapshot(_RoomWatch watch) =>
-      projectRoomView(watch.roomId, watch.subscription.read(), DateTime.now());
+  HermesRoomView _snapshot(_RoomWatch watch) => projectRoomView(
+    watch.roomId,
+    watch.subscription.read(),
+    DateTime.now(),
+  ).copyWith(connection: connection.current);
 
   /// [state] as the room's pane shows it at [now]: what the phone's room
   /// page draws, in its words' order.
@@ -732,10 +774,17 @@ final class HermesRoomsService implements HermesBotChats {
 
   /// Runs [body] on room [roomId]'s controller, held for as long as it
   /// runs (a room acted on from the sidebar is not open).
+  ///
+  /// Asked under [asked]: refused once another connection is in use, and
+  /// when the connection changes during the room's first read, the action
+  /// is not done at all (the controller would act on the next connection).
   Future<T> _withRoom<T>(
     String roomId,
-    Future<T> Function(core.HermesRoomController controller) body,
+    String? asked,
+    Future<T> Function(core.HermesRoomController controller, String began) body,
   ) => _guard(() async {
+    connection.require(asked);
+    final began = connection.current;
     _requireDesktop();
     final hold = _container.listen<core.HermesRoomView>(
       core.hermesRoomProvider(roomId),
@@ -746,13 +795,16 @@ final class HermesRoomsService implements HermesBotChats {
       // A room not read yet is read first: its actions need what it waits
       // on, and Stop and Disband its driver.
       if (!hold.read().loaded) await controller.refresh();
-      return await body(controller);
+      connection.stillCurrent(began);
+      return await body(controller, began);
     } finally {
       hold.close();
     }
   });
 
   Future<HermesRoomDto> create(HermesRoomCreate request) => _guard(() async {
+    connection.require(request.connection);
+    final began = connection.current;
     final service = _requireDesktop();
     final name = request.name.trim();
     if (name.isEmpty || name.length > core.kMaxHermesRoomNameInput) {
@@ -781,6 +833,8 @@ final class HermesRoomsService implements HermesBotChats {
       );
     }
     final roster = await _roster(fresh: true);
+    // Bots checked on one connection never seat a room on another.
+    connection.stillCurrent(began);
     // Every pick must still be listed and seatable: a room is never made
     // with fewer members than were picked.
     final members = core.hermesRoomMembersFor(
@@ -794,6 +848,8 @@ final class HermesRoomsService implements HermesBotChats {
       );
     }
     final room = await service.createRoom(name: name, members: members);
+    // Made on the connection it was asked on; the next one lists its own.
+    connection.stillCurrent(began);
     _rooms[room.id] = room;
     _container.invalidate(core.hermesRoomsProvider);
     unawaited(_announceList());
@@ -808,7 +864,7 @@ final class HermesRoomsService implements HermesBotChats {
         debugMessage: 'nothing to send',
       );
     }
-    return _withRoom(request.roomId, (controller) async {
+    return _withRoom(request.roomId, request.connection, (controller, _) async {
       try {
         await controller.send(text);
         return const HermesRoomSendResult(sent: true);
@@ -828,19 +884,22 @@ final class HermesRoomsService implements HermesBotChats {
     });
   }
 
-  Future<HermesRoomStopped> stop(String roomId) => _withRoom(
-    roomId,
-    (controller) async => HermesRoomStopped(stopped: await controller.stop()),
-  );
+  Future<HermesRoomStopped> stop(String roomId, {String? connection}) =>
+      _withRoom(
+        roomId,
+        connection,
+        (controller, _) async =>
+            HermesRoomStopped(stopped: await controller.stop()),
+      );
 
   Future<OkResult> continueDiscussion(HermesRoomContinue request) =>
-      _withRoom(request.roomId, (controller) async {
+      _withRoom(request.roomId, request.connection, (controller, _) async {
         await controller.continueDiscussion(request.discussionEventId);
         return const OkResult(ok: true);
       });
 
   Future<OkResult> answer(HermesRoomAnswer request) =>
-      _withRoom(request.roomId, (controller) async {
+      _withRoom(request.roomId, request.connection, (controller, _) async {
         final action = _container
             .read(core.hermesRoomProvider(request.roomId))
             .driver
@@ -869,8 +928,12 @@ final class HermesRoomsService implements HermesBotChats {
         debugMessage: 'a room needs a name of at most 200 characters',
       );
     }
-    return _withRoom(request.roomId, (controller) async {
+    return _withRoom(request.roomId, request.connection, (
+      controller,
+      began,
+    ) async {
       await controller.rename(name);
+      connection.stillCurrent(began);
       final room = _container
           .read(core.hermesRoomProvider(request.roomId))
           .room;
@@ -897,7 +960,7 @@ final class HermesRoomsService implements HermesBotChats {
         debugMessage: 'a lead answers only with a lead bot',
       );
     }
-    return _withRoom(request.roomId, (controller) async {
+    return _withRoom(request.roomId, request.connection, (controller, _) async {
       final saved = await controller.saveContext(
         core.HermesRoomContext(
           purpose: edit.purpose.trim(),
@@ -914,9 +977,10 @@ final class HermesRoomsService implements HermesBotChats {
     });
   }
 
-  Future<OkResult> disband(String roomId) =>
-      _withRoom(roomId, (controller) async {
+  Future<OkResult> disband(String roomId, {String? connection}) =>
+      _withRoom(roomId, connection, (controller, began) async {
         await controller.disband();
+        this.connection.stillCurrent(began);
         _rooms.remove(roomId);
         _flags.remove(roomId);
         unawaited(_announceList());

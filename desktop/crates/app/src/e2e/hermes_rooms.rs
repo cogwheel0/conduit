@@ -454,6 +454,7 @@ pub async fn run_scenario(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> 
             task_id: action.task_id.clone(),
             execution_generation: action.execution_generation,
             choice: Some("once".into()),
+            connection: cx.update(|cx| view(cx).and_then(|v| v.connection.clone())),
         };
         cx.update(|cx| hermes_rooms::answer(&stores(cx), answer, |_| {}, cx));
     }

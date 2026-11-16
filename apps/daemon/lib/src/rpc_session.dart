@@ -1114,11 +1114,13 @@ class RpcSession {
     _on(ConduitMethodSpecs.hermesBotsList, (_) => _need(_hermesRooms).bots());
     _on(
       ConduitMethodSpecs.hermesBotsAvatar,
-      (r) => _need(_hermesRooms).avatar(r.name),
+      (r) => _need(_hermesRooms).avatar(r.name, connection: r.connection),
     );
     _on(
       ConduitMethodSpecs.hermesBotsOpen,
-      (r) => _need(_hermesRooms).openBot(r.name, _requireHermes()),
+      (r) =>
+          _need(_hermesRooms)
+              .openBot(r.name, _requireHermes(), connection: r.connection),
     );
     _on(
       ConduitMethodSpecs.hermesRoomsList,
@@ -1130,7 +1132,9 @@ class RpcSession {
     );
     _on(
       ConduitMethodSpecs.hermesRoomsWatch,
-      (r) => _need(_hermesRooms).watch(sessionId, r.roomId),
+      (r) =>
+          _need(_hermesRooms)
+              .watch(sessionId, r.roomId, connection: r.connection),
     );
     _on(
       ConduitMethodSpecs.hermesRoomsUnwatch,
@@ -1139,7 +1143,7 @@ class RpcSession {
     _on(ConduitMethodSpecs.hermesRoomsSend, (r) => _need(_hermesRooms).send(r));
     _on(
       ConduitMethodSpecs.hermesRoomsStop,
-      (r) => _need(_hermesRooms).stop(r.roomId),
+      (r) => _need(_hermesRooms).stop(r.roomId, connection: r.connection),
     );
     _on(
       ConduitMethodSpecs.hermesRoomsContinue,
@@ -1159,7 +1163,7 @@ class RpcSession {
     );
     _on(
       ConduitMethodSpecs.hermesRoomsDisband,
-      (r) => _need(_hermesRooms).disband(r.roomId),
+      (r) => _need(_hermesRooms).disband(r.roomId, connection: r.connection),
     );
 
     // voice.*.

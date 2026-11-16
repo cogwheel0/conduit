@@ -66,8 +66,16 @@ pub struct HermesRoomsStore {
     pub room: Option<OpenRoom>,
     /// The Hermes area is shown.
     wanted: bool,
-    /// Bumped per account: answers for the previous one are dropped.
+    /// Bumped per account and per Hermes connection: answers asked before
+    /// are dropped.
     generation: u64,
+    /// The Hermes connection everything here was read on, as the daemon
+    /// names it (`hermes.changed`, and every list and view): requests go out
+    /// under it, and an answer read on another one is dropped. None until
+    /// the daemon says (after a reconnect: a new daemon names anew).
+    connection: Option<String>,
+    /// The bot open under way, by the generation it was asked in.
+    opening_token: u64,
     revision: u64,
     fetches: Vec<Task<()>>,
     watch: Option<Task<()>>,
@@ -83,6 +91,67 @@ impl HermesRoomsStore {
 
     pub fn rpc(&self) -> Option<Rpc> {
         self.rpc.clone()
+    }
+
+    /// The Hermes connection requests go out under.
+    pub fn connection(&self) -> Option<String> {
+        self.connection.clone()
+    }
+
+    /// Whether an answer read on `connection` belongs here: the one in use,
+    /// or the first one heard of (taken as in use). An answer that names
+    /// none (an older daemon) is kept.
+    fn belongs(&mut self, connection: Option<&str>) -> bool {
+        match (connection, self.connection.as_deref()) {
+            (None, _) => true,
+            (Some(c), None) => {
+                self.connection = Some(c.to_string());
+                true
+            }
+            (Some(c), Some(current)) => c == current,
+        }
+    }
+
+    /// The daemon names the Hermes connection in use: another one than
+    /// what was shown so far drops everything read on the last one (the
+    /// open room's transcript and state, faces, Bot Chats) and reads it all
+    /// again on this one, the open room watched anew (the daemon closed its
+    /// watches on the edit).
+    fn follow_connection(&mut self, now: Option<&str>, cx: &mut Context<Self>) {
+        let Some(now) = now else {
+            self.refresh(cx);
+            return;
+        };
+        let shown = self
+            .room
+            .as_ref()
+            .and_then(|r| r.view.as_ref())
+            .and_then(|v| v.connection.clone());
+        let last = self.connection.clone().or(shown);
+        self.connection = Some(now.to_string());
+        if last.as_deref().is_none_or(|last| last == now) {
+            self.refresh(cx);
+            return;
+        }
+        self.generation += 1;
+        self.avatars.clear();
+        self.bot_sessions.clear();
+        self.opening_bot = None;
+        self.fetches.clear();
+        self.watch = None;
+        if let Some(room) = &mut self.room {
+            room.view = None;
+            room.failed = false;
+            room.received = Instant::now();
+        }
+        self.refresh(cx);
+        self.watch_open(cx);
+        self.changed(cx);
+    }
+
+    /// A new daemon names its connections anew.
+    pub fn forget_connection(&mut self) {
+        self.connection = None;
     }
 
     /// Bumped whenever something listed changed (the sidebar's rows cache).
@@ -165,6 +234,7 @@ impl HermesRoomsStore {
         let generation = self.generation;
         let call = rpc.call::<methods::HermesBotsAvatar>(&HermesBotRef {
             name: name.to_string(),
+            connection: self.connection.clone(),
         });
         let name = name.to_string();
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -198,6 +268,39 @@ impl HermesRoomsStore {
         self.bot_sessions
             .insert(session_id.to_string(), name.to_string());
         self.changed(cx);
+    }
+
+    /// Starts opening bot `name`'s chat (its row shows a spinner): a token
+    /// for [`Self::finish_opening_bot`], or None while another opens.
+    pub fn begin_opening_bot(&mut self, name: &str, cx: &mut Context<Self>) -> Option<u64> {
+        if self.opening_bot.is_some() {
+            return None;
+        }
+        self.opening_token = self.generation;
+        self.set_opening_bot(Some(name.to_string()), cx);
+        Some(self.opening_token)
+    }
+
+    /// The open begun with `token` answered (with its session when it
+    /// opened). False when the account or the connection changed since:
+    /// nothing of it is kept, and an open begun after keeps its spinner.
+    pub fn finish_opening_bot(
+        &mut self,
+        token: u64,
+        session: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if token != self.generation || self.opening_token != token {
+            return false;
+        }
+        let Some(name) = self.opening_bot.take() else {
+            return false;
+        };
+        if let Some(session) = session {
+            self.bot_sessions.insert(session.to_string(), name);
+        }
+        self.changed(cx);
+        true
     }
 
     pub fn set_opening_bot(&mut self, name: Option<String>, cx: &mut Context<Self>) {
@@ -236,9 +339,15 @@ impl HermesRoomsStore {
         self.bot_sessions.clear();
         self.opening_bot = None;
         self.fetches.clear();
+        // A watch asked under the last account is not answered here; the
+        // room still shown is watched anew.
+        self.watch = None;
+        self.connection = None;
         if let Some(room) = &mut self.room {
             room.view = None;
+            room.failed = false;
         }
+        self.watch_open(cx);
         self.changed(cx);
     }
 
@@ -261,6 +370,7 @@ impl HermesRoomsStore {
                         return;
                     }
                     match result {
+                        Ok(bots) if !s.belongs(bots.connection.as_deref()) => return,
                         Ok(bots) => {
                             // A picture changed with the roster is read again.
                             s.avatars.retain(|name, _| {
@@ -280,6 +390,7 @@ impl HermesRoomsStore {
                         return;
                     }
                     match result {
+                        Ok(rooms) if !s.belongs(rooms.connection.as_deref()) => return,
                         Ok(rooms) => s.rooms = Some(rooms),
                         Err(e) => {
                             log::warn!("hermes.rooms.list: {e}");
@@ -305,6 +416,7 @@ impl HermesRoomsStore {
             // Sent at once; nothing waits for it.
             drop(rpc.call::<methods::HermesRoomsUnwatch>(&HermesRoomRef {
                 room_id: old.to_string(),
+                connection: self.connection.clone(),
             }));
         }
         self.watch = None;
@@ -324,13 +436,24 @@ impl HermesRoomsStore {
             return;
         };
         let room_id = room.room_id.clone();
+        let generation = self.generation;
         let call = rpc.call::<methods::HermesRoomsWatch>(&HermesRoomRef {
             room_id: room_id.clone(),
+            connection: self.connection.clone(),
         });
         self.watch = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
+                    // Asked under the last account or connection.
+                    if s.generation != generation {
+                        return;
+                    }
+                    if let Ok(view) = &result
+                        && !s.belongs(view.connection.as_deref())
+                    {
+                        return;
+                    }
                     let Some(open) = s.room.as_mut().filter(|r| r.room_id == room_id) else {
                         return;
                     };
@@ -367,6 +490,9 @@ impl HermesRoomsStore {
     pub fn on_event(&mut self, event: &Event, cx: &mut Context<Self>) {
         match event {
             Event::HermesRoomsChanged(view) => {
+                if !self.belongs(view.connection.as_deref()) {
+                    return;
+                }
                 if let Some(open) = self.room.as_mut().filter(|r| r.room_id == view.room_id) {
                     open.view = Some(view.clone());
                     open.received = Instant::now();
@@ -375,12 +501,14 @@ impl HermesRoomsStore {
                 }
             }
             Event::HermesRoomsListChanged(rooms) => {
-                if self.wanted {
+                if self.wanted && self.belongs(rooms.connection.as_deref()) {
                     self.rooms = Some(rooms.clone());
                     self.changed(cx);
                 }
             }
-            Event::HermesChanged(_) => self.refresh(cx),
+            Event::HermesChanged(changed) => {
+                self.follow_connection(changed.connection.as_deref(), cx)
+            }
             _ => {}
         }
     }
@@ -430,6 +558,7 @@ pub fn wire(stores: &Stores, cx: &mut App) {
         cx.subscribe(&stores.connection, move |_, event, cx| match event {
             ConnectionEvent::Connected { .. } | ConnectionEvent::Gap => {
                 s.hermes_rooms.update(cx, |h, cx| {
+                    h.forget_connection();
                     h.refresh(cx);
                     h.watch_open(cx);
                 });
@@ -565,5 +694,121 @@ mod tests {
         assert_eq!(daemon.calls::<methods::HermesRoomsUnwatch>().len(), 1);
         store.update(cx, |s, cx| s.reset(cx));
         store.read_with(cx, |s, _| assert!(s.bots.is_none() && s.rooms.is_none()));
+    }
+
+    fn view_on(room_id: &str, name: &str, items: usize, connection: &str) -> HermesRoomView {
+        HermesRoomView {
+            connection: Some(connection.into()),
+            ..view(room_id, name, items)
+        }
+    }
+
+    fn changed_to(connection: &str) -> Event {
+        Event::HermesChanged(conduit_protocol::HermesChanged {
+            connection: Some(connection.into()),
+        })
+    }
+
+    fn lists(daemon: &FakeDaemon) {
+        daemon.returns::<methods::HermesBotsList>(HermesBots::default());
+        daemon.returns::<methods::HermesRoomsList>(HermesRooms::default());
+    }
+
+    #[gpui_kit::test]
+    fn a_connection_edit_drops_the_open_room_and_watches_it_on_the_next(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        lists(&daemon);
+        daemon.once::<methods::HermesRoomsWatch>(Ok(view_on("r1", "Greenhouse crew", 3, "c1")));
+        let store = cx.new(|_| HermesRoomsStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.set_wanted(true, cx);
+            s.show(Some("r1"), cx);
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| assert_eq!(s.view("r1").unwrap().items.len(), 3));
+
+        // The edit: what the last connection showed goes at once (no Send
+        // against the next one on the last one's transcript), and the room
+        // is watched again, asked under the next connection.
+        let hold = daemon.hold::<methods::HermesRoomsWatch>();
+        daemon.returns::<methods::HermesRoomsWatch>(view_on("r1", "Greenhouse crew", 0, "c2"));
+        store.update(cx, |s, cx| s.on_event(&changed_to("c2"), cx));
+        store.read_with(cx, |s, _| assert!(s.view("r1").is_none()));
+        let watches = daemon.calls::<methods::HermesRoomsWatch>();
+        assert_eq!(watches.len(), 2);
+        assert_eq!(watches[1]["connection"], "c2");
+        drop(hold);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            let view = s.view("r1").unwrap();
+            assert_eq!(view.connection.as_deref(), Some("c2"));
+            assert!(view.items.is_empty());
+        });
+
+        // A change read on the last connection is not shown.
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::HermesRoomsChanged(view_on("r1", "Old", 5, "c1")),
+                cx,
+            )
+        });
+        store.read_with(cx, |s, _| assert!(s.view("r1").unwrap().items.is_empty()));
+        // Requests go out under the connection in use.
+        store.update(cx, |s, cx| s.show(None, cx));
+        assert_eq!(
+            daemon.calls::<methods::HermesRoomsUnwatch>()[0]["connection"],
+            "c2"
+        );
+    }
+
+    #[gpui_kit::test]
+    fn a_watch_answered_after_an_account_change_is_not_shown(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        lists(&daemon);
+        daemon.once::<methods::HermesRoomsWatch>(Ok(view_on("r1", "Last account", 2, "c1")));
+        daemon.returns::<methods::HermesRoomsWatch>(view_on("r1", "This account", 0, "c1"));
+        let first = daemon.hold_one::<methods::HermesRoomsWatch>(0);
+        let store = cx.new(|_| HermesRoomsStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.show(Some("r1"), cx));
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.reset(cx));
+        cx.run_until_parked();
+        drop(first);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.view("r1").unwrap().room.as_ref().unwrap().name,
+                "This account"
+            )
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_bot_chat_opened_before_an_account_change_is_not_opened_after(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let store = cx.new(|_| HermesRoomsStore::new(daemon.rpc()));
+        let before = store
+            .update(cx, |s, cx| s.begin_opening_bot("fern", cx))
+            .unwrap();
+        store.update(cx, |s, cx| s.reset(cx));
+        let after = store
+            .update(cx, |s, cx| s.begin_opening_bot("fern", cx))
+            .unwrap();
+        // The first open's answer neither records its session nor clears the
+        // second open's spinner.
+        let took = store.update(cx, |s, cx| s.finish_opening_bot(before, Some("bc-old"), cx));
+        assert!(!took);
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.opening_bot.as_deref(), Some("fern"));
+            assert!(s.bot_of_session("bc-old").is_none());
+        });
+        assert!(store.update(cx, |s, cx| s.finish_opening_bot(after, Some("bc-new"), cx)));
+        store.read_with(cx, |s, _| {
+            assert!(s.opening_bot.is_none());
+            assert_eq!(
+                s.bot_sessions.get("bc-new").map(String::as_str),
+                Some("fern")
+            );
+        });
     }
 }

@@ -6095,6 +6095,9 @@ pub struct HermesBots {
     pub available: bool,
     #[serde(default)]
     pub bots: Vec<HermesBotDto>,
+    /// The Hermes connection this answer is for (`HermesChanged.connection`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// Params naming a bot, by its profile name.
@@ -6102,6 +6105,10 @@ pub struct HermesBots {
 #[serde(rename_all = "camelCase")]
 pub struct HermesBotRef {
     pub name: String,
+    /// The Hermes connection this was asked under (`HermesChanged.connection`):
+    /// refused (`sessionExpired`) once another connection is in use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// Reply to `hermes.bots.avatar`: the bot's picture as a `data:image/...`
@@ -6169,6 +6176,9 @@ pub struct HermesRooms {
     /// The list could not be read (one read before stays).
     #[serde(default)]
     pub failed: bool,
+    /// The Hermes connection this answer is for (`HermesChanged.connection`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// Params naming a room.
@@ -6176,6 +6186,10 @@ pub struct HermesRooms {
 #[serde(rename_all = "camelCase")]
 pub struct HermesRoomRef {
     pub room_id: String,
+    /// The Hermes connection this was asked under (`HermesChanged.connection`):
+    /// refused (`sessionExpired`) once another connection is in use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// Params for `hermes.rooms.create`: a name and two to six bots.
@@ -6185,6 +6199,10 @@ pub struct HermesRoomCreate {
     pub name: String,
     /// The bots to seat, by profile name, in the order picked.
     pub bots: Vec<String>,
+    /// The Hermes connection this was asked under (`HermesChanged.connection`):
+    /// refused (`sessionExpired`) once another connection is in use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// Params for `hermes.rooms.rename`.
@@ -6193,6 +6211,10 @@ pub struct HermesRoomCreate {
 pub struct HermesRoomRename {
     pub room_id: String,
     pub name: String,
+    /// The Hermes connection this was asked under (`HermesChanged.connection`):
+    /// refused (`sessionExpired`) once another connection is in use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// Who answers a message that names nobody.
@@ -6235,6 +6257,10 @@ pub struct HermesRoomContextDto {
 pub struct HermesRoomContextEdit {
     pub room_id: String,
     pub context: HermesRoomContextDto,
+    /// The Hermes connection this was asked under (`HermesChanged.connection`):
+    /// refused (`sessionExpired`) once another connection is in use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// Params for `hermes.rooms.send`.
@@ -6243,6 +6269,10 @@ pub struct HermesRoomContextEdit {
 pub struct HermesRoomMessage {
     pub room_id: String,
     pub text: String,
+    /// The Hermes connection this was asked under (`HermesChanged.connection`):
+    /// refused (`sessionExpired`) once another connection is in use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// Reply to `hermes.rooms.send`.
@@ -6278,6 +6308,10 @@ pub struct HermesRoomStopped {
 pub struct HermesRoomContinue {
     pub room_id: String,
     pub discussion_event_id: String,
+    /// The Hermes connection this was asked under (`HermesChanged.connection`):
+    /// refused (`sessionExpired`) once another connection is in use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// Params for `hermes.rooms.answer`: an approval answered (`once` or
@@ -6290,6 +6324,10 @@ pub struct HermesRoomAnswer {
     pub execution_generation: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub choice: Option<String>,
+    /// The Hermes connection this was asked under (`HermesChanged.connection`):
+    /// refused (`sessionExpired`) once another connection is in use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// What a row of a room's timeline is.
@@ -6530,6 +6568,9 @@ pub struct HermesRoomView {
     pub members: Vec<HermesRoomMemberStatusDto>,
     #[serde(default)]
     pub actions: Vec<HermesRoomActionDto>,
+    /// The Hermes connection this view was read on (`HermesChanged.connection`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// Params for `hermes.work.watch`: the window shows `chatId` and wants its

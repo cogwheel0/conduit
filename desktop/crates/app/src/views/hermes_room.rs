@@ -634,12 +634,15 @@ impl HermesRoomPane {
         let Some(rpc) = self.stores.hermes_rooms.read(cx).rpc() else {
             return;
         };
+        // Sent to the room as it is shown: on the connection it was read on.
+        let connection = self.view(cx).and_then(|v| v.connection.clone());
         self.sending = Some(typed.clone());
         self.mention = None;
         cx.notify();
         let call = rpc.call::<methods::HermesRoomsSend>(&HermesRoomMessage {
             room_id: self.room_id.clone(),
             text,
+            connection,
         });
         let handle = window.window_handle();
         let stores = self.stores.clone();
@@ -1078,6 +1081,8 @@ impl HermesRoomPane {
             .as_ref()
             .map(|(m, _)| m.name.clone())
             .unwrap_or_else(|| action.member_id.clone());
+        // Answered on the connection the card was read on.
+        let connection = self.view(cx).and_then(|v| v.connection.clone());
         let answer = {
             let (stores, room, action) =
                 (self.stores.clone(), self.room_id.clone(), action.clone());
@@ -1096,6 +1101,7 @@ impl HermesRoomPane {
                         task_id: action.task_id.clone(),
                         execution_generation: action.execution_generation,
                         choice: choice.map(str::to_string),
+                        connection: connection.clone(),
                     },
                     move |cx| {
                         let _ = weak.update(cx, |p, cx| {

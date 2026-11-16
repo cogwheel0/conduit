@@ -213,7 +213,11 @@ class DaemonServer {
     _queuedCompletions = QueuedCompletionsService(core.container, events);
     _hermes = HermesService(core.container, events: events);
     // Bot Mode and Group Chats; a bot's Bot Chat opens as its session.
-    _hermesRooms = HermesRoomsService(core.container, events);
+    _hermesRooms = HermesRoomsService(
+      core.container,
+      events,
+      connection: _hermes!.connection,
+    );
     _hermes!.botChats = _hermesRooms;
     _chats = ChatsService(
       core.container,

@@ -15,5 +15,6 @@
       "needsYou": false
     }
   ],
-  "failed": true
+  "failed": true,
+  "connection": "run1:2"
 }

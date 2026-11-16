@@ -101,6 +101,9 @@ pub struct CreateRoomSheet {
     pub picked: Vec<String>,
     creating: bool,
     pub failure: Option<String>,
+    /// The Hermes connection the sheet opened on: the room is made there or
+    /// not at all.
+    connection: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -130,12 +133,14 @@ impl CreateRoomSheet {
                 cx.notify()
             }),
         ];
+        let connection = stores.hermes_rooms.read(cx).connection();
         Self {
             stores,
             name,
             picked: vec![],
             creating: false,
             failure: None,
+            connection,
             _subscriptions: subscriptions,
         }
     }
@@ -193,6 +198,7 @@ impl CreateRoomSheet {
         let call = rpc.call::<methods::HermesRoomsCreate>(&HermesRoomCreate {
             name: forms::text(&self.name, cx).trim().to_string(),
             bots: self.picked.clone(),
+            connection: self.connection.clone(),
         });
         let handle = window.window_handle();
         let stores = self.stores.clone();
@@ -445,6 +451,9 @@ pub struct RoomInfoSheet {
     pub notes: Entity<TextareaState>,
     pub edit: RoomEdit,
     initial: Option<RoomEdit>,
+    /// The Hermes connection the room's settings were read on: saved there
+    /// or not at all.
+    connection: Option<String>,
     saving: bool,
     pub failure: Option<String>,
     _subscriptions: Vec<Subscription>,
@@ -510,6 +519,7 @@ impl RoomInfoSheet {
             notes,
             edit: RoomEdit::default(),
             initial: None,
+            connection: None,
             saving: false,
             failure: None,
             _subscriptions: subscriptions,
@@ -526,9 +536,14 @@ impl RoomInfoSheet {
     }
 
     fn adopt_current(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(edit) = self.view(cx).and_then(RoomEdit::of) else {
+        let Some(view) = self.view(cx) else {
             return;
         };
+        let connection = view.connection.clone();
+        let Some(edit) = RoomEdit::of(view) else {
+            return;
+        };
+        self.connection = connection;
         self.adopt(edit, window, cx);
     }
 
@@ -639,12 +654,14 @@ impl RoomInfoSheet {
             rpc.call::<methods::HermesRoomsRename>(&HermesRoomRename {
                 room_id: self.room_id.clone(),
                 name: edit.name.trim().to_string(),
+                connection: self.connection.clone(),
             })
         });
         let context = (edit.context() != initial.context()).then(|| {
             rpc.call::<methods::HermesRoomsSaveContext>(&HermesRoomContextEdit {
                 room_id: self.room_id.clone(),
                 context: edit.context(),
+                connection: self.connection.clone(),
             })
         });
         let handle = window.window_handle();
