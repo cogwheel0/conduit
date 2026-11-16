@@ -205,6 +205,11 @@ impl TasksPane {
         this
     }
 
+    /// The list takes the keys: the pane or a row has focus, not search.
+    fn list_has_keys(&self, window: &Window, cx: &App) -> bool {
+        crate::views::list_has_keys(&self.focus, &[self.search.focus_handle(cx)], window, cx)
+    }
+
     fn usable(&self, cx: &App) -> bool {
         let c = self.stores.session.read(cx).capabilities();
         c.automations && c.scheduled_tasks
@@ -376,7 +381,7 @@ impl TasksPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if !self.focus.is_focused(window) {
+        if !self.list_has_keys(window, cx) {
             return false;
         }
         let k = &e.keystroke;
@@ -649,7 +654,9 @@ impl TasksPane {
                 move |_, window, cx| {
                     let id = id.clone();
                     let _ = entity.update(cx, |p, cx| {
-                        if !p.focus.contains_focused(window, cx) {
+                        // From the search field too: the list takes the
+                        // keys of the task clicked.
+                        if !p.list_has_keys(window, cx) {
                             window.focus(&p.focus, cx);
                         }
                         p.select(&id, cx);
@@ -1789,6 +1796,85 @@ mod tests {
             pane.read_with(vcx, |p, cx| p.search.read(cx).value().to_string()),
             "",
             "Avery's search stayed in the field"
+        );
+    }
+
+    /// Once Tab has reached a task row, the arrows move the selection as
+    /// they do from the list itself (Full Keyboard Access or not).
+    #[gpui_kit::test]
+    fn the_arrows_move_from_a_focused_task_row(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_protocol::{Capabilities, methods};
+
+        use crate::stores::accounts::tests::{account, list};
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        let summary = |id: &str, name: &str| {
+            serde_json::json!({
+                "id": id,
+                "name": name,
+                "active": true,
+                "schedule": {
+                    "kind": "daily", "year": 0, "month": 0, "day": 0,
+                    "hour": 8, "minute": 0, "days": [],
+                    "rrule": "RRULE:FREQ=DAILY;BYHOUR=8;BYMINUTE=0"
+                }
+            })
+        };
+        let listed = serde_json::json!({
+            "available": true,
+            "items": [summary("t1", "Allotment digest"), summary("t2", "Seed order")],
+            "total": 2,
+            "hasMore": false
+        });
+        daemon.on::<methods::AutomationsList>(move |_| Ok(listed.clone()));
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-tasks-keys-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        stores.session.update(cx, |s, cx| {
+            s.system_capabilities = Some(Capabilities {
+                automations: true,
+                scheduled_tasks: true,
+                ..Default::default()
+            });
+            cx.notify();
+        });
+        let s = stores.clone();
+        let (pane, vcx) = cx.add_window_view(move |window, cx| TasksPane::new(s, window, cx));
+        vcx.run_until_parked();
+        let draw = |vcx: &mut gpui_kit::VisualTestContext| {
+            vcx.update(|window, cx| window.draw(cx).clear(cx));
+            vcx.run_until_parked();
+        };
+        draw(vcx);
+        let on_a_row = |vcx: &mut gpui_kit::VisualTestContext| {
+            vcx.update(|window, cx| {
+                let p = pane.read(cx);
+                p.focus.contains_focused(window, cx)
+                    && !p.focus.is_focused(window)
+                    && !p.search.read(cx).focus_handle(cx).is_focused(window)
+            })
+        };
+        for _ in 0..12 {
+            if on_a_row(vcx) {
+                break;
+            }
+            vcx.update(|window, cx| window.focus_next(cx));
+            draw(vcx);
+        }
+        assert!(on_a_row(vcx), "Tab never reached a task row");
+        let before = stores.tasks.read_with(vcx, |t, _| t.selected.clone());
+        vcx.simulate_keystrokes("down");
+        vcx.run_until_parked();
+        assert_ne!(
+            stores.tasks.read_with(vcx, |t, _| t.selected.clone()),
+            before,
+            "Down on a focused task row moved nothing"
         );
     }
 }

@@ -60,3 +60,15 @@ pub(crate) fn test_globals(cx: &mut gpui_kit::App) {
     cx.set_global(conduit_components::Strings::default());
     cx.set_global(crate::l10n::L10n::new("en"));
 }
+
+/// Whether a pane's list commands (the arrows, Return, ⌘⌫) take the keys
+/// now: the pane or anything in it has focus (a row Tab reached), but not
+/// one of its text `fields`, whose keys are typed.
+pub fn list_has_keys(
+    pane: &gpui_kit::FocusHandle,
+    fields: &[gpui_kit::FocusHandle],
+    window: &gpui_kit::Window,
+    cx: &gpui_kit::App,
+) -> bool {
+    pane.contains_focused(window, cx) && !fields.iter().any(|f| f.contains_focused(window, cx))
+}

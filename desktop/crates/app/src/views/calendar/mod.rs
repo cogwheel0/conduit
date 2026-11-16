@@ -286,7 +286,8 @@ impl CalendarPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if !self.focus.is_focused(window) {
+        // The pane or an agenda row Tab reached.
+        if !crate::views::list_has_keys(&self.focus, &[], window, cx) {
             return false;
         }
         let k = &e.keystroke;
@@ -1564,6 +1565,80 @@ mod tests {
             vcx.update(|_, cx| sheet::current::<editor::EventEditor>(cx))
                 .is_some_and(|open| open == second),
             "Avery's Discard closed Blake's event editor"
+        );
+    }
+
+    /// Once Tab has reached an agenda row, the arrows move the selection as
+    /// they do from the pane itself (Full Keyboard Access or not).
+    #[gpui_kit::test]
+    fn the_arrows_move_from_a_focused_agenda_row(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_protocol::Capabilities;
+
+        use crate::stores::accounts::tests::{account, list};
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        let day = CalendarWallTime {
+            year: 2026,
+            month: 11,
+            day: 12,
+            hour: 0,
+            minute: 0,
+        };
+        daemon.returns::<methods::CalendarAgenda>(CalendarAgenda {
+            available: true,
+            first_day: Some(day.clone()),
+            today: Some(day.clone()),
+            days: vec![CalendarAgendaDay {
+                day,
+                items: vec![item("k1"), item("k2")],
+            }],
+            ..Default::default()
+        });
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-agenda-keys-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        stores.session.update(cx, |s, cx| {
+            s.system_capabilities = Some(Capabilities {
+                calendar: true,
+                ..Default::default()
+            });
+            cx.notify();
+        });
+        let s = stores.clone();
+        let (pane, vcx) = cx.add_window_view(move |window, cx| CalendarPane::new(s, window, cx));
+        vcx.run_until_parked();
+        let draw = |vcx: &mut gpui_kit::VisualTestContext| {
+            vcx.update(|window, cx| window.draw(cx).clear(cx));
+            vcx.run_until_parked();
+        };
+        draw(vcx);
+        let on_a_row = |vcx: &mut gpui_kit::VisualTestContext| {
+            vcx.update(|window, cx| {
+                let p = pane.read(cx);
+                p.focus.contains_focused(window, cx) && !p.focus.is_focused(window)
+            })
+        };
+        for _ in 0..12 {
+            if on_a_row(vcx) {
+                break;
+            }
+            vcx.update(|window, cx| window.focus_next(cx));
+            draw(vcx);
+        }
+        assert!(on_a_row(vcx), "Tab never reached an agenda row");
+        let before = pane.read_with(vcx, |p, _| p.selected.clone());
+        vcx.simulate_keystrokes("down");
+        vcx.run_until_parked();
+        assert_ne!(
+            pane.read_with(vcx, |p, _| p.selected.clone()),
+            before,
+            "Down on a focused agenda row moved nothing"
         );
     }
 }
