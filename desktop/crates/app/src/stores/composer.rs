@@ -301,6 +301,17 @@ impl Attachment {
         }
     }
 
+    /// Still being read, converted or uploaded, or waiting to be tried again.
+    fn in_flight(&self) -> bool {
+        matches!(
+            self.state,
+            UploadState::Reading
+                | UploadState::Converting
+                | UploadState::Uploading { .. }
+                | UploadState::Waiting
+        )
+    }
+
     /// 0–1 while uploading.
     pub fn progress(&self) -> Option<f32> {
         match self.state {
@@ -374,6 +385,10 @@ pub struct ComposerStore {
     /// The query each list answers, once it has answered.
     searched: [Option<String>; 3],
     pub attachments: Vec<Attachment>,
+    /// Files still being read or uploaded when their draft was taken
+    /// ([`Self::take_draft`]): their upload lands here, and they go back
+    /// with the draft ([`Self::put_draft`]), as they are by then.
+    parked: Vec<Attachment>,
     pub web_search: bool,
     pub image_generation: bool,
     pub code_interpreter: bool,
@@ -457,6 +472,7 @@ impl ComposerStore {
             skill_results: vec![],
             searched: [None, None, None],
             attachments: vec![],
+            parked: vec![],
             web_search: false,
             image_generation: false,
             code_interpreter: false,
@@ -1227,8 +1243,12 @@ impl ComposerStore {
         id
     }
 
+    /// The attachment `id`, shown or parked with a draft taken.
     fn get(&mut self, id: u64) -> Option<&mut Attachment> {
-        self.attachments.iter_mut().find(|a| a.local_id == id)
+        match self.attachments.iter().position(|a| a.local_id == id) {
+            Some(at) => self.attachments.get_mut(at),
+            None => self.parked.iter_mut().find(|a| a.local_id == id),
+        }
     }
 
     fn fail(&mut self, id: u64, error: String, retry: bool, cx: &mut Context<Self>) {
@@ -1858,8 +1878,14 @@ impl ComposerStore {
     /// composer, another thread): what one message would use is taken with
     /// it, to come back with [`Self::put_draft`], and a send still on its
     /// way gives nothing back to the next draft.
+    /// Every file goes with it, those still reading, uploading or waiting
+    /// too: their uploads land in [`Self::parked`] meanwhile.
     pub fn take_draft(&mut self, cx: &mut Context<Self>) -> OneShot {
-        let used = self.one_shot();
+        let mut used = self.one_shot();
+        let all = std::mem::take(&mut self.attachments);
+        self.parked
+            .extend(all.iter().filter(|a| a.in_flight()).cloned());
+        used.attachments = all;
         self.start_over(cx);
         used
     }
@@ -1869,6 +1895,12 @@ impl ComposerStore {
     pub fn put_draft(&mut self, mut used: OneShot, cx: &mut Context<Self>) -> bool {
         if used.scope != self.scope {
             return false;
+        }
+        // Parked files come back as they are now (uploaded since, or failed).
+        for a in &mut used.attachments {
+            if let Some(at) = self.parked.iter().position(|p| p.local_id == a.local_id) {
+                *a = self.parked.remove(at);
+            }
         }
         used.draft = self.draft_round;
         self.give_back(used, cx)
@@ -1892,6 +1924,7 @@ impl ComposerStore {
     pub fn reset(&mut self, cx: &mut Context<Self>) {
         self.scope += 1;
         self.draft_round += 1;
+        self.parked.clear();
         self._searches = [None, None, None];
         self._options = None;
         self._model_options = None;
@@ -2536,6 +2569,57 @@ mod tests {
             let turn = s.take_turn(vec![], cx);
             assert_eq!(turn.file_ids, vec!["f1".to_string()]);
             assert!(s.attachments.is_empty());
+        });
+    }
+
+    /// Another thread shown while a file still uploads, and one whose
+    /// upload failed: both are parked with their thread's draft, the upload
+    /// lands there, and both come back with the draft (the failed one still
+    /// offering Try Again).
+    #[gpui_kit::test]
+    fn a_draft_taken_mid_upload_keeps_its_files(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let (tx, rx) = futures::channel::oneshot::channel::<Result<UploadedFile, UploadError>>();
+        let pending = Arc::new(Mutex::new(Some(rx)));
+        let upload: Uploader = Arc::new(move |req: UploadRequest| {
+            if req.name.starts_with("Pasted") && pending.lock().unwrap().is_some() {
+                let rx = pending.lock().unwrap().take().unwrap();
+                return Box::pin(async move { rx.await.unwrap() });
+            }
+            Box::pin(async move { Err(UploadError::manual("refused")) })
+        });
+        let rpc = daemon.rpc();
+        let store = cx.new(|_| ComposerStore::new(rpc, Some(upload)).with_converter(None));
+        let png = Image::from_bytes(ImageFormat::Png, b"\x89PNG".to_vec());
+        store.update(cx, |s, cx| s.add_image(&png, cx));
+        let dir = std::env::temp_dir().join(format!("q3r-park-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let notes = dir.join("notes.md");
+        std::fs::write(&notes, b"# Notes").unwrap();
+        store.update(cx, |s, cx| s.add_paths(std::slice::from_ref(&notes), cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(matches!(
+                s.attachments[0].state,
+                UploadState::Uploading { .. }
+            ));
+            assert!(s.attachments[1].can_retry());
+        });
+        let parked = store.update(cx, |s, cx| s.take_draft(cx));
+        store.read_with(cx, |s, _| assert!(s.attachments.is_empty()));
+        tx.send(uploaded("f9")).unwrap();
+        cx.run_until_parked();
+        store.update(cx, |s, cx| assert!(s.put_draft(parked, cx)));
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.attachments.len(), 2, "a file went with the thread switch");
+            assert_eq!(
+                s.attachments[0].state,
+                UploadState::Done {
+                    file_id: "f9".into()
+                },
+                "the parked file's upload did not land in its draft"
+            );
+            assert!(s.attachments[1].can_retry());
         });
     }
 
