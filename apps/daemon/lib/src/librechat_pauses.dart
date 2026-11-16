@@ -42,7 +42,10 @@ typedef LibreChatResume =
 ///
 /// Answers that could not be sent (the server unreachable, a retryable
 /// refusal) leave the run waiting on them: the cards are put to the windows
-/// again for as long as a window can answer and the turn still asks.
+/// again for as long as a window can answer and the turn still asks. Only a
+/// window's answer sends again: after a failure even a tool call the pause
+/// lets refuse without asking (approve not allowed) waits for its card, so
+/// nothing goes out over and over on its own.
 Future<LibreChatPauseOutcome> answerLibreChatPause(
   LibreChatPendingAction action, {
   required UiRequestsService? windows,
@@ -52,6 +55,7 @@ Future<LibreChatPauseOutcome> answerLibreChatPause(
   required Future<void> Function() stop,
   Future<void>? until,
 }) async {
+  var recovering = false;
   while (true) {
     final outcome = await _answerOnce(
       action,
@@ -61,6 +65,7 @@ Future<LibreChatPauseOutcome> answerLibreChatPause(
       resume: resume,
       stop: stop,
       until: until,
+      recovering: recovering,
     );
     if (outcome != LibreChatPauseOutcome.failed ||
         windows == null ||
@@ -68,6 +73,7 @@ Future<LibreChatPauseOutcome> answerLibreChatPause(
         !asking()) {
       return outcome;
     }
+    recovering = true;
   }
 }
 
@@ -79,6 +85,7 @@ Future<LibreChatPauseOutcome> _answerOnce(
   required LibreChatResume resume,
   required Future<void> Function() stop,
   Future<void>? until,
+  bool recovering = false,
 }) async {
   try {
     if (action.isQuestion) {
@@ -124,16 +131,22 @@ Future<LibreChatPauseOutcome> _answerOnce(
     if (!action.isToolApproval) return LibreChatPauseOutcome.left;
     final decisions = <String, LibreChatToolDecisionInput>{};
     for (final request in action.toolRequests) {
+      final approvable = request.allowed.contains(
+        LibreChatToolDecision.approve,
+      );
+      // A call that cannot be approved is refused without a card -- except
+      // after a failed send, when the window's answer is what sends again.
       final allowed =
           windows != null &&
-          request.allowed.contains(LibreChatToolDecision.approve) &&
+          (approvable || recovering) &&
           await windows.askLibreChatToolApproval(
             chatId: chatId,
             toolName: request.name,
             description: request.description,
             argumentsJson: _argumentsJson(request.arguments),
             until: until,
-          );
+          ) &&
+          approvable;
       final decision = allowed
           ? LibreChatToolDecision.approve
           : LibreChatToolDecision.reject;

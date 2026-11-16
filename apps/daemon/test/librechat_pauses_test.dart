@@ -108,6 +108,36 @@ void main() {
       {'call-1': 'Lake'},
     ]);
 
+    // Reject or respond only: the first refusal goes out without a card,
+    // as the pause allows. When it fails, nothing more is sent until the
+    // window answers; each failure puts the card back once.
+    var refusals = 0;
+    var next = nextCard();
+    final refusing = answerLibreChatPause(
+      _toolCall(const ['reject', 'respond']),
+      windows: windows,
+      chatId: 'chat-1',
+      asking: () => true,
+      resume: ({decisions, answers}) async {
+        // Fails twice, then goes through (so a runaway loop ends too).
+        if (++refusals <= 2) throw StateError('the server could not be reached');
+      },
+      stop: () async => fail('nothing was to stop'),
+    );
+    for (final sentSoFar in [1, 2]) {
+      final card = await Future.any<UiRequest?>([
+        next,
+        refusing.then((_) => null),
+      ]);
+      expect(card, isNotNull, reason: 'refusals went out with nobody asked');
+      expect(refusals, sentSoFar, reason: 'sent again before the window answered');
+      next = nextCard();
+      windows.respond(UiResponse(requestId: card!.requestId, choice: 'deny'));
+    }
+    expect(await refusing, LibreChatPauseOutcome.resumed);
+    expect(refusals, 3);
+    next.ignore(); // Sent: no further card comes.
+
     // With no window to answer, a failed resume is given up at once (the
     // turn offers the pause again later), not tried over and over.
     var tries = 0;
