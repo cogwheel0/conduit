@@ -11,6 +11,7 @@ import 'package:conduit_core/features/terminal/providers/computer_providers.dart
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -26,6 +27,8 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 void main() {
   late _GatedServer server;
   late ApiService api;
+  ApiService? signedIn;
+  late PrimaryAccountKind primary;
   late Object account;
   late ProviderContainer container;
 
@@ -46,10 +49,13 @@ void main() {
       authToken: 'token-a',
     );
     addTearDown(api.dispose);
+    signedIn = api;
+    primary = PrimaryAccountKind.openWebUi;
     account = Object();
     container = ProviderContainer(
       overrides: [
-        apiServiceProvider.overrideWith((ref) => api),
+        apiServiceProvider.overrideWith((ref) => signedIn),
+        primaryAccountKindProvider.overrideWith((ref) => primary),
         isAuthenticatedProvider2.overrideWithValue(true),
         openWebUiAuthSessionEpochProvider.overrideWith((ref) => account),
         computerEnabledProvider.overrideWithValue(true),
@@ -63,8 +69,18 @@ void main() {
     account = Object();
     if (next != null) {
       api = next;
+      signedIn = next;
       container.invalidate(apiServiceProvider);
     }
+    container.invalidate(openWebUiAuthSessionEpochProvider);
+    container.read(openWebUiAuthSessionEpochProvider);
+  }
+
+  /// The Open WebUI account signs out (its session goes).
+  void signOut() {
+    signedIn = null;
+    account = Object();
+    container.invalidate(apiServiceProvider);
     container.invalidate(openWebUiAuthSessionEpochProvider);
     container.read(openWebUiAuthSessionEpochProvider);
   }
@@ -145,6 +161,43 @@ void main() {
       check(server.socketGates).not((it) => it.contains('away-gate'));
       check(away.socketGates).isEmpty();
       check(await closed).equals(4502);
+    });
+  });
+
+  group('the Open WebUI account owns its terminals, with LibreChat in charge too', () {
+    test('its sign-out closes its terminals and Computer views', () async {
+      primary = PrimaryAccountKind.libreChat;
+      container.invalidate(primaryAccountKindProvider);
+      final terminals = TerminalsService(container);
+      addTearDown(terminals.dispose);
+      final computer = ComputerRpcService(container);
+      addTearDown(computer.dispose);
+      final attached = await terminals.attach(
+        const TerminalAttach(serverId: 'box'),
+      );
+      final view = await computer.open(
+        const ComputerOpen(
+          chatId: 'chat-lighthouse',
+          surface: ComputerSurfaceKind.desktop,
+        ),
+      );
+
+      signOut();
+
+      // The handle itself is gone, not only the account behind it.
+      check(
+        () => terminals.watch(
+          TerminalWatch(handle: attached.handle, path: '/srv'),
+        ),
+      ).throws<RpcError>().has((e) => e.code, 'code').equals(
+        ConduitErrorCodes.notFound,
+      );
+      await check(
+        WebSocket.connect(
+          view.streamUrl!,
+          headers: <String, String>{'origin': 'http://127.0.0.1'},
+        ),
+      ).throws<Object>();
     });
   });
 
