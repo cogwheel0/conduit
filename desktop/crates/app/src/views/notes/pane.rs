@@ -152,6 +152,10 @@ struct DictationRun {
     anchor: usize,
     len: usize,
     started: bool,
+    /// The editor's revision after the run's own last change: any other
+    /// edit (typing while dictating) ends the run, so its next words never
+    /// replace a range that has moved.
+    revision: u64,
 }
 
 /// ⌘K's address field.
@@ -566,7 +570,21 @@ impl NotePane {
 
     fn on_editor(&mut self, e: &EditorEvent, window: &mut Window, cx: &mut Context<Self>) {
         match e {
-            EditorEvent::Edited => self.edited(cx),
+            EditorEvent::Edited => {
+                // Typed while dictating: the dictation ends, keeping the words
+                // it put in, and its later words never land over the typing.
+                if self
+                    .run
+                    .as_ref()
+                    .is_some_and(|run| run.revision != self.editor.read(cx).revision())
+                {
+                    self.run = None;
+                    if self.dictation.read(cx).is_active() {
+                        self.dictation.update(cx, |d, cx| d.stop(cx));
+                    }
+                }
+                self.edited(cx)
+            }
             EditorEvent::Selected => cx.notify(),
             EditorEvent::Blurred => self.save_now(cx),
             EditorEvent::LinkRequested { current } => self.ask_link(current.clone(), window, cx),
@@ -1077,6 +1095,7 @@ impl NotePane {
             anchor,
             len: 0,
             started: false,
+            revision: self.editor.read(cx).revision(),
         });
         self.dictation.update(cx, |d, cx| d.start(cx));
         cx.notify();
@@ -1090,7 +1109,13 @@ impl NotePane {
                 };
                 let before = {
                     let plain = self.editor.read(cx).doc.plain_text();
-                    plain[..run.anchor.min(plain.len())].to_string()
+                    // An edit before the run's start while it went on can
+                    // leave the start inside a character: its start then.
+                    let mut at = run.anchor.min(plain.len());
+                    while !plain.is_char_boundary(at) {
+                        at -= 1;
+                    }
+                    plain[..at].to_string()
                 };
                 // A space first when the text before does not end in one,
                 // as the phone's run adds it.
@@ -1106,9 +1131,11 @@ impl NotePane {
                 let new_len = self
                     .editor
                     .update(cx, |e, cx| e.replace_run(anchor, len, &spaced, first, cx));
+                let revision = self.editor.read(cx).revision();
                 if let Some(run) = &mut self.run {
                     run.len = new_len;
                     run.started = true;
+                    run.revision = revision;
                 }
             }
             DictationEvent::Transcribed(text) => {
@@ -2996,6 +3023,7 @@ mod tests {
                 anchor: 0,
                 len: 0,
                 started: false,
+                revision: 0,
             })
         });
         stores
@@ -3072,6 +3100,84 @@ mod tests {
             bench::text(&pane, vcx),
             "Ridge at dawn",
             "an older page load replaced the newer page"
+        );
+    }
+
+    /// Typing while a dictation runs ends it: its later words never
+    /// overwrite what was typed, and a start left inside a character by an
+    /// edit before it panics nothing.
+    #[gpui_kit::test]
+    fn typing_during_a_dictation_ends_it_and_keeps_the_typing(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        let say = |pane: &Entity<NotePane>, text: &str, vcx: &mut gpui_kit::VisualTestContext| {
+            pane.update(vcx, |p, cx| {
+                p.on_dictation(
+                    &DictationEvent::Text {
+                        text: text.into(),
+                        done: false,
+                    },
+                    cx,
+                )
+            });
+            vcx.run_until_parked();
+        };
+        // A start left inside "é" (byte 2).
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| {
+                e.set_doc(
+                    Doc::from_ops(&[serde_json::json!({ "insert": "aéb\n" })]),
+                    true,
+                    cx,
+                )
+            });
+        });
+        vcx.run_until_parked();
+        pane.update(vcx, |p, _| {
+            p.run = Some(DictationRun {
+                anchor: 2,
+                len: 0,
+                started: false,
+                revision: 0,
+            })
+        });
+        say(&pane, "summit", vcx);
+        assert!(bench::text(&pane, vcx).contains("summit"));
+
+        // Words in, then typing before them: the next words leave it be.
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| {
+                e.set_doc(
+                    Doc::from_ops(&[serde_json::json!({ "insert": "Ridge\n" })]),
+                    true,
+                    cx,
+                );
+                e.select_to(super::super::doc::Pos::new(0, 5), false, cx);
+            });
+        });
+        vcx.run_until_parked();
+        pane.update(vcx, |p, _| {
+            p.run = Some(DictationRun {
+                anchor: 5,
+                len: 0,
+                started: false,
+                revision: 0,
+            })
+        });
+        say(&pane, "summit", vcx);
+        assert_eq!(bench::text(&pane, vcx), "Ridge summit");
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| {
+                e.select_to(super::super::doc::Pos::new(0, 0), false, cx);
+                e.insert_text("Éa ", cx);
+            })
+        });
+        vcx.run_until_parked();
+        say(&pane, "summit peak", vcx);
+        assert_eq!(
+            bench::text(&pane, vcx),
+            "Éa Ridge summit",
+            "the dictation's words went over what was typed"
         );
     }
 }
