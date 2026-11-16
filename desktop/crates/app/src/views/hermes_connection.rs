@@ -367,6 +367,7 @@ impl HermesConnectionSheet {
             .read(cx)
             .rpc()
             .call::<methods::HermesConnectionsSave>(&edit);
+        let ticket = self.stores.hermes_admin.update(cx, |a, _| a.ask_list());
         self.busy = true;
         self.error = None;
         cx.notify();
@@ -390,7 +391,7 @@ impl HermesConnectionSheet {
                             s.initial = sent;
                             let admin = s.stores.hermes_admin.clone();
                             let adopted = list.clone();
-                            admin.update(cx, |a, cx| a.adopt_connections(adopted, cx));
+                            admin.update(cx, |a, cx| a.answer_list(ticket, adopted, cx));
                             done(s, list, window, cx);
                         }
                         Err(e) if is_plain_http(&e) => {
@@ -522,7 +523,9 @@ impl HermesConnectionSheet {
                     &stores,
                     call,
                     failure,
-                    |a, list, cx| a.adopt_connections(list, cx),
+                    |a, list, ticket, cx| {
+                        a.answer_list(ticket, list, cx);
+                    },
                     cx,
                 );
                 sheet::dismiss(cx);

@@ -92,6 +92,18 @@ pub struct HermesAdminStore {
     /// an older poll answered late does not put its list back.
     jobs_asked: u64,
     jobs_taken: u64,
+    /// The same for the connections list (reads and the actions that
+    /// answer with it).
+    list_asked: u64,
+    list_taken: u64,
+}
+
+/// A connections-list read or action, as it was asked: answered only while
+/// no reset came since and no newer one was taken.
+#[derive(Clone, Copy, Debug)]
+pub struct ListTicket {
+    generation: u64,
+    list: u64,
 }
 
 impl HermesAdminStore {
@@ -119,6 +131,12 @@ impl HermesAdminStore {
     /// answer is taken only while [`Self::generation`] still says the same.
     pub fn generation(&self) -> u64 {
         self.generation
+    }
+
+    /// The one check for an answer: asked under `generation`, it is taken
+    /// only while no switch or reset came since.
+    pub fn is_current(&self, generation: u64) -> bool {
+        self.generation == generation
     }
 
     /// Forgets everything (another account, a reconnect): read again when
@@ -177,18 +195,51 @@ impl HermesAdminStore {
     pub fn refresh_connections(&mut self, cx: &mut Context<Self>) {
         let Some(rpc) = self.rpc() else { return };
         let call = rpc.call::<methods::HermesConnectionsList>(&NoParams);
+        let ticket = self.ask_list();
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| match result {
-                Ok(list) => s.adopt_connections(list, cx),
+                Ok(list) => {
+                    s.answer_list(ticket, list, cx);
+                }
                 Err(e) => log::info!("hermes.connections.list: {e}"),
             });
         })
         .detach();
     }
 
-    /// The list an action answered with.
+    /// A connections-list read or action about to be asked.
+    pub fn ask_list(&mut self) -> ListTicket {
+        self.list_asked += 1;
+        ListTicket {
+            generation: self.generation,
+            list: self.list_asked,
+        }
+    }
+
+    /// The list `ticket`'s read or action answered with: taken unless a
+    /// reset came since or a newer one was taken. Whether it was.
+    pub fn answer_list(
+        &mut self,
+        ticket: ListTicket,
+        list: HermesConnections,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.is_current(ticket.generation) || ticket.list <= self.list_taken {
+            return false;
+        }
+        self.list_taken = ticket.list;
+        self.take_list(list, cx);
+        true
+    }
+
+    /// A list that answered just now (newer than any read still out).
     pub fn adopt_connections(&mut self, list: HermesConnections, cx: &mut Context<Self>) {
+        let ticket = self.ask_list();
+        self.answer_list(ticket, list, cx);
+    }
+
+    fn take_list(&mut self, list: HermesConnections, cx: &mut Context<Self>) {
         // Another connection, Hermes turned off or on, or the one in use
         // changed under the same name (another address, other credentials:
         // the daemon names it anew).
@@ -209,6 +260,8 @@ impl HermesAdminStore {
             self.runs.clear();
             self.runs_open.clear();
             self.pending_notices.clear();
+            self.busy.clear();
+            self.mcp_busy.clear();
             self.generation += 1;
             if self.watching_jobs {
                 self.refresh_jobs(cx);
@@ -229,7 +282,7 @@ impl HermesAdminStore {
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
-                if s.generation != generation {
+                if !s.is_current(generation) {
                     return;
                 }
                 s.status = Some(match result {
@@ -252,7 +305,7 @@ impl HermesAdminStore {
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
-                if s.generation != generation {
+                if !s.is_current(generation) {
                     return;
                 }
                 s.catalog = Some(match result {
@@ -277,7 +330,7 @@ impl HermesAdminStore {
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
-                if s.generation != generation {
+                if !s.is_current(generation) {
                     return;
                 }
                 s.mcp = Some(match result {
@@ -339,7 +392,7 @@ impl HermesAdminStore {
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| match result {
-                _ if s.generation != generation => {}
+                _ if !s.is_current(generation) => {}
                 Ok(jobs) if asked <= s.jobs_taken => {
                     // A newer list is shown: only what this one says once.
                     s.pending_notices.extend(jobs.notices);
@@ -479,7 +532,7 @@ impl HermesAdminStore {
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
-                if s.generation != generation {
+                if !s.is_current(generation) {
                     return;
                 }
                 s.runs.insert(
@@ -577,12 +630,12 @@ pub fn act<T: Send + 'static>(
     cx: &mut App,
 ) {
     let generation = stores.hermes_admin.read(cx).generation;
-    act_on_list(
+    answer(
         stores,
         call,
         failure,
         move |a, value, cx| {
-            if a.generation == generation {
+            if a.is_current(generation) {
                 done(a, value, cx);
             }
         },
@@ -590,9 +643,29 @@ pub fn act<T: Send + 'static>(
     );
 }
 
-/// [`act`] for an action on the saved connections themselves (their list
-/// is the same whichever is in use): its answer is always taken.
+/// [`act`] for an action on the saved connections themselves, which
+/// answers with their list: `done` gets the action's [`ListTicket`] for
+/// [`HermesAdminStore::answer_list`], so an answer older than a list taken
+/// since (or from before a reset) is not taken.
 pub fn act_on_list<T: Send + 'static>(
+    stores: &Stores,
+    call: impl std::future::Future<Output = Result<T, RpcError>> + Send + 'static,
+    failure: String,
+    done: impl FnOnce(&mut HermesAdminStore, T, ListTicket, &mut Context<HermesAdminStore>) + 'static,
+    cx: &mut App,
+) {
+    let ticket = stores.hermes_admin.update(cx, |a, _| a.ask_list());
+    answer(
+        stores,
+        call,
+        failure,
+        move |a, value, cx| done(a, value, ticket, cx),
+        cx,
+    );
+}
+
+/// Hands `call`'s answer to `done` on the store, or says `failure`.
+fn answer<T: Send + 'static>(
     stores: &Stores,
     call: impl std::future::Future<Output = Result<T, RpcError>> + Send + 'static,
     failure: String,
@@ -627,8 +700,8 @@ pub fn set_enabled(stores: &Stores, enabled: bool, cx: &mut App) {
         stores,
         call,
         failure,
-        move |a, list, cx| {
-            a.adopt_connections(list, cx);
+        move |a, list, ticket, cx| {
+            a.answer_list(ticket, list, cx);
             if !enabled {
                 leave_hermes(&navigation, cx);
             }
@@ -660,8 +733,8 @@ pub fn activate(stores: &Stores, id: &str, cx: &mut App) {
         stores,
         call,
         failure,
-        move |a, list, cx| {
-            a.adopt_connections(list, cx);
+        move |a, list, ticket, cx| {
+            a.answer_list(ticket, list, cx);
             let _ = navigation.update(cx, |n, cx| {
                 if matches!(
                     n.selection(),
@@ -791,6 +864,70 @@ mod tests {
         store.read_with(cx, |s, _| {
             assert_eq!(s.mcp, None, "the connection before's servers landed");
             assert_eq!(s.connection().as_deref(), Some("0a1b2c3d:2"));
+        });
+    }
+
+    /// A list read answered after a newer one, or after a reset, is not
+    /// taken: the window never goes back to a connection the daemon left.
+    #[gpui_kit::test]
+    fn an_older_list_read_is_never_taken(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let n = Arc::new(AtomicUsize::new(0));
+        let count = n.clone();
+        daemon.on::<methods::HermesConnectionsList>(move |_| {
+            let first = count.fetch_add(1, Ordering::SeqCst) == 0;
+            Ok(serde_json::to_value(list(if first { "a" } else { "b" })).unwrap())
+        });
+        let older = daemon.hold_one::<methods::HermesConnectionsList>(0);
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.refresh_connections(cx);
+            s.refresh_connections(cx);
+        });
+        cx.run_until_parked();
+        drop(older);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.connections.as_ref().and_then(|l| l.active_id.as_deref()),
+                Some("b"),
+                "the older list came back"
+            )
+        });
+        // Asked before a reset: dropped.
+        let held = daemon.hold::<methods::HermesConnectionsList>();
+        store.update(cx, |s, cx| {
+            s.refresh_connections(cx);
+            s.reset(cx);
+        });
+        drop(held);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(
+                s.connections.is_none(),
+                "a list asked before the reset was taken"
+            )
+        });
+    }
+
+    /// Another connection in use leaves no job or server of the last one
+    /// marked busy.
+    #[gpui_kit::test]
+    fn a_switch_clears_busy_marks(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            s.set_busy("j1", true, cx);
+            s.set_mcp_busy("seed-catalogue", true, cx);
+            s.adopt_connections(list("b"), cx);
+        });
+        store.read_with(cx, |s, _| {
+            assert!(s.busy.is_empty(), "a job of the last connection stays busy");
+            assert!(
+                s.mcp_busy.is_empty(),
+                "a server of the last connection stays busy"
+            );
         });
     }
 

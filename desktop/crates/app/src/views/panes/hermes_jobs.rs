@@ -732,11 +732,13 @@ fn busy_call(
     cx.spawn(async move |cx: &mut AsyncApp| {
         let result = call.await;
         let _ = admin.update(cx, |a, cx| {
+            // Asked under another connection (or before a reset): its mark
+            // and its list are not the connection in use's.
+            if !a.is_current(generation) {
+                return;
+            }
             a.set_busy(&id, false, cx);
-            // The list of the connection the action was asked under.
-            if let Ok(jobs) = &result
-                && a.generation() == generation
-            {
+            if let Ok(jobs) = &result {
                 a.adopt_jobs(jobs.clone(), cx);
             }
         });
@@ -795,4 +797,53 @@ pub fn confirm_delete(stores: &Stores, id: &str, window: &mut Window, cx: &mut A
         });
     })
     .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui_kit::VisualTestContext;
+    use serde_json::json;
+
+    use super::*;
+    use crate::views::sheet::bench::bench;
+
+    fn use_connection(stores: &Stores, vcx: &mut VisualTestContext, id: &str) {
+        let list: conduit_protocol::HermesConnections = serde_json::from_value(json!({
+            "enabled": true,
+            "activeId": id,
+            "connections": [
+                {"id": "a", "name": "Potting shed", "baseUrl": "http://127.0.0.1:20401",
+                 "mode": "desktop", "active": id == "a"},
+                {"id": "b", "name": "Greenhouse", "baseUrl": "http://127.0.0.1:20402",
+                 "mode": "desktop", "active": id == "b"},
+            ],
+        }))
+        .unwrap();
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.adopt_connections(list, cx));
+        vcx.run_until_parked();
+    }
+
+    /// Run Now answered for the last connection leaves the busy mark of the
+    /// same job's Run Now on the connection in use.
+    #[gpui_kit::test]
+    fn an_old_action_leaves_the_new_ones_busy_mark(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon
+            .returns::<methods::HermesRunJob>(serde_json::from_value(json!({"jobs": []})).unwrap());
+        let held = daemon.hold::<methods::HermesRunJob>();
+        use_connection(&stores, vcx, "a");
+        vcx.update(|_, cx| run_now(&stores, "j1", cx));
+        use_connection(&stores, vcx, "b");
+        vcx.update(|_, cx| run_now(&stores, "j1", cx));
+        held.release_one();
+        vcx.run_until_parked();
+        stores.hermes_admin.read_with(vcx, |a, _| {
+            assert!(
+                a.busy.contains("j1"),
+                "the run now on the connection in use lost its mark"
+            )
+        });
+    }
 }

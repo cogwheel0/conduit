@@ -878,6 +878,9 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
     };
     let name = name.to_string();
     let toasts = stores.toasts.clone();
+    // A server's busy mark and list are the connection in use's: a test or
+    // sign-in answered after a switch leaves them alone.
+    let generation = stores.hermes_admin.read(cx).generation();
     let busy = |stores: &Stores, on: bool, cx: &mut App| {
         let name = name.clone();
         stores
@@ -898,6 +901,9 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
                 };
                 toasts.update(cx, |t, cx| t.show(level, text, cx));
                 let _ = admin.update(cx, |a, cx| {
+                    if !a.is_current(generation) {
+                        return;
+                    }
                     a.set_mcp_busy(&name, false, cx);
                     // The tools a test found show in the row.
                     a.refresh_mcp(cx);
@@ -924,7 +930,11 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
                 if let Err(e) = &result
                     && e.code.as_str() == "rpc.timeout"
                 {
-                    let _ = admin.update(cx, |a, cx| a.set_mcp_busy(&name, false, cx));
+                    let _ = admin.update(cx, |a, cx| {
+                        if a.is_current(generation) {
+                            a.set_mcp_busy(&name, false, cx);
+                        }
+                    });
                     return;
                 }
                 let ok = result.is_ok();
@@ -940,6 +950,9 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
                 };
                 toasts.update(cx, |t, cx| t.show(level, text, cx));
                 let _ = admin.update(cx, |a, cx| {
+                    if !a.is_current(generation) {
+                        return;
+                    }
                     a.set_mcp_busy(&name, false, cx);
                     a.refresh_mcp(cx);
                 });
