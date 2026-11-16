@@ -26,6 +26,7 @@ use gpui_kit::{
 use super::{WorkspacePane, editor};
 use crate::l10n::ActiveL10n as _;
 use crate::shell::sheet::{SheetSpec, present_sheet};
+use crate::stores::Stores;
 use crate::stores::navigation::WorkspaceSection;
 use crate::views::forms;
 use crate::views::sheet::{self, SheetBody};
@@ -102,7 +103,9 @@ pub struct FormSheet {
 }
 
 impl FormSheet {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        stores: &Stores,
         title: String,
         note: Option<String>,
         confirm: String,
@@ -111,7 +114,9 @@ impl FormSheet {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let mut subscriptions = vec![];
+        // Opened for one account: another's sign-in closes it, its words
+        // with it, so nothing in it is made under the next.
+        let mut subscriptions = vec![sheet::close_with_account(stores, cx)];
         let mut built = vec![];
         let mut initial = vec![];
         for field in fields {
@@ -339,7 +344,9 @@ impl Render for FormSheet {
 }
 
 /// Opens a [`FormSheet`] on the main window.
+#[allow(clippy::too_many_arguments)]
 pub fn open_form(
+    stores: Stores,
     title: String,
     note: Option<String>,
     confirm: String,
@@ -349,13 +356,14 @@ pub fn open_form(
     cx: &mut App,
 ) -> Option<Entity<FormSheet>> {
     sheet::open(window, WIDTH, cx, move |w, cx| {
-        FormSheet::new(title, note, confirm, fields, run, w, cx)
+        FormSheet::new(&stores, title, note, confirm, fields, run, w, cx)
     })
 }
 
 /// New Knowledge Base…: a name and a description; once made it opens.
 pub fn new_knowledge(
     pane: WeakEntity<WorkspacePane>,
+    stores: Stores,
     rpc: crate::stores::rpc::Rpc,
     window: &mut Window,
     cx: &mut App,
@@ -429,6 +437,7 @@ pub fn new_knowledge(
         })
     });
     open_form(
+        stores,
         l.workspace_knowledge_create_title(),
         None,
         l.create(),
@@ -567,4 +576,33 @@ impl Render for DiffSheet {
 /// Opens the comparison sheet.
 pub fn open_diff(diff: WorkspacePromptDiff, window: &mut Window, cx: &mut App) {
     sheet::open(window, 560., cx, move |_, _| DiffSheet { diff });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::views::sheet::bench::{bench, switch_account};
+
+    /// A small form opened for one account closes when another signs in:
+    /// nothing typed in it is made under the next.
+    #[gpui_kit::test]
+    fn a_form_closes_on_another_account(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        let rpc = stores.connection.read_with(vcx, |c, _| c.rpc());
+        vcx.update(|window, cx| {
+            new_knowledge(WeakEntity::new_invalid(), stores.clone(), rpc, window, cx)
+        });
+        vcx.run_until_parked();
+        let form = vcx
+            .update(|_, cx| sheet::current::<FormSheet>(cx))
+            .expect("New Knowledge Base opens");
+        vcx.update(|window, cx| form.update(cx, |f, cx| f.set_value(0, "Trail notes", window, cx)));
+        switch_account(&stores, vcx);
+        assert!(
+            vcx.update(|_, cx| sheet::current::<FormSheet>(cx))
+                .is_none(),
+            "Avery's form stayed open over Blake's account"
+        );
+        assert!(daemon.calls::<methods::WorkspaceSave>().is_empty());
+    }
 }

@@ -352,6 +352,7 @@ impl ToolEditor {
             })
         });
         open_form(
+            self.stores.clone(),
             l.workspace_tool_import_url_title(),
             Some(l.workspace_tool_import_url_hint()),
             l.desktop_workspace_import_run(),

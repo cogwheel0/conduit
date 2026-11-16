@@ -422,6 +422,7 @@ impl KnowledgeEditor {
             })
         });
         open_form(
+            self.stores.clone(),
             l.workspace_knowledge_add_text(),
             None,
             l.desktop_add(),
@@ -472,6 +473,7 @@ impl KnowledgeEditor {
             })
         });
         open_form(
+            self.stores.clone(),
             title,
             None,
             confirm,

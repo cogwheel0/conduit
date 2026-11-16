@@ -164,6 +164,7 @@ pub fn import(
     let rpc = pane.rpc().clone();
     let weak = cx.entity().downgrade();
     let hook = hook(cx);
+    let account = super::active_account(pane.stores(), cx);
     window
         .spawn(cx, async move |cx: &mut AsyncWindowContext| {
             let path = match hook.import_file {
@@ -195,6 +196,16 @@ pub fn import(
                 });
                 return;
             };
+            // Chosen under one account, it is never imported into the next.
+            let same = cx
+                .update(|_, cx| {
+                    weak.upgrade()
+                        .is_some_and(|p| super::active_account(p.read(cx).stores(), cx) == account)
+                })
+                .unwrap_or(false);
+            if !same {
+                return;
+            }
             let result = rpc
                 .call::<methods::WorkspaceImport>(&WorkspaceImport {
                     kind: kind_of(section),

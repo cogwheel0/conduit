@@ -458,9 +458,13 @@ impl PromptEditor {
                         });
                 let handle = window.window_handle();
                 let stores = self.stores.clone();
+                let account = super::active_account(&stores, cx);
                 cx.spawn(async move |_, cx: &mut AsyncApp| {
                     let result = call.await;
                     let _ = handle.update(cx, |_, window, cx| match result {
+                        // Another account's now: this one's prompt is not
+                        // shown to it.
+                        _ if super::active_account(&stores, cx) != account => {}
                         Ok(diff) => sheets::open_diff(diff, window, cx),
                         Err(e) => {
                             log::warn!("workspace.promptDiff: {e}");
@@ -1078,6 +1082,61 @@ impl Render for PromptEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A comparison read under one account is not shown once another
+    /// signs in.
+    #[gpui_kit::test]
+    fn a_comparison_never_opens_on_another_account(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::sheet::bench::{bench, switch_account};
+        use crate::views::workspace::editor::bench as editor_bench;
+        let (daemon, stores, vcx) = bench(cx);
+        let version = |id: &str, production: bool| {
+            serde_json::json!({"id": id, "createdAtMs": 0, "name": "Trail", "command": "trail",
+                               "content": "Plan a hike", "production": production})
+        };
+        daemon.returns::<methods::WorkspaceGet>(editor_bench::detail(
+            WorkspaceKind::Prompts,
+            serde_json::json!({"id": "p1", "command": "trail", "name": "Trail",
+                               "content": "Plan a hike", "tags": [], "active": true,
+                               "production": true}),
+        ));
+        daemon.returns::<methods::WorkspacePromptHistory>(
+            serde_json::from_value(serde_json::json!({
+                "promptId": "p1", "versions": [version("v1", true), version("v2", false)]
+            }))
+            .unwrap(),
+        );
+        daemon.returns::<methods::WorkspacePromptDiff>(
+            serde_json::from_value(serde_json::json!({"lines": ["-Plan a hike", "+Plan a walk"]}))
+                .unwrap(),
+        );
+        let editor = vcx.update(|window, cx| {
+            cx.new(|cx| {
+                PromptEditor::new(
+                    stores.clone(),
+                    WeakEntity::new_invalid(),
+                    Some("p1".into()),
+                    editor_bench::manage(),
+                    window,
+                    cx,
+                )
+            })
+        });
+        vcx.run_until_parked();
+        assert!(editor.read_with(vcx, |e, _| e.version("v2").is_some()));
+        let held = daemon.hold::<methods::WorkspacePromptDiff>();
+        vcx.update(|window, cx| {
+            editor.update(cx, |e, cx| e.version_command("compare", "v2", window, cx))
+        });
+        switch_account(&stores, vcx);
+        drop(held);
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| crate::views::sheet::current::<sheets::DiffSheet>(cx))
+                .is_none(),
+            "Avery's prompt was shown under Blake"
+        );
+    }
 
     /// Text typed while a save is out is kept, still to save.
     #[gpui_kit::test]

@@ -871,6 +871,7 @@ impl Render for RelationSheet {
 pub fn toggle_hidden(pane: &mut WorkspacePane, id: String, cx: &mut Context<WorkspacePane>) {
     let rpc = pane.rpc().clone();
     let toasts = pane.stores().toasts.clone();
+    let account = super::active_account(pane.stores(), cx);
     cx.spawn(
         async move |this: WeakEntity<WorkspacePane>, cx: &mut AsyncApp| {
             let detail = rpc
@@ -879,6 +880,13 @@ pub fn toggle_hidden(pane: &mut WorkspacePane, id: String, cx: &mut Context<Work
                     id,
                 })
                 .await;
+            // Read under one account, it is never saved under the next.
+            let same = this
+                .update(cx, |p, cx| super::active_account(p.stores(), cx) == account)
+                .unwrap_or(false);
+            if !same {
+                return;
+            }
             let result = match detail {
                 Ok(mut detail) => {
                     if let Some(m) = detail.model.as_mut() {

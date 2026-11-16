@@ -700,7 +700,13 @@ impl WorkspacePane {
             return;
         }
         if section == WorkspaceSection::Knowledge {
-            sheets::new_knowledge(cx.entity().downgrade(), self.rpc.clone(), window, cx);
+            sheets::new_knowledge(
+                cx.entity().downgrade(),
+                self.stores.clone(),
+                self.rpc.clone(),
+                window,
+                cx,
+            );
             return;
         }
         self.after_discard(window, cx, move |s, window, cx| {
@@ -850,9 +856,16 @@ impl WorkspacePane {
             ItemCommand::Delete => {
                 let spec = delete_spec(section, &name, &l10n);
                 let ask = present_sheet(window, spec, cx);
+                let account = active_account(&self.stores, cx);
                 cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                     if ask.await {
-                        let _ = this.update(cx, |s, cx| s.delete(section, id, cx));
+                        let _ = this.update(cx, |s, cx| {
+                            // Asked under another account: its item is not
+                            // this one's to delete.
+                            if active_account(&s.stores, cx) == account {
+                                s.delete(section, id, cx)
+                            }
+                        });
                     }
                 })
                 .detach();
@@ -879,9 +892,14 @@ impl WorkspacePane {
             kind: kind_of(section),
             id: id.clone(),
         });
+        let account = active_account(&self.stores, cx);
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
+                // Another account's lists now: nothing of this one's.
+                if active_account(&s.stores, cx) != account {
+                    return;
+                }
                 match result {
                     Ok(item) => {
                         if let Some(row) = s.list(section).items.iter_mut().find(|i| i.id == id) {
@@ -925,10 +943,13 @@ impl WorkspacePane {
                 suffix,
             });
         let handle = window.window_handle();
+        let account = active_account(&self.stores, cx);
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = handle.update(cx, |_, window, cx| {
                 let _ = this.update(cx, |s, cx| match result {
+                    // Another account's now: its copy is not opened here.
+                    _ if active_account(&s.stores, cx) != account => {}
                     Ok(detail) => {
                         let copy = editor::detail_id(&detail);
                         s.load(section, false, cx);
@@ -955,9 +976,12 @@ impl WorkspacePane {
             kind: kind_of(section),
             id: id.clone(),
         });
+        let account = active_account(&self.stores, cx);
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| match result {
+                // Another account's lists now: nothing of this one's.
+                _ if active_account(&s.stores, cx) != account => {}
                 Ok(_) => {
                     s.toast(NoticeLevel::Success, deleted_text(section, &l10n), cx);
                     if s.editors
@@ -1204,7 +1228,7 @@ impl WorkspacePane {
 }
 
 /// The account in use, as the accounts list says.
-fn active_account(stores: &Stores, cx: &App) -> Option<String> {
+pub(super) fn active_account(stores: &Stores, cx: &App) -> Option<String> {
     stores
         .accounts
         .read(cx)
@@ -1866,6 +1890,79 @@ mod tests {
             ["a", "b", "c"],
             "an unnamed item sorts by its id"
         );
+    }
+
+    /// Delete asked, Hide from Selector read and Import chosen under one
+    /// account: none of them is done under the account that signs in
+    /// before they finish.
+    #[gpui_kit::test]
+    fn nothing_begun_under_one_account_lands_on_the_next(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::sheet::bench::{bench, switch_account};
+        let (daemon, stores, vcx) = bench(cx);
+        // Questions answer "yes" (Delete).
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        let file = std::env::temp_dir().join(format!("conduit-import-{}.json", std::process::id()));
+        std::fs::write(&file, "[]").unwrap();
+        vcx.update(|_, cx| {
+            cx.set_global(transfer::TransferHook {
+                export_dir: None,
+                import_file: Some(file.clone()),
+            })
+        });
+        let pane = vcx.update(|window, cx| {
+            let stores = stores.clone();
+            cx.new(|cx| WorkspacePane::new(stores, WorkspaceSection::Models, window, cx))
+        });
+        vcx.run_until_parked();
+        daemon.returns::<methods::WorkspaceGet>(super::editor::bench::detail(
+            WorkspaceKind::Models,
+            serde_json::json!({"id": "trail-guide", "name": "Trail Guide"}),
+        ));
+        daemon.returns::<methods::WorkspaceDuplicate>(super::editor::bench::detail(
+            WorkspaceKind::Models,
+            serde_json::json!({"id": "trail-guide-copy", "name": "Trail Guide (Copy)"}),
+        ));
+        let held = daemon.hold::<methods::WorkspaceGet>();
+        let copying = daemon.hold::<methods::WorkspaceDuplicate>();
+        vcx.update(|window, cx| {
+            pane.update(cx, |p, cx| {
+                for command in [
+                    ItemCommand::Delete,
+                    ItemCommand::Hide,
+                    ItemCommand::Duplicate,
+                ] {
+                    p.run(
+                        WorkspaceSection::Models,
+                        "trail-guide".into(),
+                        command,
+                        window,
+                        cx,
+                    );
+                }
+                transfer::import(p, WorkspaceSection::Models, window, cx);
+            })
+        });
+        switch_account(&stores, vcx);
+        drop(held);
+        drop(copying);
+        vcx.run_until_parked();
+        assert!(
+            pane.read_with(vcx, |p, _| p.editors.is_empty()),
+            "Avery's copy opened in Blake's workspace"
+        );
+        assert!(
+            daemon.calls::<methods::WorkspaceDelete>().is_empty(),
+            "Avery's delete went to Blake's workspace"
+        );
+        assert!(
+            daemon.calls::<methods::WorkspaceSave>().is_empty(),
+            "Avery's model was saved under Blake"
+        );
+        assert!(
+            daemon.calls::<methods::WorkspaceImport>().is_empty(),
+            "Avery's file was imported under Blake"
+        );
+        let _ = std::fs::remove_file(&file);
     }
 
     #[test]
