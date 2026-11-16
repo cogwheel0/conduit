@@ -5,7 +5,9 @@
 //! [`open_files`]), answer notifications ([`notify`], [`notifications`]),
 //! the Quick Ask hotkey and placement ([`hotkey`], [`placement`]), the
 //! menu-bar item ([`tray`]) and open at login ([`login_item`]); Sparkle
-//! updates ([`updater`]); and Reduce Motion ([`reduce_motion`]).
+//! updates ([`updater`]); Reduce Motion ([`reduce_motion`]); and read
+//! aloud's voices and player ([`speech_engine`]) and Now Playing
+//! ([`now_playing`]).
 
 pub mod crash;
 pub mod deep_link;
@@ -21,6 +23,7 @@ pub mod macos;
 #[cfg(target_os = "macos")]
 pub mod notifications;
 pub mod notify;
+pub mod now_playing;
 pub mod open_files;
 pub mod open_url;
 pub mod placement;
@@ -28,6 +31,7 @@ pub mod reduce_motion;
 pub mod share;
 pub mod sheet;
 pub mod speech;
+pub mod speech_engine;
 pub mod sso;
 #[cfg(target_os = "macos")]
 pub mod tray;

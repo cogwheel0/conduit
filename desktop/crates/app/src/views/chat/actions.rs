@@ -7,7 +7,7 @@
 //! Settings › Chat › Message Actions: Automatic (the first three that may
 //! show inline; Share and Delete always in More) or the user's own set, in
 //! their order ([`layout`], the core's `messageActionLayout`). Read Aloud
-//! keeps its place in the order; this build offers it nowhere yet.
+//! is the main window's (its playback bar sits above the message field).
 //!
 //! Every action runs through [`run`], from a button (with its window) or
 //! from the More menu ([`RunRowCommand`], with the window in front).
@@ -23,7 +23,7 @@ use crate::views::chat_pane::ChatPane;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MessageAction {
     Copy,
-    /// Read Aloud: its place in the order; not offered in this build.
+    /// Read Aloud, or Stop Speaking while the answer is read.
     ReadAloud,
     Regenerate,
     RetryWithoutEffort,
@@ -125,6 +125,8 @@ pub enum RowCommand {
     Fork,
     Share(String),
     Delete,
+    /// Read Aloud, or Stop Speaking (resume, when paused) for this answer.
+    ReadAloud,
     /// Continue from This Response: another answer becomes the chat's.
     ContinueFrom(String),
     /// The version list (a popover at the `n / N` label).
@@ -231,6 +233,17 @@ pub fn run(ctx: RowContext, command: RowCommand, window: &mut Window, cx: &mut A
             );
         }
         RowCommand::Delete => confirm_delete(ctx, window, cx),
+        RowCommand::ReadAloud => {
+            let Some(chat_id) = store.upgrade().map(|s| s.read(cx).chat_id().to_string()) else {
+                return;
+            };
+            if let Some(speech) = cx
+                .try_global::<crate::AppState>()
+                .map(|s| s.stores.speech.clone())
+            {
+                speech.update(cx, |s, cx| s.toggle(chat_id, ctx.target.clone(), cx));
+            }
+        }
         RowCommand::ContinueFrom(answer) => {
             let _ = store.update(cx, |s, cx| {
                 s.set_current(&answer, Some(&ctx.key), cx).detach();
@@ -312,7 +325,7 @@ mod tests {
     fn a_saved_choice_shows_those_in_its_order_and_the_rest_in_more() {
         let all = [Copy, Regenerate, Usage, Fork, Share, Delete];
         let (inline, more) = layout(&all, Some(&ids(&["delete", "copy", "tts", "copy"])));
-        // Read Aloud is not offered, so it is not shown; a repeat counts once.
+        // An action not offered is not shown; a repeat counts once.
         assert_eq!(inline, vec![Delete, Copy]);
         assert_eq!(more, vec![Regenerate, Usage, Fork, Share]);
         // An empty choice puts every action in More.

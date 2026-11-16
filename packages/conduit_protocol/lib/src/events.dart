@@ -42,6 +42,7 @@ abstract final class ConduitEvents {
   static const String channelsChanged = 'channels.changed';
 
   static const String syncStatus = 'sync.status';
+
   /// The realtime socket's health changed (connected, transport, latency,
   /// reconnects). No payload; `data.connection` says what it is now.
   static const String socketHealth = 'socket.health';
@@ -121,6 +122,14 @@ abstract final class ConduitEvents {
   /// to the app's chat.
   static const String mcpAppsEvent = 'mcpApps.event';
 
+  /// The reading moved on: a word, a sentence, a pause, an end. Payload
+  /// [SpeechProgress]; a new `reading` means new sentences (`speech.get`).
+  static const String speechChanged = 'speech.changed';
+
+  /// The daemon asks the window's speech engine to speak or play. Payload
+  /// [SpeechCommand]; answered with `speech.report`.
+  static const String speechCommand = 'speech.command';
+
   /// Every event name, for subscription validation and tests.
   static const Set<String> all = {
     turnStarted,
@@ -155,6 +164,8 @@ abstract final class ConduitEvents {
     handoffSettled,
     chatPromptsChanged,
     mcpAppsEvent,
+    speechChanged,
+    speechCommand,
   };
 }
 

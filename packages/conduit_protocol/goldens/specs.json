@@ -852,6 +852,51 @@
       "result": "OkResult"
     },
     {
+      "name": "speech.get",
+      "params": null,
+      "result": "SpeechState"
+    },
+    {
+      "name": "speech.toggle",
+      "params": "SpeechToggle",
+      "result": "SpeechState"
+    },
+    {
+      "name": "speech.pause",
+      "params": null,
+      "result": "SpeechState"
+    },
+    {
+      "name": "speech.resume",
+      "params": null,
+      "result": "SpeechState"
+    },
+    {
+      "name": "speech.stop",
+      "params": null,
+      "result": "SpeechState"
+    },
+    {
+      "name": "speech.retry",
+      "params": null,
+      "result": "SpeechState"
+    },
+    {
+      "name": "speech.seek",
+      "params": "SpeechSeek",
+      "result": "SpeechState"
+    },
+    {
+      "name": "speech.preview",
+      "params": "SpeechPreview",
+      "result": "SpeechState"
+    },
+    {
+      "name": "speech.report",
+      "params": "SpeechReport",
+      "result": "OkResult"
+    },
+    {
       "name": "notes.list",
       "params": "NoteQuery",
       "result": "NoteList"
@@ -1437,6 +1482,16 @@
       "name": "mcpApps.event",
       "payload": "McpAppEvent",
       "scoped": true
+    },
+    {
+      "name": "speech.changed",
+      "payload": "SpeechProgress",
+      "scoped": false
+    },
+    {
+      "name": "speech.command",
+      "payload": "SpeechCommand",
+      "scoped": false
     }
   ]
 }

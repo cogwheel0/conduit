@@ -394,8 +394,14 @@ fn stores(rpc: Rpc, scratch: &std::path::Path, cx: &mut App) -> Stores {
             error_code: None,
         })
     });
+    let speech = {
+        let connection = connection.clone();
+        let rpc = rpc.clone();
+        cx.new(|cx| crate::stores::speech::SpeechStore::new(rpc, connection, cx))
+    };
     Stores {
         connection,
+        speech,
         ui_requests: cx.new(|_| UiRequestsStore::new(rpc.clone())),
         router: cx.new(|_| RouterStore::new()),
         toasts: cx.new(|_| ToastStore::new()),

@@ -628,10 +628,8 @@ async fn release_notes(dir: &Path, cx: &mut AsyncApp) -> bool {
         crate::views::release_notes::show_banner_notes(window, cx)
     });
     settle(cx, 1200).await;
-    let sheet = cx.update(|cx| {
-        cx.try_global::<crate::views::release_notes::ReleaseNotesGlobal>()
-            .and_then(|g| g.0.read(cx).sheet)
-    });
+    // One of the main window's sheets, on the shared host.
+    let sheet = cx.update(|cx| crate::views::release_notes::sheet_window(cx));
     pass &= ok("Learn More opens the notes as a sheet", sheet.is_some());
     if let Some(main) = cx.update(main_window).map(|(h, _)| h) {
         shoot_both_modes(main, dir, "release-notes-sheet", cx).await;
@@ -640,7 +638,9 @@ async fn release_notes(dir: &Path, cx: &mut AsyncApp) -> bool {
     settle(cx, 800).await;
     let dismissed = cx.update(|cx| {
         cx.try_global::<crate::views::release_notes::ReleaseNotesGlobal>()
-            .is_some_and(|g| g.0.read(cx).banner.is_none() && g.0.read(cx).sheet.is_none())
+            .is_some_and(|g| g.0.read(cx).banner.is_none())
+            && crate::views::release_notes::sheet_window(cx).is_none()
+            && !crate::views::sheet::is_open(cx)
     });
     pass &= ok("Done closes the sheet and the banner", dismissed);
     // The next launch of the same version shows none.

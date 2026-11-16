@@ -3,8 +3,11 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/features/chat/server_speech/server_speech.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -141,6 +144,41 @@ void main() {
     expect(deleted.chats.map((c) => c.id), isNot(contains(accepted.chatId)));
   });
 
+  // A chat whose own provider speaks needs no Open WebUI account: only
+  // speech from the Open WebUI server itself does.
+  test('a Direct chat is spoken by its provider without Open WebUI', () async {
+    final voice = VoiceService(runtime.container)
+      ..speechOfChat = (_) async => _SpeakingProvider();
+    final job = await voice.speak(
+      const VoiceSpeak(text: 'Hello there', chatId: 'direct-local:spoken'),
+    );
+    final audio = await voice.audio(job.jobId);
+    expect(audio.bytes, <int>[1, 2, 3]);
+    expect(audio.contentType, 'audio/mpeg');
+  });
+
+  // Read Aloud reads a temporary chat's answer from the daemon's memory,
+  // where its transcript is: it was never in the database.
+  test('read aloud finds a temporary chat\'s answer', () async {
+    final temporary = TemporaryChats()
+      ..start('local:aloud')
+      ..append(
+        'local:aloud',
+        ChatMessage(
+          id: 'answer-1',
+          role: 'assistant',
+          content: 'Spoken words.',
+          timestamp: DateTime.utc(2026),
+          model: 'fake-model',
+        ),
+      );
+    final chats = ChatsService(runtime.container, temporary: temporary);
+    addTearDown(chats.dispose);
+    final answer = await chats.answerFor('local:aloud', 'answer-1');
+    expect(answer.content, 'Spoken words.');
+    expect(answer.model, 'fake-model');
+  });
+
   // A temporary chat lives only in the daemon's memory; deleting it must
   // forget it there, or `chats.get` and the next send still have it.
   test('deleting a temporary chat forgets its transcript', () async {
@@ -249,4 +287,30 @@ final class _OtherServerApi extends ApiService {
     ApiAuthSnapshot? authSnapshot,
     CancelToken? cancelToken,
   }) async => fail('read $fileId from the other account\'s server');
+}
+
+/// A Direct chat's speech: it speaks, and needs no server account.
+final class _SpeakingProvider implements ServerSpeechProvider {
+  @override
+  ServerSpeechSource get source => ServerSpeechSource.direct;
+  @override
+  bool get canTranscribe => false;
+  @override
+  bool get canSynthesize => true;
+  @override
+  bool get offersVoiceChoice => false;
+  @override
+  Future<String> transcribe(
+    Uint8List audio, {
+    required String fileName,
+    required String mimeType,
+    String? language,
+  }) => throw UnimplementedError();
+  @override
+  Future<SynthesizedSpeech> synthesize(
+    String text, {
+    String? preferredVoice,
+    double? speed,
+  }) async =>
+      (bytes: Uint8List.fromList(<int>[1, 2, 3]), mimeType: 'audio/mpeg');
 }

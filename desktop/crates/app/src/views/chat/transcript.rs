@@ -32,6 +32,7 @@
 //!   row and scrolls to the current match ([`find`]).
 
 mod find;
+mod reading;
 pub use find::{FindMatch, FindPart, find_ranges};
 
 use std::collections::{HashMap, HashSet};
@@ -134,6 +135,10 @@ pub struct Transcript {
     /// Settings › Chat › Message Actions: the actions shown under each
     /// answer, in order, or `None` for Automatic.
     action_prefs: Option<Vec<String>>,
+    /// The answer being read aloud (its shown version's id).
+    reading: Option<String>,
+    /// Its sentence and word, marked in place.
+    reader: Option<reading::Reader>,
     /// Show All Branches… in the version list: the chat pane opens them.
     on_branches: Option<super::popovers::ShowBranches>,
     /// A hover on a citation pill: the preview opens after a moment, and
@@ -323,6 +328,8 @@ impl Transcript {
             row_popover: None,
             leaving_row_popover: None,
             action_prefs: None,
+            reading: None,
+            reader: None,
             on_branches: None,
             _subscriptions: subscriptions,
         };
@@ -331,6 +338,14 @@ impl Transcript {
     }
 
     /// Settings › Chat › Message Actions, as the rows lay out their actions.
+    /// Which answer is being read aloud (its Read Aloud says Stop Speaking).
+    pub fn set_reading(&mut self, reading: Option<String>, cx: &mut Context<Self>) {
+        if self.reading != reading {
+            self.reading = reading;
+            cx.notify();
+        }
+    }
+
     pub fn set_action_prefs(&mut self, prefs: Option<Vec<String>>, cx: &mut Context<Self>) {
         if self.action_prefs != prefs {
             self.action_prefs = prefs;
@@ -352,6 +367,7 @@ impl Transcript {
             abilities: store.abilities(),
             merging: store.merging(),
             actions: self.action_prefs.clone(),
+            reading: self.reading.clone(),
         }
     }
 
@@ -1303,6 +1319,7 @@ impl Render for Transcript {
         cx.set_global(CitationTarget(cx.entity().downgrade()));
         self.prune();
         self.refresh_find(cx);
+        self.refresh_reading(cx);
         self.step_chase(window, cx);
         self.reveal_focused(window, cx);
         let t = cx.conduit().clone();
@@ -1339,6 +1356,26 @@ impl Render for Transcript {
             .role(Role::Log)
             .aria_label(SharedString::from(l10n.desktop_messages()))
             .track_focus(&self.focus)
+            // A double-click on a word of the answer being read aloud moves
+            // the reading to its sentence (the text has selected the word
+            // by the time the button comes up).
+            .on_mouse_up(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|this, e: &gpui_kit::MouseUpEvent, _, cx| {
+                    if e.click_count != 2 || this.reader.is_none() {
+                        return;
+                    }
+                    let Some(sentence) = this.reading_sentence_at_selection(cx) else {
+                        return;
+                    };
+                    if let Some(speech) = cx
+                        .try_global::<crate::AppState>()
+                        .map(|s| s.stores.speech.clone())
+                    {
+                        speech.update(cx, |s, cx| s.seek_sentence(sentence, cx));
+                    }
+                }),
+            )
             .relative()
             .flex_1()
             .min_h_0()

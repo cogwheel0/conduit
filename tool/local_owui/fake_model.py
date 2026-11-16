@@ -42,9 +42,10 @@ Open WebUI's background tasks (title, tags, follow-ups) get JSON answers,
 and a note sent as `<notes>...</notes>` comes back as a markdown list.
 `/audio/transcriptions` answers with a fixed sentence (the log gets the
 upload's size, its WAV's length and its language; six seconds or more of
-audio take 4 s to answer) and `/audio/speech`
-with a tenth of a second of silence (WAV), for the server's speech
-features. `/mcp` is a small MCP server (streamable HTTP, JSON answers)
+audio take 4 s to answer) and `/audio/speech` with silence (WAV) about as
+long as the text would take to say, for the server's speech features;
+"read aloud" in a prompt gets four long sentences to read. `/mcp` is a
+small MCP server (streamable HTTP, JSON answers)
 with one MCP App, `show_tides`, whose page shows the tool's result, for
 Open WebUI's MCP Apps. Every answer is invented. The log gets each request's roles, tool names,
 whether it streamed, its system text, its last user text and its generation
@@ -261,14 +262,25 @@ PAGE = (
 )
 
 
-def silence_wav():
+def silence_wav(seconds=0.1):
     out = io.BytesIO()
     with wave.open(out, 'wb') as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(16000)
-        w.writeframes(b'\0\0' * 1600)
+        w.writeframes(b'\0\0' * int(16000 * seconds))
     return out.getvalue()
+
+
+def speech_seconds(raw):
+    """How long the synthetic speech for a `/audio/speech` body lasts: about
+    as long as a voice would take (60 ms a character), between a tenth of a
+    second and six seconds, so a reading's sentences take time to play."""
+    try:
+        text = json.loads(raw or b'{}').get('input') or ''
+    except ValueError:
+        text = ''
+    return min(6.0, max(0.1, len(text) * 0.06))
 
 
 def text_of(message):
@@ -318,6 +330,16 @@ def answer_for(text):
         body = ''.join(parts)
     elif 'slow' in t:
         body = ' '.join(f'word{i}' for i in range(300))
+    elif 'read aloud' in t:
+        # Four sentences of 50+ characters, so Open WebUI's split keeps
+        # each its own (read aloud's tests count them), one in bold.
+        body = (
+            'The harbour lights come on one by one as the evening settles in. '
+            'A small wooden boat drifts slowly past the **green buoy** near the pier.'
+            '\n\n'
+            'Gulls settle on the old stone wall and wait quietly for the tide. '
+            'By morning the fishing crews are loading their nets before sunrise.'
+        )
     else:
         body = 'Hello from the fake model. Ask for code, math, reasoning or a long answer.'
     return reasoning, body
@@ -460,7 +482,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {'text': TRANSCRIPT})
             return
         if path.endswith('/audio/speech'):
-            data = silence_wav()
+            data = silence_wav(speech_seconds(raw))
             self.send_response(200)
             self.send_header('Content-Type', 'audio/wav')
             self.send_header('Content-Length', str(len(data)))

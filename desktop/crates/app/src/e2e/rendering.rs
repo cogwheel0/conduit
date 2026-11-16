@@ -14,7 +14,8 @@
 //! * **The task checklist** a tool made, docked over the composer.
 //! * **Alerts** in a streamed answer.
 //! * **A message sent while the server is away:** queued on its answer,
-//!   then sent on its own once the server is back.
+//!   then sent on its own once the server is back; no "Answer ready" for
+//!   the hand-off; a message sent while it still waits is queued behind it.
 //!
 //! Each state is shot in light and dark.
 
@@ -583,6 +584,20 @@ async fn offline_queue(dir: &Path, cx: &mut AsyncApp) -> bool {
     send("Reply with exactly the word: plover", cx).await;
     remember_chat(cx).await;
     pass &= wait_answer(cx, Duration::from_secs(60)).await;
+    // Every `turn.finished` from here on, as the notifications hear it.
+    let ends: std::rc::Rc<std::cell::RefCell<Vec<conduit_protocol::TurnFinished>>> =
+        Default::default();
+    let _ends_watch = cx.update(|cx| {
+        let connection = cx.global::<AppState>().connection.clone();
+        let ends = ends.clone();
+        cx.subscribe(&connection, move |_, event, _| {
+            if let crate::stores::connection::ConnectionEvent::Daemon(event) = event
+                && let conduit_protocol::Event::TurnFinished(f) = event.as_ref()
+            {
+                ends.borrow_mut().push(f.clone());
+            }
+        })
+    });
     let stopped = cx
         .background_executor()
         .spawn(async { owui("stop", None) })
@@ -601,6 +616,7 @@ async fn offline_queue(dir: &Path, cx: &mut AsyncApp) -> bool {
         ),
         queued,
     );
+    let tern = cx.update(|cx| last_answer(cx).map(|a| a.key));
     settle(cx, 600).await;
     shoot_main(dir, "rendering-queued", cx).await;
     let started = cx
@@ -608,8 +624,40 @@ async fn offline_queue(dir: &Path, cx: &mut AsyncApp) -> bool {
         .spawn(async { owui("start", None) })
         .await;
     pass &= ok("owui.sh start", started);
+    // Back online with the answer still waiting to go out: a message sent
+    // now is queued behind it (the daemon is writing it; a turn beside it
+    // would be refused as busy), as on the phone.
+    let waits = wait_until(cx, Duration::from_secs(60), |cx| {
+        let Some(store) = chat_store(cx) else {
+            return false;
+        };
+        let online = pane(cx).is_some_and(|p| !p.read(cx).composer.read(cx).offline);
+        let s = store.read(cx);
+        online && s.answer_queued() && s.queue_offered()
+    })
+    .await;
+    if waits {
+        send("Reply with exactly the word: gull", cx).await;
+        let behind = wait_until(cx, Duration::from_secs(10), |cx| {
+            chat_store(cx).is_some_and(|s| !s.read(cx).queue.drafts.is_empty())
+        })
+        .await;
+        pass &= ok(
+            "a message sent while the answer waits is queued behind it",
+            behind,
+        );
+    } else {
+        println!("SMOKE e2e skip the queued answer went out before the window was back online");
+    }
     let sent = wait_until(cx, Duration::from_secs(180), |cx| {
-        last_answer(cx).is_some_and(|a| a.queued.is_none() && a.text.contains("tern"))
+        let Some(store) = chat_store(cx) else {
+            return false;
+        };
+        let s = store.read(cx);
+        s.rows()
+            .iter()
+            .filter_map(|r| s.item(*r))
+            .any(|i| Some(&i.key) == tern.as_ref() && i.queued.is_none() && i.text.contains("tern"))
     })
     .await;
     pass &= ok(
@@ -618,6 +666,48 @@ async fn offline_queue(dir: &Path, cx: &mut AsyncApp) -> bool {
             cx.update(answer_text)
         ),
         sent,
+    );
+    if waits {
+        let after = wait_until(cx, Duration::from_secs(90), |cx| {
+            last_answer(cx).is_some_and(|a| !a.streaming && a.text.contains("gull"))
+        })
+        .await;
+        pass &= ok(
+            &format!(
+                "then the queued message goes out after it ({:?})",
+                cx.update(answer_text)
+            ),
+            after,
+        );
+    }
+    // The answer's hand-offs while it waited say `queued`, so no "Answer
+    // ready" went out for them; the turn that brought it says it ended.
+    let ends = ends.borrow().clone();
+    let of_tern: Vec<_> = ends
+        .iter()
+        .filter(|f| Some(&f.message_id) == tern.as_ref())
+        .collect();
+    let (last, handoffs) = match of_tern.split_last() {
+        Some((last, rest)) => (Some(*last), rest.to_vec()),
+        None => (None, vec![]),
+    };
+    let quiet = handoffs.iter().all(|f| {
+        f.queued
+            && crate::shell::notify::decide(
+                true,
+                &f.chat_id,
+                crate::shell::notify::Outcome::of(f.ok, f.queued),
+                &crate::shell::notify::OnScreen::default(),
+            )
+            .is_none()
+    });
+    pass &= ok(
+        &format!(
+            "a queued answer's hand-off posts no Answer Ready ({} hand-off(s), then {:?})",
+            handoffs.len(),
+            last.map(|f| (f.ok, f.queued))
+        ),
+        quiet && last.is_some_and(|f| f.ok && !f.queued),
     );
     pass
 }

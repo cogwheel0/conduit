@@ -211,7 +211,7 @@ impl Transcript {
     }
 
     /// The view of row `ix`, made (not drawn) when it has none yet.
-    fn find_row_view(&mut self, ix: usize, cx: &mut App) -> Option<(String, RowView)> {
+    pub(super) fn find_row_view(&mut self, ix: usize, cx: &mut App) -> Option<(String, RowView)> {
         let store = self.store.read(cx);
         let row = store.rows().get(ix).copied()?;
         let item = store.item(row)?;

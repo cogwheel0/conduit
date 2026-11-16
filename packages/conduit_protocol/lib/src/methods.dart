@@ -678,6 +678,34 @@ abstract final class ConduitMethods {
   static const String notesPrefix = 'notes.';
   static const String chatPromptsPrefix = 'chatPrompts.';
   static const String mcpAppsPrefix = 'mcpApps.';
+  static const String speechPrefix = 'speech.';
+
+  // speech.* -- read aloud. The daemon runs the reading (the core's
+  // manager); the window is its voice and its player.
+
+  /// The reading now, with its sentences.
+  static const String speechGet = 'speech.get';
+
+  /// Reads an answer aloud, or stops the reading of it (resumes it when
+  /// paused): the Read Aloud action.
+  static const String speechToggle = 'speech.toggle';
+
+  static const String speechPause = 'speech.pause';
+  static const String speechResume = 'speech.resume';
+  static const String speechStop = 'speech.stop';
+
+  /// Reads the failed reading again.
+  static const String speechRetry = 'speech.retry';
+
+  /// Moves the reading to a sentence, by some sentences, or to a time.
+  static const String speechSeek = 'speech.seek';
+
+  /// Settings › Audio's sample, or stops it.
+  static const String speechPreview = 'speech.preview';
+
+  /// The window's speech engine answers a `speech.command`, or says what
+  /// it did.
+  static const String speechReport = 'speech.report';
 
   // notes.* -- listed with the prefixes because they are few.
 
@@ -985,6 +1013,7 @@ abstract final class ConduitMethods {
     handoffPrefix,
     chatPromptsPrefix,
     mcpAppsPrefix,
+    speechPrefix,
   };
 
   /// Whether [method] sits in a namespace this protocol version defines.

@@ -32,6 +32,7 @@ import 'system.dart';
 import 'terminal.dart';
 import 'turns.dart';
 import 'valves.dart';
+import 'speech.dart';
 import 'voice.dart';
 import 'workspace.dart';
 
@@ -1013,6 +1014,49 @@ abstract final class ConduitMethodSpecs {
     result: OkResult.fromJson,
   );
 
+  // speech.*
+
+  static const speechGet = ConduitMethodSpec<void, SpeechState>(
+    ConduitMethods.speechGet,
+    result: SpeechState.fromJson,
+  );
+  static const speechToggle = ConduitMethodSpec<SpeechToggle, SpeechState>(
+    ConduitMethods.speechToggle,
+    params: SpeechToggle.fromJson,
+    result: SpeechState.fromJson,
+  );
+  static const speechPause = ConduitMethodSpec<void, SpeechState>(
+    ConduitMethods.speechPause,
+    result: SpeechState.fromJson,
+  );
+  static const speechResume = ConduitMethodSpec<void, SpeechState>(
+    ConduitMethods.speechResume,
+    result: SpeechState.fromJson,
+  );
+  static const speechStop = ConduitMethodSpec<void, SpeechState>(
+    ConduitMethods.speechStop,
+    result: SpeechState.fromJson,
+  );
+  static const speechRetry = ConduitMethodSpec<void, SpeechState>(
+    ConduitMethods.speechRetry,
+    result: SpeechState.fromJson,
+  );
+  static const speechSeek = ConduitMethodSpec<SpeechSeek, SpeechState>(
+    ConduitMethods.speechSeek,
+    params: SpeechSeek.fromJson,
+    result: SpeechState.fromJson,
+  );
+  static const speechPreview = ConduitMethodSpec<SpeechPreview, SpeechState>(
+    ConduitMethods.speechPreview,
+    params: SpeechPreview.fromJson,
+    result: SpeechState.fromJson,
+  );
+  static const speechReport = ConduitMethodSpec<SpeechReport, OkResult>(
+    ConduitMethods.speechReport,
+    params: SpeechReport.fromJson,
+    result: OkResult.fromJson,
+  );
+
   // notes.*
 
   static const notesList = ConduitMethodSpec<NoteQuery, NoteList>(
@@ -1661,6 +1705,15 @@ abstract final class ConduitMethodSpecs {
         mcpAppsMessage,
         mcpAppsContext,
         mcpAppsClose,
+        speechGet,
+        speechToggle,
+        speechPause,
+        speechResume,
+        speechStop,
+        speechRetry,
+        speechSeek,
+        speechPreview,
+        speechReport,
         notesList,
         notesGet,
         notesSave,
@@ -1928,6 +1981,17 @@ abstract final class ConduitEventSpecs {
     scoped: true,
   );
 
+  static const speechChanged = ConduitEventSpec<SpeechProgress>(
+    ConduitEvents.speechChanged,
+    payload: SpeechProgress.fromJson,
+    scoped: false,
+  );
+  static const speechCommand = ConduitEventSpec<SpeechCommand>(
+    ConduitEvents.speechCommand,
+    payload: SpeechCommand.fromJson,
+    scoped: false,
+  );
+
   /// Every event, once.
   static const List<ConduitEventSpec<Object?>> all =
       <ConduitEventSpec<Object?>>[
@@ -1963,6 +2027,8 @@ abstract final class ConduitEventSpecs {
         handoffSettled,
         chatPromptsChanged,
         mcpAppsEvent,
+        speechChanged,
+        speechCommand,
       ];
 
   static final Map<String, ConduitEventSpec<Object?>> _byName =

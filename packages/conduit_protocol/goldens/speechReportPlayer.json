@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "voices": [],
+  "kind": "player",
+  "utterance": 0,
+  "playing": true,
+  "state": "ready",
+  "index": 1,
+  "positionMs": 800
+}

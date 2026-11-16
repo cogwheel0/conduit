@@ -60,11 +60,11 @@ fn phase(cx: &mut App) -> Phase {
         .unwrap_or(Phase::Idle)
 }
 
-fn idle(cx: &mut App) -> bool {
+pub(super) fn idle(cx: &mut App) -> bool {
     phase(cx) == Phase::Idle
 }
 
-fn listening(cx: &mut App) -> bool {
+pub(super) fn listening(cx: &mut App) -> bool {
     matches!(phase(cx), Phase::Listening { .. })
 }
 
@@ -80,7 +80,7 @@ fn recordings(cx: &mut App) -> Vec<conduit_protocol::RecordingDto> {
         .unwrap_or_default()
 }
 
-fn set_input(input: Option<InputOverride>, cx: &mut AsyncApp) {
+pub(super) fn set_input(input: Option<InputOverride>, cx: &mut AsyncApp) {
     cx.update(|cx| {
         if let Some(d) = dictation(cx) {
             d.update(cx, |d, _| d.set_input(input));
@@ -100,7 +100,7 @@ async fn set_composer_text(text: &str, cx: &mut AsyncApp) {
 }
 
 /// Starts (or stops) dictating as the mic does.
-fn toggle(cx: &mut AsyncApp) {
+pub(super) fn toggle(cx: &mut AsyncApp) {
     in_pane(cx, |p, window, cx| {
         p.composer
             .update(cx, |c, cx| c.toggle_dictation(window, cx))
@@ -108,7 +108,7 @@ fn toggle(cx: &mut AsyncApp) {
 }
 
 /// Writes `text` as speech, 16 kHz mono 16-bit WAV, with `say`.
-fn speak_to(path: &Path, text: &str) -> bool {
+pub(super) fn speak_to(path: &Path, text: &str) -> bool {
     Command::new("/usr/bin/say")
         .arg("-o")
         .arg(path)
@@ -164,7 +164,7 @@ fn speech_allowed() -> bool {
     }
 }
 
-async fn set_settings(patch: AppSettingsPatch, cx: &mut AsyncApp) {
+pub(super) async fn set_settings(patch: AppSettingsPatch, cx: &mut AsyncApp) {
     cx.update(|cx| {
         let s = cx.global::<AppState>().stores.app_settings.clone();
         s.update(cx, |s, cx| s.set(patch, cx));
@@ -172,7 +172,7 @@ async fn set_settings(patch: AppSettingsPatch, cx: &mut AsyncApp) {
     settle(cx, 800).await;
 }
 
-async fn save_voice(edit: VoiceSettingsEdit, cx: &mut AsyncApp) -> bool {
+pub(super) async fn save_voice(edit: VoiceSettingsEdit, cx: &mut AsyncApp) -> bool {
     let rpc = cx.update(|cx| cx.global::<AppState>().stores.connection.read(cx).rpc());
     rpc.call::<methods::VoiceSaveSettings>(&edit).await.is_ok()
 }

@@ -209,6 +209,9 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
         KeyBinding::new("shift-cmd-n", NewTemporaryChat, None),
         // Chat › Regenerate.
         KeyBinding::new("cmd-r", RegenerateLastAnswer, None),
+        // Chat › Stop Speaking: ⌘., the Mac's Cancel, from a text field too.
+        KeyBinding::new("cmd-.", crate::actions::StopSpeaking, None),
+        KeyBinding::new("cmd-.", crate::actions::StopSpeaking, Some("Input")),
         // Chat › Expand Editor and Ask Conduit, from the message field too.
         KeyBinding::new("shift-cmd-e", crate::actions::ExpandEditor, None),
         KeyBinding::new("shift-cmd-a", crate::actions::AskConduit, None),
@@ -336,6 +339,7 @@ pub fn shortcut_hints(keymap: &Keymap, quick_ask: Option<&KeyStroke>) -> Shortcu
         temporary_chat: Some(describe(&fixed_stroke(FixedCommand::NewTemporaryChat), mac).into()),
         regenerate: Some(describe(&fixed_stroke(FixedCommand::Regenerate), mac).into()),
         dictate: chord(ShortcutAction::Dictate),
+        read_aloud: chord(ShortcutAction::ReadAloud),
     }
 }
 
@@ -376,6 +380,8 @@ pub struct MenuState {
     pub save_chat: bool,
     /// The composer is dictating: Chat › Stop Dictation.
     pub dictating: bool,
+    /// Something is being read aloud (Chat › Stop Speaking).
+    pub speaking: bool,
 }
 
 impl Default for MenuState {
@@ -393,6 +399,7 @@ impl Default for MenuState {
             tool_settings: false,
             save_chat: false,
             dictating: false,
+            speaking: false,
         }
     }
 }
@@ -500,6 +507,7 @@ pub fn menu_state(cx: &App) -> MenuState {
         tool_settings: !offer.tool_targets.is_empty(),
         save_chat,
         dictating,
+        speaking: state.stores.speech.read(cx).is_active(),
     }
 }
 
@@ -825,6 +833,10 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
         MenuItem::action(l10n.regenerate(), RegenerateLastAnswer).disabled(no_chat),
         MenuItem::action(l10n.desktop_stop_generating(), StopGenerating),
         MenuItem::separator(),
+        MenuItem::action(l10n.desktop_read_aloud(), crate::actions::ReadAloud).disabled(no_chat),
+        MenuItem::action(l10n.desktop_stop_speaking(), crate::actions::StopSpeaking)
+            .disabled(!state.speaking),
+        MenuItem::separator(),
         MenuItem::action(l10n.desktop_menu_copy_last_reply(), CopyLastResponse),
         MenuItem::action(l10n.desktop_menu_copy_last_code_block(), CopyLastCodeBlock),
     ]);
@@ -1074,6 +1086,9 @@ mod tests {
                 "Regenerate",
                 "Stop Generating",
                 "—",
+                "Read Aloud",
+                "Stop Speaking",
+                "—",
                 "Copy Last Answer",
                 "Copy Last Code Block"
             ]
@@ -1268,6 +1283,7 @@ mod tests {
             F::NextChat => Box::new(NextChat),
             F::PreviousChat => Box::new(PreviousChat),
             F::Regenerate => Box::new(RegenerateLastAnswer),
+            F::StopSpeaking => Box::new(crate::actions::StopSpeaking),
             F::ExpandEditor => Box::new(crate::actions::ExpandEditor),
             F::AskConduit => Box::new(crate::actions::AskConduit),
             F::ChatSettings => Box::new(crate::actions::ChatSettings),

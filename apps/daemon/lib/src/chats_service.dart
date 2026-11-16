@@ -935,6 +935,42 @@ final class ChatsService {
     }
   }
 
+  /// The text of answer [messageId] in [chatId] (or of the version with
+  /// that id), with the model that wrote it: what Read Aloud reads. Read
+  /// where `chats.get` reads it: a Hermes session's transcript is Hermes's,
+  /// a temporary chat's is in this daemon's memory.
+  Future<({String content, String? model})> answerFor(
+    String chatId,
+    String messageId,
+  ) async {
+    final List<core.ChatMessage> messages;
+    if (hermesSessionOf(chatId) case final sessionId? when _hermes != null) {
+      messages = await _hermes.transcript(sessionId);
+    } else if (_temporary.contains(chatId)) {
+      messages = _temporary.transcript(chatId);
+    } else {
+      messages = (await _load(chatId)).messages;
+    }
+    for (final message in messages) {
+      if (message.id == messageId) {
+        return (content: message.content, model: message.model);
+      }
+      for (final version in message.versions) {
+        if (version.id == messageId) {
+          return (content: version.content, model: version.model);
+        }
+      }
+    }
+    throw RpcError(
+      code: ConduitErrorCodes.notFound,
+      args: <String, String>{'messageId': messageId},
+      debugMessage: 'no such message in that chat',
+    );
+  }
+
+  /// The model [chatId] answers with.
+  Future<String?> modelOf(String chatId) async => (await _load(chatId)).model;
+
   /// [chatId] as the core loads it, or not found.
   Future<Conversation> _load(String chatId) async {
     try {

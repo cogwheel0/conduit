@@ -1,7 +1,7 @@
 //! The rebindable shortcuts: the table, its matching rules, the stored form
 //! of a chord, and conflict detection, plus the bridge to GPUI key bindings.
 //!
-//! The table has 13 bindings; a 14th, `toggleSidePane`, waits for the
+//! The table has 14 bindings; a 15th, `toggleSidePane`, waits for the
 //! right-hand pane, which is post-v1. Only [`ShortcutAction::is_live`] ones
 //! are bound to GPUI actions today; the rest keep their chords (rebindable
 //! and conflict-checked) until a view binds them.
@@ -24,10 +24,12 @@ pub enum ShortcutAction {
     DenyRequest,
     Dictate,
     ToggleSidebar,
+    /// Read Aloud: the open chat's last answer (Chat › Read Aloud).
+    ReadAloud,
 }
 
 impl ShortcutAction {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::NewChat,
         Self::OpenPalette,
         Self::FocusComposer,
@@ -41,6 +43,7 @@ impl ShortcutAction {
         Self::DenyRequest,
         Self::Dictate,
         Self::ToggleSidebar,
+        Self::ReadAloud,
     ];
 
     /// The stored name (`ShortcutAction.name` in Dart).
@@ -59,6 +62,7 @@ impl ShortcutAction {
             Self::DenyRequest => "denyRequest",
             Self::Dictate => "dictate",
             Self::ToggleSidebar => "toggleSidebar",
+            Self::ReadAloud => "readAloud",
         }
     }
 
@@ -86,6 +90,7 @@ impl ShortcutAction {
                 | Self::CopyLastResponse
                 | Self::CopyLastCodeBlock
                 | Self::Dictate
+                | Self::ReadAloud
         )
     }
 }
@@ -175,6 +180,8 @@ pub fn default_shortcuts() -> Vec<Shortcut> {
         s(A::CopyLastCodeBlock, KeyStroke::new(";").primary().shift()),
         s(A::Dictate, KeyStroke::new("l").primary().shift()),
         s(A::ToggleSidebar, KeyStroke::new("s").primary().ctrl()),
+        // ⌥ beside Regenerate's ⌘R: both act on the last answer.
+        s(A::ReadAloud, KeyStroke::new("r").primary().alt()),
     ]
 }
 
@@ -342,6 +349,8 @@ pub enum FixedCommand {
     Forward,
     /// Go › the `n`th sidebar section (⌘1…⌘8; `n` from 1).
     GoToSection(u8),
+    /// Chat › Stop Speaking (⌘., the Mac's Cancel; Esc too while it reads).
+    StopSpeaking,
 }
 
 impl FixedCommand {
@@ -382,6 +391,7 @@ pub fn fixed_shortcuts() -> Vec<(FixedCommand, KeyStroke)> {
         (F::NextChat, k("tab").ctrl()),
         (F::PreviousChat, k("tab").ctrl().shift()),
         (F::Regenerate, k("r").primary()),
+        (F::StopSpeaking, k(".").primary()),
         (F::ExpandEditor, k("e").primary().shift()),
         (F::AskConduit, k("a").primary().shift()),
         (F::ChatSettings, k("i").primary()),
@@ -479,6 +489,8 @@ pub fn keyboard_groups() -> Vec<(KeyGroup, Vec<KeyRow>)> {
                 R(A::FocusModelPicker),
                 R(A::StopGenerating),
                 Fixed(F::Regenerate),
+                R(A::ReadAloud),
+                Fixed(F::StopSpeaking),
                 Fixed(F::ExpandEditor),
                 Fixed(F::AskConduit),
                 Fixed(F::ChatSettings),
@@ -700,7 +712,7 @@ mod tests {
     #[test]
     fn every_default_is_reachable_and_unique() {
         let t = default_shortcuts();
-        assert_eq!(t.len(), 13);
+        assert_eq!(t.len(), 14);
         let mut seen = std::collections::HashSet::new();
         for s in &t {
             assert!(
@@ -905,7 +917,8 @@ mod tests {
                 A::AllowRequest,
                 A::DenyRequest,
                 A::Dictate,
-                A::ToggleSidebar
+                A::ToggleSidebar,
+                A::ReadAloud
             ]
         );
         for a in ShortcutAction::ALL {
@@ -935,8 +948,19 @@ mod tests {
             assert_eq!(n, 1, "{c:?}");
         }
         assert_eq!(rows.iter().filter(|r| **r == KeyRow::QuickAsk).count(), 1);
-        // 13 rebindable, 17 fixed (⌘1…⌘8 as one row), Quick Ask.
-        assert_eq!(rows.len(), 32);
+        // 14 rebindable, 18 fixed (⌘1…⌘8 as one row), Quick Ask.
+        assert_eq!(rows.len(), 34);
+        // Read Aloud beside Regenerate's ⌘R; Stop Speaking is the Mac's ⌘.
+        let read_aloud = default_shortcuts()
+            .into_iter()
+            .find(|s| s.action == ShortcutAction::ReadAloud)
+            .unwrap();
+        assert_eq!(describe(&read_aloud.stroke, true), "⌥⌘R");
+        assert_eq!(fixed_conflict(&read_aloud.stroke, None), None);
+        assert_eq!(
+            describe(&fixed_stroke(FixedCommand::StopSpeaking), true),
+            "⌘."
+        );
         // Go › Back and Forward are Finder's ⌘[ and ⌘].
         assert_eq!(describe(&fixed_stroke(FixedCommand::Back), true), "⌘[");
         assert_eq!(describe(&fixed_stroke(FixedCommand::Forward), true), "⌘]");

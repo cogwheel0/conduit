@@ -807,7 +807,12 @@ impl ChatComposer {
     /// What Enter does while an answer is written: queue (Open WebUI), hand
     /// to Hermes (a Desktop Gateway), or nothing.
     fn busy_action(&self, cx: &App) -> Option<bool> {
-        if !self.streaming || !self.ready(cx) || self.text(cx).trim().is_empty() {
+        // The queue is offered behind a running answer, and behind one that
+        // waits in the outbox (nothing streams, Send shows).
+        if !(self.streaming || self.queue_offer)
+            || !self.ready(cx)
+            || self.text(cx).trim().is_empty()
+        {
             return None;
         }
         if self.queue_offer && self.follow_ups {
@@ -3516,7 +3521,13 @@ impl Render for ChatComposer {
             // Waiting on the connection: dimmed, its tooltip saying why
             // (the state itself shows once, in the window's pill).
             let waits = self.offline_reason.clone().filter(|_| self.offline);
-            IconButton::new("send", IconName::ArrowUp, l10n.send())
+            // Behind an answer that waits in the outbox, Send queues.
+            let label = if self.queue_offer {
+                l10n.desktop_queue_message()
+            } else {
+                l10n.send()
+            };
+            IconButton::new("send", IconName::ArrowUp, label)
                 .size(32., 17.)
                 .when_some(waits.clone(), |b, why| b.tooltip(why))
                 .shortcut(if waits.is_some() {
@@ -4602,6 +4613,20 @@ mod tests {
             }]
         );
         assert_eq!(value(&view, cx), "", "queued, the field clears");
+        // Behind an answer that waits in the outbox nothing streams, and
+        // the queue is still offered: Enter queues.
+        seen.borrow_mut().clear();
+        view.update(cx, |c, _| c.streaming = false);
+        cx.simulate_input("And the east side?");
+        cx.simulate_keystrokes("enter");
+        assert_eq!(
+            *seen.borrow(),
+            vec![ChatComposerEvent::Queue {
+                text: "And the east side?".into(),
+                mentions: vec![],
+            }]
+        );
+        view.update(cx, |c, _| c.streaming = true);
         // Hermes on a Desktop Gateway: Enter sends it next; Steer steers.
         view.update(cx, |c, _| c.queue_offer = false);
         set_options(

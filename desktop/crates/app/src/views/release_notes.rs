@@ -6,26 +6,31 @@
 //! The notes describe this app, so the desktop ships its own catalog
 //! (`assets/release_notes/<locale>.json`, core's format); core decides what
 //! shows and remembers what was seen (`releaseNotes.*`).
+//!
+//! The sheet is one of the app's window sheets ([`crate::views::sheet`]):
+//! on the main window from the banner, on Settings from About. One sheet
+//! is down at a time.
 
-use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::{IconName, icon};
-use conduit_components::theme::UI_FONT;
-use conduit_components::views::kit::{Button, IconButton, grouped_tones};
+use conduit_components::views::kit::{Button, IconButton};
 use conduit_protocol::{ReleaseNoteDto, ReleaseNotesQuery, ReleaseNotesState, methods};
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyWindowHandle, App, Bounds, Context, Div, Entity, FocusHandle, Focusable, Global, Pixels,
-    Role, SharedString, Window, div, px, relative,
+    AnyElement, AnyWindowHandle, App, Context, Div, Entity, FocusHandle, Global, Role,
+    SharedString, Window, div, px, relative,
 };
 
-use crate::actions::CloseWindow;
 use crate::l10n::ActiveL10n as _;
 use crate::stores::Stores;
 use crate::stores::session::Route;
+use crate::views::sheet::{self, SheetBody};
+
+/// The sheet's width (Add Account's).
+pub const WIDTH: f32 = 480.;
 
 /// The desktop's catalog, one document per locale (core's format).
 pub const CATALOGS: [(&str, &str); 14] = [
@@ -77,8 +82,6 @@ pub struct ReleaseNotes {
     pub banner: Option<ReleaseNotesState>,
     /// Checked in this daemon session.
     checked: bool,
-    /// The sheet that is down, if one is.
-    pub sheet: Option<AnyWindowHandle>,
 }
 
 pub struct ReleaseNotesGlobal(pub Entity<ReleaseNotes>);
@@ -262,52 +265,30 @@ pub fn show_latest(window: &mut Window, cx: &mut App) {
     .detach();
 }
 
-/// Opens the notes as a window sheet on `window` (AppKit's
-/// `beginSheet:`, as Add Account does).
+/// Opens the notes as a window sheet on `window` (the main window, or
+/// Settings for About). Another sheet already down keeps the keyboard and
+/// this one does not open.
 pub fn open_sheet(
     items: Vec<ReleaseNoteDto>,
     from_banner: bool,
     window: &mut Window,
     cx: &mut App,
 ) {
-    // One sheet on the main window at a time: the one down keeps it.
-    if notes_entity_sheet(cx).is_some() || crate::views::sheet::refuse_another(cx) {
-        return;
-    }
     let stores = stores(cx);
-    let opened = conduit_components::window::open_window_clear_root(
-        crate::views::add_account::window_options(),
-        cx,
-        move |window, cx| {
-            cx.new(|cx| ReleaseNotesSheet::new(items, from_banner, stores, window, cx))
-        },
-    );
-    let (handle, view) = match opened {
-        Ok(v) => v,
-        Err(e) => {
-            log::error!("could not open the release notes: {e}");
-            return;
-        }
-    };
-    if let Some(n) = notes(cx) {
-        n.update(cx, |n, _| n.sheet = Some(handle));
-    }
-    // The main window's sheet now: no chat sheet opens over it, and Quit
-    // ends it first.
-    crate::views::sheet::adopt(handle, view.into_any(), cx);
-    crate::views::sheet::begin(window, handle, cx);
+    sheet::open(window, WIDTH, cx, move |window, cx| {
+        ReleaseNotesSheet::new(items, from_banner, stores, window, cx)
+    });
 }
 
-fn notes_entity_sheet(cx: &App) -> Option<AnyWindowHandle> {
-    notes(cx).and_then(|n| n.read(cx).sheet)
+/// The window of the release notes' sheet, while it is down.
+pub fn sheet_window(cx: &App) -> Option<AnyWindowHandle> {
+    sheet::current::<ReleaseNotesSheet>(cx).and_then(|_| sheet::current_window(cx))
 }
 
 /// Closes the sheet; from the banner, the banner goes too.
 pub fn close_sheet(from_banner: bool, cx: &mut App) {
-    if let Some(entity) = notes(cx)
-        && let Some(handle) = entity.update(cx, |n, _| n.sheet.take())
-    {
-        crate::views::settings::end_sheet_window(handle, cx);
+    if sheet::current::<ReleaseNotesSheet>(cx).is_some() {
+        sheet::dismiss(cx);
     }
     if from_banner && let Some(s) = stores(cx) {
         dismiss(&s, cx);
@@ -319,8 +300,8 @@ pub fn close_sheet(from_banner: bool, cx: &mut App) {
 pub struct ReleaseNotesSheet {
     pub notes: Vec<ReleaseNoteDto>,
     from_banner: bool,
+    /// Held so Return reaches the sheet (Done is its default button).
     focus: FocusHandle,
-    requested: Rc<Cell<Option<f32>>>,
     coffee: Option<String>,
 }
 
@@ -355,7 +336,6 @@ impl ReleaseNotesSheet {
             notes,
             from_banner,
             focus,
-            requested: Rc::new(Cell::new(None)),
             coffee: None,
         }
     }
@@ -366,9 +346,51 @@ impl ReleaseNotesSheet {
     }
 }
 
-impl Focusable for ReleaseNotesSheet {
-    fn focus_handle(&self, _: &App) -> FocusHandle {
-        self.focus.clone()
+impl SheetBody for ReleaseNotesSheet {
+    /// Esc, ⌘. and ⌘W: as Done (there is nothing to lose).
+    fn cancel(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        self.done(cx);
+    }
+
+    fn label(&self, cx: &App) -> SharedString {
+        cx.l10n().release_notes_title().into()
+    }
+
+    /// "Enjoying Conduit?", Buy Me a Coffee and Done, which stay put while
+    /// the notes scroll.
+    fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let t = cx.conduit().clone();
+        let l10n = cx.l10n().clone();
+        let view = cx.entity().downgrade();
+        let done = Button::new("release-notes-done", l10n.release_notes_done_button())
+            .primary()
+            .on_click(Rc::new(move |_, _, cx| {
+                let _ = view.update(cx, |v, cx| v.done(cx));
+            }));
+        let coffee = self.coffee.clone().map(|url| {
+            Button::new("release-notes-coffee", l10n.buy_me_a_coffee_title())
+                .icon(IconName::Coffee)
+                .on_click(Rc::new(move |_, _, cx| cx.open_url(&url)))
+        });
+        Some(
+            div()
+                .w_full()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(
+                    div()
+                        .flex_1()
+                        .text_size(px(t.metrics.small))
+                        .text_color(t.roles.text_subtle)
+                        .child(SharedString::from(
+                            l10n.release_notes_support_prompt_heading(),
+                        )),
+                )
+                .children(coffee)
+                .child(done)
+                .into_any_element(),
+        )
     }
 }
 
@@ -387,37 +409,6 @@ impl Render for ReleaseNotesSheet {
         let r = t.roles;
         let m = t.metrics;
         let l10n = cx.l10n().clone();
-        let (page, _) = grouped_tones(&t);
-        let requested = self.requested.clone();
-        let probe = gpui_kit::canvas(
-            |bounds: Bounds<Pixels>, _, _| f32::from(bounds.size.height),
-            move |_, height, window, cx| {
-                let before = requested.get();
-                if crate::views::add_account::needs_fit(before, height) {
-                    requested.set(Some(height));
-                    #[cfg(target_os = "macos")]
-                    if let Some(ns) = crate::shell::macos::ns_window(window) {
-                        let animate = before.is_some() && !cx.reduce_motion();
-                        cx.foreground_executor()
-                            .spawn(async move {
-                                crate::shell::macos::fit_sheet(
-                                    &ns,
-                                    f64::from(height),
-                                    crate::views::add_account::PARENT_MARGIN,
-                                    animate,
-                                )
-                            })
-                            .detach();
-                    }
-                    #[cfg(not(target_os = "macos"))]
-                    let _ = (window, cx);
-                }
-            },
-        )
-        .absolute()
-        .top_0()
-        .left_0()
-        .size_full();
         let intro = self
             .notes
             .last()
@@ -428,120 +419,70 @@ impl Render for ReleaseNotesSheet {
             .iter()
             .flat_map(|n| n.bullets.iter().cloned())
             .collect();
-        let view = cx.entity().downgrade();
-        let done = Button::new("release-notes-done", l10n.release_notes_done_button())
-            .primary()
-            .on_click(Rc::new({
-                let view = view.clone();
-                move |_, _, cx| {
-                    let _ = view.update(cx, |v, cx| v.done(cx));
-                }
-            }));
-        let coffee = self.coffee.clone().map(|url| {
-            Button::new("release-notes-coffee", l10n.buy_me_a_coffee_title())
-                .icon(IconName::Coffee)
-                .on_click(Rc::new(move |_, _, cx| cx.open_url(&url)))
-        });
         div()
             .id("release-notes-sheet")
-            .role(Role::Dialog)
-            .aria_label(SharedString::from(l10n.release_notes_title()))
-            .key_context("ConduitSheet")
             .track_focus(&self.focus)
-            .size_full()
-            .overflow_y_scroll()
-            .font_family(UI_FONT)
-            .bg(page)
-            .text_color(r.text)
+            // Return is Done, the default button (Esc is the host's).
             .on_key_down(cx.listener(|this, e: &gpui_kit::KeyDownEvent, _, cx| {
                 let k = &e.keystroke;
                 let plain = !(k.modifiers.platform || k.modifiers.alt || k.modifiers.control);
-                if plain && (k.key == "escape" || k.key == "enter") {
+                if plain && k.key == "enter" {
                     this.done(cx);
                     cx.stop_propagation();
                 }
             }))
-            .on_action(cx.listener(|this, _: &CloseWindow, _, cx| this.done(cx)))
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap(px(14.))
             .child(
                 div()
-                    .relative()
-                    .w_full()
-                    .p(px(24.))
+                    .id("release-notes-title")
+                    .role(Role::Heading)
+                    .text_size(px(m.control + 7.))
+                    .font_weight(gpui_kit::FontWeight::BOLD)
+                    .child(SharedString::from(l10n.release_notes_title())),
+            )
+            .when(!intro.is_empty(), |d| {
+                d.child(
+                    div()
+                        .text_size(px(m.control))
+                        .line_height(relative(1.45))
+                        .text_color(r.text_subtle)
+                        .child(SharedString::from(intro)),
+                )
+            })
+            .child(
+                div()
                     .flex()
                     .flex_col()
-                    .gap(px(14.))
-                    .child(
-                        div()
-                            .id("release-notes-title")
-                            .role(Role::Heading)
-                            .text_size(px(m.control + 7.))
-                            .font_weight(gpui_kit::FontWeight::BOLD)
-                            .child(SharedString::from(l10n.release_notes_title())),
-                    )
-                    .when(!intro.is_empty(), |d| {
-                        d.child(
-                            div()
-                                .text_size(px(m.control))
-                                .line_height(relative(1.45))
-                                .text_color(r.text_subtle)
-                                .child(SharedString::from(intro)),
-                        )
-                    })
-                    .child(
+                    .gap(px(10.))
+                    .children(bullets.into_iter().map(|b| {
                         div()
                             .flex()
-                            .flex_col()
+                            .items_start()
                             .gap(px(10.))
-                            .children(bullets.into_iter().map(|b| {
+                            .child(
                                 div()
+                                    .mt(px(1.))
+                                    .size(px(24.))
+                                    .flex_none()
                                     .flex()
-                                    .items_start()
-                                    .gap(px(10.))
-                                    .child(
-                                        div()
-                                            .mt(px(1.))
-                                            .size(px(24.))
-                                            .flex_none()
-                                            .flex()
-                                            .items_center()
-                                            .justify_center()
-                                            .rounded(px(6.))
-                                            .bg(conduit_components::theme::with_alpha(r.text, 0.07))
-                                            .child(icon(
-                                                bullet_icon(b.icon.as_deref()),
-                                                13.,
-                                                r.text,
-                                            )),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .text_size(px(m.control))
-                                            .line_height(relative(1.45))
-                                            .child(SharedString::from(b.text)),
-                                    )
-                            })),
-                    )
-                    .child(div().h(px(1.)).bg(r.divider))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(8.))
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(6.))
+                                    .bg(conduit_components::theme::with_alpha(r.text, 0.07))
+                                    .child(icon(bullet_icon(b.icon.as_deref()), 13., r.text)),
+                            )
                             .child(
                                 div()
                                     .flex_1()
-                                    .text_size(px(m.small))
-                                    .text_color(r.text_subtle)
-                                    .child(SharedString::from(
-                                        l10n.release_notes_support_prompt_heading(),
-                                    )),
+                                    .min_w_0()
+                                    .text_size(px(m.control))
+                                    .line_height(relative(1.45))
+                                    .child(SharedString::from(b.text)),
                             )
-                            .children(coffee)
-                            .child(done),
-                    )
-                    .child(probe),
+                    })),
             )
     }
 }
@@ -628,7 +569,7 @@ mod tests {
             crate::views::sheet::adopt(handle, body.into_any(), cx);
             open_sheet(vec![], false, window, cx);
         });
-        let sheet = cx.update(|cx| notes(cx).and_then(|n| n.read(cx).sheet));
+        let sheet = cx.update(|cx| sheet::current::<ReleaseNotesSheet>(cx));
         assert!(sheet.is_none(), "the notes opened over another sheet");
     }
 }

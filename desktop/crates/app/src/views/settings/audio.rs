@@ -23,7 +23,7 @@ use conduit_components::views::kit::{Button, Segment, Segmented, Switch, setting
 use conduit_components::views::settings::{settings_section, stepper_with};
 use conduit_protocol::{
     AppSettingsDto, AppSettingsPatch, DirectVoiceProviderDto, Event, NoParams, VoiceModel,
-    VoiceModelRef, VoiceModels, VoiceProviderOptions, VoiceSettings, VoiceSettingsEdit, VoiceSpeak,
+    VoiceModelRef, VoiceModels, VoiceProviderOptions, VoiceSettings, VoiceSettingsEdit,
     VoiceVoices, events, methods,
 };
 use gpui_kit::component::input::{InputState, Textarea, TextareaState};
@@ -39,6 +39,9 @@ use crate::stores::app_settings::AppSettingsStore;
 use crate::views::forms;
 
 use super::controls::{self, Choice, popup};
+
+/// Settings' preview, as the daemon names it (the phone's id).
+const PREVIEW_ID: &str = "tts_preview";
 
 /// Core's `ttsSpeedPresets`.
 pub const SPEEDS: [f64; 5] = [0.75, 1.0, 1.25, 1.5, 2.0];
@@ -73,10 +76,6 @@ pub struct AudioPane {
     /// The connection chosen in the pop-up, before Save.
     pub provider: Option<String>,
     pub provider_saved: Option<bool>,
-    pub previewing: bool,
-    /// Bumped when the pane is left: a preview still on its way stays
-    /// silent.
-    preview_round: u64,
     /// The fields hold the loaded settings' provider.
     provider_filled: bool,
 }
@@ -115,6 +114,7 @@ impl AudioPane {
             },
         )
         .detach();
+        cx.observe(&stores.speech, |_, _, cx| cx.notify()).detach();
         // A Whisper download's progress, and the model it leaves ready.
         stores.connection.update(cx, |c, _| {
             c.subscribe("audio-pane", &[events::VOICE_CHANGED], vec![])
@@ -151,9 +151,7 @@ impl AudioPane {
             instructions,
             provider: None,
             provider_saved: None,
-            preview_round: 0,
             provider_filled: false,
-            previewing: false,
         };
         this.refresh(window, cx);
         this
@@ -444,68 +442,24 @@ impl AudioPane {
         self.set(patch, cx);
     }
 
-    /// Preview Voice: the phone's sentence in the chosen voice and speed.
-    pub fn preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let l10n = cx.l10n().clone();
-        let s = self.store().read(cx).settings().clone();
-        let text = l10n.tts_preview_text();
-        if s.tts_engine != "server" {
-            speech::speak(&text, s.tts_voice.as_deref(), s.tts_speed);
-            return;
-        }
-        let call = self.rpc(cx).call::<methods::VoiceSpeak>(&VoiceSpeak {
-            text,
-            voice: s.tts_server_voice_id.clone(),
-        });
-        let http = self.stores.connection.read(cx).http().cloned();
-        self.previewing = true;
-        let round = self.preview_round;
-        cx.notify();
-        cx.spawn_in(
-            window,
-            async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
-                let audio = match (call.await, http) {
-                    (Ok(job), Some(http)) => match http.speech(&job.job_id).await {
-                        Ok(audio) => Some(audio),
-                        Err(e) => {
-                            log::warn!("the server's speech for a preview: {e}");
-                            None
-                        }
-                    },
-                    (Err(e), _) => {
-                        log::warn!("voice.speak: {e}");
-                        None
-                    }
-                    _ => None,
-                };
-                let _ = this.update(cx, |s, cx| {
-                    s.previewing = false;
-                    if s.preview_round != round {
-                        cx.notify();
-                        return;
-                    }
-                    if let Some(audio) = audio
-                        && !speech::play(&audio.bytes)
-                    {
-                        log::warn!(
-                            "the server's speech would not play ({})",
-                            audio.content_type
-                        );
-                    }
-                    cx.notify();
-                });
-            },
-        )
-        .detach();
+    /// Preview Voice: the phone's sentence in the chosen engine, voice and
+    /// speed, read as any reading is (`speech.preview`); pressed again, it
+    /// stops.
+    pub fn preview(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let text = cx.l10n().tts_preview_text();
+        self.stores.speech.update(cx, |s, cx| s.preview(text, cx));
+    }
+
+    /// Whether the preview is being read.
+    pub fn previewing(&self, cx: &App) -> bool {
+        self.stores.speech.read(cx).is_reading(PREVIEW_ID)
     }
 
     /// Stops Preview Voice (the pane was left, or Settings closed).
     pub fn stop_preview(&mut self, cx: &mut Context<Self>) {
-        self.preview_round += 1;
-        if std::mem::take(&mut self.previewing) {
-            cx.notify();
+        if self.previewing(cx) {
+            self.stores.speech.update(cx, |s, cx| s.stop(cx));
         }
-        speech::stop();
     }
 
     pub fn save_provider(&mut self, cx: &mut Context<Self>) {
@@ -929,13 +883,21 @@ impl AudioPane {
         }));
         let view = cx.entity().downgrade();
         // Beside the voice it plays, as System Settings' Spoken Content.
+        let previewing = self.previewing(cx);
         let preview = conduit_components::views::kit::IconButton::new(
             "tts-preview",
-            conduit_components::assets::IconName::Play,
-            l10n.tts_preview(),
+            if previewing {
+                conduit_components::assets::IconName::Square
+            } else {
+                conduit_components::assets::IconName::Play
+            },
+            if previewing {
+                l10n.desktop_stop_speaking()
+            } else {
+                l10n.tts_preview()
+            },
         )
         .size(26., 13.)
-        .disabled(self.previewing)
         .on_click(Rc::new(move |_, window, cx| {
             let _ = view.update(cx, |v, cx| v.preview(window, cx));
         }));

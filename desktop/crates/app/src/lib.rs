@@ -494,13 +494,14 @@ fn install_menu_observers(cx: &mut App) {
     let Some(state) = cx.try_global::<AppState>() else {
         return;
     };
-    let (layout, navigation, chat_list, settings, accounts, session) = (
+    let (layout, navigation, chat_list, settings, accounts, session, speech) = (
         state.layout.clone(),
         state.stores.navigation.clone(),
         state.stores.chat_list.clone(),
         state.settings.clone(),
         state.stores.accounts.clone(),
         state.stores.session.clone(),
+        state.stores.speech.clone(),
     );
     cx.observe(&settings, |_, cx| menus::refresh_menus(cx))
         .detach();
@@ -515,6 +516,16 @@ fn install_menu_observers(cx: &mut App) {
     // The Go menu's sections follow the account's capabilities and route.
     cx.observe(&session, |_, cx| menus::refresh_menus(cx))
         .detach();
+    // Chat › Stop Speaking follows whether anything is read: not every word.
+    let mut reading = false;
+    cx.observe(&speech, move |speech, cx| {
+        let now = speech.read(cx).is_active();
+        if now != reading {
+            reading = now;
+            menus::refresh_menus(cx);
+        }
+    })
+    .detach();
 }
 
 fn register_actions(cx: &mut App) {

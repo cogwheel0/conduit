@@ -189,6 +189,12 @@ void main() {
     expect(detail, isNotNull);
     expect(detail!.messages.map((m) => m.content).first, 'Hello Hermes');
     expect(detail.messages, hasLength(6));
+    // Read Aloud reads its answers from the same record.
+    final answer = detail.messages.lastWhere((m) => m.role == 'assistant');
+    expect(
+      (await chats.answerFor(first.chatId, answer.id)).content,
+      answer.content,
+    );
 
     // Listed, renamed, forked, deleted.
     var sessions = await hermes.sessions();

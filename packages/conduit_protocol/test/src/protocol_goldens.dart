@@ -713,7 +713,8 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "chatId": "chat-7c1f0b2a",
   "messageId": "msg-assistant-1",
-  "ok": true
+  "ok": true,
+  "queued": false
 }''',
 
   'turnFinishedFailed': r'''
@@ -721,7 +722,16 @@ const Map<String, String> protocolGoldens = <String, String>{
   "chatId": "chat-7c1f0b2a",
   "messageId": "msg-assistant-1",
   "ok": false,
-  "code": "net.serverError"
+  "code": "net.serverError",
+  "queued": false
+}''',
+
+  'turnFinishedQueued': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "messageId": "msg-assistant-1",
+  "ok": true,
+  "queued": true
 }''',
 
   'stopTurn': r'''
@@ -5227,6 +5237,157 @@ const Map<String, String> protocolGoldens = <String, String>{
   'handoffSettled': r'''
 {
   "requestId": "handoff-1"
+}''',
+
+  'voiceSpeakInChat': r'''
+{
+  "text": "The tide turns at noon.",
+  "chatId": "chat-harbour"
+}''',
+
+  'speechProgress': r'''
+{
+  "status": "speaking",
+  "reading": 3,
+  "chatId": "chat-harbour",
+  "messageId": "answer-harbour",
+  "engine": "device",
+  "sentence": 1,
+  "wordStart": 4,
+  "wordEnd": 9,
+  "wordsReported": true,
+  "elapsedMs": 2400,
+  "durationMs": 0,
+  "canSeek": false,
+  "canSeekSentences": true,
+  "seeking": false
+}''',
+
+  'speechProgressIdle': r'''
+{
+  "status": "idle",
+  "reading": 0,
+  "sentence": -1,
+  "wordsReported": false,
+  "elapsedMs": 0,
+  "durationMs": 0,
+  "canSeek": false,
+  "canSeekSentences": false,
+  "seeking": false
+}''',
+
+  'speechState': r'''
+{
+  "progress": {
+    "status": "paused",
+    "reading": 4,
+    "chatId": "chat-harbour",
+    "messageId": "answer-harbour",
+    "engine": "server",
+    "sentence": 0,
+    "wordsReported": false,
+    "elapsedMs": 1200,
+    "durationMs": 5300,
+    "canSeek": true,
+    "canSeekSentences": true,
+    "seeking": false
+  },
+  "sentences": [
+    "The harbour lights come on.",
+    "A boat drifts by."
+  ]
+}''',
+
+  'speechToggle': r'''
+{
+  "chatId": "chat-harbour",
+  "messageId": "answer-harbour"
+}''',
+
+  'speechSeek': r'''
+{
+  "by": -1
+}''',
+
+  'speechSeekSentence': r'''
+{
+  "sentence": 2
+}''',
+
+  'speechPreview': r'''
+{
+  "text": "This is how I sound."
+}''',
+
+  'speechCommandSpeak': r'''
+{
+  "id": 7,
+  "kind": "deviceSpeak",
+  "text": "The harbour lights come on.",
+  "voice": "com.apple.voice.compact.en-US.Samantha",
+  "rate": 0.5,
+  "pitch": 1.0,
+  "volume": 1.0,
+  "utterance": 2,
+  "clips": []
+}''',
+
+  'speechCommandPlayer': r'''
+{
+  "id": 8,
+  "kind": "playerSet",
+  "utterance": 0,
+  "clips": [
+    "/tts/tts-1a2b"
+  ],
+  "index": 0,
+  "positionMs": 0
+}''',
+
+  'speechVoice': r'''
+{
+  "id": "com.apple.voice.compact.en-GB.Daniel",
+  "name": "Daniel",
+  "language": "en-GB"
+}''',
+
+  'speechReportAnswer': r'''
+{
+  "id": 9,
+  "ok": true,
+  "durationMs": 5300,
+  "voices": [
+    {
+      "id": "com.apple.voice.compact.en-GB.Daniel",
+      "name": "",
+      "language": ""
+    }
+  ],
+  "utterance": 0,
+  "playing": false
+}''',
+
+  'speechReportWord': r'''
+{
+  "ok": true,
+  "voices": [],
+  "kind": "progress",
+  "utterance": 2,
+  "start": 4,
+  "end": 9,
+  "playing": false
+}''',
+
+  'speechReportPlayer': r'''
+{
+  "ok": true,
+  "voices": [],
+  "kind": "player",
+  "utterance": 0,
+  "playing": true,
+  "state": "ready",
+  "index": 1,
+  "positionMs": 800
 }''',
 
 };

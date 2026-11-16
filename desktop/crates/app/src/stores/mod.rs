@@ -19,6 +19,7 @@
 //!   features, prompts and attachments for the next message.
 //! * [`files`]: `/files` images (bearer token added) and attachment opening.
 //! * [`settings`] and [`layout`]: preferences and window geometry.
+//! * [`speech`]: read aloud, which the daemon runs and this window speaks.
 //! * [`shell`]: the macOS shell extras' state (links waiting for the main
 //!   window, the hotkey, notification and login-item statuses).
 //!
@@ -44,6 +45,7 @@ pub mod sections;
 pub mod session;
 pub mod settings;
 pub mod shell;
+pub mod speech;
 pub mod toasts;
 pub mod ui_requests;
 
@@ -78,6 +80,8 @@ pub struct Stores {
     pub sections: Entity<SectionsStore>,
     /// Core's `AppSettings` and the socket's health (Settings, composer).
     pub app_settings: Entity<app_settings::AppSettingsStore>,
+    /// Read aloud: the reading, and this window's voice and player.
+    pub speech: Entity<speech::SpeechStore>,
 }
 
 /// The session-wide events the stores follow (the views add their own scopes
@@ -119,7 +123,7 @@ impl Stores {
             cx.new(|cx| SessionStore::new(rpc, accounts, cx))
         };
         Self {
-            connection,
+            connection: connection.clone(),
             accounts,
             session,
             ui_requests: cx.new(|_| UiRequestsStore::new(rpc.clone())),
@@ -130,7 +134,8 @@ impl Stores {
             palette: cx.new(|_| PaletteStore::new(rpc.clone())),
             areas: cx.new(|_| AreasStore::new(rpc.clone())),
             sections: cx.new(|_| SectionsStore::load(None)),
-            app_settings: cx.new(|_| app_settings::AppSettingsStore::new(rpc)),
+            app_settings: cx.new(|_| app_settings::AppSettingsStore::new(rpc.clone())),
+            speech: cx.new(|cx| speech::SpeechStore::new(rpc, connection, cx)),
         }
     }
 
@@ -157,6 +162,11 @@ impl Stores {
             .join("sidebar-sections.json");
         let sections = cx.new(|_| SectionsStore::load(Some(sections_file)));
         let app_settings = cx.new(|_| app_settings::AppSettingsStore::new(rpc.clone()));
+        let speech = {
+            let connection = connection.clone();
+            let rpc = rpc.clone();
+            cx.new(|cx| speech::SpeechStore::new(rpc, connection, cx))
+        };
         let stores = Self {
             connection: connection.clone(),
             accounts,
@@ -170,11 +180,13 @@ impl Stores {
             areas,
             sections,
             app_settings,
+            speech,
         };
         connection.update(cx, |c, _| c.subscribe("session", SESSION_EVENTS, vec![]));
         chat_list::wire(&stores, cx);
         areas::wire(&stores, cx);
         app_settings::wire(&stores, cx);
+        speech::wire(&stores, cx);
         {
             // The server answers again after the window opened without it:
             // the session (a token may have lapsed meanwhile) and the chat

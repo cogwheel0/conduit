@@ -684,9 +684,21 @@ impl ChatStore {
 
     // ── Queue ───────────────────────────────────────────────────────────
 
-    /// A message typed now would be queued behind the running answer.
+    /// A message typed now would be queued behind the running answer, or
+    /// behind an answer that waits in the outbox (sent while offline): the
+    /// daemon still writes that one, and a turn sent beside it is refused
+    /// as the chat is busy. Queued, it goes out once that answer has (as
+    /// on the phone).
     pub fn queue_offered(&self) -> bool {
-        self.queue.offer && self.is_streaming()
+        self.queue.offer && (self.is_streaming() || self.answer_queued())
+    }
+
+    /// The newest answer waits in the outbox: its stored row shows it
+    /// queued.
+    pub fn answer_queued(&self) -> bool {
+        self.messages()
+            .last()
+            .is_some_and(|m| m.role == "assistant" && m.queued.is_some())
     }
 
     /// `queue.get`: the chat's queue as the daemon has it now.
@@ -1081,6 +1093,8 @@ impl ChatStore {
                 self.rebuild(cx);
             }
             // Unscoped; a fallback for a lost `turn.completed`/`turn.failed`.
+            // A queued hand-off (`queued`) ends the overlay as a finished
+            // answer would: the stored row, fetched now, shows it queued.
             Event::TurnFinished(e) if e.chat_id == self.chat_id => {
                 if let Some(live) = &mut self.live
                     && live.message_id == e.message_id
@@ -2951,6 +2965,7 @@ mod tests {
                     message_id: "a1".into(),
                     ok: true,
                     code: None,
+                    queued: false,
                 }),
                 cx,
             );
@@ -3661,6 +3676,34 @@ mod tests {
             let answer = s.item(*s.rows().last().unwrap()).unwrap();
             assert!(answer.queued.is_some());
         });
+    }
+
+    #[gpui_kit::test]
+    fn behind_a_queued_answer_a_new_message_is_queued(cx: &mut TestAppContext) {
+        // The answer waits in the outbox and nothing streams here; the
+        // daemon still offers the queue for it (its core writes that
+        // answer, and a turn sent beside it would be refused as busy).
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(queued_answer());
+        let (store, _) = open(&daemon, "c1", cx);
+        cx.run_until_parked();
+        let offered = |offer: bool, cx: &mut TestAppContext| {
+            store.update(cx, |s, cx| {
+                let mut queue = empty_queue("c1".into());
+                queue.offer = offer;
+                s.on_event(&Event::QueueChanged(queue), cx);
+            });
+            cx.run_until_parked();
+            store.read_with(cx, |s, _| s.queue_offered())
+        };
+        store.read_with(cx, |s, _| {
+            assert!(s.answer_queued());
+            assert!(!s.is_streaming());
+        });
+        assert!(offered(true, cx), "queued behind it, as on the phone");
+        // Without the daemon's offer (its request failed for good, say),
+        // Send sends.
+        assert!(!offered(false, cx));
     }
 
     #[gpui_kit::test]

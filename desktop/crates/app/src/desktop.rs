@@ -434,6 +434,13 @@ pub fn hide_main(cx: &mut App) {
 /// The main window's should-close hook: with "Close to menu bar" on, the
 /// window hides and stays (the app keeps running in the menu bar).
 pub fn main_should_close(cx: &mut App) -> bool {
+    // A reading pauses with its window, as the phone's does when its chat
+    // goes; Now Playing and the media keys can carry it on.
+    if let Some(speech) = cx.try_global::<AppState>().map(|s| s.stores.speech.clone())
+        && speech.read(cx).is_speaking()
+    {
+        speech.update(cx, |s, cx| s.pause(cx));
+    }
     if closes_to_menu_bar(cx) {
         log::info!("close button: hiding the main window");
         hide_main(cx);
@@ -569,7 +576,12 @@ fn on_turn_finished(finished: &TurnFinished, cx: &mut App) {
     };
     let enabled = state.settings.read(cx).prefs.desktop.notify_answers;
     let on_screen = on_screen(cx);
-    let Some(kind) = notify::decide(enabled, &finished.chat_id, finished.ok, &on_screen) else {
+    let Some(kind) = notify::decide(
+        enabled,
+        &finished.chat_id,
+        notify::Outcome::of(finished.ok, finished.queued),
+        &on_screen,
+    ) else {
         return;
     };
     let title = chat_title(&finished.chat_id, cx);

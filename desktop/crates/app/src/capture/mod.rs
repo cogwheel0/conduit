@@ -25,7 +25,7 @@
 //!
 //! `crates/app/hc-capture.sh` runs it end to end.
 
-mod drive;
+pub(crate) mod drive;
 pub(crate) mod grab;
 mod main_pass;
 mod motion;

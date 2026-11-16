@@ -1,0 +1,11 @@
+{
+  "id": 7,
+  "kind": "deviceSpeak",
+  "text": "The harbour lights come on.",
+  "voice": "com.apple.voice.compact.en-US.Samantha",
+  "rate": 0.5,
+  "pitch": 1.0,
+  "volume": 1.0,
+  "utterance": 2,
+  "clips": []
+}
