@@ -134,9 +134,11 @@ final class PrimaryAccountSwitcher {
   /// [stillFrom] is asked at the switch's turn, once the switches before it
   /// are done and before anything changes: whether the account it was asked
   /// over is still the one in charge. A sign-in step also passes
-  /// [stillCurrent], asked then and again after each wait, last just before
-  /// the account is put in charge. Either answering false moves nothing
-  /// (Open WebUI is taken back out of its park) and the switch throws
+  /// [stillCurrent], asked then and after every wait of the switch: the
+  /// intent, the park, putting the account in charge, and last after the
+  /// backend preference is written. Answering false at any of them undoes
+  /// what the switch changed so far (the preference, the active LibreChat
+  /// account, Open WebUI's park) and the switch throws
   /// [AccountChangeSuperseded].
   Future<PrimarySwitchResult> useLibreChat(
     String accountId, {
@@ -175,21 +177,41 @@ final class PrimaryAccountSwitcher {
     if (!force && _ref.read(accountChangeReplyGuardProvider)()) {
       return PrimarySwitchResult.blockedByActiveReply;
     }
-    _ref.read(accountChangeStopRepliesProvider)();
-    await PrimarySwitchIntent(from: from, to: to).write();
-    if (!current()) {
+    // What each step changed, for a step superseded after it: everything
+    // goes back as it was, in reverse, and nothing of the switch stays.
+    final previousActive = registry.activeId;
+    var parked = false;
+    var activated = false;
+    var preferred = false;
+    Future<Never> superseded() async {
+      if (preferred) {
+        await _preferBackend(
+          from.kind == PrimaryAccountKind.libreChat
+              ? PreferredBackend.libreChat
+              : PreferredBackend.owui,
+        );
+      }
+      if (activated) {
+        await _ref
+            .read(libreChatRegistryProvider.notifier)
+            .setActive(previousActive);
+      }
+      if (parked) await _takeOpenWebUiBack(from);
       await PrimarySwitchIntent.clear();
       throw const AccountChangeSuperseded();
     }
+
+    _ref.read(accountChangeStopRepliesProvider)();
+    await PrimarySwitchIntent(from: from, to: to).write();
+    if (!current()) await superseded();
     if (from.kind == PrimaryAccountKind.openWebUi) {
       await _parkOpenWebUi();
-      if (!current()) {
-        await _takeOpenWebUiBack(from);
-        await PrimarySwitchIntent.clear();
-        throw const AccountChangeSuperseded();
-      }
+      parked = true;
+      if (!current()) await superseded();
     }
     await _ref.read(libreChatRegistryProvider.notifier).setActive(accountId);
+    activated = true;
+    if (!current()) await superseded();
     final registryNow = await _ref.read(libreChatRegistryProvider.future);
     if (registryNow.activeId != accountId) {
       // Signed out of while Open WebUI was parked for it: there is nothing
@@ -199,11 +221,15 @@ final class PrimaryAccountSwitcher {
       await PrimarySwitchIntent.clear();
       return PrimarySwitchResult.unknownAccount;
     }
+    if (!current()) await superseded();
     if (stillWanted != null && !stillWanted()) {
       await PrimarySwitchIntent.clear();
       return PrimarySwitchResult.done;
     }
+    // The last write: a step superseded while it is made takes it back too.
     await _preferBackend(PreferredBackend.libreChat);
+    preferred = true;
+    if (!current()) await superseded();
     await PrimarySwitchIntent.clear();
     return PrimarySwitchResult.done;
   }

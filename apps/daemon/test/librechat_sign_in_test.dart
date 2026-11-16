@@ -334,6 +334,34 @@ void main() {
     expect(bench.owuiSwitches, <String>['owui-2']);
     expect(bench.stops - stopsBefore, 1, reason: 'the second stopped answers');
   });
+
+  test('a sign-in overtaken while its backend choice is written leaves '
+      'neither the choice nor its account in charge', () async {
+    final release = bench.preferences.hold('libreChat');
+    final first = bench.service.signIn(
+      LibreChatSignIn(
+        url: bench.fake.baseUrl,
+        email: _avery,
+        password: 'pw-avery',
+      ),
+    );
+    await bench.preferences.asked;
+    // A newer sign-in begins (and is refused) while the choice is written.
+    final newer = await bench.service.signIn(
+      LibreChatSignIn(url: bench.fake.baseUrl, email: _blake, password: 'x'),
+    );
+    expect(newer.outcome, LibreChatSignInOutcome.rejected);
+    release.complete();
+
+    expect((await first).outcome, LibreChatSignInOutcome.expired);
+    expect(bench.preferred(), PreferredBackend.owui);
+    expect(
+      PreferencesStore.getString('preferred_backend_v1'),
+      PreferredBackend.owui.name,
+    );
+    expect(await bench.activeLibreChat(), isNull);
+    expect(bench.owuiSwitches, contains('owui'), reason: 'Open WebUI back');
+  });
 }
 
 const _avery = 'avery@example.com';
@@ -397,6 +425,7 @@ final class _Bench {
     this.service,
     this.owuiSwitches,
     this._stops,
+    this.preferences,
   );
 
   final Directory _tempDir;
@@ -411,6 +440,9 @@ final class _Bench {
   /// Times a switch stopped the answers being written.
   int get stops => _stops.value;
   final _Count _stops;
+
+  /// The preferences store, whose next backend choice can be held.
+  final _HeldPreferences preferences;
 
   PreferredBackend preferred() => container.read(preferredBackendProvider);
 
@@ -464,7 +496,8 @@ final class _Bench {
       ),
       metadata: await Hive.openBox<dynamic>(HiveBoxNames.metadata),
     );
-    PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
+    final preferences = _HeldPreferences();
+    PreferencesStore.installLoader(() async => preferences);
     await PreferencesStore.ensureInitialized();
     final workers = WorkerManager(maxConcurrentTasks: 1);
     final storage = OptimizedStorageService(
@@ -530,6 +563,7 @@ final class _Bench {
       service,
       switches,
       stops,
+      preferences,
     );
   }
 
@@ -544,4 +578,32 @@ final class _Bench {
 
 final class _Count {
   int value = 0;
+}
+
+/// Preferences whose next write of the chosen backend waits once [hold] is
+/// called: [asked] completes as it arrives.
+final class _HeldPreferences extends InMemoryKeyValueStore {
+  Completer<void>? _release;
+  Completer<void> _asked = Completer<void>();
+  String? _value;
+
+  Future<void> get asked => _asked.future;
+
+  /// Holds the next write of [value] as the chosen backend.
+  Completer<void> hold(String value) {
+    _value = value;
+    _asked = Completer<void>();
+    return _release = Completer<void>();
+  }
+
+  @override
+  Future<bool> setString(String key, String value) async {
+    final release = _release;
+    if (release != null && key == 'preferred_backend_v1' && value == _value) {
+      _release = null;
+      _asked.complete();
+      await release.future;
+    }
+    return super.setString(key, value);
+  }
 }
