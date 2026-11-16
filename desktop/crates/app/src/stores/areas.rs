@@ -202,7 +202,12 @@ impl AreasStore {
         self.failed.remove(&area);
         match area {
             Area::Notes => self.notes = None,
-            Area::Channels => self.channels = None,
+            Area::Channels => {
+                self.channels = None;
+                // One account's right: the next one's list says whether it
+                // has it.
+                self.channels_can_create = false;
+            }
             Area::Hermes => {
                 self.hermes = None;
                 self.hermes_hidden = None;
@@ -551,6 +556,39 @@ mod tests {
         // Another account: nothing of the last one's is found.
         store.update(cx, |s, cx| s.reset(cx));
         store.read_with(cx, |s, _| assert!(s.hermes_session("s1").is_none()));
+    }
+
+    /// New Channel is one account's right: the next account's channels
+    /// list says whether it has it, and until then it is not offered.
+    #[gpui_kit::test]
+    fn another_account_is_offered_no_new_channel_before_its_list(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.once::<methods::ChannelsList>(Ok(conduit_protocol::ChannelList {
+            enabled: true,
+            can_create: true,
+            ..Default::default()
+        }));
+        daemon.once::<methods::ChannelsList>(Err(conduit_daemon::protocol::error(
+            "rpc.daemonUnavailable",
+            "offline",
+        )));
+        let store = cx.new(|_| AreasStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.set_wanted(&[Area::Channels], cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| assert!(s.channels_can_create));
+        // Another account: its first list fails.
+        store.update(cx, |s, cx| {
+            s.reset(cx);
+            s.set_wanted(&[Area::Channels], cx);
+        });
+        store.read_with(cx, |s, _| {
+            assert!(
+                !s.channels_can_create,
+                "the last account's New Channel was offered"
+            )
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| assert!(!s.channels_can_create));
     }
 
     #[gpui_kit::test]
