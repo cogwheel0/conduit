@@ -26,6 +26,20 @@ import 'log.dart';
 /// sidebar terminal does.
 const String _pageScope = 'sidebar-terminal';
 
+/// What one operation's sockets use, read once at its start: the account
+/// session, its terminal service (which gives the address) and, for the
+/// server's own terminals, the sign-in proxy's headers and cookies and the
+/// server's TLS client. The address and the credentials therefore always
+/// come from the same account.
+final class _Link {
+  _Link(this.account, this.service, this.headers, this.client);
+
+  final Object account;
+  final TerminalService service;
+  final Map<String, String> headers;
+  final HttpClient? client;
+}
+
 /// One terminal server in one scope, as a window refers to it.
 final class _Handle {
   _Handle(this.server, this.scopeId, this.features);
@@ -324,7 +338,7 @@ final class TerminalsService {
       h.watchers.first.watchPath(path);
       return TerminalWatching(live: h.watchers.any((w) => w.active));
     }
-    final service = _service();
+    final link = _link(h.server);
     final token = _token(h.server);
     if (token == null && h.server.isSystem) return const TerminalWatching();
     final auth = buildTerminalWebSocketAuthPayload(
@@ -332,9 +346,12 @@ final class TerminalsService {
       token: token ?? '',
       sessionScopeId: h.scopeId,
     );
-    final uri = service.buildEventsWebSocketUri(h.server);
+    final uri = link.service.buildEventsWebSocketUri(h.server);
+    // Every reconnect goes with this link: after an account change it is
+    // refused (and the watch stops) rather than sent with another account's
+    // credentials.
     WebSocketChannel open(Uri uri, {required TerminalServerKind kind}) =>
-        _connect(h.server, uri);
+        _connect(h.server, uri, link);
     TerminalEventsWatcher watcher({String? path, bool ports = false}) =>
         TerminalEventsWatcher(
           openChannel: open,
@@ -375,30 +392,41 @@ final class TerminalsService {
     await _handles.remove(handle)?.close();
   }
 
-  /// A socket to [server]. A direct terminal's goes straight to it. The
-  /// server's own terminals' go as every other request to that server does:
-  /// with a sign-in proxy's cookies and headers (never Open WebUI's own
-  /// cookies: the socket's first frame carries the account's token) and the
-  /// server's TLS settings.
-  WebSocketChannel _connect(TerminalServerInfo server, Uri uri) {
+  /// The [_Link] for an operation on [server], read now.
+  _Link _link(TerminalServerInfo server) {
+    final account = _session();
+    final service = _service();
+    if (!server.isSystem) {
+      return _Link(account, service, const <String, String>{}, null);
+    }
+    final cookies = service.proxyCookiesForServer(server);
+    return _Link(account, service, <String, String>{
+      ...service.computerProxyHeadersForServer(server),
+      if (cookies.isNotEmpty)
+        HttpHeaders.cookieHeader: <String>[
+          for (final e in cookies.entries) '${e.key}=${e.value}',
+        ].join('; '),
+    }, _clientFor(service.api.serverConfig));
+  }
+
+  /// A socket to [server] at [uri], which [link]'s service gave. A direct
+  /// terminal's goes straight to it. The server's own terminals' go as every
+  /// other request to that server does: with [link]'s sign-in proxy cookies
+  /// and headers (never Open WebUI's own cookies: the socket's first frame
+  /// carries the account's token) and its TLS client. Refused once another
+  /// account session is in use than [link]'s.
+  WebSocketChannel _connect(TerminalServerInfo server, Uri uri, _Link link) {
+    _requireSession(link.account);
     if (!server.isSystem) {
       return _container.read(terminalChannelConnectorProvider)(
         uri,
         kind: server.kind,
       );
     }
-    final service = _service();
-    final cookies = service.proxyCookiesForServer(server);
     return IOWebSocketChannel.connect(
       uri,
-      headers: <String, String>{
-        ...service.computerProxyHeadersForServer(server),
-        if (cookies.isNotEmpty)
-          HttpHeaders.cookieHeader: <String>[
-            for (final e in cookies.entries) '${e.key}=${e.value}',
-          ].join('; '),
-      },
-      customClient: _clientFor(service.api.serverConfig),
+      headers: link.headers,
+      customClient: link.client,
     );
   }
 
@@ -458,21 +486,21 @@ final class TerminalsService {
       await window.sink.close(4404, 'no such terminal');
       return;
     }
-    // The credential is the account's in use now, read before any await:
-    // after a switch it is another account's, for another server.
-    final account = _session();
+    // The credentials are the account's in use now, read before any await
+    // with the service that gives the address: after a switch they are
+    // another account's, for another server.
     final token = _token(h.server);
     WebSocketChannel? upstream;
     try {
-      final service = _service();
-      final session = await service.createSession(
+      final link = _link(h.server);
+      final session = await link.service.createSession(
         h.server,
         sessionScopeId: h.scopeId,
       );
-      final uri = service.buildWebSocketUri(h.server, session.sessionId);
-      upstream = _connect(h.server, uri);
+      final uri = link.service.buildWebSocketUri(h.server, session.sessionId);
+      upstream = _connect(h.server, uri, link);
       await upstream.ready;
-      _requireSession(account);
+      _requireSession(link.account);
       if (token == null || token.isEmpty) {
         throw StateError('no credential for this terminal');
       }
@@ -487,7 +515,14 @@ final class TerminalsService {
       );
     } on Object catch (error) {
       _log?.warn('terminal connect failed: $error');
-      await upstream?.sink.close();
+      // A socket that never opened may never finish closing: the window is
+      // told at once.
+      final failed = upstream;
+      if (failed != null) {
+        unawaited(
+          failed.sink.close().then<void>((_) {}, onError: (Object _) {}),
+        );
+      }
       await window.sink.close(4502, 'could not reach the terminal');
       return;
     }

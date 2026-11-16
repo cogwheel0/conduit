@@ -17,6 +17,8 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
+import 'package:web_socket_channel/io.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 /// The server's own terminal ("box") behind a sign-in proxy, and the
 /// Computer view of a chat's terminal, across an account change. The server
@@ -57,10 +59,35 @@ void main() {
     addTearDown(container.dispose);
   });
 
-  void switchAccount() {
+  void switchAccount([ApiService? next]) {
     account = Object();
+    if (next != null) {
+      api = next;
+      container.invalidate(apiServiceProvider);
+    }
     container.invalidate(openWebUiAuthSessionEpochProvider);
     container.read(openWebUiAuthSessionEpochProvider);
+  }
+
+  /// The next account: another server behind its own sign-in proxy.
+  Future<(ApiService, _GatedServer)> awayAccount() async {
+    final away = await _GatedServer.start(gate: 'away-gate', cookie: 'away');
+    addTearDown(away.close);
+    final next = ApiService(
+      serverConfig: ServerConfig(
+        id: 'away',
+        name: 'Away server',
+        url: away.url,
+        customHeaders: const <String, String>{
+          'X-Gate': 'away-gate',
+          'Cookie': 'gate=away',
+        },
+      ),
+      workerManager: WorkerManager(),
+      authToken: 'token-b',
+    );
+    addTearDown(next.dispose);
+    return (next, away);
   }
 
   group('live terminal watches', () {
@@ -95,6 +122,29 @@ void main() {
       check(
         (outcome as TerminalChanged).ports,
       ).isNotNull().has((p) => p.single.port, 'port').equals(8080);
+    });
+  });
+
+  group('a terminal socket takes its address and credentials from one account', () {
+    test('a shell asked for as the account changes sends nothing of the next '
+        "account's to the last one's server", () async {
+      final (next, away) = await awayAccount();
+      final terminals = TerminalsService(container);
+      addTearDown(terminals.dispose);
+      final attached = await terminals.attach(
+        const TerminalAttach(serverId: 'box'),
+      );
+      final hold = Completer<void>();
+      server.sessionHold = hold;
+      final (window, closed) = await _windowPair();
+      final tunnel = terminals.tunnel(attached.handle, window);
+      await server.sessionAsked.future;
+      switchAccount(next);
+      hold.complete();
+      await tunnel;
+      check(server.socketGates).not((it) => it.contains('away-gate'));
+      check(away.socketGates).isEmpty();
+      check(await closed).equals(4502);
     });
   });
 
@@ -169,7 +219,21 @@ final class _Box extends SelectedTerminalId {
 /// Open WebUI behind a sign-in proxy: every request, sockets included, must
 /// carry the proxy's header and cookie, or the proxy answers 401.
 final class _GatedServer {
-  _GatedServer._(this._server);
+  _GatedServer._(this._server, this._gate, this._cookie);
+
+  final String _gate;
+  final String _cookie;
+
+  /// The proxy header every socket handshake came with (or null).
+  final List<String?> socketGates = <String?>[];
+
+  /// The paths of the requests that would change the terminal (POST, PATCH,
+  /// DELETE), except a shell's session.
+  final List<String> writes = <String>[];
+  final Completer<void> sessionAsked = Completer<void>();
+  final Completer<void> settingsAsked = Completer<void>();
+  Completer<void>? sessionHold;
+  Completer<void>? settingsHold;
 
   final HttpServer _server;
   final Completer<void> refusedSocket = Completer<void>();
@@ -179,9 +243,12 @@ final class _GatedServer {
 
   String get url => 'http://127.0.0.1:${_server.port}';
 
-  static Future<_GatedServer> start() async {
+  static Future<_GatedServer> start({
+    String gate = 'open',
+    String cookie = 'pass',
+  }) async {
     final http = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    final server = _GatedServer._(http);
+    final server = _GatedServer._(http, gate, cookie);
     http.listen((request) => unawaited(server._handle(request)));
     return server;
   }
@@ -189,13 +256,14 @@ final class _GatedServer {
   Future<void> close() => _server.close(force: true);
 
   bool _let(HttpRequest request) =>
-      request.headers.value('x-gate') == 'open' &&
-      request.cookies.any((c) => c.name == 'gate' && c.value == 'pass');
+      request.headers.value('x-gate') == _gate &&
+      request.cookies.any((c) => c.name == 'gate' && c.value == _cookie);
 
   Future<void> _handle(HttpRequest request) async {
     final path = request.uri.path;
     final response = request.response;
     final socket = WebSocketTransformer.isUpgradeRequest(request);
+    if (socket) socketGates.add(request.headers.value('x-gate'));
     if (!_let(request)) {
       if (socket && !refusedSocket.isCompleted) refusedSocket.complete();
       response.statusCode = HttpStatus.unauthorized;
@@ -219,10 +287,25 @@ final class _GatedServer {
       });
       return;
     }
+    if (socket && path.startsWith('/api/v1/terminals/box/api/terminals/')) {
+      final ws = await WebSocketTransformer.upgrade(request);
+      ws.listen((_) {});
+      return;
+    }
+    if (request.method != 'GET' &&
+        path != '/api/v1/terminals/box/api/terminals') {
+      writes.add(path);
+    }
     Object? body;
     switch ((request.method, path)) {
       case ('GET', '/api/v1/users/user/settings'):
+        if (!settingsAsked.isCompleted) settingsAsked.complete();
+        await settingsHold?.future;
         body = <String, dynamic>{};
+      case ('POST', '/api/v1/terminals/box/api/terminals'):
+        if (!sessionAsked.isCompleted) sessionAsked.complete();
+        await sessionHold?.future;
+        body = <String, dynamic>{'id': 'session-1'};
       case ('GET', '/api/v1/terminals/'):
         body = <Map<String, dynamic>>[
           <String, dynamic>{'id': 'box', 'name': 'Workbench'},
@@ -236,6 +319,7 @@ final class _GatedServer {
         await desktopHold?.future;
         body = <String, dynamic>{'transport': 'frames'};
       case ('POST', '/api/v1/terminals/box/desktop/action'):
+        writes.remove(path);
         shortcuts.add(jsonDecode(await utf8.decoder.bind(request).join()));
         body = <String, dynamic>{};
       default:
@@ -247,4 +331,26 @@ final class _GatedServer {
     response.write(jsonEncode(body));
     await response.close();
   }
+}
+
+/// A window's socket to the daemon: the daemon's end, and the close code
+/// the window's end sees.
+Future<(WebSocketChannel, Future<int?>)> _windowPair() async {
+  final http = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  addTearDown(() => http.close(force: true));
+  final daemonSide = Completer<WebSocketChannel>();
+  http.listen((request) async {
+    daemonSide.complete(
+      IOWebSocketChannel(await WebSocketTransformer.upgrade(request)),
+    );
+  });
+  final viewer = await WebSocket.connect('ws://127.0.0.1:${http.port}');
+  addTearDown(viewer.close);
+  final closed = Completer<int?>();
+  viewer.listen(
+    (_) {},
+    onError: (Object _) {},
+    onDone: () => closed.complete(viewer.closeCode),
+  );
+  return (await daemonSide.future, closed.future);
 }
