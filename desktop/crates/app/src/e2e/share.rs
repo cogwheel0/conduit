@@ -428,13 +428,14 @@ async fn services_menu(dir: &Path, cx: &mut AsyncApp) -> bool {
         .await,
     );
 
-    // A blank selection does nothing.
-    clear_composer(cx);
+    // A blank selection does nothing: the chat and its draft (the last
+    // selection, still in the composer) stay as they are.
+    let before = cx.update(|cx| (selection(cx), composer_text(cx)));
     service(services::NEW_CHAT, "  \n ", cx);
     settle(cx, 600).await;
     pass &= ok(
         "a blank selection changes nothing",
-        cx.update(composer_text).is_empty(),
+        !before.1.is_empty() && cx.update(|cx| (selection(cx), composer_text(cx))) == before,
     );
     pass
 }
