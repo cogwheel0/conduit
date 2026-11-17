@@ -3874,8 +3874,18 @@ final class TurnsService implements ChatTurns {
     while (session.deleting && !session.scope.isDisposed) {
       await _pause(const Duration(milliseconds: 50));
     }
-    // A turn or merge that ended during the quiet wait has started its own
-    // stored copy: that one is waited for too, then quiet again.
+    await _afterStoredCopies(session);
+  }
+
+  /// The last turn's (or merge's) stored copy, then a quiet transcript. A
+  /// turn or merge that ended during the quiet wait has started its own
+  /// stored copy: that one is waited for too, then quiet again, until no
+  /// new one came. With [givesWay] (a queued batch), a turn that starts ends
+  /// the wait: the core holds the batch for its answer.
+  Future<void> _afterStoredCopies(
+    _ChatSession session, {
+    bool givesWay = false,
+  }) async {
     Future<void>? awaited;
     while (!session.scope.isDisposed) {
       final settling = session.settling;
@@ -3883,7 +3893,8 @@ final class TurnsService implements ChatTurns {
         awaited = settling;
         await _atMost(settling, _settleTimeout);
       }
-      await _settleBeforeTurn(session);
+      await _settleBeforeTurn(session, givesWay: givesWay);
+      if (givesWay && _busy(session)) return;
       final now = session.settling;
       if (now == null || identical(now, awaited)) return;
     }
@@ -3926,11 +3937,13 @@ final class TurnsService implements ChatTurns {
   /// merge or a Save Chat in the chat holds it too, for as long as it runs:
   /// a delete the server refuses puts back the transcript it found, without
   /// the batch.
-  Future<void> _beforeQueuedBatch(_ChatSession session) async {
-    final settling = session.settling;
-    if (settling != null) await _atMost(settling, _settleTimeout);
-    await _settleBeforeTurn(session, givesWay: true);
-  }
+  ///
+  /// A merge that ends while the batch waits starts its own stored copy,
+  /// whose pull replaces the transcript a turn reads: the batch waits for
+  /// that too ([_afterStoredCopies]), or its turn is dropped by the
+  /// server's copy.
+  Future<void> _beforeQueuedBatch(_ChatSession session) =>
+      _afterStoredCopies(session, givesWay: true);
 
   static const Duration _settleBudget = Duration(seconds: 6);
 
