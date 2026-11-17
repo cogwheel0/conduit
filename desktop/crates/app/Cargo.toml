@@ -43,6 +43,9 @@ resvg = { version = "=0.46.0", default-features = false, features = ["text", "sy
 # A compressed SVG (svgz) is inflated here, within a size limit, never by
 # usvg's own unbounded path (the copy usvg already uses).
 flate2 = "1"
+# usvg's own XML parser (same version): an untrusted SVG's references are
+# checked for loops and its nesting bounded before usvg converts it.
+roxmltree = "0.21"
 # The terminal's emulator (Apache-2.0; parser, grid, scrollback, selection,
 # search). Its PTY and event loop go unused: the shell is a socket.
 alacritty_terminal = { version = "=0.26.0", default-features = false }

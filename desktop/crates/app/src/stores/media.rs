@@ -381,8 +381,115 @@ fn sanitize_svg_with(
     if text.len() > MAX_SVG_BYTES {
         return None;
     }
-    let tree = usvg::Tree::from_str(std::str::from_utf8(text).ok()?, &options).ok()?;
+    let text = std::str::from_utf8(text).ok()?;
+    // usvg follows references recursively, and not every loop is caught
+    // (a filter's feImage naming an element that uses the filter overflows
+    // the stack): loops, deep nesting and huge documents never reach it.
+    if !references_are_sound(text) {
+        return None;
+    }
+    let tree = usvg::Tree::from_str(text, &options).ok()?;
     Some(tree.to_string(&usvg::WriteOptions::default()).into_bytes())
+}
+
+/// How deep an untrusted SVG's elements may nest.
+const MAX_SVG_DEPTH: usize = 256;
+/// How many elements an untrusted SVG may have.
+const MAX_SVG_ELEMENTS: usize = 200_000;
+
+/// Whether `svg` is safe to hand to usvg: it parses, nests no deeper than
+/// [`MAX_SVG_DEPTH`], has no more than [`MAX_SVG_ELEMENTS`] elements, and
+/// its references (`href` and `xlink:href` to `#id`, and `url(#id)` in any
+/// attribute or style) never loop. Referring to an element draws all of it,
+/// so an element with an id points at every reference made inside it.
+fn references_are_sound(svg: &str) -> bool {
+    use std::collections::HashMap;
+    let Ok(doc) = roxmltree::Document::parse(svg) else {
+        return false;
+    };
+    // Every element, with its depth; ids, and the references made inside
+    // each id'd element.
+    let mut ids: HashMap<&str, usize> = HashMap::new();
+    let mut refs: Vec<Vec<String>> = Vec::new();
+    let mut open: Vec<(usize, usize)> = Vec::new(); // (depth, id slot)
+    let mut stack = vec![(doc.root_element(), 0usize)];
+    let mut elements = 0usize;
+    while let Some((node, depth)) = stack.pop() {
+        elements += 1;
+        if depth > MAX_SVG_DEPTH || elements > MAX_SVG_ELEMENTS {
+            return false;
+        }
+        while open.last().is_some_and(|(d, _)| *d >= depth) {
+            open.pop();
+        }
+        if let Some(id) = node.attribute("id") {
+            let slot = refs.len();
+            refs.push(Vec::new());
+            ids.insert(id, slot);
+            open.push((depth, slot));
+        }
+        let mut made = Vec::new();
+        for a in node.attributes() {
+            let v = a.value();
+            if a.name() == "href"
+                && let Some(id) = v.trim().strip_prefix('#')
+            {
+                made.push(id.to_string());
+            }
+            let mut rest = v;
+            while let Some(at) = rest.find("url(") {
+                rest = &rest[at + 4..];
+                let inner = rest.trim_start().trim_start_matches(['\'', '"']);
+                if let Some(id) = inner.strip_prefix('#') {
+                    let end = id.find([')', '\'', '"', ' ']).unwrap_or(id.len());
+                    made.push(id[..end].to_string());
+                }
+            }
+        }
+        for (_, slot) in &open {
+            refs[*slot].extend(made.iter().cloned());
+        }
+        for child in node
+            .children()
+            .filter(|c| c.is_element())
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+        {
+            stack.push((child, depth + 1));
+        }
+    }
+    // A loop among the references (depth-first, iterative: 0 unseen,
+    // 1 on the path, 2 done).
+    let mut state = vec![0u8; refs.len()];
+    for start in 0..refs.len() {
+        if state[start] != 0 {
+            continue;
+        }
+        let mut path = vec![(start, 0usize)];
+        state[start] = 1;
+        while let Some((at, next)) = path.last_mut() {
+            let at = *at;
+            let Some(target) = refs[at].get(*next) else {
+                state[at] = 2;
+                path.pop();
+                continue;
+            };
+            *next += 1;
+            let Some(&to) = ids.get(target.as_str()) else {
+                continue;
+            };
+            match state[to] {
+                1 => return false,
+                0 => {
+                    state[to] = 1;
+                    path.push((to, 0));
+                }
+                _ => {}
+            }
+        }
+    }
+    true
 }
 
 /// The most an untrusted SVG may be, unpacked (as much as the daemon
@@ -1041,6 +1148,51 @@ mod tests {
             );
             assert_eq!(refused.lock().unwrap().len(), 1, "{}", &href[..40]);
         }
+    }
+
+    /// References that loop (a gradient, pattern, filter or `<use>` naming
+    /// one that names it back) end: the picture is drawn without the loop,
+    /// or refused, and nothing runs on (usvg checks reference chains).
+    #[test]
+    fn looping_references_in_an_svg_end() {
+        let cases = [
+            // Gradients A → B → C → B, the rect painted with A.
+            r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="4" height="4"><defs><linearGradient id="a" xlink:href="#b"/><linearGradient id="b" xlink:href="#c"/><linearGradient id="c" xlink:href="#b"><stop offset="0" stop-color="red"/></linearGradient></defs><rect width="4" height="4" fill="url(#a)"/></svg>"##,
+            // Patterns that name each other.
+            r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="4" height="4"><defs><pattern id="p" xlink:href="#q" width="2" height="2"/><pattern id="q" xlink:href="#p" width="2" height="2"><rect width="1" height="1"/></pattern></defs><rect width="4" height="4" fill="url(#p)"/></svg>"##,
+            // A pattern that paints itself with itself.
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><defs><pattern id="s" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="2" height="2" fill="url(#s)"/></pattern></defs><rect width="4" height="4" fill="url(#s)"/></svg>"##,
+            // <use> elements that use each other.
+            r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="4" height="4"><g id="g1"><use xlink:href="#g2"/></g><g id="g2"><use xlink:href="#g1"/></g></svg>"##,
+            // Filters that name each other's results through feImage.
+            r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="4" height="4"><defs><filter id="f1"><feImage xlink:href="#r2"/></filter><filter id="f2"><feImage xlink:href="#r1"/></filter></defs><rect id="r1" width="2" height="2" filter="url(#f1)"/><rect id="r2" width="2" height="2" filter="url(#f2)"/></svg>"##,
+        ];
+        for svg in cases {
+            // Returns (drawn without the loop, or refused): that it returns
+            // at all is the check.
+            let _ = sanitize_svg(svg.as_bytes());
+        }
+        // The filter loop is one usvg does not catch (it recursed until the
+        // stack ran out): every loop is refused before usvg sees it.
+        for svg in cases {
+            assert!(!references_are_sound(svg), "a loop passed: {svg}");
+            assert_eq!(sanitize_svg(svg.as_bytes()), None);
+        }
+    }
+
+    /// Nesting past the bound is refused before usvg (which recurses);
+    /// ordinary references and nesting pass.
+    #[test]
+    fn deep_or_huge_svgs_are_refused_and_ordinary_ones_pass() {
+        let deep = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg">{}{}</svg>"#,
+            "<g>".repeat(MAX_SVG_DEPTH + 10),
+            "</g>".repeat(MAX_SVG_DEPTH + 10)
+        );
+        assert!(!references_are_sound(&deep));
+        let fine = r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="4" height="4"><defs><linearGradient id="a" xlink:href="#b"/><linearGradient id="b"><stop offset="0" stop-color="red"/></linearGradient><filter id="f"><feGaussianBlur stdDeviation="1"/></filter></defs><g><g><rect width="4" height="4" fill="url(#a)" style="filter: url('#f')"/></g></g><use xlink:href="#b"/></svg>"##;
+        assert!(references_are_sound(fine));
+        assert!(sanitize_svg(fine.as_bytes()).is_some());
     }
 
     /// Only images the SVG carries itself (`data:`) are kept: every other
