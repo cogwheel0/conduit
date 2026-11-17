@@ -519,6 +519,12 @@ pub(crate) const MAX_PIXELS: u64 = 40_000_000;
 /// header and the frame descriptors alone, nothing decoded. A format whose
 /// size is not read this way passes.
 pub(crate) fn too_many_pixels(bytes: &[u8]) -> bool {
+    // A GIF is weighed by its frames' own descriptors (a 1 × 1 logical
+    // screen can carry a 30,000 × 30,000 image, which is decoded at its
+    // own size).
+    if let Some((screen, frames)) = gif_layout(bytes) {
+        return gif_too_large(screen, &frames);
+    }
     image::ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
         .ok()
@@ -537,8 +543,8 @@ pub(crate) fn too_many_pixels(bytes: &[u8]) -> bool {
 /// read without decoding; 1 for anything else. A truncated GIF counts the
 /// frames it has.
 fn frames_in(bytes: &[u8]) -> u64 {
-    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
-        return gif_frames(bytes);
+    if let Some((_, frames)) = gif_layout(bytes) {
+        return frames.len() as u64;
     }
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         let mut i = 8;
@@ -570,8 +576,26 @@ fn frames_in(bytes: &[u8]) -> u64 {
     1
 }
 
-/// A GIF's image descriptors, walked block by block.
-fn gif_frames(b: &[u8]) -> u64 {
+/// One image of a GIF, as its descriptor places it.
+#[derive(Clone, Copy, Debug)]
+struct GifFrame {
+    left: u32,
+    top: u32,
+    width: u32,
+    height: u32,
+}
+
+/// A GIF's logical screen and its images' descriptors, walked block by
+/// block (extensions and data sub-blocks skipped, nothing decoded); `None`
+/// when it is not a GIF. A truncated GIF lists the images it has.
+fn gif_layout(b: &[u8]) -> Option<((u32, u32), Vec<GifFrame>)> {
+    if !(b.starts_with(b"GIF87a") || b.starts_with(b"GIF89a")) {
+        return None;
+    }
+    let u16_at = |i: usize| -> Option<u32> {
+        let p = b.get(i..i + 2)?;
+        Some(u32::from(u16::from_le_bytes([p[0], p[1]])))
+    };
     // Past a block's data sub-blocks (each a length, then its bytes; a zero
     // length ends them).
     let sub_blocks = |mut i: usize| -> Option<usize> {
@@ -590,10 +614,12 @@ fn gif_frames(b: &[u8]) -> u64 {
             0
         }
     };
-    let Some(&screen) = b.get(10) else {
-        return 0;
+    let screen = (u16_at(6)?, u16_at(8)?);
+    let mut frames = Vec::new();
+    let Some(&flags) = b.get(10) else {
+        return Some((screen, frames));
     };
-    let (mut i, mut frames) = (13 + table(screen), 0u64);
+    let mut i = 13 + table(flags);
     loop {
         match b.get(i) {
             // An extension: its label, then its sub-blocks.
@@ -604,10 +630,21 @@ fn gif_frames(b: &[u8]) -> u64 {
             // An image: its descriptor, a local colour table, the LZW code
             // size, then its sub-blocks.
             Some(0x2C) => {
-                frames += 1;
-                let Some(&local) = b.get(i + 9) else {
+                let (Some(left), Some(top), Some(width), Some(height), Some(&local)) = (
+                    u16_at(i + 1),
+                    u16_at(i + 3),
+                    u16_at(i + 5),
+                    u16_at(i + 7),
+                    b.get(i + 9),
+                ) else {
                     break;
                 };
+                frames.push(GifFrame {
+                    left,
+                    top,
+                    width,
+                    height,
+                });
                 match sub_blocks(i + 10 + table(local) + 1) {
                     Some(next) => i = next,
                     None => break,
@@ -616,7 +653,27 @@ fn gif_frames(b: &[u8]) -> u64 {
             _ => break,
         }
     }
-    frames
+    Some((screen, frames))
+}
+
+/// Whether a GIF decodes to more than [`MAX_PIXELS`]: any one image past
+/// it, any image reaching past twice the logical screen (and a small
+/// margin: some encoders write frames a little larger), or all of them
+/// together (each counted at least at the screen's size, since every frame
+/// is kept at the screen's size).
+fn gif_too_large(screen: (u32, u32), frames: &[GifFrame]) -> bool {
+    let (sw, sh) = (u64::from(screen.0), u64::from(screen.1));
+    let mut total = 0u64;
+    for f in frames {
+        let area = u64::from(f.width) * u64::from(f.height);
+        let right = u64::from(f.left) + u64::from(f.width);
+        let bottom = u64::from(f.top) + u64::from(f.height);
+        if area > MAX_PIXELS || right > 2 * sw + 16 || bottom > 2 * sh + 16 {
+            return true;
+        }
+        total = total.saturating_add(area.max(sw * sh));
+    }
+    total.max(sw * sh) > MAX_PIXELS
 }
 
 /// `url`'s picture: `None` while it loads (or with no daemon), then the
@@ -1246,6 +1303,49 @@ mod tests {
         }
         out.push(0x3B);
         out
+    }
+
+    /// A GIF whose logical screen is `screen` with one image of each
+    /// `(left, top, width, height)`.
+    fn gif_frames_at(screen: (u16, u16), frames: &[(u16, u16, u16, u16)]) -> Vec<u8> {
+        let mut out = b"GIF89a".to_vec();
+        out.extend_from_slice(&screen.0.to_le_bytes());
+        out.extend_from_slice(&screen.1.to_le_bytes());
+        out.extend_from_slice(&[0, 0, 0]);
+        for &(left, top, w, h) in frames {
+            out.push(0x2C);
+            for v in [left, top, w, h] {
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            out.push(0);
+            out.extend_from_slice(&[2, 2, 0x4C, 0x01, 0]);
+        }
+        out.push(0x3B);
+        out
+    }
+
+    /// A frame is weighed by its own descriptor, not the logical screen: a
+    /// 1 × 1 screen with a 30,000 × 30,000 image is refused, and so is a
+    /// frame far outside the screen; ordinary frames pass.
+    #[test]
+    fn a_gif_frame_is_weighed_by_its_own_size() {
+        assert!(too_many_pixels(&gif_frames_at(
+            (1, 1),
+            &[(0, 0, 30_000, 30_000)]
+        )));
+        assert!(too_many_pixels(&gif_frames_at(
+            (10, 10),
+            &[(20_000, 0, 1, 1)]
+        )));
+        assert!(!too_many_pixels(&gif_frames_at(
+            (100, 100),
+            &[(0, 0, 100, 100), (10, 10, 50, 50)]
+        )));
+        // A frame a little past the screen, as some encoders write, passes.
+        assert!(!too_many_pixels(&gif_frames_at(
+            (100, 100),
+            &[(0, 0, 104, 100)]
+        )));
     }
 
     /// An animation's frames count: refused by width × height × frames,
