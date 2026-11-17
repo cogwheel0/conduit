@@ -69,6 +69,11 @@ impl ServerFilesPicker {
     }
 
     fn run_search(&mut self, query: String, cx: &mut Context<Self>) {
+        // Another query: the last one's rows go until this one's come, so
+        // Enter, ↑ ↓ or a click never reach a file that does not match it.
+        if query != self.query {
+            self.files = None;
+        }
         self.query = query.clone();
         self.highlighted = 0;
         let call = self.rpc.call::<methods::FilesList>(&ComposerSearch {
@@ -87,6 +92,8 @@ impl ServerFilesPicker {
                         .map(|l| l.items)
                         .map_err(|e| log::warn!("files.list: {e}")),
                 );
+                // The rows are new: the highlight starts at the top.
+                this.highlighted = 0;
                 cx.notify();
             });
         }));
@@ -192,5 +199,84 @@ impl Render for ServerFilesPicker {
                     .children(empty)
                     .children(list),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use conduit_protocol::ServerFileList;
+    use gpui_kit::TestAppContext;
+    use serde_json::json;
+
+    use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    fn file(id: &str, name: &str) -> ServerFile {
+        ServerFile {
+            id: id.into(),
+            name: name.into(),
+            size: None,
+            content_type: None,
+            updated_at_ms: None,
+        }
+    }
+
+    /// While a new search waits, the last search's rows are gone: Enter or
+    /// ↓ never reach a file that does not match what was typed, and the
+    /// answer's rows start highlighted at the top.
+    #[gpui_kit::test]
+    fn a_new_search_offers_none_of_the_last_ones_files(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.on::<methods::FilesList>(|p| {
+            let items = match p["query"].as_str().unwrap_or("") {
+                "budget" => vec![file("f2", "budget.csv")],
+                _ => vec![
+                    file("f1", "field-notes.txt"),
+                    file("f3", "tide-table.pdf"),
+                    file("f4", "gull-sketch.png"),
+                ],
+            };
+            Ok(serde_json::to_value(ServerFileList { items }).unwrap())
+        });
+        cx.update(crate::views::test_globals);
+        let rpc = daemon.rpc();
+        let (picker, vcx) =
+            cx.add_window_view(move |window, cx| ServerFilesPicker::new(rpc, window, cx));
+        vcx.run_until_parked();
+        assert_eq!(picker.read_with(vcx, |p, _| p.files().len()), 3);
+        let picked: std::rc::Rc<std::cell::RefCell<Vec<String>>> = Default::default();
+        let _listening = vcx.update(|_, cx| {
+            let picked = picked.clone();
+            cx.subscribe(&picker, move |_, e: &ServerFilesEvent, _| {
+                if let ServerFilesEvent::Picked(f) = e {
+                    picked.borrow_mut().push(f.name.clone());
+                }
+            })
+        });
+        let held = daemon.hold::<methods::FilesList>();
+        picker.update(vcx, |p, cx| {
+            p.run_search("budget".into(), cx);
+            p.key("down", cx);
+            p.key("down", cx);
+            p.key("enter", cx);
+        });
+        vcx.run_until_parked();
+        assert!(
+            picked.borrow().is_empty(),
+            "the last search's file was picked: {:?}",
+            picked.borrow()
+        );
+        assert!(!picker.read_with(vcx, |p, _| p.listed()));
+        held.release();
+        vcx.run_until_parked();
+        assert_eq!(picker.read_with(vcx, |p, _| p.highlighted), 0);
+        picker.update(vcx, |p, cx| {
+            p.key("enter", cx);
+        });
+        assert_eq!(*picked.borrow(), vec!["budget.csv".to_string()]);
+        assert_eq!(
+            daemon.calls::<methods::FilesList>()[1],
+            json!({ "query": "budget" })
+        );
     }
 }
