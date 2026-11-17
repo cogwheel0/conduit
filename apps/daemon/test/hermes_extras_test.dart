@@ -746,6 +746,20 @@ void main() {
     return answer;
   }
 
+  test('a purge over cookies that could not be read clears the store '
+      'before it says so', () async {
+    final secure = _UnreadableStore();
+    await signedInStore(secure);
+    // Opened while the secure store refuses reads: the jar is empty, but
+    // the store still holds the session.
+    secure.unreadable = true;
+    final store = await DaemonHermesDashboardCookies.open(secure);
+    secure.unreadable = false;
+    expect(store.cookies, isEmpty);
+    expect(await store.clearForOrigin(dashboard.baseUrl), isTrue);
+    expect((await DaemonHermesDashboardCookies.open(secure)).cookies, isEmpty);
+  });
+
   test('a dashboard answer from before a purge keeps nothing', () async {
     final secure = InMemorySecureKeyValueStore();
     final store = await signedInStore(secure);
@@ -823,6 +837,16 @@ final class _FailingStore extends InMemorySecureKeyValueStore {
   Future<void> write({required String key, required String? value}) => failing
       ? Future<void>.error(const FileSystemException('refused'))
       : super.write(key: key, value: value);
+}
+
+/// A secure store whose reads fail while [unreadable] (a locked Keychain).
+final class _UnreadableStore extends InMemorySecureKeyValueStore {
+  bool unreadable = false;
+
+  @override
+  Future<String?> read({required String key}) => unreadable
+      ? Future<String?>.error(const FileSystemException('locked'))
+      : super.read(key: key);
 }
 
 /// A secure store whose next write waits for [release] once [holdNext]

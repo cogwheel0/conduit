@@ -51,22 +51,30 @@ bool _isSessionCookie(String name) => _sessionCookieNames.contains(
 /// for at an Open WebUI sign-out, empties the jar, as the phone's shared
 /// WebView store is emptied.
 final class DaemonHermesDashboardCookies implements CookieJarPort {
-  DaemonHermesDashboardCookies._(this._store, this._jar);
+  DaemonHermesDashboardCookies._(this._store, this._jar, {bool dirty = false})
+    : _dirty = dirty;
 
-  /// Reads the kept cookies from [store].
+  /// Reads the kept cookies from [store]. Cookies that could not be read
+  /// start an empty jar over a store that may still hold them: it is
+  /// [_dirty], so a purge writes before it says the cookies are gone.
   static Future<DaemonHermesDashboardCookies> open(
     SecureKeyValueStore store,
   ) async {
-    HermesDashboardCookieJar jar;
     try {
       final source = await store.read(key: kHermesDashboardCookiesKey);
-      jar = source == null
-          ? HermesDashboardCookieJar()
-          : HermesDashboardCookieJar.fromJson(jsonDecode(source));
+      return DaemonHermesDashboardCookies._(
+        store,
+        source == null
+            ? HermesDashboardCookieJar()
+            : HermesDashboardCookieJar.fromJson(jsonDecode(source)),
+      );
     } on Object {
-      jar = HermesDashboardCookieJar();
+      return DaemonHermesDashboardCookies._(
+        store,
+        HermesDashboardCookieJar(),
+        dirty: true,
+      );
     }
-    return DaemonHermesDashboardCookies._(store, jar);
   }
 
   final SecureKeyValueStore _store;
@@ -127,9 +135,10 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
     });
   }
 
-  /// The last write failed: the secure store may hold what the jar no
-  /// longer does, so the next purge writes even with nothing left to remove.
-  bool _dirty = false;
+  /// The last write failed, or the store could not be read at [open]: the
+  /// secure store may hold what the jar does not, so the next purge writes
+  /// even with nothing left to remove.
+  bool _dirty;
 
   /// The cookies, for tests and diagnostics.
   List<HermesDashboardCookie> get cookies => _jar.cookies;
