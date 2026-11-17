@@ -6,7 +6,9 @@
 //! document comes from (fetched from a path, or pasted as JSON) and how it
 //! authenticates (a bearer key, or none). A terminal has a name, URL, path
 //! and key. The stored key never comes back: an edit keeps it unless a new
-//! one is typed or Remove Saved Key is chosen. Test Connection reads the
+//! one is typed or Remove Saved Key is chosen, and never past an origin
+//! change ([`key_moves`]): a URL on another scheme, host or port removes it
+//! unless a new key is typed. Test Connection reads the
 //! document (or checks the terminal) with the form as it stands, without
 //! saving. A connection the editor cannot read (another auth mode) shows
 //! what it can and can still be switched or deleted. The drafts, checks and
@@ -366,6 +368,20 @@ impl ConnectionEditorSheet {
         !self.read_only() && self.fingerprint(cx) != self.initial
     }
 
+    /// The key mode Save and Test send: the form's, except that a kept key
+    /// is removed once the URL leaves the entry's origin.
+    fn key_mode_now(&self, cx: &App) -> PersonalKeyMode {
+        match &self.entry {
+            Some(e)
+                if self.key_mode == PersonalKeyMode::Keep
+                    && key_moves(&e.url, &forms::raw(&self.url, cx)) =>
+            {
+                PersonalKeyMode::Clear
+            }
+            _ => self.key_mode,
+        }
+    }
+
     pub fn draft(&self, cx: &App) -> PersonalConnectionDraft {
         PersonalConnectionDraft {
             name: forms::raw(&self.name, cx),
@@ -376,7 +392,7 @@ impl ConnectionEditorSheet {
             spec: self.spec.read(cx).value().to_string(),
             auth_type: self.auth_type.clone(),
             key: forms::raw(&self.key, cx),
-            key_mode: self.key_mode,
+            key_mode: self.key_mode_now(cx),
             enabled: self.enabled,
         }
     }
@@ -652,7 +668,12 @@ impl ConnectionEditorSheet {
     fn key_row(&self, l10n: &L10n, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let stored = self.entry.as_ref().is_some_and(|e| e.has_key);
         let removing = self.key_mode == PersonalKeyMode::Clear;
-        let help: Option<SharedString> = if removing {
+        // Another origin: the saved key goes unless one is typed, and there
+        // is no keeping it.
+        let moved = stored
+            && self.key_mode == PersonalKeyMode::Keep
+            && self.key_mode_now(cx) == PersonalKeyMode::Clear;
+        let help: Option<SharedString> = if removing || moved {
             Some(l10n.personal_connections_key_will_remove().into())
         } else if stored && self.key_mode == PersonalKeyMode::Keep {
             Some(l10n.personal_connections_key_kept().into())
@@ -668,7 +689,7 @@ impl ConnectionEditorSheet {
             window,
             cx,
         );
-        if !stored {
+        if !stored || moved {
             return field.into_any_element();
         }
         let view = cx.entity().downgrade();
@@ -1086,6 +1107,20 @@ impl Render for ConnectionEditorSheet {
     }
 }
 
+/// Whether a saved key would reach another origin: `url` names another
+/// scheme, host or port than `saved` (an unreadable URL counts as another
+/// one unless it is the saved text itself).
+pub fn key_moves(saved: &str, url: &str) -> bool {
+    let (saved, url) = (saved.trim(), url.trim());
+    if saved == url {
+        return false;
+    }
+    match (url::Url::parse(saved), url::Url::parse(url)) {
+        (Ok(a), Ok(b)) => a.origin() != b.origin(),
+        _ => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
@@ -1187,6 +1222,63 @@ mod tests {
         let saves = daemon.calls::<methods::IntegrationsSave>();
         assert_eq!(saves[0]["draft"]["keyMode"], "replace");
         assert_eq!(saves[0]["draft"]["key"], "seed-token");
+    }
+
+    /// A saved key never follows a connection to another origin: once the
+    /// URL names another scheme, host or port, Save and Test send the key
+    /// to be removed (the form says so) unless a new one is typed; another
+    /// path on the same origin keeps it.
+    #[gpui_kit::test]
+    fn a_saved_key_is_not_kept_when_the_origin_changes(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::IntegrationsSave>(listed(entry(true, true)));
+        daemon.returns::<methods::IntegrationsTest>(Default::default());
+        let sheet = open(&stores, Some(entry(true, true)), vcx);
+        type_into(
+            &sheet,
+            |s| s.url.clone(),
+            "https://tools.example.com/v2",
+            vcx,
+        );
+        sheet.update(vcx, |s, cx| s.press_test(cx));
+        vcx.run_until_parked();
+        for moved in [
+            "https://elsewhere.example.org",
+            "http://tools.example.com",
+            "https://tools.example.com:8443",
+        ] {
+            type_into(&sheet, |s| s.url.clone(), moved, vcx);
+            sheet.update(vcx, |s, cx| s.press_test(cx));
+            vcx.run_until_parked();
+        }
+        sheet.update(vcx, |s, cx| s.save(cx));
+        vcx.run_until_parked();
+        let tests = daemon.calls::<methods::IntegrationsTest>();
+        assert_eq!(tests.len(), 4);
+        assert_eq!(tests[0]["draft"]["keyMode"], "keep", "same origin");
+        for test in &tests[1..] {
+            assert_eq!(
+                test["draft"]["keyMode"], "clear",
+                "{}",
+                test["draft"]["url"]
+            );
+        }
+        let saves = daemon.calls::<methods::IntegrationsSave>();
+        assert_eq!(saves[0]["draft"]["keyMode"], "clear");
+        // A key typed for the new origin is the one sent.
+        let sheet = open(&stores, Some(entry(true, true)), vcx);
+        type_into(
+            &sheet,
+            |s| s.url.clone(),
+            "https://elsewhere.example.org",
+            vcx,
+        );
+        type_into(&sheet, |s| s.key.clone(), "seed-token", vcx);
+        sheet.update(vcx, |s, cx| s.press_test(cx));
+        vcx.run_until_parked();
+        let tests = daemon.calls::<methods::IntegrationsTest>();
+        assert_eq!(tests[4]["draft"]["keyMode"], "replace");
+        assert_eq!(tests[4]["draft"]["key"], "seed-token");
     }
 
     /// Nothing can be typed while a save is out, so the sheet never closes

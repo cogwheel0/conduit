@@ -62,6 +62,38 @@ String _clean(String? value) => value?.trim() ?? '';
 String _stripTrailingSlash(String value) =>
     value.replaceFirst(RegExp(r'/+$'), '');
 
+/// Whether a stored credential would reach another origin if [url] replaced
+/// [stored]: another scheme, host or port (an unreadable URL counts as
+/// another origin unless it is the stored text itself). A kept key never
+/// follows a connection there; the form has to type a new one.
+bool personalConnectionKeyMoves(String stored, String url) {
+  final a = _stripTrailingSlash(_clean(stored));
+  final b = _stripTrailingSlash(_clean(url));
+  if (a == b) return false;
+  final from = Uri.tryParse(a);
+  final to = Uri.tryParse(b);
+  if (from == null || to == null || !from.hasAuthority || !to.hasAuthority) {
+    return true;
+  }
+  return from.scheme.toLowerCase() != to.scheme.toLowerCase() ||
+      from.host.toLowerCase() != to.host.toLowerCase() ||
+      from.port != to.port;
+}
+
+/// The key patch for a draft that keeps the stored key: none, unless the
+/// URL leaves the stored origin, which removes a stored key.
+void _keepKey(
+  Map<String, dynamic> patch,
+  Map<String, dynamic> previous,
+  String url,
+) {
+  final storedUrl = previous['url']?.toString() ?? '';
+  if ((previous['key']?.toString() ?? '').isNotEmpty &&
+      personalConnectionKeyMoves(storedUrl, url)) {
+    patch['key'] = '';
+  }
+}
+
 /// Writes [value] into [patch] only when it differs from what the entry
 /// stores, treating a missing field as [fallback].
 void _setIfChanged(
@@ -196,7 +228,8 @@ class PersonalToolServerDraft {
 
   /// The merge patch that turns [previous] into this draft. Only changed
   /// fields appear, and the key appears only when the draft replaces or clears
-  /// it.
+  /// it, or when a kept key would follow the URL to another origin
+  /// ([personalConnectionKeyMoves]), which removes it.
   Map<String, dynamic> toPatch(Map<String, dynamic> previous) {
     final patch = <String, dynamic>{};
     final info = <String, dynamic>{};
@@ -235,6 +268,8 @@ class PersonalToolServerDraft {
       patch['key'] = key.trim();
     } else if (keyMode == PersonalConnectionSecretMode.clear) {
       patch['key'] = '';
+    } else {
+      _keepKey(patch, previous, url);
     }
     return patch;
   }
@@ -315,6 +350,8 @@ class PersonalTerminalDraft {
       patch['key'] = key.trim();
     } else if (keyMode == PersonalConnectionSecretMode.clear) {
       patch['key'] = '';
+    } else {
+      _keepKey(patch, previous, url);
     }
     return patch;
   }

@@ -333,12 +333,12 @@ void main() {
           PersonalConnectionKind.toolServer,
           PatchPersonalConnection(
             'alpha',
-            draft.copyWith(url: 'https://new.example').toPatch(stored),
+            draft.copyWith(url: 'https://alpha.example/v2').toPatch(stored),
           ),
         );
         var saved =
             server.settings['ui']['toolServers'][0] as Map<String, dynamic>;
-        check(saved['url']).equals('https://new.example');
+        check(saved['url']).equals('https://alpha.example/v2');
         check(saved['key']).equals('key-alpha');
 
         await api.editPersonalConnections(
@@ -369,6 +369,62 @@ void main() {
         check(saved['key']).equals('');
       },
     );
+
+    test('a kept key never follows a connection to another origin', () {
+      final tool = _toolServer('alpha', 'Alpha');
+      final toolDraft = PersonalToolServerDraft.fromEntry(tool);
+      final terminal = _terminal('https://term.example');
+      final terminalDraft = PersonalTerminalDraft.fromEntry(terminal);
+      for (final moved in <String>[
+        'https://beta.example',
+        'http://alpha.example',
+        'https://alpha.example:8443',
+        'https://ALPHA.example.evil.test',
+      ]) {
+        check(
+          because: moved,
+          toolDraft.copyWith(url: moved).toPatch(tool)['key'],
+        ).equals('');
+      }
+      for (final moved in <String>[
+        'https://other.example',
+        'https://term.example:9000',
+      ]) {
+        check(
+          because: moved,
+          terminalDraft.copyWith(url: moved).toPatch(terminal)['key'],
+        ).equals('');
+      }
+      // The same origin (another path, a trailing slash, the default port,
+      // the host's case) keeps it: no key in the patch.
+      for (final same in <String>[
+        'https://alpha.example/v2',
+        'https://alpha.example/',
+        'https://alpha.example:443',
+        'https://Alpha.Example',
+      ]) {
+        check(
+          because: same,
+          toolDraft.copyWith(url: same).toPatch(tool).containsKey('key'),
+        ).isFalse();
+      }
+      check(
+        terminalDraft
+            .copyWith(url: 'https://term.example/shell')
+            .toPatch(terminal)
+            .containsKey('key'),
+      ).isFalse();
+      // A key typed for the new origin is the one saved.
+      check(
+        toolDraft
+            .copyWith(
+              url: 'https://beta.example',
+              key: 'beta-key',
+              keyMode: PersonalConnectionSecretMode.replace,
+            )
+            .toPatch(tool)['key'],
+      ).equals('beta-key');
+    });
 
     test(
       'adding a duplicate identity is refused before anything is sent',
