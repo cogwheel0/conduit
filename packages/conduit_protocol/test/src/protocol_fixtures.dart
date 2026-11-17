@@ -1628,6 +1628,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     jobs: <HermesJobDto>[HermesJobDto(id: 'j2')],
     savedId: 'j2',
   ),
+  'hermesJobsListFailed': const HermesJobs(savedId: 'j3', listFailed: true),
   'hermesJobEdit': const HermesJobEdit(
     id: 'j1',
     name: 'Brief',
@@ -4515,6 +4516,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'hermesRoomViewGone': HermesRoomView.fromJson,
       'chatDetailHermes': ChatDetail.fromJson,
       'hermesJobDto': HermesJobDto.fromJson,
+      'hermesJobsListFailed': HermesJobs.fromJson,
       'hermesJobs': HermesJobs.fromJson,
       'hermesJobEdit': HermesJobEdit.fromJson,
       'hermesJobToggle': HermesJobToggle.fromJson,

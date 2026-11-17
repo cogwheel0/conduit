@@ -8,7 +8,8 @@
       "deliver": [],
       "catchUp": "default",
       "running": true,
-      "stopping": false
+      "stopping": false,
+      "deliveryKnown": true
     }
   ],
   "writable": false,
@@ -18,5 +19,6 @@
       "jobId": "j3",
       "kind": "stopped"
     }
-  ]
+  ],
+  "listFailed": false
 }

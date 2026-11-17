@@ -305,6 +305,7 @@
   "hermesJobRef": "HermesJobRef",
   "hermesJobToggle": "HermesJobToggle",
   "hermesJobs": "HermesJobs",
+  "hermesJobsListFailed": "HermesJobs",
   "hermesJobsScheduling": "HermesJobs",
   "hermesMcpAdd": "HermesMcpAdd",
   "hermesMcpApiKey": "HermesMcpApiKey",

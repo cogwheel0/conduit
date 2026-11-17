@@ -6011,6 +6011,10 @@ pub struct HermesJobDto {
     /// Null when it was not stopped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_cancel_reason: Option<String>,
+    /// Where runs go could be read: false when the stored routes could not
+    /// be (then `deliver` is empty and no edit may replace them).
+    #[serde(default = "default_hermes_job_dto_delivery_known")]
+    pub delivery_known: bool,
 }
 
 fn default_hermes_job_dto_enabled() -> bool {
@@ -6019,6 +6023,10 @@ fn default_hermes_job_dto_enabled() -> bool {
 
 fn default_hermes_job_dto_catch_up() -> String {
     "default".to_owned()
+}
+
+fn default_hermes_job_dto_delivery_known() -> bool {
+    true
 }
 
 /// Reply to `hermes.jobs`.
@@ -6043,6 +6051,11 @@ pub struct HermesJobs {
     /// editor saves to from then on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub saved_id: Option<String>,
+    /// The change this answers was made, but the jobs could not be read
+    /// again after it: `jobs` is not the list (keep the one shown and read
+    /// it again). `savedId` still names what the change wrote.
+    #[serde(default)]
+    pub list_failed: bool,
 }
 
 impl Default for HermesJobs {
@@ -6053,6 +6066,7 @@ impl Default for HermesJobs {
             scheduling: Default::default(),
             notices: Default::default(),
             saved_id: None,
+            list_failed: Default::default(),
         }
     }
 }
@@ -6391,6 +6405,11 @@ pub struct HermesMcpServers {
     /// An API key can be set on a server (Hermes 0.23 and later).
     #[serde(default)]
     pub can_set_api_key: bool,
+    /// The change this answers was made, but the servers could not be read
+    /// again after it: `servers` is not the list (keep the one shown and
+    /// read it again).
+    #[serde(default)]
+    pub list_failed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

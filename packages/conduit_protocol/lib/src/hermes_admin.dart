@@ -227,6 +227,11 @@ abstract class HermesMcpServers with _$HermesMcpServers {
 
     /// An API key can be set on a server (Hermes 0.23 and later).
     @Default(false) bool canSetApiKey,
+
+    /// The change this answers was made, but the servers could not be read
+    /// again after it: [servers] is not the list (keep the one shown and
+    /// read it again).
+    @Default(false) bool listFailed,
   }) = _HermesMcpServers;
 
   factory HermesMcpServers.fromJson(Map<String, dynamic> json) =>

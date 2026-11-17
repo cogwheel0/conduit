@@ -12,5 +12,6 @@
   "deliver": [],
   "catchUp": "default",
   "running": false,
-  "stopping": false
+  "stopping": false,
+  "deliveryKnown": true
 }

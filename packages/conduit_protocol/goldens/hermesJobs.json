@@ -8,11 +8,13 @@
       "deliver": [],
       "catchUp": "default",
       "running": false,
-      "stopping": false
+      "stopping": false,
+      "deliveryKnown": true
     }
   ],
   "writable": true,
   "scheduling": false,
   "notices": [],
-  "savedId": "j2"
+  "savedId": "j2",
+  "listFailed": false
 }

@@ -8,5 +8,6 @@
       "tools": []
     }
   ],
-  "canSetApiKey": true
+  "canSetApiKey": true,
+  "listFailed": false
 }

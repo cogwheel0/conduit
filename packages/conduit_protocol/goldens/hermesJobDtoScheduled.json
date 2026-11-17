@@ -23,5 +23,6 @@
   "catchUp": "runOnce",
   "running": true,
   "stopping": true,
-  "lastCancelReason": "Stopped by the user"
+  "lastCancelReason": "Stopped by the user",
+  "deliveryKnown": true
 }

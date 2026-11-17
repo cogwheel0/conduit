@@ -3229,7 +3229,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "deliver": [],
   "catchUp": "default",
   "running": false,
-  "stopping": false
+  "stopping": false,
+  "deliveryKnown": true
 }''',
 
   'hermesJobs': r'''
@@ -3243,13 +3244,25 @@ const Map<String, String> protocolGoldens = <String, String>{
       "deliver": [],
       "catchUp": "default",
       "running": false,
-      "stopping": false
+      "stopping": false,
+      "deliveryKnown": true
     }
   ],
   "writable": true,
   "scheduling": false,
   "notices": [],
-  "savedId": "j2"
+  "savedId": "j2",
+  "listFailed": false
+}''',
+
+  'hermesJobsListFailed': r'''
+{
+  "jobs": [],
+  "writable": true,
+  "scheduling": false,
+  "notices": [],
+  "savedId": "j3",
+  "listFailed": true
 }''',
 
   'hermesJobEdit': r'''
@@ -3339,7 +3352,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "catchUp": "runOnce",
   "running": true,
   "stopping": true,
-  "lastCancelReason": "Stopped by the user"
+  "lastCancelReason": "Stopped by the user",
+  "deliveryKnown": true
 }''',
 
   'hermesJobsScheduling': r'''
@@ -3353,7 +3367,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "deliver": [],
       "catchUp": "default",
       "running": true,
-      "stopping": false
+      "stopping": false,
+      "deliveryKnown": true
     }
   ],
   "writable": false,
@@ -3363,7 +3378,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "jobId": "j3",
       "kind": "stopped"
     }
-  ]
+  ],
+  "listFailed": false
 }''',
 
   'hermesJobEditDelivery': r'''
@@ -3492,7 +3508,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "tools": []
     }
   ],
-  "canSetApiKey": true
+  "canSetApiKey": true,
+  "listFailed": false
 }''',
 
   'hermesMcpCatalogEntryDto': r'''

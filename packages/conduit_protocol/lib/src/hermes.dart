@@ -340,6 +340,10 @@ abstract class HermesJobDto with _$HermesJobDto {
     /// The last run was stopped: why (empty when Hermes gave no reason).
     /// Null when it was not stopped.
     String? lastCancelReason,
+
+    /// Where runs go could be read: false when the stored routes could not
+    /// be (then [deliver] is empty and no edit may replace them).
+    @Default(true) bool deliveryKnown,
   }) = _HermesJobDto;
 
   factory HermesJobDto.fromJson(Map<String, dynamic> json) =>
@@ -367,6 +371,11 @@ abstract class HermesJobs with _$HermesJobs {
     /// The job a save wrote (`hermes.saveJob`): a new job's id, which the
     /// editor saves to from then on.
     String? savedId,
+
+    /// The change this answers was made, but the jobs could not be read
+    /// again after it: [jobs] is not the list (keep the one shown and read
+    /// it again). [savedId] still names what the change wrote.
+    @Default(false) bool listFailed,
   }) = _HermesJobs;
 
   factory HermesJobs.fromJson(Map<String, dynamic> json) =>
