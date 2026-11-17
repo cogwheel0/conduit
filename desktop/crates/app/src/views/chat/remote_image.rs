@@ -309,6 +309,7 @@ pub fn markdown_image(url: &str, alt: &str, window: &mut Window, cx: &mut App) -
         LinkTarget::ServerFile(file) => {
             let state = match file_image_state(&file, window, cx) {
                 Some(Ok(render)) => Load::Ready(render, None),
+                Some(Err(e)) if media::is_untrusted_svg(&e) => Load::Failed(MediaError::Untrusted),
                 Some(Err(_)) => Load::Failed(MediaError::Failed),
                 None => Load::Loading,
             };
@@ -317,7 +318,14 @@ pub fn markdown_image(url: &str, alt: &str, window: &mut Window, cx: &mut App) -
                 name: name.clone(),
             };
             let retry: Rc<dyn Fn(&mut App)> = Rc::new(move |cx| retry_file_image(&file, cx));
-            image_tile(&key, alt, &name, state, viewer, None, retry, &l10n, &t)
+            let address = server
+                .as_ref()
+                .and_then(|s| url::Url::parse(&s.url).ok())
+                .and_then(|base| base.join(url).ok())
+                .map(|u| u.to_string());
+            image_tile(
+                &key, alt, &name, state, viewer, None, retry, address, &l10n, &t,
+            )
         }
         LinkTarget::Server(url) => loaded_or_loading(&key, &url, None, alt, &name, window, cx),
         LinkTarget::Remote { url, host } => {
@@ -381,7 +389,18 @@ fn loaded_or_loading(
     let host = host
         .filter(|h| !media::host_allowed(h, cx))
         .map(str::to_string);
-    image_tile(key, alt, name, state, viewer, host, retry, &l10n, &t)
+    image_tile(
+        key,
+        alt,
+        name,
+        state,
+        viewer,
+        host,
+        retry,
+        Some(url.to_string()),
+        &l10n,
+        &t,
+    )
 }
 
 /// A loaded picture, its loading tile, or why it failed.
@@ -394,6 +413,7 @@ fn image_tile(
     viewer: ViewerImage,
     allow_host: Option<String>,
     retry: Rc<dyn Fn(&mut App)>,
+    address: Option<String>,
     l10n: &L10n,
     t: &ConduitTheme,
 ) -> AnyElement {
@@ -482,8 +502,11 @@ fn image_tile(
             let why = match error {
                 MediaError::TooLarge => l10n.desktop_image_too_large(),
                 MediaError::WrongType => l10n.desktop_image_not_an_image(),
-                MediaError::TimedOut | MediaError::Failed => l10n.desktop_image_load_failed(),
+                MediaError::TimedOut | MediaError::Failed | MediaError::Untrusted => {
+                    l10n.desktop_image_load_failed()
+                }
             };
+            let action = failed_action(&error, address);
             div()
                 .id(id(""))
                 .role(Role::Group)
@@ -522,16 +545,44 @@ fn image_tile(
                                 .child(SharedString::from(why)),
                         ),
                 )
-                .child(
-                    Button::new(id("-retry"), l10n.desktop_try_again()).on_click(Rc::new(
-                        move |_, window, cx| {
+                .child(match action {
+                    // An SVG from outside the app is never drawn here: the
+                    // browser can show it.
+                    FailedAction::OpenInBrowser(address) => {
+                        Button::new(id("-open"), l10n.desktop_preview_open_in_browser()).on_click(
+                            Rc::new(move |_, _, cx| super::markdown::open_web_link(&address, cx)),
+                        )
+                    }
+                    FailedAction::Retry => Button::new(id("-retry"), l10n.desktop_try_again())
+                        .on_click(Rc::new(move |_, window, cx| {
                             retry(cx);
                             window.refresh();
-                        },
-                    )),
-                )
+                        })),
+                    FailedAction::None => {
+                        Button::new(id("-retry"), l10n.desktop_try_again()).disabled(true)
+                    }
+                })
                 .into_any_element()
         }
+    }
+}
+
+/// What a picture that did not load offers.
+#[derive(Debug, PartialEq, Eq)]
+enum FailedAction {
+    Retry,
+    /// An SVG from outside the app, at its address.
+    OpenInBrowser(String),
+    /// An SVG from outside the app with no address to open.
+    None,
+}
+
+/// [`FailedAction`] for `error`, the picture at `address`.
+fn failed_action(error: &MediaError, address: Option<String>) -> FailedAction {
+    match (error, address) {
+        (MediaError::Untrusted, Some(address)) => FailedAction::OpenInBrowser(address),
+        (MediaError::Untrusted, None) => FailedAction::None,
+        _ => FailedAction::Retry,
     }
 }
 
@@ -740,6 +791,29 @@ mod tests {
         let l10n = L10n::new("en");
         assert_eq!(image_name("/%€-picture.png", "", &l10n), "%€-picture.png");
         assert_eq!(image_name("chart%中.png", "", &l10n), "chart%中.png");
+    }
+
+    /// An SVG from outside the app offers Open in Browser (it is never
+    /// drawn here); any other failure offers Try Again.
+    #[test]
+    fn an_svg_from_outside_offers_open_in_browser() {
+        let address = || Some("https://pictures.example/chart.svg".to_string());
+        assert_eq!(
+            failed_action(&MediaError::Untrusted, address()),
+            FailedAction::OpenInBrowser("https://pictures.example/chart.svg".into())
+        );
+        assert_eq!(
+            failed_action(&MediaError::Untrusted, None),
+            FailedAction::None
+        );
+        assert_eq!(
+            failed_action(&MediaError::Failed, address()),
+            FailedAction::Retry
+        );
+        assert_eq!(
+            failed_action(&MediaError::TooLarge, address()),
+            FailedAction::Retry
+        );
     }
 
     #[test]

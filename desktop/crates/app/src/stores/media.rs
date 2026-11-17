@@ -212,6 +212,9 @@ pub enum MediaError {
     TimedOut,
     /// The site failed, could not be reached, or the bytes did not decode.
     Failed,
+    /// An SVG from outside the app (a site, the account's server): not
+    /// drawn here at all; it can be opened in the browser.
+    Untrusted,
 }
 
 impl MediaError {
@@ -290,7 +293,13 @@ impl Asset for RemoteImage {
                 return Err(MediaError::TooLarge);
             }
             let encoded = Arc::new(Image::from_bytes(format, bytes));
-            let render = decode_picture(&encoded, renderer).map_err(|_| MediaError::WrongType)?;
+            let render = decode_picture(&encoded, renderer).map_err(|e| {
+                if e.is::<UntrustedSvg>() {
+                    MediaError::Untrusted
+                } else {
+                    MediaError::WrongType
+                }
+            })?;
             Ok(LoadedImage { encoded, render })
         }
     }
@@ -298,215 +307,44 @@ impl Asset for RemoteImage {
 
 /// `image` (bytes fetched from a site, the account's server or a model) as
 /// frames GPUI draws. Every caller that decodes fetched bytes goes through
-/// here.
-/// An SVG among them is drawn only after [`sanitize_svg`]: it resolves no
-/// resource outside itself.
+/// here, so the rule follows the source: an SVG among them is never
+/// decoded in the app (its renderer reads outside resources and recurses
+/// on what it is given); it fails as [`UntrustedSvg`], and the window
+/// offers to open it in the browser. The app's own SVGs (icons, anything
+/// it ships) are drawn by GPUI's asset path, not here.
 pub(crate) fn decode_picture(
     image: &Image,
     renderer: gpui_kit::SvgRenderer,
 ) -> anyhow::Result<Arc<RenderImage>> {
     if image.format == ImageFormat::Svg {
-        let safe = sanitize_svg(&image.bytes).ok_or_else(|| anyhow::anyhow!("not an SVG"))?;
-        return Image::from_bytes(ImageFormat::Svg, safe).to_image_data(renderer);
+        return Err(anyhow::Error::new(UntrustedSvg));
     }
+    #[cfg(test)]
+    DECODED.with(|d| d.set(d.get() + 1));
     image.to_image_data(renderer)
 }
 
-/// Untrusted SVG (from a site, the account's server or a model) written
-/// again with nothing outside itself: parsed with no resources directory and
-/// an image resolver that refuses every reference but `data:` (a path,
-/// `/dev/zero`, `file:`, a web address are never read), text drawn with
-/// the system's fonts. What GPUI then draws carries only what the SVG
-/// carried. `None` when it is not an SVG.
-pub(crate) fn sanitize_svg(bytes: &[u8]) -> Option<Vec<u8>> {
-    sanitize_svg_with(bytes, |_| {})
+/// Why [`decode_picture`] refused: an SVG from outside the app.
+#[derive(Debug)]
+pub(crate) struct UntrustedSvg;
+
+impl std::fmt::Display for UntrustedSvg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("an SVG from outside the app is not drawn here")
+    }
 }
 
-/// [`sanitize_svg`], telling `refused` each reference it refused.
-fn sanitize_svg_with(
-    bytes: &[u8],
-    refused: impl Fn(&str) + Send + Sync + 'static,
-) -> Option<Vec<u8>> {
-    use resvg::usvg;
-    static SYSTEM_FONTS: std::sync::LazyLock<Arc<usvg::fontdb::Database>> =
-        std::sync::LazyLock::new(|| {
-            let mut db = usvg::fontdb::Database::new();
-            db.load_system_fonts();
-            Arc::new(db)
-        });
-    let refused = Arc::new(refused);
-    let refused_data = refused.clone();
-    let options = usvg::Options {
-        resources_dir: None,
-        image_href_resolver: usvg::ImageHrefResolver {
-            // Only pictures it carries: an SVG inside it (marked as one, or
-            // plain data that reads as one) is refused outright, since it
-            // could be compressed without limit and nest again.
-            resolve_data: Box::new(move |mime: &str, data: Arc<Vec<u8>>, _: &usvg::Options| {
-                let raster = match mime {
-                    "image/jpg" | "image/jpeg" => Some(usvg::ImageKind::JPEG(data)),
-                    "image/png" => Some(usvg::ImageKind::PNG(data)),
-                    "image/gif" => Some(usvg::ImageKind::GIF(data)),
-                    "image/webp" => Some(usvg::ImageKind::WEBP(data)),
-                    "text/plain" => match image::guess_format(&data) {
-                        Ok(image::ImageFormat::Jpeg) => Some(usvg::ImageKind::JPEG(data)),
-                        Ok(image::ImageFormat::Png) => Some(usvg::ImageKind::PNG(data)),
-                        Ok(image::ImageFormat::Gif) => Some(usvg::ImageKind::GIF(data)),
-                        Ok(image::ImageFormat::WebP) => Some(usvg::ImageKind::WEBP(data)),
-                        _ => None,
-                    },
-                    _ => None,
-                };
-                if raster.is_none() {
-                    refused_data(&format!("data:{mime}"));
-                }
-                raster
-            }),
-            resolve_string: Box::new(move |href: &str, _: &usvg::Options| {
-                refused(href);
-                None
-            }),
-        },
-        fontdb: SYSTEM_FONTS.clone(),
-        ..usvg::Options::default()
-    };
-    // Compressed (svgz): inflated here within the limit, never by usvg.
-    let inflated;
-    let text = if bytes.starts_with(&[0x1f, 0x8b]) {
-        inflated = inflate_svgz(bytes)?;
-        inflated.as_slice()
-    } else {
-        bytes
-    };
-    if text.len() > MAX_SVG_BYTES {
-        return None;
-    }
-    let text = std::str::from_utf8(text).ok()?;
-    // usvg follows references recursively, and not every loop is caught
-    // (a filter's feImage naming an element that uses the filter overflows
-    // the stack): loops, deep nesting and huge documents never reach it.
-    if !references_are_sound(text) {
-        return None;
-    }
-    let tree = usvg::Tree::from_str(text, &options).ok()?;
-    Some(tree.to_string(&usvg::WriteOptions::default()).into_bytes())
+impl std::error::Error for UntrustedSvg {}
+
+/// Whether an image load failed because it was an SVG from outside the app.
+pub(crate) fn is_untrusted_svg(error: &gpui_kit::ImageCacheError) -> bool {
+    matches!(error, gpui_kit::ImageCacheError::Other(e) if e.downcast_ref::<UntrustedSvg>().is_some())
 }
 
-/// How deep an untrusted SVG's elements may nest.
-const MAX_SVG_DEPTH: usize = 256;
-/// How many elements an untrusted SVG may have.
-const MAX_SVG_ELEMENTS: usize = 200_000;
-
-/// Whether `svg` is safe to hand to usvg: it parses, nests no deeper than
-/// [`MAX_SVG_DEPTH`], has no more than [`MAX_SVG_ELEMENTS`] elements, and
-/// its references (`href` and `xlink:href` to `#id`, and `url(#id)` in any
-/// attribute or style) never loop. Referring to an element draws all of it,
-/// so an element with an id points at every reference made inside it.
-fn references_are_sound(svg: &str) -> bool {
-    use std::collections::HashMap;
-    let Ok(doc) = roxmltree::Document::parse(svg) else {
-        return false;
-    };
-    // Every element, with its depth; ids, and the references made inside
-    // each id'd element.
-    let mut ids: HashMap<&str, usize> = HashMap::new();
-    let mut refs: Vec<Vec<String>> = Vec::new();
-    let mut open: Vec<(usize, usize)> = Vec::new(); // (depth, id slot)
-    let mut stack = vec![(doc.root_element(), 0usize)];
-    let mut elements = 0usize;
-    while let Some((node, depth)) = stack.pop() {
-        elements += 1;
-        if depth > MAX_SVG_DEPTH || elements > MAX_SVG_ELEMENTS {
-            return false;
-        }
-        while open.last().is_some_and(|(d, _)| *d >= depth) {
-            open.pop();
-        }
-        if let Some(id) = node.attribute("id") {
-            let slot = refs.len();
-            refs.push(Vec::new());
-            ids.insert(id, slot);
-            open.push((depth, slot));
-        }
-        let mut made = Vec::new();
-        for a in node.attributes() {
-            let v = a.value();
-            if a.name() == "href"
-                && let Some(id) = v.trim().strip_prefix('#')
-            {
-                made.push(id.to_string());
-            }
-            let mut rest = v;
-            while let Some(at) = rest.find("url(") {
-                rest = &rest[at + 4..];
-                let inner = rest.trim_start().trim_start_matches(['\'', '"']);
-                if let Some(id) = inner.strip_prefix('#') {
-                    let end = id.find([')', '\'', '"', ' ']).unwrap_or(id.len());
-                    made.push(id[..end].to_string());
-                }
-            }
-        }
-        for (_, slot) in &open {
-            refs[*slot].extend(made.iter().cloned());
-        }
-        for child in node
-            .children()
-            .filter(|c| c.is_element())
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-        {
-            stack.push((child, depth + 1));
-        }
-    }
-    // A loop among the references (depth-first, iterative: 0 unseen,
-    // 1 on the path, 2 done).
-    let mut state = vec![0u8; refs.len()];
-    for start in 0..refs.len() {
-        if state[start] != 0 {
-            continue;
-        }
-        let mut path = vec![(start, 0usize)];
-        state[start] = 1;
-        while let Some((at, next)) = path.last_mut() {
-            let at = *at;
-            let Some(target) = refs[at].get(*next) else {
-                state[at] = 2;
-                path.pop();
-                continue;
-            };
-            *next += 1;
-            let Some(&to) = ids.get(target.as_str()) else {
-                continue;
-            };
-            match state[to] {
-                1 => return false,
-                0 => {
-                    state[to] = 1;
-                    path.push((to, 0));
-                }
-                _ => {}
-            }
-        }
-    }
-    true
-}
-
-/// The most an untrusted SVG may be, unpacked (as much as the daemon
-/// fetches for a picture, and a little more).
-const MAX_SVG_BYTES: usize = 16 * 1024 * 1024;
-
-/// A compressed SVG (svgz) unpacked, reading no more than
-/// [`MAX_SVG_BYTES`] and one byte: `None` past that, or when it is not
-/// gzip. A few kilobytes that unpack to gigabytes stop at the limit.
-fn inflate_svgz(bytes: &[u8]) -> Option<Vec<u8>> {
-    use std::io::Read as _;
-    let mut out = Vec::new();
-    flate2::read::GzDecoder::new(bytes)
-        .take(MAX_SVG_BYTES as u64 + 1)
-        .read_to_end(&mut out)
-        .ok()?;
-    (out.len() <= MAX_SVG_BYTES).then_some(out)
+#[cfg(test)]
+thread_local! {
+    /// How many pictures [`decode_picture`] handed to the decoder.
+    static DECODED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// The most pixels a picture from another site may have: a small file
@@ -1098,190 +936,49 @@ mod tests {
         out
     }
 
-    fn svg_with_image(href: &str) -> Vec<u8> {
-        format!(
-            r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="4" height="4"><rect width="2" height="2" fill="red"/><image xlink:href="{href}" width="4" height="4"/></svg>"#
-        )
-        .into_bytes()
-    }
-
-    /// A remote SVG never opens a file of this Mac. Each file is a pipe
-    /// whose writer records being opened and then closes it (the reader gets
-    /// an end of file at once), so an open is seen, and nothing hangs.
+    /// A picture from outside the app that is an SVG (plain or compressed)
+    /// is never handed to a decoder: it fails as untrusted, which the
+    /// window shows with Open in Browser.
     #[test]
-    fn a_remote_svg_opens_no_file_of_this_mac() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        let dir = std::env::temp_dir().join(format!("conduit-svg-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
-        let renderer = gpui_kit::SvgRenderer::new(Arc::new(()));
-        for (n, file_url) in [(0, false), (1, true)] {
-            let pipe = dir.join(format!("picture-{n}.png"));
-            let _ = std::fs::remove_file(&pipe);
-            let made = std::process::Command::new("mkfifo").arg(&pipe).status();
-            assert!(made.is_ok_and(|s| s.success()), "mkfifo");
-            let opened = Arc::new(AtomicBool::new(false));
-            let writer = {
-                let (pipe, opened) = (pipe.clone(), opened.clone());
-                std::thread::spawn(move || {
-                    // Waits until a reader opens it, then closes it.
-                    if std::fs::OpenOptions::new().write(true).open(&pipe).is_ok() {
-                        opened.store(true, Ordering::SeqCst);
-                    }
-                })
-            };
-            let href = if file_url {
-                format!("file://{}", pipe.to_string_lossy())
-            } else {
-                pipe.to_string_lossy().to_string()
-            };
-            let svg = Image::from_bytes(ImageFormat::Svg, svg_with_image(&href));
-            let drawn = decode_picture(&svg, renderer.clone());
-            let read = opened.load(Ordering::SeqCst);
-            // Let the writer go (as a reader would), then end.
-            if !read {
-                let _ = std::fs::File::open(&pipe);
-            }
-            let _ = writer.join();
-            let _ = std::fs::remove_file(&pipe);
-            assert!(!read, "{href}: the picture opened a file of this Mac");
-            assert!(drawn.is_ok(), "{href}: the rest of the picture still draws");
-        }
-    }
-
-    /// `svg` gzip-compressed.
-    fn gzip(svg: &[u8]) -> Vec<u8> {
-        use std::io::Write as _;
-        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
-        gz.write_all(svg).unwrap();
-        gz.finish().unwrap()
-    }
-
-    /// An SVG that unpacks past [`MAX_SVG_BYTES`]: a few kilobytes of gzip.
-    fn svg_bomb() -> Vec<u8> {
-        let mut svg =
-            br#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><!--"#.to_vec();
-        svg.resize(svg.len() + MAX_SVG_BYTES + 1024, b' ');
-        svg.extend_from_slice(br#"--><rect width="2" height="2" fill="red"/></svg>"#);
-        gzip(&svg)
-    }
-
-    /// A compressed SVG is inflated only up to the limit: one that unpacks
-    /// past it is refused (counted in bytes); a normal one still draws.
-    #[test]
-    fn a_compressed_svg_is_unpacked_only_up_to_the_limit() {
-        let bomb = svg_bomb();
-        assert!(bomb.len() < 64 * 1024, "a small file: {} bytes", bomb.len());
-        assert_eq!(inflate_svgz(&bomb), None);
-        assert_eq!(sanitize_svg(&bomb), None, "an SVG bomb was unpacked");
-        let small = gzip(&svg_with_image("data:,"));
-        let drawn = sanitize_svg(&small).expect("a normal compressed SVG draws");
-        assert!(String::from_utf8(drawn).unwrap().contains("fill"));
-    }
-
-    /// An SVG carried inside another (`data:image/svg+xml`, or plain data
-    /// that reads as SVG) is refused outright: it could unpack without
-    /// limit and nest again. A picture it carries is kept.
-    #[test]
-    fn an_svg_inside_an_svg_is_refused() {
+    fn an_svg_from_outside_is_never_decoded() {
         use base64::Engine as _;
-        let b64 = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
-        let inner = br#"<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2"/></svg>"#;
-        for href in [
-            format!("data:image/svg+xml;base64,{}", b64(&svg_bomb())),
-            format!("data:image/svg+xml;base64,{}", b64(inner)),
-            format!("data:text/plain;base64,{}", b64(inner)),
-        ] {
-            let refused = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
-            let log = refused.clone();
-            let safe = sanitize_svg_with(&svg_with_image(&href), move |h| {
-                log.lock().unwrap().push(h.to_string())
-            })
-            .expect("the rest of the picture still draws");
-            let text = String::from_utf8(safe).unwrap();
-            assert!(
-                !text.contains("<image"),
-                "a nested SVG kept: {}",
-                &text[..text.len().min(200)]
-            );
-            assert_eq!(refused.lock().unwrap().len(), 1, "{}", &href[..40]);
+        let renderer = gpui_kit::SvgRenderer::new(Arc::new(()));
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="2" height="2" fill="red"/></svg>"#;
+        // An svgz as a site types it (image/svg+xml, gzip bytes).
+        let svgz = [0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03];
+        let before = DECODED.with(|d| d.get());
+        for bytes in [svg.to_vec(), svgz.to_vec()] {
+            let error = decode_picture(
+                &Image::from_bytes(ImageFormat::Svg, bytes),
+                renderer.clone(),
+            )
+            .expect_err("an SVG from outside was drawn");
+            assert!(error.is::<UntrustedSvg>());
+            assert!(is_untrusted_svg(&gpui_kit::ImageCacheError::Other(
+                Arc::new(error)
+            )));
         }
+        assert_eq!(DECODED.with(|d| d.get()), before, "a decoder was called");
+        // A picture from outside that is not SVG is decoded as before.
+        let png = base64::engine::general_purpose::STANDARD
+            .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+            .unwrap();
+        assert!(decode_picture(&Image::from_bytes(ImageFormat::Png, png), renderer).is_ok());
+        assert_eq!(DECODED.with(|d| d.get()), before + 1);
     }
 
-    /// References that loop (a gradient, pattern, filter or `<use>` naming
-    /// one that names it back) end: the picture is drawn without the loop,
-    /// or refused, and nothing runs on (usvg checks reference chains).
+    /// The app's own SVGs (the mark, icons) still draw: they never pass
+    /// through [`decode_picture`].
     #[test]
-    fn looping_references_in_an_svg_end() {
-        let cases = [
-            // Gradients A → B → C → B, the rect painted with A.
-            r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="4" height="4"><defs><linearGradient id="a" xlink:href="#b"/><linearGradient id="b" xlink:href="#c"/><linearGradient id="c" xlink:href="#b"><stop offset="0" stop-color="red"/></linearGradient></defs><rect width="4" height="4" fill="url(#a)"/></svg>"##,
-            // Patterns that name each other.
-            r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="4" height="4"><defs><pattern id="p" xlink:href="#q" width="2" height="2"/><pattern id="q" xlink:href="#p" width="2" height="2"><rect width="1" height="1"/></pattern></defs><rect width="4" height="4" fill="url(#p)"/></svg>"##,
-            // A pattern that paints itself with itself.
-            r##"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><defs><pattern id="s" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="2" height="2" fill="url(#s)"/></pattern></defs><rect width="4" height="4" fill="url(#s)"/></svg>"##,
-            // <use> elements that use each other.
-            r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="4" height="4"><g id="g1"><use xlink:href="#g2"/></g><g id="g2"><use xlink:href="#g1"/></g></svg>"##,
-            // Filters that name each other's results through feImage.
-            r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="4" height="4"><defs><filter id="f1"><feImage xlink:href="#r2"/></filter><filter id="f2"><feImage xlink:href="#r1"/></filter></defs><rect id="r1" width="2" height="2" filter="url(#f1)"/><rect id="r2" width="2" height="2" filter="url(#f2)"/></svg>"##,
-        ];
-        for svg in cases {
-            // Returns (drawn without the loop, or refused): that it returns
-            // at all is the check.
-            let _ = sanitize_svg(svg.as_bytes());
-        }
-        // The filter loop is one usvg does not catch (it recursed until the
-        // stack ran out): every loop is refused before usvg sees it.
-        for svg in cases {
-            assert!(!references_are_sound(svg), "a loop passed: {svg}");
-            assert_eq!(sanitize_svg(svg.as_bytes()), None);
-        }
-    }
-
-    /// Nesting past the bound is refused before usvg (which recurses);
-    /// ordinary references and nesting pass.
-    #[test]
-    fn deep_or_huge_svgs_are_refused_and_ordinary_ones_pass() {
-        let deep = format!(
-            r#"<svg xmlns="http://www.w3.org/2000/svg">{}{}</svg>"#,
-            "<g>".repeat(MAX_SVG_DEPTH + 10),
-            "</g>".repeat(MAX_SVG_DEPTH + 10)
-        );
-        assert!(!references_are_sound(&deep));
-        let fine = r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="4" height="4"><defs><linearGradient id="a" xlink:href="#b"/><linearGradient id="b"><stop offset="0" stop-color="red"/></linearGradient><filter id="f"><feGaussianBlur stdDeviation="1"/></filter></defs><g><g><rect width="4" height="4" fill="url(#a)" style="filter: url('#f')"/></g></g><use xlink:href="#b"/></svg>"##;
-        assert!(references_are_sound(fine));
-        assert!(sanitize_svg(fine.as_bytes()).is_some());
-    }
-
-    /// Only images the SVG carries itself (`data:`) are kept: every other
-    /// reference (a path, `/dev/zero`, `file:`, a web address) is refused
-    /// before anything is read, and is gone from what GPUI draws.
-    #[test]
-    fn a_remote_svg_keeps_only_the_images_it_carries() {
-        let refused = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
-        for href in [
-            "/dev/zero",
-            "/etc/hosts",
-            "file:///etc/hosts",
-            "https://pictures.example/a.png",
-            "../secret.png",
-        ] {
-            let log = refused.clone();
-            let safe = sanitize_svg_with(&svg_with_image(href), move |h| {
-                log.lock().unwrap().push(h.to_string())
-            })
-            .expect("still a picture");
-            let text = String::from_utf8(safe).unwrap();
-            assert!(!text.contains(href), "{href} kept in {text}");
-            assert!(!text.contains("<image"), "{href}: an image kept");
-            assert!(text.contains("fill"), "the rest of the picture is kept");
-        }
-        assert_eq!(refused.lock().unwrap().len(), 5);
-        // A picture it carries stays.
-        let dot = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-        let kept =
-            sanitize_svg_with(&svg_with_image(dot), |_| panic!("nothing to refuse")).unwrap();
-        assert!(String::from_utf8(kept).unwrap().contains("<image"));
-        assert_eq!(sanitize_svg(b"not a picture"), None);
+    fn the_apps_own_svgs_still_draw() {
+        use gpui_kit::AssetSource as _;
+        let renderer = gpui_kit::SvgRenderer::new(Arc::new(()));
+        let mark = conduit_components::assets::ConduitAssets
+            .load(conduit_components::assets::BRAND_MARK)
+            .ok()
+            .flatten()
+            .expect("the bundled mark");
+        assert!(renderer.render_single_frame(&mark, 1.).is_ok());
     }
 
     /// A GIF of `frames` images of `w` × `h` (no colour tables; one
