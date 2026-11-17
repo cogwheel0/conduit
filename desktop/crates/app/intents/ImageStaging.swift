@@ -56,18 +56,43 @@ enum ImageStaging {
         }
         // A type or a name only says what the file claims to be (a renamed
         // file passes both): the copy must read as an image too.
-        guard readsAsImage(target) else {
+        guard let detected = detectedImageType(target) else {
             try? FileManager.default.removeItem(at: folder)
             return Staged(path: nil, filename: name, isImage: false, byteCount: byteCount)
         }
-        return Staged(path: target.path, filename: safeName, isImage: true, byteCount: byteCount)
+        // Named as what it is: the app reads the kind (and the HEIC to JPEG
+        // turn) from the name alone.
+        let finalName = nameMatching(safeName, detected: detected)
+        var staged = target
+        if finalName != safeName {
+            staged = folder.appendingPathComponent(finalName)
+            try FileManager.default.moveItem(at: target, to: staged)
+        }
+        return Staged(path: staged.path, filename: finalName, isImage: true, byteCount: byteCount)
     }
 
-    /// Whether the bytes at `url` are a picture ImageIO can read: a known
-    /// image format with at least one image in it.
-    static func readsAsImage(_ url: URL) -> Bool {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return false }
-        return CGImageSourceGetType(source) != nil && CGImageSourceGetCount(source) > 0
+    /// The picture type ImageIO reads the bytes at `url` as (a known image
+    /// format with at least one image in it), or nil.
+    static func detectedImageType(_ url: URL) -> UTType? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+            CGImageSourceGetCount(source) > 0,
+            let identifier = CGImageSourceGetType(source) as String?
+        else { return nil }
+        return UTType(identifier) ?? .image
+    }
+
+    /// `name` with an extension that says `detected`: kept when its own
+    /// already does (`.jpg` for a JPEG), else replaced by the type's own
+    /// (`photo.txt` holding a PNG is `photo.png`).
+    static func nameMatching(_ name: String, detected: UTType) -> String {
+        let ext = (name as NSString).pathExtension
+        if !ext.isEmpty, let own = UTType(filenameExtension: ext), own.conforms(to: detected) {
+            return name
+        }
+        guard let wanted = detected.preferredFilenameExtension else { return name }
+        let stem = ext.isEmpty ? name : (name as NSString).deletingPathExtension
+        let base = stem.isEmpty ? "Image" : stem
+        return base + "." + wanted
     }
 
     /// The staged copy's name: the image's own, or "Image" when it has none,
