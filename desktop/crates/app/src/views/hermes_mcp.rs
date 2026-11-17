@@ -797,6 +797,29 @@ mod tests {
         assert!(shows_session(&stores, vcx, "sess-b"), "B's chat was closed");
     }
 
+    /// The clean-up reads whose page is shown, and which connection is in
+    /// use, when it runs, not when its action was sent: B's chat, of
+    /// another connection than the one in use while a switch to C was out,
+    /// stays once B is in use again by the time the answer comes.
+    #[gpui_kit::test]
+    fn the_clean_up_reads_the_connection_in_use_when_it_runs(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| crate::stores::hermes_admin::follow_pages(&stores, cx));
+        use_connection(&stores, vcx, "b");
+        open_session(&stores, vcx, "sess-b");
+        daemon.returns::<methods::HermesConnectionsActivate>(list("c"));
+        let held = daemon.hold::<methods::HermesConnectionsActivate>();
+        vcx.update(|_, cx| crate::stores::hermes_admin::activate(&stores, "c", cx));
+        vcx.run_until_parked();
+        // C in use for a while (B's chat is another connection's now), then
+        // B again, all before the answer comes.
+        use_connection(&stores, vcx, "c");
+        use_connection(&stores, vcx, "b");
+        drop(held);
+        vcx.run_until_parked();
+        assert!(shows_session(&stores, vcx, "sess-b"), "B's chat was closed");
+    }
+
     /// Ordering 3: Hermes turned off while A's chat is open, and on again
     /// with B (another window) before the off answer comes: A's chat goes,
     /// as a page of a connection not in use; one of B's opened then stays
