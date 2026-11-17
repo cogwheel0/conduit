@@ -51,6 +51,17 @@ impl Imported {
     }
 }
 
+/// Who a device's photos and scans are for: the account scope (its
+/// `scope_key`; `None`, no account, is a scope too) and the draft of the
+/// main window's composer when its + menu offered Continuity Camera. A
+/// photo that lands once either changed (another account, another chat) is
+/// dropped, never attached to whichever composer is shown then.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImportTarget {
+    pub scope: Option<String>,
+    pub draft: Option<crate::stores::composer::DraftKey>,
+}
+
 /// The pasteboard types the requestor takes, in the order it prefers them,
 /// with the extension each is saved as. A scan comes as a PDF; a photo as
 /// a JPEG or HEIC (or PNG, TIFF).

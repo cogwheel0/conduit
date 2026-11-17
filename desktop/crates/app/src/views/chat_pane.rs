@@ -1975,6 +1975,42 @@ impl ChatPane {
         true
     }
 
+    /// Who a Continuity Camera photo taken now is for: this account scope
+    /// and this composer's draft.
+    pub fn import_target(&self, cx: &App) -> crate::shell::continuity_camera::ImportTarget {
+        crate::shell::continuity_camera::ImportTarget {
+            scope: self.stores.accounts.read(cx).scope_key(),
+            draft: self.composer_store.read(cx).draft_key().cloned(),
+        }
+    }
+
+    /// A Continuity Camera photo or scan saved at `path` (`name`, as the
+    /// composer names it): attached only to the composer whose + menu asked
+    /// for it (`asked`), under the same account scope. Once either changed
+    /// it is dropped, and a toast says it couldn't be attached. Says whether
+    /// it was attached.
+    pub fn attach_import(
+        &mut self,
+        asked: Option<&crate::shell::continuity_camera::ImportTarget>,
+        path: &std::path::Path,
+        name: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if asked != Some(&self.import_target(cx)) {
+            log::info!("continuity camera: asked for another account or chat; dropped");
+            let message = cx.l10n().desktop_attachment_failed(name);
+            self.stores
+                .toasts
+                .update(cx, |t, cx| t.show(NoticeLevel::Warning, message, cx));
+            return false;
+        }
+        self.composer_store
+            .update(cx, |c, cx| c.add_paths(&[path.to_path_buf()], cx));
+        self.focus_composer(window, cx);
+        true
+    }
+
     pub fn open_model_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.composer.update(cx, |c, cx| c.open_picker(window, cx));
     }
@@ -3530,6 +3566,49 @@ mod tests {
                 pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
                 "Summarize this page"
             );
+        }
+
+        /// A Continuity Camera photo is attached only to the composer whose
+        /// + menu asked for it, under the same account scope: once another
+        /// account (or chat) is shown it is dropped, and a toast says so.
+        #[gpui_kit::test]
+        fn a_continuity_photo_lands_only_where_it_was_asked_for(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            let dir = std::env::temp_dir().join(format!("conduit-import-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&dir);
+            let photo = dir.join("Photo.jpeg");
+            let _ = std::fs::write(&photo, [0xFF, 0xD8, 0xFF, 0xD9]);
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+            // Asked in account a's new chat, then account b takes charge.
+            let asked = pane.read_with(vcx, |p, cx| p.import_target(cx));
+            stores.accounts.update(vcx, |a, cx| {
+                a.adopt(
+                    list(vec![
+                        account("a", "Avery", false, true),
+                        account("b", "Blake", true, true),
+                    ]),
+                    cx,
+                )
+            });
+            vcx.run_until_parked();
+            let attached = pane.update_in(vcx, |p, window, cx| {
+                p.attach_import(Some(&asked), &photo, "Photo.jpeg", window, cx)
+            });
+            assert!(!attached, "account a's photo landed in b's composer");
+            assert!(attachment_names(&pane, vcx).is_empty());
+            let toasts: Vec<String> = stores.toasts.read_with(vcx, |t, _| {
+                t.toasts.iter().map(|t| t.message.clone()).collect()
+            });
+            assert_eq!(toasts, vec!["Couldn't attach Photo.jpeg.".to_string()]);
+            // Asked here, now: attached.
+            let asked = pane.read_with(vcx, |p, cx| p.import_target(cx));
+            let attached = pane.update_in(vcx, |p, window, cx| {
+                p.attach_import(Some(&asked), &photo, "Photo.jpeg", window, cx)
+            });
+            vcx.run_until_parked();
+            assert!(attached);
+            assert_eq!(attachment_names(&pane, vcx), vec!["Photo.jpeg".to_string()]);
         }
 
         /// The widget's and Shortcuts' calls start in the new chat as it

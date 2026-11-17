@@ -2250,6 +2250,15 @@ impl ChatComposer {
         };
         if import {
             crate::desktop::install_continuity_camera(&ns_window, cx);
+            // What a device sends is for this composer, under this account
+            // scope, alone.
+            let target = crate::shell::continuity_camera::ImportTarget {
+                scope: cx
+                    .try_global::<crate::AppState>()
+                    .and_then(|s| s.stores.accounts.read(cx).scope_key()),
+                draft: self.composer.read(cx).draft_key().cloned(),
+            };
+            crate::desktop::continuity_asked(target, cx);
         }
         cx.spawn_in(window, async move |this, cx| {
             let Some(view) = ns_window.contentView() else {

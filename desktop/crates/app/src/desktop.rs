@@ -105,6 +105,9 @@ struct Platform {
     /// What Continuity Camera's requestor hands over (made with the first
     /// + menu that offers it).
     continuity: Option<mpsc::UnboundedSender<crate::shell::continuity_camera::Imported>>,
+    /// Who the photos and scans are for: set as the + menu that offers
+    /// Continuity Camera opens ([`continuity_asked`]).
+    continuity_target: Option<crate::shell::continuity_camera::ImportTarget>,
     notifier: Option<crate::shell::notifications::Notifier>,
     hotkey: Option<crate::shell::hotkey::Hotkey>,
     tray: Option<crate::shell::tray::MenuBarItem>,
@@ -2060,9 +2063,19 @@ pub fn install_continuity_camera(window: &objc2_app_kit::NSWindow, cx: &mut App)
     crate::shell::continuity_camera::install(window, sender);
 }
 
+/// The main window's + menu offered Continuity Camera: what devices send
+/// is for `target` (that account scope and that composer's draft) alone.
+#[cfg(target_os = "macos")]
+pub fn continuity_asked(target: crate::shell::continuity_camera::ImportTarget, cx: &mut App) {
+    if cx.has_global::<Desktop>() {
+        cx.global_mut::<Desktop>().platform.continuity_target = Some(target);
+    }
+}
+
 /// A photo or scan from Continuity Camera: saved where the composer reads
-/// files from, and attached to the main window's composer (a HEIC or TIFF
-/// photo goes as a JPEG, as a dropped one does).
+/// files from, and attached to the main window's composer, only while it
+/// is the composer (and account scope) whose + menu asked for it (a HEIC
+/// or TIFF photo goes as a JPEG, as a dropped one does).
 #[cfg(target_os = "macos")]
 fn on_continuity_import(imported: crate::shell::continuity_camera::Imported, cx: &mut App) {
     // One folder each, named by the time it came (nanoseconds), so a second
@@ -2081,12 +2094,14 @@ fn on_continuity_import(imported: crate::shell::continuity_camera::Imported, cx:
         log::warn!("continuity camera: not saved ({e})");
         return;
     }
+    let asked = cx
+        .try_global::<Desktop>()
+        .and_then(|d| d.platform.continuity_target.clone());
+    let name = imported.file_name();
     show_main(cx);
     crate::with_main_view(cx, move |view, window, cx| {
         view.chat_pane.update(cx, |p, cx| {
-            p.composer_store
-                .update(cx, |c, cx| c.add_paths(std::slice::from_ref(&path), cx));
-            p.focus_composer(window, cx);
+            p.attach_import(asked.as_ref(), &path, &name, window, cx);
         })
     });
 }
