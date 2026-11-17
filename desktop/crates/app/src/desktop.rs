@@ -1288,13 +1288,33 @@ fn route(
     let Some(state) = cx.try_global::<AppState>() else {
         return;
     };
-    let call = state
-        .connection
-        .read(cx)
-        .rpc()
-        .call::<methods::NotificationsRoute>(&params);
+    let rpc = state.connection.read(cx).rpc();
+    let accounts = state.stores.accounts.clone();
+    route_via(rpc, accounts, params, n, level, open, cx);
+}
+
+/// [`route`] over `rpc`. The answer is for the account in charge when it
+/// was asked: once another one is, the notification (of the last one's chat
+/// or channel) is dropped.
+fn route_via(
+    rpc: crate::stores::rpc::Rpc,
+    accounts: Entity<crate::stores::accounts::AccountsStore>,
+    params: NotificationRouteParams,
+    n: notify::Notification,
+    level: NoticeLevel,
+    open: OpenRequest,
+    cx: &mut App,
+) {
+    let asked = accounts.read(cx).scope_key();
+    let call = rpc.call::<methods::NotificationsRoute>(&params);
     cx.spawn(async move |cx| match call.await {
-        Ok(route) => cx.update(|cx| present(route, n, level, open, cx)),
+        Ok(route) => cx.update(|cx| {
+            if accounts.read(cx).scope_key() != asked {
+                log::info!("notification: dropped, another account is in charge now");
+                return;
+            }
+            present(route, n, level, open, cx)
+        }),
         Err(e) => log::warn!("notifications.route: {e}"),
     })
     .detach();
@@ -2426,6 +2446,109 @@ mod quick_ask_draft_tests {
                 Some(Some("first".to_string()))
             );
         });
+    }
+}
+
+#[cfg(test)]
+mod route_tests {
+    use gpui_kit::TestAppContext;
+
+    use super::*;
+    use crate::stores::accounts::tests::{account, list};
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    fn ready(chat: &str) -> notify::Notification {
+        notify::notification(
+            NotificationKind::Ready,
+            chat,
+            Some("Seed swap notes"),
+            &notify::Words {
+                untitled: "New Chat",
+                ready: "Answer ready",
+                failed: "Answer failed",
+            },
+        )
+    }
+
+    fn params() -> NotificationRouteParams {
+        NotificationRouteParams {
+            kind: NotifyKind::Answer,
+            foreground: false,
+            viewing: false,
+            alert: true,
+            mention: false,
+            direct: false,
+        }
+    }
+
+    /// The core's answer is for the account it was asked under: once
+    /// another account is in charge, the notification of the last one's
+    /// chat is not shown (nor recorded as routed); under the same account
+    /// it is.
+    #[gpui_kit::test]
+    fn a_route_answered_after_an_account_switch_is_dropped(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::NotificationsRoute>(NotificationRoute {
+            surface: NotifySurface::Silent,
+            cue: false,
+            system_sound: false,
+        });
+        let scratch = std::env::temp_dir().join(format!("conduit-route-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            install_without_services(cx);
+            crate::stores::Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        let accounts = stores.accounts.clone();
+        let rpc = daemon.rpc();
+        let open = || OpenRequest::Chat { id: "c1".into() };
+
+        let held = daemon.hold::<methods::NotificationsRoute>();
+        cx.update(|cx| {
+            route_via(
+                rpc.clone(),
+                accounts.clone(),
+                params(),
+                ready("c1"),
+                NoticeLevel::Info,
+                open(),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blake", true, true),
+                ]),
+                cx,
+            )
+        });
+        drop(held);
+        cx.run_until_parked();
+        assert!(
+            cx.update(|cx| routed_notifications(cx)).is_empty(),
+            "Avery's answer was shown under Blake"
+        );
+
+        cx.update(|cx| {
+            route_via(
+                rpc.clone(),
+                accounts.clone(),
+                params(),
+                ready("c2"),
+                NoticeLevel::Info,
+                open(),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let routed = cx.update(|cx| routed_notifications(cx));
+        assert_eq!(routed.len(), 1);
+        assert_eq!(routed[0].surface, NotifySurface::Silent);
     }
 }
 
