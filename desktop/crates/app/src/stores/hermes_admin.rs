@@ -806,9 +806,11 @@ pub fn set_enabled(stores: &Stores, enabled: bool, cx: &mut App) {
         call,
         failure,
         move |a, list, ticket, cx| {
-            // Only an answer taken moves the window: one older than a list
-            // taken since says nothing about now.
-            if a.answer_list(ticket, list, cx) && !enabled {
+            // The list follows the order lists were asked in; the action's
+            // own outcome does not: done, and Hermes still off by the list
+            // shown now (whichever answer brought it), its section goes.
+            a.answer_list(ticket, list, cx);
+            if !enabled && a.connections.as_ref().is_some_and(|l| !l.enabled) {
                 leave_hermes(&navigation, cx);
             }
         },
@@ -835,14 +837,19 @@ pub fn activate(stores: &Stores, id: &str, cx: &mut App) {
     let call = rpc.call::<methods::HermesConnectionsActivate>(&HermesRef { id: id.to_string() });
     let failure = cx.l10n().hermes_switch_connection_failed();
     let navigation = stores.navigation.downgrade();
+    let target = id.to_string();
     act_on_list(
         stores,
         call,
         failure,
         move |a, list, ticket, cx| {
-            // Only an answer taken closes a page: one older than a list taken
-            // since leaves what the user opened meanwhile.
-            if !a.answer_list(ticket, list, cx) {
+            // The list follows the order lists were asked in; the action's
+            // own outcome does not: done, and its connection still the one in
+            // use by the list shown now (whichever answer brought it), the
+            // last connection's Hermes chat goes. Another switch since leaves
+            // what the user opened meanwhile.
+            a.answer_list(ticket, list, cx);
+            if a.connections.as_ref().and_then(|l| l.active_id.as_deref()) != Some(&target) {
                 return;
             }
             let _ = navigation.update(cx, |n, cx| {

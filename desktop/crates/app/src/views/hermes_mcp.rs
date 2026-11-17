@@ -716,6 +716,126 @@ mod tests {
         });
     }
 
+    fn on_hermes_page(stores: &Stores, vcx: &mut VisualTestContext) {
+        stores.navigation.update(vcx, |n, cx| {
+            n.open_item(
+                crate::stores::navigation::AreaItem::HermesSession("sess-1".into()),
+                cx,
+            )
+        });
+    }
+
+    fn left_hermes_page(stores: &Stores, vcx: &mut VisualTestContext) -> bool {
+        stores.navigation.read_with(vcx, |n, _| {
+            matches!(
+                n.selection(),
+                crate::stores::navigation::Selection::New { .. }
+            )
+        })
+    }
+
+    /// Use This Connection closes the last connection's Hermes chat when it
+    /// succeeded, even when the refresh its hermes.changed asked for lands
+    /// first and its own list is not the one taken.
+    #[gpui_kit::test]
+    fn a_switch_closes_the_old_chat_when_its_refresh_lands_first(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let (daemon, stores, vcx) = bench(cx);
+        use_connection(&stores, vcx, "a");
+        on_hermes_page(&stores, vcx);
+        daemon.returns::<methods::HermesConnectionsActivate>(list("b"));
+        daemon.returns::<methods::HermesConnectionsList>(list("b"));
+        let held = daemon.hold::<methods::HermesConnectionsActivate>();
+        vcx.update(|_, cx| crate::stores::hermes_admin::activate(&stores, "b", cx));
+        // The daemon's hermes.changed: the window reads the list again.
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.refresh_connections(cx));
+        vcx.run_until_parked();
+        drop(held);
+        vcx.run_until_parked();
+        assert!(
+            left_hermes_page(&stores, vcx),
+            "the last connection's chat stayed open"
+        );
+    }
+
+    /// The same when the action's own list lands first.
+    #[gpui_kit::test]
+    fn a_switch_closes_the_old_chat_when_its_own_list_lands_first(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let (daemon, stores, vcx) = bench(cx);
+        use_connection(&stores, vcx, "a");
+        on_hermes_page(&stores, vcx);
+        daemon.returns::<methods::HermesConnectionsActivate>(list("b"));
+        daemon.returns::<methods::HermesConnectionsList>(list("b"));
+        let held = daemon.hold::<methods::HermesConnectionsList>();
+        vcx.update(|_, cx| crate::stores::hermes_admin::activate(&stores, "b", cx));
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.refresh_connections(cx));
+        vcx.run_until_parked();
+        drop(held);
+        vcx.run_until_parked();
+        assert!(
+            left_hermes_page(&stores, vcx),
+            "the last connection's chat stayed open"
+        );
+    }
+
+    /// Turning Hermes off leaves its section, whichever list lands first.
+    #[gpui_kit::test]
+    fn turning_hermes_off_leaves_its_page_when_the_refresh_lands_first(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let (daemon, stores, vcx) = bench(cx);
+        use_connection(&stores, vcx, "a");
+        on_hermes_page(&stores, vcx);
+        let mut off = list("a");
+        off.enabled = false;
+        daemon.returns::<methods::HermesConnectionsSetEnabled>(off.clone());
+        daemon.returns::<methods::HermesConnectionsList>(off);
+        let held = daemon.hold::<methods::HermesConnectionsSetEnabled>();
+        vcx.update(|_, cx| crate::stores::hermes_admin::set_enabled(&stores, false, cx));
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.refresh_connections(cx));
+        vcx.run_until_parked();
+        drop(held);
+        vcx.run_until_parked();
+        assert!(
+            left_hermes_page(&stores, vcx),
+            "Hermes's page stayed open with Hermes off"
+        );
+    }
+
+    #[gpui_kit::test]
+    fn turning_hermes_off_leaves_its_page_when_its_own_list_lands_first(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let (daemon, stores, vcx) = bench(cx);
+        use_connection(&stores, vcx, "a");
+        on_hermes_page(&stores, vcx);
+        let mut off = list("a");
+        off.enabled = false;
+        daemon.returns::<methods::HermesConnectionsSetEnabled>(off.clone());
+        daemon.returns::<methods::HermesConnectionsList>(off);
+        let held = daemon.hold::<methods::HermesConnectionsList>();
+        vcx.update(|_, cx| crate::stores::hermes_admin::set_enabled(&stores, false, cx));
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.refresh_connections(cx));
+        vcx.run_until_parked();
+        drop(held);
+        vcx.run_until_parked();
+        assert!(
+            left_hermes_page(&stores, vcx),
+            "Hermes's page stayed open with Hermes off"
+        );
+    }
+
     /// Add MCP Server opened for one connection adds nothing to another.
     #[gpui_kit::test]
     fn a_server_is_added_only_to_the_connection_it_was_typed_for(
