@@ -229,9 +229,13 @@ final class AuthService {
     return _finishTwoStep(pending, issued);
   }
 
-  /// Back to the sign-in form.
+  /// Back to the sign-in form. The attempt ends in the core too, where its
+  /// session would be committed: a code still being checked signs nobody in.
   Future<AuthSnapshot> twoStepCancel() async {
-    if (_twoStep != null) _announce();
+    if (_twoStep != null) {
+      _manager.cancelTwoStepSignIn();
+      _announce();
+    }
     _twoStep = null;
     return _snapshot();
   }

@@ -1649,8 +1649,7 @@ class AuthStateManager extends _$AuthStateManager {
     final capturedSessionSafetyEpoch = _sessionSafetyEpoch;
     final attemptRevision = _beginAuthAttempt();
     bool superseded() =>
-        _authAttemptSuperseded(attemptRevision) ||
-        !(canCommit?.call() ?? true);
+        _authAttemptSuperseded(attemptRevision) || !(canCommit?.call() ?? true);
     final storage = ref.read(optimizedStorageServiceProvider);
     try {
       final selected = await storage.selectUnauthenticatedServerConfig(
@@ -3033,6 +3032,19 @@ class AuthStateManager extends _$AuthStateManager {
     resetToken.trim(),
   );
 
+  /// Leaves a sign-in waiting on its second step (Back to Sign In). The
+  /// pending step is dropped and a newer attempt begins, so a
+  /// [finishTwoStepSignIn] still checking its session is superseded at its
+  /// commit and signs nobody in. A state it left loading settles signed out.
+  void cancelTwoStepSignIn() {
+    final current = _current;
+    _beginAuthAttempt();
+    if (current.isLoading || current.status == AuthStatus.loading) {
+      _set(const AuthState(status: AuthStatus.unauthenticated));
+      _updateApiServiceToken(null);
+    }
+  }
+
   /// Signs in with the session a second step issued, as the password or LDAP
   /// sign-in it finishes would have, remembering what that sign-in was asked
   /// to remember.
@@ -3479,7 +3491,8 @@ class AuthStateManager extends _$AuthStateManager {
         _current.token != token) {
       return;
     }
-    final proxyPage = error is DioException &&
+    final proxyPage =
+        error is DioException &&
         error.response != null &&
         answeredWithWebPage(error.response!.headers);
     if (!proxyPage && _isConfirmedAuthFailure(error)) {
