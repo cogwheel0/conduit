@@ -382,7 +382,6 @@ impl HermesConnectionSheet {
     ) -> Result<Option<Vec<HermesAccessHeaderEdit>>, (usize, String)> {
         let l = cx.l10n().clone();
         let mut out = vec![];
-        let mut unchanged = self.headers.len() == self.header_saved.len();
         for (i, row) in self.headers.iter().enumerate() {
             let name = forms::raw(&row.name, cx).trim().to_string();
             let value = forms::raw(&row.value, cx);
@@ -406,9 +405,6 @@ impl HermesConnectionSheet {
                 return Err((i, l.desktop_header_already_exists(&name)));
             }
             let keep = value.is_empty() && saved.is_some();
-            if !keep || saved.as_deref() != Some(name.as_str()) {
-                unchanged = false;
-            }
             out.push(HermesAccessHeaderEdit {
                 saved_name: saved.filter(|s| keep && s != &name),
                 value: (!keep).then_some(value),
@@ -418,6 +414,18 @@ impl HermesConnectionSheet {
         if out.len() > MAX_HEADERS {
             return Err((MAX_HEADERS, l.desktop_hermes_headers_too_many()));
         }
+        // As saved only when the rows are the daemon's headers, each kept
+        // under its own name, in order: a header removed (the last one too)
+        // or renamed is a change to send.
+        let held: &[String] = self
+            .existing
+            .as_ref()
+            .map_or(&[], |c| c.access_header_names.as_slice());
+        let unchanged = out.len() == held.len()
+            && out
+                .iter()
+                .zip(held)
+                .all(|(h, name)| h.value.is_none() && h.saved_name.is_none() && &h.name == name);
         Ok((!unchanged).then_some(out))
     }
 
@@ -883,13 +891,21 @@ impl HermesConnectionSheet {
                 forms::set_hint(&input, l.hermes_configured_replace_placeholder(), cx);
             }
         }
-        // The rows become the saved headers, in their order.
+        // A row as it was sent becomes the saved header (dropped when the
+        // daemon did not keep it); a row added or edited since stays as it
+        // is, still to save, under the saved header it stood for if the
+        // daemon still holds that one.
+        let rows = std::mem::take(&mut self.headers);
+        let stood_for = std::mem::take(&mut self.header_saved);
         let mut kept = vec![];
-        for row in std::mem::take(&mut self.headers) {
-            let name = forms::raw(&row.name, cx).trim().to_string();
-            if saved.access_header_names.contains(&name) {
-                let pair = (forms::raw(&row.name, cx), forms::raw(&row.value, cx));
-                if sent.headers.contains(&pair) {
+        for (row, was) in rows.into_iter().zip(stood_for) {
+            let pair = (forms::raw(&row.name, cx), forms::raw(&row.value, cx));
+            let name = pair.0.trim().to_string();
+            if !sent.headers.contains(&pair) {
+                let was = was.filter(|n| saved.access_header_names.contains(n));
+                kept.push((row, was));
+            } else if saved.access_header_names.contains(&name) {
+                if !pair.1.is_empty() {
                     row.value.update(cx, |i, cx| i.set_value("", window, cx));
                     forms::set_hint(&row.value, l.hermes_configured_replace_placeholder(), cx);
                 }
@@ -2103,6 +2119,147 @@ mod tests {
                 assert!(!s.busy);
             });
         }
+    }
+
+    /// [`list`] with B holding `headers`.
+    fn with_headers(active: &str, saved: Option<&str>, headers: &[&str]) -> HermesConnections {
+        let mut l = list(active, saved, "dashboardCookie");
+        l.connections[1].access_header_names = headers.iter().map(|h| h.to_string()).collect();
+        l
+    }
+
+    fn header_names(sheet: &HermesConnectionSheet, cx: &App) -> Vec<String> {
+        sheet
+            .headers
+            .iter()
+            .map(|r| forms::raw(&r.name, cx))
+            .collect()
+    }
+
+    /// A saved header removed stops being sent: the Save names the headers
+    /// left (none, for the last one), never "keep what is saved".
+    #[gpui_kit::test]
+    fn a_removed_header_is_no_longer_saved(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsSave>(with_headers("a", Some("b"), &[]));
+        stores.hermes_admin.update(vcx, |a, cx| {
+            a.adopt_connections(with_headers("a", None, &["X-Gate"]), cx)
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(&s, Some("b".into()), window, cx));
+        vcx.run_until_parked();
+        let sheet = vcx
+            .update(|_, cx| sheet::current::<HermesConnectionSheet>(cx))
+            .expect("the editor opens");
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.remove_header(0, w, cx);
+            s.save(w, cx);
+        });
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::HermesConnectionsSave>();
+        assert_eq!(saves.len(), 1);
+        assert_eq!(
+            saves[0]["accessHeaders"],
+            json!([]),
+            "the header is still sent"
+        );
+
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsSave>(with_headers("a", Some("b"), &["X-Zone"]));
+        stores.hermes_admin.update(vcx, |a, cx| {
+            a.adopt_connections(with_headers("a", None, &["X-Gate", "X-Zone"]), cx)
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(&s, Some("b".into()), window, cx));
+        vcx.run_until_parked();
+        let sheet = vcx
+            .update(|_, cx| sheet::current::<HermesConnectionSheet>(cx))
+            .expect("the editor opens");
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.remove_header(0, w, cx);
+            s.save(w, cx);
+        });
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::HermesConnectionsSave>();
+        let sent = saves[0]["accessHeaders"]
+            .as_array()
+            .expect("the headers are sent");
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0]["name"], json!("X-Zone"));
+    }
+
+    /// Header rows added or renamed while a Save is out stay in the editor,
+    /// still to save; only rows that were sent take the saved state.
+    #[gpui_kit::test]
+    fn headers_edited_during_a_save_stay_unsaved(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsSave>(with_headers(
+            "a",
+            Some("b"),
+            &["X-Gate", "X-Zone"],
+        ));
+        stores.hermes_admin.update(vcx, |a, cx| {
+            a.adopt_connections(with_headers("a", None, &["X-Gate"]), cx)
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(&s, Some("b".into()), window, cx));
+        vcx.run_until_parked();
+        let sheet = vcx
+            .update(|_, cx| sheet::current::<HermesConnectionSheet>(cx))
+            .expect("the editor opens");
+        let held = daemon.hold::<methods::HermesConnectionsSave>();
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.add_header(w, cx);
+            s.headers[1]
+                .name
+                .update(cx, |i, cx| i.set_value("X-Zone", w, cx));
+            s.headers[1]
+                .value
+                .update(cx, |i, cx| i.set_value("zone-1", w, cx));
+            s.save(w, cx);
+            // Meanwhile: the saved header renamed, and one more added.
+            s.headers[0]
+                .name
+                .update(cx, |i, cx| i.set_value("X-Gate-2", w, cx));
+            s.add_header(w, cx);
+            s.headers[2]
+                .name
+                .update(cx, |i, cx| i.set_value("X-New", w, cx));
+            s.headers[2]
+                .value
+                .update(cx, |i, cx| i.set_value("new-1", w, cx));
+        });
+        drop(held);
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            assert!(
+                sheet::current::<HermesConnectionSheet>(cx).is_some_and(|b| b == sheet),
+                "the editor closed over headers not saved"
+            );
+            let s = sheet.read(cx);
+            assert_eq!(header_names(s, cx), ["X-Gate-2", "X-Zone", "X-New"]);
+            assert_eq!(
+                forms::raw(&s.headers[1].value, cx),
+                "",
+                "the saved value shows"
+            );
+            assert_eq!(forms::raw(&s.headers[2].value, cx), "new-1");
+            assert!(s.dirty(cx), "the later headers count as saved");
+        });
+        on_sheet(vcx, &sheet, |s, w, cx| s.save(w, cx));
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::HermesConnectionsSave>();
+        assert_eq!(saves.len(), 2);
+        let sent = saves[1]["accessHeaders"]
+            .as_array()
+            .expect("the headers are sent");
+        assert_eq!(sent.len(), 3);
+        assert_eq!(
+            (&sent[0]["name"], &sent[0]["savedName"]),
+            (&json!("X-Gate-2"), &json!("X-Gate")),
+            "the renamed header keeps its saved value"
+        );
+        assert_eq!(sent[2]["value"], json!("new-1"));
     }
 
     /// Typed words make Quit ask first.
