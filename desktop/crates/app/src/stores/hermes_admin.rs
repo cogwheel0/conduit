@@ -322,6 +322,20 @@ impl HermesAdminStore {
         .detach();
     }
 
+    /// The daemon said Hermes changed (another window's action, a run that
+    /// ended): what is shown, or being read, is read again.
+    pub fn hermes_changed(&mut self, cx: &mut Context<Self>) {
+        self.refresh_connections(cx);
+        // Shown, or still being read (a read from before the change could
+        // answer last otherwise): read again, the newer read taken.
+        if matches!(self.mcp, Some(Loaded::Ready(_) | Loaded::Loading)) {
+            self.refresh_mcp(cx);
+        }
+        if self.watching_jobs {
+            self.refresh_jobs(cx);
+        }
+    }
+
     /// A connections-list read or action about to be asked.
     pub fn ask_list(&mut self) -> ListTicket {
         ListTicket {
@@ -765,15 +779,7 @@ pub fn wire(stores: &Stores, cx: &mut App) {
         }
         ConnectionEvent::Daemon(event) => {
             if matches!(event.as_ref(), Event::HermesChanged(_)) {
-                s.hermes_admin.update(cx, |a, cx| {
-                    a.refresh_connections(cx);
-                    if matches!(a.mcp, Some(Loaded::Ready(_))) {
-                        a.refresh_mcp(cx);
-                    }
-                    if a.watching_jobs {
-                        a.refresh_jobs(cx);
-                    }
-                });
+                s.hermes_admin.update(cx, |a, cx| a.hermes_changed(cx));
             }
         }
         _ => {}
@@ -1211,6 +1217,43 @@ mod tests {
             1,
             "the servers were not read again"
         );
+    }
+
+    /// hermes.changed while the first MCP read is still out reads the
+    /// servers again: the first read's answer, from before the change, is
+    /// not what stays.
+    #[gpui_kit::test]
+    fn hermes_changed_reads_servers_still_being_read_again(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::HermesConnectionsList>(list("a"));
+        let n = Arc::new(AtomicUsize::new(0));
+        let count = n.clone();
+        daemon.on::<methods::HermesMcpList>(move |_| {
+            let first = count.fetch_add(1, Ordering::SeqCst) == 0;
+            Ok(serde_json::to_value(servers(if first { "before" } else { "after" })).unwrap())
+        });
+        let first = daemon.hold_one::<methods::HermesMcpList>(0);
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            s.refresh_mcp(cx);
+            s.hermes_changed(cx);
+        });
+        cx.run_until_parked();
+        drop(first);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            let name = s
+                .mcp
+                .as_ref()
+                .and_then(Loaded::ready)
+                .map(|m| m.servers[0].name.clone());
+            assert_eq!(
+                name.as_deref(),
+                Some("after"),
+                "the servers from before the change stayed"
+            );
+        });
     }
 
     /// An MCP read asked before an action is answered after it: the
