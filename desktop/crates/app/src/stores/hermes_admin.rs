@@ -1091,6 +1091,47 @@ mod tests {
         });
     }
 
+    /// A job's history read answered after a newer one (the run ended
+    /// while the first was out) does not put its older history back.
+    #[gpui_kit::test]
+    fn an_older_history_read_does_not_replace_a_newer_one(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let n = Arc::new(AtomicUsize::new(0));
+        let count = n.clone();
+        daemon.on::<methods::HermesJobsRuns>(move |_| {
+            let older = count.fetch_add(1, Ordering::SeqCst) == 0;
+            let sessions: Vec<_> = if older {
+                vec![]
+            } else {
+                vec![json!({"id": "run-2", "chatId": "local:hermes_run-2", "title": "Watered at dusk"})]
+            };
+            Ok(json!({ "sessions": sessions }))
+        });
+        let older = daemon.hold_one::<methods::HermesJobsRuns>(0);
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            s.load_runs("j1", cx);
+            s.load_runs("j1", cx);
+        });
+        cx.run_until_parked();
+        drop(older);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            let titles: Vec<String> = s
+                .runs
+                .get("j1")
+                .and_then(Loaded::ready)
+                .map(|r| r.iter().map(|r| r.title.clone()).collect())
+                .unwrap_or_default();
+            assert_eq!(
+                titles,
+                vec!["Watered at dusk".to_string()],
+                "the older history came back"
+            );
+        });
+    }
+
     /// Another connection in use leaves no job or server of the last one
     /// marked busy.
     #[gpui_kit::test]
