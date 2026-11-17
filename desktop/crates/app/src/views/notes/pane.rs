@@ -1475,7 +1475,7 @@ impl NotePane {
                 let l = this.l(cx);
                 match result {
                     Ok(list) => {
-                        this.recordings = list.recordings;
+                        this.adopt_recordings(list.recordings, cx);
                         this.toast(NoticeLevel::Info, l.audio_recording_saved(), cx);
                     }
                     Err(e) => {
@@ -1494,6 +1494,23 @@ impl NotePane {
         .detach();
     }
 
+    /// The one place the waiting recordings are replaced. The player plays
+    /// only what has a Play/Pause to stop it with: a waiting recording that
+    /// is gone from the new list, or uploading (its row offers no Play),
+    /// stops; one that stays playable plays on.
+    fn adopt_recordings(&mut self, recordings: Vec<NoteRecordingDto>, cx: &mut Context<Self>) {
+        let held = self.audio.read(cx).current_key().map(str::to_string);
+        if let Some(id) = held.as_deref().and_then(|k| k.strip_prefix("waiting:")) {
+            let playable = recordings
+                .iter()
+                .any(|r| r.id == id && r.state != NoteRecordingState::Uploading);
+            if !playable {
+                self.stop_audio(cx);
+            }
+        }
+        self.recordings = recordings;
+    }
+
     fn refresh_recordings(&mut self, cx: &mut Context<Self>) {
         let call = self.rpc.call::<methods::NotesRecordings>(&NoteRef {
             id: self.id.clone(),
@@ -1505,7 +1522,7 @@ impl NotePane {
                     && list.note_id == this.id
                     && list.recordings != this.recordings
                 {
-                    this.recordings = list.recordings;
+                    this.adopt_recordings(list.recordings, cx);
                     cx.notify();
                 }
             });
@@ -1523,7 +1540,7 @@ impl NotePane {
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             if let Ok(list) = call.await {
                 let _ = this.update(cx, |this, cx| {
-                    this.recordings = list.recordings;
+                    this.adopt_recordings(list.recordings, cx);
                     cx.notify();
                 });
             }
@@ -1552,7 +1569,7 @@ impl NotePane {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if let Ok(list) = result {
-                    this.recordings = list.recordings;
+                    this.adopt_recordings(list.recordings, cx);
                 }
                 cx.notify();
             });
@@ -3553,6 +3570,69 @@ mod tests {
         );
         drop(held);
         vcx.run_until_parked();
+    }
+
+    /// A waiting recording plays only while its row offers Play: the list
+    /// read again keeps it playing while it stays playable, and stops it
+    /// once it uploads (no control left) or has gone.
+    #[gpui_kit::test]
+    fn a_waiting_recording_stops_once_its_row_offers_no_play(cx: &mut gpui_kit::TestAppContext) {
+        use std::sync::{Arc, Mutex};
+
+        use conduit_protocol::NoteRecordings;
+        let rec = |id: &str, state: NoteRecordingState| NoteRecordingDto {
+            id: id.into(),
+            name: format!("{id}.m4a"),
+            state,
+            size: 1,
+            created_at_ms: 1,
+            page_id: None,
+        };
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let listed: Arc<Mutex<Vec<NoteRecordingDto>>> = Arc::default();
+        {
+            let listed = listed.clone();
+            daemon.on::<methods::NotesRecordings>(move |_| {
+                Ok(serde_json::to_value(NoteRecordings {
+                    note_id: "n1".into(),
+                    recordings: listed.lock().unwrap().clone(),
+                })
+                .unwrap())
+            });
+        }
+        let pane = bench::pane(&area, vcx);
+        let list_again = |now: Vec<NoteRecordingDto>, vcx: &mut gpui_kit::VisualTestContext| {
+            *listed.lock().unwrap() = now;
+            pane.update(vcx, |p, cx| p.refresh_recordings(cx));
+            vcx.run_until_parked();
+        };
+        use NoteRecordingState::{Uploading, Waiting};
+        list_again(vec![rec("r1", Waiting), rec("r2", Waiting)], vcx);
+        pane.update(vcx, |p, cx| p.toggle_waiting("r1", cx));
+        assert_eq!(held_recording(&pane, vcx), Some("waiting:r1".into()));
+        // Another one starts uploading; this one still offers Play.
+        list_again(vec![rec("r1", Waiting), rec("r2", Uploading)], vcx);
+        assert_eq!(
+            held_recording(&pane, vcx),
+            Some("waiting:r1".into()),
+            "a recording still playable was stopped"
+        );
+        // It uploads: its row has no Play/Pause left.
+        list_again(vec![rec("r1", Uploading), rec("r2", Uploading)], vcx);
+        assert_eq!(
+            held_recording(&pane, vcx),
+            None,
+            "an uploading recording went on playing with no control"
+        );
+        // One that goes from the list stops too.
+        list_again(vec![rec("r3", Waiting)], vcx);
+        pane.update(vcx, |p, cx| p.toggle_waiting("r3", cx));
+        list_again(vec![], vcx);
+        assert_eq!(
+            held_recording(&pane, vcx),
+            None,
+            "a recording gone from the list went on playing"
+        );
     }
 
     /// Another account taking charge stops a recording the note opened
