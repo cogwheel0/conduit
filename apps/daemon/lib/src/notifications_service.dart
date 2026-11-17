@@ -8,6 +8,7 @@ import 'package:conduit_core/features/notifications/services/notification_event_
 import 'package:conduit_core/features/notifications/services/notification_policy.dart';
 import 'package:conduit_core/features/notifications/services/notification_prefs_sync.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -94,39 +95,59 @@ final class NotificationsService {
     synced: _container.read(apiServiceProvider) != null,
   );
 
+  /// The tail of the changes: each runs after the one before it, server
+  /// mirror included.
+  Future<void> _changes = Future<void>.value();
+
   /// Writes [patch] for the account it was asked under: each setter, the
   /// server mirror and the answer go through that account's
   /// [AccountScope.require], so a switch while one setting persists stops
   /// the rest (and the mirror) instead of writing them for the next account.
-  Future<NotificationSettingsDto> set(NotificationSettingsPatch patch) async {
+  ///
+  /// Changes run one at a time, each with its server mirror: the next one
+  /// starts only once the last mirror was answered, so the server ends up
+  /// with the values this Mac ends up with. The answer comes once this
+  /// change's own settings are written; it does not wait for the server.
+  Future<NotificationSettingsDto> set(NotificationSettingsPatch patch) {
     final account = AccountScope.capture(_container);
-    final n = _notifier;
-    Future<void> write<T>(T? value, Future<void> Function(T) setter) async {
-      if (value == null) return;
-      account.require('a notification setting is written');
-      await setter(value);
-    }
+    final written = Completer<NotificationSettingsDto>();
+    final change = _changes.then((_) async {
+      final ApiService? api;
+      try {
+        final n = _notifier;
+        Future<void> write<T>(T? value, Future<void> Function(T) setter) async {
+          if (value == null) return;
+          account.require('a notification setting is written');
+          await setter(value);
+        }
 
-    await write(patch.enabled, n.setNotificationsEnabled);
-    await write(patch.sound, n.setNotificationSound);
-    await write(patch.soundAlways, n.setNotificationSoundAlways);
-    await write(patch.inAppBanner, n.setNotificationInAppBanner);
-    await write(patch.system, n.setNotificationSystem);
-    await write(patch.answers, n.setNotificationChatEnabled);
-    await write(patch.channels, n.setNotificationChannelEnabled);
-    await write(patch.mentionsOnly, n.setNotificationChannelMentionsOnly);
-    // Local persistence went through; the server only mirrors three of them,
-    // with the API of the account they were written for.
-    account.require('the notification settings are mirrored');
-    unawaited(
-      syncNotificationPrefsToServer(
-        _container.read(apiServiceProvider),
+        await write(patch.enabled, n.setNotificationsEnabled);
+        await write(patch.sound, n.setNotificationSound);
+        await write(patch.soundAlways, n.setNotificationSoundAlways);
+        await write(patch.inAppBanner, n.setNotificationInAppBanner);
+        await write(patch.system, n.setNotificationSystem);
+        await write(patch.answers, n.setNotificationChatEnabled);
+        await write(patch.channels, n.setNotificationChannelEnabled);
+        await write(patch.mentionsOnly, n.setNotificationChannelMentionsOnly);
+        // Local persistence went through; the server only mirrors three of
+        // them, with the API of the account they were written for.
+        account.require('the notification settings are mirrored');
+        api = _container.read(apiServiceProvider);
+        written.complete(get());
+      } on Object catch (error, stack) {
+        written.completeError(error, stack);
+        return;
+      }
+      // Never throws: a failed mirror only loses the parity.
+      await syncNotificationPrefsToServer(
+        api,
         enabled: patch.enabled,
         sound: patch.sound,
         soundAlways: patch.soundAlways,
-      ),
-    );
-    return get();
+      );
+    });
+    _changes = change.then<void>((_) {}, onError: (Object _) {});
+    return written.future;
   }
 
   void dispose() {

@@ -18,6 +18,7 @@ import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/server_user_settings.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -866,11 +867,42 @@ void _withAnAccount() {
       final saving = NotificationsService(container)
           .set(const NotificationSettingsPatch(enabled: false, sound: false));
       // Another account signs in while the first setting is written.
+      await settings.notificationsAsked.future;
       epoch = Object();
       container.invalidate(openWebUiAuthSessionEpochProvider);
       settings.written.complete();
       await expectLater(saving, refused(ConduitErrorCodes.sessionExpired));
       expect(settings.calls, <String>['notificationsEnabled']);
+    });
+
+    test('two notification changes reach the server in the order they were '
+        'made', () async {
+      final settings = _NotificationSettings();
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWith(() => settings),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+          apiServiceProvider.overrideWith((ref) => api),
+        ],
+      );
+      addTearDown(container.dispose);
+      final notifications = NotificationsService(container);
+      // The first change's mirror is slow to reach the server.
+      final held = api.mirrorHeld = Completer<void>();
+      final off = notifications.set(
+        const NotificationSettingsPatch(enabled: false),
+      );
+      final on = notifications.set(
+        const NotificationSettingsPatch(enabled: true),
+      );
+      await api.mirrorAsked.future;
+      held.complete();
+      await off;
+      await on;
+      // Settled: the server holds what this Mac does.
+      await api.mirrorsSettled(2);
+      expect(container.read(appSettingsProvider).notificationsEnabled, isTrue);
+      expect(api.mirrored.last, isTrue);
     });
 
     test("a webhook list read under one account is never answered with the "
@@ -1192,6 +1224,7 @@ final class _ActiveConversation extends ActiveConversationNotifier {
 final class _Settings extends AppSettingsNotifier {
   final calls = <String>[];
   final written = Completer<void>();
+  final notificationsAsked = Completer<void>();
 
   @override
   AppSettings build() => const AppSettings();
@@ -1210,12 +1243,24 @@ final class _Settings extends AppSettingsNotifier {
   @override
   Future<void> setNotificationsEnabled(bool value) async {
     calls.add('notificationsEnabled');
+    notificationsAsked.complete();
     await written.future;
   }
 
   @override
   Future<void> setNotificationSound(bool value) async {
     calls.add('notificationSound');
+  }
+}
+
+/// Notification settings kept in memory: each setter lands at once.
+final class _NotificationSettings extends AppSettingsNotifier {
+  @override
+  AppSettings build() => const AppSettings();
+
+  @override
+  Future<void> setNotificationsEnabled(bool value) async {
+    state = state.copyWith(notificationsEnabled: value);
   }
 }
 
@@ -1396,6 +1441,41 @@ final class _Api extends ApiService {
   }) async {
     updatedTargets.add(targetId);
     return _pager;
+  }
+
+  /// The notification master toggle as each mirror reached the server;
+  /// the first mirror waits for [mirrorHeld] when it is set.
+  final mirrored = <bool?>[];
+  final mirrorAsked = Completer<void>();
+  Completer<void>? mirrorHeld;
+  final _mirrorWaits = <(int, Completer<void>)>[];
+
+  /// Completes once [count] mirrors reached the server.
+  Future<void> mirrorsSettled(int count) {
+    if (mirrored.length >= count) return Future<void>.value();
+    final settled = Completer<void>();
+    _mirrorWaits.add((count, settled));
+    return settled.future;
+  }
+
+  @override
+  Future<ServerUserSettings> updateUserNotificationSettings({
+    bool? notificationEnabled,
+    bool? notificationSound,
+    bool? notificationSoundAlways,
+  }) async {
+    final held = mirrorHeld;
+    mirrorHeld = null;
+    if (!mirrorAsked.isCompleted) mirrorAsked.complete();
+    await held?.future;
+    mirrored.add(notificationEnabled);
+    for (final wait in _mirrorWaits.toList()) {
+      if (mirrored.length >= wait.$1) {
+        _mirrorWaits.remove(wait);
+        wait.$2.complete();
+      }
+    }
+    return ServerUserSettings(notificationEnabled: notificationEnabled);
   }
 
   @override
