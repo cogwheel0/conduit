@@ -275,6 +275,8 @@ thread_local! {
     });
     static RENDERERS: RefCell<HashMap<u64, Renderer>> = RefCell::new(HashMap::new());
     static NEXT_JOB: std::cell::Cell<u64> = const { std::cell::Cell::new(1) };
+    /// Whether closing a window ends its renderer ([`follow_window_closes`]).
+    static FOLLOWING_CLOSES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// Show Code, by message and code.
     static SHOWN_CODE: RefCell<HashSet<(String, u64)>> = RefCell::new(HashSet::new());
 }
@@ -350,10 +352,41 @@ fn window_key(window: &Window) -> u64 {
     window.window_handle().window_id().as_u64()
 }
 
+/// A window's renderer belongs to the window: once it closes, the
+/// renderer (its hidden web view) goes, and what waited on it is asked for
+/// again wherever it shows next. Idempotent.
+fn forget_window(wk: u64) {
+    let Some(renderer) = RENDERERS.with(|r| r.borrow_mut().remove(&wk)) else {
+        return;
+    };
+    CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        let waiting = renderer
+            .queue
+            .iter()
+            .chain(renderer.in_flight.iter().map(|(job, _)| job));
+        for job in waiting {
+            if matches!(c.drawn.get(&job.key), Some(Drawn::Pending)) {
+                c.drawn.remove(&job.key);
+            }
+        }
+    });
+}
+
+/// Ends each window's renderer as the window closes, once per app.
+fn follow_window_closes(cx: &mut App) {
+    if FOLLOWING_CLOSES.with(|f| f.replace(true)) {
+        return;
+    }
+    cx.on_window_closed(|_, id| forget_window(id.as_u64()))
+        .detach();
+}
+
 fn enqueue(job: Job, window: &mut Window, cx: &mut App) {
     let wk = window_key(window);
     let has = RENDERERS.with(|r| r.borrow().contains_key(&wk));
     if !has {
+        follow_window_closes(cx);
         let view = make_renderer(window.window_handle(), window, cx);
         RENDERERS.with(|r| {
             r.borrow_mut().insert(
@@ -1100,6 +1133,49 @@ pub fn diagram_block(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A renderer (with a diagram waiting) belongs to its window: closing
+    /// the window ends it, and the diagram is asked for again elsewhere.
+    #[gpui_kit::test]
+    fn a_closed_windows_renderer_goes_with_it(cx: &mut gpui_kit::TestAppContext) {
+        let vcx = cx.add_empty_window();
+        let wk = vcx.update(|window, _| window_key(window));
+        let key = Key {
+            kind: DiagramKind::Mermaid,
+            code: 7,
+            theme: 7,
+            scale: 200,
+        };
+        vcx.update(|_, cx| {
+            follow_window_closes(cx);
+            CACHE.with(|c| c.borrow_mut().put(key.clone(), Drawn::Pending));
+            RENDERERS.with(|r| {
+                r.borrow_mut().insert(
+                    wk,
+                    Renderer {
+                        view: None,
+                        loaded: true,
+                        created: Instant::now(),
+                        queue: VecDeque::from([Job {
+                            id: 1,
+                            key: key.clone(),
+                            kind: DiagramKind::Mermaid,
+                            code: "graph TD; A-->B".into(),
+                            theme: "{}".into(),
+                            scale: 2.,
+                        }]),
+                        in_flight: None,
+                    },
+                )
+            });
+        });
+        vcx.update(|window, _| window.remove_window());
+        cx.run_until_parked();
+        assert!(RENDERERS.with(|r| !r.borrow().contains_key(&wk)));
+        assert!(CACHE.with(|c| c.borrow().get(&key).is_none()));
+        // Again: nothing left to end.
+        forget_window(wk);
+    }
 
     #[test]
     fn diagrams_are_mermaid_and_charts_and_html_stays_code() {
