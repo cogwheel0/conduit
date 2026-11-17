@@ -45,6 +45,19 @@ final class _FakeDashboard {
               'auth_flows': ['cookie'],
             }),
           );
+        // A dashboard request whose answer rotates the session (held like
+        // the sign-in check when [hold] is set).
+        case '/api/rotate':
+          final wait = fake.hold;
+          if (wait != null) {
+            fake.arrived?.complete();
+            await wait.future;
+          }
+          response.headers.add(
+            HttpHeaders.setCookieHeader,
+            'hermes_session_at=rotated-late; HttpOnly; Path=/',
+          );
+          response.write('{}');
         case '/api/auth/me'
             when cookie?.contains('hermes_session_at=good') ?? false:
           final wait = fake.hold;
@@ -691,6 +704,47 @@ void main() {
       expect(store.cookies, isEmpty);
     },
   );
+
+  /// A dashboard request of [store]'s bridge whose answer rotates the
+  /// session, held at the dashboard until [releaseCheck].
+  Future<Future<Object?>> rotatingRequest(
+    DaemonHermesDashboardCookies store,
+  ) async {
+    final root = Uri.parse(dashboard.baseUrl);
+    final bridge = store.bridge(root: root, accessHeaders: const {});
+    final out = holdCheck();
+    final answer = bridge
+        .request('GET', root.resolve('/api/rotate'))
+        .then<Object?>((a) => a, onError: (Object e) => e);
+    await out;
+    return answer;
+  }
+
+  test('a dashboard answer from before a purge keeps nothing', () async {
+    final secure = InMemorySecureKeyValueStore();
+    final store = await signedInStore(secure);
+    final answer = await rotatingRequest(store);
+    expect(await store.clearForOrigin(dashboard.baseUrl), isTrue);
+    releaseCheck();
+    await answer;
+    expect(store.cookies, isEmpty);
+    expect((await DaemonHermesDashboardCookies.open(secure)).cookies, isEmpty);
+  });
+
+  test('a dashboard answer from before a failed purge keeps nothing', () async {
+    final secure = _FailingStore()..failing = false;
+    final store = await signedInStore(secure);
+    final answer = await rotatingRequest(store);
+    secure.failing = true;
+    expect(await store.clearForOrigin(dashboard.baseUrl), isFalse);
+    releaseCheck();
+    await answer;
+    expect(store.cookies, isEmpty);
+    // The purge written again leaves nothing the answer brought.
+    secure.failing = false;
+    expect(await store.completePendingClear(), isTrue);
+    expect((await DaemonHermesDashboardCookies.open(secure)).cookies, isEmpty);
+  });
 }
 
 /// A secure store whose writes fail while [failing] (a Keychain that

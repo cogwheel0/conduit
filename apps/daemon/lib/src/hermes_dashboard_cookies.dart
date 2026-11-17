@@ -76,8 +76,38 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
   /// The tail of the commits and clears, run one at a time.
   Future<void> _turn = Future<void>.value();
 
-  /// Bumped by [clearAll]: a sign-in begun under an older one keeps nothing.
+  /// Bumped by [clearAll]: a write begun under an older one keeps nothing.
   int _epoch = 0;
+
+  /// Per origin key, bumped by each [clearForOrigin] of it as it starts
+  /// (before its own write, which may fail): a write begun before keeps
+  /// nothing.
+  final Map<String, int> _purges = {};
+
+  static String _originKey(String origin) =>
+      hermesDashboardCookieOriginKey(origin) ?? origin;
+
+  /// What a write to [origin]'s cookies starts under, taken when its
+  /// request starts.
+  ({int epoch, int purges}) _ticket(String origin) =>
+      (epoch: _epoch, purges: _purges[_originKey(origin)] ?? 0);
+
+  /// Whether no purge of [origin], and no full purge, started since
+  /// [ticket] was taken.
+  bool _unpurged(String origin, ({int epoch, int purges}) ticket) =>
+      ticket == _ticket(origin);
+
+  /// The intake of one dashboard request to [root]: taken when the
+  /// request reads its cookies, it keeps the answer's cookies only if no
+  /// purge started since, in turn with the commits and clears.
+  HermesDashboardCookieIntake _intake(Uri root) {
+    final origin = root.toString();
+    final ticket = _ticket(origin);
+    return (url, setCookies) => _inTurn(() async {
+      if (!_unpurged(origin, ticket)) return;
+      if (_jar.absorb(url, setCookies)) await _saveRotated();
+    });
+  }
 
   /// The last write failed: the secure store may hold what the jar no
   /// longer does, so the next purge writes even with nothing left to remove.
@@ -134,8 +164,8 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
   }
 
   /// The commit point: takes [cookies], a sign-in window's for [root]'s
-  /// host, while sign-in [generation] is still [root]'s latest, no
-  /// [clearAll] came after [epoch], and [wanted] still holds, checked in
+  /// host, while sign-in [generation] is still [root]'s latest, no purge
+  /// started since [ticket], and [wanted] still holds, checked in
   /// turn right before the jar changes. Those of its host are kept, and
   /// recorded as this sign-in's for [root] (the window's store was fresh,
   /// so every one of them is), as the phone's registers its sign-in. True
@@ -146,12 +176,12 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
     Uri root,
     Iterable<HermesDashboardCookie> cookies, {
     required int generation,
-    required int epoch,
+    required ({int epoch, int purges}) ticket,
     bool Function()? wanted,
   }) {
     final origin = root.toString();
     return _inTurn(() async {
-      if (epoch != _epoch ||
+      if (!_unpurged(origin, ticket) ||
           !HermesDashboardCookieRegistry.isCurrent(origin, generation) ||
           !(wanted?.call() ?? true)) {
         return false;
@@ -224,7 +254,7 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
     root: root,
     accessHeaders: accessHeaders,
     jar: _jar,
-    onCookiesChanged: _saveRotated,
+    beginExchange: () => _intake(root),
     httpClient: httpClient,
   );
 
@@ -238,7 +268,7 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
     root: root,
     accessHeaders: accessHeaders,
     jar: _jar,
-    onCookiesChanged: _saveRotated,
+    beginExchange: () => _intake(root),
     httpClient: httpClient,
   );
 
@@ -258,7 +288,7 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
   }) async {
     // Begun before the check goes out: a clear meanwhile supersedes it.
     final generation = HermesDashboardCookieRegistry.begin(root.toString());
-    final epoch = _epoch;
+    final ticket = _ticket(root.toString());
     final host = root.host;
     final own = HermesDashboardCookieJar([
       for (final cookie in cookies)
@@ -294,7 +324,7 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
       root,
       own.cookies,
       generation: generation,
-      epoch: epoch,
+      ticket: ticket,
       wanted: wanted,
     );
   }
@@ -317,6 +347,8 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
     if (!HermesDashboardCookieRegistry.invalidate(origin)) {
       return Future<bool>.value(true);
     }
+    final key = _originKey(origin);
+    _purges[key] = (_purges[key] ?? 0) + 1;
     return _inTurn(() async {
       final recorded = HermesDashboardCookieRegistry.identitiesFor(origin);
       // Gone from the jar but still in the secure store: not cleared yet,
