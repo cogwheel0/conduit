@@ -63,6 +63,17 @@ pub struct Attempt {
     pub text: String,
 }
 
+/// The text fields' values, field by field.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Texts {
+    name: String,
+    description: String,
+    url: String,
+    path: String,
+    key: String,
+    spec: String,
+}
+
 /// What the form holds, field by field: compared as fields, so text in one
 /// field can never pass for text in the next.
 #[derive(Clone, Debug, PartialEq)]
@@ -103,6 +114,10 @@ pub struct ConnectionEditorSheet {
     pub error: Option<String>,
     /// The form as it opened, to tell whether it was changed.
     initial: Fingerprint,
+    /// The text fields as last seen: an input's notification is an edit
+    /// only when one of them differs (unlocking a field, or drawing it,
+    /// notifies too, and must not clear the feedback a request just gave).
+    seen: Texts,
     on_change: OnChange,
 }
 
@@ -189,10 +204,13 @@ impl ConnectionEditorSheet {
             }
         }
         for state in [&name, &description, &url, &path] {
-            cx.observe(state, |this: &mut Self, _, cx| this.changed(cx))
+            cx.observe(state, |this: &mut Self, _, cx| this.typed(cx))
                 .detach();
         }
         cx.observe(&key, |this: &mut Self, key, cx| {
+            if !this.text_changed(cx) {
+                return;
+            }
             // On an entry, typing a key replaces the stored one (or gives a
             // keyless one its first); clearing it keeps what is stored.
             if this.entry.is_some() {
@@ -206,7 +224,7 @@ impl ConnectionEditorSheet {
             this.changed(cx);
         })
         .detach();
-        cx.observe(&spec, |this: &mut Self, _, cx| this.changed(cx))
+        cx.observe(&spec, |this: &mut Self, _, cx| this.typed(cx))
             .detach();
         name.update(cx, |s, cx| s.focus(window, cx));
         let mut this = Self {
@@ -243,8 +261,10 @@ impl ConnectionEditorSheet {
                 enabled,
             },
             on_change,
+            seen: Texts::default(),
         };
         this.initial = this.fingerprint(cx);
+        this.seen = this.texts(cx);
         this
     }
 
@@ -279,6 +299,36 @@ impl ConnectionEditorSheet {
     /// Delete…, as its button presses it.
     pub fn press_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.delete(window, cx);
+    }
+
+    fn texts(&self, cx: &App) -> Texts {
+        Texts {
+            name: forms::raw(&self.name, cx),
+            description: forms::raw(&self.description, cx),
+            url: forms::raw(&self.url, cx),
+            path: forms::raw(&self.path, cx),
+            key: forms::raw(&self.key, cx),
+            spec: self.spec.read(cx).value().to_string(),
+        }
+    }
+
+    /// Whether a text field's value differs from the last one seen (and now
+    /// it is the one seen): the one test of a real edit for every input's
+    /// notification.
+    fn text_changed(&mut self, cx: &App) -> bool {
+        let now = self.texts(cx);
+        if now == self.seen {
+            return false;
+        }
+        self.seen = now;
+        true
+    }
+
+    /// An input notified: [`Self::changed`] only for a real edit.
+    fn typed(&mut self, cx: &mut Context<Self>) {
+        if self.text_changed(cx) {
+            self.changed(cx);
+        }
     }
 
     /// Any change makes an earlier test result, and the issues the core
@@ -1315,5 +1365,59 @@ mod tests {
             sheet.read_with(vcx, |s, cx| s.is_dirty(cx)),
             "the edit read as the form it opened with"
         );
+    }
+
+    /// Feedback a request gave while the fields were locked stays when they
+    /// unlock with nothing typed (unlocking notifies each input without
+    /// changing it); a real edit still clears it.
+    #[gpui_kit::test]
+    fn feedback_given_while_locked_stays_after_unlock(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::IntegrationsSave>(|_| {
+            let mut e = conduit_daemon::RpcError::internal("the form has a problem");
+            e.args.insert("url".into(), "urlInvalid".into());
+            Err(e)
+        });
+        daemon.returns::<methods::IntegrationsTest>(Default::default());
+        let sheet = open(&stores, Some(entry(true, true)), vcx);
+        type_into(&sheet, |s| s.url.clone(), "tools", vcx);
+        // Each input notifies with its value unchanged, as unlocking does.
+        let unlock = |vcx: &mut VisualTestContext| {
+            let inputs = sheet.read_with(vcx, |s, _| {
+                [
+                    s.name.clone(),
+                    s.description.clone(),
+                    s.url.clone(),
+                    s.path.clone(),
+                    s.key.clone(),
+                ]
+            });
+            let spec = sheet.read_with(vcx, |s, _| s.spec.clone());
+            vcx.update(|_, cx| {
+                for input in &inputs {
+                    input.update(cx, |_, cx| cx.notify());
+                }
+                spec.update(cx, |_, cx| cx.notify());
+            });
+            vcx.run_until_parked();
+        };
+        sheet.update(vcx, |s, cx| s.save(cx));
+        vcx.run_until_parked();
+        unlock(vcx);
+        assert!(
+            sheet.read_with(vcx, |s, _| s.issues.url.is_some()),
+            "the save's issue went when the fields unlocked"
+        );
+        sheet.update(vcx, |s, cx| s.press_test(cx));
+        vcx.run_until_parked();
+        unlock(vcx);
+        assert!(
+            sheet.read_with(vcx, |s, _| s.attempt.is_some()),
+            "the test's result went when the fields unlocked"
+        );
+        type_into(&sheet, |s| s.url.clone(), "https://tools.example.com", vcx);
+        sheet.read_with(vcx, |s, _| {
+            assert!(s.attempt.is_none() && s.issues == super::Issues::default())
+        });
     }
 }
