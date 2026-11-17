@@ -565,17 +565,19 @@ async fn clipboard(dir: &Path, cx: &mut AsyncApp) -> bool {
     let picture = Image::from_bytes(ImageFormat::Png, PNG.to_vec());
     cx.update(|cx| cx.write_to_clipboard(ClipboardItem::new_image(&picture)));
     shell_links(&["conduit://clipboard?homeWidget=true"], cx);
-    // A new chat that starts empty, as the phone's widget resets it.
-    let image = wait_until(cx, Duration::from_secs(10), |cx| {
-        composer_text(cx).is_empty() && attachment_names(cx) == ["Pasted image.png"]
+    // A new chat that starts empty, as the phone's widget resets it; a
+    // copied picture is never attached (or uploaded) from a link.
+    let empty = wait_until(cx, Duration::from_secs(10), |cx| {
+        composer_text(cx).is_empty() && attachment_names(cx).is_empty()
     })
     .await;
+    settle(cx, 600).await;
     pass &= ok(
         &format!(
-            "…and with a copied picture attached ({:?})",
+            "…and a copied picture is left on the clipboard, not attached ({:?})",
             cx.update(attachment_names)
         ),
-        image,
+        empty && cx.update(attachment_names).is_empty(),
     );
     // Leave synthetic text on the clipboard, not a picture.
     cx.update(|cx| cx.write_to_clipboard(ClipboardItem::new_string("Conduit".into())));

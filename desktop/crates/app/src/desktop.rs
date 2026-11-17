@@ -528,25 +528,22 @@ fn open_new_chat(
     refused_files(too_many, &too_large, cx);
 }
 
-/// `conduit://clipboard` (the widget's Clipboard): a new chat with what
-/// was copied, as the phone's widget opens one: text in the message box;
-/// on the Mac a copied picture or copied files are attached too (the phone
-/// reads text only). An empty clipboard still opens the new chat.
+/// `conduit://clipboard` (the widget's Clipboard): a new chat with the
+/// copied text in the message box, as the phone's widget opens one. Only
+/// text: any page or app can open the link, and a copied picture or copied
+/// files would be uploaded the moment they were attached, so they stay on
+/// the clipboard (⌘V in the new chat attaches them). An empty clipboard
+/// still opens the new chat.
 fn open_clipboard(cx: &mut App) {
     let item = cx.read_from_clipboard();
     let compose = clipboard_compose(item.as_ref());
-    log::info!(
-        "clipboard: text {}, {} picture(s), {} file(s)",
-        compose.text.is_some(),
-        compose.images.len(),
-        compose.files.len()
-    );
+    log::info!("clipboard: text {}", compose.text.is_some());
     open_new_chat(compose, vec![], true, cx);
 }
 
-/// What a copied item starts a new chat with: its text (trimmed, as the
-/// phone trims it, cut to [`deep_link::MAX_TEXT`]), else its pictures,
-/// else its files.
+/// What a copied item starts a new chat with from the link: its text
+/// (trimmed, as the phone trims it, cut to [`deep_link::MAX_TEXT`]), and
+/// nothing else.
 pub fn clipboard_compose(item: Option<&gpui_kit::ClipboardItem>) -> Compose {
     use gpui_kit::ClipboardEntry;
     let Some(item) = item else {
@@ -561,37 +558,8 @@ pub fn clipboard_compose(item: Option<&gpui_kit::ClipboardItem>) -> Compose {
         })
         .collect();
     let text = text.trim();
-    if !text.is_empty() {
-        return Compose {
-            text: Some(text.chars().take(deep_link::MAX_TEXT).collect()),
-            ..Compose::default()
-        };
-    }
-    let images: Vec<gpui_kit::Image> = item
-        .entries()
-        .iter()
-        .filter_map(|e| match e {
-            ClipboardEntry::Image(image) => Some(image.clone()),
-            _ => None,
-        })
-        .collect();
-    if !images.is_empty() {
-        return Compose {
-            images,
-            ..Compose::default()
-        };
-    }
-    let files = item
-        .entries()
-        .iter()
-        .filter_map(|e| match e {
-            ClipboardEntry::ExternalPaths(paths) => Some(paths.paths().to_vec()),
-            _ => None,
-        })
-        .flatten()
-        .collect();
     Compose {
-        files,
+        text: (!text.is_empty()).then(|| text.chars().take(deep_link::MAX_TEXT).collect()),
         ..Compose::default()
     }
 }
@@ -2599,17 +2567,25 @@ mod tests {
     use gpui_kit::{ClipboardItem, Image, ImageFormat};
 
     #[test]
-    fn the_clipboard_link_takes_text_else_a_picture() {
+    fn the_clipboard_link_takes_only_text() {
         let text = clipboard_compose(Some(&ClipboardItem::new_string(
             "  Packing list for the ferry \n".into(),
         )));
         assert_eq!(text.text.as_deref(), Some("Packing list for the ferry"));
         assert!(text.images.is_empty() && text.files.is_empty());
 
+        // A copied picture or copied files are never attached from a link:
+        // any page or app can open conduit://clipboard, and attaching
+        // uploads at once. The new chat opens empty (⌘V attaches them).
         let picture = Image::from_bytes(ImageFormat::Png, vec![0x89, b'P', b'N', b'G']);
         let image = clipboard_compose(Some(&ClipboardItem::new_image(&picture)));
-        assert_eq!(image.text, None);
-        assert_eq!(image.images, vec![picture]);
+        assert_eq!(image, Compose::default());
+        let files = clipboard_compose(Some(&ClipboardItem {
+            entries: vec![gpui_kit::ClipboardEntry::ExternalPaths(
+                gpui_kit::ExternalPaths(vec!["/tmp/synthetic-notes.txt".into()].into()),
+            )],
+        }));
+        assert_eq!(files, Compose::default());
 
         // Blank text is no text; nothing copied still opens a new chat.
         let blank = clipboard_compose(Some(&ClipboardItem::new_string(" \n ".into())));

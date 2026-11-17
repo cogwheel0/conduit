@@ -48,8 +48,8 @@ pub enum OpenRequest {
     /// inbox ([`super::share_inbox`]), as a new chat.
     Share { id: String },
     /// `conduit://clipboard` (the widget's Clipboard, the phone's too): a
-    /// new chat with what was copied, read when the main window can show
-    /// it.
+    /// new chat with the copied text, read when the main window can show
+    /// it (only text: any page or app can open the link).
     Clipboard,
     /// A new chat with more than a link can carry (Shortcuts' Send Link and
     /// Send Image): never from a link.
