@@ -1642,15 +1642,21 @@ impl ChatComposer {
     /// A fresh composition starts with `text` alone, even in the new chat
     /// already shown (the same draft, so no draft switch): the last
     /// composition's prompt form, panel and menu go, a prompt still being
-    /// rendered for it lands nowhere, and what applied to the last message
-    /// is cleared. (Writing the text replaces a draft read still on its way:
+    /// rendered for it, a send still out and its dictation land nowhere, and
+    /// what applied to the last message is cleared. (Writing the text replaces a draft read still on its way:
     /// [`ComposerStore::draft_changed`].)
     pub fn start_fresh(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
-        self.composer.update(cx, |c, cx| c.clear_message(cx));
+        // The draft starts over: a send still out from the last composition
+        // gives nothing back to this one.
+        self.composer.update(cx, |c, cx| c.start_over(cx));
         self.form = None;
         self.prompt_request += 1;
         self.panel = None;
         self.menu = None;
+        // Dictation for the last composition ends: with no base left, its
+        // later words and its cancel write nothing.
+        self.dictation_base = None;
+        self.cancel_dictation(window, cx);
         self.set_text(text, window, cx);
         cx.notify();
     }
@@ -4698,6 +4704,47 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(value(&view, cx), "");
         assert!(view.read_with(cx, |c, _| c.form.is_none()));
+    }
+
+    /// A fresh composition while dictation runs and a send is still out:
+    /// neither the dictation's words (nor its cancel) nor the refused send's
+    /// text lands in what it brought.
+    #[gpui_kit::test]
+    fn a_fresh_composition_takes_nothing_from_dictation_or_a_send_in_flight(
+        cx: &mut TestAppContext,
+    ) {
+        use crate::stores::dictation::{DictationEvent, DictationStore};
+        let (view, cx, _) = composer(cx);
+        let dictation = cx.new(|_| DictationStore::new(FakeDaemon::new().rpc(), None));
+        cx.update(|window, cx| {
+            view.update(cx, |c, cx| {
+                c.set_dictation(dictation.clone(), window, cx);
+                c.set_text("Draft:", window, cx);
+                // As toggle_dictation does before the store starts.
+                c.dictation_base = Some(c.text(cx));
+            })
+        });
+        // A send still on its way, from before.
+        let used = view.read_with(cx, |c, cx| c.composer.read(cx).one_shot());
+        view.update_in(cx, |c, window, cx| {
+            c.start_fresh("Copied packing list", window, cx)
+        });
+        let emit = |e: DictationEvent, cx: &mut VisualTestContext| {
+            dictation.update(cx, |_, cx| cx.emit(e));
+            cx.run_until_parked();
+        };
+        emit(
+            DictationEvent::Text {
+                text: "plant the".into(),
+                done: false,
+            },
+            cx,
+        );
+        view.update_in(cx, |c, window, cx| {
+            c.give_back("Old words", used, window, cx)
+        });
+        emit(DictationEvent::Ended { restore: true }, cx);
+        assert_eq!(value(&view, cx), "Copied packing list");
     }
 
     #[gpui_kit::test]
