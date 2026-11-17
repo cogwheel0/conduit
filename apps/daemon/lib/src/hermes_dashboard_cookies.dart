@@ -32,12 +32,17 @@ bool _isSessionCookie(String name) => _sessionCookieNames.contains(
 ///
 /// The window runs the sign-in in a browser window of its own, with a
 /// store of its own that goes with the window, and hands the dashboard's
-/// cookies over ([capture]). From then on the daemon is the browser: the
+/// cookies over ([adopt]). From then on the daemon is the browser: the
 /// dashboard bridge ([bridge]) sends them with each dashboard request and
 /// keeps what Hermes rotates, a sign-out ([signOut]) asks Hermes to end the
 /// session, and the core's [clearForOrigin] deletes what the sign-in
 /// recorded ([HermesDashboardCookieRegistry]), as the phone's WebView glue
 /// does. The cookies are secrets: they live in the secure store.
+///
+/// A sign-in's cookies enter the jar at one commit point ([_commit]), taken
+/// in turn with every clear: only while no clear started after the sign-in
+/// did and its caller still wants them (the connection it was made under is
+/// still in use).
 ///
 /// Open WebUI's sign-in windows keep nothing (their stores go with them),
 /// so the full purges the core asks for at an Open WebUI sign-out
@@ -66,6 +71,9 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
   final HermesDashboardCookieJar _jar;
   Future<void> _saving = Future<void>.value();
 
+  /// The tail of the commits and clears, run one at a time.
+  Future<void> _turn = Future<void>.value();
+
   /// The cookies, for tests and diagnostics.
   List<HermesDashboardCookie> get cookies => _jar.cookies;
 
@@ -78,50 +86,63 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
         .catchError((Object _) {});
   }
 
+  /// Runs [body] after every commit and clear before it.
+  Future<T> _inTurn<T>(Future<T> Function() body) {
+    final run = _turn.then((_) => body());
+    _turn = run.then<void>((_) {}, onError: (Object _) {});
+    return run;
+  }
+
   static String? _host(String origin) {
     final host = Uri.tryParse(origin)?.host;
     return host == null || host.isEmpty ? null : host;
   }
 
-  /// Takes the cookies a sign-in window held for [root]'s host: those of
-  /// its host are kept, and recorded as this sign-in's for [root]
+  /// The commit point: takes [cookies], a sign-in window's for [root]'s
+  /// host, while sign-in [generation] is still [root]'s latest and
+  /// [wanted] still holds, checked in turn right before the jar changes.
+  /// Those of its host are kept, and recorded as this sign-in's for [root]
   /// (the window's store was fresh, so every one of them is), as the
   /// phone's registers its sign-in. True when a session cookie was among
-  /// them.
-  Future<bool> capture(
+  /// them; false, with nothing taken, once superseded or unwanted.
+  Future<bool> _commit(
     Uri root,
-    Iterable<HermesDashboardCookie> cookies,
-  ) async {
-    final host = root.host;
-    final taken = [
-      for (final cookie in cookies)
-        if (hermesDashboardCookieDomainMatches(
-          cookie.domain,
-          host,
-          hostOnly: cookie.hostOnly,
-        ))
-          cookie,
-    ];
-    for (final cookie in taken) {
-      _jar.put(cookie);
-    }
+    Iterable<HermesDashboardCookie> cookies, {
+    required int generation,
+    bool Function()? wanted,
+  }) {
     final origin = root.toString();
-    final generation = HermesDashboardCookieRegistry.begin(origin);
-    final identities = hermesDashboardCookieIdentityDelta(
-      current: {for (final cookie in taken) cookie.identity},
-      baseline: const {},
-      retainedNames: kHermesDashboardRetainedCookieNames,
-      recorded: HermesDashboardCookieRegistry.identitiesFor(origin),
-    );
-    if (HermesDashboardCookieRegistry.isCurrent(origin, generation)) {
+    return _inTurn(() async {
+      if (!HermesDashboardCookieRegistry.isCurrent(origin, generation) ||
+          !(wanted?.call() ?? true)) {
+        return false;
+      }
+      final host = root.host;
+      final taken = [
+        for (final cookie in cookies)
+          if (hermesDashboardCookieDomainMatches(
+            cookie.domain,
+            host,
+            hostOnly: cookie.hostOnly,
+          ))
+            cookie,
+      ];
+      for (final cookie in taken) {
+        _jar.put(cookie);
+      }
       await HermesDashboardCookieRegistry.record(
         origin,
-        identities: identities,
+        identities: hermesDashboardCookieIdentityDelta(
+          current: {for (final cookie in taken) cookie.identity},
+          baseline: const {},
+          retainedNames: kHermesDashboardRetainedCookieNames,
+          recorded: HermesDashboardCookieRegistry.identitiesFor(origin),
+        ),
         retainedNames: kHermesDashboardRetainedCookieNames,
       );
-    }
-    await _save();
-    return taken.any((cookie) => _isSessionCookie(cookie.name));
+      await _save();
+      return taken.any((cookie) => _isSessionCookie(cookie.name));
+    });
   }
 
   /// Whether a dashboard session this daemon recorded for [baseUrl]'s
@@ -173,13 +194,18 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
   /// had, when the dashboard says they are a signed-in session
   /// ([hermesDashboardAuthCheckUrl] answers 2xx only then): checked on a
   /// jar of their own first, so cookies that are not a session never
-  /// replace a session held. True when they were taken.
+  /// replace a session held. True when they were taken ([_commit]): not
+  /// once a clear of [root] started after this sign-in did, or once
+  /// [wanted] (the caller's own check, made in the commit's turn) fails.
   Future<bool> adopt(
     Uri root,
     Iterable<HermesDashboardCookie> cookies, {
     required Map<String, String> accessHeaders,
     HermesDashboardHttpClientFactory? httpClient,
+    bool Function()? wanted,
   }) async {
+    // Begun before the check goes out: a clear meanwhile supersedes it.
+    final generation = HermesDashboardCookieRegistry.begin(root.toString());
     final host = root.host;
     final own = HermesDashboardCookieJar([
       for (final cookie in cookies)
@@ -211,7 +237,7 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
       await session.close();
     }
     // The check's answer may have rotated the session: its cookies are kept.
-    return capture(root, own.cookies);
+    return _commit(root, own.cookies, generation: generation, wanted: wanted);
   }
 
   // CookieJarPort
@@ -226,12 +252,18 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
   }
 
   @override
-  Future<bool> clearForOrigin(String origin) async {
-    if (!HermesDashboardCookieRegistry.invalidate(origin)) return true;
-    final recorded = HermesDashboardCookieRegistry.identitiesFor(origin);
-    if (_jar.removeAll(recorded)) await _save();
-    await HermesDashboardCookieRegistry.forget(origin);
-    return true;
+  Future<bool> clearForOrigin(String origin) {
+    // Superseded now, before its turn: a sign-in waiting for one keeps
+    // nothing.
+    if (!HermesDashboardCookieRegistry.invalidate(origin)) {
+      return Future<bool>.value(true);
+    }
+    return _inTurn(() async {
+      final recorded = HermesDashboardCookieRegistry.identitiesFor(origin);
+      if (_jar.removeAll(recorded)) await _save();
+      await HermesDashboardCookieRegistry.forget(origin);
+      return true;
+    });
   }
 
   @override

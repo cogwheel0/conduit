@@ -642,13 +642,7 @@ final class HermesAdminService {
   /// as on an iPhone. Only for the connection in use [request] names.
   Future<HermesDashboardPlan> dashboardStart(HermesDashboardStart request) =>
       _change(request.connection, (scope) async {
-        final saved = await _saved(request.id);
-        if (saved.mode != HermesBackendMode.desktopGateway) {
-          throw const RpcError(
-            code: ConduitErrorCodes.unsupported,
-            debugMessage: 'dashboard sign-in needs a Desktop Gateway',
-          );
-        }
+        final saved = await _dashboardConnection(scope, request.id);
         final root = hermesDashboardRoot(saved.baseUrl);
         return HermesDashboardPlan(
           loginUrl: hermesDashboardLoginUrl(root).toString(),
@@ -659,6 +653,33 @@ final class HermesAdminService {
           ),
         );
       });
+
+  /// Whether saved connection [id] is the one in use under [scope], and
+  /// [scope] is still current.
+  bool _inUse(_Scope scope, String id) =>
+      _current(scope) && scope.active.connectionId == id;
+
+  /// Saved connection [id] for a dashboard sign-in, the one guard of every
+  /// dashboard path: only the connection in use under [scope] (another
+  /// saved one, never put in use, is refused as a stale connection), and
+  /// only a Desktop Gateway.
+  Future<HermesConfig> _dashboardConnection(_Scope scope, String id) async {
+    if (!_inUse(scope, id)) {
+      throw HermesConnectionKey.stale(scope.connection ?? '', id);
+    }
+    final saved = await _saved(id);
+    _check(scope);
+    if (!_inUse(scope, id)) {
+      throw HermesConnectionKey.stale(scope.connection ?? '', id);
+    }
+    if (saved.mode != HermesBackendMode.desktopGateway) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'dashboard sign-in needs a Desktop Gateway',
+      );
+    }
+    return saved;
+  }
 
   /// Takes the cookies a dashboard page in the sign-in window had: kept,
   /// and the connection's dashboard requests sent with them, once the
@@ -676,14 +697,16 @@ final class HermesAdminService {
         debugMessage: 'this daemon keeps no dashboard sessions',
       );
     }
-    final saved = await _saved(request.id);
-    _check(scope);
+    final saved = await _dashboardConnection(scope, request.id);
     final root = hermesDashboardRoot(saved.baseUrl);
     final signedIn = await store.adopt(
       root,
       [for (final cookie in request.cookies) ?_cookie(cookie)],
       accessHeaders: saved.accessHeaders,
       httpClient: hermesDashboardHttpClientFor(root, saved),
+      // Checked again where the cookies would be kept, after the dashboard
+      // answered: nothing is kept for a connection no longer in use.
+      wanted: () => _inUse(scope, request.id),
     );
     if (!signedIn) return const HermesDashboardResult();
     _check(scope);

@@ -1,6 +1,7 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -18,6 +19,11 @@ final class _FakeDashboard {
 
   final HttpServer _server;
   final List<String?> cookies = [];
+
+  /// When set, a signed-in `/api/auth/me` check waits for it, after
+  /// completing [arrived]: a test acts while the check is out.
+  Completer<void>? hold;
+  Completer<void>? arrived;
 
   String get baseUrl => 'http://127.0.0.1:${_server.port}';
 
@@ -39,6 +45,11 @@ final class _FakeDashboard {
           );
         case '/api/auth/me'
             when cookie?.contains('hermes_session_at=good') ?? false:
+          final wait = fake.hold;
+          if (wait != null) {
+            fake.arrived?.complete();
+            await wait.future;
+          }
           response.headers.add(
             HttpHeaders.setCookieHeader,
             'hermes_session_at=rotated; HttpOnly; Path=/',
@@ -468,5 +479,115 @@ void main() {
     await hermes.signOut();
     expect(runtime.dashboardCookies.cookies, isEmpty);
     expect(row(await admin.connections(), id).dashboardSignedIn, isFalse);
+  });
+
+  const goodSession = [
+    HermesCookieDto(
+      name: 'hermes_session_at',
+      value: 'good',
+      domain: '127.0.0.1',
+      httpOnly: true,
+    ),
+  ];
+
+  Matcher refusedAs(String code) =>
+      throwsA(isA<RpcError>().having((e) => e.code, 'code', code));
+
+  /// A dashboard connection saved and put in use; its daemon name.
+  Future<({String id, String? connection})> dashboardInUse(String name) async {
+    final saved = await admin.saveConnection(
+      HermesConnectionEdit(
+        name: name,
+        baseUrl: dashboard.baseUrl,
+        mode: 'desktop',
+        desktopAuthKind: 'dashboardCookie',
+      ),
+    );
+    final id = saved.savedId!;
+    return (id: id, connection: (await admin.activate(id)).connection);
+  }
+
+  /// Holds the dashboard's next signed-in check; completes once it is out.
+  Future<void> holdCheck() {
+    dashboard.hold = Completer<void>();
+    dashboard.arrived = Completer<void>();
+    return dashboard.arrived!.future;
+  }
+
+  void releaseCheck() {
+    dashboard.hold?.complete();
+    dashboard.hold = null;
+    dashboard.arrived = null;
+  }
+
+  test('a dashboard sign-in is only for the connection in use', () async {
+    final inUse = await dashboardInUse('Gateway in use');
+    final other = await admin.saveConnection(
+      HermesConnectionEdit(
+        name: 'Gateway not in use',
+        baseUrl: dashboard.baseUrl,
+        mode: 'desktop',
+        desktopAuthKind: 'dashboardCookie',
+      ),
+    );
+    final otherId = other.savedId!;
+    expect(row(other, otherId).active, isFalse);
+
+    await expectLater(
+      admin.dashboardStart(
+        HermesDashboardStart(id: otherId, connection: inUse.connection),
+      ),
+      refusedAs(ConduitErrorCodes.sessionExpired),
+    );
+    await expectLater(
+      admin.dashboardComplete(
+        HermesDashboardCookies(
+          id: otherId,
+          connection: inUse.connection,
+          cookies: goodSession,
+        ),
+      ),
+      refusedAs(ConduitErrorCodes.sessionExpired),
+    );
+    expect(runtime.dashboardCookies.cookies, isEmpty);
+  });
+
+  test('a clear while the dashboard checks a sign-in keeps nothing', () async {
+    final inUse = await dashboardInUse('Gateway cleared');
+    final out = holdCheck();
+    final completing = admin.dashboardComplete(
+      HermesDashboardCookies(
+        id: inUse.id,
+        connection: inUse.connection,
+        cookies: goodSession,
+      ),
+    );
+    await out;
+    // What a Sign Out or a disconnect asks of the cookie store.
+    await runtime.dashboardCookies.clearForOrigin(dashboard.baseUrl);
+    releaseCheck();
+    expect((await completing).signedIn, isFalse);
+    expect(runtime.dashboardCookies.cookies, isEmpty);
+    expect(row(await admin.connections(), inUse.id).dashboardSignedIn, isFalse);
+  });
+
+  test('a switch while the dashboard checks a sign-in keeps nothing', () async {
+    final inUse = await dashboardInUse('Gateway left');
+    final next = await admin.saveConnection(
+      HermesConnectionEdit(name: 'Next', baseUrl: api.baseUrl, apiKey: api.key),
+    );
+    final out = holdCheck();
+    final completing = admin.dashboardComplete(
+      HermesDashboardCookies(
+        id: inUse.id,
+        connection: inUse.connection,
+        cookies: goodSession,
+      ),
+    );
+    await out;
+    await admin.activate(next.savedId!);
+    releaseCheck();
+    await expectLater(completing, refusedAs(ConduitErrorCodes.sessionExpired));
+    expect(runtime.dashboardCookies.cookies, isEmpty);
   });
 }
