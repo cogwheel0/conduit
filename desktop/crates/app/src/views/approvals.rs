@@ -249,10 +249,14 @@ impl ApprovalsView {
                 input: InputKind::Password,
                 ..
             } => Some(forms::raw(&self.secret, cx)),
+            // What the card shows ([`Self::card_parts`] keeps the pick in
+            // range when the same request comes back with fewer choices).
             Card::Input {
                 input: InputKind::Select(options),
                 ..
-            } => options.get(self.selected).map(|o| o.value.clone()),
+            } => options
+                .get(self.selected.min(options.len().saturating_sub(1)))
+                .map(|o| o.value.clone()),
             Card::Input { .. } => Some(forms::raw(&self.input, cx)),
             _ => None,
         }
@@ -1384,6 +1388,7 @@ mod replay_tests {
     use std::collections::BTreeMap;
 
     use conduit_components::theme::{ConduitTheme, DesignPrefs, install};
+    use conduit_protocol::{UiInputOption, UiInputType};
     use gpui_kit::{TestAppContext, VisualTestContext};
     use serde_json::json;
 
@@ -1544,5 +1549,55 @@ mod replay_tests {
             fresh.is_some_and(|f| f != q0),
             "another request, another field"
         );
+    }
+
+    /// A select raised again with fewer choices answers with the choice its
+    /// card shows, never an empty answer.
+    #[gpui_kit::test]
+    fn a_select_raised_again_answers_what_it_shows(cx: &mut TestAppContext) {
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-approvals-select-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&scratch);
+        let rpc = FakeDaemon::new().rpc();
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            install(
+                ConduitTheme::new("conduit", false, DesignPrefs::default(), gpui_kit::black()),
+                cx,
+            );
+            cx.set_global(conduit_components::Strings::default());
+            cx.set_global(L10n::new("en"));
+        });
+        let stores = cx.update(|cx| crate::fixture::stores(rpc, &scratch, cx));
+        let requests = stores.ui_requests.clone();
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| ApprovalsView::new(stores, window, cx));
+        let select = |values: &[&str]| UiRequest {
+            request_id: "s1".into(),
+            kind: UiRequestKind::InputPrompt,
+            message_code: "ui.input".into(),
+            message_args: BTreeMap::from([("title".to_string(), "Pick a bed".to_string())]),
+            detail: json!({}),
+            timeout_ms: Some(300_000),
+            default_choice: "cancel".into(),
+            input_type: Some(UiInputType::Select),
+            options: Some(
+                values
+                    .iter()
+                    .map(|v| UiInputOption {
+                        value: v.to_string(),
+                        label: v.to_uppercase(),
+                    })
+                    .collect(),
+            ),
+        };
+        requests.update(vcx, |r, cx| r.on_request(select(&["a", "b", "c"]), cx));
+        draw(vcx);
+        view.update(vcx, |v, _| v.selected = 2);
+        requests.update(vcx, |r, cx| r.on_request(select(&["a", "b"]), cx));
+        draw(vcx);
+        let top = select(&["a", "b"]);
+        let sent = view.read_with(vcx, |v, cx| v.typed(&top, cx));
+        assert_eq!(sent.as_deref(), Some("b"), "an empty answer would go");
     }
 }
