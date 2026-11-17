@@ -188,11 +188,13 @@ void main() {
 
   test('scheduled agents are made, paused, run and deleted', () async {
     await saveHome();
+    final on = (await admin.connections()).connection;
     var jobs = await admin.saveJob(
-      const HermesJobEdit(
+      HermesJobEdit(
         name: 'Morning brief',
         prompt: 'Summarise the news',
         schedule: '0 8 * * *',
+        connection: on,
       ),
     );
     expect(jobs.writable, isTrue);
@@ -208,7 +210,12 @@ void main() {
     // A schedule Hermes cannot read is refused with its field.
     await expectLater(
       admin.saveJob(
-        const HermesJobEdit(name: 'Bad', prompt: 'x', schedule: 'whenever'),
+        HermesJobEdit(
+          name: 'Bad',
+          prompt: 'x',
+          schedule: 'whenever',
+          connection: on,
+        ),
       ),
       throwsA(
         isA<RpcError>().having((e) => e.args['field'], 'field', 'schedule'),
@@ -216,7 +223,7 @@ void main() {
     );
 
     jobs = await admin.setJobEnabled(
-      HermesJobToggle(id: job.id, enabled: false),
+      HermesJobToggle(id: job.id, enabled: false, connection: on),
     );
     expect(jobs.jobs.single.enabled, isFalse);
     jobs = await admin.saveJob(
@@ -225,21 +232,22 @@ void main() {
         name: 'Morning brief',
         prompt: 'Summarise the tech news',
         schedule: '0 9 * * *',
+        connection: on,
       ),
     );
     expect(jobs.jobs.single.prompt, 'Summarise the tech news');
     expect(jobs.savedId, job.id);
-    jobs = await admin.runJob(job.id);
+    jobs = await admin.runJob(job.id, connection: on);
     expect(jobs.jobs.single.lastStatus, 'ok');
     expect(jobs.jobs.single.running, isFalse);
 
     // An API server has no Stop and no run history.
-    jobs = await admin.stopJob(job.id);
+    jobs = await admin.stopJob(job.id, connection: on);
     expect(jobs.notices.single.kind, 'stopUnsupported');
     expect((await admin.jobRuns(job.id)).sessions, isEmpty);
     expect((await admin.deliveryOptions()).available, isFalse);
 
-    jobs = await admin.deleteJob(job.id);
+    jobs = await admin.deleteJob(job.id, connection: on);
     expect(jobs.jobs, isEmpty);
   });
 
@@ -389,6 +397,56 @@ void main() {
       ),
       reason: 'the catalog read of the last connection was answered',
     );
+  });
+
+  test('a Hermes settings change that names no connection is refused, and '
+      'nothing of it reaches the server', () async {
+    await saveHome();
+    first.jobs['j-home'] = <String, dynamic>{
+      'id': 'j-home',
+      'name': 'Morning watering',
+      'prompt': 'Water the seedlings',
+      'schedule': '0 7 * * *',
+      'enabled': true,
+    };
+    final unnamed = isA<RpcError>().having(
+      (e) => e.code,
+      'code',
+      ConduitErrorCodes.invalidParams,
+    );
+    for (final call in <Future<Object?> Function()>[
+      () => admin.saveJob(
+        const HermesJobEdit(
+          name: 'Seed sowing',
+          prompt: 'Sow the tomatoes',
+          schedule: '0 8 * * *',
+        ),
+      ),
+      () => admin.setJobEnabled(
+        const HermesJobToggle(id: 'j-home', enabled: false),
+      ),
+      () => admin.runJob('j-home'),
+      () => admin.stopJob('j-home'),
+      () => admin.deleteJob('j-home'),
+      () => admin.addMcp(
+        const HermesMcpAdd(name: 'seeds', url: 'http://127.0.0.1:1/mcp'),
+      ),
+      () => admin.addMcpFromCatalog(const HermesMcpRef(name: 'seeds')),
+      () => admin.setMcpApiKey(
+        const HermesMcpApiKey(name: 'seeds', apiKey: 'sk-test'),
+      ),
+      () => admin.removeMcp(const HermesMcpRef(name: 'seeds')),
+      () => admin.testMcp(const HermesMcpRef(name: 'seeds')),
+      () => admin.setMcpEnabled(
+        const HermesMcpToggle(name: 'seeds', enabled: false),
+      ),
+      () => admin.authenticateMcp(const HermesMcpRef(name: 'seeds')),
+    ]) {
+      await expectLater(call(), throwsA(unnamed));
+    }
+    expect(first.jobs.keys, <String>['j-home'], reason: 'nothing was made');
+    expect(first.jobs['j-home']!['enabled'], isTrue);
+    first.jobs.clear();
   });
 
   test('deleting the connection in use puts another in use', () async {

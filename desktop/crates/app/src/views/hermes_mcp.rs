@@ -572,6 +572,7 @@ mod tests {
         serde_json::from_value(json!({
             "enabled": true,
             "activeId": active,
+            "connection": format!("0a1b2c3d:{active}"),
             "connections": [
                 {"id": "a", "name": "Potting shed", "baseUrl": "http://127.0.0.1:20401",
                  "mode": "desktop", "active": active == "a"},
@@ -988,6 +989,30 @@ mod tests {
         assert!(
             left_hermes_page(&stores, vcx),
             "Hermes's page stayed open with Hermes off"
+        );
+    }
+
+    /// A key sheet that opened before this window knew the connection in
+    /// use sends nothing: a key that names no connection could reach
+    /// whichever gateway is in use when it arrives.
+    #[gpui_kit::test]
+    fn a_key_sheet_that_knows_no_connection_sends_nothing(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesMcpSetApiKey>(
+            serde_json::from_value(json!({"available": true})).unwrap(),
+        );
+        let s = stores.clone();
+        vcx.update(|window, cx| open_key(&s, "seed-catalogue", window, cx));
+        vcx.run_until_parked();
+        on_sheet::<McpKeySheet>(vcx, |s, w, cx| {
+            s.key
+                .update(cx, |i, cx| i.set_value("sk-test-not-a-real-key", w, cx));
+            s.save(w, cx);
+        });
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::HermesMcpSetApiKey>().is_empty(),
+            "a key naming no connection was sent"
         );
     }
 

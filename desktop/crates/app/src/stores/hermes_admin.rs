@@ -244,10 +244,12 @@ impl HermesAdminStore {
     /// nothing once another has come into use (and the daemon refuses
     /// what this window has not heard of yet).
     pub fn still_in_use(&self, opened: &Opened) -> bool {
-        self.connections.as_ref().is_none_or(|l| {
-            l.active_id == opened.active_id
-                && (opened.connection.is_none() || l.connection == opened.connection)
-        })
+        // A sheet that knew no connection (opened before the list was read)
+        // sends nothing: the daemon refuses a change that names none.
+        opened.connection.is_some()
+            && self.connections.as_ref().is_none_or(|l| {
+                l.active_id == opened.active_id && l.connection == opened.connection
+            })
     }
 
     /// The connection in use, none while Hermes is off: its saved id and
@@ -932,6 +934,7 @@ mod tests {
         serde_json::from_value(json!({
             "enabled": true,
             "activeId": active,
+            "connection": format!("0a1b2c3d:{active}"),
             "connections": [
                 {"id": "a", "name": "Potting shed", "baseUrl": "http://127.0.0.1:20401",
                  "mode": "desktop", "active": active == "a"},

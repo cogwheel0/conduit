@@ -817,6 +817,7 @@ mod tests {
         let list: conduit_protocol::HermesConnections = serde_json::from_value(json!({
             "enabled": true,
             "activeId": id,
+            "connection": format!("0a1b2c3d:{id}"),
             "connections": [
                 {"id": "a", "name": "Potting shed", "baseUrl": "http://127.0.0.1:20401",
                  "mode": "desktop", "active": id == "a"},

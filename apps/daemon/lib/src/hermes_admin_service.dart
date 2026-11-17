@@ -108,6 +108,23 @@ final class HermesAdminService {
     }
   }
 
+  /// [_bound] for a change: it must name the connection it was made under.
+  /// One naming none (a window that never knew it) is refused
+  /// (`invalidParams`, reason `connectionRequired`) rather than made on
+  /// whichever connection is in use by the time it arrives.
+  Future<T> _change<T>(String? asked, Future<T> Function(_Scope scope) body) {
+    if (hermes != null && asked == null) {
+      return Future<T>.error(
+        const RpcError(
+          code: ConduitErrorCodes.invalidParams,
+          args: <String, String>{'reason': 'connectionRequired'},
+          debugMessage: 'a Hermes settings change names no connection',
+        ),
+      );
+    }
+    return _bound(asked, body);
+  }
+
   /// [body], made under the connection in use now (refusing [asked] when
   /// it names another): its answer is checked against that connection
   /// last, and [body] checks it before each write or change after a wait.
@@ -461,7 +478,7 @@ final class HermesAdminService {
     );
   });
 
-  Future<HermesMcpServers> addMcp(HermesMcpAdd add) => _bound(add.connection, (
+  Future<HermesMcpServers> addMcp(HermesMcpAdd add) => _change(add.connection, (
     scope,
   ) async {
     final name = add.name.trim();
@@ -489,7 +506,7 @@ final class HermesAdminService {
     return mcpServers();
   });
 
-  Future<HermesMcpServers> addMcpFromCatalog(HermesMcpRef ref) => _bound(
+  Future<HermesMcpServers> addMcpFromCatalog(HermesMcpRef ref) => _change(
     ref.connection,
     (scope) async {
       final name = ref.name;
@@ -517,7 +534,7 @@ final class HermesAdminService {
   );
 
   Future<HermesMcpServers> setMcpApiKey(HermesMcpApiKey request) =>
-      _bound(request.connection, (scope) async {
+      _change(request.connection, (scope) async {
         final service = _gatewayService();
         if (!service.supportsMcpCredentialUpdate) {
           throw const RpcError(
@@ -539,7 +556,7 @@ final class HermesAdminService {
       });
 
   Future<HermesMcpServers> removeMcp(HermesMcpRef ref) =>
-      _bound(ref.connection, (scope) async {
+      _change(ref.connection, (scope) async {
         final name = ref.name;
         await _gatewayService().removeMcpServer(name);
         _check(scope);
@@ -551,7 +568,7 @@ final class HermesAdminService {
       });
 
   Future<HermesMcpTestResultDto> testMcp(HermesMcpRef ref) =>
-      _bound(ref.connection, (scope) async {
+      _change(ref.connection, (scope) async {
         final name = ref.name;
         final result = await _gatewayService().testMcpServer(name);
         // Another connection's server of the same name is not this one.
@@ -569,7 +586,7 @@ final class HermesAdminService {
         );
       });
 
-  Future<HermesMcpServers> setMcpEnabled(HermesMcpToggle toggle) => _bound(
+  Future<HermesMcpServers> setMcpEnabled(HermesMcpToggle toggle) => _change(
     toggle.connection,
     (scope) async {
       await _gatewayService().setMcpServerEnabled(toggle.name, toggle.enabled);
@@ -583,7 +600,7 @@ final class HermesAdminService {
   /// OAuth in the browser (the window opens the page): answers once it is
   /// done, or refuses when it failed or timed out.
   Future<HermesMcpServers> authenticateMcp(HermesMcpRef ref) =>
-      _bound(ref.connection, (scope) async {
+      _change(ref.connection, (scope) async {
         final name = ref.name;
         final signedIn = await _gatewayService().authenticateMcpServer(name);
         // A window that stopped waiting (past its call's limit) reads the
@@ -758,7 +775,7 @@ final class HermesAdminService {
     );
   });
 
-  Future<HermesJobs> saveJob(HermesJobEdit edit) => _bound(edit.connection, (
+  Future<HermesJobs> saveJob(HermesJobEdit edit) => _change(edit.connection, (
     scope,
   ) async {
     final prompt = edit.prompt.trim();
@@ -835,7 +852,7 @@ final class HermesAdminService {
   }
 
   Future<HermesJobs> setJobEnabled(HermesJobToggle toggle) =>
-      _bound(toggle.connection, (scope) async {
+      _change(toggle.connection, (scope) async {
         await _jobs.setEnabled(toggle.id, toggle.enabled);
         _check(scope);
         _announce();
@@ -847,7 +864,7 @@ final class HermesAdminService {
   /// (and `hermes.changed` comes when it ends). A trigger Hermes refuses
   /// at once (a run already going) is refused here.
   Future<HermesJobs> runJob(String id, {String? connection}) =>
-      _bound(connection, (scope) async {
+      _change(connection, (scope) async {
         if (_runPending.contains(id)) return jobs();
         final service = _container.read(hermesApiServiceProvider);
         if (service == null) return jobs();
@@ -891,7 +908,7 @@ final class HermesAdminService {
   /// Stops job [id]'s running run. How it settles comes in the notices of
   /// a later list.
   Future<HermesJobs> stopJob(String id, {String? connection}) =>
-      _bound(connection, (scope) async {
+      _change(connection, (scope) async {
         if (_stopping.containsKey(id)) return jobs();
         if (_stopUnsupported) {
           _notices.add(HermesJobNotice(jobId: id, kind: 'stopUnsupported'));
@@ -927,7 +944,7 @@ final class HermesAdminService {
       });
 
   Future<HermesJobs> deleteJob(String id, {String? connection}) =>
-      _bound(connection, (scope) async {
+      _change(connection, (scope) async {
         await _jobs.delete(id);
         _check(scope);
         _stopping.remove(id);

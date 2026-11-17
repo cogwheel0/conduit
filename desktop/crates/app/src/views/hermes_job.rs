@@ -804,6 +804,7 @@ mod tests {
         serde_json::from_value(json!({
             "enabled": true,
             "activeId": active,
+            "connection": format!("0a1b2c3d:{active}"),
             "connections": [
                 {"id": "a", "name": "Potting shed", "baseUrl": "http://127.0.0.1:20401",
                  "mode": "desktop", "active": active == "a"},
