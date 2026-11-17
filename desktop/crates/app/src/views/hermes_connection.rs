@@ -651,9 +651,12 @@ impl HermesConnectionSheet {
     }
 
     /// Clear (by the memory key): the saved key goes at the next Save, and
-    /// the daemon makes one, as before a key was set.
+    /// the daemon makes one, as before a key was set. A replacement typed
+    /// before goes too; one typed after is the key saved.
     pub fn clear_memory_key(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.memory_cleared = true;
+        self.memory_key
+            .update(cx, |i, cx| i.set_value("", window, cx));
         let hint = cx.l10n().desktop_optional();
         forms::set_hint(&self.memory_key, hint, cx);
         self.memory_key.update(cx, |i, cx| i.focus(window, cx));
@@ -2377,6 +2380,61 @@ mod tests {
                 "the editor stayed open once the key was cleared"
             )
         });
+    }
+
+    /// Clear after a replacement key was typed clears (the typed key goes
+    /// too); a key typed after Clear is the one saved.
+    #[gpui_kit::test]
+    fn clear_and_typing_each_win_when_they_come_last(cx: &mut gpui_kit::TestAppContext) {
+        let api = |saved: Option<&str>| {
+            let mut l = list("a", saved, "nativePkce");
+            l.connections[1].mode = "responses".into();
+            l.connections[1].has_memory_key = true;
+            l
+        };
+        for clear_last in [true, false] {
+            let (daemon, stores, vcx) = bench(cx);
+            daemon.returns::<methods::HermesConnectionsSave>(api(Some("b")));
+            stores
+                .hermes_admin
+                .update(vcx, |a, cx| a.adopt_connections(api(None), cx));
+            let s = stores.clone();
+            vcx.update(|window, cx| open(&s, Some("b".into()), window, cx));
+            vcx.run_until_parked();
+            let sheet = vcx
+                .update(|_, cx| sheet::current::<HermesConnectionSheet>(cx))
+                .expect("the editor opens");
+            on_sheet(vcx, &sheet, |s, w, cx| {
+                let type_key =
+                    |s: &mut HermesConnectionSheet,
+                     w: &mut Window,
+                     cx: &mut Context<HermesConnectionSheet>| {
+                        s.memory_key
+                            .update(cx, |i, cx| i.set_value("synthetic-memory-key", w, cx))
+                    };
+                if clear_last {
+                    type_key(s, w, cx);
+                    s.clear_memory_key(w, cx);
+                } else {
+                    s.clear_memory_key(w, cx);
+                    type_key(s, w, cx);
+                }
+                s.save(w, cx);
+            });
+            vcx.run_until_parked();
+            let saves = daemon.calls::<methods::HermesConnectionsSave>();
+            assert_eq!(saves.len(), 1);
+            let want = if clear_last {
+                ""
+            } else {
+                "synthetic-memory-key"
+            };
+            assert_eq!(
+                saves[0]["memoryKey"],
+                json!(want),
+                "clear last: {clear_last}"
+            );
+        }
     }
 
     /// Typed words make Quit ask first.
