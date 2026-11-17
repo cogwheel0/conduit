@@ -1737,10 +1737,12 @@ mod tests {
                         Box::new(crate::views::terminal::console::ClearScrollback)
                     }
                     // The Workspace editor, the Calendar, Scheduled Tasks,
-                    // a room's field and the scheduled agent sheet take
-                    // theirs in their own key handlers; the console answers
-                    // the Edit menu's Copy, Paste and Select All.
+                    // a room's field, the scheduled agent sheet and a
+                    // terminal's PDF window take theirs in their own key
+                    // handlers; the console answers the Edit menu's Copy,
+                    // Paste and Select All.
                     K::SaveWorkspaceItem
+                    | K::SavePdf
                     | K::CalendarEarlier
                     | K::CalendarLater
                     | K::CalendarToday

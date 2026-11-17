@@ -636,6 +636,66 @@ impl ChatsPane {
     }
 }
 
+/// Remote Content: the sites whose pictures and PDF previews load without
+/// a click (Always Load Images from …), each with Remove. Kept on this Mac
+/// for every account (see `prefs::Preferences::remote_image_hosts`).
+fn remote_content_section(l10n: &crate::l10n::L10n, cx: &mut Context<ChatsPane>) -> AnyElement {
+    let Some(settings) = cx
+        .try_global::<crate::AppState>()
+        .map(|s| s.settings.clone())
+    else {
+        return div().into_any_element();
+    };
+    let hosts = settings.read(cx).prefs.remote_image_hosts.clone();
+    let t = cx.conduit().clone();
+    let rows: Vec<AnyElement> = if hosts.is_empty() {
+        vec![
+            div()
+                .id("remote-content-none")
+                .w_full()
+                .min_h(px(t.metrics.row_height + 16.))
+                .px(px(12.))
+                .flex()
+                .items_center()
+                .text_size(px(t.metrics.control))
+                .text_color(t.roles.text_subtle)
+                .child(SharedString::from(l10n.desktop_remote_content_none()))
+                .into_any_element(),
+        ]
+    } else {
+        hosts
+            .iter()
+            .enumerate()
+            .map(|(i, host)| {
+                let settings = settings.clone();
+                let forget = host.clone();
+                let remove = Button::new(
+                    ElementId::Name(format!("remote-content-remove-{i}").into()),
+                    l10n.desktop_remove_site(),
+                )
+                .on_click(Rc::new(move |_, _, cx| {
+                    settings.update(cx, |s, cx| s.forget_image_host(&forget, cx));
+                }));
+                setting_row(host.clone(), None, remove, cx).into_any_element()
+            })
+            .collect()
+    };
+    settings_section(
+        l10n.desktop_remote_content(),
+        Some(
+            if hosts.is_empty() {
+                l10n.desktop_remote_content_footer_empty()
+            } else {
+                l10n.desktop_remote_content_footer()
+            }
+            .into(),
+        ),
+        rows,
+        cx,
+    )
+    .into_any_element()
+}
+
 impl Render for ChatsPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let l10n = cx.l10n().clone();
@@ -662,6 +722,19 @@ impl Render for ChatsPane {
                         },
                         cx,
                     ),
+                    // The phone's Highlight Citations (its Appearance page
+                    // has it beside the titles switch).
+                    self.switch_row(
+                        "citation-background",
+                        l10n.citation_background(),
+                        Some(l10n.citation_background_description()),
+                        s.citation_background,
+                        |v| AppSettingsPatch {
+                            citation_background: Some(v),
+                            ..Default::default()
+                        },
+                        cx,
+                    ),
                     self.switch_row(
                         "computer-enabled",
                         l10n.computer_title(),
@@ -678,6 +751,7 @@ impl Render for ChatsPane {
             )
             .into_any_element(),
         );
+        sections.push(remote_content_section(&l10n, cx));
         if signed_in && let Some(prompts) = self.prompts_group(&l10n, window, cx) {
             sections.push(prompts);
         }

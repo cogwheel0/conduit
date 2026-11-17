@@ -7,8 +7,10 @@
 //!   refuses a request without its two headers, and logs which it saw):
 //!   the editor's headers make Test pass where it failed, are kept
 //!   unseen, and carry the live connection (its sessions through the
-//!   proxy); a reserved name is refused; Hermes Sign-In gives way to the
-//!   dashboard's when a header is added, as on a phone;
+//!   proxy); a reserved name is refused; Hermes Sign-In gives way when a
+//!   header is added, as on a phone, but to Session Token (a phone turns
+//!   to the dashboard, which this Mac's window can't send headers
+//!   through), and says why when chosen again;
 //! * A's profiles in the editor's menu (default and writer), the switch
 //!   saved and back; the menu's fallback when the list cannot load;
 //! * a toolset switched off in Settings, which the gateway reports, and on
@@ -281,15 +283,37 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         .iter()
         .any(|(_, _, passed)| !passed);
     pass &= ok("the proxy saw requests without the headers", refused);
-    // As on a phone, a header-protected gateway is signed in to through
-    // the dashboard, not natively.
+    // As on a phone, a header-protected gateway is not signed in to
+    // natively (the core refuses it). A phone turns to the dashboard; this
+    // Mac's dashboard window can't send headers either, so the editor
+    // turns to Session Token, the one way that sends them, and never
+    // leaves a sign-in it can't use selected.
     in_sheet::<HermesConnectionSheet, _>(cx, |s, _, cx| {
         s.auth = Auth::Native;
         cx.notify();
     });
     set_header(0, "CF-Access-Client-Id", &access_id, cx);
-    let moved = cx.update(|cx| sheet_state(cx, |s, _| s.auth)) == Some(Auth::Dashboard);
-    pass &= ok("adding a header turns Hermes Sign-In into Dashboard", moved);
+    let moved = cx.update(|cx| sheet_state(cx, |s, _| s.auth)) == Some(Auth::Token);
+    pass &= ok(
+        "adding a header turns Hermes Sign-In into Session Token, not the Mac's header-less Dashboard",
+        moved,
+    );
+    // Chosen again by hand, Hermes Sign-In says why it can't (its button
+    // is off with the note, as Dashboard's is).
+    in_sheet::<HermesConnectionSheet, _>(cx, |s, _, cx| {
+        s.auth = Auth::Native;
+        cx.notify();
+    });
+    settle(cx, 300).await;
+    let note = cx
+        .update(|cx| sheet_state(cx, |s, cx| s.shown_sign_in_note(cx)))
+        .flatten()
+        .unwrap_or_default();
+    pass &= ok(
+        "with headers, Hermes Sign-In says it can't send them and points to a session token",
+        note.contains("Hermes Sign-In can't send custom headers") && note.contains("session token"),
+    );
+    shoot_sheet(dir, "hermes-extras-headers-native", cx).await;
     in_sheet::<HermesConnectionSheet, _>(cx, |s, _, cx| {
         s.auth = Auth::Token;
         cx.notify();

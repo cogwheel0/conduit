@@ -171,7 +171,8 @@ impl ImageViewer {
                 if let Some(done) = self.decoded.get(&self.index) {
                     return Ok(Some(done.clone()));
                 }
-                let decoded = image.to_image_data(cx.svg_renderer()).map_err(|_| ())?;
+                let decoded = crate::stores::media::decode_picture(&image, cx.svg_renderer())
+                    .map_err(|_| ())?;
                 self.decoded.insert(self.index, decoded.clone());
                 Ok(Some(decoded))
             }
@@ -269,6 +270,63 @@ impl ImageViewer {
         })
         .detach();
     }
+}
+
+/// Copy Image: the picture on the clipboard, as its own bytes (a server
+/// file is fetched first).
+pub fn copy_image(image: ViewerImage, cx: &mut App) {
+    match image {
+        ViewerImage::Data { image, .. } => {
+            cx.write_to_clipboard(gpui_kit::ClipboardItem::new_image(&image));
+        }
+        ViewerImage::File { file, name } => {
+            let staged = stage_file(file, &name, cx);
+            cx.spawn(async move |cx| match staged.await {
+                Ok(path) => {
+                    let Ok(bytes) = std::fs::read(&path) else {
+                        return;
+                    };
+                    let Some(format) = crate::stores::files::image_format("", &bytes) else {
+                        return;
+                    };
+                    let image = Image::from_bytes(format, bytes);
+                    cx.update(|cx| {
+                        cx.write_to_clipboard(gpui_kit::ClipboardItem::new_image(&image))
+                    });
+                }
+                Err(e) => log::warn!("copy image: {e}"),
+            })
+            .detach();
+        }
+    }
+}
+
+/// Save Image…: a save panel (in Downloads at first), then the picture's
+/// own bytes where it says.
+pub fn save_image(image: ViewerImage, cx: &mut App) {
+    let name = crate::stores::files::safe_name(image.name());
+    let asked = cx.prompt_for_new_path(&downloads(), Some(&name));
+    let staged = match image {
+        ViewerImage::File { file, name } => stage_file(file, &name, cx),
+        ViewerImage::Data { image, name } => {
+            let key = format!("inline-{:x}", hash(&image.bytes));
+            gpui_kit::Task::ready(stage_bytes(image.bytes.clone(), &key, &name, cx))
+        }
+    };
+    cx.spawn(async move |_| {
+        let Ok(Ok(Some(path))) = asked.await else {
+            return;
+        };
+        match staged.await {
+            Ok(from) => {
+                if let Err(e) = std::fs::copy(&from, &path) {
+                    log::warn!("save image: {e}");
+                }
+            }
+            Err(e) => log::warn!("save image: {e}"),
+        }
+    })
+    .detach();
 }
 
 fn hash(bytes: &[u8]) -> u64 {

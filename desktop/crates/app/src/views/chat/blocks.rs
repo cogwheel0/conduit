@@ -19,6 +19,7 @@
 //! ordinal so a new block in front (a status line arriving) does not
 //! reset the text after it.
 
+use std::rc::Rc;
 use std::time::Instant;
 
 use conduit_components::ActiveConduitTheme as _;
@@ -36,7 +37,7 @@ use gpui_kit::{
     SharedString, Stateful, Transformation, Window, div, img, percentage, px, relative,
 };
 
-use super::markdown::{chat_text, decode_data_image, stable_chunks, streaming_cut};
+use super::markdown::{chat_text, chat_text_live, decode_data_image, stable_chunks, streaming_cut};
 use super::pace::Pace;
 use super::rows::AssistantRow;
 use crate::l10n::{ActiveL10n as _, L10n};
@@ -584,20 +585,16 @@ impl AssistantRow {
                 if pending {
                     window.request_animation_frame();
                 }
-                let streaming = self.item.streaming && !paced;
+                let (held, live) = text_mode(self.item.streaming, paced);
                 // A long answer is drawn in stable chunks, so streaming
                 // re-lays out only the last one.
                 let chunks = stable_chunks(md);
                 let last = chunks.len() - 1;
                 let views: Vec<AnyElement> = if chunks.len() == 1 {
                     let state_key = format!("text{ordinal}");
-                    let md = if streaming {
-                        self.held(&state_key, md)
-                    } else {
-                        md
-                    };
+                    let md = if held { self.held(&state_key, md) } else { md };
                     let state = self.text_state(&state_key, md, window, cx);
-                    vec![chat_text(&state, key.clone().into()).into_any_element()]
+                    vec![chat_text_live(&state, key.clone().into(), live).into_any_element()]
                 } else {
                     chunks
                         .iter()
@@ -606,11 +603,12 @@ impl AssistantRow {
                             let state_key = format!("text{ordinal}.{k}");
                             let mut chunk = chunk.trim_end();
                             // Earlier chunks end at a closed paragraph.
-                            if streaming && k == last {
+                            if held && k == last {
                                 chunk = self.held(&state_key, chunk);
                             }
                             let state = self.text_state(&state_key, chunk, window, cx);
-                            chat_text(&state, key.clone().into()).into_any_element()
+                            chat_text_live(&state, key.clone().into(), live && k == last)
+                                .into_any_element()
                         })
                         .collect()
                 };
@@ -1538,12 +1536,22 @@ pub fn file_list(
                     crate::views::image_viewer::open(images.clone(), start, cx)
                 }) as OpenImage
             });
+            // Open Image, Copy Image and Save Image…, as an answer's
+            // other pictures have them (`remote_image`).
+            let menu = gallery.iter().find(|(k, _)| *k == n).map(|(_, image)| {
+                Rc::new(super::remote_image::file_image_menu(
+                    &format!("file-{id}-{n}"),
+                    image,
+                    l10n,
+                )) as ImageMenu
+            });
             children.push(image_tile(
                 element_id,
                 &name,
                 state,
                 file_ref.clone(),
                 open,
+                menu,
                 l10n,
                 t,
             ));
@@ -1645,6 +1653,9 @@ pub fn image_label(name: &str) -> Option<String> {
 /// Shows an image in the viewer.
 type OpenImage = std::rc::Rc<dyn Fn(&mut App)>;
 
+/// A picture's context menu.
+type ImageMenu = Rc<dyn Fn(&gpui_kit::MouseDownEvent, &mut Window, &mut App)>;
+
 /// Whether `file` is a video (by its type, else its name), which plays
 /// inline.
 pub fn is_video(file: &ChatFileDto) -> bool {
@@ -1658,12 +1669,14 @@ pub fn is_video(file: &ChatFileDto) -> bool {
 }
 
 /// One inline image in its state. `open` shows it in the viewer.
+#[allow(clippy::too_many_arguments)]
 fn image_tile(
     element_id: ElementId,
     name: &str,
     state: ImageState,
     file: Option<FileRef>,
     open: Option<OpenImage>,
+    menu: Option<ImageMenu>,
     l10n: &L10n,
     t: &ConduitTheme,
 ) -> AnyElement {
@@ -1702,6 +1715,11 @@ fn image_tile(
                     if let Some(open) = &open {
                         open(cx);
                     }
+                })
+                .when_some(menu, |d, menu| {
+                    d.on_mouse_down(gpui_kit::MouseButton::Right, move |e, window, cx| {
+                        menu(e, window, cx)
+                    })
                 })
                 .into_any_element()
         }
@@ -1774,10 +1792,33 @@ fn image_tile(
     }
 }
 
+/// How a text block of a message (`streaming`: still being written) is
+/// drawn this frame, its text `paced` or not: `held` (an open span or a
+/// half-written fence at the end is held back, unless pacing already
+/// released only text free of them) and `live` (the message is still being
+/// written, so a diagram whose fence has not closed stays code: pacing
+/// never makes it final).
+fn text_mode(streaming: bool, paced: bool) -> (bool, bool) {
+    (streaming && !paced, streaming)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::stores::chat::empty_block;
+
+    /// A paced answer that is still streaming keeps its open diagram fence
+    /// as code; only a finished message's diagram is drawn as final.
+    #[test]
+    fn pacing_never_makes_a_streaming_answers_diagram_final() {
+        // Still streaming, paced: nothing held back, but still live.
+        assert_eq!(text_mode(true, true), (false, true));
+        // Still streaming, not paced: held back, live.
+        assert_eq!(text_mode(true, false), (true, true));
+        // Finished: final.
+        assert_eq!(text_mode(false, false), (false, false));
+        assert_eq!(text_mode(false, true), (false, false));
+    }
 
     #[test]
     fn inline_images_keep_their_proportions_and_never_grow() {

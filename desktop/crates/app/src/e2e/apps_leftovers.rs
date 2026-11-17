@@ -4,8 +4,10 @@
 //! * **Workspace models:** a new model's Terminal ID and Built-In Tools
 //!   (JSON; a bad object is refused with its error), saved and read back
 //!   from the server. Its picture: one on the server loads through the
-//!   daemon's `/files`; one on another site is never fetched (the initial
-//!   stands in).
+//!   daemon's `/files`; one on another site (the synthetic media site, on
+//!   this Mac's network address) waits behind Load Image, as an answer's
+//!   pictures do: nothing is fetched until it, then once; one from a site
+//!   in Remote Content loads without a click.
 //! * **Knowledge:** Attach Server File… opens the composer's picker in a
 //!   sheet; the seeded file picked goes into the base.
 //! * **Notes:** a recording added to a note plays in the note: Play,
@@ -215,7 +217,119 @@ async fn model_fields(server: &str, dir: &Path, cx: &mut AsyncApp) -> bool {
         "a picture on another site is not fetched: the initial stands in",
         remote && initial,
     );
+    let waits = cx.update(|cx| model_editor(cx).and_then(|e| e.read(cx).remote_picture_waits(cx)));
+    pass &= ok(
+        "…and Load Image waits beside it, naming the site",
+        waits.as_deref() == Some("pictures.example"),
+    );
     shoot_main(dir, "apps-model-remote-picture", cx).await;
+    pass &= remote_model_picture(id, &with_picture, dir, cx).await;
+    pass
+}
+
+/// A model's picture on another site follows an answer's pictures' rule:
+/// it waits for Load Image (then loads once, through `/media`), or loads
+/// without a click from a site in Remote Content. The site is the
+/// `rendering-media` pass's synthetic one on this Mac's network address
+/// (`/media` never fetches from this Mac itself).
+async fn remote_model_picture(
+    id: String,
+    with_picture: &dyn Fn(&str) -> WorkspaceDetail,
+    dir: &Path,
+    cx: &mut AsyncApp,
+) -> bool {
+    let s = WorkspaceSection::Models;
+    let Some(host) = super::rendering_media::network_host() else {
+        return ok("this Mac has a network address for the other site", false);
+    };
+    let port: u16 = std::env::var("CONDUIT_MEDIA_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8155);
+    let log = dir.join("model-picture-requests.jsonl");
+    let _ = std::fs::remove_file(&log);
+    let site = std::process::Command::new("python3")
+        .args([
+            "-I",
+            "../tool/local_owui/media_site.py",
+            "--host",
+            "0.0.0.0",
+            "--port",
+        ])
+        .arg(port.to_string())
+        .arg("--log")
+        .arg(&log)
+        .spawn();
+    let Ok(mut site) = site else {
+        return ok("the synthetic media site starts", false);
+    };
+    settle(cx, 800).await;
+    let asked = |path: &str| {
+        std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.contains(&format!("\"path\": \"{path}\"")))
+            .count()
+    };
+    let mut pass = true;
+
+    // Waits for Load Image; nothing is fetched until then, then once.
+    let map = format!("http://{host}:{port}/harbour-map.png");
+    pass &= ok(
+        "a picture on the other site is saved to the model",
+        save_detail(with_picture(&map), cx).await,
+    );
+    open(s, id.clone(), cx);
+    let h = host.clone();
+    let waits = wait_until(cx, Duration::from_secs(20), move |cx| {
+        model_editor(cx).is_some_and(|e| e.read(cx).remote_picture_waits(cx).as_deref() == Some(&h))
+    })
+    .await;
+    settle(cx, 800).await;
+    pass &= ok(
+        "the model's picture on the other site waits behind Load Image, unfetched",
+        waits && asked("/harbour-map.png") == 0,
+    );
+    let url = map.clone();
+    cx.update(|cx| crate::stores::media::load_once(&url, cx));
+    let drawn = wait_until(cx, Duration::from_secs(20), |cx| {
+        model_editor(cx).is_some_and(|e| e.read(cx).shows_picture())
+    })
+    .await;
+    pass &= ok(
+        "Load Image loads it through /media, once",
+        drawn && asked("/harbour-map.png") == 1,
+    );
+    shoot_main(dir, "apps-model-remote-picture-loaded", cx).await;
+
+    // A site in Remote Content: no click.
+    let chart = format!("http://{host}:{port}/tide-chart.png");
+    let h = host.clone();
+    cx.update(move |cx| crate::stores::media::allow_host(&h, cx));
+    pass &= ok(
+        "another picture on that site is saved to the model",
+        save_detail(with_picture(&chart), cx).await,
+    );
+    open(s, id, cx);
+    let loaded = wait_until(cx, Duration::from_secs(20), |cx| {
+        model_editor(cx).is_some_and(|e| {
+            let e = e.read(cx);
+            e.remote_picture_waits(cx).is_none()
+                && e.shows_picture()
+                && e.detail
+                    .as_ref()
+                    .and_then(|d| d.model.as_ref())
+                    .and_then(|m| m.image_url.as_deref())
+                    .is_some_and(|u| u.ends_with("/tide-chart.png"))
+        })
+    })
+    .await;
+    pass &= ok(
+        "a picture from a site in Remote Content loads without a click",
+        loaded && asked("/tide-chart.png") == 1,
+    );
+    let _ = site.kill();
+    let _ = site.wait();
     pass
 }
 

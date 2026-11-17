@@ -53,6 +53,7 @@ pub mod hermes_rooms;
 pub mod hermes_work;
 pub mod layout;
 pub mod location;
+pub mod media;
 pub mod navigation;
 pub mod notifications;
 pub mod palette;

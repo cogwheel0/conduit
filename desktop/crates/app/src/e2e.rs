@@ -114,6 +114,7 @@ mod notifications;
 mod offline;
 mod read_aloud;
 mod rendering;
+mod rendering_media;
 mod sections;
 mod settings;
 mod share;
@@ -831,6 +832,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "actions" => actions::run(&inputs, &dir, cx).await,
         "read-aloud" => read_aloud::run(&inputs, &dir, cx).await,
         "rendering" => rendering::run(&inputs, &dir, cx).await,
+        "rendering-media" => rendering_media::run(&inputs, &dir, cx).await,
         "dictation" => dictation::run(&inputs, &dir, cx).await,
         "notes" => notes::run(&inputs, &dir, cx).await,
         "dictation-recovered" => dictation::recovered(&inputs, &dir, cx).await,

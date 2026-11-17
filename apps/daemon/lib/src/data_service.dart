@@ -229,6 +229,24 @@ final class DataService {
     }
   }
 
+  /// Live Updates › Retry: asks the realtime socket to connect now, as the
+  /// phone's button does (core's `ensureConnected`, which the socket's own
+  /// reconnect schedule keeps calling too), then answers its health. A
+  /// failed try is not an error: the health says it is still down.
+  Future<ConnectionHealth> reconnect() async {
+    final service = _container.read(socketServiceProvider);
+    if (service != null) {
+      try {
+        await service.ensureConnected(timeout: _reconnectWait);
+      } on Object catch (_) {
+        // The health below says how it went.
+      }
+    }
+    return connection();
+  }
+
+  static const Duration _reconnectWait = Duration(seconds: 6);
+
   ConnectionHealth connection() {
     final service = _container.read(socketServiceProvider);
     final transports = _container.read(socketTransportOptionsProvider);

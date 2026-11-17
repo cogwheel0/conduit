@@ -113,22 +113,25 @@ impl Asset for DaemonFileImage {
         let http = cx.try_global::<FileAccess>().and_then(|a| a.http.clone());
         let renderer = cx.svg_renderer();
         async move {
-            let other = |m: String| ImageCacheError::Other(Arc::new(anyhow::anyhow!(m)));
             let id = file.file_id.clone();
-            let result = async {
+            let fetched = async {
                 let http = http.ok_or_else(|| "the daemon is not running".to_string())?;
                 let (bytes, content_type) = fetch(http, file).await?;
                 let format = image_format(&content_type, &bytes)
                     .ok_or_else(|| format!("not an image ({content_type})"))?;
-                Image::from_bytes(format, bytes)
-                    .to_image_data(renderer)
-                    .map_err(|e| e.to_string())
+                Ok::<_, String>(Image::from_bytes(format, bytes))
             }
             .await;
+            // The decoder's own error is kept (an SVG from outside the app
+            // is told apart by it: the tile offers Open in Browser).
+            let result = match fetched {
+                Ok(image) => crate::stores::media::decode_picture(&image, renderer),
+                Err(m) => Err(anyhow::anyhow!(m)),
+            };
             if let Err(e) = &result {
                 log::warn!("image {id}: {e}");
             }
-            result.map_err(other)
+            result.map_err(|e| ImageCacheError::Other(Arc::new(e)))
         }
     }
 }
@@ -172,8 +175,7 @@ impl Asset for DaemonModelImage {
                     .unwrap_or_else(|_| Err("the download was dropped".into()))?;
                 let format = image_format(&content_type, &bytes)
                     .ok_or_else(|| format!("not an image ({content_type})"))?;
-                Image::from_bytes(format, bytes)
-                    .to_image_data(renderer)
+                crate::stores::media::decode_picture(&Image::from_bytes(format, bytes), renderer)
                     .map_err(|e| e.to_string())
             }
             .await;

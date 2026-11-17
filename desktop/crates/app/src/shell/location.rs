@@ -13,7 +13,8 @@
 //!   asks the user anything; a permission request shows the system's prompt
 //!   the first time (Info.plist's `NSLocationUsageDescription`, in every
 //!   language); a fix is one `requestLocation`.
-//! * **A stand-in**, for every scripted run (`--shots`, `--capture`) and
+//! * **A stand-in**, for every scripted run (`crate::scripted::active`:
+//!   a pass, the capture, a probe or a fixture) and
 //!   `CONDUIT_LOCATION_STANDIN=<lat>,<lon>`: it never touches
 //!   CoreLocation, so no test can raise the system's prompt. With no
 //!   position it reads as location services off.
@@ -135,6 +136,12 @@ pub fn answer(command: &LocationCommand) -> oneshot::Receiver<LocationReport> {
         Mode::StandIn(fix) => {
             STAND_IN_ANSWERED.fetch_add(1, Ordering::SeqCst);
             let _ = sender.send(stand_in_report(command, fix));
+        }
+        // A scripted run never asks macOS (`crate::scripted`), whatever
+        // engine was chosen: a permission request would leave the
+        // system's prompt on screen.
+        Mode::System if crate::scripted::active() => {
+            let _ = sender.send(stand_in_report(command, None));
         }
         Mode::System => {
             SYSTEM_ASKED.fetch_add(1, Ordering::SeqCst);

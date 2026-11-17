@@ -158,7 +158,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= shortcuts(inputs, dir, cx).await;
     pass &= dock_menu(dir, cx).await;
     pass &= clipboard(dir, cx).await;
-    pass &= continuity_camera_items(dir, cx).await;
+    pass &= continuity_camera_items(inputs, dir, cx).await;
     pass &= user_location(inputs, &url, &email, &password, cx).await;
 
     let (_, system) = location::counts();
@@ -628,9 +628,107 @@ async fn clipboard(dir: &Path, cx: &mut AsyncApp) -> bool {
 
 // ── Continuity Camera in the + menu ────────────────────────────────────────
 
-async fn continuity_camera_items(dir: &Path, cx: &mut AsyncApp) -> bool {
-    let mut pass = true;
+/// A personal tool server on the fake model server, added as the
+/// Integrations pane adds one: the + menu's Tools list then offers it.
+const BUOYS: &str = "Harbour buoys";
+
+async fn add_personal_tool_server(inputs: &E2eInputs, cx: &mut AsyncApp) -> bool {
+    use conduit_protocol::{
+        PersonalConnectionDraft, PersonalConnectionSave, PersonalEditOp, PersonalKind,
+    };
+    let base = inputs
+        .get("FAKE_OPENAI_URL")
+        .map(|u| u.trim_end_matches('/').trim_end_matches("/v1").to_string())
+        .unwrap_or_default();
+    let rpc = cx.update(|cx| cx.global::<AppState>().stores.connection.read(cx).rpc());
+    let Ok(list) = rpc.call::<methods::IntegrationsList>(&NoParams).await else {
+        return ok("the account's personal connections are read", false);
+    };
+    let saved = rpc
+        .call::<methods::IntegrationsSave>(&PersonalConnectionSave {
+            owner: list.owner,
+            kind: PersonalKind::ToolServer,
+            op: PersonalEditOp::Add,
+            identity: None,
+            draft: Some(PersonalConnectionDraft {
+                name: BUOYS.into(),
+                description: "Invented buoy readings".into(),
+                url: format!("{base}/personal"),
+                // A new tool server's draft, as the editor fills it.
+                path: "openapi.json".into(),
+                auth_type: "none".into(),
+                ..Default::default()
+            }),
+            enabled: None,
+        })
+        .await;
+    ok(
+        &format!(
+            "a personal tool server is added ({:?})",
+            saved.as_ref().err()
+        ),
+        saved.is_ok(),
+    )
+}
+
+/// The + menu as AppKit had it (`grab::take_menu_items`), as the
+/// composer's rows: titles, `—` for a separator; without check marks, key
+/// equivalents, "(disabled)" or submenu marks, and without Continuity
+/// Camera's placeholder.
+fn menu_titles_as_rows(items: &[String]) -> Vec<String> {
+    items
+        .iter()
+        .filter(|i| !i.starts_with('['))
+        .map(|i| {
+            let i = i.strip_prefix("\u{2713} ").unwrap_or(i);
+            let i = i.strip_suffix(" \u{25b8}").unwrap_or(i);
+            let i = i.strip_suffix(" (disabled)").unwrap_or(i);
+            i.split("  [").next().unwrap_or(i).to_string()
+        })
+        .collect()
+}
+
+async fn continuity_camera_items(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
+    let mut pass = add_personal_tool_server(inputs, cx).await;
     fresh_chat(cx).await;
+    // As the Integrations pane does after a change: the composer reads its
+    // tools again.
+    in_pane(cx, |p, _, cx| {
+        p.composer_store.update(cx, |c, cx| c.refresh_options(cx))
+    });
+    // The Terminal section's servers (the Build box), as the sidebar's
+    // Terminal section reads them.
+    cx.update(|cx| {
+        let areas = cx.global::<AppState>().stores.areas.clone();
+        areas.update(cx, |a, cx| {
+            a.refresh(crate::stores::navigation::Area::Terminal, cx)
+        });
+    });
+    let ready = wait_until(cx, Duration::from_secs(20), |cx| {
+        let terminals = cx
+            .global::<AppState>()
+            .stores
+            .areas
+            .read(cx)
+            .terminals
+            .as_ref()
+            .is_some_and(|t| !t.is_empty());
+        let buoys = pane(cx).is_some_and(|p| {
+            p.read(cx)
+                .composer_store
+                .read(cx)
+                .options
+                .tools
+                .iter()
+                .any(|t| t.name == BUOYS)
+        });
+        terminals && buoys
+    })
+    .await;
+    pass &= ok(
+        "the composer has the terminals and the personal tool server",
+        ready,
+    );
     settle(cx, 600).await;
     let Some((handle, _)) = cx.update(main_window) else {
         return ok("the main window", false);
@@ -683,6 +781,53 @@ async fn continuity_camera_items(dir: &Path, cx: &mut AsyncApp) -> bool {
     }
     cx.update(|cx| crate::smoke::set_mode(crate::prefs::ThemeMode::Light, cx));
     println!("SMOKE note: the + menu as AppKit had it: {items:?}");
+    // Every row the composer has (the Kit menu's) is in
+    // the menu AppKit showed, in order: none dropped by the app-built menu.
+    let rows: Vec<String> = in_pane(cx, |p, window, cx| {
+        p.composer.update(cx, |c, cx| {
+            c.plus_rows(window, cx)
+                .into_iter()
+                .filter_map(|r| match r {
+                    crate::views::chat::composer::PlusRow::Item { label, .. } => Some(label),
+                    crate::views::chat::composer::PlusRow::Separator => {
+                        Some("\u{2014}".to_string())
+                    }
+                    crate::views::chat::composer::PlusRow::ImportFromDevice => None,
+                })
+                .collect()
+        })
+    })
+    .unwrap_or_default();
+    let shown = menu_titles_as_rows(&items);
+    pass &= ok(
+        &format!(
+            "the + menu AppKit shows has every row of the composer's ({} rows)",
+            rows.len()
+        ),
+        !rows.is_empty() && shown == rows,
+    );
+    if shown != rows {
+        println!("SMOKE note: the composer's rows: {rows:?}");
+    }
+    let l10n = cx.update(|cx| cx.l10n().clone());
+    let ellipsis = |s: String| format!("{s}\u{2026}");
+    for (what, label) in [
+        ("Attach Files…", ellipsis(l10n.desktop_attach_files())),
+        (
+            "Attach Server Files…",
+            ellipsis(l10n.composer_attach_server_files()),
+        ),
+        ("Web Page…", ellipsis(l10n.web_page())),
+        ("the Tools heading", l10n.tools()),
+        ("the personal tool server", BUOYS.to_string()),
+        ("the Terminal heading", l10n.terminal()),
+        ("the Build box terminal", "Build box".to_string()),
+    ] {
+        pass &= ok(
+            &format!("the + menu offers {what}"),
+            shown.iter().any(|i| i == &label),
+        );
+    }
     let l10n = cx.update(|cx| cx.l10n().clone());
     let attach = format!("{}\u{2026}", l10n.desktop_attach_files());
     pass &= ok(

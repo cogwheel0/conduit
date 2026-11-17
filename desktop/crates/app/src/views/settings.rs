@@ -352,6 +352,7 @@ pub fn area_key_label(key: keymap::AreaKey, l10n: &L10n) -> String {
         K::TerminalPaste => l10n.terminal_paste_action(),
         K::TerminalSelectAll => l10n.desktop_menu_select_all(),
         K::TerminalClearScrollback => l10n.desktop_terminal_clear_scrollback(),
+        K::SavePdf => l10n.desktop_preview_save(),
         K::SendInRoom => l10n.send(),
         K::SaveHermesJob => l10n.save(),
     }

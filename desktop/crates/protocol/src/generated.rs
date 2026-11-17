@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.66.0";
+pub const PROTOCOL_VERSION: &str = "1.67.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -15445,6 +15445,20 @@ pub mod methods {
         type Result = super::ConnectionHealth;
     }
 
+    /// Reconnects the realtime socket now, rather than at its next scheduled
+    /// try (the chat toolbar's Live Updates › Retry); answers its health
+    /// after the attempt.
+    ///
+    /// `data.reconnect`: no params -> ConnectionHealth.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct DataReconnect;
+
+    impl RpcMethod for DataReconnect {
+        const NAME: &'static str = "data.reconnect";
+        type Params = NoParams;
+        type Result = super::ConnectionHealth;
+    }
+
     /// The first page of conversations, plus the archived count.
     ///
     /// `chats.list`: no params -> ChatList.
@@ -19782,6 +19796,11 @@ pub const METHODS: &[MethodSpec] = &[
     },
     MethodSpec {
         name: "data.connection",
+        params: None,
+        result: Some("ConnectionHealth"),
+    },
+    MethodSpec {
+        name: "data.reconnect",
         params: None,
         result: Some("ConnectionHealth"),
     },

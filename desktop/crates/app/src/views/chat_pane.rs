@@ -159,6 +159,11 @@ pub struct ChatPane {
     computer_key: Option<(String, bool, Option<String>, u64)>,
     computer_revision: u64,
     _computer: Option<gpui_kit::Task<()>>,
+    /// Live Updates: where its popover hangs from while open, since when
+    /// the socket has been down, and the wait before its item shows.
+    live_anchor: Option<gpui_kit::Point<gpui_kit::Pixels>>,
+    live_down_since: Option<std::time::Instant>,
+    _live_wait: Option<gpui_kit::Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -363,6 +368,8 @@ impl ChatPane {
                     chat.transcript
                         .update(cx, |t, cx| t.set_action_prefs(prefs, cx));
                 }
+                // The socket's health: Live Updates in the toolbar.
+                cx.notify();
             }),
             cx.observe(&layout, |_, _, cx| cx.notify()),
             cx.observe(&approvals, |_, _, cx| cx.notify()),
@@ -490,6 +497,9 @@ impl ChatPane {
             computer_key: None,
             computer_revision: 0,
             _computer: None,
+            live_anchor: None,
+            live_down_since: None,
+            _live_wait: None,
             _subscriptions: subscriptions,
         };
         // The composer follows the models on offer and the network.
@@ -2971,6 +2981,32 @@ impl Render for ChatPane {
                 ),
             );
         }
+        // Live Updates, while the realtime socket is down (never in a
+        // Hermes chat, which does not use it).
+        let health = self.stores.app_settings.read(cx).health.clone();
+        let live_down =
+            hermes.is_none() && health.as_ref().is_some_and(|h| h.available && !h.connected);
+        let live_shown = self.track_live(live_down, cx);
+        if live_shown {
+            let pane = cx.entity().downgrade();
+            toolbar = toolbar.trailing(
+                IconButton::new(
+                    "live-connection",
+                    IconName::CloudOff,
+                    l10n.live_connection_details(),
+                )
+                .size(30., 16.)
+                .round()
+                .color(r.danger)
+                .tooltip(l10n.live_connection_details_title())
+                .active(self.live_anchor.is_some())
+                .on_click(Rc::new(move |e, _, cx| {
+                    let at = e.position();
+                    let _ = pane.update(cx, |p, cx| p.toggle_live(at, cx));
+                })),
+            );
+        }
+        let live_popover = self.live_popover(live_shown, health.as_ref(), cx);
         let saveable = self.can_save_temporary(cx);
         match &self.chat {
             // A temporary chat (as opened, or as the server says it is):
@@ -3196,6 +3232,121 @@ impl Render for ChatPane {
             .children(find_bar)
             .child(body)
             .children(picker)
+            .children(live_popover)
+    }
+}
+
+impl ChatPane {
+    /// Keeps time while the socket is down: whether Live Updates shows yet
+    /// (after [`live_connection::SHOW_AFTER`]); its popover closes once the
+    /// socket is back.
+    fn track_live(&mut self, down: bool, cx: &mut Context<Self>) -> bool {
+        use crate::views::chat::live_connection::SHOW_AFTER;
+        if !down {
+            self.live_down_since = None;
+            self._live_wait = None;
+            self.live_anchor = None;
+            return false;
+        }
+        let since = *self
+            .live_down_since
+            .get_or_insert_with(std::time::Instant::now);
+        let elapsed = since.elapsed();
+        if elapsed >= SHOW_AFTER {
+            return true;
+        }
+        if self._live_wait.is_none() {
+            let wait = SHOW_AFTER - elapsed;
+            self._live_wait = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor()
+                    .timer(wait + std::time::Duration::from_millis(20))
+                    .await;
+                let _ = this.update(cx, |p, cx| {
+                    p._live_wait = None;
+                    cx.notify();
+                });
+            }));
+        }
+        false
+    }
+
+    /// Opens or closes the Live Updates popover, hanging from `at`.
+    fn toggle_live(&mut self, at: gpui_kit::Point<gpui_kit::Pixels>, cx: &mut Context<Self>) {
+        self.live_anchor = match self.live_anchor {
+            Some(_) => None,
+            None => Some(at),
+        };
+        cx.notify();
+    }
+
+    /// The Live Updates popover, under its toolbar item, while open.
+    fn live_popover(
+        &self,
+        shown: bool,
+        health: Option<&conduit_protocol::ConnectionHealth>,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        use crate::views::chat::live_connection::{self as live, handler};
+        let at = self.live_anchor.filter(|_| shown)?;
+        let health = health?;
+        let t = cx.conduit().clone();
+        let l10n = cx.l10n().clone();
+        let store = self.stores.app_settings.read(cx);
+        let (reconnecting, failed) = (store.reconnecting, store.reconnect_failed);
+        let settings = self.stores.app_settings.clone();
+        let pane = cx.entity().downgrade();
+        let close = pane.clone();
+        let card = live::card(
+            health,
+            reconnecting,
+            failed,
+            handler(move |_, cx| settings.update(cx, |s, cx| s.reconnect(cx))),
+            handler(move |_, cx| {
+                let _ = pane.update(cx, |p, cx| {
+                    p.live_anchor = None;
+                    cx.notify();
+                });
+                crate::open_settings(Some(crate::views::settings::Tab::Connection), cx);
+            }),
+            &l10n,
+            &t,
+        )
+        .on_mouse_down_out(move |_, _, cx| {
+            let _ = close.update(cx, |p, cx| {
+                p.live_anchor = None;
+                cx.notify();
+            });
+        });
+        // Hangs from its item by a tail, as the transcript's popovers do:
+        // the card's right edge a little past the item, the tail's tip
+        // under the item's middle.
+        use crate::views::chat::transcript::{TAIL_HEIGHT, popover_tail};
+        const PAST: f32 = 18.;
+        let r = t.roles;
+        let hung = div()
+            .relative()
+            .pt(px(TAIL_HEIGHT))
+            .child(card)
+            .child(popover_tail(
+                px(live::CARD_WIDTH - PAST),
+                true,
+                r.overlay,
+                r.border_strong,
+            ));
+        Some(
+            gpui_kit::deferred(
+                gpui_kit::anchored()
+                    .anchor(gpui_kit::Anchor::TopRight)
+                    .position(gpui_kit::point(
+                        at.x + px(PAST),
+                        px(conduit_components::window::TOOLBAR_HEIGHT - 6.),
+                    ))
+                    .snap_to_window_with_margin(px(8.))
+                    .child(hung),
+            )
+            .with_priority(3)
+            .into_any_element(),
+        )
     }
 }
 

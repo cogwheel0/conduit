@@ -755,6 +755,11 @@ abstract final class ConduitMethods {
   /// The realtime socket's health; `socket.health` says when it changed.
   static const String dataConnection = 'data.connection';
 
+  /// Reconnects the realtime socket now, rather than at its next scheduled
+  /// try (the chat toolbar's Live Updates › Retry); answers its health
+  /// after the attempt.
+  static const String dataReconnect = 'data.reconnect';
+
   // ---------------------------------------------------------------------
   // Namespace prefixes.
   // ---------------------------------------------------------------------
@@ -1617,6 +1622,12 @@ abstract final class ConduitHttpRoutes {
   /// `x-conduit-directory`: an upload into a terminal's files rather than
   /// to Open WebUI. Same body as [upload].
   static const String terminalUpload = '/terminal-upload';
+
+  /// `GET /media/image?url=` and `GET /media/pdf?url=` -- a picture or a
+  /// PDF an answer links to on another site, fetched for the window: no
+  /// cookies or credentials, no `Referer`, never retried, and refused past
+  /// a size or a time limit, or when the bytes are not what was asked for.
+  static const String media = '/media';
 
   /// The JSON-RPC WebSocket itself.
   static const String rpc = '/rpc';

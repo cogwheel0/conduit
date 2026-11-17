@@ -7,11 +7,13 @@
 //!   handlers must be `Send + Sync` and cannot hold the view);
 //! * links: `conduit-cite:` the same way, http(s) in the browser, anything
 //!   else refused;
-//! * images: `data:image/…` inline (decoded once and cached); a remote
-//!   image is never fetched, since an image loaded from anywhere is a
-//!   tracking pixel;
-//! * code blocks: Preview opens html, mermaid and chart code in a sandboxed
-//!   window ([`super::preview`]).
+//! * images: `data:image/…` inline (decoded once and cached); any other
+//!   picture through [`super::remote_image`]: the account's server's files
+//!   load, another site's only after a click or once its site is allowed;
+//! * links to a PDF as a card with its first page ([`super::pdf_card`]);
+//! * code blocks: Mermaid and charts drawn inline ([`super::diagrams`]),
+//!   with Preview (a sandboxed window, [`super::preview`]) for them and
+//!   HTML.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -19,7 +21,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use base64::Engine as _;
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::theme::with_alpha;
-use conduit_components::views::markdown::{BlockMath, CITE_SCHEME, CodeBlockPlugin, InlineMath};
+use conduit_components::views::markdown::{BlockMath, CITE_SCHEME, InlineMath};
 use gpui_kit::base::text::{
     InlineElement, InlineRenderContext, MarkdownNode, MarkdownParseContext, MarkdownPlugin,
     TextViewMotion, markdown_ast as mdast,
@@ -32,20 +34,33 @@ use gpui_kit::{
 };
 
 use super::CitationTarget;
-use super::preview;
 use crate::l10n::ActiveL10n as _;
 
 /// The TextView for one message's markdown. `key` names the message, so a
 /// citation knows whose sources it points into.
 pub fn chat_text(state: &Entity<TextViewState>, key: SharedString) -> TextView {
+    chat_text_live(state, key, false)
+}
+
+/// [`chat_text`] for a message that may still be `streaming`: a diagram's
+/// code shows as code until its fence closes.
+pub fn chat_text_live(
+    state: &Entity<TextViewState>,
+    key: SharedString,
+    streaming: bool,
+) -> TextView {
     let link_key = key.clone();
     TextView::new(state)
         .motion(stream_motion())
         .plugin(InlineMath)
         .plugin(BlockMath)
-        .plugin(CodeBlockPlugin {
-            on_preview: Some(preview::open_code_preview),
+        .plugin(super::diagrams::ChatCodePlugin {
+            key: key.clone(),
+            streaming,
         })
+        .plugin(super::remote_image::MediaBlockPlugin)
+        .plugin(super::pdf_card::PdfLinkPlugin)
+        .plugin(super::remote_image::ImagePlugin)
         .plugin(CitePlugin { key })
         .image_source(resolve_image)
         .on_link_click(move |url, event, window, cx| {

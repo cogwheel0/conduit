@@ -74,7 +74,7 @@
 	     Asked for on first use; the audio stays on this Mac unless the
 	     server's engine is chosen. -->
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Conduit uses your local network to connect to model providers and configured MCP tool servers.</string>
+	<string>Conduit connects to servers on your local network that you add, such as Open WebUI, model providers and MCP tool servers.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Conduit listens when you dictate a message or talk in a voice call. A dictation's recording stays with your draft until you send it.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

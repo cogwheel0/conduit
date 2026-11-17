@@ -665,8 +665,10 @@ impl HermesConnectionSheet {
     }
 
     /// Add Header: a new row. As on a phone, a header-protected gateway
-    /// cannot be signed in to natively, so Hermes Sign-In gives way to the
-    /// dashboard's.
+    /// cannot be signed in to natively (the core refuses it), so Hermes
+    /// Sign-In gives way. A phone turns to the dashboard's sign-in, which
+    /// this Mac's sign-in window can't send headers through either, so
+    /// here it turns to the one way that sends them: a session token.
     pub fn add_header(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.headers.len() >= MAX_HEADERS {
             return;
@@ -678,7 +680,7 @@ impl HermesConnectionSheet {
         self.header_error = None;
         self.header_error_row = None;
         if self.desktop && self.auth == Auth::Native {
-            self.auth = Auth::Dashboard;
+            self.auth = Auth::Token;
         }
         focus.update(cx, |i, cx| i.focus(window, cx));
         cx.notify();
@@ -1230,6 +1232,34 @@ impl HermesConnectionSheet {
         self.current(cx).is_some_and(|c| c.desktop_signed_in)
     }
 
+    /// The note under the sign-in choice on a Desktop Gateway: how the
+    /// chosen way signs in, or why it can't while access headers are set
+    /// (neither the browser's Hermes Sign-In nor this Mac's dashboard
+    /// window can send them; a session token can).
+    pub fn sign_in_note(&self, has_headers: bool, active: bool, l: &L10n) -> Option<String> {
+        match self.auth {
+            Auth::Token => None,
+            Auth::Dashboard if has_headers => {
+                Some(l.desktop_hermes_dashboard_headers_unsupported())
+            }
+            Auth::Dashboard if !active => Some(format!(
+                "{} {}",
+                l.hermes_dashboard_auth_help(),
+                l.hermes_sign_in_activates_connection()
+            )),
+            Auth::Dashboard => Some(l.hermes_dashboard_auth_help()),
+            Auth::Native if has_headers => Some(l.desktop_hermes_native_headers_unsupported()),
+            Auth::Native if !active => Some(l.hermes_sign_in_activates_connection()),
+            Auth::Native => Some(l.desktop_hermes_mode_gateway_help()),
+        }
+    }
+
+    /// The note the editor shows now under its sign-in choice: the E2E.
+    pub fn shown_sign_in_note(&self, cx: &App) -> Option<String> {
+        let l = cx.l10n().clone();
+        self.sign_in_note(self.has_headers(cx), self.is_active(cx), &l)
+    }
+
     fn dashboard_signed_in(&self, cx: &App) -> bool {
         self.current(cx).is_some_and(|c| c.dashboard_signed_in)
     }
@@ -1557,7 +1587,7 @@ impl Render for HermesConnectionSheet {
                     } else {
                         let this = this.clone();
                         Button::new("hermes-connection-sign-in", l.desktop_sign_in_with_hermes())
-                            .disabled(!self.can_save(cx))
+                            .disabled(!self.can_save(cx) || has_headers)
                             .on_click(Rc::new(move |_, w, cx| {
                                 let _ = this.update(cx, |s, cx| s.sign_in(w, cx));
                             }))
@@ -1638,20 +1668,7 @@ impl Render for HermesConnectionSheet {
             })
             .flatten();
         let auth_footer = if self.desktop {
-            let sign_in = match self.auth {
-                Auth::Token => None,
-                Auth::Dashboard if has_headers => {
-                    Some(l.desktop_hermes_dashboard_headers_unsupported())
-                }
-                Auth::Dashboard if !active => Some(format!(
-                    "{} {}",
-                    l.hermes_dashboard_auth_help(),
-                    l.hermes_sign_in_activates_connection()
-                )),
-                Auth::Dashboard => Some(l.hermes_dashboard_auth_help()),
-                Auth::Native if !active => Some(l.hermes_sign_in_activates_connection()),
-                Auth::Native => Some(l.desktop_hermes_mode_gateway_help()),
-            };
+            let sign_in = self.sign_in_note(has_headers, active, &l);
             match (sign_in, profiles_note) {
                 (Some(a), Some(b)) => Some(format!("{a} {b}")),
                 (a, b) => a.or(b),

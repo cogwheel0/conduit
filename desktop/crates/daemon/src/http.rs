@@ -212,6 +212,20 @@ impl HttpClient {
         self.get_bytes(url).await
     }
 
+    /// `GET /media/{kind}?url=`: a picture (`kind` `image`) or a PDF
+    /// (`pdf`) on another site, fetched by the daemon with nothing of the
+    /// user's sent along. Refused with `media.tooLarge`, `media.wrongType`,
+    /// `media.timedOut` or `media.failed`.
+    pub async fn media(&self, kind: &str, url: &str) -> Result<FileBytes, RpcError> {
+        let url = format!(
+            "{}/media/{}?url={}",
+            self.base,
+            encode_component(kind),
+            encode_component(url)
+        );
+        self.get_bytes(url).await
+    }
+
     /// `GET /tts/{jobId}`: the audio of a `voice.speak` job.
     pub async fn speech(&self, job_id: &str) -> Result<FileBytes, RpcError> {
         let url = format!("{}/tts/{}", self.base, encode_component(job_id));
