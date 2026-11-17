@@ -104,6 +104,9 @@ pub struct CreateRoomSheet {
     /// The Hermes connection the sheet opened on: the room is made there or
     /// not at all.
     connection: Option<String>,
+    /// The rooms store's generation when it opened (its account, gateway and
+    /// connection): New Room makes nothing, and opens nothing, once it moved.
+    bound: u64,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -133,7 +136,10 @@ impl CreateRoomSheet {
                 cx.notify()
             }),
         ];
+        let mut subscriptions = subscriptions;
+        subscriptions.push(sheet::close_with_account(&stores, cx));
         let connection = stores.hermes_rooms.read(cx).connection();
+        let bound = stores.hermes_rooms.read(cx).generation();
         Self {
             stores,
             name,
@@ -141,6 +147,7 @@ impl CreateRoomSheet {
             creating: false,
             failure: None,
             connection,
+            bound,
             _subscriptions: subscriptions,
         }
     }
@@ -192,11 +199,17 @@ impl CreateRoomSheet {
         let Some(rpc) = self.stores.hermes_rooms.read(cx).rpc() else {
             return;
         };
+        // Opened for another account, gateway or connection: nothing is made
+        // under the one in charge now.
+        if self.stores.hermes_rooms.read(cx).generation() != self.bound {
+            self.failure = Some(cx.l10n().hermes_room_create_failed());
+            cx.notify();
+            return;
+        }
         self.creating = true;
         self.failure = None;
         cx.notify();
-        // Its answer is listed only for the account it was asked under.
-        let asked_in = self.stores.hermes_rooms.read(cx).generation();
+        let asked_in = self.bound;
         let call = rpc.call::<methods::HermesRoomsCreate>(&HermesRoomCreate {
             name: forms::text(&self.name, cx).trim().to_string(),
             bots: self.picked.clone(),
@@ -210,6 +223,10 @@ impl CreateRoomSheet {
                 let _ = this.update(cx, |s, cx| {
                     s.creating = false;
                     match result {
+                        // Made, but the store moved on meanwhile: the room is
+                        // not listed, opened, or its sheet closed under the
+                        // account, gateway or connection in charge now.
+                        Ok(_) if stores.hermes_rooms.read(cx).generation() != asked_in => {}
                         Ok(room) => {
                             let id = room.id.clone();
                             stores.hermes_rooms.update(cx, |h, cx| {
@@ -456,6 +473,10 @@ pub struct RoomInfoSheet {
     /// The Hermes connection the room's settings were read on: saved there
     /// or not at all.
     connection: Option<String>,
+    /// The rooms store's generation when it opened (its account, gateway and
+    /// connection): Save, Stop Work and Disband refuse once it moved, and a
+    /// Save's answer closes it only while it is still current.
+    bound: u64,
     saving: bool,
     pub failure: Option<String>,
     _subscriptions: Vec<Subscription>,
@@ -507,12 +528,14 @@ impl RoomInfoSheet {
             // Settings that arrive after the sheet opened fill it once;
             // the bots' states follow the room.
             cx.observe_in(&stores.hermes_rooms, window, |this, _, window, cx| {
-                if this.initial.is_none() {
+                if this.initial.is_none() && this.current(cx) {
                     this.adopt_current(window, cx);
                 }
                 cx.notify()
             }),
+            sheet::close_with_account(&stores, cx),
         ];
+        let bound = stores.hermes_rooms.read(cx).generation();
         let mut this = Self {
             stores,
             room_id,
@@ -522,6 +545,7 @@ impl RoomInfoSheet {
             edit: RoomEdit::default(),
             initial: None,
             connection: None,
+            bound,
             saving: false,
             failure: None,
             _subscriptions: subscriptions,
@@ -535,6 +559,23 @@ impl RoomInfoSheet {
 
     fn view<'a>(&self, cx: &'a App) -> Option<&'a HermesRoomView> {
         self.stores.hermes_rooms.read(cx).view(&self.room_id)
+    }
+
+    /// The store is still on the account, gateway and connection the sheet
+    /// opened for.
+    fn current(&self, cx: &App) -> bool {
+        self.stores.hermes_rooms.read(cx).generation() == self.bound
+    }
+
+    /// Refuses an action once the sheet's binding moved on, saying so; the
+    /// words typed stay.
+    fn refuse_if_stale(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.current(cx) {
+            return false;
+        }
+        self.failure = Some(cx.l10n().hermes_room_action_failed());
+        cx.notify();
+        true
     }
 
     fn adopt_current(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -639,7 +680,7 @@ impl RoomInfoSheet {
     /// Saves the name (`hermes.rooms.rename`) and the purpose, notes and
     /// who answers (`hermes.rooms.saveContext`), each only when changed.
     pub fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.can_save(cx) {
+        if self.refuse_if_stale(cx) || !self.can_save(cx) {
             return;
         }
         let Some(rpc) = self.stores.hermes_rooms.read(cx).rpc() else {
@@ -652,8 +693,7 @@ impl RoomInfoSheet {
         self.failure = None;
         cx.notify();
         let edit = self.edit.clone();
-        // Its answer is listed only for the account it was asked under.
-        let asked_in = self.stores.hermes_rooms.read(cx).generation();
+        let asked_in = self.bound;
         let rename = (edit.name.trim() != initial.name.trim()).then(|| {
             rpc.call::<methods::HermesRoomsRename>(&HermesRoomRename {
                 room_id: self.room_id.clone(),
@@ -718,8 +758,9 @@ impl RoomInfoSheet {
                             .update(cx, |h, cx| h.patch_listed(room, asked_in, cx));
                     }
                     // Words typed while it saved are still to save: the
-                    // sheet stays, with what was saved as its baseline.
-                    if s.edit != edit {
+                    // sheet stays, with what was saved as its baseline. Nor
+                    // does it close once the store moved on meanwhile.
+                    if s.edit != edit || stores.hermes_rooms.read(cx).generation() != asked_in {
                         cx.notify();
                         return;
                     }
@@ -737,11 +778,17 @@ impl RoomInfoSheet {
     }
 
     fn stop(&mut self, cx: &mut Context<Self>) {
+        if self.refuse_if_stale(cx) {
+            return;
+        }
         let (stores, id) = (self.stores.clone(), self.room_id.clone());
         after_sheet(cx, move |_, cx| hermes_rooms::stop(&stores, &id, cx));
     }
 
     fn disband(&mut self, cx: &mut Context<Self>) {
+        if self.refuse_if_stale(cx) {
+            return;
+        }
         let (stores, id) = (self.stores.clone(), self.room_id.clone());
         after_sheet(cx, move |window, cx| {
             hermes_rooms::confirm_disband(&stores, &id, window, cx)
@@ -1161,7 +1208,7 @@ mod tests {
     use gpui_kit::{Entity, TestAppContext, VisualTestContext};
     use serde_json::json;
 
-    use super::RoomInfoSheet;
+    use super::{CreateRoomSheet, RoomInfoSheet};
     use crate::stores::Stores;
     use crate::stores::rpc::fake::FakeDaemon;
     use crate::views::sheet::SheetBody as _;
@@ -1277,5 +1324,145 @@ mod tests {
             assert_eq!(s.edit.name, "Seed swap crew");
             assert!(s.unsaved(cx), "the words typed meanwhile are still to save");
         });
+    }
+
+    fn creatable(daemon: &FakeDaemon) {
+        daemon.returns::<methods::HermesBotsList>(
+            serde_json::from_value(json!({"available": true, "bots": [
+                {"name": "fern", "title": "Fern"}, {"name": "moss", "title": "Moss"},
+            ]}))
+            .unwrap(),
+        );
+        daemon.returns::<methods::HermesRoomsList>(
+            serde_json::from_value(json!({
+                "available": true, "canCreate": true, "seatable": ["fern", "moss"], "rooms": [],
+            }))
+            .unwrap(),
+        );
+        daemon.returns::<methods::HermesRoomsCreate>(
+            serde_json::from_value::<HermesRoomDto>(json!({"id": "r9", "name": "Seed swap"}))
+                .unwrap(),
+        );
+    }
+
+    /// New Room asked to make "Seed swap"; `meanwhile` runs while its answer
+    /// is out. Whether the sheet is still open after the answer.
+    fn create_with(
+        cx: &mut TestAppContext,
+        meanwhile: impl FnOnce(&Stores, &mut VisualTestContext),
+    ) -> bool {
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        creatable(&daemon);
+        stores
+            .hermes_rooms
+            .update(vcx, |h, cx| h.set_wanted(true, cx));
+        vcx.run_until_parked();
+        let sheet_stores = stores.clone();
+        let sheet = vcx
+            .update(|window, cx| {
+                crate::views::sheet::open(window, super::WIDTH, cx, move |w, cx| {
+                    CreateRoomSheet::new(sheet_stores, w, cx)
+                })
+            })
+            .unwrap();
+        vcx.run_until_parked();
+        let held = daemon.hold::<methods::HermesRoomsCreate>();
+        sheet.update_in(vcx, |s, window, cx| {
+            s.set_name("Seed swap", window, cx);
+            s.toggle("fern", cx);
+            s.toggle("moss", cx);
+            s.create(window, cx);
+        });
+        assert_eq!(daemon.calls::<methods::HermesRoomsCreate>().len(), 1);
+        meanwhile(&stores, vcx);
+        drop(held);
+        vcx.run_until_parked();
+        vcx.update(|_, cx| crate::views::sheet::current::<CreateRoomSheet>(cx))
+            .is_some()
+    }
+
+    #[gpui_kit::test]
+    fn a_room_made_after_the_account_changed_does_not_close_or_open_anything(
+        cx: &mut TestAppContext,
+    ) {
+        let open = create_with(cx, |stores, vcx| {
+            stores.hermes_rooms.update(vcx, |h, cx| h.reset(cx));
+        });
+        assert!(open, "a stale answer closed the sheet and opened its room");
+    }
+
+    #[gpui_kit::test]
+    fn a_room_made_opens_even_when_a_list_event_came_first(cx: &mut TestAppContext) {
+        let open = create_with(cx, |stores, vcx| {
+            let list = serde_json::from_value(json!({
+                "available": true, "canCreate": true, "seatable": ["fern", "moss"],
+                "rooms": [{"id": "r9", "name": "Seed swap"}],
+            }))
+            .unwrap();
+            stores.hermes_rooms.update(vcx, |h, cx| {
+                h.on_event(&Event::HermesRoomsListChanged(list), cx)
+            });
+        });
+        assert!(!open, "the room made did not close the sheet");
+    }
+
+    fn info_sheet(
+        daemon: &FakeDaemon,
+        stores: &Stores,
+        vcx: &mut VisualTestContext,
+    ) -> Entity<RoomInfoSheet> {
+        daemon.returns::<methods::HermesRoomsWatch>(room());
+        daemon.returns::<methods::HermesRoomsRename>(
+            serde_json::from_value::<HermesRoomDto>(json!({"id": "r1", "name": "Seed swap"}))
+                .unwrap(),
+        );
+        stores.hermes_rooms.update(vcx, |h, cx| {
+            h.show(Some("r1"), cx);
+            h.on_event(&Event::HermesRoomsChanged(room()), cx);
+        });
+        let sheet_stores = stores.clone();
+        let sheet = vcx
+            .update(|window, cx| {
+                crate::views::sheet::open(window, super::WIDTH, cx, move |w, cx| {
+                    RoomInfoSheet::new(sheet_stores, "r1".into(), true, w, cx)
+                })
+            })
+            .unwrap();
+        vcx.run_until_parked();
+        sheet
+    }
+
+    #[gpui_kit::test]
+    fn room_info_left_open_across_a_change_saves_nothing_under_the_next(cx: &mut TestAppContext) {
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        let sheet = info_sheet(&daemon, &stores, vcx);
+        sheet.update_in(vcx, |s, window, cx| {
+            s.type_into("name", "Seed swap", window, cx)
+        });
+        // The store moves on (another account or gateway) and reads r1 again.
+        stores.hermes_rooms.update(vcx, |h, cx| {
+            h.reset(cx);
+            h.on_event(&Event::HermesRoomsChanged(room()), cx);
+        });
+        vcx.run_until_parked();
+        sheet.update_in(vcx, |s, window, cx| s.save(window, cx));
+        vcx.run_until_parked();
+        assert!(daemon.calls::<methods::HermesRoomsRename>().is_empty());
+        sheet.read_with(vcx, |s, _| {
+            assert!(s.failure.is_some());
+            assert_eq!(s.edit.name, "Seed swap", "the words typed stay");
+        });
+    }
+
+    #[gpui_kit::test]
+    fn room_info_closes_when_another_account_takes_charge(cx: &mut TestAppContext) {
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        let _sheet = info_sheet(&daemon, &stores, vcx);
+        crate::views::sheet::bench::switch_account(&stores, vcx);
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| crate::views::sheet::current::<RoomInfoSheet>(cx))
+                .is_none()
+        );
     }
 }

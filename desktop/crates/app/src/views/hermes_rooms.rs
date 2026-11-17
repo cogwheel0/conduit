@@ -252,13 +252,20 @@ pub fn confirm_disband(stores: &Stores, room_id: &str, window: &mut Window, cx: 
     )
     .destructive();
     // Asked of the room on this connection: the daemon refuses it once
-    // another one is in use.
+    // another one is in use, and nothing is sent or shown once the store
+    // moved on (another account, gateway or connection).
     let connection = stores.hermes_rooms.read(cx).connection();
+    let bound = stores.hermes_rooms.read(cx).generation();
     let ask = present_sheet(window, spec, cx);
     let stores = stores.clone();
     let room_id = room_id.to_string();
     cx.spawn(async move |cx: &mut AsyncApp| {
         if !ask.await {
+            return;
+        }
+        let current =
+            |cx: &mut AsyncApp| cx.update(|cx| stores.hermes_rooms.read(cx).generation() == bound);
+        if !current(cx) {
             return;
         }
         let call = cx.update(|cx| {
@@ -273,6 +280,9 @@ pub fn confirm_disband(stores: &Stores, room_id: &str, window: &mut Window, cx: 
             return;
         };
         let result = call.await;
+        if !current(cx) {
+            return;
+        }
         cx.update(|cx| match result {
             Ok(_) => {
                 let shown = Selection::Area(AreaItem::HermesRoom(room_id.clone()));
@@ -339,4 +349,37 @@ pub fn answer(
         });
     })
     .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use conduit_protocol::{OkResult, methods};
+    use gpui_kit::TestAppContext;
+
+    use crate::stores::navigation::{AreaItem, Selection};
+
+    #[gpui_kit::test]
+    fn a_disband_answered_after_the_store_moved_on_changes_nothing_shown(cx: &mut TestAppContext) {
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        daemon.returns::<methods::HermesRoomsDisband>(OkResult { ok: true });
+        let shown = Selection::Area(AreaItem::HermesRoom("r1".into()));
+        stores.navigation.update(vcx, |n, cx| {
+            n.open_item(AreaItem::HermesRoom("r1".into()), cx)
+        });
+        let held = daemon.hold::<methods::HermesRoomsDisband>();
+        vcx.update(|window, cx| super::confirm_disband(&stores, "r1", window, cx));
+        vcx.run_until_parked();
+        // Another account (or gateway) takes charge while it is out, and
+        // shows a room of the same id.
+        stores.hermes_rooms.update(vcx, |h, cx| h.reset(cx));
+        drop(held);
+        vcx.run_until_parked();
+        assert_eq!(
+            stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone()),
+            shown
+        );
+    }
 }
