@@ -6,7 +6,8 @@
 //! ([`crate::shell::apple_models`]), and its answers, and what a run did
 //! (text, usage, the end, a tool call), go back as `apple.report`, in the
 //! order the engine said them. Each time the window connects it says
-//! whether this Mac has Apple's models (`ready`), which is when the daemon
+//! whether this Mac has Apple's models (`ready`, said again while the
+//! daemon's core is still starting and refuses it), which is when the daemon
 //! offers the Apple On-Device connection, and which runs the engine still
 //! has: runs end with the session that ran them, so after a reconnect the
 //! daemon stops each one (its turn has already failed). After a gap in the
@@ -14,6 +15,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use conduit_daemon::protocol::{RpcErrorExt as _, codes};
 use conduit_protocol::{
     AppleCommand, AppleCommandKind, AppleFailure, AppleReport, AppleReportKind, events, methods,
 };
@@ -32,6 +34,11 @@ pub const EVENTS: &[&str] = &[events::APPLE_COMMAND];
 /// never one of the daemon's (they count up from 1), so its answer stays
 /// here.
 const STOP_ID: i64 = -1;
+
+/// How long a `ready` the daemon refused while its core starts waits
+/// before it is said again (the client has already retried for its own
+/// budget by then).
+const READY_RETRY: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub struct AppleModelsStore {
     rpc: Rpc,
@@ -53,6 +60,8 @@ pub struct AppleModelsStore {
     pub asked: HashMap<AppleCommandKind, usize>,
     /// What went to the engine, in a store with none (tests).
     engine_log: Option<Vec<AppleCommand>>,
+    /// Counts the daemon sessions: a `ready` said again belongs to its own.
+    session: u64,
 }
 
 impl AppleModelsStore {
@@ -69,6 +78,7 @@ impl AppleModelsStore {
             lost: BTreeSet::new(),
             asked: HashMap::new(),
             engine_log: Some(vec![]),
+            session: 0,
         }
     }
 
@@ -97,30 +107,54 @@ impl AppleModelsStore {
             lost: BTreeSet::new(),
             asked: HashMap::new(),
             engine_log: None,
+            session: 0,
         }
     }
 
-    /// The window (re)connected: says whether this Mac has Apple's models,
-    /// and which runs the engine still has (lost ones are not).
+    /// The window (re)connected: a new daemon session, told [`Self::ready`].
     fn on_connected(&mut self, cx: &mut Context<Self>) {
-        self.send(
-            AppleReport {
-                kind: Some(AppleReportKind::Ready),
-                supported: Some(apple_models::supported()),
-                runs: self.runs.iter().cloned().collect(),
-                ..Default::default()
+        self.session += 1;
+        self.ready(self.session, cx);
+    }
+
+    /// Says whether this Mac has Apple's models, and which runs the engine
+    /// still has (lost ones are not). The daemon takes it only once its
+    /// core is up, and no event says when that is: refused meanwhile
+    /// (`rpc.daemonUnavailable`), it is said again, with the runs as they
+    /// are then, for as long as `session` is the daemon session.
+    fn ready(&mut self, session: u64, cx: &mut Context<Self>) {
+        let call = self.rpc.call::<methods::AppleReport>(&AppleReport {
+            kind: Some(AppleReportKind::Ready),
+            supported: Some(apple_models::supported()),
+            runs: self.runs.iter().cloned().collect(),
+            ..Default::default()
+        });
+        cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| match call.await {
+                Ok(_) => {}
+                Err(e) if e.is(codes::DAEMON_UNAVAILABLE) => {
+                    log::info!("apple: ready refused while the core starts; saying it again");
+                    cx.background_executor().timer(READY_RETRY).await;
+                    let _ = this.update(cx, |s, cx| {
+                        if s.session == session {
+                            s.ready(session, cx);
+                        }
+                    });
+                }
+                Err(e) => log::debug!("apple.report (ready): {e}"),
             },
-            cx,
-        );
+        )
+        .detach();
     }
 
     /// What the window's connection says.
     fn on_connection(&mut self, event: &ConnectionEvent, cx: &mut Context<Self>) {
         match event {
+            ConnectionEvent::Connected { .. } => self.on_connected(cx),
             // Events were lost: a Cancel among them would leave a run going
             // here. Saying `ready` again with the runs the engine has, as a
             // reconnect does, has the daemon stop any that ended there.
-            ConnectionEvent::Connected { .. } | ConnectionEvent::Gap => self.on_connected(cx),
+            ConnectionEvent::Gap => self.ready(self.session, cx),
             ConnectionEvent::Daemon(event) => {
                 if let conduit_protocol::Event::AppleCommand(command) = event.as_ref() {
                     self.on_command(command, cx);
@@ -407,6 +441,56 @@ mod tests {
         let ready = sent.last().unwrap();
         assert_eq!(ready["kind"], "ready");
         assert_eq!(ready["runs"], serde_json::json!(["run-1"]));
+    }
+
+    /// The core is still starting when the window connects: `ready` is
+    /// refused (`rpc.daemonUnavailable`) and no event follows once it is
+    /// up. The window says it again, with the runs it has then, until it
+    /// lands; not for a session that has ended.
+    #[gpui_kit::test]
+    fn a_ready_refused_while_the_core_starts_is_said_again(cx: &mut TestAppContext) {
+        let unavailable = || {
+            Err(conduit_daemon::protocol::error(
+                "rpc.daemonUnavailable",
+                "the core is not up yet",
+            ))
+        };
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AppleReport>(OkResult { ok: true });
+        daemon
+            .once::<methods::AppleReport>(unavailable())
+            .once::<methods::AppleReport>(unavailable());
+        let store: Entity<AppleModelsStore> = cx.new(|_| AppleModelsStore::for_test(daemon.rpc()));
+        store.update(cx, |s, cx| s.on_connected(cx));
+        cx.run_until_parked();
+        assert_eq!(sent(&daemon).len(), 1);
+        for _ in 0..3 {
+            cx.executor()
+                .advance_clock(std::time::Duration::from_secs(60));
+            cx.run_until_parked();
+        }
+        let readies: Vec<Value> = sent(&daemon)
+            .into_iter()
+            .filter(|r| r["kind"] == "ready")
+            .collect();
+        assert_eq!(readies.len(), 3, "said once, refused twice, then landed");
+
+        // A retry belongs to its session: once another one said `ready`,
+        // the old one's retry says nothing.
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AppleReport>(OkResult { ok: true });
+        daemon.once::<methods::AppleReport>(unavailable());
+        let store: Entity<AppleModelsStore> = cx.new(|_| AppleModelsStore::for_test(daemon.rpc()));
+        store.update(cx, |s, cx| s.on_connected(cx));
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.on_connected(cx));
+        cx.run_until_parked();
+        for _ in 0..3 {
+            cx.executor()
+                .advance_clock(std::time::Duration::from_secs(60));
+            cx.run_until_parked();
+        }
+        assert_eq!(sent(&daemon).len(), 2);
     }
 
     #[gpui_kit::test]
