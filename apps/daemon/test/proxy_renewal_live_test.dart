@@ -161,6 +161,7 @@ void main() {
           ExternalAuthCompletion(
             origin: proxyUrl,
             cookies: {'conduit_proxy': second},
+            account: accountId,
           ),
         );
         expect(renewed.isAuthenticated, isTrue);
@@ -174,11 +175,13 @@ void main() {
       });
 
       test('a renewal from another origin is refused', () async {
+        final accountId = (await accounts.list()).activeAccountId;
         await expectLater(
           auth.renewProxy(
-            const ExternalAuthCompletion(
+            ExternalAuthCompletion(
               origin: 'http://127.0.0.1:9',
-              cookies: {'conduit_proxy': 'x'},
+              cookies: const {'conduit_proxy': 'x'},
+              account: accountId,
             ),
           ),
           throwsA(

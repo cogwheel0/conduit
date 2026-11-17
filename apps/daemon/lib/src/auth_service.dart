@@ -403,7 +403,14 @@ final class AuthService {
     // account in charge now (on the same origin, say) is never written to,
     // neither when it asks nor at any write after.
     final account = AccountScope.capture(_container);
-    if (params.account case final opened? when opened != active.id) {
+    final opened = params.account;
+    if (opened == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'auth.renewProxy needs the account its window was for',
+      );
+    }
+    if (opened != active.id) {
       throw const RpcError(
         code: ConduitErrorCodes.sessionExpired,
         args: <String, String>{'reason': 'account'},
@@ -438,6 +445,13 @@ final class AuthService {
         // The renewal writes this account's own session as it lands, so
         // the check is for the account, not for its session.
         canCommit: () => !(refused = !account.isSameAccount),
+      );
+    } on ProxyRenewalWrongUser {
+      // Someone else signed in at the proxy's window: nothing was saved.
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        args: <String, String>{'reason': 'account'},
+        debugMessage: 'the proxy sign-in was for another user',
       );
     } catch (error) {
       throw RpcError(

@@ -963,9 +963,10 @@ pub struct ExternalAuthCompletion {
     /// cookie session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
-    /// For `auth.renewProxy`: the account whose sign-in window this was
-    /// (its id, as `accounts.list` names it). Refused with
-    /// `auth.sessionExpired` once another account is in charge.
+    /// For `auth.renewProxy`, where it is required: the account whose
+    /// sign-in window this was (its id, as `accounts.list` names it).
+    /// Refused with `auth.sessionExpired` once another account is in charge,
+    /// or when the captured session is another user's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
 }

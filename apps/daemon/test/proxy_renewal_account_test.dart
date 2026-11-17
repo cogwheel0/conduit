@@ -161,10 +161,10 @@ void main() {
   test(
     'an account change while the renewed session is saved commits nothing',
     () async {
-      // Sky is in charge, as the last case left it; a session for Robin is
-      // captured, and the account changes the moment its commit starts
+      // Sky is in charge, as the last case left it; a new session for Sky
+      // is captured, and the account changes the moment its commit starts
       // saving it (the core then shows the session loading).
-      final token = await sessionFor('robin@example.com', 'pw-r');
+      final token = await sessionFor('sky@example.com', 'pw-s');
       final active = await runtime.container.read(activeServerProvider.future);
       bool saving() =>
           runtime.container.read(authStateManagerProvider).value?.isLoading ??
@@ -173,14 +173,57 @@ void main() {
         runtime.container,
         activeServer: active!,
         capture: ProxyAuthCapture(
-          cookies: const {'proxy_session': 'robin-saving'},
+          cookies: const {'proxy_session': 'sky-saving'},
           token: token,
         ),
         canCommit: () => !saving(),
       );
+      check(runtime.container.read(authStateManagerProvider).value?.token)
+          .not((t) => t.equals(token));
       check((await auth.status()).user?.name).equals('Sky');
     },
   );
+
+  test('a capture of another user\'s session on the same server saves and '
+      'commits nothing', () async {
+    // Sky is in charge; Robin signs in at Sky's proxy window.
+    final token = await sessionFor('robin@example.com', 'pw-r');
+    final cookie = await cookieOf(sky);
+    final before = runtime.container.read(authStateManagerProvider).value;
+    await check(
+      auth.renewProxy(
+        ExternalAuthCompletion(
+          origin: owui.url,
+          cookies: const {'proxy_session': 'robin-at-skys-window'},
+          token: token,
+          account: sky,
+        ),
+      ),
+    ).throws<RpcError>(
+      (e) =>
+          e.has((e) => e.code, 'code').equals(ConduitErrorCodes.sessionExpired),
+    );
+    check(await cookieOf(sky)).equals(cookie);
+    final after = runtime.container.read(authStateManagerProvider).value;
+    check(after?.token).equals(before?.token);
+    check((await auth.status()).user?.name).equals('Sky');
+  });
+
+  test('a renewal that does not say its account is refused', () async {
+    final cookie = await cookieOf(sky);
+    await check(
+      auth.renewProxy(
+        ExternalAuthCompletion(
+          origin: owui.url,
+          cookies: const {'proxy_session': 'no-account'},
+        ),
+      ),
+    ).throws<RpcError>(
+      (e) =>
+          e.has((e) => e.code, 'code').equals(ConduitErrorCodes.invalidParams),
+    );
+    check(await cookieOf(sky)).equals(cookie);
+  });
 
   test('a renewal for the account in charge is saved and signs in', () async {
     await accounts.switchTo(AccountRef(accountId: robin));
@@ -204,14 +247,17 @@ void main() {
       // Robin is in charge and signed in; the proxy's session expires.
       owui.proxyRefuses = true;
       runtime.container.read(authStateManagerProvider.notifier).onAuthIssue();
-      final renewed = await auth.renewProxy(
-        ExternalAuthCompletion(
-          origin: owui.url,
-          cookies: const {'proxy_session': 'robin-still-refused'},
-          account: robin,
+      final cookie = await cookieOf(robin);
+      await check(
+        auth.renewProxy(
+          ExternalAuthCompletion(
+            origin: owui.url,
+            cookies: const {'proxy_session': 'robin-still-refused'},
+            account: robin,
+          ),
         ),
-      );
-      check(renewed.isAuthenticated).isFalse();
+      ).throws<RpcError>();
+      check(await cookieOf(robin)).equals(cookie);
       check(
         runtime.container.read(authStateManagerProvider).value?.isAuthenticated,
       ).equals(false);

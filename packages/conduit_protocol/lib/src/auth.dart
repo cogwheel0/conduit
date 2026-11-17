@@ -129,9 +129,10 @@ abstract class ExternalAuthCompletion with _$ExternalAuthCompletion {
     /// cookie session.
     String? token,
 
-    /// For `auth.renewProxy`: the account whose sign-in window this was
-    /// (its id, as `accounts.list` names it). Refused with
-    /// `auth.sessionExpired` once another account is in charge.
+    /// For `auth.renewProxy`, where it is required: the account whose
+    /// sign-in window this was (its id, as `accounts.list` names it).
+    /// Refused with `auth.sessionExpired` once another account is in charge,
+    /// or when the captured session is another user's.
     String? account,
   }) = _ExternalAuthCompletion;
 

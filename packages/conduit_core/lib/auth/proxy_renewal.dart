@@ -1,4 +1,5 @@
 import 'package:meta/meta.dart';
+import 'package:riverpod/riverpod.dart' show AsyncValue;
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/auth/proxy_session.dart';
@@ -44,24 +45,38 @@ String? renewedProxyRouteId(
       .id;
 }
 
+/// A renewal whose captured session is not the renewed account's own user
+/// (someone else signed in at the proxy's window): nothing of it is saved.
+class ProxyRenewalWrongUser implements Exception {
+  const ProxyRenewalWrongUser();
+
+  @override
+  String toString() => 'ProxyRenewalWrongUser';
+}
+
 /// Renews an expired reverse-proxy session of [activeServer] in place, with
 /// what a new proxy sign-in left behind ([capture]), so the account stays
 /// signed in to Conduit (issues #690, #698).
 ///
-/// The fresh cookies replace the old ones in the server's saved headers --
-/// the same server identity, so storage keeps the account's session -- and
-/// the route resolver forgets the refusals of the session just replaced.
-/// Then, when the proxy also completed Open WebUI's own sign-in ([capture]
-/// holds a token), that session is adopted as a first-time proxy sign-in
-/// is; otherwise the kept session is checked with the server again, and
-/// shown signed in only once the server takes it.
+/// Nothing is written until the session the renewed cookies carry is shown
+/// to be the account's own: the server is asked, through those cookies, who
+/// the captured session is (or, with no token captured, who the kept one
+/// is), and it must be the user the account is signed in as. Another user
+/// throws [ProxyRenewalWrongUser], a refusal throws, and nothing is saved.
+///
+/// Then the fresh cookies replace the old ones in the server's saved headers
+/// -- the same server identity, so storage keeps the account's session --
+/// and the route resolver forgets the refusals of the session just
+/// replaced. A captured session is adopted as a first-time proxy sign-in
+/// is; otherwise the kept session is checked again and shown signed in only
+/// once the server takes it.
 ///
 /// [stillWanted] is asked once the server is saved, before the session is
 /// touched: a host whose page went away stops there. [canCommit] is asked
 /// right before each write -- the cookies saved, the session adopted or
-/// checked again -- with no wait in between: a host whose account changed
-/// meanwhile stops before it writes. Throws when a step fails; the host
-/// shows its own words for that.
+/// checked again -- with no wait in between, and inside the commit around
+/// its own save: a host whose account changed meanwhile stops before it
+/// writes. Throws when a step fails; the host shows its own words for that.
 ///
 /// [ref] is a `Ref`, a `WidgetRef` or a `ProviderContainer`.
 Future<void> renewProxySessionInPlace(
@@ -78,6 +93,27 @@ Future<void> renewProxySessionInPlace(
       capturedCookies: capture.cookies,
     ),
   );
+  // Who the account is signed in as, read before anything is awaited.
+  final AsyncValue<AuthState> state = ref.read(authStateManagerProvider);
+  final kept = state.value;
+  final keptUser = kept?.user;
+  final token = capture.isFullyAuthenticated ? capture.token : kept?.token;
+  if (keptUser == null || token == null || token.isEmpty) {
+    throw StateError('no kept session to renew');
+  }
+  final api = ApiService(
+    serverConfig: updatedServer,
+    workerManager: ref.read(workerManagerProvider) as WorkerManager,
+    authToken: token,
+  );
+  final User user;
+  try {
+    user = await api.getCurrentUser(suppressAuthFailureNotification: true);
+  } finally {
+    api.dispose();
+  }
+  if (user.id != keptUser.id) throw const ProxyRenewalWrongUser();
+
   final storage = ref.read(optimizedStorageServiceProvider);
   final configs = await storage.getServerConfigsStrict() as List<ServerConfig>;
   // Where the save below files the cookies; the app can have moved to
@@ -107,37 +143,23 @@ Future<void> renewProxySessionInPlace(
     authStateManagerProvider.notifier,
   );
   authManager.resetRetryCounter();
+  if (!mayCommit()) return;
   if (capture.isFullyAuthenticated) {
-    // The proxy's web view completed Open WebUI SSO too; adopt that session
-    // the same way the first-time connect flow does.
-    final api = ApiService(
+    // The proxy's web view completed Open WebUI SSO too: that session, its
+    // user shown above to be the account's, is adopted as the first-time
+    // connect flow adopts one. Asked again inside the commit, around its
+    // own save: the account can change while it is written.
+    final AuthActions actions = ref.read(authActionsProvider);
+    await actions.commitPrevalidatedProxySession(
       serverConfig: updatedServer,
-      workerManager: ref.read(workerManagerProvider) as WorkerManager,
-      authToken: capture.token,
+      token: capture.token!,
+      user: user,
+      canCommit: canCommit,
     );
-    try {
-      final User user = await api.getCurrentUser(
-        suppressAuthFailureNotification: true,
-      );
-      if (!mayCommit()) return;
-      final AuthActions actions = ref.read(authActionsProvider);
-      // Asked again inside the commit, around its own save: the account
-      // can change while it is written.
-      await actions.commitPrevalidatedProxySession(
-        serverConfig: updatedServer,
-        token: capture.token!,
-        user: user,
-        canCommit: canCommit,
-      );
-    } finally {
-      api.dispose();
-    }
   } else {
-    if (!mayCommit()) return;
     // The kept session is asked about through the renewed cookies before it
-    // shows signed in, as Retry asks: a refresh trusts it at once, and a
-    // proxy still turning it away came back as signed in until its check
-    // failed. Refused, the connection issue stays.
+    // shows signed in, as Retry asks: a refresh trusts it at once. Refused,
+    // the connection issue stays.
     await authManager.retryConnectionIssue();
   }
   DebugLogger.auth('Proxy session renewed in place', scope: 'auth/connection');
