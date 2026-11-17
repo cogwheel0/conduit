@@ -288,10 +288,43 @@ impl SheetBody for CreateRoomSheet {
         )
     }
 
-    fn cancel(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.creating {
-            sheet::dismiss(cx);
+    /// A room name typed or bots picked, not made yet: Quit asks first, as
+    /// Cancel does.
+    fn unsaved(&self, cx: &App) -> bool {
+        !forms::text(&self.name, cx).trim().is_empty() || !self.picked.is_empty()
+    }
+
+    fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.creating {
+            return;
         }
+        if !self.unsaved(cx) {
+            sheet::dismiss(cx);
+            return;
+        }
+        let l = cx.l10n().clone();
+        let spec = SheetSpec::new(
+            l.desktop_discard_changes_title(),
+            l.desktop_discard_changes_message(),
+            l.desktop_discard(),
+            l.cancel(),
+        )
+        .destructive();
+        let ask = present_sheet(window, spec, cx);
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            if !ask.await {
+                return;
+            }
+            // Only this sheet, if it is still the one down when the answer
+            // comes.
+            let _ = this.update(cx, |_, cx| {
+                let this = cx.entity();
+                if sheet::current::<Self>(cx).is_some_and(|open| open == this) {
+                    sheet::dismiss(cx);
+                }
+            });
+        })
+        .detach();
     }
 
     fn label(&self, cx: &App) -> SharedString {
@@ -1400,6 +1433,40 @@ mod tests {
             .navigation
             .read_with(vcx, |n, _| n.selection().clone());
         (open, shown)
+    }
+
+    /// A room name typed or bots picked and not made yet: Quit and Cancel
+    /// ask before dropping them, as the other sheets' edits.
+    #[gpui_kit::test]
+    fn quit_asks_before_dropping_a_new_room_not_made(cx: &mut TestAppContext) {
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        creatable(&daemon);
+        stores
+            .hermes_rooms
+            .update(vcx, |h, cx| h.set_wanted(true, cx));
+        vcx.run_until_parked();
+        let sheet_stores = stores.clone();
+        let sheet = vcx
+            .update(|window, cx| {
+                crate::views::sheet::open(window, super::WIDTH, cx, move |w, cx| {
+                    CreateRoomSheet::new(sheet_stores, w, cx)
+                })
+            })
+            .unwrap();
+        vcx.run_until_parked();
+        assert!(!vcx.update(|_, cx| crate::views::sheet::has_unsaved(cx)));
+        sheet.update_in(vcx, |s, window, cx| s.set_name("Seed swap", window, cx));
+        assert!(
+            vcx.update(|_, cx| crate::views::sheet::has_unsaved(cx)),
+            "Quit would drop the room name typed"
+        );
+        sheet.update_in(vcx, |s, window, cx| s.cancel(window, cx));
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| crate::views::sheet::current::<CreateRoomSheet>(cx))
+                .is_some(),
+            "Cancel dropped the room name without asking"
+        );
     }
 
     #[gpui_kit::test]
