@@ -9,7 +9,8 @@
 //! whether this Mac has Apple's models (`ready`), which is when the daemon
 //! offers the Apple On-Device connection, and which runs the engine still
 //! has: runs end with the session that ran them, so after a reconnect the
-//! daemon stops each one (its turn has already failed).
+//! daemon stops each one (its turn has already failed). After a gap in the
+//! events it says `ready` again, so a run whose Cancel was lost stops too.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -20,6 +21,7 @@ use futures::StreamExt as _;
 use gpui_kit::{App, AsyncApp, Context, Task, WeakEntity};
 
 use super::Stores;
+use super::connection::ConnectionEvent;
 use super::rpc::Rpc;
 use crate::shell::apple_models;
 
@@ -110,6 +112,22 @@ impl AppleModelsStore {
             },
             cx,
         );
+    }
+
+    /// What the window's connection says.
+    fn on_connection(&mut self, event: &ConnectionEvent, cx: &mut Context<Self>) {
+        match event {
+            // Events were lost: a Cancel among them would leave a run going
+            // here. Saying `ready` again with the runs the engine has, as a
+            // reconnect does, has the daemon stop any that ended there.
+            ConnectionEvent::Connected { .. } | ConnectionEvent::Gap => self.on_connected(cx),
+            ConnectionEvent::Daemon(event) => {
+                if let conduit_protocol::Event::AppleCommand(command) = event.as_ref() {
+                    self.on_command(command, cx);
+                }
+            }
+            ConnectionEvent::LocalDataReset { .. } => {}
+        }
     }
 
     fn on_command(&mut self, command: &AppleCommand, cx: &mut Context<Self>) {
@@ -251,16 +269,7 @@ pub fn wire(stores: &Stores, cx: &mut App) {
         .update(cx, |c, _| c.subscribe("apple", EVENTS, vec![]));
     let s = stores.apple.clone();
     cx.subscribe(&stores.connection, move |_, event, cx| {
-        use super::connection::ConnectionEvent;
-        match event {
-            ConnectionEvent::Connected { .. } => s.update(cx, |s, cx| s.on_connected(cx)),
-            ConnectionEvent::Daemon(event) => {
-                if let conduit_protocol::Event::AppleCommand(command) = event.as_ref() {
-                    s.update(cx, |s, cx| s.on_command(command, cx));
-                }
-            }
-            ConnectionEvent::Gap | ConnectionEvent::LocalDataReset { .. } => {}
-        }
+        s.update(cx, |s, cx| s.on_connection(event, cx))
     })
     .detach();
 }
@@ -369,6 +378,35 @@ mod tests {
             assert_eq!(stop.id, STOP_ID);
             assert!(s.runs.is_empty(), "not kept for the next ready");
         });
+    }
+
+    /// Events were lost (a gap): a Cancel among them would leave the run
+    /// going here. The window says `ready` again with the runs its engine
+    /// has, as on a reconnect, so the daemon stops any that ended there.
+    #[gpui_kit::test]
+    fn after_a_gap_the_window_tells_the_daemon_which_runs_it_still_has(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AppleReport>(OkResult { ok: true });
+        let store: Entity<AppleModelsStore> = cx.new(|_| AppleModelsStore::for_test(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.on_command(&start(1, "run-1"), cx);
+            s.send(
+                AppleReport {
+                    id: Some(1),
+                    ..Default::default()
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        let before = sent(&daemon).len();
+        store.update(cx, |s, cx| s.on_connection(&ConnectionEvent::Gap, cx));
+        cx.run_until_parked();
+        let sent = sent(&daemon);
+        assert_eq!(sent.len(), before + 1, "nothing said after the gap");
+        let ready = sent.last().unwrap();
+        assert_eq!(ready["kind"], "ready");
+        assert_eq!(ready["runs"], serde_json::json!(["run-1"]));
     }
 
     #[gpui_kit::test]
