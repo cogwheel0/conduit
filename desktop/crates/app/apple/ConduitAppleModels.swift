@@ -322,17 +322,33 @@ private final class Engine: @unchecked Sendable {
             @unknown default:
                 reason = "other"
             }
-            let size = model.contextSize
             return WireStatus(
                 availability: model.isAvailable ? "available" : "unavailable",
                 reason: reason,
-                contextSize: size > 0 ? size : nil,
+                contextSize: Self.contextSize(of: model),
                 supportsCurrentLocale: model.supportsLocale(Locale.current)
             )
         }
 #endif
         return WireStatus(availability: "unsupported", reason: "systemTooOld")
     }
+
+    /// The model's context window, or nil when unknown. `contextSize`
+    /// first appears in the macOS 26.4 SDK (back-deployed to 26.0), so
+    /// Xcode 26.0-26.3 (Swift 6.2, an SDK without the symbol) builds this
+    /// as unknown: the compiler must know a symbol even inside
+    /// `#available`, and Xcode 26.4 is the first with Swift 6.3.
+#if canImport(FoundationModels)
+    @available(macOS 26.0, *)
+    private static func contextSize(of model: SystemLanguageModel) -> Int? {
+#if compiler(>=6.3)
+        let size = model.contextSize
+        return size > 0 ? size : nil
+#else
+        return nil
+#endif
+    }
+#endif
 
     // MARK: Runs
 
