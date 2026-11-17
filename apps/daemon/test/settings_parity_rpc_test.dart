@@ -159,8 +159,19 @@ void main() {
         expect(start.mentionsOnly, isFalse);
         // Nothing to mirror to without an account.
         expect(start.synced, isFalse);
+        // The shared daemon gets its start values back, pass or fail.
+        addTearDown(
+          () => call(
+            ConduitMethods.notificationsSet,
+            NotificationSettingsDto.fromJson,
+            NotificationSettingsPatch(
+              inAppBanner: start.inAppBanner,
+              answers: start.answers,
+            ).toJson(),
+          ),
+        );
 
-        events.clear();
+        final announced = next(ConduitEvents.notificationsChanged);
         final after = await call(
           ConduitMethods.notificationsSet,
           NotificationSettingsDto.fromJson,
@@ -172,11 +183,7 @@ void main() {
         expect(after.inAppBanner, isFalse);
         expect(after.answers, isFalse);
         expect(after.system, isTrue);
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-        expect(
-          events.map((e) => e.event),
-          contains(ConduitEvents.notificationsChanged),
-        );
+        await announced;
 
         Future<NotificationRoute> route(NotificationRouteParams p) => call(
           ConduitMethods.notificationsRoute,
@@ -205,15 +212,6 @@ void main() {
         );
         expect(behind.surface, NotifySurface.system);
         expect(behind.systemSound, isTrue);
-
-        await call(
-          ConduitMethods.notificationsSet,
-          NotificationSettingsDto.fromJson,
-          const NotificationSettingsPatch(
-            inAppBanner: true,
-            answers: true,
-          ).toJson(),
-        );
       },
     );
 
