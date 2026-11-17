@@ -110,22 +110,28 @@ void main() {
     expect(asked, <String>['$prefix/inside']);
   });
 
-  test('a first visit lands where it asks, and still not out of the port',
-      () async {
-    Future<String?> land(String to) async {
-      final entry = await (await browser.getUrl(
-        Uri.parse(preview.entryUrl).replace(queryParameters: {'to': to}),
-      )..followRedirects = false).close();
-      await entry.drain<void>();
-      return entry.headers.value(HttpHeaders.locationHeader);
-    }
+  test(
+    'a first visit lands where it asks, and still not out of the port',
+    () async {
+      Future<String?> land(String to) async {
+        final entry =
+            await (await browser.getUrl(
+                    Uri.parse(preview.entryUrl)
+                        .replace(queryParameters: {'to': to}),
+                  )
+                  ..followRedirects = false)
+                .close();
+        await entry.drain<void>();
+        return entry.headers.value(HttpHeaders.locationHeader);
+      }
 
-    expect(await land('/docs?page=2'), '/docs?page=2');
-    expect(await land('//elsewhere.test/x'), '/');
-    final climb = await land('/..%252F..%252Ffiles/read');
-    expect((await visit(climb!)).statusCode, HttpStatus.badRequest);
-    expect(asked, isEmpty);
-  });
+      expect(await land('/docs?page=2'), '/docs?page=2');
+      expect(await land('//elsewhere.test/x'), '/');
+      final climb = await land('/..%252F..%252Ffiles/read');
+      expect((await visit(climb!)).statusCode, HttpStatus.badRequest);
+      expect(asked, isEmpty);
+    },
+  );
 
   test('a path that would climb out of the port is refused', () async {
     // The proxy decodes `%2F` and then resolves the `..` it makes; a server
@@ -235,10 +241,13 @@ void main() {
     late HttpServer terminal;
     late PortPreview preview;
     final seen = <String, String?>{};
+    // The port's end of the socket heard the close (its onDone ran).
+    var upstreamClosed = Completer<void>();
     late StreamController<String> pushes;
 
     setUp(() async {
       seen.clear();
+      upstreamClosed = Completer<void>();
       pushes = StreamController<String>.broadcast();
       // The terminal's proxy for port 5173, with a dev server behind it
       // whose live-reload socket echoes and pushes.
@@ -272,6 +281,7 @@ void main() {
             onDone: () {
               seen['closed'] = '${socket.closeCode}';
               unawaited(sub.cancel());
+              if (!upstreamClosed.isCompleted) upstreamClosed.complete();
             },
           );
           return;
@@ -338,7 +348,7 @@ void main() {
 
       await socket.close(WebSocketStatus.normalClosure);
       await received.cancel();
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await upstreamClosed.future;
       expect(seen['closed'], '${WebSocketStatus.normalClosure}');
     });
 
