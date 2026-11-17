@@ -787,9 +787,8 @@ stage.innerHTML='';
 const c=document.createElement('canvas');
 c.style.width=w+'px';c.style.height=h+'px';c.width=Math.round(w*scale);c.height=Math.round(h*scale);
 stage.appendChild(c);
-const chart=new Chart(c,cfg);
-try{return {png:c.toDataURL('image/png'),width:w,height:h};}
-finally{chart.destroy();stage.innerHTML='';}}
+try{new Chart(c,cfg);return {png:c.toDataURL('image/png'),width:w,height:h};}
+finally{const made=Chart.getChart(c);if(made)made.destroy();stage.innerHTML='';}}
 window.conduitRender=async function(id,kind,code,t,scale){
 try{const r=kind==='mermaid'?await mermaidPng(code,t,scale):chartPng(code,t,scale);
 post({type:'done',id,ok:true,png:r.png,width:r.width,height:r.height});}
@@ -1254,6 +1253,16 @@ mod tests {
         // The page bounds what it draws the same way.
         assert!(RENDERER_JS.contains("Number.isFinite(r)&&r>=0.2&&r<=10"));
         assert!(RENDERER_JS.contains(&format!("MAX_SIDE={MAX_SIDE},MAX_AREA={MAX_AREA};")));
+        // A chart whose type does not exist registers itself before it
+        // throws: whatever was registered on the canvas is destroyed.
+        let chart = RENDERER_JS
+            .find("try{new Chart(c,cfg);")
+            .expect("built inside the try");
+        let cleanup = RENDERER_JS[chart..]
+            .find("finally{const made=Chart.getChart(c);if(made)made.destroy();")
+            .expect("destroyed in finally");
+        assert!(cleanup > 0);
+        assert!(!RENDERER_JS.contains("const chart=new Chart(c,cfg);"));
     }
 
     fn key_n(n: u64) -> Key {
