@@ -18,8 +18,9 @@ final class FakeOwuiAuthServer {
   final Map<String, String> _challenges = <String, String>{};
   var _issued = 0;
 
-  /// While set, a current-user read (how a client checks a session it was
-  /// just given) waits for it; [sessionChecked] completes when one arrives.
+  /// While set, the next current-user read (how a client checks a session
+  /// it was just given) waits for it, once; [sessionChecked] completes when
+  /// it arrives.
   Completer<void>? holdSessionCheck;
   Completer<void> sessionChecked = Completer<void>();
 
@@ -142,6 +143,7 @@ final class FakeOwuiAuthServer {
     if (path == '/api/v1/auths/' || path == '/api/v1/auths') {
       final hold = holdSessionCheck;
       if (hold != null) {
+        holdSessionCheck = null;
         if (!sessionChecked.isCompleted) sessionChecked.complete();
         await hold.future;
       }

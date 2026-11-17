@@ -7,8 +7,6 @@ import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
-import 'package:conduit_core/auth/proxy_renewal.dart';
-import 'package:conduit_core/auth/proxy_session.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -158,31 +156,40 @@ void main() {
     check(status.user?.name).equals('Sky');
   });
 
-  test(
-    'an account change while the renewed session is saved commits nothing',
-    () async {
-      // Sky is in charge, as the last case left it; a new session for Sky
-      // is captured, and the account changes the moment its commit starts
-      // saving it (the core then shows the session loading).
-      final token = await sessionFor('sky@example.com', 'pw-s');
-      final active = await runtime.container.read(activeServerProvider.future);
-      bool saving() =>
-          runtime.container.read(authStateManagerProvider).value?.isLoading ??
-          false;
-      await renewProxySessionInPlace(
-        runtime.container,
-        activeServer: active!,
-        capture: ProxyAuthCapture(
-          cookies: const {'proxy_session': 'sky-saving'},
-          token: token,
-        ),
-        canCommit: () => !saving(),
-      );
-      check(runtime.container.read(authStateManagerProvider).value?.token)
-          .not((t) => t.equals(token));
-      check((await auth.status()).user?.name).equals('Sky');
-    },
-  );
+  test('a newer sign-in on the account while the renewal is checked keeps '
+      'the newer session', () async {
+    // Sky is in charge; a renewal of Sky's proxy session is checked while
+    // Sky signs in again elsewhere.
+    final captured = await sessionFor('sky@example.com', 'pw-s');
+    final cookie = await cookieOf(sky);
+    final hold = owui.holdSessionCheck = Completer<void>();
+    owui.sessionChecked = Completer<void>();
+    final renewing = auth.renewProxy(
+      ExternalAuthCompletion(
+        origin: owui.url,
+        cookies: const {'proxy_session': 'sky-late'},
+        token: captured,
+        account: sky,
+      ),
+    );
+    await owui.sessionChecked.future;
+    final newer = await auth.loginWithPassword(
+      const PasswordLogin(username: 'sky@example.com', password: 'pw-s'),
+    );
+    check(newer.isAuthenticated).isTrue();
+    final newerToken = runtime.container
+        .read(authStateManagerProvider)
+        .value
+        ?.token;
+    hold.complete();
+    await check(renewing).throws<RpcError>(
+      (e) =>
+          e.has((e) => e.code, 'code').equals(ConduitErrorCodes.sessionExpired),
+    );
+    check(runtime.container.read(authStateManagerProvider).value?.token)
+        .equals(newerToken);
+    check(await cookieOf(sky)).equals(cookie);
+  });
 
   test('a capture of another user\'s session on the same server saves and '
       'commits nothing', () async {

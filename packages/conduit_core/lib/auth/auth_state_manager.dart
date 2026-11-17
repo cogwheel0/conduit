@@ -1796,11 +1796,19 @@ class AuthStateManager extends _$AuthStateManager {
   /// [canCommit] lets the caller withdraw the commit while it is saved: once
   /// it says no, the account active before stays active, as it does when a
   /// newer auth attempt begins.
+  ///
+  /// [mayBegin] is asked once, with nothing awaited before the commit's
+  /// first write (not even its loading state, which itself moves the
+  /// session the caller may be checking): a caller whose facts changed
+  /// while it worked stops here, and nothing is written. Once begun, a
+  /// newer sign-in or another account stops the commit by its own
+  /// revision.
   Future<bool> commitPrevalidatedProxySession({
     required ServerConfig serverConfig,
     required String token,
     required User user,
     bool Function()? canCommit,
+    bool Function()? mayBegin,
   }) async {
     final tokenStr = token.trim();
     if (tokenStr.isEmpty) {
@@ -1812,6 +1820,7 @@ class AuthStateManager extends _$AuthStateManager {
     if (!_isValidTokenFormat(tokenStr)) {
       throw Exception('Invalid token format');
     }
+    if (mayBegin != null && !mayBegin()) return false;
     // An interactive proxy commit validated this token with the server during
     // the current connect attempt; a completed logout's marker no longer
     // applies. While a logout is still in flight, the marker keeps rejecting

@@ -442,9 +442,10 @@ final class AuthService {
         _container,
         activeServer: active,
         capture: capture,
-        // The renewal writes this account's own session as it lands, so
-        // the check is for the account, not for its session.
-        canCommit: () => !(refused = !account.isSameAccount),
+        // Asked right before the first write, after everything that waits:
+        // the account AND its session as the renewal began (a newer
+        // sign-in on this account is not this renewal's to overwrite).
+        canCommit: () => !(refused = !account.isCurrent),
       );
     } on ProxyRenewalWrongUser {
       // Someone else signed in at the proxy's window: nothing was saved.

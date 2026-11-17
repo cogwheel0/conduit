@@ -71,12 +71,14 @@ class ProxyRenewalWrongUser implements Exception {
 /// is; otherwise the kept session is checked again and shown signed in only
 /// once the server takes it.
 ///
-/// [stillWanted] is asked once the server is saved, before the session is
-/// touched: a host whose page went away stops there. [canCommit] is asked
-/// right before each write -- the cookies saved, the session adopted or
-/// checked again -- with no wait in between, and inside the commit around
-/// its own save: a host whose account changed meanwhile stops before it
-/// writes. Throws when a step fails; the host shows its own words for that.
+/// [stillWanted] is asked once everything that waits is done, before
+/// anything is written: a host whose page went away stops there.
+/// [canCommit] is asked right before the first write, with nothing awaited
+/// between the two: before the cookies are saved, or, with a session
+/// captured, as its commit begins (the cookies are saved in that commit).
+/// A host whose facts changed while the renewal worked (another account, a
+/// newer sign-in) stops there, and nothing is written. Throws when a step
+/// fails; the host shows its own words for that.
 ///
 /// [ref] is a `Ref`, a `WidgetRef` or a `ProviderContainer`.
 Future<void> renewProxySessionInPlace(
@@ -116,50 +118,56 @@ Future<void> renewProxySessionInPlace(
 
   final storage = ref.read(optimizedStorageServiceProvider);
   final configs = await storage.getServerConfigsStrict() as List<ServerConfig>;
-  // Where the save below files the cookies; the app can have moved to
-  // another route while the sign-in was open.
+  // Where the cookies are filed; the app can have moved to another route
+  // while the sign-in was open.
   final renewedRoute = renewedProxyRouteId(
     await storage.getOpenWebUiRegistryStrict() as OpenWebUiRegistry,
     activeServer,
     selection: storage.endpointSelection as Map<String, String>,
   );
-  if (!mayCommit()) return;
-  // Same server identity: the storage layer keeps the account session when
-  // only custom headers change.
-  await storage.saveServerConfigs([
-    for (final config in configs)
-      if (config.id == updatedServer.id) updatedServer else config,
-  ]);
-  ref.invalidate(serverConfigsProvider);
-  ref.invalidate(activeServerProvider);
-  // Its refusals were of the session just replaced.
-  ref
-      .read(openWebUiRouteResolverProvider.notifier)
-      .proxySessionRenewed(renewedRoute);
-  await ref.read(activeServerProvider.future);
   if (stillWanted != null && !stillWanted()) return;
-
   final AuthStateManager authManager = ref.read(
     authStateManagerProvider.notifier,
   );
   authManager.resetRetryCounter();
-  if (!mayCommit()) return;
+
+  // Everything that waits is done. From here, each write is preceded by
+  // [canCommit] with nothing awaited between them.
   if (capture.isFullyAuthenticated) {
     // The proxy's web view completed Open WebUI SSO too: that session, its
     // user shown above to be the account's, is adopted as the first-time
-    // connect flow adopts one. Asked again inside the commit, around its
-    // own save: the account can change while it is written.
+    // connect flow adopts one, the renewed cookies saved with it in the
+    // commit's own transaction. [canCommit] is asked as the commit begins,
+    // before its first write.
     final AuthActions actions = ref.read(authActionsProvider);
-    await actions.commitPrevalidatedProxySession(
+    final committed = await actions.commitPrevalidatedProxySession(
       serverConfig: updatedServer,
       token: capture.token!,
       user: user,
-      canCommit: canCommit,
+      mayBegin: canCommit,
     );
+    if (!committed) return;
   } else {
+    if (!mayCommit()) return;
+    // Same server identity: the storage layer keeps the account session
+    // when only custom headers change.
+    await storage.saveServerConfigs([
+      for (final config in configs)
+        if (config.id == updatedServer.id) updatedServer else config,
+    ]);
+    ref.invalidate(serverConfigsProvider);
+    ref.invalidate(activeServerProvider);
+  }
+  // Its refusals were of the session just replaced.
+  ref
+      .read(openWebUiRouteResolverProvider.notifier)
+      .proxySessionRenewed(renewedRoute);
+  if (!capture.isFullyAuthenticated) {
+    await ref.read(activeServerProvider.future);
     // The kept session is asked about through the renewed cookies before it
     // shows signed in, as Retry asks: a refresh trusts it at once. Refused,
-    // the connection issue stays.
+    // the connection issue stays; a newer sign-in meanwhile is left alone
+    // (the core checks it is still the kept session it signs back in).
     await authManager.retryConnectionIssue();
   }
   DebugLogger.auth('Proxy session renewed in place', scope: 'auth/connection');
