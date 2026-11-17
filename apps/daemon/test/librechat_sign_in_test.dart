@@ -362,6 +362,36 @@ void main() {
     expect(await bench.activeLibreChat(), isNull);
     expect(bench.owuiSwitches, contains('owui'), reason: 'Open WebUI back');
   });
+
+  // The saved backend choice is put back exactly as it was stored: Open
+  // WebUI, Direct, Hermes or none at all.
+  for (final prior in <String?>['owui', 'direct', 'hermes', null]) {
+    test('a superseded sign-in leaves the saved backend choice '
+        '${prior ?? 'unset'} as it was', () async {
+      await PreferencesStore.put('preferred_backend_v1', prior);
+      bench.container.invalidate(preferredBackendProvider);
+      final before = bench.preferred();
+      final release = bench.preferences.hold('libreChat');
+      final first = bench.service.signIn(
+        LibreChatSignIn(
+          url: bench.fake.baseUrl,
+          email: _avery,
+          password: 'pw-avery',
+        ),
+      );
+      await bench.preferences.asked;
+      // A newer sign-in begins (and is refused) while the choice is written.
+      await bench.service.signIn(
+        LibreChatSignIn(url: bench.fake.baseUrl, email: _blake, password: 'x'),
+      );
+      release.complete();
+
+      expect((await first).outcome, LibreChatSignInOutcome.expired);
+      expect(PreferencesStore.getString('preferred_backend_v1'), prior);
+      expect(bench.preferred(), before);
+      expect(await bench.activeLibreChat(), isNull);
+    });
+  }
 }
 
 const _avery = 'avery@example.com';
