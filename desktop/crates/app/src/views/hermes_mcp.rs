@@ -798,6 +798,36 @@ mod tests {
         assert!(shows_session(&stores, vcx, "sess-b"), "B's chat was closed");
     }
 
+    /// Another window puts B in use: this window's list follows (its
+    /// hermes.changed refresh), and A's chat closes here too.
+    #[gpui_kit::test]
+    fn a_switch_made_in_another_window_closes_the_old_chat(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| crate::stores::hermes_admin::follow_pages(&stores, cx));
+        use_connection(&stores, vcx, "a");
+        open_session(&stores, vcx, "sess-a");
+        daemon.returns::<methods::HermesConnectionsList>(list("b"));
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.refresh_connections(cx));
+        vcx.run_until_parked();
+        assert!(
+            left_hermes_page(&stores, vcx),
+            "A's chat stayed open with B in use"
+        );
+    }
+
+    /// A Hermes chat shown before this window read the connections (a
+    /// launch, a reconnect) is the one the first list names: it stays.
+    #[gpui_kit::test]
+    fn a_chat_shown_before_the_list_is_read_stays(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| crate::stores::hermes_admin::follow_pages(&stores, cx));
+        open_session(&stores, vcx, "sess-a");
+        use_connection(&stores, vcx, "a");
+        assert!(shows_session(&stores, vcx, "sess-a"), "the chat was closed");
+    }
+
     /// A saved connection edited to another gateway (the daemon names it
     /// anew under the same saved id) is another connection: the old
     /// gateway's chat closes on the switch's clean-up.
@@ -827,9 +857,9 @@ mod tests {
     }
 
     /// The clean-up reads whose page is shown, and which connection is in
-    /// use, when it runs, not when its action was sent: B's chat, of
-    /// another connection than the one in use while a switch to C was out,
-    /// stays once B is in use again by the time the answer comes.
+    /// use, when it runs, not when its action was sent: a switch to C whose
+    /// answer comes after a newer list that still has B in use leaves B's
+    /// chat.
     #[gpui_kit::test]
     fn the_clean_up_reads_the_connection_in_use_when_it_runs(cx: &mut gpui_kit::TestAppContext) {
         let (daemon, stores, vcx) = bench(cx);
@@ -840,10 +870,13 @@ mod tests {
         let held = daemon.hold::<methods::HermesConnectionsActivate>();
         vcx.update(|_, cx| crate::stores::hermes_admin::activate(&stores, "c", cx));
         vcx.run_until_parked();
-        // C in use for a while (B's chat is another connection's now), then
-        // B again, all before the answer comes.
-        use_connection(&stores, vcx, "c");
-        use_connection(&stores, vcx, "b");
+        // A newer list, read after, still has B in use: the switch to C's
+        // answer is dropped, and its clean-up finds B's chat B's.
+        daemon.returns::<methods::HermesConnectionsList>(list("b"));
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.refresh_connections(cx));
+        vcx.run_until_parked();
         drop(held);
         vcx.run_until_parked();
         assert!(shows_session(&stores, vcx, "sess-b"), "B's chat was closed");

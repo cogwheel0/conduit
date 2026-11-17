@@ -103,7 +103,9 @@ pub struct HermesAdminStore {
     /// The Hermes page shown, and the connection in use (as this window
     /// knew it; none with Hermes off) when it opened: what a switch's or
     /// Turn Off's clean-up may close is a page of another connection.
-    shown_page: Option<(AreaItem, Option<InUse>)>,
+    /// The owner is unknown (None) for a page shown before the list was
+    /// read; the first list read names it.
+    shown_page: Option<(AreaItem, Option<Option<InUse>>)>,
 }
 
 /// When the reads and actions of one thing were asked, and the newest
@@ -268,7 +270,8 @@ impl HermesAdminStore {
         match selection {
             Selection::Area(item) if item.area() == Area::Hermes => {
                 if self.shown_page.as_ref().map(|(shown, _)| shown) != Some(item) {
-                    self.shown_page = Some((item.clone(), self.in_use()));
+                    let owner = self.connections.is_some().then(|| self.in_use());
+                    self.shown_page = Some((item.clone(), owner));
                 }
             }
             _ => self.shown_page = None,
@@ -280,8 +283,13 @@ impl HermesAdminStore {
     /// the only kind a switch's or Turn Off's clean-up closes, however late
     /// or often it runs.
     pub fn shows_another_connections_page(&self, selection: &Selection) -> bool {
+        // Nothing is known while the list is being read (a reconnect): no
+        // page is another connection's then.
+        if self.connections.is_none() {
+            return false;
+        }
         match (selection, &self.shown_page) {
-            (Selection::Area(item), Some((shown, owner))) => {
+            (Selection::Area(item), Some((shown, Some(owner)))) => {
                 item == shown && *owner != self.in_use()
             }
             _ => false,
@@ -354,6 +362,12 @@ impl HermesAdminStore {
                 .as_ref()
                 .is_some_and(|l| l.connection.is_some() && l.connection != list.connection);
         self.connections = Some(list);
+        // A page shown before any list was read is the connection's this
+        // first list names.
+        let now = self.in_use();
+        if let Some((_, owner @ None)) = &mut self.shown_page {
+            *owner = Some(now);
+        }
         if switched {
             // Another connection's status, catalog, servers and jobs.
             self.status = None;
@@ -791,6 +805,25 @@ pub fn follow_pages(stores: &Stores, cx: &mut App) {
     cx.subscribe(&stores.navigation, move |_, event, cx| {
         let NavigationEvent::Changed(selection) = event;
         admin.update(cx, |a, _| a.note_page(selection));
+    })
+    .detach();
+    // Whatever changed the list (this window's action, another window's
+    // switch heard through hermes.changed, a reconnect's read), a page of
+    // another connection than the one in use goes: a chat when another
+    // connection is in use, any Hermes page with Hermes off.
+    let navigation = stores.navigation.downgrade();
+    cx.observe(&stores.hermes_admin, move |admin, cx| {
+        let Some(navigation) = navigation.upgrade() else {
+            return;
+        };
+        let selection = navigation.read(cx).selection().clone();
+        let admin = admin.read(cx);
+        let chat = matches!(selection, Selection::Area(AreaItem::HermesSession(_)));
+        let close =
+            (chat || admin.in_use().is_none()) && admin.shows_another_connections_page(&selection);
+        if close {
+            navigation.update(cx, |n, cx| n.new_chat(false, cx));
+        }
     })
     .detach();
 }
