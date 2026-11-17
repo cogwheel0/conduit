@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.65.0";
+pub const PROTOCOL_VERSION: &str = "1.66.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -899,6 +899,16 @@ pub struct AuthSnapshot {
     /// canned models and conversations with no server at all.
     #[serde(default)]
     pub is_reviewer_mode: bool,
+    /// Set while a password or LDAP sign-in waits on its second step
+    /// (`auth.twoStep.*`): the password was right, and the server asks for
+    /// an authenticator code before it issues a session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub two_step: Option<TwoStepChallenge>,
+    /// The active server is reached through a reverse proxy whose session
+    /// cookie the account keeps, so an expired proxy session can be signed
+    /// in to again in place (`auth.renewProxy`) rather than signed out of.
+    #[serde(default)]
+    pub can_renew_proxy: bool,
 }
 
 /// The signed-in user, reduced to what the desktop chrome renders.
@@ -925,7 +935,8 @@ pub struct PasswordLogin {
     pub password: String,
 }
 
-/// Params for `auth.loginWithApiKey`.
+/// Params for `auth.loginWithApiKey`: a session token (JWT) copied from
+/// Open WebUI. API keys (`sk-…`) are refused with `auth.apiKeyNotSupported`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKeyLogin {
@@ -952,6 +963,12 @@ pub struct ExternalAuthCompletion {
     /// cookie session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    /// For `auth.renewProxy`, where it is required: the account whose
+    /// sign-in window this was (its id, as `accounts.list` names it).
+    /// Refused with `auth.sessionExpired` once another account is in charge,
+    /// or when the captured session is another user's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
 }
 
 /// Reply to `auth.hasSavedCredentials`.
@@ -966,6 +983,85 @@ pub struct SavedCredentialsResult {
 #[serde(rename_all = "camelCase")]
 pub struct ReviewerMode {
     pub enabled: bool,
+}
+
+/// What an Open WebUI two-step sign-in asks for next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TwoStepStage {
+    /// A code from the account's authenticator app, or one of its recovery
+    /// codes.
+    #[serde(rename = "verify")]
+    Verify,
+    /// The first sign-in since two-step verification became required: add
+    /// the authenticator (`auth.twoStep.setup`), then confirm it with a code.
+    #[serde(rename = "enroll")]
+    Enroll,
+    /// An administrator reset the authenticator: their recovery token, which
+    /// leads on to `enroll`.
+    #[serde(rename = "recover")]
+    Recover,
+    /// The authenticator was just added: the account's new recovery codes,
+    /// which the server shows only once, before the session is signed in to
+    /// (`auth.twoStep.finish`).
+    #[serde(rename = "recoveryCodes")]
+    RecoveryCodes,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// A sign-in waiting on its second step. Carries no challenge token: that
+/// stays in the daemon, as every token does.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TwoStepChallenge {
+    pub stage: TwoStepStage,
+    /// The username or email the sign-in began with, which labels the entry
+    /// in the authenticator app.
+    #[serde(default)]
+    pub account: String,
+    /// How long the server keeps this step, in seconds, from when it began.
+    #[serde(default)]
+    pub expires_in_seconds: i64,
+    /// For `TwoStepStage.recoveryCodes`: the codes, each of which signs in
+    /// once in place of an authenticator code.
+    #[serde(default)]
+    pub recovery_codes: Vec<String>,
+}
+
+/// Reply to `auth.twoStep.setup`: what to add to an authenticator app.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TwoStepSetup {
+    /// The base32 secret, for typing into an authenticator app.
+    pub manual_key: String,
+    /// The server's QR code for `manualKey`, as SVG markup; null when the
+    /// server sent none the app can draw.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qr_svg: Option<String>,
+    /// An `otpauth://` link that adds the key to an authenticator app on
+    /// this computer, labelled as the server labels its QR code.
+    pub authenticator_uri: String,
+}
+
+/// Params for `auth.twoStep.verify`: a code for a `verify` or `enroll`
+/// step.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TwoStepCode {
+    pub code: String,
+    /// For a `verify` step: `code` is one of the account's recovery codes.
+    #[serde(default)]
+    pub recovery: bool,
+}
+
+/// Params for `auth.twoStep.redeem`: an administrator's recovery token for a
+/// `recover` step.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TwoStepResetToken {
+    pub reset_token: String,
 }
 
 /// A scheduled task's schedule, as the editor's controls hold it.
@@ -10016,6 +10112,23 @@ fn default_notification_route_params_alert() -> bool {
     true
 }
 
+/// `notifications.answered`: an Open WebUI answer this Mac did not run
+/// finished (on another device, or a scheduled task's run), as the
+/// phone's notification listener hears it on the server's socket
+/// (`chat:completion`, its last frame). The window routes it as it routes
+/// `turn.finished` (`notifications.route`, an answer).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnswerNotice {
+    pub chat_id: String,
+    /// The answer's message id, when the server names it.
+    #[serde(default)]
+    pub message_id: String,
+    /// The chat's title as the server sent it; may be empty.
+    #[serde(default)]
+    pub title: String,
+}
+
 /// Reply to `notifications.route`: the core's decision.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -13889,12 +14002,36 @@ pub enum ErrorCode {
     TlsUntrusted,
     /// `net.serverError`
     ServerError,
+    /// `net.serverRedirect`
+    ServerRedirect,
     /// `auth.unauthenticated`
     Unauthenticated,
     /// `auth.invalidCredentials`
     InvalidCredentials,
     /// `auth.sessionExpired`
     SessionExpired,
+    /// `auth.signInFailed`
+    SignInFailed,
+    /// `auth.pendingApproval`
+    PendingApproval,
+    /// `auth.apiKeyNotSupported`
+    ApiKeyNotSupported,
+    /// `auth.apiKeyNoLongerSupported`
+    ApiKeyNoLongerSupported,
+    /// `auth.tokenTooShort`
+    TokenTooShort,
+    /// `auth.ldapNotEnabled`
+    LdapNotEnabled,
+    /// `auth.twoStepRequired`
+    TwoStepRequired,
+    /// `auth.twoStepInvalidCode`
+    TwoStepInvalidCode,
+    /// `auth.twoStepExpired`
+    TwoStepExpired,
+    /// `auth.twoStepTooManyAttempts`
+    TwoStepTooManyAttempts,
+    /// `auth.twoStepFailed`
+    TwoStepFailed,
     /// `resource.notFound`
     NotFound,
     /// `resource.conflict`
@@ -13923,9 +14060,21 @@ impl ErrorCode {
             Self::ConnectionFailed => "net.connectionFailed",
             Self::TlsUntrusted => "net.tlsUntrusted",
             Self::ServerError => "net.serverError",
+            Self::ServerRedirect => "net.serverRedirect",
             Self::Unauthenticated => "auth.unauthenticated",
             Self::InvalidCredentials => "auth.invalidCredentials",
             Self::SessionExpired => "auth.sessionExpired",
+            Self::SignInFailed => "auth.signInFailed",
+            Self::PendingApproval => "auth.pendingApproval",
+            Self::ApiKeyNotSupported => "auth.apiKeyNotSupported",
+            Self::ApiKeyNoLongerSupported => "auth.apiKeyNoLongerSupported",
+            Self::TokenTooShort => "auth.tokenTooShort",
+            Self::LdapNotEnabled => "auth.ldapNotEnabled",
+            Self::TwoStepRequired => "auth.twoStepRequired",
+            Self::TwoStepInvalidCode => "auth.twoStepInvalidCode",
+            Self::TwoStepExpired => "auth.twoStepExpired",
+            Self::TwoStepTooManyAttempts => "auth.twoStepTooManyAttempts",
+            Self::TwoStepFailed => "auth.twoStepFailed",
             Self::NotFound => "resource.notFound",
             Self::Conflict => "resource.conflict",
             Self::Unsupported => "capability.unsupported",
@@ -13950,9 +14099,21 @@ impl ErrorCode {
             "net.connectionFailed" => Self::ConnectionFailed,
             "net.tlsUntrusted" => Self::TlsUntrusted,
             "net.serverError" => Self::ServerError,
+            "net.serverRedirect" => Self::ServerRedirect,
             "auth.unauthenticated" => Self::Unauthenticated,
             "auth.invalidCredentials" => Self::InvalidCredentials,
             "auth.sessionExpired" => Self::SessionExpired,
+            "auth.signInFailed" => Self::SignInFailed,
+            "auth.pendingApproval" => Self::PendingApproval,
+            "auth.apiKeyNotSupported" => Self::ApiKeyNotSupported,
+            "auth.apiKeyNoLongerSupported" => Self::ApiKeyNoLongerSupported,
+            "auth.tokenTooShort" => Self::TokenTooShort,
+            "auth.ldapNotEnabled" => Self::LdapNotEnabled,
+            "auth.twoStepRequired" => Self::TwoStepRequired,
+            "auth.twoStepInvalidCode" => Self::TwoStepInvalidCode,
+            "auth.twoStepExpired" => Self::TwoStepExpired,
+            "auth.twoStepTooManyAttempts" => Self::TwoStepTooManyAttempts,
+            "auth.twoStepFailed" => Self::TwoStepFailed,
             "resource.notFound" => Self::NotFound,
             "resource.conflict" => Self::Conflict,
             "capability.unsupported" => Self::Unsupported,
@@ -14291,6 +14452,96 @@ pub mod methods {
     impl RpcMethod for AuthSetReviewerMode {
         const NAME: &'static str = "auth.setReviewerMode";
         type Params = super::ReviewerMode;
+        type Result = super::AuthSnapshot;
+    }
+
+    /// What to add to an authenticator app for a two-step `enroll` step.
+    ///
+    /// `auth.twoStep.setup`: no params -> TwoStepSetup.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AuthTwoStepSetup;
+
+    impl RpcMethod for AuthTwoStepSetup {
+        const NAME: &'static str = "auth.twoStep.setup";
+        type Params = NoParams;
+        type Result = super::TwoStepSetup;
+    }
+
+    /// Answers a two-step `verify` or `enroll` step with a code (or, for
+    /// `verify`, a recovery code). Signs in, or moves to `recoveryCodes` when
+    /// the server issued new ones.
+    ///
+    /// `auth.twoStep.verify`: TwoStepCode -> AuthSnapshot.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AuthTwoStepVerify;
+
+    impl RpcMethod for AuthTwoStepVerify {
+        const NAME: &'static str = "auth.twoStep.verify";
+        type Params = super::TwoStepCode;
+        type Result = super::AuthSnapshot;
+    }
+
+    /// Redeems an administrator's recovery token for a `recover` step, which
+    /// moves to `enroll`.
+    ///
+    /// `auth.twoStep.redeem`: TwoStepResetToken -> AuthSnapshot.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AuthTwoStepRedeem;
+
+    impl RpcMethod for AuthTwoStepRedeem {
+        const NAME: &'static str = "auth.twoStep.redeem";
+        type Params = super::TwoStepResetToken;
+        type Result = super::AuthSnapshot;
+    }
+
+    /// Signs in once the new recovery codes were shown.
+    ///
+    /// `auth.twoStep.finish`: no params -> AuthSnapshot.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AuthTwoStepFinish;
+
+    impl RpcMethod for AuthTwoStepFinish {
+        const NAME: &'static str = "auth.twoStep.finish";
+        type Params = NoParams;
+        type Result = super::AuthSnapshot;
+    }
+
+    /// Leaves the second step, back to the sign-in form.
+    ///
+    /// `auth.twoStep.cancel`: no params -> AuthSnapshot.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AuthTwoStepCancel;
+
+    impl RpcMethod for AuthTwoStepCancel {
+        const NAME: &'static str = "auth.twoStep.cancel";
+        type Params = NoParams;
+        type Result = super::AuthSnapshot;
+    }
+
+    /// Checks the kept session again after a connection issue: the server is
+    /// asked again, or the saved sign-in tried when no session is kept.
+    ///
+    /// `auth.retry`: no params -> AuthSnapshot.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AuthRetry;
+
+    impl RpcMethod for AuthRetry {
+        const NAME: &'static str = "auth.retry";
+        type Params = NoParams;
+        type Result = super::AuthSnapshot;
+    }
+
+    /// Renews the active account's expired reverse-proxy session in place
+    /// with what a proxy sign-in window captured, keeping the account signed
+    /// in.
+    ///
+    /// `auth.renewProxy`: ExternalAuthCompletion -> AuthSnapshot.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AuthRenewProxy;
+
+    impl RpcMethod for AuthRenewProxy {
+        const NAME: &'static str = "auth.renewProxy";
+        type Params = super::ExternalAuthCompletion;
         type Result = super::AuthSnapshot;
     }
 
@@ -16721,6 +16972,21 @@ pub mod methods {
         type Result = super::AppleModels;
     }
 
+    /// The first-run chooser's Apple On-Device row: asks the Mac again, and
+    /// when the model answers, Direct is preferred with it (history kept on
+    /// this Mac unless a policy was chosen before). Answers with the model as
+    /// it is now; anything but available chose nothing.
+    ///
+    /// `apple.choose`: no params -> AppleModelStatus.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct AppleChoose;
+
+    impl RpcMethod for AppleChoose {
+        const NAME: &'static str = "apple.choose";
+        type Params = NoParams;
+        type Result = super::AppleModelStatus;
+    }
+
     /// The window's engine answers an `apple.command`, or says what a run
     /// did.
     ///
@@ -18802,6 +19068,41 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("AuthSnapshot"),
     },
     MethodSpec {
+        name: "auth.twoStep.setup",
+        params: None,
+        result: Some("TwoStepSetup"),
+    },
+    MethodSpec {
+        name: "auth.twoStep.verify",
+        params: Some("TwoStepCode"),
+        result: Some("AuthSnapshot"),
+    },
+    MethodSpec {
+        name: "auth.twoStep.redeem",
+        params: Some("TwoStepResetToken"),
+        result: Some("AuthSnapshot"),
+    },
+    MethodSpec {
+        name: "auth.twoStep.finish",
+        params: None,
+        result: Some("AuthSnapshot"),
+    },
+    MethodSpec {
+        name: "auth.twoStep.cancel",
+        params: None,
+        result: Some("AuthSnapshot"),
+    },
+    MethodSpec {
+        name: "auth.retry",
+        params: None,
+        result: Some("AuthSnapshot"),
+    },
+    MethodSpec {
+        name: "auth.renewProxy",
+        params: Some("ExternalAuthCompletion"),
+        result: Some("AuthSnapshot"),
+    },
+    MethodSpec {
         name: "settings.getApp",
         params: None,
         result: Some("AppPreferences"),
@@ -19807,6 +20108,11 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("AppleModels"),
     },
     MethodSpec {
+        name: "apple.choose",
+        params: None,
+        result: Some("AppleModelStatus"),
+    },
+    MethodSpec {
         name: "apple.report",
         params: Some("AppleReport"),
         result: Some("OkResult"),
@@ -20714,6 +21020,11 @@ pub mod events {
     pub const WORKSPACE_CHANGED: &str = "workspace.changed";
     /// Hermes's settings, sessions or jobs changed. No payload.
     pub const HERMES_CHANGED: &str = "hermes.changed";
+    /// The active account's session changed in a way the account list does
+    /// not show: a second step began or moved on, or a kept session became a
+    /// connection issue (a sign-in proxy turning it away). No payload; ask
+    /// `auth.status` again.
+    pub const AUTH_CHANGED: &str = "auth.changed";
     /// The whisper models changed: a download moved, finished or failed, or
     /// one was deleted. Payload `VoiceModels`.
     pub const VOICE_CHANGED: &str = "voice.changed";
@@ -20729,6 +21040,9 @@ pub mod events {
     /// The notification settings changed (`notifications.get` says how), from
     /// any window, the server's mirror or the daemon itself. No payload.
     pub const NOTIFICATIONS_CHANGED: &str = "notifications.changed";
+    /// An Open WebUI answer this Mac did not run finished (another device, a
+    /// scheduled task): the window notifies as for its own (`AnswerNotice`).
+    pub const NOTIFICATIONS_ANSWERED: &str = "notifications.answered";
     /// A chat's queued messages changed. Payload `QueueState`, scoped to the
     /// chat.
     pub const QUEUE_CHANGED: &str = "queue.changed";
@@ -20912,6 +21226,11 @@ pub const EVENTS: &[EventSpec] = &[
         scoped: false,
     },
     EventSpec {
+        name: "auth.changed",
+        payload: None,
+        scoped: false,
+    },
+    EventSpec {
         name: "voice.changed",
         payload: Some("VoiceModels"),
         scoped: false,
@@ -20934,6 +21253,11 @@ pub const EVENTS: &[EventSpec] = &[
     EventSpec {
         name: "notifications.changed",
         payload: None,
+        scoped: false,
+    },
+    EventSpec {
+        name: "notifications.answered",
+        payload: Some("AnswerNotice"),
         scoped: false,
     },
     EventSpec {
@@ -21140,6 +21464,13 @@ pub enum Event {
     ///
     /// `hermes.changed`.
     HermesChanged(HermesChanged),
+    /// The active account's session changed in a way the account list does
+    /// not show: a second step began or moved on, or a kept session became a
+    /// connection issue (a sign-in proxy turning it away). No payload; ask
+    /// `auth.status` again.
+    ///
+    /// `auth.changed`.
+    AuthChanged,
     /// The whisper models changed: a download moved, finished or failed, or
     /// one was deleted. Payload `VoiceModels`.
     ///
@@ -21165,6 +21496,11 @@ pub enum Event {
     ///
     /// `notifications.changed`.
     NotificationsChanged,
+    /// An Open WebUI answer this Mac did not run finished (another device, a
+    /// scheduled task): the window notifies as for its own (`AnswerNotice`).
+    ///
+    /// `notifications.answered`.
+    NotificationsAnswered(AnswerNotice),
     /// A chat's queued messages changed. Payload `QueueState`, scoped to the
     /// chat.
     ///
@@ -21292,6 +21628,7 @@ impl Event {
             events::OPEN_URL => Self::OpenUrl(serde_json::from_value(payload)?),
             events::WORKSPACE_CHANGED => Self::WorkspaceChanged(serde_json::from_value(payload)?),
             events::HERMES_CHANGED => Self::HermesChanged(serde_json::from_value(payload)?),
+            events::AUTH_CHANGED => Self::AuthChanged,
             events::VOICE_CHANGED => Self::VoiceChanged(serde_json::from_value(payload)?),
             events::TERMINAL_DISPLAY_FILE => {
                 Self::TerminalDisplayFile(serde_json::from_value(payload)?)
@@ -21299,6 +21636,9 @@ impl Event {
             events::TERMINAL_CHANGED => Self::TerminalChanged(serde_json::from_value(payload)?),
             events::SETTINGS_CHANGED => Self::SettingsChanged,
             events::NOTIFICATIONS_CHANGED => Self::NotificationsChanged,
+            events::NOTIFICATIONS_ANSWERED => {
+                Self::NotificationsAnswered(serde_json::from_value(payload)?)
+            }
             events::QUEUE_CHANGED => Self::QueueChanged(serde_json::from_value(payload)?),
             events::MESSAGES_MERGE => Self::MessagesMerge(serde_json::from_value(payload)?),
             events::HANDOFF_REQUESTED => Self::HandoffRequested(serde_json::from_value(payload)?),
@@ -21361,11 +21701,13 @@ impl Event {
             Self::OpenUrl(_) => events::OPEN_URL,
             Self::WorkspaceChanged(_) => events::WORKSPACE_CHANGED,
             Self::HermesChanged(_) => events::HERMES_CHANGED,
+            Self::AuthChanged => events::AUTH_CHANGED,
             Self::VoiceChanged(_) => events::VOICE_CHANGED,
             Self::TerminalDisplayFile(_) => events::TERMINAL_DISPLAY_FILE,
             Self::TerminalChanged(_) => events::TERMINAL_CHANGED,
             Self::SettingsChanged => events::SETTINGS_CHANGED,
             Self::NotificationsChanged => events::NOTIFICATIONS_CHANGED,
+            Self::NotificationsAnswered(_) => events::NOTIFICATIONS_ANSWERED,
             Self::QueueChanged(_) => events::QUEUE_CHANGED,
             Self::MessagesMerge(_) => events::MESSAGES_MERGE,
             Self::HandoffRequested(_) => events::HANDOFF_REQUESTED,
@@ -21414,6 +21756,7 @@ impl Event {
             Self::VoiceChanged(payload) => serde_json::to_value(payload),
             Self::TerminalDisplayFile(payload) => serde_json::to_value(payload),
             Self::TerminalChanged(payload) => serde_json::to_value(payload),
+            Self::NotificationsAnswered(payload) => serde_json::to_value(payload),
             Self::QueueChanged(payload) => serde_json::to_value(payload),
             Self::MessagesMerge(payload) => serde_json::to_value(payload),
             Self::HandoffRequested(payload) => serde_json::to_value(payload),
@@ -21433,6 +21776,7 @@ impl Event {
             | Self::SocketHealth
             | Self::CapabilitiesChanged
             | Self::ModelsChanged
+            | Self::AuthChanged
             | Self::SettingsChanged
             | Self::NotificationsChanged
             | Self::CalendarChanged
@@ -21472,6 +21816,7 @@ pub mod conformance {
         "AccountUser",
         "AccountsChanged",
         "AddAccount",
+        "AnswerNotice",
         "ApiKeyLogin",
         "AppPreferences",
         "AppPreferencesPatch",
@@ -21988,6 +22333,10 @@ pub mod conformance {
         "TurnFailed",
         "TurnFinished",
         "TurnStarted",
+        "TwoStepChallenge",
+        "TwoStepCode",
+        "TwoStepResetToken",
+        "TwoStepSetup",
         "UiInputOption",
         "UiRequest",
         "UiResponse",
@@ -22102,6 +22451,7 @@ pub mod conformance {
             "AccountUser" => roundtrip::<super::AccountUser>(json),
             "AccountsChanged" => roundtrip::<super::AccountsChanged>(json),
             "AddAccount" => roundtrip::<super::AddAccount>(json),
+            "AnswerNotice" => roundtrip::<super::AnswerNotice>(json),
             "ApiKeyLogin" => roundtrip::<super::ApiKeyLogin>(json),
             "AppPreferences" => roundtrip::<super::AppPreferences>(json),
             "AppPreferencesPatch" => roundtrip::<super::AppPreferencesPatch>(json),
@@ -22620,6 +22970,10 @@ pub mod conformance {
             "TurnFailed" => roundtrip::<super::TurnFailed>(json),
             "TurnFinished" => roundtrip::<super::TurnFinished>(json),
             "TurnStarted" => roundtrip::<super::TurnStarted>(json),
+            "TwoStepChallenge" => roundtrip::<super::TwoStepChallenge>(json),
+            "TwoStepCode" => roundtrip::<super::TwoStepCode>(json),
+            "TwoStepResetToken" => roundtrip::<super::TwoStepResetToken>(json),
+            "TwoStepSetup" => roundtrip::<super::TwoStepSetup>(json),
             "UiInputOption" => roundtrip::<super::UiInputOption>(json),
             "UiRequest" => roundtrip::<super::UiRequest>(json),
             "UiResponse" => roundtrip::<super::UiResponse>(json),

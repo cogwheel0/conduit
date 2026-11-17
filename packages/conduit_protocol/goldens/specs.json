@@ -1,5 +1,5 @@
 {
-  "protocolVersion": "1.65.0",
+  "protocolVersion": "1.66.0",
   "appOrigin": "app://conduit",
   "subprotocol": "conduit.v1",
   "subprotocolsExample": {
@@ -139,6 +139,41 @@
     {
       "name": "auth.setReviewerMode",
       "params": "ReviewerMode",
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.twoStep.setup",
+      "params": null,
+      "result": "TwoStepSetup"
+    },
+    {
+      "name": "auth.twoStep.verify",
+      "params": "TwoStepCode",
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.twoStep.redeem",
+      "params": "TwoStepResetToken",
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.twoStep.finish",
+      "params": null,
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.twoStep.cancel",
+      "params": null,
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.retry",
+      "params": null,
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.renewProxy",
+      "params": "ExternalAuthCompletion",
       "result": "AuthSnapshot"
     },
     {
@@ -1147,6 +1182,11 @@
       "result": "AppleModels"
     },
     {
+      "name": "apple.choose",
+      "params": null,
+      "result": "AppleModelStatus"
+    },
+    {
       "name": "apple.report",
       "params": "AppleReport",
       "result": "OkResult"
@@ -2109,6 +2149,11 @@
       "scoped": false
     },
     {
+      "name": "auth.changed",
+      "payload": null,
+      "scoped": false
+    },
+    {
       "name": "voice.changed",
       "payload": "VoiceModels",
       "scoped": false
@@ -2131,6 +2176,11 @@
     {
       "name": "notifications.changed",
       "payload": null,
+      "scoped": false
+    },
+    {
+      "name": "notifications.answered",
+      "payload": "AnswerNotice",
       "scoped": false
     },
     {

@@ -7,6 +7,11 @@
 //!   the session moves on.
 //! * **LibreChat** (Beta): the LibreChat sign-in ([`LibreChatSignInView`]);
 //!   signed in, its account owns the chats and the window moves to chat.
+//! * **Apple On-Device**, while this Mac's model answers
+//!   (`Capabilities::apple_on_device_models`): one click, as the phone's
+//!   `_selectAppleModel` (`apple.choose`): asked again, then Direct is
+//!   preferred on it and the window moves to chat, or the reason it can't
+//!   be used shows. Never Private Cloud Compute on the Mac.
 //!
 //! It lives in the setup window ([`crate::views::setup_window`]). Choosing
 //! a path tells the daemon whether Direct is preferred
@@ -17,9 +22,11 @@ use std::rc::Rc;
 use conduit_components::views::kit::ClickHandler;
 use conduit_components::views::model::Backend;
 use conduit_components::views::onboarding::{
-    BACKENDS, BackendChooser, back_link, link, title_block,
+    AppleChoice, BACKENDS, BackendChooser, back_link, link, title_block,
 };
-use conduit_protocol::{DirectPreferred, ReviewerMode, methods};
+use conduit_protocol::{
+    AppleAvailability, DirectPreferred, NoParams, NoticeLevel, ReviewerMode, methods,
+};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     AnyElement, App, AsyncWindowContext, ClickEvent, Context, Entity, SharedString, Subscription,
@@ -29,6 +36,7 @@ use gpui_kit::{
 use crate::l10n::ActiveL10n as _;
 use crate::stores::Stores;
 use crate::views::direct::DirectView;
+use crate::views::direct::pane::apple_detail;
 use crate::views::hermes::HermesView;
 use crate::views::librechat_sign_in::{LibreChatSignInEvent, LibreChatSignInView};
 use crate::views::server_form::{ServerForm, ServerFormEvent};
@@ -53,6 +61,9 @@ pub struct OnboardingView {
     hermes: Option<Entity<HermesView>>,
     pub librechat: Entity<LibreChatSignInView>,
     busy: bool,
+    /// Why Apple On-Device could not be chosen last (shown as a warning
+    /// toast, as the phone's snackbar).
+    pub apple_error: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -61,6 +72,8 @@ impl OnboardingView {
         let server = cx.new(|cx| ServerForm::new(stores.clone(), window, cx));
         let librechat = cx.new(|cx| LibreChatSignInView::new(stores.clone(), window, cx));
         let subscriptions = vec![
+            // The Apple row comes and goes with this Mac's model.
+            cx.observe(&stores.session, |_, _, cx| cx.notify()),
             cx.subscribe_in(
                 &librechat,
                 window,
@@ -102,8 +115,68 @@ impl OnboardingView {
             hermes: None,
             librechat,
             busy: false,
+            apple_error: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// Whether the chooser offers Apple On-Device: this Mac's model answers.
+    pub fn offers_apple(&self, cx: &App) -> bool {
+        self.stores
+            .session
+            .read(cx)
+            .capabilities()
+            .apple_on_device_models
+    }
+
+    /// The Apple On-Device row (`apple.choose`): Direct on this Mac's model,
+    /// or why not.
+    pub fn choose_apple(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.busy = true;
+        self.apple_error = None;
+        cx.notify();
+        let call = self
+            .stores
+            .connection
+            .read(cx)
+            .rpc()
+            .call::<methods::AppleChoose>(&NoParams);
+        let (session, toasts) = (self.stores.session.clone(), self.stores.toasts.clone());
+        cx.spawn_in(
+            window,
+            async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
+                let result = call.await;
+                let _ = this.update(cx, |s, cx| {
+                    s.busy = false;
+                    let l10n = cx.l10n().clone();
+                    let refused = match result {
+                        Ok(model) if model.availability == AppleAvailability::Available => {
+                            log::info!("onboarding: Apple On-Device chosen");
+                            // Direct is preferred now: the session moves on.
+                            session.update(cx, |s, cx| s.refresh(cx));
+                            None
+                        }
+                        Ok(model) => {
+                            log::info!("onboarding: Apple On-Device can't be used now");
+                            Some((NoticeLevel::Warning, apple_detail(&model, &l10n)))
+                        }
+                        Err(e) => {
+                            log::warn!("apple.choose: {e}");
+                            Some((NoticeLevel::Error, l10n.apple_on_device_unavailable()))
+                        }
+                    };
+                    if let Some((level, words)) = refused {
+                        toasts.update(cx, |t, cx| t.show(level, words.clone(), cx));
+                        s.apple_error = Some(words);
+                    }
+                    cx.notify();
+                });
+            },
+        )
+        .detach();
     }
 
     /// The Direct form, once that path was opened.
@@ -278,6 +351,19 @@ impl Render for OnboardingView {
                         let _ = this.update(cx, |s, cx| s.try_demo(window, cx));
                     })
                 };
+                let apple = self.offers_apple(cx).then(|| {
+                    let this = this.clone();
+                    AppleChoice {
+                        section: l10n.backend_chooser_apple_section_title().into(),
+                        title: l10n.backend_chooser_apple_on_device_title().into(),
+                        detail: l10n.desktop_backend_apple_on_device_subtitle().into(),
+                        on_click: Rc::new(
+                            move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+                                let _ = this.update(cx, |s, cx| s.choose_apple(window, cx));
+                            },
+                        ),
+                    }
+                });
                 div()
                     .flex()
                     .flex_col()
@@ -286,6 +372,7 @@ impl Render for OnboardingView {
                         BackendChooser::new(self.selected)
                             .on_select(select)
                             .on_continue(next)
+                            .apple(apple)
                             .busy(self.busy),
                     )
                     .child(div().flex().justify_center().child(link(

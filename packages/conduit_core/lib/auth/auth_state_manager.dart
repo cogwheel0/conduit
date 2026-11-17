@@ -1649,8 +1649,7 @@ class AuthStateManager extends _$AuthStateManager {
     final capturedSessionSafetyEpoch = _sessionSafetyEpoch;
     final attemptRevision = _beginAuthAttempt();
     bool superseded() =>
-        _authAttemptSuperseded(attemptRevision) ||
-        !(canCommit?.call() ?? true);
+        _authAttemptSuperseded(attemptRevision) || !(canCommit?.call() ?? true);
     final storage = ref.read(optimizedStorageServiceProvider);
     try {
       final selected = await storage.selectUnauthenticatedServerConfig(
@@ -1797,11 +1796,19 @@ class AuthStateManager extends _$AuthStateManager {
   /// [canCommit] lets the caller withdraw the commit while it is saved: once
   /// it says no, the account active before stays active, as it does when a
   /// newer auth attempt begins.
+  ///
+  /// [mayBegin] is asked once, with nothing awaited before the commit's
+  /// first write (not even its loading state, which itself moves the
+  /// session the caller may be checking): a caller whose facts changed
+  /// while it worked stops here, and nothing is written. Once begun, a
+  /// newer sign-in or another account stops the commit by its own
+  /// revision.
   Future<bool> commitPrevalidatedProxySession({
     required ServerConfig serverConfig,
     required String token,
     required User user,
     bool Function()? canCommit,
+    bool Function()? mayBegin,
   }) async {
     final tokenStr = token.trim();
     if (tokenStr.isEmpty) {
@@ -1813,6 +1820,7 @@ class AuthStateManager extends _$AuthStateManager {
     if (!_isValidTokenFormat(tokenStr)) {
       throw Exception('Invalid token format');
     }
+    if (mayBegin != null && !mayBegin()) return false;
     // An interactive proxy commit validated this token with the server during
     // the current connect attempt; a completed logout's marker no longer
     // applies. While a logout is still in flight, the marker keeps rejecting
@@ -3033,6 +3041,19 @@ class AuthStateManager extends _$AuthStateManager {
     resetToken.trim(),
   );
 
+  /// Leaves a sign-in waiting on its second step (Back to Sign In). The
+  /// pending step is dropped and a newer attempt begins, so a
+  /// [finishTwoStepSignIn] still checking its session is superseded at its
+  /// commit and signs nobody in. A state it left loading settles signed out.
+  void cancelTwoStepSignIn() {
+    final current = _current;
+    _beginAuthAttempt();
+    if (current.isLoading || current.status == AuthStatus.loading) {
+      _set(const AuthState(status: AuthStatus.unauthenticated));
+      _updateApiServiceToken(null);
+    }
+  }
+
   /// Signs in with the session a second step issued, as the password or LDAP
   /// sign-in it finishes would have, remembering what that sign-in was asked
   /// to remember.
@@ -3479,7 +3500,8 @@ class AuthStateManager extends _$AuthStateManager {
         _current.token != token) {
       return;
     }
-    final proxyPage = error is DioException &&
+    final proxyPage =
+        error is DioException &&
         error.response != null &&
         answeredWithWebPage(error.response!.headers);
     if (!proxyPage && _isConfirmedAuthFailure(error)) {

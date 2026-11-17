@@ -1786,5 +1786,12 @@
   "desktopShareSheetNothing": "Żadnego z tych elementów nie można dodać do czatu.",
   "desktopShareSheetFailed": "Nie udało się otworzyć Conduit. Spróbuj ponownie.",
   "desktopServicesNewChat": "Nowy czat Conduit z zaznaczeniem",
-  "desktopShareSheetUnavailable": "Nie udało się otworzyć udostępnionych elementów. Udostępnij je ponownie."
+  "desktopShareSheetUnavailable": "Nie udało się otworzyć udostępnionych elementów. Udostępnij je ponownie.",
+  "desktopSignInTokenRequired": "Wklej token, aby się zalogować.",
+  "desktopProxySessionEnded": "Twoja sesja w proxy logowania przed tym serwerem wygasła. Zaloguj się ponownie przez proxy, aby dalej korzystać z tego konta.",
+  "desktopProxySignInFailed": "Nie udało się zalogować przez proxy. Spróbuj ponownie.",
+  "desktopUsageMicrophone": "Conduit słucha, gdy dyktujesz wiadomość lub mówisz w rozmowie głosowej. Nagranie dyktowania zostaje przy wersji roboczej, dopóki jej nie wyślesz.",
+  "desktopUsageSpeechRecognition": "Conduit zamienia dyktowane słowa na tekst na tym Macu, gdy w Ustawienia › Audio wybierzesz „Na tym Macu”.",
+  "desktopUsageLocalNetwork": "Conduit używa sieci lokalnej do łączenia się z dostawcami modeli i skonfigurowanymi serwerami narzędzi MCP.",
+  "desktopBackendAppleOnDeviceSubtitle": "Uruchamiaj prywatny model Apple na tym Macu, nawet offline."
 }

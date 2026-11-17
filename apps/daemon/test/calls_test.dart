@@ -10,7 +10,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatSessionRegistryProvider;
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_ports.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart'
-    show chatDraftQueueSendProvider;
+    show chatDraftQueueAdmissionWaitProvider, chatDraftQueueSendProvider;
 import 'package:conduit_core/features/chat/voice_mode/chat_voice_send.dart';
 
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
@@ -295,6 +295,102 @@ void main() {
       ['is the soil warm yet', 'and the beans'],
     );
   });
+
+  test(
+    'a queued batch waits for a delete begun after it was admitted',
+    () async {
+      final hold = await turns.holdForCall(model: model);
+      addTearDown(hold.release);
+      final scope = hold.scope.container;
+      await scope.read(chatVoiceSendProvider)(null, 'drop this one');
+      // The core's queue admits the batch: its admission wait says the chat
+      // is quiet.
+      await scope.read(chatDraftQueueAdmissionWaitProvider)()!;
+      final chatId = hold.scope.conversation!.id;
+      final dropped = hold.scope.messages
+          .lastWhere((m) => m.role == 'assistant')
+          .id;
+      // Admitted, the batch is about to be sent; a delete begins first.
+      final deleting = turns.deleteMessages(
+        DeleteMessages(chatId: chatId, messageIds: <String>[dropped]),
+      );
+      final batch = scope.read(chatDraftQueueSendProvider)(
+        null,
+        'and the beans',
+        null,
+      );
+      await deleting;
+      await batch;
+      await pumpEventQueue(times: 2000);
+      expect(
+        [
+          for (final m in hold.scope.messages)
+            if (m.role == 'user') m.content,
+        ],
+        contains('and the beans'),
+        reason: 'the delete dropped the queued batch',
+      );
+      expect(hold.scope.messages.last.role, 'assistant');
+    },
+  );
+
+  test(
+    'words said while a queued batch waits are not held behind it',
+    () async {
+      final hold = await turns.holdForCall(model: model);
+      addTearDown(hold.release);
+      addTearDown(() => provider.release('loam'));
+      addTearDown(() => provider.release('surf'));
+      addTearDown(() => provider.release('dusk'));
+      final scope = hold.scope.container;
+      final send = scope.read(chatVoiceSendProvider);
+      // An answer runs; the queue's batch comes and waits for it.
+      final soil = provider.asked('hold:loam');
+      unawaited(
+        send(null, 'hold:loam is the soil warm yet', isVoiceMode: true),
+      );
+      await soil;
+      final batch = scope.read(chatDraftQueueSendProvider)(
+        null,
+        'and the beans',
+        null,
+      );
+      // Words talk over that answer, and theirs runs in turn.
+      final tide = provider.asked('hold:surf');
+      final second = send(
+        null,
+        'hold:surf when is high tide',
+        isVoiceMode: true,
+      );
+      await tide;
+      await pumpEventQueue(times: 2000);
+      var secondEnded = false;
+      unawaited(
+        second.then(
+          (_) => secondEnded = true,
+          onError: (Object _) => secondEnded = true,
+        ),
+      );
+      // More words, while the batch waits: they are admitted at once and
+      // reach the model while the answer before them is still held (were
+      // they behind the batch, this would wait until that answer ended).
+      final moon = provider.asked('hold:dusk');
+      final third = send(null, 'hold:dusk and the moon', isVoiceMode: true);
+      await moon;
+      expect(
+        [
+          for (final m in hold.scope.messages)
+            if (m.role == 'assistant' && m.isStreaming) m,
+        ],
+        hasLength(lessThanOrEqualTo(1)),
+        reason: 'the answer talked over still streams',
+      );
+      provider.release('dusk');
+      await third;
+      await batch;
+      expect(secondEnded, isTrue);
+    },
+  );
 
   test('words said over an answer stop it before they go out', () async {
     final hold = await turns.holdForCall(model: model);

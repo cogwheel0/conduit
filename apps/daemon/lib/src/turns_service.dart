@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:collection/collection.dart';
 
@@ -196,7 +197,7 @@ final class TurnsService implements ChatTurns {
   final ProviderContainer _container;
   final EventBus _events;
 
-  /// The clock and the pause the waits before a turn ([_afterLastTurn],
+  /// The clock and the pause the waits before a turn ([_untilQuiet],
   /// [_settleBeforeTurn]) measure and wait with; a test passes its own.
   final DateTime Function() _now;
   final Future<void> Function(Duration) _pause;
@@ -226,6 +227,23 @@ final class TurnsService implements ChatTurns {
   late final List<ProviderSubscription<Object?>> _accountWatches;
   StreamSubscription<Object?>? _remaps;
   final List<_ChatSession> _sessions = <_ChatSession>[];
+
+  /// The answers this daemon announced (`turn.started` or `turn.finished`),
+  /// newest last: the windows notify for those themselves, so the server's
+  /// own word of them (its socket's `chat:completion`) is not another.
+  final LinkedHashSet<String> _announced = LinkedHashSet<String>();
+
+  void _remember(String messageId) {
+    if (messageId.isEmpty) return;
+    _announced
+      ..remove(messageId)
+      ..add(messageId);
+    if (_announced.length > 512) _announced.remove(_announced.first);
+  }
+
+  /// Whether this daemon announced the answer [messageId] (it ran it, or
+  /// followed it in a chat it holds), so its windows notify for it.
+  bool announced(String messageId) => _announced.contains(messageId);
   bool _disposed = false;
 
   /// Coalescing window for `turn.delta`: a 60 Hz ceiling. A fast model emits
@@ -262,11 +280,7 @@ final class TurnsService implements ChatTurns {
   @override
   bool isRunning(String chatId) {
     final session = _sessionOf(chatId);
-    if (session == null) return false;
-    final turn = session.turn;
-    final pending = session.pending;
-    return (turn != null && !turn.finished) ||
-        (pending != null && !pending.started.isCompleted);
+    return session != null && _busy(session);
   }
 
   /// Whether [chatId] has a scope here: a turn, a merge or a queue in it,
@@ -517,8 +531,9 @@ final class TurnsService implements ChatTurns {
     await _requireBackendFor(model);
     account.require('the backend was ready');
     final session = await _sessionFor(request.chatId, account: account);
+    _Claim? claim;
     try {
-      await _requireIdle(session);
+      claim = await _requireIdle(session);
       final scope = session.scope.container;
       _choose(
         scope,
@@ -581,6 +596,7 @@ final class TurnsService implements ChatTurns {
         ),
       );
     } finally {
+      claim?.end();
       _release(session);
     }
   }
@@ -669,8 +685,7 @@ final class TurnsService implements ChatTurns {
           // The core reads the knowledge and context from the scope's tray,
           // which choosing the model emptied: both answers get them, as a
           // normal send does.
-          final tray = scope.read(contextAttachmentsProvider.notifier)
-            ..clear();
+          final tray = scope.read(contextAttachmentsProvider.notifier)..clear();
           for (final attachment in context) {
             tray.add(attachment);
           }
@@ -708,8 +723,9 @@ final class TurnsService implements ChatTurns {
     final account = AccountScope.capture(_container);
     _refuseTemporary(request.chatId);
     final session = await _sessionFor(request.chatId, account: account);
+    _Claim? claim;
     try {
-      await _requireIdle(session);
+      claim = await _requireIdle(session);
       final target = resolveAssistantRegenerationTarget(
         session.scope.messages,
         request.messageId,
@@ -764,6 +780,7 @@ final class TurnsService implements ChatTurns {
         ),
       );
     } finally {
+      claim?.end();
       _release(session);
     }
   }
@@ -783,8 +800,9 @@ final class TurnsService implements ChatTurns {
       );
     }
     final session = await _sessionFor(request.chatId, account: account);
+    _Claim? claim;
     try {
-      await _requireIdle(session);
+      claim = await _requireIdle(session);
       final messages = session.scope.messages;
       final index = messages.indexWhere((m) => m.id == request.messageId);
       if (index < 0) {
@@ -838,6 +856,7 @@ final class TurnsService implements ChatTurns {
         },
       );
     } finally {
+      claim?.end();
       _release(session);
     }
   }
@@ -867,10 +886,11 @@ final class TurnsService implements ChatTurns {
       );
     }
     final session = await _sessionFor(request.chatId, account: account);
+    _Claim? claim;
     try {
       _refuseReadOnlyHermes(hermes, sessionId);
       // Never from a reply still being written.
-      await _requireIdle(session);
+      claim = await _requireIdle(session);
       account.require('the branch was made');
       final scope = session.scope.container;
       final messages = session.scope.messages;
@@ -905,6 +925,7 @@ final class TurnsService implements ChatTurns {
         debugMessage: error.message,
       );
     } finally {
+      claim?.end();
       _release(session);
     }
   }
@@ -936,9 +957,10 @@ final class TurnsService implements ChatTurns {
       );
     }
     final session = await _sessionFor(request.id, account: account);
+    _Claim? claim;
     try {
       _refuseReadOnlyHermes(_hermes, sessionId);
-      await _requireIdle(session);
+      claim = await _requireIdle(session);
       account.require('the last turn was undone');
       final undone = await undoLastHermesTurn(session.scope.container);
       if (undone) {
@@ -957,6 +979,7 @@ final class TurnsService implements ChatTurns {
         debugMessage: error.message,
       );
     } finally {
+      claim?.end();
       _release(session);
     }
   }
@@ -965,6 +988,7 @@ final class TurnsService implements ChatTurns {
     final account = AccountScope.capture(_container);
     final session = await _sessionFor(request.chatId, account: account);
     var reserved = false;
+    _Claim? claim;
     try {
       if (isRunning(request.chatId) ||
           session.merge != null ||
@@ -978,7 +1002,7 @@ final class TurnsService implements ChatTurns {
       // transcript before the server answers, and puts the old one back if
       // it refuses, so a turn or merge started meanwhile would be lost.
       session.deleting = reserved = true;
-      await _requireIdle(session, deleting: true);
+      claim = await _requireIdle(session, deleting: true);
       // Counted or deleted for the account that asked, or not at all.
       account.require('the messages were deleted');
       final scope = session.scope.container;
@@ -1026,6 +1050,7 @@ final class TurnsService implements ChatTurns {
       return count;
     } finally {
       if (reserved) session.deleting = false;
+      claim?.end();
       _release(session);
     }
   }
@@ -1061,6 +1086,7 @@ final class TurnsService implements ChatTurns {
     // Reserved before the first await, so a second merge, or a send, edit
     // or regenerate ([_requireIdle]), is refused while this one is admitted.
     _Merge? run;
+    _Claim? claim;
     try {
       if (isRunning(request.chatId) || session.merge != null) {
         throw const RpcError(
@@ -1075,7 +1101,7 @@ final class TurnsService implements ChatTurns {
         targetId: request.targetId,
       );
       session.merge = run;
-      await _requireIdle(session, admitting: run);
+      claim = await _requireIdle(session, admitting: run);
       final displayed = session.scope.messages
           .where((m) => m.id == request.messageId && m.role == 'assistant')
           .lastOrNull;
@@ -1130,7 +1156,9 @@ final class TurnsService implements ChatTurns {
             displayedMessageId: displayed.id,
             parentMessageId: parentId,
             model: model,
-            responses: <String>[for (final answer in sources) answer.sourceText],
+            responses: <String>[
+              for (final answer in sources) answer.sourceText,
+            ],
           );
       unawaited(
         merging.then<void>(
@@ -1146,6 +1174,7 @@ final class TurnsService implements ChatTurns {
       );
       return MergeStarted(targetId: target.messageId);
     } finally {
+      claim?.end();
       if (!started) {
         if (run != null && identical(session.merge, run)) session.merge = null;
         _release(session);
@@ -1239,8 +1268,9 @@ final class TurnsService implements ChatTurns {
     }
     session.saving = true;
     var closing = false;
+    _Claim? claim;
     try {
-      await _requireIdle(session, saving: true);
+      claim = await _requireIdle(session, saving: true);
       account.require('the temporary chat was read');
       final messages = session.scope.messages;
       if (messages.isEmpty) {
@@ -1281,6 +1311,7 @@ final class TurnsService implements ChatTurns {
       return ChatForked(chatId: saved.id);
     } finally {
       session.saving = false;
+      claim?.end();
       _release(session);
       // Its scope holds the chat under the old id's turn state; the saved
       // chat opens fresh.
@@ -1626,6 +1657,13 @@ final class TurnsService implements ChatTurns {
   /// The core queue's send for [session]: the batch as one turn, through
   /// [_run] like any other, so its answer reaches the windows. Completes when
   /// the core's send does, as [durableSend] would.
+  ///
+  /// The batch waits for the chat to be quiet ([_untilQuiet]) without holding
+  /// its admission, takes admission only then, and asks [_quietNow] again
+  /// once it has it: anything that came in between (an answer, a delete,
+  /// a stored copy) sends it back to wait, admission let go. So it claims
+  /// the chat in the same moment its placeholder appears. Its turn starts
+  /// once the core has committed it ([_PendingTurn.committed]).
   Future<void> _queuedSend(
     _ChatSession session,
     String text,
@@ -1650,50 +1688,100 @@ final class TurnsService implements ChatTurns {
     final sent = Completer<void>();
     unawaited(() async {
       try {
-        // The core sent the batch once it found no answer on screen, but a
-        // turn asked for before it (words in a call) may start one
-        // meanwhile: the batch goes after that answer has ended, however
-        // long it runs, never on top of it. Waited out before this send's
-        // turn, so words said meanwhile can still talk over that answer.
-        await _afterRunningAnswer(session);
-        await _run(
-          session,
-          account: account,
-          modelId: model.id,
-          userMessageId: null,
-          start: (onPlaceholder) async {
-            // And one started while this waited for its turn.
-            await _afterRunningAnswer(session, ownPending: true);
-            // The queue's batch follows an answer that has only just ended.
-            await _afterLastTurn(session);
-            final sending = durableSend(
-              scope,
-              text,
-              fileIds,
-              toolIds: toolIds,
-              contextAttachments: contextAttachments,
-              onAssistantPlaceholderCreated: (handle) {
-                onPlaceholder(handle);
-                onAssistantPlaceholderCreated?.call(handle);
+        // Stored copies already given their time, for every retry below.
+        final waitedOut = <Future<void>>{};
+        while (true) {
+          // The core sent the batch once it found no answer on screen, but
+          // a turn asked for before it (words in a call) may start one, a
+          // delete may begin, a stored copy may still be pulled: the batch
+          // waits for all of it, without holding admission, so words said
+          // meanwhile can still talk over that answer.
+          await _untilQuiet(session, waitedOut: waitedOut);
+          try {
+            await _run(
+              session,
+              account: account,
+              modelId: model.id,
+              userMessageId: null,
+              onAdmitted: () async {
+                if (!_quietNow(session, waitedOut: waitedOut)) {
+                  throw const _NotQuietYet();
+                }
               },
-              onAdmissionCommitted: onAdmissionCommitted,
+              start: (onPlaceholder) => _sendBatch(
+                session,
+                scope,
+                text,
+                fileIds,
+                toolIds: toolIds,
+                contextAttachments: contextAttachments,
+                onPlaceholder: onPlaceholder,
+                onAssistantPlaceholderCreated: onAssistantPlaceholderCreated,
+                onAdmissionCommitted: onAdmissionCommitted,
+                sent: sent,
+              ),
             );
-            sending.then(
-              (_) {
-                if (!sent.isCompleted) sent.complete();
-              },
-              onError: (Object error, StackTrace stackTrace) {
-                if (!sent.isCompleted) sent.completeError(error, stackTrace);
-              },
-            );
-            await sending;
-          },
-        );
+            return;
+          } on _NotQuietYet {
+            // Admission let go: wait again.
+          }
+        }
       } on Object catch (error, stackTrace) {
         if (!sent.isCompleted) sent.completeError(error, stackTrace);
       }
     }());
     return sent.future;
+  }
+
+  /// The batch's send, once admitted while the chat is quiet.
+  Future<void> _sendBatch(
+    _ChatSession session,
+    ProviderContainer scope,
+    String text,
+    List<String>? fileIds, {
+    List<String>? toolIds,
+    List<ChatContextAttachment>? contextAttachments,
+    required void Function(ChatSendPlaceholderHandle handle) onPlaceholder,
+    void Function(ChatSendPlaceholderHandle handle)?
+    onAssistantPlaceholderCreated,
+    void Function(ChatSendAdmissionReceipt receipt)? onAdmissionCommitted,
+    required Completer<void> sent,
+  }) async {
+    final pending = session.pending;
+    final sending = durableSend(
+      scope,
+      text,
+      fileIds,
+      toolIds: toolIds,
+      contextAttachments: contextAttachments,
+      onAssistantPlaceholderCreated: (handle) {
+        onPlaceholder(handle);
+        onAssistantPlaceholderCreated?.call(handle);
+      },
+      // Only with the core's own receipt (an Open WebUI chat's
+      // durable send): a send without one takes none.
+      onAdmissionCommitted: onAdmissionCommitted == null
+          ? null
+          : (receipt) {
+              // Started before the batch leaves the queue, so the
+              // windows never see an empty queue with nothing
+              // answering.
+              if (pending != null && identical(session.pending, pending)) {
+                pending.committed = true;
+                _project(session);
+              }
+              onAdmissionCommitted(receipt);
+            },
+    );
+    sending.then(
+      (_) {
+        if (!sent.isCompleted) sent.complete();
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (!sent.isCompleted) sent.completeError(error, stackTrace);
+      },
+    );
+    await sending;
   }
 
   // ---------------------------------------------------------------------------
@@ -1794,8 +1882,11 @@ final class TurnsService implements ChatTurns {
           }
         },
         start: (onPlaceholder) async {
-          // A reply the user talked over has only just ended.
-          await _afterLastTurn(session);
+          // A reply the user talked over has only just ended: quiet first,
+          // as every turn the core sends waits ([_untilQuiet]); this turn is
+          // admitted already, so a window's request waits for it, not it
+          // for the request.
+          await _untilQuiet(session, ownPending: true);
           // The call's first turn makes its chat: temporary or not, and in
           // the folder, as the window chose, whatever the call's start reset.
           if (choice != null && !session.scope.isDisposed) {
@@ -2039,7 +2130,9 @@ final class TurnsService implements ChatTurns {
         // Only the turn this send started: one handed off to the outbox
         // has ended already, and the chat's turn may be a later one now.
         final turn = session.turn;
-        if (turn != null && !turn.finished && identical(turn.pending, pending)) {
+        if (turn != null &&
+            !turn.finished &&
+            identical(turn.pending, pending)) {
           _finish(
             session,
             turn,
@@ -2274,7 +2367,10 @@ final class TurnsService implements ChatTurns {
     // it as soon as the core has made the chat; an Open WebUI turn returns
     // once its send has, by which time a new chat has the server's id.
     final chatId = session.scope.conversation?.id;
-    if (chatId == null || (!clientOwned && !pending.sendSettled)) return;
+    if (chatId == null ||
+        (!clientOwned && !pending.sendSettled && !pending.committed)) {
+      return;
+    }
     final index = messages.indexOf(answer);
     final asked = pending.userMessageId;
     final question =
@@ -2283,15 +2379,16 @@ final class TurnsService implements ChatTurns {
             .take(index < 0 ? 0 : index)
             .lastWhere((m) => m.role == 'user', orElse: () => answer!)
             .id;
-    final turn = _Turn(
-      chatId: chatId,
-      messageId: answer.id,
-      model: answer.model ?? pending.model,
-      userMessageId: question == answer.id ? null : question,
-      clientOwned: clientOwned,
-    )
-      ..text = answer.content
-      ..pending = pending;
+    final turn =
+        _Turn(
+            chatId: chatId,
+            messageId: answer.id,
+            model: answer.model ?? pending.model,
+            userMessageId: question == answer.id ? null : question,
+            clientOwned: clientOwned,
+          )
+          ..text = answer.content
+          ..pending = pending;
     if (pending.compare) {
       // The other columns' answers: the same question's other placeholders.
       for (final other in messages) {
@@ -2305,6 +2402,7 @@ final class TurnsService implements ChatTurns {
     }
     session.turn = turn;
     turn.announced = true;
+    _remember(turn.messageId);
     _events.emit(
       ConduitEventSpecs.turnStarted,
       TurnStarted(
@@ -2360,6 +2458,7 @@ final class TurnsService implements ChatTurns {
     session.ended = null;
     session.turn = turn;
     turn.announced = true;
+    _remember(turn.messageId);
     _events.emit(
       ConduitEventSpecs.turnStarted,
       TurnStarted(chatId: chatId, messageId: turn.messageId, model: turn.model),
@@ -2410,6 +2509,7 @@ final class TurnsService implements ChatTurns {
     _scheduleLinger(session);
     // Not an answer yet: the windows end the turn and show the stored row
     // queued, and no "answer ready" goes out for it.
+    _remember(turn.messageId);
     _events.emit(
       ConduitEventSpecs.turnFinished,
       TurnFinished(
@@ -2689,6 +2789,7 @@ final class TurnsService implements ChatTurns {
       _hermes?.setRunning(sessionId, false);
     }
     // Unscoped: every window hears it, whichever chat it shows.
+    _remember(turn.messageId);
     _events.emit(
       ConduitEventSpecs.turnFinished,
       TurnFinished(
@@ -3035,6 +3136,7 @@ final class TurnsService implements ChatTurns {
   ) async {
     final account = AccountScope.capture(_container);
     final session = await _sessionFor(chatId, account: account);
+    _Claim? claim;
     try {
       final running = session.turn;
       if (running != null &&
@@ -3053,7 +3155,7 @@ final class TurnsService implements ChatTurns {
         );
         return;
       }
-      await _requireIdle(session);
+      claim = await _requireIdle(session);
       final answer = session.scope.messages
           .where((m) => m.id == pending.messageId)
           .lastOrNull;
@@ -3080,6 +3182,7 @@ final class TurnsService implements ChatTurns {
         ),
       );
     } finally {
+      claim?.end();
       _release(session);
     }
   }
@@ -3233,6 +3336,14 @@ final class TurnsService implements ChatTurns {
             onAssistantPlaceholderCreated: onAssistantPlaceholderCreated,
             onAdmissionCommitted: onAdmissionCommitted,
           ),
+        ),
+        // ...once the chat has settled after the answer before it, with the
+        // composer free meanwhile. The core waits for nothing here (the
+        // phone's batch goes as its answer ends); this chat settles in order:
+        // first the last turn's stored copy, then a quiet transcript that is
+        // not streaming ([_beforeQueuedBatch]).
+        chatDraftQueueAdmissionWaitProvider.overrideWithValue(
+          () => _beforeQueuedBatch(session),
         ),
       ],
     );
@@ -3443,6 +3554,7 @@ final class TurnsService implements ChatTurns {
         if (hermesSessionOf(turn.chatId) case final sessionId?) {
           _hermes?.setRunning(sessionId, false);
         }
+        _remember(turn.messageId);
         _events
           ..emit(
             ConduitEventSpecs.turnFailed,
@@ -3713,8 +3825,6 @@ final class TurnsService implements ChatTurns {
 
   /// Refuses a second turn in a chat that is already generating: two
   /// answers would interleave into one transcript.
-  /// Refuses a second turn in a chat that is already generating: two
-  /// answers would interleave into one transcript.
   ///
   /// A chat this daemon is not answering in is first let settle. Opening an
   /// Open WebUI chat starts the core's reconciliation with the stored and the
@@ -3726,7 +3836,11 @@ final class TurnsService implements ChatTurns {
   /// waits for the transcript to be quiet and not streaming, for at most
   /// [_settleBudget], and only a chat still generating after that is
   /// refused.
-  Future<void> _requireIdle(
+  ///
+  /// The request has the chat from then until it ends ([_Claim.end], in its
+  /// `finally`): a queued batch waiting to go ([_beforeQueuedBatch]) lets it
+  /// go first, as the phone's composer does while its queue waits.
+  Future<_Claim> _requireIdle(
     _ChatSession session, {
     _Merge? admitting,
     bool saving = false,
@@ -3758,61 +3872,68 @@ final class TurnsService implements ChatTurns {
     // A merge writes into the transcript too: nothing else starts meanwhile.
     bool merging() =>
         session.merge != null && !identical(session.merge, admitting);
-    final turn = session.turn;
-    if ((turn != null && !turn.finished) ||
-        (session.pending != null && !session.pending!.started.isCompleted) ||
-        merging()) {
-      refuse();
-    }
-    // The last turn's stored copy first: until it has the answer, the
-    // pulls that bring it keep replacing the transcript a new turn reads.
-    final settling = session.settling;
-    if (settling != null) await _atMost(settling, _settleTimeout);
-    if (session.requestedChatId != null || session.scope.conversation != null) {
-      await _settleBeforeTurn(session);
-    }
-    refuseWhileReserved();
-    if ((!session.scope.isDisposed && session.scope.isStreaming) ||
-        merging()) {
-      refuse();
-    }
-  }
-
-  /// What a turn the core starts on its own (the queue's next batch, a voice
-  /// call's words) waits for before its send, as [_requireIdle] waits before
-  /// a window's: the last turn's stored copy, then a quiet transcript. A
-  /// turn started while a pull adopts the stored rows is dropped by the
-  /// server's copy. The turn is pending meanwhile, so the chat is busy.
-  /// And a delete that is out first: if the server refuses it, it puts back
-  /// the transcript it found, without this turn (held, not refused, so no
-  /// queued message is dropped).
-  Future<void> _afterLastTurn(_ChatSession session) async {
-    while (session.deleting && !session.scope.isDisposed) {
-      await _pause(const Duration(milliseconds: 50));
-    }
-    // A turn or merge that ended during the quiet wait has started its own
-    // stored copy: that one is waited for too, then quiet again.
-    Future<void>? awaited;
-    while (!session.scope.isDisposed) {
+    if (_busy(session) || merging()) refuse();
+    final claim = _Claim(session);
+    try {
+      // The last turn's stored copy first: until it has the answer, the
+      // pulls that bring it keep replacing the transcript a new turn reads.
       final settling = session.settling;
-      if (settling != null && !identical(settling, awaited)) {
-        awaited = settling;
-        await _atMost(settling, _settleTimeout);
+      if (settling != null) await _atMost(settling, _settleTimeout);
+      if (session.requestedChatId != null ||
+          session.scope.conversation != null) {
+        await _settleBeforeTurn(session);
       }
-      await _settleBeforeTurn(session);
-      final now = session.settling;
-      if (now == null || identical(now, awaited)) return;
+      refuseWhileReserved();
+      if ((!session.scope.isDisposed && session.scope.isStreaming) ||
+          merging()) {
+        refuse();
+      }
+    } on Object {
+      claim.end();
+      rethrow;
     }
+    return claim;
   }
 
-  /// Waits until no answer runs in [session], nor is about to start (a
-  /// turn asked for and not started yet, unless it is the caller's own,
-  /// [ownPending]). Each wait ends with that turn: no time limit, and no
-  /// turn outlives the chat ([dispose] ends them all).
-  Future<void> _afterRunningAnswer(
+  /// A turn runs in [session], or one is on its way to its answer.
+  static bool _busy(_ChatSession session) {
+    final turn = session.turn;
+    final pending = session.pending;
+    return (turn != null && !turn.finished) ||
+        (pending != null && !pending.started.isCompleted);
+  }
+
+  /// The one rule for every wait before a turn the core sends on its own
+  /// (a queued batch, a voice call's words): [_quietNow] holding, with
+  /// nothing new installed while it was waited for. Each part is waited
+  /// out in turn, then the whole is asked again:
+  ///
+  /// * an answer running, or about to start (unless it is the caller's own,
+  ///   [ownPending]): until it ends, however long;
+  /// * the stored copy a turn or merge started: a pull that lands after a
+  ///   turn started replaces the transcript it reads, so the turn would be
+  ///   dropped by the server's copy (at most [_settleTimeout] each);
+  /// * a merge, a delete or a Save Chat: for as long as it runs (a delete
+  ///   the server refuses puts back the transcript it found, without the
+  ///   turn);
+  /// * a window's request on its way ([_ChatSession.claims]): a message
+  ///   sent now goes first. Not for a turn already admitted
+  ///   ([ownPending]): that request waits for this turn's admission;
+  /// * a quiet transcript, not streaming (at most [_settleBudget]).
+  ///
+  /// Nothing here holds the chat's admission ([_run]): a queued batch waits
+  /// for this, then takes admission and asks [_quietNow] again
+  /// ([_queuedSend]), so words said meanwhile can still talk over an answer.
+  ///
+  /// [waitedOut] holds the stored copies already given their
+  /// [_settleTimeout]: one set for a whole queued send, so a retry after a
+  /// refused admission does not wait for the same one again.
+  Future<void> _untilQuiet(
     _ChatSession session, {
     bool ownPending = false,
+    Set<Future<void>>? waitedOut,
   }) async {
+    waitedOut ??= <Future<void>>{};
     while (!session.scope.isDisposed) {
       final pending = session.pending;
       if (!ownPending && pending != null && !pending.started.isCompleted) {
@@ -3824,9 +3945,60 @@ final class TurnsService implements ChatTurns {
         await turn.ended.future;
         continue;
       }
-      return;
+      final settling = session.settling;
+      if (settling != null && !waitedOut.contains(settling)) {
+        waitedOut.add(settling);
+        await _atMost(settling, _settleTimeout);
+        continue;
+      }
+      if (_held(session, ownPending: ownPending)) {
+        await _pause(const Duration(milliseconds: 50));
+        continue;
+      }
+      await _settleBeforeTurn(session);
+      if (_quietNow(session, ownPending: ownPending, waitedOut: waitedOut)) {
+        return;
+      }
     }
   }
+
+  /// Whether [session] is quiet for a turn the core sends ([_untilQuiet]):
+  /// no answer running or about to start (but the caller's own,
+  /// [ownPending]), no stored copy settling (but those already waited out,
+  /// [waitedOut]), and nothing else holding it ([_held]).
+  bool _quietNow(
+    _ChatSession session, {
+    bool ownPending = false,
+    Set<Future<void>> waitedOut = const <Future<void>>{},
+  }) {
+    if (session.scope.isDisposed) return true;
+    final pending = session.pending;
+    final turn = session.turn;
+    final settling = session.settling;
+    return !(turn != null && !turn.finished) &&
+        !(!ownPending && pending != null && !pending.started.isCompleted) &&
+        (settling == null || waitedOut.contains(settling)) &&
+        !_held(session, ownPending: ownPending);
+  }
+
+  /// A merge, a delete or a Save Chat out in [session], or (unless the
+  /// turn is already admitted, [ownPending]) a window's request on its way.
+  static bool _held(_ChatSession session, {bool ownPending = false}) =>
+      session.merge != null ||
+      session.deleting ||
+      session.saving ||
+      (!ownPending && session.claims > 0);
+
+  /// What a batch of queued messages waits for before the core admits it
+  /// (its [chatDraftQueueAdmissionWaitProvider]): [_untilQuiet]. The core
+  /// then sends it, and [_queuedSend] asks the same again before the batch
+  /// takes the chat.
+  ///
+  /// The chat is not busy meanwhile, and the composer offers Send, as the
+  /// phone's does while its queue waits on the server. A message sent now
+  /// goes first, and the batch after its answer and that answer's stored
+  /// copy.
+  Future<void> _beforeQueuedBatch(_ChatSession session) => _untilQuiet(session);
 
   static const Duration _settleBudget = Duration(seconds: 6);
 
@@ -3843,6 +4015,8 @@ final class TurnsService implements ChatTurns {
     return Future.any(<Future<void>>[ended, _pause(limit)]);
   }
 
+  /// Waits for [session]'s transcript to be quiet and not streaming, for at
+  /// most [_settleBudget].
   Future<void> _settleBeforeTurn(_ChatSession session) async {
     if (session.scope.isDisposed) return;
     var lastChange = _now();
@@ -3852,9 +4026,10 @@ final class TurnsService implements ChatTurns {
     );
     try {
       final deadline = _now().add(_settleBudget);
-      while (_now().isBefore(deadline) && !session.scope.isDisposed) {
+      while (!session.scope.isDisposed) {
         final quiet = _now().difference(lastChange) >= _settleQuiet;
         if (quiet && !session.scope.isStreaming) return;
+        if (!_now().isBefore(deadline)) return;
         await _pause(const Duration(milliseconds: 50));
       }
     } finally {
@@ -4028,6 +4203,11 @@ final class _ChatSession {
   /// Requests preparing a turn in this chat; it is not let go meanwhile.
   int holds = 0;
 
+  /// Requests a window made that [TurnsService._requireIdle] let through and
+  /// that have not yet started their turn or ended: a queued batch waits for
+  /// them ([TurnsService._beforeQueuedBatch]).
+  int claims = 0;
+
   /// The last turn's post-turn sync, while it runs.
   Future<void>? settling;
 
@@ -4063,7 +4243,30 @@ final class _ChatSession {
   }
 }
 
+/// A window's request that [TurnsService._requireIdle] let through: it has
+/// [session] until [end], which its `finally` calls once.
+final class _Claim {
+  _Claim(this.session) {
+    session.claims++;
+  }
+
+  final _ChatSession session;
+  bool _ended = false;
+
+  void end() {
+    if (_ended) return;
+    _ended = true;
+    session.claims--;
+  }
+}
+
 /// A turn asked for whose answer has not appeared yet.
+/// A queued batch admitted while the chat had stopped being quiet: it lets
+/// admission go and waits again ([TurnsService._queuedSend]).
+final class _NotQuietYet implements Exception {
+  const _NotQuietYet();
+}
+
 final class _PendingTurn {
   _PendingTurn({
     required this.model,
@@ -4086,6 +4289,13 @@ final class _PendingTurn {
   bool sendSettled = false;
   Object? sendError;
   final Completer<_Turn> started = Completer<_Turn>();
+
+  /// A batch of queued messages the core has committed: the outbox owns
+  /// its turn, which starts now rather than once the request has gone out.
+  /// No window is waiting on it, and its chat has its server id; the
+  /// windows show the chat answering from here on, as the phone does once
+  /// the batch's answer appears, instead of offering Send.
+  bool committed = false;
 
   /// A Compare Models turn: its other answers are the turn's companions.
   final bool compare;

@@ -217,7 +217,7 @@ class DaemonServer {
     final coming = _coreComing;
     if (coming != null && !coming.isCompleted) coming.complete(core);
     _servers = ServersService(core.container);
-    _auth = AuthService(core.container);
+    _auth = AuthService(core.container, events: events);
     _settings = SettingsService(core.container);
     final temporary = TemporaryChats();
     _queuedCompletions = QueuedCompletionsService(core.container, events);
@@ -306,7 +306,11 @@ class DaemonServer {
     _coreSettings = CoreSettingsService(core.container, events: events);
     _profile = ProfileService(core.container, accounts: _accounts);
     _memories = MemoriesService(core.container);
-    _notifications = NotificationsService(core.container, events: events);
+    _notifications = NotificationsService(
+      core.container,
+      events: events,
+      announced: _turns!.announced,
+    );
     _webhooks = WebhooksService(core.container);
     _integrations = IntegrationsService(core.container);
     _libreChat = LibreChatService(
@@ -1128,6 +1132,8 @@ class DaemonServer {
     // chat that lingers after its answer, both read its container.
     _accounts?.dispose();
     _accounts = null;
+    _auth?.dispose();
+    _notifications?.dispose();
     await _turns?.dispose();
     _queuedCompletions?.dispose();
     _mcpApps?.dispose();

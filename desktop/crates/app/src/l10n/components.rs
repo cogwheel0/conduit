@@ -120,7 +120,7 @@ pub fn component_strings(l: &L10n) -> Strings {
         or: s(l.desktop_or()),
         sso: s(l.desktop_sign_in_with_sso()),
         ldap: s(l.desktop_sign_in_with_ldap()),
-        api_key: s(l.desktop_api_key()),
+        token: s(l.jwt()),
         change: s(l.desktop_change_server()),
         server_chip: s(l.desktop_server_chip(NAME)),
         sync_now: s(l.desktop_sync_now()),

@@ -1,0 +1,10 @@
+{
+  "phase": "error",
+  "isAuthenticated": false,
+  "isLoading": false,
+  "hasToken": true,
+  "errorCode": "net.connectionFailed",
+  "errorArgs": {},
+  "isReviewerMode": false,
+  "canRenewProxy": true
+}

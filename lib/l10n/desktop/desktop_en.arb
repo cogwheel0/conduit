@@ -5920,5 +5920,33 @@
   "desktopHermesJobHideRuns": "Hide Run History",
   "@desktopHermesJobHideRuns": {
     "description": "Disclosure button when a job's run history is open."
+  },
+  "desktopSignInTokenRequired": "Paste a token to sign in.",
+  "@desktopSignInTokenRequired": {
+    "description": "Error on the sign-in form when Token is the method and its field is empty. A token is a session token (JWT) copied from Open WebUI on the web."
+  },
+  "desktopProxySessionEnded": "Your session with the sign-in proxy in front of this server ended. Sign in to the proxy again to keep using this account.",
+  "@desktopProxySessionEnded": {
+    "description": "Status on the Connection Issue page when the account's server sits behind a sign-in proxy (oauth2-proxy, Authelia and the like) whose session expired. The account is still signed in to Conduit; the button below says Sign In to Proxy Again."
+  },
+  "desktopProxySignInFailed": "Couldn't sign in to the proxy. Try again.",
+  "@desktopProxySignInFailed": {
+    "description": "Error on the Connection Issue page when signing in to the sign-in proxy again did not finish (the proxy's page failed, or its new session was not accepted)."
+  },
+  "desktopUsageMicrophone": "Conduit listens when you dictate a message or talk in a voice call. A dictation's recording stays with your draft until you send it.",
+  "@desktopUsageMicrophone": {
+    "description": "macOS privacy prompt text (Info.plist NSMicrophoneUsageDescription), shown by the system when Conduit first asks for the microphone: dictation into the message box, and voice calls. A dictation's recording is kept with the unsent draft. Sentence case, full sentences."
+  },
+  "desktopUsageSpeechRecognition": "Conduit turns what you dictate into text on this Mac when you choose On This Mac in Settings › Audio.",
+  "@desktopUsageSpeechRecognition": {
+    "description": "macOS privacy prompt text (Info.plist NSSpeechRecognitionUsageDescription), shown by the system when Conduit first uses the Mac's own speech recognizer. 'On This Mac' is the speech-to-text choice in Settings › Audio; use the same words as that setting. Sentence case."
+  },
+  "desktopUsageLocalNetwork": "Conduit uses your local network to connect to model providers and configured MCP tool servers.",
+  "@desktopUsageLocalNetwork": {
+    "description": "macOS privacy prompt text (Info.plist NSLocalNetworkUsageDescription), shown by the system when Conduit first reaches a server on the local network (a self-hosted Open WebUI, a model provider, an MCP tool server). Same wording as the phone app's. Sentence case."
+  },
+  "desktopBackendAppleOnDeviceSubtitle": "Run Apple's private model on this Mac, even offline.",
+  "@desktopBackendAppleOnDeviceSubtitle": {
+    "description": "First-run backend chooser: subtitle of the Apple On-Device row (the phone's says 'this device'; this is the Mac's). Apple's on-device model runs on the Mac without a network. Sentence case."
   }
 }

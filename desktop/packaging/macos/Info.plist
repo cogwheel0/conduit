@@ -73,8 +73,10 @@
 	     Mac's own speech recognition when Settings › Audio chooses it.
 	     Asked for on first use; the audio stays on this Mac unless the
 	     server's engine is chosen. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Conduit uses your local network to connect to model providers and configured MCP tool servers.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Conduit listens when you dictate a message, and keeps the recording with your draft until you send it.</string>
+	<string>Conduit listens when you dictate a message or talk in a voice call. A dictation's recording stays with your draft until you send it.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Conduit turns what you dictate into text on this Mac when you choose On This Mac in Settings › Audio.</string>
 

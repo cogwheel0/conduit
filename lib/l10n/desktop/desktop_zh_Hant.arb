@@ -1786,5 +1786,12 @@
   "desktopShareSheetNothing": "這些項目都無法加入對話。",
   "desktopShareSheetFailed": "無法開啟 Conduit。請再試一次。",
   "desktopServicesNewChat": "以所選內容新增 Conduit 對話",
-  "desktopShareSheetUnavailable": "無法開啟分享的項目。請重新分享。"
+  "desktopShareSheetUnavailable": "無法開啟分享的項目。請重新分享。",
+  "desktopSignInTokenRequired": "請貼上權杖以登入。",
+  "desktopProxySessionEnded": "此伺服器前方的登入代理伺服器工作階段已結束。請重新透過代理伺服器登入，以繼續使用此帳號。",
+  "desktopProxySignInFailed": "無法透過代理伺服器登入。請再試一次。",
+  "desktopUsageMicrophone": "當你聽寫訊息或在語音通話中說話時，Conduit 會聆聽。聽寫的錄音會隨草稿保留，直到你傳送為止。",
+  "desktopUsageSpeechRecognition": "當你在「設定 › 音訊」中選擇「在這台 Mac 上」時，Conduit 會在這台 Mac 上將你聽寫的內容轉為文字。",
+  "desktopUsageLocalNetwork": "Conduit 使用你的區域網路連線至模型供應商和已設定的 MCP 工具伺服器。",
+  "desktopBackendAppleOnDeviceSubtitle": "在此 Mac 上執行 Apple 的私密模型，離線也能用。"
 }

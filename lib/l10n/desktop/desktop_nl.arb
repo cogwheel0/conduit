@@ -1786,5 +1786,12 @@
   "desktopShareSheetNothing": "Geen van deze onderdelen kan aan een chat worden toegevoegd.",
   "desktopShareSheetFailed": "Conduit kon niet worden geopend. Probeer het opnieuw.",
   "desktopServicesNewChat": "Nieuwe Conduit-chat met selectie",
-  "desktopShareSheetUnavailable": "De gedeelde onderdelen konden niet worden geopend. Deel ze opnieuw."
+  "desktopShareSheetUnavailable": "De gedeelde onderdelen konden niet worden geopend. Deel ze opnieuw.",
+  "desktopSignInTokenRequired": "Plak een token om je aan te melden.",
+  "desktopProxySessionEnded": "Je sessie bij de aanmeldproxy vóór deze server is verlopen. Meld je opnieuw aan via de proxy om dit account te blijven gebruiken.",
+  "desktopProxySignInFailed": "Aanmelden via de proxy is niet gelukt. Probeer het opnieuw.",
+  "desktopUsageMicrophone": "Conduit luistert als je een bericht dicteert of in een spraakgesprek praat. De opname van een dictaat blijft bij je concept tot je het verstuurt.",
+  "desktopUsageSpeechRecognition": "Conduit zet wat je dicteert om in tekst op deze Mac als je ‘Op deze Mac’ kiest in Instellingen › Audio.",
+  "desktopUsageLocalNetwork": "Conduit gebruikt je lokale netwerk om verbinding te maken met modelaanbieders en ingestelde MCP-toolservers.",
+  "desktopBackendAppleOnDeviceSubtitle": "Voer het privémodel van Apple uit op deze Mac, zelfs offline."
 }

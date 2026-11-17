@@ -474,3 +474,160 @@ fn selection_of(cx: &mut App) -> crate::stores::navigation::Selection {
         .selection()
         .clone()
 }
+
+/// `--e2e onboarding-apple`: the first-run chooser's Apple On-Device row
+/// (the phone's backend chooser, `_selectAppleModel`), with no server:
+///
+/// * this Mac's REAL model first: the row shows only if it answers, and a
+///   choice it refuses says why in the Mac's words and chooses nothing;
+/// * then the engine's scripted model: the row shows under "Apple
+///   Intelligence" (no Private Cloud Compute row); one click prefers
+///   Direct on it, history kept on this Mac, and the main window opens
+///   with Apple On-Device as the only model.
+pub async fn onboarding(_inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
+    use crate::views::onboarding::OnboardingView;
+
+    fn onboarding_view(cx: &mut App) -> Option<Entity<OnboardingView>> {
+        super::setup_window(cx).map(|(_, sw)| sw.read(cx).onboarding.clone())
+    }
+    fn offered(cx: &mut App) -> bool {
+        onboarding_view(cx).is_some_and(|o| o.read(cx).offers_apple(cx))
+    }
+
+    let mut pass = fresh_profile(cx).await;
+    pass &= ok("the setup window opened", wait_setup(cx).await.is_some());
+
+    // 1. This Mac's own model.
+    let real = call::<methods::AppleStatus>(&NoParams, cx).await;
+    let real_available = real.as_ref().is_some_and(|m| {
+        m.models
+            .first()
+            .is_some_and(|s| s.availability == AppleAvailability::Available)
+    });
+    settle(cx, 1500).await;
+    pass &= ok(
+        &format!(
+            "the chooser offers Apple On-Device only while this Mac's model answers ({:?})",
+            real.as_ref()
+                .and_then(|m| m.models.first())
+                .map(|s| s.availability)
+        ),
+        cx.update(offered) == real_available,
+    );
+    if !real_available {
+        // A model that stopped answering after the row showed: the reason,
+        // and nothing chosen.
+        in_setup(cx, |sw, window, cx| {
+            sw.onboarding.update(cx, |o, cx| o.choose_apple(window, cx))
+        });
+        let said = wait_until(cx, Duration::from_secs(20), |cx| {
+            onboarding_view(cx).is_some_and(|o| o.read(cx).apple_error.is_some())
+        })
+        .await;
+        let words =
+            cx.update(|cx| onboarding_view(cx).and_then(|o| o.read(cx).apple_error.clone()));
+        let expected = cx.update(|cx| {
+            let l = crate::l10n::ActiveL10n::l10n(cx).clone();
+            real.as_ref()
+                .and_then(|m| m.models.first())
+                .map(|s| apple_detail(s, &l))
+        });
+        let toasted = cx.update(|cx| {
+            let app: &App = cx;
+            app.global::<AppState>()
+                .stores
+                .toasts
+                .read(app)
+                .toasts
+                .iter()
+                .any(|t| Some(&t.message) == words.as_ref())
+        });
+        pass &= ok(
+            &format!("a refused choice says why, in a toast ({words:?})"),
+            said && words.is_some() && words == expected && toasted,
+        );
+        let direct = call::<methods::DirectList>(&NoParams, cx).await;
+        pass &= ok(
+            "…and chooses nothing (Direct is not preferred)",
+            direct.is_some_and(|d| !d.preferred),
+        );
+        pass &= ok(
+            "…and the window stays on the chooser",
+            cx.update(current_route) == Route::Onboarding,
+        );
+        shoot_setup(dir, "onboarding-apple-refused", cx).await;
+    }
+
+    // 2. The engine's scripted model answers.
+    apple_models::use_fake();
+    let ready = call::<methods::AppleRefresh>(&NoParams, cx).await;
+    pass &= ok(
+        "the engine's model answers (apple.refresh)",
+        ready.is_some_and(|m| {
+            m.models
+                .first()
+                .is_some_and(|s| s.availability == AppleAvailability::Available)
+        }),
+    );
+    let shown = wait_until(cx, Duration::from_secs(20), offered).await;
+    pass &= ok("the chooser offers Apple On-Device", shown);
+    in_setup(cx, |sw, _, cx| {
+        sw.onboarding.update(cx, |o, cx| {
+            o.apple_error = None;
+            cx.notify()
+        })
+    });
+    // A shot of the chooser, not of the refusal's toast.
+    super::sign_in::clear_toasts(cx);
+    settle(cx, 600).await;
+    if let Some(handle) = wait_setup(cx).await {
+        let controls = super::ax(handle, "onboarding-apple", dir, cx).await;
+        pass &= ok(
+            "the row is a button labelled Apple On-Device",
+            has(&controls, "Button", "Apple On-Device"),
+        );
+        pass &= ok(
+            "no Private Cloud Compute row",
+            !controls.iter().any(|c| c.contains("Private Cloud Compute")),
+        );
+    }
+    shoot_setup(dir, "onboarding-apple", cx).await;
+
+    // 3. One click: Direct on Apple's model, history on this Mac.
+    in_setup(cx, |sw, window, cx| {
+        sw.onboarding.update(cx, |o, cx| o.choose_apple(window, cx))
+    });
+    pass &= wait_route(cx, Route::Main, Duration::from_secs(60)).await;
+    let direct_only = wait_until(cx, Duration::from_secs(30), |cx| {
+        let s = cx.global::<AppState>().stores.session.clone();
+        s.read(cx).direct_only(cx)
+    })
+    .await;
+    pass &= ok("the window is a Direct one", direct_only);
+    pass &= wait_main(cx).await.is_some();
+    let direct = call::<methods::DirectList>(&NoParams, cx).await;
+    pass &= ok(
+        &format!(
+            "Direct is preferred, usable, with history on this Mac ({:?})",
+            direct
+                .as_ref()
+                .map(|d| (d.preferred, d.usable, d.local_history))
+        ),
+        direct.is_some_and(|d| d.preferred && d.usable && d.local_history),
+    );
+    let alone = wait_until(cx, Duration::from_secs(30), |cx| {
+        pane(cx).is_some_and(|p| {
+            p.read(cx)
+                .composer_store
+                .read(cx)
+                .models
+                .as_ref()
+                .is_some_and(|m| m.models.len() == 1 && is_apple_on_device(&m.models[0]))
+        })
+    })
+    .await;
+    pass &= ok("Apple On-Device is the only model", alone);
+    settle(cx, 600).await;
+    shoot_main(dir, "onboarding-apple-main", cx).await;
+    pass
+}

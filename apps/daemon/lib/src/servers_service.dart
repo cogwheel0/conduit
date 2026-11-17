@@ -1,7 +1,8 @@
 import 'dart:async';
 
-import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/auth/proxy_renewal.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/services/api_service.dart' show HealthCheckResult;
@@ -10,6 +11,7 @@ import 'package:conduit_core/utils/server_version_compat.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'account_scope.dart';
 import 'settled.dart';
 import 'voice_service.dart';
 
@@ -119,6 +121,9 @@ final class ServersService {
     // the provider it depends on has not resolved yet. Reading it directly
     // here reported "unknown" for a server that was about to work.
     await readSettled(_container, activeServerProvider.future);
+    // What the checks below find belongs to the account whose client is
+    // read here, taken once its server has settled.
+    final account = AccountScope.capture(_container);
     final api = _container.read(apiServiceProvider);
     if (api == null) {
       return ServerStatus(
@@ -152,6 +157,7 @@ final class ServersService {
         if (health == HealthCheckResult.unreachable) {
           return _unreachable(activeId, null);
         }
+        _noteProxySession(health, account);
       } on Object catch (error) {
         return _unreachable(activeId, error);
       }
@@ -171,6 +177,26 @@ final class ServersService {
       isVersionSupported: config.isVersionSupported,
       maxSupportedVersion: ServerVersionCompat.maxSupportedVersion,
     );
+  }
+
+  /// A signed-in account whose server sits behind a sign-in proxy, which now
+  /// sends it to its sign-in page: the proxy's session expired. Told to the
+  /// core as its client tells it a redirect on the session endpoint, so the
+  /// account keeps its session and the window offers to renew the proxy's
+  /// (`auth.renewProxy`) instead of signing out.
+  ///
+  /// Only for the account the check was made for ([account]): another
+  /// account's server answering meanwhile is no word on this one's proxy.
+  void _noteProxySession(HealthCheckResult health, AccountScope account) {
+    if (!account.isCurrent) return;
+    final server = _container.read(activeServerProvider).asData?.value;
+    final auth = _container.read(authStateManagerProvider).asData?.value;
+    if (auth == null ||
+        !auth.isAuthenticated ||
+        !proxySessionExpired(server, health)) {
+      return;
+    }
+    _container.read(authStateManagerProvider.notifier).onAuthIssue();
   }
 
   static ServerStatus _unreachable(String activeId, Object? error) =>

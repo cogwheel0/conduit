@@ -251,6 +251,9 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     }
 
     // ── Run Now, watched until the run is in the history ──────────────
+    // The server runs it as a chat turn this Mac did not start: its answer
+    // notifies as the phone's does (the server's socket), once.
+    let routed_before = cx.update(|cx| crate::desktop::routed_notifications(cx).len());
     let run_id = id.clone();
     in_pane(cx, move |p, _, cx| p.run(&run_id, cx));
     let waiting = wait_until(cx, Duration::from_secs(15), {
@@ -299,6 +302,21 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     });
     if let Some(run) = run {
         let chat = run.result_chat_id.clone().unwrap_or_default();
+        let key = crate::shell::notify::identifier(&chat);
+        let notified = |cx: &mut App| {
+            crate::desktop::routed_notifications(cx)
+                .into_iter()
+                .skip(routed_before)
+                .filter(|r| r.id == key)
+                .collect::<Vec<_>>()
+        };
+        let heard = wait_until(cx, Duration::from_secs(20), |cx| !notified(cx).is_empty()).await;
+        settle(cx, 2500).await;
+        let routed = cx.update(notified);
+        pass &= ok(
+            &format!("the run's answer notifies once, as the core routes it ({routed:?})"),
+            heard && routed.len() == 1,
+        );
         in_pane(cx, move |p, _, cx| p.open_result(&run, cx));
         let opened = wait_until(cx, Duration::from_secs(40), move |cx| {
             super::chat::chat_store(cx).is_some_and(|s| {

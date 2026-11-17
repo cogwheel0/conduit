@@ -612,6 +612,96 @@ void main() {
         timeout: const Timeout(Duration(minutes: 4)),
       );
 
+      test('a message sent while a queued batch waits for the chat to settle '
+          'goes first, and the batch follows its answer', () async {
+        final events = EventBus();
+        final turns = TurnsService(runtime.container, events);
+        addTearDown(turns.dispose);
+        final completed = <String>[];
+        // `turn.started` and the queue's size, in the order they went out.
+        final heard = <String>[];
+        late String chatId;
+        Future<SendTurnAccepted>? meanwhile;
+        events.attach('probe', (envelope) {
+          switch (envelope.event) {
+            case ConduitEvents.turnStarted:
+              heard.add(
+                'started ${TurnStarted.fromJson(envelope.payload).messageId}',
+              );
+            case ConduitEvents.turnCompleted:
+              completed.add(TurnCompleted.fromJson(envelope.payload).messageId);
+            case ConduitEvents.queueChanged:
+              final queue = QueueState.fromJson(envelope.payload);
+              heard.add('queued ${queue.drafts.length}');
+              // The answer before it has ended and the batch waits for
+              // the chat to settle: a window that shows Send is used now.
+              if (queue.phase == QueuePhase.admitting && meanwhile == null) {
+                meanwhile = turns.send(
+                  SendTurn(
+                    chatId: chatId,
+                    model: turnModel,
+                    text: 'Reply with exactly the word: kite',
+                  ),
+                )..ignore();
+              }
+          }
+        });
+        final first = await turns.send(
+          SendTurn(model: turnModel, text: 'Reply with exactly the word: pong'),
+        );
+        chatId = first.chatId;
+        created.add(chatId);
+        subscribeWindow(events, turns, 'probe', <String>[chatId]);
+        await _waitFor(() => completed.isNotEmpty, seconds: 60);
+        expect(completed, isNotEmpty);
+
+        // An answer of a few seconds, and a message queued behind it.
+        final long = await turns.send(
+          SendTurn(
+            chatId: chatId,
+            model: turnModel,
+            text: 'Tell me something long',
+          ),
+        );
+        await _waitFor(() => turns.queueGet(chatId).offer, seconds: 30);
+        turns.queueAdd(QueueAdd(chatId: chatId, text: 'And the west side?'));
+        await _waitFor(() => meanwhile != null, seconds: 60);
+        expect(completed, contains(long.assistantMessageId));
+
+        // Sent, not refused: it goes first, and the batch waits whole.
+        final kite = await meanwhile!;
+        expect(turns.queueGet(chatId).drafts.map((d) => d.text), <String>[
+          'And the west side?',
+        ]);
+        await _waitFor(
+          () =>
+              completed.length >= 4 &&
+              turns.queueGet(chatId).drafts.isEmpty &&
+              !turns.isRunning(chatId),
+          seconds: 60,
+        );
+        expect(completed, hasLength(4));
+        expect(completed[2], kite.assistantMessageId);
+        final asked = (await ChatsService(
+          runtime.container,
+          events: events,
+        ).get(chatId))!.messages.where((m) => m.role == 'user');
+        expect(asked.map((m) => m.content), <String>[
+          'Reply with exactly the word: pong',
+          'Tell me something long',
+          'Reply with exactly the word: kite',
+          'And the west side?',
+        ]);
+        // The batch's turn started before it left the queue: once it is
+        // committed, the windows show the chat answering, not Send.
+        final batch = 'started ${completed.last}';
+        final left = heard.indexOf(
+          'queued 0',
+          heard.indexOf('started ${kite.assistantMessageId}'),
+        );
+        expect(heard.indexOf(batch), allOf(isNonNegative, lessThan(left)));
+      }, timeout: const Timeout(Duration(minutes: 4)));
+
       test('compares two models: one message, two answers', () async {
         final events = EventBus();
         final turns = TurnsService(runtime.container, events);

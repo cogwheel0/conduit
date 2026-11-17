@@ -253,9 +253,42 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     errorCode: ConduitErrorCodes.invalidCredentials,
     errorArgs: <String, String>{'attempt': '3'},
   ),
+  'authSnapshotTwoStep': const AuthSnapshot(
+    phase: AuthPhase.unauthenticated,
+    twoStep: TwoStepChallenge(
+      stage: TwoStepStage.verify,
+      account: 'ada@example.com',
+      expiresInSeconds: 300,
+    ),
+  ),
+  'authSnapshotConnectionIssue': const AuthSnapshot(
+    phase: AuthPhase.error,
+    hasToken: true,
+    errorCode: ConduitErrorCodes.connectionFailed,
+    canRenewProxy: true,
+  ),
   'authUser': const AuthUser(
     id: 'c3a1b2d4-5e6f-4708-9a1b-2c3d4e5f6071',
     name: 'Ada Lovelace',
+  ),
+  'twoStepChallengeCodes': const TwoStepChallenge(
+    stage: TwoStepStage.recoveryCodes,
+    account: 'ada@example.com',
+    recoveryCodes: <String>['0f1e2d3c4b5a69788796a5b4c3d2e1f0'],
+  ),
+  'twoStepSetup': const TwoStepSetup(
+    manualKey: 'MFRGGZDFMZTWQ2LK',
+    qrSvg: '<svg></svg>',
+    authenticatorUri:
+        'otpauth://totp/Open%20WebUI:ada%40example.com?secret=MFRGGZDFMZTWQ2LK&issuer=Open%20WebUI',
+  ),
+  'twoStepCode': const TwoStepCode(code: '123456'),
+  'twoStepRecoveryCode': const TwoStepCode(
+    code: '0f1e2d3c4b5a69788796a5b4c3d2e1f0',
+    recovery: true,
+  ),
+  'twoStepResetToken': const TwoStepResetToken(
+    resetToken: 'not-a-real-recovery-token',
   ),
   'passwordLogin': const PasswordLogin(
     username: 'ada@example.com',
@@ -2929,6 +2962,11 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     surface: NotifySurface.banner,
     cue: true,
   ),
+  'answerNotice': const AnswerNotice(
+    chatId: 'tide-tables',
+    messageId: 'reply-7',
+    title: 'Tide tables',
+  ),
   'webhookDto': const WebhookDto(
     id: 'harbour-hooks',
     isDefault: true,
@@ -4487,6 +4525,13 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'accountChangeResult': AccountChangeResult.fromJson,
       'accountsChanged': AccountsChanged.fromJson,
       'authSnapshotSignedOut': AuthSnapshot.fromJson,
+      'authSnapshotTwoStep': AuthSnapshot.fromJson,
+      'authSnapshotConnectionIssue': AuthSnapshot.fromJson,
+      'twoStepChallengeCodes': TwoStepChallenge.fromJson,
+      'twoStepSetup': TwoStepSetup.fromJson,
+      'twoStepCode': TwoStepCode.fromJson,
+      'twoStepRecoveryCode': TwoStepCode.fromJson,
+      'twoStepResetToken': TwoStepResetToken.fromJson,
       'authSnapshotSignedIn': AuthSnapshot.fromJson,
       'authSnapshotError': AuthSnapshot.fromJson,
       'authUser': AuthUser.fromJson,
@@ -4959,6 +5004,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'notificationSettingsPatch': NotificationSettingsPatch.fromJson,
       'notificationRouteParams': NotificationRouteParams.fromJson,
       'notificationRoute': NotificationRoute.fromJson,
+      'answerNotice': AnswerNotice.fromJson,
       'webhookDto': WebhookDto.fromJson,
       'webhookEventDto': WebhookEventDto.fromJson,
       'webhookList': WebhookList.fromJson,

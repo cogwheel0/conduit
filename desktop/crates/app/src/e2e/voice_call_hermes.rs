@@ -29,6 +29,10 @@
 //!   Speaking tells the voice to stop.
 //! * End Call closes the session (the voice confirms), the page and its
 //!   window; a second call opens a page of its own.
+//! * With the Hermes model as the default model, the widget's Voice Call
+//!   (`conduit://call`) and Shortcuts' Start Voice Call each start a
+//!   GPT-Live call in a new chat, through `CallStore::start` as from the
+//!   chat.
 //!
 //! Each state is shot in light and dark.
 
@@ -626,5 +630,68 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
             && sources.len() >= 4
             && sources.iter().all(|s| s.starts_with("127.0.0.1:")),
     );
+
+    // ── From outside the chat, with Hermes as the default model ────────
+    let Some(model) = state.model_id.clone() else {
+        return ok("the Hermes call named its model", false);
+    };
+    set_settings(
+        AppSettingsPatch {
+            default_model: Some(model.clone()),
+            ..Default::default()
+        },
+        cx,
+    )
+    .await;
+    for (n, what) in [
+        "the widget's Voice Call (conduit://call)",
+        "Shortcuts' Start Voice Call",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let opened = cx.update(|cx| call(cx).read(cx).peer_stats.opened);
+        let outcome = if n == 0 {
+            super::shell::links(&["conduit://call"], cx);
+            None
+        } else {
+            Some(super::intents::step(serde_json::json!({ "intent": "startVoiceCall" })).await)
+        };
+        let live = wait_until(cx, Duration::from_secs(60), |cx| {
+            let c = call(cx);
+            let c = c.read(cx);
+            c.state().mode == Some(CallMode::Realtime)
+                && c.has_peer()
+                && c.peer_stats.opened > opened
+                && matches!(c.state().phase, CallPhase::Listening | CallPhase::Speaking)
+        })
+        .await;
+        let state = cx.update(|cx| call(cx).read(cx).state().clone());
+        pass &= ok(
+            &format!(
+                "{what} starts a GPT-Live call with the default Hermes model ({:?}, {:?}, model {:?}{})",
+                state.phase,
+                state.mode,
+                state.model_id,
+                outcome
+                    .as_ref()
+                    .map(|o| format!(", {}", super::intents::brief(o)))
+                    .unwrap_or_default()
+            ),
+            live && state.model_id.as_deref() == Some(model.as_str())
+                && outcome.as_ref().is_none_or(super::intents::succeeded),
+        );
+        if live {
+            shoot_main(dir, &format!("call-hermes-outside-{n}"), cx).await;
+        }
+        cx.update(|cx| call(cx).update(cx, |c, cx| c.end(cx)));
+        let gone = wait_until(cx, Duration::from_secs(20), |cx| {
+            let c = call(cx);
+            let c = c.read(cx);
+            !c.is_active() && !c.has_peer()
+        })
+        .await;
+        pass &= ok("…and it ends, its page closed", gone);
+    }
     pass
 }

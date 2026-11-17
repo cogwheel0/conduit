@@ -39,6 +39,7 @@ pub mod menus;
 pub mod prefs;
 #[cfg(all(target_os = "macos", feature = "harness"))]
 pub mod rooms_fixture;
+pub mod scripted;
 pub mod shell;
 #[cfg(target_os = "macos")]
 pub mod smoke;
@@ -203,12 +204,7 @@ pub fn run() {
     // A build without the test harness refuses its flags rather than
     // starting normally, so a script can never drive a real profile.
     #[cfg(not(feature = "harness"))]
-    if let Some(flag) = args.iter().map(String::as_str).find(|a| {
-        a.starts_with("--e2e")
-            || a.starts_with("--capture")
-            || *a == "--probe"
-            || (a.starts_with("--") && a.ends_with("fixture"))
-    }) {
+    if let Some(flag) = scripted::harness_flag(&args) {
         eprintln!("conduit-desktop: {flag} needs a build with the `harness` feature");
         std::process::exit(64);
     }
@@ -222,6 +218,9 @@ pub fn run() {
     if let Some(dir) = arg(&args, "--cwd") {
         std::env::set_current_dir(dir).ok();
     }
+    // A scripted launch (a pass, the capture, a fixture) never asks for a
+    // permission: see `scripted`.
+    scripted::set(scripted::requested(&args));
     // The web views' media policy in real web views (tests/web_media.rs).
     #[cfg(all(target_os = "macos", feature = "harness"))]
     if web_media_fixture::requested(&args) {

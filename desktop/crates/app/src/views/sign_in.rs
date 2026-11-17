@@ -1,6 +1,8 @@
-//! Sign-in for the active Open WebUI account: email and password, LDAP, an
-//! API key (`auth.*`), or single sign-on in a browser window
-//! (`auth.completeExternal`).
+//! Sign-in for the active Open WebUI account: email and password, LDAP, a
+//! session token (`auth.*`; the phone's Token, never an API key), or single
+//! sign-on in a browser window (`auth.completeExternal`). A password or LDAP
+//! sign-in the server answers with a second step continues in
+//! [`TwoStepView`], in place of the form.
 //!
 //! The account comes from the session: its server shows in a chip at the
 //! top. An addition (from Accounts) can be cancelled back to the account it
@@ -21,8 +23,8 @@ use conduit_protocol::{
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    App, AsyncWindowContext, ClickEvent, Context, Entity, Role, SharedString, Subscription,
-    WeakEntity, Window, div, px,
+    AnyElement, App, AsyncWindowContext, ClickEvent, Context, Entity, Role, SharedString,
+    Subscription, WeakEntity, Window, div, px,
 };
 
 use crate::l10n::ActiveL10n as _;
@@ -30,8 +32,10 @@ use crate::shell::sso::{SsoOutcome, run_sso};
 use crate::stores::Stores;
 use crate::stores::accounts::AccountChange;
 use crate::views::forms::{
-    self, field, field_hinted, form_buttons, form_error, form_group, form_note, host_of,
+    self, field, field_hinted, form_buttons, form_error, form_group, form_note, group_footer,
+    host_of,
 };
+use crate::views::two_step::TwoStepView;
 use crate::views::{privacy, words};
 
 /// How the user signs in.
@@ -39,11 +43,13 @@ use crate::views::{privacy, words};
 pub enum Method {
     Password,
     Ldap,
-    ApiKey,
+    /// A session token (JWT) copied from Open WebUI on the web, as the
+    /// phone's Token: Open WebUI's API keys (`sk-…`) cannot sign in.
+    Token,
 }
 
 impl Method {
-    pub const ALL: [Self; 3] = [Self::Password, Self::Ldap, Self::ApiKey];
+    pub const ALL: [Self; 3] = [Self::Password, Self::Ldap, Self::Token];
 }
 
 pub struct SignInView {
@@ -51,7 +57,9 @@ pub struct SignInView {
     pub method: Method,
     pub email: Entity<InputState>,
     pub password: Entity<InputState>,
-    pub api_key: Entity<InputState>,
+    pub token: Entity<InputState>,
+    /// The second step, when the server asks for one.
+    pub two_step: Entity<TwoStepView>,
     pub busy: bool,
     /// Single sign-on is running in its window.
     pub sso: bool,
@@ -65,7 +73,9 @@ pub struct SignInView {
 
 /// The account a sign-in form is for: the active one, and whether it is
 /// being added.
-fn sign_in_scope(accounts: &crate::stores::accounts::AccountsStore) -> (Option<String>, bool) {
+pub(crate) fn sign_in_scope(
+    accounts: &crate::stores::accounts::AccountsStore,
+) -> (Option<String>, bool) {
     (accounts.active().map(|a| a.id.clone()), accounts.adding())
 }
 
@@ -76,7 +86,8 @@ impl SignInView {
         let l10n = cx.l10n().clone();
         let email = forms::input(l10n.desktop_email_placeholder(), false, window, cx);
         let password = forms::input(l10n.desktop_required_placeholder(), true, window, cx);
-        let api_key = forms::input(l10n.desktop_required_placeholder(), true, window, cx);
+        let token = forms::input(l10n.desktop_required_placeholder(), true, window, cx);
+        let two_step = cx.new(|cx| TwoStepView::new(stores.clone(), window, cx));
         let on_input = |this: &mut Self,
                         _: &Entity<InputState>,
                         e: &InputEvent,
@@ -94,7 +105,8 @@ impl SignInView {
         let subscriptions = vec![
             cx.subscribe_in(&email, window, on_input),
             cx.subscribe_in(&password, window, on_input),
-            cx.subscribe_in(&api_key, window, on_input),
+            cx.subscribe_in(&token, window, on_input),
+            cx.observe(&two_step, |_, _, cx| cx.notify()),
             // Another account to sign in to (a switch, Back, an addition)
             // starts with empty fields: one account's password or key is
             // never sent to another's server.
@@ -117,7 +129,8 @@ impl SignInView {
             method: Method::Password,
             email,
             password,
-            api_key,
+            token,
+            two_step,
             busy: false,
             sso: false,
             error: None,
@@ -138,7 +151,7 @@ impl SignInView {
 
     /// Empties the fields and what they last said.
     fn clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        for input in [&self.email, &self.password, &self.api_key] {
+        for input in [&self.email, &self.password, &self.token] {
             input.update(cx, |i, cx| i.set_value("", window, cx));
         }
         self.error = None;
@@ -159,7 +172,7 @@ impl SignInView {
                 Method::Password | Method::Ldap => {
                     forms::filled(&[&self.email, &self.password], cx)
                 }
-                Method::ApiKey => forms::filled(&[&self.api_key], cx),
+                Method::Token => forms::filled(&[&self.token], cx),
             }
     }
 
@@ -200,16 +213,18 @@ impl SignInView {
                     futures::FutureExt::boxed(rpc.call::<methods::AuthLoginWithPassword>(&login))
                 }
             }
-            Method::ApiKey => {
-                let api_key = forms::text(&self.api_key, cx);
-                if api_key.is_empty() {
-                    self.error = Some(l10n.direct_connection_api_key_required());
-                    forms::focus_invalid(&self.api_key.clone(), window, cx);
+            Method::Token => {
+                let token = forms::text(&self.token, cx);
+                if token.is_empty() {
+                    self.error = Some(l10n.desktop_sign_in_token_required());
+                    forms::focus_invalid(&self.token.clone(), window, cx);
                     cx.notify();
                     return;
                 }
+                // The daemon refuses an API key, or a token too short to be
+                // one, before it asks the server (the phone's form checks).
                 futures::FutureExt::boxed(
-                    rpc.call::<methods::AuthLoginWithApiKey>(&ApiKeyLogin { api_key }),
+                    rpc.call::<methods::AuthLoginWithApiKey>(&ApiKeyLogin { api_key: token }),
                 )
             }
         };
@@ -259,6 +274,13 @@ impl SignInView {
                     .update(cx, |s, cx| s.adopt_auth(snapshot, cx));
                 self.reset(window, cx);
             }
+            // The password was right; the server asks for a second step,
+            // which the page shows in place of the form.
+            Ok(snapshot) if snapshot.two_step.is_some() => {
+                self.stores
+                    .session
+                    .update(cx, |s, cx| s.adopt_auth(snapshot, cx));
+            }
             Ok(snapshot) => {
                 let code = snapshot.error_code.clone().unwrap_or_else(|| {
                     if snapshot.phase == AuthPhase::CredentialError {
@@ -286,7 +308,7 @@ impl SignInView {
     fn focus_secret(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let field = match self.method {
             Method::Password | Method::Ldap => self.password.clone(),
-            Method::ApiKey => self.api_key.clone(),
+            Method::Token => self.token.clone(),
         };
         forms::focus_invalid(&field, window, cx);
     }
@@ -321,6 +343,8 @@ impl SignInView {
                         origin,
                         cookies,
                         token,
+                        // A new sign-in (auth.completeExternal), not a renewal.
+                        account: None,
                     },
                     other => {
                         let _ = this.update(cx, |s, cx| {
@@ -403,15 +427,21 @@ impl SignInView {
 
 impl Render for SignInView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A second step in progress replaces the form.
+        if self.two_step.read(cx).challenge(cx).is_some() {
+            return div()
+                .id("sign-in")
+                .child(self.two_step.clone())
+                .into_any_element();
+        }
+        self.form(window, cx).into_any_element()
+    }
+}
+
+impl SignInView {
+    fn form(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let l10n = cx.l10n().clone();
-        let t = cx.conduit().clone();
-        let r = t.roles;
-        let m = t.metrics;
         let this = cx.entity().downgrade();
-        let (server_name, server_host) = self
-            .server(cx)
-            .map(|(n, u)| (privacy::host(&n, cx), privacy::host(&host_of(&u), cx)))
-            .unwrap_or_default();
         let (adding, can_go_back, expired) = {
             let a = self.stores.accounts.read(cx);
             let active = a.active();
@@ -440,7 +470,7 @@ impl Render for SignInView {
             vec![
                 Segment::new(l10n.password()),
                 Segment::new(l10n.ldap()),
-                Segment::new(l10n.desktop_api_key()),
+                Segment::new(l10n.jwt()),
             ],
             Method::ALL
                 .iter()
@@ -482,10 +512,10 @@ impl Render for SignInView {
                     field(l10n.password(), &self.password, None, None, window, cx)
                         .into_any_element(),
                 ],
-                Method::ApiKey => vec![
+                Method::Token => vec![
                     field(
-                        l10n.desktop_api_key(),
-                        &self.api_key,
+                        l10n.auth_token_field_label(),
+                        &self.token,
                         None,
                         None,
                         window,
@@ -496,39 +526,7 @@ impl Render for SignInView {
             },
             cx,
         );
-        let chip = div()
-            .id("server-chip")
-            .role(Role::Group)
-            .aria_label(l10n.desktop_server_chip_label(&server_name, &server_host))
-            .h(px(30.))
-            .pl(px(6.))
-            .pr(px(12.))
-            .flex()
-            .items_center()
-            .gap(px(7.))
-            .rounded_full()
-            .border_1()
-            .border_color(r.border)
-            .bg(t.surfaces.panel)
-            .child(icon_tile(
-                IconName::Server,
-                20.,
-                with_alpha(r.text, if t.dark { 0.14 } else { 0.07 }),
-                r.text_subtle,
-                10.,
-            ))
-            .child(
-                div()
-                    .text_size(px(m.small))
-                    .text_color(r.text)
-                    .child(server_name.clone()),
-            )
-            .child(
-                div()
-                    .text_size(px(m.small))
-                    .text_color(r.text_subtle)
-                    .child(server_host.clone()),
-            );
+        let chip = server_chip(&self.stores, cx);
         let subtitle = if expired {
             l10n.desktop_sign_in_again_body()
         } else {
@@ -556,6 +554,10 @@ impl Render for SignInView {
             )
             .child(div().flex().justify_center().child(methods))
             .child(fields)
+            // Where a token comes from, and that an API key won't do.
+            .when(self.method == Method::Token, |d| {
+                d.child(group_footer(l10n.token_hint(), cx))
+            })
             .when_some(self.error.clone(), |d, e| {
                 d.child(form_error("sign-in-error", e, cx))
             })
@@ -593,6 +595,61 @@ impl Render for SignInView {
     }
 }
 
+/// The active account's server, as a chip above the page's title: its name
+/// and host (masked in `--shots`).
+pub fn server_chip(stores: &Stores, cx: &App) -> AnyElement {
+    let t = cx.conduit().clone();
+    let r = t.roles;
+    let m = t.metrics;
+    let l10n = cx.l10n().clone();
+    let (server_name, server_host) = {
+        let accounts = stores.accounts.read(cx);
+        accounts
+            .active()
+            .map(|a| {
+                (
+                    privacy::host(&a.connection.name, cx),
+                    privacy::host(&host_of(&a.connection.url), cx),
+                )
+            })
+            .unwrap_or_default()
+    };
+    div()
+        .id("server-chip")
+        .role(Role::Group)
+        .aria_label(l10n.desktop_server_chip_label(&server_name, &server_host))
+        .h(px(30.))
+        .pl(px(6.))
+        .pr(px(12.))
+        .flex()
+        .items_center()
+        .gap(px(7.))
+        .rounded_full()
+        .border_1()
+        .border_color(r.border)
+        .bg(t.surfaces.panel)
+        .child(icon_tile(
+            IconName::Server,
+            20.,
+            with_alpha(r.text, if t.dark { 0.14 } else { 0.07 }),
+            r.text_subtle,
+            10.,
+        ))
+        .child(
+            div()
+                .text_size(px(m.small))
+                .text_color(r.text)
+                .child(server_name.clone()),
+        )
+        .child(
+            div()
+                .text_size(px(m.small))
+                .text_color(r.text_subtle)
+                .child(server_host.clone()),
+        )
+        .into_any_element()
+}
+
 #[cfg(test)]
 mod scope_tests {
     use gpui_kit::TestAppContext;
@@ -625,8 +682,8 @@ mod scope_tests {
                 .update(cx, |i, cx| i.set_value("avery@example.org", window, cx));
             v.password
                 .update(cx, |i, cx| i.set_value("synthetic-secret", window, cx));
-            v.api_key
-                .update(cx, |i, cx| i.set_value("sk-synthetic", window, cx));
+            v.token
+                .update(cx, |i, cx| i.set_value("synthetic-token", window, cx));
         });
         // Switched to B (through Settings, say).
         stores.accounts.update(vcx, |a, cx| {
@@ -640,7 +697,7 @@ mod scope_tests {
         });
         vcx.run_until_parked();
         view.read_with(vcx, |v, cx| {
-            for input in [&v.email, &v.password, &v.api_key] {
+            for input in [&v.email, &v.password, &v.token] {
                 assert_eq!(input.read(cx).value().as_ref(), "");
             }
         });

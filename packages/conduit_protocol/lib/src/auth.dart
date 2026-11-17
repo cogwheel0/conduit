@@ -53,6 +53,16 @@ abstract class AuthSnapshot with _$AuthSnapshot {
     /// True when the reviewer/demo path is active: the UI runs against
     /// canned models and conversations with no server at all.
     @Default(false) bool isReviewerMode,
+
+    /// Set while a password or LDAP sign-in waits on its second step
+    /// (`auth.twoStep.*`): the password was right, and the server asks for
+    /// an authenticator code before it issues a session.
+    TwoStepChallenge? twoStep,
+
+    /// The active server is reached through a reverse proxy whose session
+    /// cookie the account keeps, so an expired proxy session can be signed
+    /// in to again in place (`auth.renewProxy`) rather than signed out of.
+    @Default(false) bool canRenewProxy,
   }) = _AuthSnapshot;
 
   factory AuthSnapshot.fromJson(Map<String, dynamic> json) =>
@@ -89,7 +99,8 @@ abstract class PasswordLogin with _$PasswordLogin {
       _$PasswordLoginFromJson(json);
 }
 
-/// Params for `auth.loginWithApiKey`.
+/// Params for `auth.loginWithApiKey`: a session token (JWT) copied from
+/// Open WebUI. API keys (`sk-…`) are refused with `auth.apiKeyNotSupported`.
 @freezed
 abstract class ApiKeyLogin with _$ApiKeyLogin {
   const factory ApiKeyLogin({required String apiKey}) = _ApiKeyLogin;
@@ -117,6 +128,12 @@ abstract class ExternalAuthCompletion with _$ExternalAuthCompletion {
     /// Set when the provider returned a bearer token directly rather than a
     /// cookie session.
     String? token,
+
+    /// For `auth.renewProxy`, where it is required: the account whose
+    /// sign-in window this was (its id, as `accounts.list` names it).
+    /// Refused with `auth.sessionExpired` once another account is in charge,
+    /// or when the captured session is another user's.
+    String? account,
   }) = _ExternalAuthCompletion;
 
   factory ExternalAuthCompletion.fromJson(Map<String, dynamic> json) =>
@@ -140,4 +157,94 @@ abstract class ReviewerMode with _$ReviewerMode {
 
   factory ReviewerMode.fromJson(Map<String, dynamic> json) =>
       _$ReviewerModeFromJson(json);
+}
+
+/// What an Open WebUI two-step sign-in asks for next.
+@JsonEnum(fieldRename: FieldRename.none)
+enum TwoStepStage {
+  /// A code from the account's authenticator app, or one of its recovery
+  /// codes.
+  verify,
+
+  /// The first sign-in since two-step verification became required: add
+  /// the authenticator (`auth.twoStep.setup`), then confirm it with a code.
+  enroll,
+
+  /// An administrator reset the authenticator: their recovery token, which
+  /// leads on to [enroll].
+  recover,
+
+  /// The authenticator was just added: the account's new recovery codes,
+  /// which the server shows only once, before the session is signed in to
+  /// (`auth.twoStep.finish`).
+  recoveryCodes,
+}
+
+/// A sign-in waiting on its second step. Carries no challenge token: that
+/// stays in the daemon, as every token does.
+@freezed
+abstract class TwoStepChallenge with _$TwoStepChallenge {
+  const factory TwoStepChallenge({
+    required TwoStepStage stage,
+
+    /// The username or email the sign-in began with, which labels the entry
+    /// in the authenticator app.
+    @Default('') String account,
+
+    /// How long the server keeps this step, in seconds, from when it began.
+    @Default(0) int expiresInSeconds,
+
+    /// For [TwoStepStage.recoveryCodes]: the codes, each of which signs in
+    /// once in place of an authenticator code.
+    @Default(<String>[]) List<String> recoveryCodes,
+  }) = _TwoStepChallenge;
+
+  factory TwoStepChallenge.fromJson(Map<String, dynamic> json) =>
+      _$TwoStepChallengeFromJson(json);
+}
+
+/// Reply to `auth.twoStep.setup`: what to add to an authenticator app.
+@freezed
+abstract class TwoStepSetup with _$TwoStepSetup {
+  const factory TwoStepSetup({
+    /// The base32 secret, for typing into an authenticator app.
+    required String manualKey,
+
+    /// The server's QR code for [manualKey], as SVG markup; null when the
+    /// server sent none the app can draw.
+    String? qrSvg,
+
+    /// An `otpauth://` link that adds the key to an authenticator app on
+    /// this computer, labelled as the server labels its QR code.
+    required String authenticatorUri,
+  }) = _TwoStepSetup;
+
+  factory TwoStepSetup.fromJson(Map<String, dynamic> json) =>
+      _$TwoStepSetupFromJson(json);
+}
+
+/// Params for `auth.twoStep.verify`: a code for a `verify` or `enroll`
+/// step.
+@freezed
+abstract class TwoStepCode with _$TwoStepCode {
+  const factory TwoStepCode({
+    required String code,
+
+    /// For a `verify` step: [code] is one of the account's recovery codes.
+    @Default(false) bool recovery,
+  }) = _TwoStepCode;
+
+  factory TwoStepCode.fromJson(Map<String, dynamic> json) =>
+      _$TwoStepCodeFromJson(json);
+}
+
+/// Params for `auth.twoStep.redeem`: an administrator's recovery token for a
+/// `recover` step.
+@freezed
+abstract class TwoStepResetToken with _$TwoStepResetToken {
+  const factory TwoStepResetToken({required String resetToken}) =
+      _TwoStepResetToken;
+
+  factory TwoStepResetToken.fromJson(Map<String, dynamic> json) =>
+      _$TwoStepResetTokenFromJson(json);
 }

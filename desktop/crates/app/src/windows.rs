@@ -40,7 +40,7 @@ pub enum Front {
 pub fn wanted(route: Route) -> Option<Front> {
     match route {
         Route::Main => Some(Front::Main),
-        Route::Onboarding | Route::SignIn => Some(Front::Setup),
+        Route::Onboarding | Route::SignIn | Route::ConnectionIssue => Some(Front::Setup),
         Route::Unknown => None,
     }
 }

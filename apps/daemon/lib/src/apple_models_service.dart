@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:conduit_core/features/direct_connections/providers/apple_pcc_providers.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/apple_backend_choice.dart';
 import 'package:conduit_core/features/direct_connections/services/apple_pcc_adapter.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -83,6 +84,20 @@ final class AppleModelsService {
     return models;
   }
 
+  /// The first-run chooser's Apple On-Device row, as the phone's
+  /// `_selectAppleModel`: the Mac is asked again, and a model the core
+  /// says may be chosen ([appleModelChoosable]) becomes the preferred
+  /// Direct backend ([chooseAppleModelBackend]). Answers with the model as
+  /// it is now; anything but available chose nothing.
+  Future<AppleModelStatus> choose() async {
+    final model = await _onDevice();
+    final status = _status;
+    if (status == null || !appleModelChoosable(status)) return model;
+    await chooseAppleModelBackend(_container.read, PlatformAppleModel.onDevice);
+    unawaited(_rediscover());
+    return model;
+  }
+
   /// The window's engine answered a command, or says what a run did.
   void report(AppleReport report, {required String from}) =>
       bridge.report(report, from: from);
@@ -90,10 +105,15 @@ final class AppleModelsService {
   /// A window's session closed: its engine runs nothing more.
   void forgetWindow(String session) => bridge.forgetWindow(session);
 
+  /// What the core's adapter said of the on-device model last ([_onDevice]);
+  /// null when it was not asked or could not answer.
+  PlatformPccStatus? _status;
+
   /// The on-device model as the engine says it is now; what it says also
   /// decides whether the connection is offered, unless asked again since.
   Future<AppleModelStatus> _onDevice() async {
     final ask = ++_asked;
+    _status = null;
     final said = bridge.supported;
     if (said != true) {
       // No window has said this Mac has Apple's models yet, or it said no.
@@ -125,6 +145,7 @@ final class AppleModelsService {
         reason: AppleUnavailableReason.noEngine,
       );
     }
+    if (ask == _asked) _status = status;
     final available = status.availability == PlatformPccAvailability.available;
     if (ask == _asked) _offer(available);
     return AppleModelStatus(
