@@ -35,6 +35,9 @@
   let source = null;
   let statsTimer = null;
   let closed = false;
+  // The microphone as the app last asked (mic {enabled}): a mute that
+  // comes while the microphone is still opening holds once it opens.
+  let micEnabled = true;
   let lastState = '';
   const levels = { input: 0, output: 0 };
 
@@ -179,6 +182,7 @@
         return;
       }
       microphone = stream;
+      for (const track of stream.getAudioTracks()) track.enabled = micEnabled;
       measure(stream, 0);
       // A stand-in call (the E2E pass) uses only the loopback relay it is
       // given; a call with the microphone, the default.
@@ -258,8 +262,9 @@
           if (channel && channel.readyState === 'open') channel.send(message.text);
           break;
         case 'mic':
+          micEnabled = !!message.enabled;
           (microphone ? microphone.getAudioTracks() : []).forEach((track) => {
-            track.enabled = !!message.enabled;
+            track.enabled = micEnabled;
           });
           break;
         case 'stop':
