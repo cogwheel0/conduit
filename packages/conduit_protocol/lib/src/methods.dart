@@ -1220,6 +1220,10 @@ abstract final class ConduitMethods {
   /// the dashboard accepts them as a signed-in session.
   static const String hermesDashboardComplete = 'hermes.dashboard.complete';
 
+  /// The sign-in window closed: its sign-in keeps nothing it has not kept
+  /// already.
+  static const String hermesDashboardCancel = 'hermes.dashboard.cancel';
+
   // hermes.mcp.*: the MCP servers a Desktop Gateway connects its agent to.
 
   static const String hermesMcpList = 'hermes.mcp.list';

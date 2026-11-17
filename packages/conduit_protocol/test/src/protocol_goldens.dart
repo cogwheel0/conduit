@@ -3629,7 +3629,13 @@ const Map<String, String> protocolGoldens = <String, String>{
       "httpOnly": false
     }
   ],
-  "connection": "0a1b2c3d:2"
+  "connection": "0a1b2c3d:2",
+  "attempt": "dashboard-1"
+}''',
+
+  'hermesDashboardCancel': r'''
+{
+  "attempt": "dashboard-1"
 }''',
 
   'hermesDashboardResult': r'''

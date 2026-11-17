@@ -1672,6 +1672,11 @@
       "result": "HermesDashboardResult"
     },
     {
+      "name": "hermes.dashboard.cancel",
+      "params": "HermesDashboardCancel",
+      "result": "CancelledResult"
+    },
+    {
       "name": "hermes.mcp.list",
       "params": null,
       "result": "HermesMcpServers"

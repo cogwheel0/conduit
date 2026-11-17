@@ -654,6 +654,25 @@ final class HermesAdminService {
         );
       });
 
+  /// The sign-in windows closed (`hermes.dashboard.cancel`), newest last:
+  /// their sign-ins keep nothing from then on. A few are enough: a window's
+  /// completions come while it is open.
+  final List<String> _closedAttempts = <String>[];
+
+  /// Sign-in window [request]'s attempt closed: a completion still out for
+  /// it keeps nothing it has not kept already (checked where the cookies
+  /// would be kept), and any later one is refused the same way.
+  Future<CancelledResult> dashboardCancel(HermesDashboardCancel request) async {
+    _closedAttempts
+      ..remove(request.attempt)
+      ..add(request.attempt);
+    if (_closedAttempts.length > 32) _closedAttempts.removeAt(0);
+    return const CancelledResult(cancelled: true);
+  }
+
+  bool _open(String? attempt) =>
+      attempt == null || !_closedAttempts.contains(attempt);
+
   /// Whether saved connection [id] is the one in use under [scope], and
   /// [scope] is still current.
   bool _inUse(_Scope scope, String id) =>
@@ -697,6 +716,7 @@ final class HermesAdminService {
         debugMessage: 'this daemon keeps no dashboard sessions',
       );
     }
+    if (!_open(request.attempt)) return const HermesDashboardResult();
     final saved = await _dashboardConnection(scope, request.id);
     final root = hermesDashboardRoot(saved.baseUrl);
     final signedIn = await store.adopt(
@@ -706,7 +726,8 @@ final class HermesAdminService {
       httpClient: hermesDashboardHttpClientFor(root, saved),
       // Checked again where the cookies would be kept, after the dashboard
       // answered: nothing is kept for a connection no longer in use.
-      wanted: () => _inUse(scope, request.id),
+      // Nor for a sign-in window that closed meanwhile.
+      wanted: () => _inUse(scope, request.id) && _open(request.attempt),
     );
     if (!signedIn) return const HermesDashboardResult();
     _check(scope);

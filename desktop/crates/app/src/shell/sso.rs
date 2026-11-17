@@ -796,7 +796,14 @@ mod macos {
     ) -> Task<DashboardOutcome> {
         use std::sync::{Arc, Mutex};
 
-        use conduit_protocol::{HermesCookieDto, HermesDashboardCookies, methods};
+        use conduit_protocol::{
+            HermesCookieDto, HermesDashboardCancel, HermesDashboardCookies, methods,
+        };
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        // This window's sign-in: closing it cancels what it still asks.
+        static ATTEMPTS: AtomicU64 = AtomicU64::new(0);
+        let attempt = format!("dashboard-{}", ATTEMPTS.fetch_add(1, Ordering::Relaxed) + 1);
 
         let (loads_tx, mut loads) = mpsc::unbounded::<String>();
         let (closed_tx, closed) = oneshot::channel::<()>();
@@ -905,12 +912,42 @@ mod macos {
                 }
                 // For the connection the sign-in started under: refused once
                 // another is in use.
-                let call = rpc.call::<methods::HermesDashboardComplete>(&HermesDashboardCookies {
-                    id: connection_id.clone(),
-                    cookies,
-                    connection: connection.clone(),
-                });
-                match call.await {
+                let call = rpc
+                    .call::<methods::HermesDashboardComplete>(&HermesDashboardCookies {
+                        id: connection_id.clone(),
+                        cookies,
+                        connection: connection.clone(),
+                        attempt: Some(attempt.clone()),
+                    })
+                    .fuse();
+                futures::pin_mut!(call);
+                // Closed (or out of time) while the daemon checks the
+                // session: the sign-in is cancelled, and the daemon keeps
+                // nothing it has not kept already. What it says then is
+                // the outcome: signed in only if it kept the session first.
+                let ended = futures::select_biased! {
+                    answer = call => Ok(answer),
+                    _ = closed => Err(DashboardOutcome::Cancelled),
+                    _ = timeout => Err(DashboardOutcome::TimedOut),
+                };
+                let answer = match ended {
+                    Ok(answer) => answer,
+                    Err(outcome) => {
+                        let cancel =
+                            rpc.call::<methods::HermesDashboardCancel>(&HermesDashboardCancel {
+                                attempt: attempt.clone(),
+                            });
+                        let _ = cancel.await;
+                        close(handle, cx);
+                        return match call.await {
+                            Ok(result) if result.signed_in => {
+                                DashboardOutcome::SignedIn(result.connections)
+                            }
+                            _ => outcome,
+                        };
+                    }
+                };
+                match answer {
                     Ok(result) if result.signed_in => {
                         log::info!("hermes dashboard: signed in");
                         close(handle, cx);

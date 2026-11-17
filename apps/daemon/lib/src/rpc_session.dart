@@ -1246,6 +1246,10 @@ class RpcSession {
       (p) => _need(_hermesAdmin).dashboardComplete(p),
     );
     _on(
+      ConduitMethodSpecs.hermesDashboardCancel,
+      (p) => _need(_hermesAdmin).dashboardCancel(p),
+    );
+    _on(
       ConduitMethodSpecs.hermesMcpList,
       (_) => _need(_hermesAdmin).mcpServers(),
     );

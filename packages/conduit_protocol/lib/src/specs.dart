@@ -1941,6 +1941,12 @@ abstract final class ConduitMethodSpecs {
         params: HermesDashboardCookies.fromJson,
         result: HermesDashboardResult.fromJson,
       );
+  static const hermesDashboardCancel =
+      ConduitMethodSpec<HermesDashboardCancel, CancelledResult>(
+        ConduitMethods.hermesDashboardCancel,
+        params: HermesDashboardCancel.fromJson,
+        result: CancelledResult.fromJson,
+      );
 
   // hermes.mcp.*
 
@@ -2719,6 +2725,7 @@ abstract final class ConduitMethodSpecs {
         hermesSkillsReload,
         hermesDashboardStart,
         hermesDashboardComplete,
+        hermesDashboardCancel,
         hermesMcpList,
         hermesMcpCatalog,
         hermesMcpAdd,

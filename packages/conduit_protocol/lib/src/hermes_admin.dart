@@ -330,10 +330,24 @@ abstract class HermesDashboardCookies with _$HermesDashboardCookies {
     /// (`HermesChanged.connection`): refused once another is in use, or
     /// when it names none.
     String? connection,
+
+    /// The sign-in window's own id: nothing is kept once
+    /// `hermes.dashboard.cancel` named it (the window closed).
+    String? attempt,
   }) = _HermesDashboardCookies;
 
   factory HermesDashboardCookies.fromJson(Map<String, dynamic> json) =>
       _$HermesDashboardCookiesFromJson(json);
+}
+
+/// `hermes.dashboard.cancel` params: the sign-in window [attempt] closed.
+@freezed
+abstract class HermesDashboardCancel with _$HermesDashboardCancel {
+  const factory HermesDashboardCancel({required String attempt}) =
+      _HermesDashboardCancel;
+
+  factory HermesDashboardCancel.fromJson(Map<String, dynamic> json) =>
+      _$HermesDashboardCancelFromJson(json);
 }
 
 /// Reply to `hermes.dashboard.complete`.

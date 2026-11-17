@@ -7012,6 +7012,17 @@ pub struct HermesDashboardCookies {
     /// when it names none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection: Option<String>,
+    /// The sign-in window's own id: nothing is kept once
+    /// `hermes.dashboard.cancel` named it (the window closed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt: Option<String>,
+}
+
+/// `hermes.dashboard.cancel` params: the sign-in window `attempt` closed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesDashboardCancel {
+    pub attempt: String,
 }
 
 /// Reply to `hermes.dashboard.complete`.
@@ -18294,6 +18305,19 @@ pub mod methods {
         type Result = super::HermesDashboardResult;
     }
 
+    /// The sign-in window closed: its sign-in keeps nothing it has not kept
+    /// already.
+    ///
+    /// `hermes.dashboard.cancel`: HermesDashboardCancel -> CancelledResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct HermesDashboardCancel;
+
+    impl RpcMethod for HermesDashboardCancel {
+        const NAME: &'static str = "hermes.dashboard.cancel";
+        type Params = super::HermesDashboardCancel;
+        type Result = super::CancelledResult;
+    }
+
     /// `hermes.mcp.list`: no params -> HermesMcpServers.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct HermesMcpList;
@@ -20830,6 +20854,11 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("HermesDashboardResult"),
     },
     MethodSpec {
+        name: "hermes.dashboard.cancel",
+        params: Some("HermesDashboardCancel"),
+        result: Some("CancelledResult"),
+    },
+    MethodSpec {
         name: "hermes.mcp.list",
         params: None,
         result: Some("HermesMcpServers"),
@@ -22309,6 +22338,7 @@ pub mod conformance {
         "HermesContextReportDto",
         "HermesContinue",
         "HermesCookieDto",
+        "HermesDashboardCancel",
         "HermesDashboardCookies",
         "HermesDashboardPlan",
         "HermesDashboardResult",
@@ -22953,6 +22983,7 @@ pub mod conformance {
             "HermesContextReportDto" => roundtrip::<super::HermesContextReportDto>(json),
             "HermesContinue" => roundtrip::<super::HermesContinue>(json),
             "HermesCookieDto" => roundtrip::<super::HermesCookieDto>(json),
+            "HermesDashboardCancel" => roundtrip::<super::HermesDashboardCancel>(json),
             "HermesDashboardCookies" => roundtrip::<super::HermesDashboardCookies>(json),
             "HermesDashboardPlan" => roundtrip::<super::HermesDashboardPlan>(json),
             "HermesDashboardResult" => roundtrip::<super::HermesDashboardResult>(json),

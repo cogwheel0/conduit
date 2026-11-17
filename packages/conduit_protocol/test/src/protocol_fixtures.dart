@@ -1817,6 +1817,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   'hermesDashboardCookies': const HermesDashboardCookies(
     id: 'c1',
     connection: '0a1b2c3d:2',
+    attempt: 'dashboard-1',
     cookies: <HermesCookieDto>[
       HermesCookieDto(
         name: 'hermes_session_rt',
@@ -1825,6 +1826,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
       ),
     ],
   ),
+  'hermesDashboardCancel': const HermesDashboardCancel(attempt: 'dashboard-1'),
   'hermesDashboardResult': const HermesDashboardResult(
     signedIn: true,
     connections: HermesConnections(activeId: 'c1'),
@@ -4846,6 +4848,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'hermesDashboardPlan': HermesDashboardPlan.fromJson,
       'hermesCookieDto': HermesCookieDto.fromJson,
       'hermesDashboardCookies': HermesDashboardCookies.fromJson,
+      'hermesDashboardCancel': HermesDashboardCancel.fromJson,
       'hermesDashboardResult': HermesDashboardResult.fromJson,
       'hermesToggle': HermesToggle.fromJson,
       'hermesMcpServerDto': HermesMcpServerDto.fromJson,

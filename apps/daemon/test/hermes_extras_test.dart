@@ -616,6 +616,32 @@ void main() {
     expect(runtime.dashboardCookies.cookies, isEmpty);
   });
 
+  test('a sign-in window closed during the check keeps nothing', () async {
+    final inUse = await dashboardInUse('Gateway window closed');
+    HermesDashboardCookies page() => HermesDashboardCookies(
+      id: inUse.id,
+      connection: inUse.connection,
+      cookies: goodSession,
+      attempt: 'dashboard-closed-1',
+    );
+    final out = holdCheck();
+    final completing = admin.dashboardComplete(page());
+    await out;
+    // The window closes while the dashboard is asked.
+    expect(
+      (await admin.dashboardCancel(
+        const HermesDashboardCancel(attempt: 'dashboard-closed-1'),
+      )).cancelled,
+      isTrue,
+    );
+    releaseCheck();
+    expect((await completing).signedIn, isFalse);
+    expect(runtime.dashboardCookies.cookies, isEmpty);
+    // A page it loaded later keeps nothing either.
+    expect((await admin.dashboardComplete(page())).signedIn, isFalse);
+    expect(runtime.dashboardCookies.cookies, isEmpty);
+  });
+
   test('a sign-in that cannot be saved says so and keeps nothing', () async {
     final inUse = await dashboardInUse('Gateway unsaved');
     final store = await DaemonHermesDashboardCookies.open(_FailingStore());
