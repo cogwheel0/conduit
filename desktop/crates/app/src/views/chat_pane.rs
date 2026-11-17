@@ -1975,30 +1975,34 @@ impl ChatPane {
         true
     }
 
-    /// Who a Continuity Camera photo taken now is for: this account scope
-    /// and this composer's draft.
+    /// The ticket a Continuity Camera photo asked for now would carry: this
+    /// account scope, this composer's draft and its composition.
     pub fn import_target(&self, cx: &App) -> crate::shell::continuity_camera::ImportTarget {
+        let composer = self.composer_store.read(cx);
         crate::shell::continuity_camera::ImportTarget {
             scope: self.stores.accounts.read(cx).scope_key(),
-            draft: self.composer_store.read(cx).draft_key().cloned(),
+            draft: composer.draft_key().cloned(),
+            round: composer.draft_round(),
         }
     }
 
     /// A Continuity Camera photo or scan saved at `path` (`name`, as the
-    /// composer names it): attached only to the composer whose + menu asked
-    /// for it (`asked`), under the same account scope. Once either changed
-    /// it is dropped, and a toast says it couldn't be attached. Says whether
-    /// it was attached.
+    /// composer names it), with the ticket its + menu session took
+    /// (`asked`): attached only while that account scope, composer and
+    /// composition are still the ones shown. Otherwise it is dropped, and a
+    /// toast says it couldn't be attached. Says whether it was attached.
     pub fn attach_import(
         &mut self,
-        asked: Option<&crate::shell::continuity_camera::ImportTarget>,
+        asked: &crate::shell::continuity_camera::ImportTarget,
         path: &std::path::Path,
         name: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if asked != Some(&self.import_target(cx)) {
-            log::info!("continuity camera: asked for another account or chat; dropped");
+        if *asked != self.import_target(cx) {
+            log::info!(
+                "continuity camera: asked for another account, chat or composition; dropped"
+            );
             let message = cx.l10n().desktop_attachment_failed(name);
             self.stores
                 .toasts
@@ -3568,20 +3572,32 @@ mod tests {
             );
         }
 
-        /// A Continuity Camera photo is attached only to the composer whose
-        /// + menu asked for it, under the same account scope: once another
-        /// account (or chat) is shown it is dropped, and a toast says so.
+        /// A Continuity Camera photo carries the ticket its + menu took:
+        /// it is attached only while that composer, that composition and
+        /// that account scope are still the ones shown. A later menu (another
+        /// account's) never stands in for it, and replacing the composition
+        /// (Send Text) drops it; otherwise it attaches.
         #[gpui_kit::test]
-        fn a_continuity_photo_lands_only_where_it_was_asked_for(cx: &mut TestAppContext) {
+        fn a_continuity_photo_lands_only_in_the_composition_that_asked(cx: &mut TestAppContext) {
             let (_daemon, stores, pane, vcx) = bench(cx);
             let dir = std::env::temp_dir().join(format!("conduit-import-{}", std::process::id()));
             let _ = std::fs::create_dir_all(&dir);
             let photo = dir.join("Photo.jpeg");
             let _ = std::fs::write(&photo, [0xFF, 0xD8, 0xFF, 0xD9]);
+            let attach = |ticket, vcx: &mut VisualTestContext| {
+                pane.update_in(vcx, |p, window, cx| {
+                    p.attach_import(&ticket, &photo, "Photo.jpeg", window, cx)
+                })
+            };
+            let toasts = |vcx: &mut VisualTestContext| -> usize {
+                stores.toasts.read_with(vcx, |t, _| t.toasts.len())
+            };
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
             vcx.run_until_parked();
-            // Asked in account a's new chat, then account b takes charge.
-            let asked = pane.read_with(vcx, |p, cx| p.import_target(cx));
+
+            // (1) Asked in account a's chat; account b's + menu opens before
+            // the photo lands: it is judged by its own ticket, not b's.
+            let asked_in_a = pane.read_with(vcx, |p, cx| p.import_target(cx));
             stores.accounts.update(vcx, |a, cx| {
                 a.adopt(
                     list(vec![
@@ -3592,22 +3608,31 @@ mod tests {
                 )
             });
             vcx.run_until_parked();
-            let attached = pane.update_in(vcx, |p, window, cx| {
-                p.attach_import(Some(&asked), &photo, "Photo.jpeg", window, cx)
-            });
-            assert!(!attached, "account a's photo landed in b's composer");
+            let _menu_in_b = pane.read_with(vcx, |p, cx| p.import_target(cx));
+            assert!(
+                !attach(asked_in_a, vcx),
+                "account a's photo landed in b's composer"
+            );
             assert!(attachment_names(&pane, vcx).is_empty());
-            let toasts: Vec<String> = stores.toasts.read_with(vcx, |t, _| {
-                t.toasts.iter().map(|t| t.message.clone()).collect()
-            });
-            assert_eq!(toasts, vec!["Couldn't attach Photo.jpeg.".to_string()]);
-            // Asked here, now: attached.
+            assert_eq!(toasts(vcx), 1);
+            stores.toasts.update(vcx, |t, _| t.toasts.clear());
+
+            // (2) Asked, then Send Text replaces the composition (same draft
+            // slot): dropped.
             let asked = pane.read_with(vcx, |p, cx| p.import_target(cx));
-            let attached = pane.update_in(vcx, |p, window, cx| {
-                p.attach_import(Some(&asked), &photo, "Photo.jpeg", window, cx)
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer.update(cx, |c, cx| {
+                    c.start_fresh("Shared from Shortcuts", window, cx)
+                })
             });
+            assert!(!attach(asked, vcx), "a replaced composition took the photo");
+            assert!(attachment_names(&pane, vcx).is_empty());
+            assert_eq!(toasts(vcx), 1);
+
+            // Asked in this composition: attached.
+            let asked = pane.read_with(vcx, |p, cx| p.import_target(cx));
+            assert!(attach(asked, vcx));
             vcx.run_until_parked();
-            assert!(attached);
             assert_eq!(attachment_names(&pane, vcx), vec!["Photo.jpeg".to_string()]);
         }
 

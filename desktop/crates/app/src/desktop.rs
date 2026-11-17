@@ -105,9 +105,6 @@ struct Platform {
     /// What Continuity Camera's requestor hands over (made with the first
     /// + menu that offers it).
     continuity: Option<mpsc::UnboundedSender<crate::shell::continuity_camera::Imported>>,
-    /// Who the photos and scans are for: set as the + menu that offers
-    /// Continuity Camera opens ([`continuity_asked`]).
-    continuity_target: Option<crate::shell::continuity_camera::ImportTarget>,
     notifier: Option<crate::shell::notifications::Notifier>,
     hotkey: Option<crate::shell::hotkey::Hotkey>,
     tray: Option<crate::shell::tray::MenuBarItem>,
@@ -2042,7 +2039,11 @@ fn new_chat_with(text: String, cx: &mut App) {
 /// window) and takes what it reads: a photo or a scan from a nearby iPhone
 /// or iPad, attached to the main window's composer.
 #[cfg(target_os = "macos")]
-pub fn install_continuity_camera(window: &objc2_app_kit::NSWindow, cx: &mut App) {
+pub fn install_continuity_camera(
+    window: &objc2_app_kit::NSWindow,
+    target: crate::shell::continuity_camera::ImportTarget,
+    cx: &mut App,
+) {
     let Some(desktop) = cx.try_global::<Desktop>() else {
         return;
     };
@@ -2060,22 +2061,16 @@ pub fn install_continuity_camera(window: &objc2_app_kit::NSWindow, cx: &mut App)
             sender
         }
     };
-    crate::shell::continuity_camera::install(window, sender);
-}
-
-/// The main window's + menu offered Continuity Camera: what devices send
-/// is for `target` (that account scope and that composer's draft) alone.
-#[cfg(target_os = "macos")]
-pub fn continuity_asked(target: crate::shell::continuity_camera::ImportTarget, cx: &mut App) {
-    if cx.has_global::<Desktop>() {
-        cx.global_mut::<Desktop>().platform.continuity_target = Some(target);
-    }
+    crate::shell::continuity_camera::install(window, sender, target);
 }
 
 /// A photo or scan from Continuity Camera: saved where the composer reads
-/// files from, and attached to the main window's composer, only while it
-/// is the composer (and account scope) whose + menu asked for it (a HEIC
-/// or TIFF photo goes as a JPEG, as a dropped one does).
+/// files from, and attached to the main window's composer only while its
+/// own ticket ([`Imported::target`], taken by the + menu session it was
+/// asked in) still matches it (a HEIC or TIFF photo goes as a JPEG, as a
+/// dropped one does).
+///
+/// [`Imported::target`]: crate::shell::continuity_camera::Imported::target
 #[cfg(target_os = "macos")]
 fn on_continuity_import(imported: crate::shell::continuity_camera::Imported, cx: &mut App) {
     // One folder each, named by the time it came (nanoseconds), so a second
@@ -2094,14 +2089,12 @@ fn on_continuity_import(imported: crate::shell::continuity_camera::Imported, cx:
         log::warn!("continuity camera: not saved ({e})");
         return;
     }
-    let asked = cx
-        .try_global::<Desktop>()
-        .and_then(|d| d.platform.continuity_target.clone());
     let name = imported.file_name();
+    let asked = imported.target;
     show_main(cx);
     crate::with_main_view(cx, move |view, window, cx| {
         view.chat_pane.update(cx, |p, cx| {
-            p.attach_import(asked.as_ref(), &path, &name, window, cx);
+            p.attach_import(&asked, &path, &name, window, cx);
         })
     });
 }

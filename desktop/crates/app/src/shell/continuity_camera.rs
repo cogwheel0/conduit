@@ -36,6 +36,8 @@ pub struct Imported {
     /// The file extension its type calls for (`jpeg`, `png`, `heic`,
     /// `tiff`, `pdf`).
     pub extension: &'static str,
+    /// The ticket of the + menu session it was asked for in.
+    pub target: ImportTarget,
 }
 
 impl Imported {
@@ -51,15 +53,18 @@ impl Imported {
     }
 }
 
-/// Who a device's photos and scans are for: the account scope (its
-/// `scope_key`; `None`, no account, is a scope too) and the draft of the
-/// main window's composer when its + menu offered Continuity Camera. A
-/// photo that lands once either changed (another account, another chat) is
-/// dropped, never attached to whichever composer is shown then.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// The ticket a + menu session takes for what devices send through it: the
+/// account scope (its `scope_key`; `None`, no account, is a scope too), the
+/// composer's draft and which composition of it (its `draft_round`). Each
+/// session's requestor holds its own, and every photo it hands over carries
+/// it ([`Imported::target`]); a photo is attached only while all three are
+/// still the composer's, and dropped otherwise (another account, another
+/// chat, or the composition replaced, as Send Text replaces it).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ImportTarget {
     pub scope: Option<String>,
     pub draft: Option<crate::stores::composer::DraftKey>,
+    pub round: u64,
 }
 
 /// The pasteboard types the requestor takes, in the order it prefers them,
@@ -112,13 +117,13 @@ mod macos {
     use objc2::rc::Retained;
     use objc2::runtime::{AnyObject, Bool, NSObject};
     use objc2::{
-        AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message as _, class,
-        define_class, msg_send, sel,
+        AnyThread, ClassType as _, DefinedClass, MainThreadMarker, MainThreadOnly, Message as _,
+        class, define_class, msg_send, sel,
     };
     use objc2_app_kit::{NSApplication, NSPasteboard, NSResponder, NSView, NSWindow};
     use objc2_foundation::{NSArray, NSPoint, NSString};
 
-    use super::{Entry, Imported, RETURN_TYPES, takes};
+    use super::{Entry, ImportTarget, Imported, RETURN_TYPES, takes};
 
     /// Whether the requestor answers AppKit now: only while the + menu
     /// that offers Continuity Camera is open ([`while_menu_tracks`]).
@@ -154,6 +159,8 @@ mod macos {
 
     struct RequestorIvars {
         imports: mpsc::UnboundedSender<Imported>,
+        /// This + menu session's ticket, carried by what it hands over.
+        target: ImportTarget,
     }
 
     define_class!(
@@ -211,10 +218,11 @@ mod macos {
                         continue;
                     }
                     log::info!("continuity camera: a {extension} came back");
-                    let _ = self
-                        .ivars()
-                        .imports
-                        .unbounded_send(Imported { bytes, extension });
+                    let _ = self.ivars().imports.unbounded_send(Imported {
+                        bytes,
+                        extension,
+                        target: self.ivars().target.clone(),
+                    });
                     return true;
                 }
             }
@@ -224,28 +232,34 @@ mod macos {
     }
 
     thread_local! {
+        /// The last + menu session's requestor (in the responder chain).
         static REQUESTOR: std::cell::RefCell<Option<Retained<Requestor>>> =
             const { std::cell::RefCell::new(None) };
+        /// Earlier sessions' requestors, kept so a photo still on its way
+        /// to one finds it (the newest few).
+        static EARLIER: std::cell::RefCell<std::collections::VecDeque<Retained<Requestor>>> =
+            const { std::cell::RefCell::new(std::collections::VecDeque::new()) };
+        static REGISTERED: Cell<bool> = const { Cell::new(false) };
     }
 
-    /// Puts the requestor right after the window's first responder (GPUI's
-    /// view, which takes every key and click) in its responder chain, once,
-    /// and registers the types it takes; what devices send comes on
-    /// `imports`. (After the window itself it is never asked: NSWindow
-    /// answers `validRequestorForSendType:` without its next responder.)
-    pub fn install(window: &NSWindow, imports: mpsc::UnboundedSender<Imported>) {
+    /// How many earlier sessions' requestors are kept.
+    const KEEP_EARLIER: usize = 8;
+
+    /// Starts a + menu session: a requestor of its own, holding `target`,
+    /// goes right after the window's first responder (GPUI's view, which
+    /// takes every key and click) in its responder chain, in place of the
+    /// last session's, and the types it takes are registered once; what
+    /// devices send through it comes on `imports`, carrying `target`. (After
+    /// the window itself it is never asked: NSWindow answers
+    /// `validRequestorForSendType:` without its next responder.)
+    pub fn install(
+        window: &NSWindow,
+        imports: mpsc::UnboundedSender<Imported>,
+        target: ImportTarget,
+    ) {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
         };
-        let requestor = REQUESTOR.with(|slot| {
-            slot.borrow_mut()
-                .get_or_insert_with(|| {
-                    let this = Requestor::alloc(mtm).set_ivars(RequestorIvars { imports });
-                    // SAFETY: NSResponder's designated initializer.
-                    unsafe { msg_send![super(this), init] }
-                })
-                .clone()
-        });
         let Some(first) = window.firstResponder() else {
             return;
         };
@@ -254,20 +268,36 @@ mod macos {
         if std::ptr::eq(&*first, &**window as &NSResponder) {
             return;
         }
+        let requestor: Retained<Requestor> = {
+            let this = Requestor::alloc(mtm).set_ivars(RequestorIvars { imports, target });
+            // SAFETY: NSResponder's designated initializer.
+            unsafe { msg_send![super(this), init] }
+        };
         // SAFETY: the responder chain, on the main thread. The view keeps
-        // whatever followed it (its superview) after the requestor; the
-        // requestor lives as long as the app (thread-local, never dropped).
+        // whatever followed it (its superview) after the requestor, skipping
+        // the last session's requestor, which stays alive (below) for a
+        // photo still on its way to it.
         unsafe {
-            let next = first.nextResponder();
-            // Already there.
-            if next
-                .as_deref()
-                .is_some_and(|next| std::ptr::eq(next, &**requestor as &NSResponder))
+            let mut tail = first.nextResponder();
+            if let Some(next) = tail.as_deref()
+                && std::ptr::eq(next.class(), Requestor::class())
             {
-                return;
+                tail = next.nextResponder();
             }
-            requestor.setNextResponder(next.as_deref());
+            requestor.setNextResponder(tail.as_deref());
             first.setNextResponder(Some(&requestor));
+        }
+        if let Some(last) = REQUESTOR.with(|slot| slot.borrow_mut().replace(requestor)) {
+            EARLIER.with(|kept| {
+                let mut kept = kept.borrow_mut();
+                kept.push_back(last);
+                while kept.len() > KEEP_EARLIER {
+                    kept.pop_front();
+                }
+            });
+        }
+        if REGISTERED.with(|r| r.replace(true)) {
+            return;
         }
         let types: Vec<Retained<NSString>> = RETURN_TYPES
             .iter()
@@ -504,11 +534,13 @@ mod tests {
         let photo = Imported {
             bytes: vec![1],
             extension: "heic",
+            target: ImportTarget::default(),
         };
         assert_eq!(photo.file_name(), "Photo.heic");
         let scan = Imported {
             bytes: vec![1],
             extension: "pdf",
+            target: ImportTarget::default(),
         };
         assert_eq!(scan.file_name(), "Scan.pdf");
     }

@@ -1776,6 +1776,12 @@ impl ComposerStore {
         self.draft.as_ref()
     }
 
+    /// Which composition of the draft this is: it moves on whenever the
+    /// draft starts over ([`Self::start_over`], another draft or account).
+    pub fn draft_round(&self) -> u64 {
+        self.draft_round
+    }
+
     /// Another chat opened: `text` (what the composer held) is kept for the
     /// chat it held it for, and the new chat's draft is read (it arrives as
     /// [`ComposerEvent::DraftLoaded`]). `None`: a chat that keeps none (a

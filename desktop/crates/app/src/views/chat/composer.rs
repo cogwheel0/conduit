@@ -2249,16 +2249,18 @@ impl ChatComposer {
             return;
         };
         if import {
-            crate::desktop::install_continuity_camera(&ns_window, cx);
-            // What a device sends is for this composer, under this account
-            // scope, alone.
+            // This menu session's ticket: what a device sends through it is
+            // for this composer, this composition and this account scope
+            // alone.
+            let composer = self.composer.read(cx);
             let target = crate::shell::continuity_camera::ImportTarget {
                 scope: cx
                     .try_global::<crate::AppState>()
                     .and_then(|s| s.stores.accounts.read(cx).scope_key()),
-                draft: self.composer.read(cx).draft_key().cloned(),
+                draft: composer.draft_key().cloned(),
+                round: composer.draft_round(),
             };
-            crate::desktop::continuity_asked(target, cx);
+            crate::desktop::install_continuity_camera(&ns_window, target, cx);
         }
         cx.spawn_in(window, async move |this, cx| {
             let Some(view) = ns_window.contentView() else {
