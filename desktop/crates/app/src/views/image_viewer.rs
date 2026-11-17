@@ -171,7 +171,8 @@ impl ImageViewer {
                 if let Some(done) = self.decoded.get(&self.index) {
                     return Ok(Some(done.clone()));
                 }
-                let decoded = image.to_image_data(cx.svg_renderer()).map_err(|_| ())?;
+                let decoded = crate::stores::media::decode_picture(&image, cx.svg_renderer())
+                    .map_err(|_| ())?;
                 self.decoded.insert(self.index, decoded.clone());
                 Ok(Some(decoded))
             }

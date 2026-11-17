@@ -120,8 +120,7 @@ impl Asset for DaemonFileImage {
                 let (bytes, content_type) = fetch(http, file).await?;
                 let format = image_format(&content_type, &bytes)
                     .ok_or_else(|| format!("not an image ({content_type})"))?;
-                Image::from_bytes(format, bytes)
-                    .to_image_data(renderer)
+                crate::stores::media::decode_picture(&Image::from_bytes(format, bytes), renderer)
                     .map_err(|e| e.to_string())
             }
             .await;
@@ -172,8 +171,7 @@ impl Asset for DaemonModelImage {
                     .unwrap_or_else(|_| Err("the download was dropped".into()))?;
                 let format = image_format(&content_type, &bytes)
                     .ok_or_else(|| format!("not an image ({content_type})"))?;
-                Image::from_bytes(format, bytes)
-                    .to_image_data(renderer)
+                crate::stores::media::decode_picture(&Image::from_bytes(format, bytes), renderer)
                     .map_err(|e| e.to_string())
             }
             .await;

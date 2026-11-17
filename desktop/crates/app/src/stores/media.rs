@@ -23,7 +23,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use conduit_daemon::runtime;
-use gpui_kit::{App, Asset, Image, RenderImage, Window};
+use gpui_kit::{App, Asset, Image, ImageFormat, RenderImage, Window};
 
 use super::files::{FileAccess, FileRef, image_format};
 
@@ -290,12 +290,64 @@ impl Asset for RemoteImage {
                 return Err(MediaError::TooLarge);
             }
             let encoded = Arc::new(Image::from_bytes(format, bytes));
-            let render = encoded
-                .to_image_data(renderer)
-                .map_err(|_| MediaError::WrongType)?;
+            let render = decode_picture(&encoded, renderer).map_err(|_| MediaError::WrongType)?;
             Ok(LoadedImage { encoded, render })
         }
     }
+}
+
+/// `image` (bytes fetched from a site, the account's server or a model) as
+/// frames GPUI draws. Every caller that decodes fetched bytes goes through
+/// here.
+/// An SVG among them is drawn only after [`sanitize_svg`]: it resolves no
+/// resource outside itself.
+pub(crate) fn decode_picture(
+    image: &Image,
+    renderer: gpui_kit::SvgRenderer,
+) -> anyhow::Result<Arc<RenderImage>> {
+    if image.format == ImageFormat::Svg {
+        let safe = sanitize_svg(&image.bytes).ok_or_else(|| anyhow::anyhow!("not an SVG"))?;
+        return Image::from_bytes(ImageFormat::Svg, safe).to_image_data(renderer);
+    }
+    image.to_image_data(renderer)
+}
+
+/// Untrusted SVG (from a site, the account's server or a model) written
+/// again with nothing outside itself: parsed with no resources directory and
+/// an image resolver that refuses every reference but `data:` (a path,
+/// `/dev/zero`, `file:`, a web address are never read), text drawn with
+/// the system's fonts. What GPUI then draws carries only what the SVG
+/// carried. `None` when it is not an SVG.
+pub(crate) fn sanitize_svg(bytes: &[u8]) -> Option<Vec<u8>> {
+    sanitize_svg_with(bytes, |_| {})
+}
+
+/// [`sanitize_svg`], telling `refused` each reference it refused.
+fn sanitize_svg_with(
+    bytes: &[u8],
+    refused: impl Fn(&str) + Send + Sync + 'static,
+) -> Option<Vec<u8>> {
+    use resvg::usvg;
+    static SYSTEM_FONTS: std::sync::LazyLock<Arc<usvg::fontdb::Database>> =
+        std::sync::LazyLock::new(|| {
+            let mut db = usvg::fontdb::Database::new();
+            db.load_system_fonts();
+            Arc::new(db)
+        });
+    let options = usvg::Options {
+        resources_dir: None,
+        image_href_resolver: usvg::ImageHrefResolver {
+            resolve_data: usvg::ImageHrefResolver::default_data_resolver(),
+            resolve_string: Box::new(move |href: &str, _: &usvg::Options| {
+                refused(href);
+                None
+            }),
+        },
+        fontdb: SYSTEM_FONTS.clone(),
+        ..usvg::Options::default()
+    };
+    let tree = usvg::Tree::from_data(bytes, &options).ok()?;
+    Some(tree.to_string(&usvg::WriteOptions::default()).into_bytes())
 }
 
 /// The most pixels a picture from another site may have: a small file
@@ -828,6 +880,88 @@ mod tests {
         out.extend(png_chunk(b"IHDR", &ihdr));
         out.extend(png_chunk(b"IDAT", &[0x78, 0x9c]));
         out
+    }
+
+    fn svg_with_image(href: &str) -> Vec<u8> {
+        format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="4" height="4"><rect width="2" height="2" fill="red"/><image xlink:href="{href}" width="4" height="4"/></svg>"#
+        )
+        .into_bytes()
+    }
+
+    /// A remote SVG never opens a file of this Mac. Each file is a pipe
+    /// whose writer records being opened and then closes it (the reader gets
+    /// an end of file at once), so an open is seen, and nothing hangs.
+    #[test]
+    fn a_remote_svg_opens_no_file_of_this_mac() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let dir = std::env::temp_dir().join(format!("conduit-svg-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let renderer = gpui_kit::SvgRenderer::new(Arc::new(()));
+        for (n, file_url) in [(0, false), (1, true)] {
+            let pipe = dir.join(format!("picture-{n}.png"));
+            let _ = std::fs::remove_file(&pipe);
+            let made = std::process::Command::new("mkfifo").arg(&pipe).status();
+            assert!(made.is_ok_and(|s| s.success()), "mkfifo");
+            let opened = Arc::new(AtomicBool::new(false));
+            let writer = {
+                let (pipe, opened) = (pipe.clone(), opened.clone());
+                std::thread::spawn(move || {
+                    // Waits until a reader opens it, then closes it.
+                    if std::fs::OpenOptions::new().write(true).open(&pipe).is_ok() {
+                        opened.store(true, Ordering::SeqCst);
+                    }
+                })
+            };
+            let href = if file_url {
+                format!("file://{}", pipe.to_string_lossy())
+            } else {
+                pipe.to_string_lossy().to_string()
+            };
+            let svg = Image::from_bytes(ImageFormat::Svg, svg_with_image(&href));
+            let drawn = decode_picture(&svg, renderer.clone());
+            let read = opened.load(Ordering::SeqCst);
+            // Let the writer go (as a reader would), then end.
+            if !read {
+                let _ = std::fs::File::open(&pipe);
+            }
+            let _ = writer.join();
+            let _ = std::fs::remove_file(&pipe);
+            assert!(!read, "{href}: the picture opened a file of this Mac");
+            assert!(drawn.is_ok(), "{href}: the rest of the picture still draws");
+        }
+    }
+
+    /// Only images the SVG carries itself (`data:`) are kept: every other
+    /// reference (a path, `/dev/zero`, `file:`, a web address) is refused
+    /// before anything is read, and is gone from what GPUI draws.
+    #[test]
+    fn a_remote_svg_keeps_only_the_images_it_carries() {
+        let refused = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        for href in [
+            "/dev/zero",
+            "/etc/hosts",
+            "file:///etc/hosts",
+            "https://pictures.example/a.png",
+            "../secret.png",
+        ] {
+            let log = refused.clone();
+            let safe = sanitize_svg_with(&svg_with_image(href), move |h| {
+                log.lock().unwrap().push(h.to_string())
+            })
+            .expect("still a picture");
+            let text = String::from_utf8(safe).unwrap();
+            assert!(!text.contains(href), "{href} kept in {text}");
+            assert!(!text.contains("<image"), "{href}: an image kept");
+            assert!(text.contains("fill"), "the rest of the picture is kept");
+        }
+        assert_eq!(refused.lock().unwrap().len(), 5);
+        // A picture it carries stays.
+        let dot = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+        let kept =
+            sanitize_svg_with(&svg_with_image(dot), |_| panic!("nothing to refuse")).unwrap();
+        assert!(String::from_utf8(kept).unwrap().contains("<image"));
+        assert_eq!(sanitize_svg(b"not a picture"), None);
     }
 
     /// A GIF of `frames` images of `w` × `h` (no colour tables; one

@@ -37,6 +37,9 @@ bytes = "1"
 # Frames for the dark-mode chart redraw (`views::chat::diagram`): the copy
 # GPUI decodes with.
 image = { version = "0.25", default-features = false }
+# GPUI's own SVG parser (same version), to parse untrusted SVG with no
+# external resources before GPUI draws it (stores::media::sanitize_svg).
+resvg = { version = "=0.46.0", default-features = false, features = ["text", "system-fonts"] }
 # The terminal's emulator (Apache-2.0; parser, grid, scrollback, selection,
 # search). Its PTY and event loop go unused: the shell is a socket.
 alacritty_terminal = { version = "=0.26.0", default-features = false }
