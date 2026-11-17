@@ -57,7 +57,9 @@ pub fn is_pdf_link(href: &str) -> bool {
             .unwrap_or_default()
             .to_string(),
     };
-    decode(&path).to_lowercase().ends_with(".pdf")
+    crate::stores::media::percent_decode(&path)
+        .to_lowercase()
+        .ends_with(".pdf")
 }
 
 /// A server file (`/api/v1/files/{id}/content`, whose path never ends in
@@ -95,7 +97,7 @@ pub fn pdf_title(label: &str, url: &str, fallback: &str) -> String {
     };
     path.split('/')
         .rfind(|s| !s.is_empty())
-        .map(|s| decode(s).trim().to_string())
+        .map(|s| crate::stores::media::percent_decode(s).trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| fallback.to_string())
 }
@@ -108,25 +110,6 @@ fn pdf_file_name(title: &str) -> String {
     } else {
         format!("{title}.pdf")
     }
-}
-
-fn decode(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%'
-            && i + 2 < bytes.len()
-            && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16)
-        {
-            out.push(v);
-            i += 3;
-            continue;
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 #[derive(Clone, Debug)]
@@ -595,6 +578,15 @@ fn card(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A `%` before a character of several bytes (untrusted markdown) is
+    /// kept as written, never sliced through.
+    #[test]
+    fn a_percent_before_a_wide_character_is_kept() {
+        assert!(is_pdf_link("/%€-guide.pdf"));
+        assert!(is_pdf_link("report%中.pdf"));
+        assert_eq!(pdf_title("", "report%中.pdf", "PDF"), "report%中.pdf");
+    }
 
     #[test]
     fn pdf_links_end_in_pdf_by_their_path() {

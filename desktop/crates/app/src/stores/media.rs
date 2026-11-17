@@ -87,6 +87,41 @@ pub fn file_id(path: &str) -> Option<String> {
     (!id.is_empty() && !id.contains('/')).then(|| id.to_string())
 }
 
+/// `s` with its `%XX` escapes decoded, for a file name shown or matched
+/// (never for fetching). An escape is a `%` and two hex digits, read as
+/// bytes: anything else (a `%` before a character of several bytes, at the
+/// end, or before something that is not hex) stays as written, so
+/// untrusted text can never be sliced inside a character. Bytes that do
+/// not make UTF-8 come back as U+FFFD.
+pub fn percent_decode(s: &str) -> String {
+    fn hex(b: u8) -> Option<u8> {
+        match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            b'A'..=b'F' => Some(b - b'A' + 10),
+            _ => None,
+        }
+    }
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && let (Some(hi), Some(lo)) = (
+                bytes.get(i + 1).copied().and_then(hex),
+                bytes.get(i + 2).copied().and_then(hex),
+            )
+        {
+            out.push(hi << 4 | lo);
+            i += 3;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 /// Where `raw` points, for the account's server `server`.
 pub fn classify(raw: &str, server: Option<&ServerOrigin>) -> LinkTarget {
     let raw = raw.trim();
@@ -580,6 +615,18 @@ mod quartz {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn percent_escapes_decode_and_anything_else_stays_as_written() {
+        assert_eq!(percent_decode("high%20water.png"), "high water.png");
+        assert_eq!(percent_decode("caf%C3%A9.pdf"), "café.pdf");
+        assert_eq!(percent_decode("end%41"), "endA");
+        // Not an escape: kept, wide characters included.
+        assert_eq!(percent_decode("report%中.pdf"), "report%中.pdf");
+        assert_eq!(percent_decode("/%€-guide.pdf"), "/%€-guide.pdf");
+        assert_eq!(percent_decode("100%"), "100%");
+        assert_eq!(percent_decode("%zz%4"), "%zz%4");
+    }
 
     fn server() -> ServerOrigin {
         ServerOrigin {

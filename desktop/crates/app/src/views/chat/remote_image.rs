@@ -278,7 +278,7 @@ pub fn image_name(url: &str, alt: &str, l10n: &L10n) -> String {
         })
         .or_else(|| url.rsplit('/').next().map(str::to_string))
         .map(|s| {
-            percent_decode(&s)
+            crate::stores::media::percent_decode(&s)
                 .split(['?', '#'])
                 .next()
                 .unwrap_or_default()
@@ -288,25 +288,6 @@ pub fn image_name(url: &str, alt: &str, l10n: &L10n) -> String {
     segment
         .or_else(|| (!alt.is_empty()).then(|| alt.to_string()))
         .unwrap_or_else(|| l10n.desktop_image_name())
-}
-
-fn percent_decode(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%'
-            && i + 2 < bytes.len()
-            && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16)
-        {
-            out.push(v);
-            i += 3;
-            continue;
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 fn key_of(url: &str, alt: &str) -> String {
@@ -750,6 +731,15 @@ mod tests {
         // A link that is not a PDF, or an inline `data:` picture.
         assert!(media_items(&paragraph(vec![link("https://example.org/", "site")])).is_none());
         assert!(media_items(&paragraph(vec![image("data:image/png;base64,AA")])).is_none());
+    }
+
+    /// A `%` before a character of several bytes (untrusted markdown) is
+    /// kept as written, never sliced through.
+    #[test]
+    fn a_percent_before_a_wide_character_is_kept() {
+        let l10n = L10n::new("en");
+        assert_eq!(image_name("/%€-picture.png", "", &l10n), "%€-picture.png");
+        assert_eq!(image_name("chart%中.png", "", &l10n), "chart%中.png");
     }
 
     #[test]
