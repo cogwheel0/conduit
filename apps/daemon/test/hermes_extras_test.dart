@@ -113,6 +113,12 @@ void main() {
   HermesConnectionDto row(HermesConnections list, String id) =>
       list.connections.firstWhere((c) => c.id == id);
 
+  /// An API server connection of the test's own: no test needs another's.
+  Future<String> apiConnection(String name) async =>
+      (await admin.saveConnection(
+        HermesConnectionEdit(name: name, baseUrl: api.baseUrl, apiKey: api.key),
+      )).savedId!;
+
   test('access headers and the memory key are kept, never shown', () async {
     var list = await admin.saveConnection(
       HermesConnectionEdit(
@@ -176,8 +182,7 @@ void main() {
   });
 
   test('a header the core refuses names the issue and the header', () async {
-    final list = await admin.connections();
-    final id = list.connections.single.id;
+    final id = await apiConnection('Refused headers');
     for (final (headers, issue) in [
       (const [HermesAccessHeaderEdit(name: 'Cookie', value: 'x')], 'reserved'),
       (const [HermesAccessHeaderEdit(name: 'X A', value: 'x')], 'invalidName'),
@@ -223,8 +228,16 @@ void main() {
   });
 
   test('saved header values never follow a connection elsewhere', () async {
-    final list = await admin.connections();
-    final id = list.connections.single.id;
+    final id = await apiConnection('Moved headers');
+    await admin.saveConnection(
+      HermesConnectionEdit(
+        id: id,
+        baseUrl: api.baseUrl,
+        accessHeaders: const [
+          HermesAccessHeaderEdit(name: 'X-Gateway', value: 'gateway-value'),
+        ],
+      ),
+    );
     final other = await FakeHermesServer.start();
     addTearDown(other.close);
     final moved = await admin.saveConnection(
@@ -239,10 +252,6 @@ void main() {
       ),
     );
     expect(row(moved, id).accessHeaderNames, ['X-Typed']);
-    // Back where it was, for the tests after.
-    await admin.saveConnection(
-      HermesConnectionEdit(id: id, baseUrl: api.baseUrl, apiKey: api.key),
-    );
   });
 
   test('a profile list that cannot load says why', () async {
@@ -278,7 +287,8 @@ void main() {
   });
 
   test('toolsets and skills need a Desktop Gateway', () async {
-    final now = (await admin.connections()).connection;
+    final id = await apiConnection('Toolsets');
+    final now = (await admin.activate(id)).connection;
     expect(now, isNotNull);
     // A change names the connection it is for: none, or another, is
     // refused before anything is asked of the gateway.
