@@ -1017,6 +1017,11 @@ impl ChatComposer {
     ) {
         let typed = self.text(cx);
         let (text, mentions) = if typed.trim().is_empty() {
+            // Dictation going on rebuilds the field from its base: the
+            // refused words are that base now.
+            if let Some(base) = self.dictation_base.as_mut() {
+                *base = text.to_string();
+            }
             (text.to_string(), mentions.to_vec())
         } else if text.trim().is_empty() {
             return;
@@ -1029,6 +1034,15 @@ impl ChatComposer {
                 m.end += shift;
                 m
             }));
+            // What sits where the newer words are moves with them: an open
+            // prompt form's place (bytes), and dictation's base, which the
+            // next words heard (or a cancel) rebuild the field from.
+            if let Some(form) = self.form.as_mut() {
+                form.at += head.len();
+            }
+            if let Some(base) = self.dictation_base.as_mut() {
+                base.insert_str(0, &head);
+            }
             (format!("{head}{typed}"), all)
         };
         let content = content_with_mentions(&text, &mentions);
@@ -5250,6 +5264,34 @@ mod tests {
             "the refused send's words were lost"
         );
         assert_eq!(token_ids(&view, cx), vec!["U:u-1", "U:u-2"]);
+    }
+
+    /// Refused words put back ahead of newer ones move what sits where the
+    /// newer words are: an open prompt form's place, and dictation's base
+    /// (the next words heard, or a cancel, rebuild the field from it).
+    #[gpui_kit::test]
+    fn refused_words_put_first_move_the_form_and_dictation_along(cx: &mut TestAppContext) {
+        let (view, cx, _) = composer(cx);
+        view.update_in(cx, |c, window, cx| {
+            c.set_text("Hi ", window, cx);
+            c.dictation_base = Some(c.text(cx));
+        });
+        select_form(&view, cx);
+        view.update(cx, |c, _| c.form.as_mut().unwrap().at = 3);
+        view.update_in(cx, |c, window, cx| c.restore("First", window, cx));
+        assert_eq!(value(&view, cx), "First\n\nHi ");
+        view.read_with(cx, |c, _| {
+            assert_eq!(
+                c.form.as_ref().map(|f| f.at),
+                Some(10),
+                "the form's text would land inside the refused words"
+            );
+            assert_eq!(
+                c.dictation_base.as_deref(),
+                Some("First\n\nHi "),
+                "dictation would drop the refused words"
+            );
+        });
     }
 
     #[gpui_kit::test]
