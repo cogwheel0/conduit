@@ -13,7 +13,8 @@
 //! * **The Services menu**: the provider's `askConduit:userData:error:` and
 //!   `newChatWithSelection:userData:error:` called as macOS calls them, with
 //!   the selection on a pasteboard: Ask Conduit opens Quick Ask with the
-//!   text quoted (a second ask starts a new exchange), or a new chat when
+//!   text quoted (an unsent quote there stays, and the next ask opens a new
+//!   chat; with Quick Ask empty, an ask starts over there), or a new chat when
 //!   Quick Ask is off; New Conduit Chat With Selection puts the text in a
 //!   new chat as it is; a blank selection does nothing.
 //!
@@ -387,12 +388,36 @@ async fn services_menu(dir: &Path, cx: &mut AsyncApp) -> bool {
         settle(cx, 400).await;
         shoot_both_modes(handle, dir, "share-services-quick-ask", cx).await;
     }
-    // A second ask replaces the first: a new exchange.
+    // A second ask while the first quote still waits there unsent: that
+    // draft stays, and the new selection opens in a new chat of its own.
+    // (Quick Ask hides as the user goes to another app to select text.)
+    cx.update(desktop::hide_quick_ask);
+    settle(cx, 400).await;
+    clear_composer(cx);
     service(services::ASK, "Moss on a north wall", cx);
+    let elsewhere = wait_until(cx, Duration::from_secs(8), |cx| {
+        matches!(selection(cx), Selection::New { .. })
+            && composer_text(cx) == "> Moss on a north wall\n\n"
+    })
+    .await;
     pass &= ok(
-        "a second Ask Conduit starts over with its own selection",
+        "a second Ask Conduit leaves Quick Ask's unsent draft and opens a new chat",
+        elsewhere && cx.update(quick_text).as_deref() == Some(quoted),
+    );
+    // With nothing typed in Quick Ask, an ask starts over there.
+    if let Some((handle, view)) = cx.update(quick_ask) {
+        let _ = cx.update(|cx| {
+            handle.update(cx, |_, window, cx| {
+                view.update(cx, |v, cx| v.new_chat(window, cx))
+            })
+        });
+    }
+    service(services::ASK, "Lichen on the gate", cx);
+    pass &= ok(
+        "an Ask Conduit with Quick Ask empty starts over there with its own selection",
         wait_until(cx, Duration::from_secs(5), |cx| {
-            quick_text(cx).as_deref() == Some("> Moss on a north wall\n\n")
+            desktop::quick_ask_visible(cx)
+                && quick_text(cx).as_deref() == Some("> Lichen on the gate\n\n")
         })
         .await,
     );
