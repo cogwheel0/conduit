@@ -1291,6 +1291,9 @@ impl ChatPane {
             )
         };
         let origin = place(self.stores.navigation.read(cx));
+        // The composition it was sent from: replaced meanwhile (a fresh
+        // Clipboard or Compose in the same new chat), it is not taken over.
+        let ticket = self.composer_store.read(cx).ticket();
         let account = self.account.clone();
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
@@ -1303,7 +1306,8 @@ impl ChatPane {
                     return;
                 }
                 this.starting = false;
-                let still_here = place(this.stores.navigation.read(cx)) == origin;
+                let still_here = place(this.stores.navigation.read(cx)) == origin
+                    && this.composer_store.read(cx).holds(ticket);
                 match result {
                     // Made (in its folder, by the daemon), but not opened over
                     // where the user went since. Its settings went with it.
@@ -4450,6 +4454,47 @@ mod tests {
                 Some("chat-new".to_string()),
                 "a follow-up typed now is kept as the new chat's draft"
             );
+        }
+
+        /// A first send whose composition is replaced while it waits (a
+        /// fresh Clipboard or Send Text in the same new chat): the chat is
+        /// made, but neither opened over the fresh composition nor handed
+        /// its text as a draft.
+        #[gpui_kit::test]
+        fn a_first_send_never_takes_over_a_composition_that_replaced_it(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "chat-new",
+                    "userMessageId": "m",
+                    "assistantMessageId": "a",
+                }))
+                .unwrap(),
+            );
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Hello".into(), vec![], window, cx)
+            });
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer
+                    .update(cx, |c, cx| c.start_fresh("Copied packing list", window, cx))
+            });
+            held.release();
+            vcx.run_until_parked();
+            assert_eq!(
+                stores
+                    .navigation
+                    .read_with(vcx, |n, _| n.selected_chat().map(String::from)),
+                None,
+                "the first send opened its chat over the fresh composition"
+            );
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                "Copied packing list"
+            );
+            let key = pane.read_with(vcx, |p, cx| p.composer_store.read(cx).draft_key().cloned());
+            assert_eq!(key.and_then(|k| k.chat_id), None);
         }
 
         /// A daemon that keeps drafts by chat (`""` for New Chat).

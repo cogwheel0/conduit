@@ -505,6 +505,18 @@ pub struct ComposerStore {
     _draft: Option<Task<()>>,
 }
 
+/// Which composition an async result belongs to: the account scope and
+/// the draft round when it started ([`ComposerStore::ticket`]). A result
+/// that lands after either moved on (another account, another draft or
+/// chat, a fresh composition: [`ComposerStore::start_over`]) writes nothing
+/// into, and navigates nothing away from, the composition shown then
+/// ([`ComposerStore::holds`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CompositionTicket {
+    scope: u64,
+    round: u64,
+}
+
 /// Which list a search fills.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Search {
@@ -1782,6 +1794,19 @@ impl ComposerStore {
         self.draft_round
     }
 
+    /// This composition's ticket, for an async result to carry.
+    pub fn ticket(&self) -> CompositionTicket {
+        CompositionTicket {
+            scope: self.scope,
+            round: self.draft_round,
+        }
+    }
+
+    /// Whether `ticket`'s composition is still the one shown.
+    pub fn holds(&self, ticket: CompositionTicket) -> bool {
+        self.ticket() == ticket
+    }
+
     /// Another chat opened: `text` (what the composer held) is kept for the
     /// chat it held it for, and the new chat's draft is read (it arrives as
     /// [`ComposerEvent::DraftLoaded`]). `None`: a chat that keeps none (a
@@ -1859,11 +1884,12 @@ impl ComposerStore {
             chat_id: key.chat_id.clone(),
             folder_id: key.folder_id.clone(),
         });
+        let ticket = self.ticket();
         self._draft = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let draft = call.await;
                 let _ = this.update(cx, |s, cx| {
-                    if s.draft.as_ref() != Some(&key) {
+                    if s.draft.as_ref() != Some(&key) || !s.holds(ticket) {
                         return;
                     }
                     let text = draft.map(|d: Draft| d.text).unwrap_or_default();

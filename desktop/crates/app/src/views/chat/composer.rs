@@ -287,6 +287,9 @@ pub struct ChatComposer {
     sent_recordings: Option<u64>,
     /// The text before the dictation under way; its words follow it.
     dictation_base: Option<String>,
+    /// The composition a saved recording's transcription was asked for in:
+    /// its words are added only while that composition is shown.
+    transcribing: Option<crate::stores::composer::CompositionTicket>,
     /// The field's placeholder, put back after "Listening…".
     placeholder: String,
     /// The window this composer is in: Esc cancels dictation there only.
@@ -499,6 +502,7 @@ impl ChatComposer {
             dictation: None,
             sent_recordings: None,
             dictation_base: None,
+            transcribing: None,
             placeholder: placeholder.to_string(),
             window_handle: window.window_handle(),
             channel_mode: false,
@@ -622,9 +626,15 @@ impl ChatComposer {
                 }
             }
             DictationEvent::Transcribed(text) => {
-                let current = self.text(cx);
-                self.set_text(&join_dictated(&current, text), window, cx);
-                self.focus_input(window, cx);
+                // Only into the composition it was asked for in.
+                match self.transcribing.take() {
+                    Some(ticket) if self.composer.read(cx).holds(ticket) => {
+                        let current = self.text(cx);
+                        self.set_text(&join_dictated(&current, text), window, cx);
+                        self.focus_input(window, cx);
+                    }
+                    _ => log::info!("dictation: a transcription for another composition; dropped"),
+                }
             }
             DictationEvent::Heard => {
                 let placeholder = self.placeholder.clone();
@@ -655,7 +665,12 @@ impl ChatComposer {
         cx: &mut Context<Self>,
     ) {
         if let Some(store) = self.dictation.clone() {
+            // One at a time: a request while one runs is not taken.
+            let free = store.read(cx).busy.is_none() && !store.read(cx).is_active();
             store.update(cx, |s, cx| s.transcribe_saved(id, on_this_mac, cx));
+            if free && store.read(cx).busy.is_some() {
+                self.transcribing = Some(self.composer.read(cx).ticket());
+            }
         }
     }
 
@@ -2262,6 +2277,8 @@ impl ChatComposer {
             };
             crate::desktop::install_continuity_camera(&ns_window, target, cx);
         }
+        // The menu's choice acts on this composition only.
+        let ticket = self.composer.read(cx).ticket();
         cx.spawn_in(window, async move |this, cx| {
             let Some(view) = ns_window.contentView() else {
                 return;
@@ -2276,7 +2293,9 @@ impl ChatComposer {
             let report =
                 camera::while_menu_tracks(import, || camera::popup(&view, &entries, location));
             let _ = this.update_in(cx, |this, window, cx| {
-                if let Some(action) = report.chosen.and_then(|i| actions.get(i)) {
+                if let Some(action) = report.chosen.and_then(|i| actions.get(i))
+                    && this.composer.read(cx).holds(ticket)
+                {
                     this.on_menu(action, window, cx);
                 }
                 // As GPUI Kit's menu does: wake the window after AppKit's
@@ -2548,9 +2567,15 @@ impl ChatComposer {
             prompt: Some(prompt.into()),
         });
         let composer = self.composer.clone();
+        // Chosen for this composition: not attached to one that replaced it.
+        let ticket = composer.read(cx).ticket();
         cx.spawn_in(window, async move |_, cx| {
             if let Ok(Ok(Some(paths))) = paths.await {
-                composer.update(cx, |c, cx| c.add_paths(&paths, cx));
+                composer.update(cx, |c, cx| {
+                    if c.holds(ticket) {
+                        c.add_paths(&paths, cx);
+                    }
+                });
             }
         })
         .detach();
@@ -4546,7 +4571,13 @@ mod tests {
         );
         emit(DictationEvent::Ended { restore: true }, cx);
         assert_eq!(value(&view, cx), "Draft: plant the beans");
-        // A saved recording's words are added at the end.
+        // A saved recording's words, asked for in this composition (as
+        // transcribe_recording records it), are added at the end.
+        cx.update(|_, cx| {
+            view.update(cx, |c, cx| {
+                c.transcribing = Some(c.composer.read(cx).ticket())
+            })
+        });
         emit(DictationEvent::Transcribed("Then rest.".into()), cx);
         assert_eq!(value(&view, cx), "Draft: plant the beans Then rest.");
     }
@@ -4756,6 +4787,74 @@ mod tests {
         });
         emit(DictationEvent::Ended { restore: true }, cx);
         assert_eq!(value(&view, cx), "Copied packing list");
+    }
+
+    /// A saved recording's words, still being transcribed when a fresh
+    /// composition replaces the last one, land nowhere.
+    #[gpui_kit::test]
+    fn a_transcription_asked_for_the_last_composition_lands_nowhere(cx: &mut TestAppContext) {
+        use crate::stores::dictation::DictationStore;
+        use conduit_protocol::methods::{DictationStatus, RecordingsTranscribe};
+        let (view, cx, _) = composer(cx);
+        let daemon = FakeDaemon::new();
+        daemon.returns::<DictationStatus>(
+            serde_json::from_value(serde_json::json!({"engine": "server"})).unwrap(),
+        );
+        daemon.returns::<RecordingsTranscribe>(
+            serde_json::from_value(serde_json::json!({"text": "plant the beans"})).unwrap(),
+        );
+        let held = daemon.hold::<RecordingsTranscribe>();
+        let dictation = cx.new(|_| DictationStore::new(daemon.rpc(), None));
+        view.update_in(cx, |c, window, cx| {
+            c.set_dictation(dictation.clone(), window, cx);
+            c.set_text("Draft:", window, cx);
+            c.transcribe_recording("rec-1", false, window, cx);
+        });
+        cx.run_until_parked();
+        view.update_in(cx, |c, window, cx| {
+            c.start_fresh("Copied packing list", window, cx)
+        });
+        held.release();
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "Copied packing list");
+
+        // Asked in this composition: its words are added.
+        view.update_in(cx, |c, window, cx| {
+            c.transcribe_recording("rec-1", false, window, cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "Copied packing list plant the beans");
+    }
+
+    /// Files chosen in Attach Files after a fresh composition replaced the
+    /// one that asked are not attached to it.
+    #[gpui_kit::test]
+    fn files_picked_for_the_last_composition_are_not_attached(cx: &mut TestAppContext) {
+        let (view, cx, _) = composer(cx);
+        let dir = std::env::temp_dir().join(format!("conduit-pick-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let notes = dir.join("notes.txt");
+        let _ = std::fs::write(&notes, "Synthetic notes");
+        view.update_in(cx, |c, window, cx| c.pick_files(window, cx));
+        assert!(cx.did_prompt_for_paths());
+        view.update_in(cx, |c, window, cx| {
+            c.start_fresh("Copied packing list", window, cx)
+        });
+        let picked = notes.clone();
+        cx.simulate_path_prompt_response(move |_| Some(vec![picked]));
+        cx.run_until_parked();
+        assert!(
+            view.read_with(cx, |c, cx| c.composer.read(cx).attachments.is_empty()),
+            "files picked for the last composition were attached"
+        );
+        // Picked for this composition: attached.
+        view.update_in(cx, |c, window, cx| c.pick_files(window, cx));
+        cx.simulate_path_prompt_response(move |_| Some(vec![notes]));
+        cx.run_until_parked();
+        assert_eq!(
+            view.read_with(cx, |c, cx| c.composer.read(cx).attachments.len()),
+            1
+        );
     }
 
     #[gpui_kit::test]
