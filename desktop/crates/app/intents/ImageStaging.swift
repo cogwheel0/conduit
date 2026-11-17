@@ -44,7 +44,7 @@ enum ImageStaging {
             .appendingPathComponent(folderName, isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let safeName = name.isEmpty || name.hasPrefix(".") ? "Image" : name
+        let safeName = stagedName(name, type: type)
         let target = folder.appendingPathComponent(safeName)
         if let url = file.fileURL {
             let scoped = url.startAccessingSecurityScopedResource()
@@ -54,5 +54,19 @@ enum ImageStaging {
             try file.data.write(to: target, options: .atomic)
         }
         return Staged(path: target.path, filename: safeName, isImage: true, byteCount: byteCount)
+    }
+
+    /// The staged copy's name: the image's own, or "Image" when it has none,
+    /// with the extension its type calls for when the name carries none (the
+    /// app reads an attachment's kind, and turns a HEIC into a JPEG, from its
+    /// name alone).
+    static func stagedName(_ name: String, type: UTType?) -> String {
+        let base = name.isEmpty || name.hasPrefix(".") ? "Image" : name
+        guard (base as NSString).pathExtension.isEmpty,
+            let ext = type?.preferredFilenameExtension
+        else {
+            return base
+        }
+        return "\(base).\(ext)"
     }
 }

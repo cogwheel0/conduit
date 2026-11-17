@@ -304,6 +304,27 @@ async fn shortcuts(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
             })
             .await,
     );
+    // A typed image whose name has no extension keeps its kind.
+    fresh_chat(cx).await;
+    let unnamed = step(json!({
+        "intent": "sendImage",
+        "path": png.to_string_lossy(),
+        "filename": "Chart",
+        "type": "public.png",
+        "inMemory": true,
+    }))
+    .await;
+    pass &= ok(
+        &format!(
+            "…and a typed image named without an extension is staged as one ({})",
+            brief(&unnamed)
+        ),
+        value_is(&unnamed, &l10n.desktop_intent_sent_image())
+            && wait_until(cx, Duration::from_secs(15), |cx| {
+                attachment_names(cx) == ["Chart.png"]
+            })
+            .await,
+    );
     let text_file = dir.join("x4-notes.txt");
     let _ = std::fs::write(&text_file, "Not a picture.");
     let not_image = step(json!({
