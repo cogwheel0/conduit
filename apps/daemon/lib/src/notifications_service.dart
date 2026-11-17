@@ -8,6 +8,7 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'account_scope.dart';
 import 'event_bus.dart';
 
 /// `notifications.*`: the phone's Notifications page over core's
@@ -52,19 +53,30 @@ final class NotificationsService {
     synced: _container.read(apiServiceProvider) != null,
   );
 
+  /// Writes [patch] for the account it was asked under: each setter, the
+  /// server mirror and the answer go through that account's
+  /// [AccountScope.require], so a switch while one setting persists stops
+  /// the rest (and the mirror) instead of writing them for the next account.
   Future<NotificationSettingsDto> set(NotificationSettingsPatch patch) async {
+    final account = AccountScope.capture(_container);
     final n = _notifier;
-    if (patch.enabled case final v?) await n.setNotificationsEnabled(v);
-    if (patch.sound case final v?) await n.setNotificationSound(v);
-    if (patch.soundAlways case final v?) await n.setNotificationSoundAlways(v);
-    if (patch.inAppBanner case final v?) await n.setNotificationInAppBanner(v);
-    if (patch.system case final v?) await n.setNotificationSystem(v);
-    if (patch.answers case final v?) await n.setNotificationChatEnabled(v);
-    if (patch.channels case final v?) await n.setNotificationChannelEnabled(v);
-    if (patch.mentionsOnly case final v?) {
-      await n.setNotificationChannelMentionsOnly(v);
+    Future<void> write<T>(T? value, Future<void> Function(T) setter) async {
+      if (value == null) return;
+      account.require('a notification setting is written');
+      await setter(value);
     }
-    // Local persistence went through; the server only mirrors three of them.
+
+    await write(patch.enabled, n.setNotificationsEnabled);
+    await write(patch.sound, n.setNotificationSound);
+    await write(patch.soundAlways, n.setNotificationSoundAlways);
+    await write(patch.inAppBanner, n.setNotificationInAppBanner);
+    await write(patch.system, n.setNotificationSystem);
+    await write(patch.answers, n.setNotificationChatEnabled);
+    await write(patch.channels, n.setNotificationChannelEnabled);
+    await write(patch.mentionsOnly, n.setNotificationChannelMentionsOnly);
+    // Local persistence went through; the server only mirrors three of them,
+    // with the API of the account they were written for.
+    account.require('the notification settings are mirrored');
     unawaited(
       syncNotificationPrefsToServer(
         _container.read(apiServiceProvider),

@@ -12,6 +12,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'account_scope.dart';
 import 'settled.dart';
 
 /// `integrations.*`: the account's personal tool servers (OpenAPI) and
@@ -173,8 +174,13 @@ final class IntegrationsService {
   }
 
   /// The connections, read again from the server.
+  ///
+  /// Bound to the account it was asked under ([AccountScope]): once another
+  /// account is in charge after any wait, it is refused.
   Future<PersonalConnections> list() async {
+    final account = AccountScope.capture(_container);
     final access = await _access();
+    account.require('the personal connections are read');
     if (!access.available) {
       return PersonalConnections(access: _accessDto(access));
     }
@@ -184,6 +190,7 @@ final class IntegrationsService {
         _container,
         personalConnectionsProvider.future,
       );
+      account.require('the personal connections are answered');
       if (snapshot == null) {
         return const PersonalConnections(
           access: PersonalAccess.allowed,
@@ -191,7 +198,10 @@ final class IntegrationsService {
         );
       }
       return _list(snapshot);
+    } on RpcError {
+      rethrow;
     } on Object {
+      account.require('the personal connections are answered');
       return const PersonalConnections(
         access: PersonalAccess.allowed,
         failed: true,
@@ -204,7 +214,13 @@ final class IntegrationsService {
     bool savedForPreviousAccount = false,
   }) async {
     final snapshot = _container.read(personalConnectionsProvider).asData?.value;
-    if (snapshot == null) return list();
+    if (snapshot == null) {
+      // Read again; a save that reached the previous account still says so.
+      final fresh = await list();
+      return savedForPreviousAccount
+          ? fresh.copyWith(savedForPreviousAccount: true)
+          : fresh;
+    }
     return _list(snapshot, savedForPreviousAccount: savedForPreviousAccount);
   }
 
@@ -397,8 +413,12 @@ final class IntegrationsService {
           : _terminalDraft(params.draft).toPatch(existing.raw);
       entry = mergePersonalConnectionPatch(existing.raw, patch);
     }
+    final account = AccountScope.capture(_container);
     try {
       final outcome = await _controller.testConnection(owner, kind, entry);
+      // A probe made for the previous account is not that account's answer
+      // to show under the next one.
+      account.require('a connection test is answered');
       return PersonalConnectionTestResult(
         ok: outcome.succeeded,
         operationCount: outcome.operationCount,

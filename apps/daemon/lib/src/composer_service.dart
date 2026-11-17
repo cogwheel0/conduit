@@ -29,6 +29,7 @@ import 'package:riverpod/misc.dart' show ProviderListenable;
 import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import 'account_scope.dart';
 import 'settled.dart';
 
 /// Implements `composer.*` (what the composer may offer) and what it draws
@@ -45,7 +46,10 @@ final class ComposerService {
 
   final ProviderContainer _container;
 
+  /// Bound to the account it was asked under ([AccountScope]): the tools,
+  /// personal tool servers and models are that account's, or refused.
   Future<ComposerOptions> options() async {
+    final account = AccountScope.capture(_container);
     await Future.wait<Object?>(<Future<Object?>>[
       _settle(backendConfigProvider.future),
       _settle(userPermissionsProvider.future),
@@ -121,6 +125,7 @@ final class ComposerService {
           )
         : const <QuickPillCandidate>[];
     final voiceCall = await _voiceCallAdmitted(model);
+    account.require('the composer options are answered');
     return ComposerOptions(
       voiceCall: voiceCall,
       webSearch: webSearch,

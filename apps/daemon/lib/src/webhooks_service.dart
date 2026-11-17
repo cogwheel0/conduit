@@ -5,6 +5,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'account_scope.dart';
 import 'settled.dart';
 
 /// `webhooks.*`: the account's webhook destinations on its Open WebUI server,
@@ -110,23 +111,32 @@ final class WebhooksService {
   );
 
   /// The destinations, read again from the server.
+  ///
+  /// Bound to the account it was asked under ([AccountScope]): once another
+  /// account is in charge after any wait, it is refused rather than answered
+  /// with the next account's destinations under this one's owner.
   Future<WebhookList> list() async {
-    if (!await _available()) return const WebhookList();
+    final account = AccountScope.capture(_container);
+    if (!await _available()) {
+      account.require('the webhook list is answered');
+      return const WebhookList();
+    }
+    account.require('the webhook owner is captured');
     final owner = _targets.captureOwner();
     if (owner == null) return const WebhookList();
     final token = _remember(owner);
+    final NotificationTargetsData data;
     try {
       if (_container.read(notificationTargetsProvider).hasValue) {
         await _targets.refresh(owner: owner);
       }
-      final data = await readSettled(
-        _container,
-        notificationTargetsProvider.future,
-      );
-      return _list(data, token);
+      data = await readSettled(_container, notificationTargetsProvider.future);
     } on Object {
+      account.require('the webhook list is answered');
       return WebhookList(available: true, owner: token, failed: true);
     }
+    account.require('the webhook list is answered');
+    return _list(data, token);
   }
 
   /// The list as the notifier holds it after a change (it reads it back).
@@ -143,6 +153,7 @@ final class WebhooksService {
     Future<void> Function(NotificationTargetsOwner owner) action,
   ) async {
     final owner = _owner(token);
+    final account = AccountScope.capture(_container);
     try {
       await action(owner);
     } on NotificationTargetsOwnerChangedException {
@@ -167,6 +178,12 @@ final class WebhooksService {
         debugMessage: 'the server refused the change',
         args: <String, String>{'detail': ?detail},
       );
+    }
+    // The change went through for this owner, but another account is in
+    // charge now: what the notifier holds is the next account's list, so it
+    // is not shown under this owner (the window reads its own again).
+    if (!account.isCurrent) {
+      return WebhookList(available: true, owner: token, stale: true);
     }
     return _current(token);
   }

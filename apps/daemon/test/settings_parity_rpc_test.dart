@@ -8,6 +8,7 @@ import 'dart:io';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart';
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -27,6 +28,7 @@ import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 import 'package:web_socket_channel/io.dart';
@@ -683,9 +685,10 @@ void _withAnAccount() {
     Completer<void>? aboutHeld;
     Completer<void>? aboutAsked;
 
-    ProviderContainer containerWith() {
+    ProviderContainer containerWith({List<Override> extra = const []}) {
       final container = ProviderContainer(
         overrides: [
+          ...extra,
           ...openWebUiStorageOpenOverrides(database: db),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           apiServiceProvider.overrideWith((ref) => api),
@@ -802,6 +805,45 @@ void _withAnAccount() {
       settings.written.complete();
       await expectLater(saving, refused(ConduitErrorCodes.sessionExpired));
       expect(settings.calls, <String>['computerEnabled']);
+    });
+
+    test('notification settings asked under one account are never written '
+        'for the next', () async {
+      final settings = _Settings();
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWith(() => settings),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+          apiServiceProvider.overrideWith((ref) => null),
+        ],
+      );
+      addTearDown(container.dispose);
+      final saving = NotificationsService(container)
+          .set(const NotificationSettingsPatch(enabled: false, sound: false));
+      // Another account signs in while the first setting is written.
+      epoch = Object();
+      container.invalidate(openWebUiAuthSessionEpochProvider);
+      settings.written.complete();
+      await expectLater(saving, refused(ConduitErrorCodes.sessionExpired));
+      expect(settings.calls, <String>['notificationsEnabled']);
+    });
+
+    test("a webhook list read under one account is never answered with the "
+        "next one's under the first one's owner", () async {
+      final targets = _Targets();
+      final container = containerWith(
+        extra: [
+          notificationTargetsProvider.overrideWith(() => targets),
+          notificationTargetsAvailableProvider.overrideWithValue(true),
+          authTokenProvider3.overrideWithValue('token-a'),
+        ],
+      );
+      final reading = WebhooksService(container).list();
+      await targets.asked.future;
+      // Another account signs in while the destinations are read.
+      switchAccount(container);
+      targets.held.complete();
+      await expectLater(reading, refused(ConduitErrorCodes.sessionExpired));
     });
 
     test('a birth date past its month is refused', () async {
@@ -1045,6 +1087,30 @@ final class _Settings extends AppSettingsNotifier {
   @override
   Future<void> setSendOnEnter(bool value) async {
     calls.add('sendOnEnter');
+  }
+
+  @override
+  Future<void> setNotificationsEnabled(bool value) async {
+    calls.add('notificationsEnabled');
+    await written.future;
+  }
+
+  @override
+  Future<void> setNotificationSound(bool value) async {
+    calls.add('notificationSound');
+  }
+}
+
+/// Webhook destinations whose first read waits for [held].
+final class _Targets extends NotificationTargets {
+  final asked = Completer<void>();
+  final held = Completer<void>();
+
+  @override
+  Future<NotificationTargetsData> build() async {
+    if (!asked.isCompleted) asked.complete();
+    await held.future;
+    return const NotificationTargetsData();
   }
 }
 
