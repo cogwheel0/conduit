@@ -174,7 +174,7 @@ void main() {
       });
       pages['/stall.png'] = (r) async {
         r.response.headers.contentType = ContentType('image', 'png');
-          r.response.add(_png.sublist(0, 8));
+        r.response.add(_png.sublist(0, 8));
         await r.response.flush();
         stalled.complete();
         await hold.future;
@@ -235,6 +235,142 @@ void main() {
     expect(looked, isEmpty, reason: 'the other site is never asked');
     // On the same origin it is followed.
     expect((await media.fetch(at('/here.png'), MediaKind.image)).bytes, _png);
+  });
+
+  group('an answer it does not read is let go at once', () {
+    // A site that sends its answer's head and then stalls the rest: the
+    // fetch must neither wait on the rest nor keep the connection.
+    late HttpServer stalling;
+    late Map<String, String> heads;
+    late Map<String, Completer<void>> released;
+    late Completer<void> hold;
+
+    setUp(() async {
+      heads = <String, String>{};
+      released = <String, Completer<void>>{};
+      hold = Completer<void>();
+      stalling = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      stalling.listen((request) async {
+        final path = request.uri.path;
+        final head = heads[path];
+        if (head == null) {
+          request.response.headers.contentType = ContentType('image', 'png');
+          request.response.add(_png);
+          await request.response.close();
+          return;
+        }
+        final socket = await request.response.detachSocket(writeHeaders: false);
+        socket.add(utf8.encode('$head\r\n\r\nThe first bytes of a body'));
+        await socket.flush();
+        final gone = released.putIfAbsent(path, Completer<void>.new);
+        // The fetch letting go ends the connection; the site never would.
+        socket.listen(
+          (_) {},
+          onDone: () {
+            if (!gone.isCompleted) gone.complete();
+          },
+          onError: (Object _) {
+            if (!gone.isCompleted) gone.complete();
+          },
+        );
+        await hold.future;
+        socket.destroy();
+      });
+    });
+
+    tearDown(() async {
+      if (!hold.isCompleted) hold.complete();
+      await stalling.close(force: true);
+    });
+
+    String stalled(String path) => 'http://127.0.0.1:${stalling.port}$path';
+    Future<Uri?> stallingIsOwn() async => Uri.parse(stalled('/'));
+
+    MediaService service(_Deadline deadline) {
+      final media = MediaService(
+        ownServer: stallingIsOwn,
+        deadline: deadline.start,
+        maxImageBytes: 1024,
+      );
+      addTearDown(media.close);
+      return media;
+    }
+
+    test('an error status', () async {
+      heads['/gone.png'] =
+          'HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n'
+          'Content-Length: 100000';
+      final deadline = _Deadline();
+      await expectLater(
+        service(deadline).fetch(stalled('/gone.png'), MediaKind.image),
+        throwsA(_failure(MediaFailure.failed)),
+      );
+      await released['/gone.png']!.future;
+      expect(deadline.isActive, isFalse);
+    });
+
+    test('a redirect', () async {
+      heads['/moved.png'] =
+          'HTTP/1.1 302 Found\r\nLocation: /tide.png\r\n'
+          'Content-Type: text/html\r\nContent-Length: 100000';
+      final deadline = _Deadline();
+      final fetched = await service(deadline)
+          .fetch(stalled('/moved.png'), MediaKind.image);
+      expect(fetched.bytes, _png);
+      await released['/moved.png']!.future;
+      expect(deadline.isActive, isFalse);
+    });
+
+    test('an answer larger than the limit', () async {
+      heads['/huge.png'] =
+          'HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n'
+          'Content-Length: 100000';
+      final deadline = _Deadline();
+      await expectLater(
+        service(deadline).fetch(stalled('/huge.png'), MediaKind.image),
+        throwsA(_failure(MediaFailure.tooLarge)),
+      );
+      await released['/huge.png']!.future;
+      expect(deadline.isActive, isFalse);
+    });
+
+    test(
+      'and the time limit still ends a fetch waiting on a stalled head',
+      () async {
+        // A site that accepts the request and never answers at all.
+        final silent = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        final gone = Completer<void>();
+        final arrived = Completer<void>();
+        silent.listen((socket) {
+          socket.listen(
+            (_) {
+              if (!arrived.isCompleted) arrived.complete();
+            },
+            onDone: () {
+              if (!gone.isCompleted) gone.complete();
+            },
+            onError: (Object _) {
+              if (!gone.isCompleted) gone.complete();
+            },
+          );
+        });
+        addTearDown(silent.close);
+        final deadline = _Deadline();
+        final media = MediaService(
+          ownServer: () async => Uri.parse('http://127.0.0.1:${silent.port}/'),
+          deadline: deadline.start,
+        );
+        addTearDown(media.close);
+        final waiting = media.fetch(
+          'http://127.0.0.1:${silent.port}/tide.png',
+          MediaKind.image,
+        );
+        await arrived.future;
+        deadline.fire();
+        await expectLater(waiting, throwsA(_failure(MediaFailure.timedOut)));
+        await gone.future;
+      },
+    );
   });
 
   test('redirects are followed a few times, then refused', () async {

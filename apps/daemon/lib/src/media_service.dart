@@ -154,6 +154,8 @@ final class MediaService {
     final start = parse(raw);
     final limit = limitFor(kind);
     HttpClientRequest? request;
+    // An answer whose head arrived and whose body nobody reads yet.
+    HttpClientResponse? unread;
     StreamSubscription<List<int>>? body;
     final expired = Completer<Never>();
     expired.future.ignore();
@@ -161,6 +163,7 @@ final class MediaService {
       if (expired.isCompleted) return;
       expired.completeError(const MediaFetchException(MediaFailure.timedOut));
       request?.abort(const MediaFetchException(MediaFailure.timedOut));
+      if (unread case final open?) _abandon(open);
       body?.cancel().ignore();
     });
     Future<T> inTime<T>(Future<T> work) =>
@@ -193,8 +196,12 @@ final class MediaService {
           ..removeAll(HttpHeaders.cookieHeader)
           ..removeAll(HttpHeaders.authorizationHeader);
         final response = await inTime(open.close());
+        unread = response;
         if (response.isRedirect) {
-          await inTime(response.drain<void>());
+          // Its body is never read: draining would wait on a site that
+          // stalls it.
+          unread = null;
+          _abandon(response);
           final location = response.headers.value(HttpHeaders.locationHeader);
           if (location == null || redirects >= maxRedirects) {
             throw const MediaFetchException(MediaFailure.failed, 'redirects');
@@ -215,7 +222,8 @@ final class MediaService {
           continue;
         }
         if (response.statusCode < 200 || response.statusCode >= 300) {
-          await response.drain<void>().catchError((_) {});
+          unread = null;
+          _abandon(response);
           throw MediaFetchException(
             MediaFailure.failed,
             'status ${response.statusCode}',
@@ -223,10 +231,13 @@ final class MediaService {
         }
         final stated = response.contentLength;
         if (stated > limit) {
+          unread = null;
+          _abandon(response);
           throw const MediaFetchException(MediaFailure.tooLarge);
         }
         final builder = BytesBuilder(copy: false);
         final done = Completer<void>();
+        unread = null;
         body = response.listen(
           (chunk) {
             builder.add(chunk);
@@ -269,6 +280,17 @@ final class MediaService {
       deadline.cancel();
       body?.cancel().ignore();
     }
+  }
+
+  /// Lets go of [response] without reading its body: its socket is taken
+  /// from the client and destroyed, so a site that stalls the rest holds
+  /// nothing open and nothing waits on it (draining would). Every answer
+  /// [fetch] does not read ends here.
+  static void _abandon(HttpClientResponse response) {
+    response
+        .detachSocket()
+        .then((socket) => socket.destroy(), onError: (Object _) {})
+        .ignore();
   }
 
   /// Every connection [fetch] opens, its redirects' too: to the account's
