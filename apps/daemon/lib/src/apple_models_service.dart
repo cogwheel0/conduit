@@ -59,7 +59,7 @@ List<Override> appleModelsOverrides(AppleModelsBridge bridge) => <Override>[
 final class AppleModelsService {
   AppleModelsService(this._container, {required this.bridge}) {
     bridge._onReady = _ready;
-    bridge._onGone = _gone;
+    bridge._onRecheck = _recheck;
   }
 
   final ProviderContainer _container;
@@ -182,9 +182,10 @@ final class AppleModelsService {
     }());
   }
 
-  /// A window's engine went: the offer follows the engines left, and with
-  /// none that has the model it is withdrawn at once.
-  void _gone() => unawaited(_onDevice());
+  /// A window's engine went, or a run said the model can't answer: the
+  /// Mac is asked again, and the offer follows (with no engine left that
+  /// has the model it is withdrawn at once).
+  void _recheck() => unawaited(_onDevice());
 
   Future<void> _rediscover() async {
     try {
@@ -226,7 +227,7 @@ final class AppleModelsBridge implements ApplePccHost {
   EventBus? _events;
   ApplePccHostListener? _listener;
   void Function(bool supported)? _onReady;
-  void Function()? _onGone;
+  void Function()? _onRecheck;
   int _nextId = 0;
 
   /// Commands not answered yet, with the window each went to: only that
@@ -406,7 +407,7 @@ final class AppleModelsBridge implements ApplePccHost {
     for (final MapEntry(key: runId, value: owner) in _owners.entries.toList()) {
       if (owner == window) _end(runId, stop: false);
     }
-    if (wasEngine) _onGone?.call();
+    if (wasEngine) _onRecheck?.call();
   }
 
   /// Ends [runId] here, failed, and stops it in the window running it: the
@@ -499,15 +500,20 @@ final class AppleModelsBridge implements ApplePccHost {
         final runId = report.runId ?? '';
         _owners.remove(runId);
         _numbers.remove(runId);
+        final unavailable = report.failure == AppleFailure.unavailable;
         _event(
           PlatformPccStreamEvent(
             runId: runId,
             kind: PlatformPccEventKind.error,
-            content: report.failure == AppleFailure.unavailable
+            content: unavailable
                 ? appleUnavailableMessage(report.reason)
                 : appleFailureMessage(report.failure ?? AppleFailure.failed),
           ),
         );
+        // The model can't answer now (Apple Intelligence turned off, say):
+        // the Mac is asked again so the offer follows. Other failures (a
+        // full context) say nothing of the model.
+        if (unavailable) _onRecheck?.call();
       case AppleReportKind.done:
         final runId = report.runId ?? '';
         _owners.remove(runId);

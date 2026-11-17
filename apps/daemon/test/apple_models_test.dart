@@ -240,6 +240,38 @@ void main() {
     );
   });
 
+  test('a run that says the model cannot answer asks the Mac again, so the '
+      'offer follows; another failure leaves it', () async {
+    window.ready(supported: true);
+    await window.until(() => container.read(appleOnDeviceAnswersProvider));
+    Future<void> run(String text) => container
+        .read(applePccAdapterProvider)
+        .startCompletion(DirectConnectionProfile.appleOnDevice(), ask(text))
+        .events
+        .drain<void>();
+
+    window.failure = AppleFailure.contextExceeded;
+    final asked = window.statusAsked;
+    await run('A very long conversation.');
+    await pumpEventQueue();
+    expect(window.statusAsked, asked, reason: 'a full context is not the Mac');
+    expect(container.read(appleOnDeviceAnswersProvider), isTrue);
+
+    // Apple Intelligence was turned off since the last ask.
+    window.engine = const AppleEngineStatus(
+      availability: AppleAvailability.unavailable,
+      reason: AppleUnavailableReason.appleIntelligenceNotEnabled,
+    );
+    window.failure = AppleFailure.unavailable;
+    await run('Name three hardy herbs.');
+    for (var turn = 0; turn < 50 && window.statusAnswered <= asked; turn++) {
+      await pumpEventQueue();
+    }
+    await pumpEventQueue();
+    expect(window.statusAsked, greaterThan(asked), reason: 'not asked again');
+    expect(container.read(appleOnDeviceAnswersProvider), isFalse);
+  });
+
   test("a tool call is answered back to the window's run", () async {
     window.ready(supported: true);
     window.toolCall = true;
