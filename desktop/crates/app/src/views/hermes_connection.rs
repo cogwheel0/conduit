@@ -922,15 +922,8 @@ impl HermesConnectionSheet {
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let mut failed: Option<RpcError> = None;
                 if let Some(activate) = activate {
-                    match activate.await {
-                        // Put in use: the connection its answer names.
-                        Ok(now) if now.active_id.as_deref() == Some(id.as_str()) => {
-                            connection = now.connection
-                        }
-                        // Another window put another connection in use while
-                        // this one was activated: not signed in to; said as
-                        // the daemon's refusal of a stale sign-in is.
-                        Ok(_) => failed = Some(RpcError::new(ErrorCode::SessionExpired)),
+                    match activate.await.and_then(|now| put_in_use(now, &id)) {
+                        Ok(now) => connection = now,
                         Err(e) => failed = Some(e),
                     }
                 }
@@ -990,8 +983,8 @@ impl HermesConnectionSheet {
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let mut failed: Option<RpcError> = None;
                 if let Some(activate) = activate {
-                    match activate.await {
-                        Ok(now) => connection = now.connection,
+                    match activate.await.and_then(|now| put_in_use(now, &id)) {
+                        Ok(now) => connection = now,
                         Err(e) => failed = Some(e),
                     }
                 }
@@ -1218,6 +1211,17 @@ impl HermesConnectionSheet {
 }
 
 /// The daemon refused to send credentials unencrypted unasked.
+/// The connection an activation's answer `now` names, when it put `id` in
+/// use. Another window put another connection in use while it was out: not
+/// signed in to, and said as the daemon's refusal of a stale sign-in is.
+fn put_in_use(now: HermesConnections, id: &str) -> Result<Option<String>, RpcError> {
+    if now.active_id.as_deref() == Some(id) {
+        Ok(now.connection)
+    } else {
+        Err(RpcError::new(ErrorCode::SessionExpired))
+    }
+}
+
 fn is_plain_http(e: &RpcError) -> bool {
     e.args.get("reason").map(String::as_str) == Some("plainHttpConsent")
 }
@@ -1812,29 +1816,6 @@ mod tests {
         );
     }
 
-    /// The activation's answer names another connection in use (another
-    /// window switched while it was out): nothing is signed in to, and the
-    /// editor says why.
-    #[gpui_kit::test]
-    fn sign_in_stops_when_another_connection_was_put_in_use(cx: &mut gpui_kit::TestAppContext) {
-        let (daemon, stores, vcx) = bench(cx);
-        daemon.returns::<methods::HermesConnectionsSave>(list("a", Some("b"), "nativePkce"));
-        daemon.returns::<methods::HermesConnectionsActivate>(list("a", None, "nativePkce"));
-        daemon.on::<methods::HermesSignIn>(|_| Ok(json!({})));
-        daemon.returns::<methods::HermesConnectionsList>(list("a", None, "nativePkce"));
-        let sheet = open_b(&stores, vcx, "nativePkce");
-        on_sheet(vcx, &sheet, |s, w, cx| s.sign_in(w, cx));
-        vcx.run_until_parked();
-        assert!(
-            daemon.calls::<methods::HermesSignIn>().is_empty(),
-            "signed in to the connection another window put in use"
-        );
-        sheet.read_with(vcx, |s, _| {
-            assert!(s.error.is_some(), "the editor did not say why");
-            assert!(!s.busy);
-        });
-    }
-
     /// Quit while a sign-in is out beeps, and still does after a field is
     /// edited (which clears the "Signing in" note, not the sign-in).
     #[gpui_kit::test]
@@ -2081,6 +2062,47 @@ mod tests {
         let saves = daemon.calls::<methods::HermesConnectionsSave>();
         assert_eq!(saves.len(), 1);
         assert_eq!(saves[0]["desktopAuthKind"], json!("dashboardCookie"));
+    }
+
+    /// The activation's answer names another connection in use (another
+    /// window switched while it was out): neither sign-in goes out, and the
+    /// editor says why.
+    #[gpui_kit::test]
+    fn sign_in_stops_when_another_connection_was_put_in_use(cx: &mut gpui_kit::TestAppContext) {
+        for dashboard in [false, true] {
+            let auth = if dashboard {
+                "dashboardCookie"
+            } else {
+                "nativePkce"
+            };
+            let (daemon, stores, vcx) = bench(cx);
+            daemon.returns::<methods::HermesConnectionsSave>(list("a", Some("b"), auth));
+            daemon.returns::<methods::HermesConnectionsActivate>(list("a", None, auth));
+            daemon.on::<methods::HermesSignIn>(|_| Ok(json!({})));
+            daemon.on::<methods::HermesDashboardStart>(|_| {
+                Ok(json!({"loginUrl": "http://127.0.0.1:20402/login",
+                          "origin": "http://127.0.0.1:20402", "supported": true}))
+            });
+            daemon.returns::<methods::HermesConnectionsList>(list("a", None, auth));
+            let sheet = open_b(&stores, vcx, auth);
+            on_sheet(vcx, &sheet, |s, w, cx| {
+                if dashboard {
+                    s.sign_in_dashboard(w, cx)
+                } else {
+                    s.sign_in(w, cx)
+                }
+            });
+            vcx.run_until_parked();
+            assert!(
+                daemon.calls::<methods::HermesSignIn>().is_empty()
+                    && daemon.calls::<methods::HermesDashboardStart>().is_empty(),
+                "signed in to the connection another window put in use (dashboard: {dashboard})"
+            );
+            sheet.read_with(vcx, |s, _| {
+                assert!(s.error.is_some(), "the editor did not say why");
+                assert!(!s.busy);
+            });
+        }
     }
 
     /// Typed words make Quit ask first.
