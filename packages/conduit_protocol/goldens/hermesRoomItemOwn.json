@@ -1,0 +1,13 @@
+{
+  "kind": "message",
+  "key": "message:3",
+  "seq": 3,
+  "own": true,
+  "scheduled": false,
+  "author": "",
+  "text": "@fern how many seed trays?",
+  "continued": false,
+  "names": [],
+  "messageCount": 0,
+  "actionable": false
+}

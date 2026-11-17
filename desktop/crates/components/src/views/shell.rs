@@ -246,6 +246,9 @@ pub struct TitlePill {
     label: SharedString,
     open: bool,
     on_click: Option<crate::views::kit::ClickHandler>,
+    /// A Hermes bot's face: the capsule names the bot, whose chat runs on
+    /// its own model (no picker).
+    face: Option<AnyElement>,
 }
 
 impl TitlePill {
@@ -257,7 +260,13 @@ impl TitlePill {
             label: label.into(),
             open: false,
             on_click: None,
+            face: None,
         }
+    }
+    /// A bot's chat: its face before its name (the model), and no picker.
+    pub fn face(mut self, face: AnyElement) -> Self {
+        self.face = Some(face);
+        self
     }
     /// The chat's title, drawn over the model.
     pub fn title(mut self, title: Option<SharedString>) -> Self {
@@ -285,6 +294,31 @@ impl RenderOnce for TitlePill {
         let t = cx.conduit().clone();
         let r = t.roles;
         let m = t.metrics;
+        if let Some(face) = self.face {
+            // The phone's bot header: the bot's face and name, nothing to
+            // pick.
+            return toolbar_capsule(&t)
+                .id("bot-title")
+                .role(Role::Heading)
+                .aria_label(self.label)
+                .min_h(px(32.))
+                .max_w(px(420.))
+                .pl(px(8.))
+                .pr(px(16.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(face)
+                .child(
+                    div()
+                        .truncate()
+                        .text_size(px(m.control))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(r.text)
+                        .child(self.model),
+                )
+                .into_any_element();
+        }
         let has_title = self.title.is_some();
         toolbar_capsule(&t)
             .id("model-picker")
@@ -371,6 +405,7 @@ impl RenderOnce for TitlePill {
             )
             .on_click(crate::views::kit::on_click_or_noop(self.on_click))
             .keyboard_control(Ring::Outset(18.), window, cx)
+            .into_any_element()
     }
 }
 

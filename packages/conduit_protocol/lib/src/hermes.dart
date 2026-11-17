@@ -1,5 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'hermes_rooms.dart';
+
 part 'hermes.freezed.dart';
 part 'hermes.g.dart';
 
@@ -106,10 +108,31 @@ abstract class HermesStatus with _$HermesStatus {
     /// The server's detailed health, as it reports it: sessions, agents,
     /// resources.
     @Default(<String, dynamic>{}) Map<String, dynamic> details,
+
+    /// The Hermes connection this answer is for: a new value whenever the
+    /// connection changes (see [HermesChanged.connection]).
+    String? connection,
   }) = _HermesStatus;
 
   factory HermesStatus.fromJson(Map<String, dynamic> json) =>
       _$HermesStatusFromJson(json);
+}
+
+/// `hermes.changed`: the connection, its settings or what it lists changed.
+@freezed
+abstract class HermesChanged with _$HermesChanged {
+  const factory HermesChanged({
+    /// The Hermes connection in use now, as the daemon names it: an opaque
+    /// value, new whenever the connection changes, never the same across two
+    /// daemon runs. A request sent with another value (`connection` on the
+    /// Hermes requests that take it) is refused with `sessionExpired`, and
+    /// an answer or event carrying another value belongs to the last
+    /// connection.
+    String? connection,
+  }) = _HermesChanged;
+
+  factory HermesChanged.fromJson(Map<String, dynamic> json) =>
+      _$HermesChangedFromJson(json);
 }
 
 /// A Hermes session, as the sidebar lists it. Opened as a chat with
@@ -244,6 +267,10 @@ abstract class HermesChatDto with _$HermesChatDto {
     /// The app that owns it, by name ("Hermes CLI", "Telegram"), or empty
     /// when Hermes did not say.
     @Default('') String owner,
+
+    /// The bot whose Bot Chat it is: the chat is titled with the bot, and
+    /// its replies carry the bot's name and face.
+    HermesBotDto? bot,
   }) = _HermesChatDto;
 
   factory HermesChatDto.fromJson(Map<String, dynamic> json) =>

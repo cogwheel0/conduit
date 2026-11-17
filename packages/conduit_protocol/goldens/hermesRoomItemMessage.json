@@ -1,0 +1,15 @@
+{
+  "kind": "message",
+  "key": "message:4",
+  "seq": 4,
+  "own": false,
+  "scheduled": false,
+  "author": "Fern",
+  "memberId": "fern",
+  "text": "Twelve trays should do.",
+  "continued": true,
+  "createdAtMs": 1767225600000,
+  "names": [],
+  "messageCount": 0,
+  "actionable": false
+}

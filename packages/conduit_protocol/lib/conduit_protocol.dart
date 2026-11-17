@@ -31,6 +31,7 @@ export 'src/handoff.dart';
 export 'src/speech.dart';
 export 'src/handshake.dart';
 export 'src/hermes.dart';
+export 'src/hermes_rooms.dart';
 export 'src/hermes_work.dart';
 export 'src/intents.dart';
 export 'src/librechat.dart';

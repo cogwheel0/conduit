@@ -1,0 +1,11 @@
+{
+  "kind": "approval",
+  "memberId": "moss",
+  "taskId": "t-9",
+  "executionGeneration": 1,
+  "summary": "rm -rf build",
+  "choices": [
+    "once",
+    "deny"
+  ]
+}

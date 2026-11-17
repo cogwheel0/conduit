@@ -43,6 +43,7 @@ pub mod composer;
 pub mod connection;
 pub mod dictation;
 pub mod files;
+pub mod hermes_rooms;
 pub mod hermes_work;
 pub mod layout;
 pub mod navigation;
@@ -96,6 +97,8 @@ pub struct Stores {
     pub call: Entity<call::CallStore>,
     pub calendar: Entity<calendar::CalendarStore>,
     pub tasks: Entity<tasks::TasksStore>,
+    /// Hermes's bots and Group Chats, and the room the main window shows.
+    pub hermes_rooms: Entity<hermes_rooms::HermesRoomsStore>,
 }
 
 /// The session-wide events the stores follow (the views add their own scopes
@@ -152,7 +155,8 @@ impl Stores {
             speech: cx.new(|cx| speech::SpeechStore::new(rpc.clone(), connection.clone(), cx)),
             call: cx.new(|cx| call::CallStore::new(rpc.clone(), connection, cx)),
             calendar: cx.new(|_| calendar::CalendarStore::new(rpc.clone())),
-            tasks: cx.new(|_| tasks::TasksStore::new(rpc)),
+            tasks: cx.new(|_| tasks::TasksStore::new(rpc.clone())),
+            hermes_rooms: cx.new(|_| hermes_rooms::HermesRoomsStore::new(rpc)),
         }
     }
 
@@ -191,6 +195,7 @@ impl Stores {
         };
         let calendar = cx.new(|_| calendar::CalendarStore::new(rpc.clone()));
         let tasks = cx.new(|_| tasks::TasksStore::new(rpc.clone()));
+        let hermes_rooms = cx.new(|_| hermes_rooms::HermesRoomsStore::new(rpc.clone()));
         let stores = Self {
             connection: connection.clone(),
             accounts,
@@ -208,6 +213,7 @@ impl Stores {
             call,
             calendar,
             tasks,
+            hermes_rooms,
         };
         connection.update(cx, |c, _| c.subscribe("session", SESSION_EVENTS, vec![]));
         chat_list::wire(&stores, cx);
@@ -217,6 +223,7 @@ impl Stores {
         call::wire(&stores, cx);
         calendar::wire(&stores, cx);
         tasks::wire(&stores, cx);
+        hermes_rooms::wire(&stores, cx);
         {
             // The server answers again after the window opened without it:
             // the session (a token may have lapsed meanwhile) and the chat
@@ -288,7 +295,7 @@ impl Stores {
                     .update(cx, |n, cx| n.on_remap(&from, &to, cx));
                 self.router.update(cx, |r, cx| r.on_remap(from, to, cx));
             }
-            Event::HermesChanged => self.session.update(cx, |s, cx| s.refresh(cx)),
+            Event::HermesChanged(_) => self.session.update(cx, |s, cx| s.refresh(cx)),
             Event::CapabilitiesChanged => self.session.update(cx, |s, cx| {
                 s.refresh_capabilities(cx);
                 s.refresh_server(cx);

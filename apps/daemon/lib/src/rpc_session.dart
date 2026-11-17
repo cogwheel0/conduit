@@ -33,6 +33,7 @@ import 'handoff_service.dart';
 import 'automations_service.dart';
 import 'calendar_service.dart';
 import 'hermes_cards_service.dart';
+import 'hermes_rooms_service.dart';
 import 'hermes_service.dart';
 import 'calls_service.dart';
 import 'librechat_service.dart';
@@ -95,6 +96,7 @@ final class CoreServices {
     this.handoff,
     this.calendar,
     this.automations,
+    this.hermesRooms,
   });
 
   final AccountsService? accounts;
@@ -150,6 +152,9 @@ final class CoreServices {
 
   /// `automations.*`: the account's scheduled tasks.
   final AutomationsService? automations;
+
+  /// `hermes.rooms.*` and `hermes.bots.*`: Bot Chats and Group Chats.
+  final HermesRoomsService? hermesRooms;
   final DictationService? dictation;
   final RecordingsService? recordings;
 }
@@ -241,6 +246,7 @@ class RpcSession {
   HandoffService? get _handoff => _services().handoff;
   CalendarService? get _calendar => _services().calendar;
   AutomationsService? get _automations => _services().automations;
+  HermesRoomsService? get _hermesRooms => _services().hermesRooms;
 
   /// Where a window's `online`/`offline` events go: the connectivity port,
   /// which then tells every window. Null before the core is up.
@@ -257,6 +263,8 @@ class RpcSession {
     _handoff?.onWindowsChanged();
     // The Hermes chats it watched are no longer shown here.
     _hermesCards?.forgetWindow(sessionId);
+    // And the rooms it showed or listed.
+    _hermesRooms?.forgetWindow(sessionId);
     // What this window was recording is kept for its next launch.
     await _recordings?.closeOwnedBy(sessionId);
     await _peer.close();
@@ -1100,6 +1108,62 @@ class RpcSession {
     _on(
       ConduitMethodSpecs.hermesDecisionsAnswer,
       (r) => _need(_hermesCards).answer(r),
+    );
+
+    // hermes.bots.*, hermes.rooms.*: Bot Mode and Group Chats.
+    _on(ConduitMethodSpecs.hermesBotsList, (_) => _need(_hermesRooms).bots());
+    _on(
+      ConduitMethodSpecs.hermesBotsAvatar,
+      (r) => _need(_hermesRooms).avatar(r.name, connection: r.connection),
+    );
+    _on(
+      ConduitMethodSpecs.hermesBotsOpen,
+      (r) =>
+          _need(_hermesRooms)
+              .openBot(r.name, _requireHermes(), connection: r.connection),
+    );
+    _on(
+      ConduitMethodSpecs.hermesRoomsList,
+      (_) => _need(_hermesRooms).rooms(sessionId),
+    );
+    _on(
+      ConduitMethodSpecs.hermesRoomsCreate,
+      (r) => _need(_hermesRooms).create(r),
+    );
+    _on(
+      ConduitMethodSpecs.hermesRoomsWatch,
+      (r) =>
+          _need(_hermesRooms)
+              .watch(sessionId, r.roomId, connection: r.connection),
+    );
+    _on(
+      ConduitMethodSpecs.hermesRoomsUnwatch,
+      (r) => _need(_hermesRooms).unwatch(sessionId, r.roomId),
+    );
+    _on(ConduitMethodSpecs.hermesRoomsSend, (r) => _need(_hermesRooms).send(r));
+    _on(
+      ConduitMethodSpecs.hermesRoomsStop,
+      (r) => _need(_hermesRooms).stop(r.roomId, connection: r.connection),
+    );
+    _on(
+      ConduitMethodSpecs.hermesRoomsContinue,
+      (r) => _need(_hermesRooms).continueDiscussion(r),
+    );
+    _on(
+      ConduitMethodSpecs.hermesRoomsAnswer,
+      (r) => _need(_hermesRooms).answer(r),
+    );
+    _on(
+      ConduitMethodSpecs.hermesRoomsRename,
+      (r) => _need(_hermesRooms).rename(r),
+    );
+    _on(
+      ConduitMethodSpecs.hermesRoomsSaveContext,
+      (r) => _need(_hermesRooms).saveContext(r),
+    );
+    _on(
+      ConduitMethodSpecs.hermesRoomsDisband,
+      (r) => _need(_hermesRooms).disband(r.roomId, connection: r.connection),
     );
 
     // voice.*.

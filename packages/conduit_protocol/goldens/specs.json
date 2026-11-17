@@ -1,5 +1,5 @@
 {
-  "protocolVersion": "1.63.0",
+  "protocolVersion": "1.64.0",
   "appOrigin": "app://conduit",
   "subprotocol": "conduit.v1",
   "subprotocolsExample": {
@@ -1522,6 +1522,76 @@
       "result": "HermesDecisionResult"
     },
     {
+      "name": "hermes.bots.list",
+      "params": null,
+      "result": "HermesBots"
+    },
+    {
+      "name": "hermes.bots.avatar",
+      "params": "HermesBotRef",
+      "result": "HermesBotAvatar"
+    },
+    {
+      "name": "hermes.bots.open",
+      "params": "HermesBotRef",
+      "result": "HermesSessionDto"
+    },
+    {
+      "name": "hermes.rooms.list",
+      "params": null,
+      "result": "HermesRooms"
+    },
+    {
+      "name": "hermes.rooms.create",
+      "params": "HermesRoomCreate",
+      "result": "HermesRoomDto"
+    },
+    {
+      "name": "hermes.rooms.watch",
+      "params": "HermesRoomRef",
+      "result": "HermesRoomView"
+    },
+    {
+      "name": "hermes.rooms.unwatch",
+      "params": "HermesRoomRef",
+      "result": "OkResult"
+    },
+    {
+      "name": "hermes.rooms.send",
+      "params": "HermesRoomMessage",
+      "result": "HermesRoomSendResult"
+    },
+    {
+      "name": "hermes.rooms.stop",
+      "params": "HermesRoomRef",
+      "result": "HermesRoomStopped"
+    },
+    {
+      "name": "hermes.rooms.continue",
+      "params": "HermesRoomContinue",
+      "result": "OkResult"
+    },
+    {
+      "name": "hermes.rooms.answer",
+      "params": "HermesRoomAnswer",
+      "result": "OkResult"
+    },
+    {
+      "name": "hermes.rooms.rename",
+      "params": "HermesRoomRename",
+      "result": "HermesRoomDto"
+    },
+    {
+      "name": "hermes.rooms.saveContext",
+      "params": "HermesRoomContextEdit",
+      "result": "HermesRoomContextDto"
+    },
+    {
+      "name": "hermes.rooms.disband",
+      "params": "HermesRoomRef",
+      "result": "OkResult"
+    },
+    {
       "name": "terminal.servers",
       "params": "TerminalScope",
       "result": "TerminalServers"
@@ -1865,7 +1935,7 @@
     },
     {
       "name": "hermes.changed",
-      "payload": null,
+      "payload": "HermesChanged",
       "scoped": false
     },
     {
@@ -1956,6 +2026,16 @@
     {
       "name": "automations.runProgress",
       "payload": "AutomationRunProgress",
+      "scoped": false
+    },
+    {
+      "name": "hermes.rooms.changed",
+      "payload": "HermesRoomView",
+      "scoped": true
+    },
+    {
+      "name": "hermes.rooms.listChanged",
+      "payload": "HermesRooms",
       "scoped": false
     }
   ]

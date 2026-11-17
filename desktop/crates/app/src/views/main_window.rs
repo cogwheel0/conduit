@@ -637,6 +637,7 @@ impl Render for MainWindow {
         let findable = shows_main && self.shows_chat(cx) && self.chat_pane.read(cx).chat.is_some();
         let makes_folders = shows_main && self.sidebar.read(cx).can_make_folders(cx);
         let makes_channels = shows_main && self.stores.areas.read(cx).channels_can_create;
+        let makes_rooms = shows_main && self.stores.hermes_rooms.read(cx).can_create();
 
         div()
             .id("main-window")
@@ -677,6 +678,22 @@ impl Render for MainWindow {
                 let (id, command) = (a.session_id.clone(), a.command);
                 this.run_hermes(&id, command, window, cx);
             }))
+            .on_action(cx.listener(
+                |this, a: &crate::views::hermes_rooms::RoomMenu, window, cx| {
+                    crate::views::hermes_rooms::run(
+                        &this.stores,
+                        &a.room_id,
+                        a.command,
+                        window,
+                        cx,
+                    );
+                },
+            ))
+            .on_action(
+                cx.listener(|this, a: &crate::views::hermes_rooms::OpenBotChat, _, cx| {
+                    crate::views::hermes_rooms::open_bot(&this.stores, &a.name, cx);
+                }),
+            )
             .on_action(cx.listener(|this, a: &MoveSelected, window, cx| {
                 let folder = a.folder_id.clone();
                 this.sidebar
@@ -741,6 +758,18 @@ impl Render for MainWindow {
                     .on_action(
                         cx.listener(|this, _: &PreviousChat, _, cx| this.step_chat(false, cx)),
                     )
+            })
+            // File › New Room… (and the Rooms heading's "+" and menus).
+            .when(makes_rooms, |d| {
+                d.on_action(cx.listener(
+                    |this, _: &crate::views::hermes_rooms::NewRoom, window, cx| {
+                        crate::views::hermes_room_sheets::open_create(
+                            this.stores.clone(),
+                            window,
+                            cx,
+                        );
+                    },
+                ))
             })
             // File › New Folder (and the sidebar list's own menu).
             .when(makes_folders, |d| {

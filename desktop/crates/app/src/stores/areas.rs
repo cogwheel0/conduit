@@ -400,7 +400,7 @@ pub fn wire(stores: &Stores, cx: &mut App) {
                 ConnectionEvent::Daemon(event) => match event.as_ref() {
                     Event::NotesChanged(_) => Area::Notes,
                     Event::ChannelsChanged => Area::Channels,
-                    Event::HermesChanged => Area::Hermes,
+                    Event::HermesChanged(_) => Area::Hermes,
                     Event::TurnFinished(done) if is_hermes_chat(&done.chat_id) => Area::Hermes,
                     // A terminal server comes and goes with the account's
                     // capabilities.

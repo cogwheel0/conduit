@@ -31,6 +31,10 @@
 //!   pane and answered, pin, rename, fork, archive, hide and Hidden Chats,
 //!   Branch from Here, Undo Last Turn, delete; and a read-only session of
 //!   the fake API server continued in a copy ([`hermes_sessions`]).
+//! * `hermes-rooms`: Hermes Bot Mode and Group Chats on the same real
+//!   gateway: a bot's Bot Chat, New Room, @mentions answered by both bots,
+//!   a paused debate continued, an approval card, Room Info, rename, stop
+//!   and disband ([`hermes_rooms`]).
 //! * `sidebar`: sign in to the seeded server, then the sidebar: folders as the
 //!   account left them, open, hover, rename, pin, move to folder (menu and
 //!   drop), remove from folder, archive and the archived section, delete,
@@ -85,6 +89,7 @@ mod composer;
 mod dictation;
 mod direct;
 mod hermes_cards;
+mod hermes_rooms;
 mod hermes_sessions;
 mod integration;
 mod intents;
@@ -134,6 +139,16 @@ pub struct E2eInputs {
 }
 
 /// Whether `url` is an http(s) address on this Mac (loopback).
+/// The env file's server addresses: every server a pass signs in to, or
+/// sends credentials, messages or settings to. Each must be this Mac's own
+/// (loopback), or the env file is not used.
+const SERVER_URLS: [&str; 4] = [
+    "OWUI_URL",
+    "LIBRECHAT_URL",
+    "HERMES_GATEWAY_URL",
+    "HERMES_DESKTOP_URL",
+];
+
 pub(crate) fn is_local_url(url: &str) -> bool {
     url::Url::parse(url).is_ok_and(|u| {
         matches!(u.scheme(), "http" | "https")
@@ -169,7 +184,7 @@ impl E2eInputs {
         // The passes sign in with these credentials and photograph what
         // the server shows: only ever on this Mac's own test server.
         // The address itself is never logged: it may be private.
-        for key in ["OWUI_URL", "LIBRECHAT_URL"] {
+        for key in SERVER_URLS {
             if env.get(key).is_some_and(|u| !is_local_url(u)) {
                 println!("SMOKE FAILED e2e {key} is not a local (loopback) address");
                 env.clear();
@@ -748,6 +763,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "direct-advanced" => direct::run(&inputs, &dir, cx).await,
         "hermes" => hermes(&inputs, &dir, cx).await,
         "hermes-sessions" => hermes_sessions::run_scenario(&inputs, &dir, cx).await,
+        "hermes-rooms" => hermes_rooms::run_scenario(&inputs, &dir, cx).await,
         "hermes-cards" => hermes_cards::run(&inputs, &dir, cx).await,
         "sidebar" => sidebar(&inputs, &dir, cx).await,
         "chat" | "chat-direct" | "chat-smoke" | "chat-read-only" => {
@@ -2199,9 +2215,9 @@ mod tests {
         assert!(!is_local_url("http://10.0.0.5:8080"));
         assert!(!is_local_url("http://localhost.example.org"));
         assert!(!is_local_url("file:///tmp/x"));
-        // An env file naming another machine is not used, for either kind
-        // of server.
-        for key in ["OWUI_URL", "LIBRECHAT_URL"] {
+        // An env file naming another machine is not used, for any kind of
+        // server.
+        for key in SERVER_URLS {
             let file = std::env::temp_dir()
                 .join(format!("conduit-e2e-env-{key}-{}.env", std::process::id()));
             std::fs::write(&file, format!("{key}=https://chat.example.org\nX=1\n")).unwrap();

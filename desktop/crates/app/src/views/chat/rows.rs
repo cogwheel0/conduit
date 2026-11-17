@@ -1759,7 +1759,15 @@ impl Render for AssistantRow {
 
         let spoken = self.spoken(cx);
         let compared = item.columns.len() > 1;
-        let name = if compared {
+        // A Bot Chat's replies are its bot's: its name and face.
+        let bot = self
+            .host
+            .store
+            .upgrade()
+            .and_then(|s| s.read(cx).hermes().and_then(|h| h.bot.clone()));
+        let name = if let Some(bot) = &bot {
+            bot.title.clone()
+        } else if compared {
             l10n.chat_compare_models_action()
         } else if model.is_empty() {
             "Assistant".to_string()
@@ -1820,15 +1828,35 @@ impl Render for AssistantRow {
                     .flex()
                     .items_center()
                     .gap(px(5.))
-                    .child(icon(
-                        if compared {
-                            IconName::Columns2
-                        } else {
-                            IconName::Sparkles
-                        },
-                        15.,
-                        r.text_subtle,
-                    ))
+                    .child(match &bot {
+                        Some(bot) => {
+                            let face = cx
+                                .try_global::<crate::stores::hermes_rooms::HermesRoomsGlobal>()
+                                .map(|g| crate::views::hermes_faces::bot_face(bot, g.0.read(cx)))
+                                .unwrap_or_else(|| crate::views::hermes_faces::Face {
+                                    shape: bot.shape.clone(),
+                                    color: crate::views::hermes_faces::parse_color(&bot.color),
+                                    image: None,
+                                });
+                            crate::views::hermes_faces::face(
+                                ElementId::Name(format!("answer-face-{key}").into()),
+                                &face,
+                                16.,
+                                false,
+                                true,
+                            )
+                        }
+                        None => icon(
+                            if compared {
+                                IconName::Columns2
+                            } else {
+                                IconName::Sparkles
+                            },
+                            15.,
+                            r.text_subtle,
+                        )
+                        .into_any_element(),
+                    })
                     .child(
                         div()
                             .text_size(px(m.small))

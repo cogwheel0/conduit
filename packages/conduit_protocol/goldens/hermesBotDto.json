@@ -1,0 +1,11 @@
+{
+  "name": "fern",
+  "title": "Fern",
+  "description": "Keeps the greenhouse log",
+  "preview": "Watered the tomatoes",
+  "sessionId": "bc-7",
+  "hasAvatar": true,
+  "shape": "hexagon",
+  "color": "#0ea5e9",
+  "lastActiveMs": 1767225600000
+}

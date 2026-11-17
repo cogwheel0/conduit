@@ -1,0 +1,13 @@
+{
+  "roomId": "room-2",
+  "loaded": false,
+  "gone": true,
+  "readFailed": false,
+  "running": false,
+  "working": false,
+  "sending": false,
+  "routingModes": [],
+  "items": [],
+  "members": [],
+  "actions": []
+}

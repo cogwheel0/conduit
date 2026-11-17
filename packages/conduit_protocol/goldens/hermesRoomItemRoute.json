@@ -1,0 +1,17 @@
+{
+  "kind": "route",
+  "key": "route:5:handoff:moss",
+  "seq": 5,
+  "own": false,
+  "scheduled": false,
+  "author": "",
+  "text": "",
+  "continued": false,
+  "route": "handoff",
+  "names": [
+    "Moss"
+  ],
+  "lead": "Fern",
+  "messageCount": 0,
+  "actionable": false
+}

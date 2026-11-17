@@ -1,0 +1,58 @@
+{
+  "roomId": "room-1",
+  "loaded": true,
+  "room": {
+    "id": "room-1",
+    "name": "Greenhouse crew",
+    "members": [],
+    "unread": false,
+    "working": false,
+    "needsYou": false
+  },
+  "context": {
+    "purpose": "Plan the spring beds",
+    "notes": ""
+  },
+  "gone": false,
+  "readFailed": true,
+  "running": true,
+  "working": true,
+  "sending": true,
+  "unsentText": "Are the trays in?",
+  "routingModes": [
+    "everyone",
+    "lead"
+  ],
+  "items": [
+    {
+      "kind": "route",
+      "key": "route:2:continued",
+      "seq": 2,
+      "own": false,
+      "scheduled": false,
+      "author": "",
+      "text": "",
+      "continued": false,
+      "route": "continued",
+      "names": [],
+      "messageCount": 0,
+      "actionable": false
+    }
+  ],
+  "members": [
+    {
+      "memberId": "moss",
+      "state": "queued"
+    }
+  ],
+  "actions": [
+    {
+      "kind": "retry",
+      "memberId": "moss",
+      "taskId": "t-3",
+      "executionGeneration": 2,
+      "choices": []
+    }
+  ],
+  "connection": "run1:2"
+}

@@ -21,8 +21,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Weekday};
 use conduit_protocol::{
-    ChannelSummary, ChatList, ChatSearchHit, ChatSummary, FolderSummary, HermesSessionDto,
-    HermesSessions, NoteSummary, TerminalServerDto,
+    ChannelSummary, ChatList, ChatSearchHit, ChatSummary, FolderSummary, HermesBotDto,
+    HermesRoomDto, HermesRooms, HermesSessionDto, HermesSessions, NoteSummary, TerminalServerDto,
 };
 
 use crate::stores::navigation::{Area, AreaItem, WorkspaceSection};
@@ -346,6 +346,10 @@ pub struct AreaRow {
     /// Drawn quieter: a channel set to notify for mentions only (as Open
     /// WebUI's sidebar dims it), which shows no unread count either.
     pub dimmed: bool,
+    /// A bot's row: the bot (its face; a click opens its Bot Chat).
+    pub bot: Option<Box<HermesBotDto>>,
+    /// A Group Chat's row: the room (its faces, its news, its work).
+    pub room: Option<Box<HermesRoomDto>>,
 }
 
 impl AreaRow {
@@ -359,6 +363,8 @@ impl AreaRow {
             session: None,
             icon: None,
             dimmed: false,
+            bot: None,
+            room: None,
         }
     }
 }
@@ -386,6 +392,38 @@ pub struct AreaLists<'a> {
     pub failed: &'a [Area],
     /// The workspace sections the account may manage.
     pub workspace: &'a [WorkspaceSection],
+    /// Hermes's Bot Mode bots (none: no Bots group).
+    pub bots: &'a [HermesBotDto],
+    /// Hermes's Group Chats (`None`, or not available: no Rooms group).
+    pub rooms: Option<&'a HermesRooms>,
+    /// Which of Hermes's groups are open.
+    pub bots_open: bool,
+    pub rooms_open: bool,
+}
+
+/// A group of Hermes's section, as the phone's Hermes tab heads them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum HermesGroup {
+    Bots,
+    Rooms,
+    /// The sessions, headed only while bots or rooms show above them.
+    Conversations,
+}
+
+impl HermesGroup {
+    /// The name its open or closed state is kept under (the Conversations
+    /// heading does not close).
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Bots => "hermes.bots",
+            Self::Rooms => "hermes.rooms",
+            Self::Conversations => "hermes.conversations",
+        }
+    }
+
+    pub fn collapsible(self) -> bool {
+        self != Self::Conversations
+    }
 }
 
 /// One row of the virtualized sidebar.
@@ -412,6 +450,14 @@ pub enum SidebarItem {
     HermesArchived {
         count: usize,
         visible: bool,
+    },
+    /// A heading of Hermes's section: Bots, Rooms (with New Room when a
+    /// room can be made), Conversations.
+    HermesGroup {
+        group: HermesGroup,
+        count: usize,
+        expanded: bool,
+        can_create: bool,
     },
     Header(Section),
     Folder {
@@ -608,17 +654,33 @@ pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Ve
             ..AreaRow::of(AreaItem::Terminal(t.id.clone()))
         }),
         Area::Hermes => {
+            // The phone's Hermes tab: the bots, the rooms, then the
+            // conversations under their own heading.
+            let mut out = hermes_groups(lists);
+            if !out.is_empty() {
+                out.push(SidebarItem::HermesGroup {
+                    group: HermesGroup::Conversations,
+                    count: lists.hermes.map_or(0, |h| h.sessions.len()),
+                    expanded: true,
+                    can_create: false,
+                });
+            }
             let Some(hermes) = lists.hermes else {
-                return vec![SidebarItem::AreaHint {
+                out.push(SidebarItem::AreaHint {
                     area,
                     hint: missing(area),
-                }];
+                });
+                return out;
             };
-            let mut out = if hermes.sessions.is_empty() && !hermes.archived.is_empty() {
-                vec![]
-            } else {
-                listed(area, Some(&hermes.sessions), all, AreaHint::Empty, session)
-            };
+            if !(hermes.sessions.is_empty() && !hermes.archived.is_empty()) {
+                out.extend(listed(
+                    area,
+                    Some(&hermes.sessions),
+                    all,
+                    AreaHint::Empty,
+                    session,
+                ));
+            }
             if !hermes.archived.is_empty() {
                 out.push(SidebarItem::HermesArchived {
                     count: hermes.archived.len(),
@@ -653,6 +715,51 @@ pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Ve
         Area::Calendar => vec![SidebarItem::AreaRow(AreaRow::of(AreaItem::Calendar))],
         Area::Automations => vec![SidebarItem::AreaRow(AreaRow::of(AreaItem::Automations))],
     }
+}
+
+/// Hermes's Bots and Rooms groups: each under its heading (with its
+/// count), its rows while it is open. Bots only on a gateway with Bot Mode;
+/// Rooms where Hermes hosts Group Chats and there are rooms or one can be
+/// made (its heading then carries New Room).
+fn hermes_groups(lists: &AreaLists) -> Vec<SidebarItem> {
+    let mut out = vec![];
+    if !lists.bots.is_empty() {
+        out.push(SidebarItem::HermesGroup {
+            group: HermesGroup::Bots,
+            count: lists.bots.len(),
+            expanded: lists.bots_open,
+            can_create: false,
+        });
+        if lists.bots_open {
+            out.extend(lists.bots.iter().map(|bot| {
+                SidebarItem::AreaRow(AreaRow {
+                    title: bot.title.clone(),
+                    updated_at_ms: bot.last_active_ms,
+                    bot: Some(Box::new(bot.clone())),
+                    ..AreaRow::of(AreaItem::HermesBot(bot.name.clone()))
+                })
+            }));
+        }
+    }
+    if let Some(rooms) = lists.rooms.filter(|r| r.available) {
+        out.push(SidebarItem::HermesGroup {
+            group: HermesGroup::Rooms,
+            count: rooms.rooms.len(),
+            expanded: lists.rooms_open,
+            can_create: rooms.can_create,
+        });
+        if lists.rooms_open {
+            out.extend(rooms.rooms.iter().map(|room| {
+                SidebarItem::AreaRow(AreaRow {
+                    title: room.name.clone(),
+                    updated_at_ms: room.updated_at_ms,
+                    room: Some(Box::new(room.clone())),
+                    ..AreaRow::of(AreaItem::HermesRoom(room.id.clone()))
+                })
+            }));
+        }
+    }
+    out
 }
 
 /// The sidebar's rows for `areas`: with more than one, each under its

@@ -37,6 +37,8 @@ pub mod keymap;
 pub mod l10n;
 pub mod menus;
 pub mod prefs;
+#[cfg(all(target_os = "macos", feature = "harness"))]
+pub mod rooms_fixture;
 pub mod shell;
 #[cfg(target_os = "macos")]
 pub mod smoke;
@@ -277,6 +279,8 @@ pub fn run() {
     let channel_fixture = channel_fixture::requested(&args);
     #[cfg(all(target_os = "macos", feature = "harness"))]
     let terminal_fixture = terminal_fixture::requested(&args);
+    #[cfg(all(target_os = "macos", feature = "harness"))]
+    let rooms_fixture = rooms_fixture::requested(&args);
     // `--capture <dir>`: screenshots and motion strips of every screen,
     // for design review (capture/).
     #[cfg(all(target_os = "macos", feature = "harness"))]
@@ -344,6 +348,12 @@ pub fn run() {
         #[cfg(all(target_os = "macos", feature = "harness"))]
         if terminal_fixture {
             terminal_fixture::run(cx);
+            return;
+        }
+        // A Group Chat's pane over a fixture daemon (perf).
+        #[cfg(all(target_os = "macos", feature = "harness"))]
+        if rooms_fixture {
+            rooms_fixture::run(cx);
             return;
         }
         let layout = cx.new(|_| LayoutStore::load(app_paths.window_state_file()));

@@ -17,6 +17,7 @@ import 'events.dart';
 import 'handoff.dart';
 import 'handshake.dart';
 import 'hermes.dart';
+import 'hermes_rooms.dart';
 import 'hermes_work.dart';
 import 'intents.dart';
 import 'librechat.dart';
@@ -1764,6 +1765,87 @@ abstract final class ConduitMethodSpecs {
         result: HermesDecisionResult.fromJson,
       );
 
+  // hermes.bots.*, hermes.rooms.*
+
+  static const hermesBotsList = ConduitMethodSpec<void, HermesBots>(
+    ConduitMethods.hermesBotsList,
+    result: HermesBots.fromJson,
+  );
+  static const hermesBotsAvatar =
+      ConduitMethodSpec<HermesBotRef, HermesBotAvatar>(
+        ConduitMethods.hermesBotsAvatar,
+        params: HermesBotRef.fromJson,
+        result: HermesBotAvatar.fromJson,
+      );
+  static const hermesBotsOpen =
+      ConduitMethodSpec<HermesBotRef, HermesSessionDto>(
+        ConduitMethods.hermesBotsOpen,
+        params: HermesBotRef.fromJson,
+        result: HermesSessionDto.fromJson,
+      );
+  static const hermesRoomsList = ConduitMethodSpec<void, HermesRooms>(
+    ConduitMethods.hermesRoomsList,
+    result: HermesRooms.fromJson,
+  );
+  static const hermesRoomsCreate =
+      ConduitMethodSpec<HermesRoomCreate, HermesRoomDto>(
+        ConduitMethods.hermesRoomsCreate,
+        params: HermesRoomCreate.fromJson,
+        result: HermesRoomDto.fromJson,
+      );
+  static const hermesRoomsWatch =
+      ConduitMethodSpec<HermesRoomRef, HermesRoomView>(
+        ConduitMethods.hermesRoomsWatch,
+        params: HermesRoomRef.fromJson,
+        result: HermesRoomView.fromJson,
+      );
+  static const hermesRoomsUnwatch = ConduitMethodSpec<HermesRoomRef, OkResult>(
+    ConduitMethods.hermesRoomsUnwatch,
+    params: HermesRoomRef.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const hermesRoomsSend =
+      ConduitMethodSpec<HermesRoomMessage, HermesRoomSendResult>(
+        ConduitMethods.hermesRoomsSend,
+        params: HermesRoomMessage.fromJson,
+        result: HermesRoomSendResult.fromJson,
+      );
+  static const hermesRoomsStop =
+      ConduitMethodSpec<HermesRoomRef, HermesRoomStopped>(
+        ConduitMethods.hermesRoomsStop,
+        params: HermesRoomRef.fromJson,
+        result: HermesRoomStopped.fromJson,
+      );
+  static const hermesRoomsContinue =
+      ConduitMethodSpec<HermesRoomContinue, OkResult>(
+        ConduitMethods.hermesRoomsContinue,
+        params: HermesRoomContinue.fromJson,
+        result: OkResult.fromJson,
+      );
+  static const hermesRoomsAnswer =
+      ConduitMethodSpec<HermesRoomAnswer, OkResult>(
+        ConduitMethods.hermesRoomsAnswer,
+        params: HermesRoomAnswer.fromJson,
+        result: OkResult.fromJson,
+      );
+  static const hermesRoomsRename =
+      ConduitMethodSpec<HermesRoomRename, HermesRoomDto>(
+        ConduitMethods.hermesRoomsRename,
+        params: HermesRoomRename.fromJson,
+        result: HermesRoomDto.fromJson,
+      );
+  static const hermesRoomsSaveContext =
+      ConduitMethodSpec<HermesRoomContextEdit, HermesRoomContextDto>(
+        ConduitMethods.hermesRoomsSaveContext,
+        params: HermesRoomContextEdit.fromJson,
+        result: HermesRoomContextDto.fromJson,
+      );
+  static const hermesRoomsDisband = ConduitMethodSpec<HermesRoomRef, OkResult>(
+    ConduitMethods.hermesRoomsDisband,
+    params: HermesRoomRef.fromJson,
+    result: OkResult.fromJson,
+  );
+
   // terminal.*
 
   static const terminalServers =
@@ -1854,12 +1936,11 @@ abstract final class ConduitMethodSpecs {
     params: ComputerTabRef.fromJson,
     result: OkResult.fromJson,
   );
-  static const computerShortcut =
-      ConduitMethodSpec<ComputerShortcut, OkResult>(
-        ConduitMethods.computerShortcut,
-        params: ComputerShortcut.fromJson,
-        result: OkResult.fromJson,
-      );
+  static const computerShortcut = ConduitMethodSpec<ComputerShortcut, OkResult>(
+    ConduitMethods.computerShortcut,
+    params: ComputerShortcut.fromJson,
+    result: OkResult.fromJson,
+  );
   static const computerClose = ConduitMethodSpec<ComputerHandleRef, OkResult>(
     ConduitMethods.computerClose,
     params: ComputerHandleRef.fromJson,
@@ -2331,6 +2412,20 @@ abstract final class ConduitMethodSpecs {
         hermesContextGet,
         hermesContextCompact,
         hermesDecisionsAnswer,
+        hermesBotsList,
+        hermesBotsAvatar,
+        hermesBotsOpen,
+        hermesRoomsList,
+        hermesRoomsCreate,
+        hermesRoomsWatch,
+        hermesRoomsUnwatch,
+        hermesRoomsSend,
+        hermesRoomsStop,
+        hermesRoomsContinue,
+        hermesRoomsAnswer,
+        hermesRoomsRename,
+        hermesRoomsSaveContext,
+        hermesRoomsDisband,
         terminalServers,
         terminalSelect,
         terminalAttach,
@@ -2515,8 +2610,9 @@ abstract final class ConduitEventSpecs {
     payload: WorkspaceChanged.fromJson,
     scoped: false,
   );
-  static const hermesChanged = ConduitEventSpec<void>(
+  static const hermesChanged = ConduitEventSpec<HermesChanged>(
     ConduitEvents.hermesChanged,
+    payload: HermesChanged.fromJson,
     scoped: false,
   );
   static const voiceChanged = ConduitEventSpec<VoiceModels>(
@@ -2613,6 +2709,17 @@ abstract final class ConduitEventSpecs {
     scoped: false,
   );
 
+  static const hermesRoomsChanged = ConduitEventSpec<HermesRoomView>(
+    ConduitEvents.hermesRoomsChanged,
+    payload: HermesRoomView.fromJson,
+    scoped: true,
+  );
+  static const hermesRoomsListChanged = ConduitEventSpec<HermesRooms>(
+    ConduitEvents.hermesRoomsListChanged,
+    payload: HermesRooms.fromJson,
+    scoped: false,
+  );
+
   /// Every event, once.
   static const List<ConduitEventSpec<Object?>> all =
       <ConduitEventSpec<Object?>>[
@@ -2659,6 +2766,8 @@ abstract final class ConduitEventSpecs {
         calendarChanged,
         automationsChanged,
         automationsRunProgress,
+        hermesRoomsChanged,
+        hermesRoomsListChanged,
       ];
 
   static final Map<String, ConduitEventSpec<Object?>> _byName =
