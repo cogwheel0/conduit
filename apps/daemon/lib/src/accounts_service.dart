@@ -10,6 +10,7 @@ import 'package:conduit_core/features/prompts/providers/prompts_providers.dart'
     show activePromptCommandProvider;
 import 'package:conduit_core/features/librechat/models/librechat_account.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/providers/account_change_superseded.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
     show persistOpenWebUiBackendPreference;
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
@@ -27,6 +28,7 @@ import 'package:riverpod/misc.dart' show ProviderOrFamily;
 import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import 'account_scope.dart';
 import 'event_bus.dart';
 import 'servers_service.dart';
 import 'settled.dart';
@@ -341,10 +343,26 @@ final class AccountsService {
   /// Puts LibreChat account [accountId] in charge of the chats, parking
   /// Open WebUI: the core's switch, as the phone's account rows and sign-in
   /// use it. Refused while an answer is being written, unless [force].
+  ///
+  /// A switch bound to the account it was asked under passes [scope]; a
+  /// sign-in also passes [stillCurrent]. Both are asked after every wait
+  /// here and at the core switch's turn, before anything changes;
+  /// [stillCurrent] again inside the switch, last just before the account
+  /// is put in charge. A change superseded by then switches nothing and
+  /// this throws [AccountChangeSuperseded].
   Future<AccountChangeResult> useLibreChat(
     String accountId, {
     bool force = false,
+    AccountScope? scope,
+    bool Function()? stillCurrent,
   }) async {
+    void requireCurrent() {
+      if (!(scope?.isCurrent ?? true) || !(stillCurrent?.call() ?? true)) {
+        throw const AccountChangeSuperseded();
+      }
+    }
+
+    requireCurrent();
     final inCharge =
         _primary() == PrimaryAccount.libreChat &&
         _container.read(activeLibreChatAccountProvider)?.id == accountId;
@@ -354,9 +372,15 @@ final class AccountsService {
     if (!await _mayLeave(force: force)) {
       return _result(AccountChangeOutcome.blockedByActiveReply);
     }
+    requireCurrent();
     final result = await _container
         .read(primaryAccountSwitcherProvider)
-        .useLibreChat(accountId, force: true);
+        .useLibreChat(
+          accountId,
+          force: true,
+          stillFrom: scope == null ? null : () => scope.isCurrent,
+          stillCurrent: stillCurrent,
+        );
     return _result(
       switch (result) {
         PrimarySwitchResult.done => await _libreChatSettled(),
@@ -493,34 +517,81 @@ final class AccountsService {
     return _result(AccountChangeOutcome.done, announce: true);
   }
 
+  /// Switches to [request]'s account.
+  ///
+  /// A forced switch (it stops the answer being written in the account it
+  /// leaves) must name the account the user was asked over (`askedOver`),
+  /// and is bound to it: refused when another account is in charge as it
+  /// arrives, after each wait here, and at its turn in the switch queue,
+  /// before anything is stopped or changed. A plain switch, which stops
+  /// nothing, goes ahead from whichever account is in charge.
   Future<AccountChangeResult> switchTo(AccountRef request) async {
-    if (LibreChatAccount.isLibreChatAccountId(request.accountId)) {
-      return useLibreChat(request.accountId, force: request.force);
-    }
-    await _requireAccount(request.accountId);
-    if (_primary() == PrimaryAccount.libreChat) {
-      // Open WebUI comes back out of its park, through the core's switch.
-      if (!await _mayLeave(force: request.force)) {
-        return _result(AccountChangeOutcome.blockedByActiveReply);
-      }
-      await _container
-          .read(primaryAccountSwitcherProvider)
-          .useOpenWebUi(request.accountId, force: true);
-      return _result(
-        await _settled(AccountChangeOutcome.needsSignIn),
-        announce: true,
+    // Before anything is awaited: the account in charge as it came in.
+    final scope = AccountScope.capture(_container);
+    final askedOver = request.askedOver;
+    if (request.force && askedOver == null) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: const <String, String>{'reason': 'askedOver'},
+        debugMessage:
+            'a forced switch to ${request.accountId} names the account it '
+            'was asked over',
       );
     }
-    final activeId = _container.read(settledActiveAccountIdProvider);
-    if (activeId != request.accountId &&
-        !await _mayLeave(force: request.force)) {
-      return _result(AccountChangeOutcome.blockedByActiveReply);
-    }
-    final outcome = await _controller.switchTo(
-      request.accountId,
-      force: request.force,
+    final bound = askedOver == null ? null : scope;
+    final refused = RpcError(
+      code: ConduitErrorCodes.sessionExpired,
+      args: const <String, String>{'reason': 'account'},
+      debugMessage:
+          'the switch to ${request.accountId} was asked over another '
+          'account than the one in charge',
     );
-    return _result(await _settled(_outcome(outcome)), announce: true);
+    void requireBound() {
+      if (bound != null && !bound.isCurrent) throw refused;
+    }
+
+    final bool Function()? stillFrom = bound == null ? null : () => bound.isCurrent;
+    if (bound != null && bound.primary?.id != askedOver) throw refused;
+    try {
+      if (LibreChatAccount.isLibreChatAccountId(request.accountId)) {
+        return await useLibreChat(
+          request.accountId,
+          force: request.force,
+          scope: bound,
+        );
+      }
+      await _requireAccount(request.accountId);
+      requireBound();
+      if (_primary() == PrimaryAccount.libreChat) {
+        // Open WebUI comes back out of its park, through the core's switch.
+        if (!await _mayLeave(force: request.force)) {
+          return await _result(AccountChangeOutcome.blockedByActiveReply);
+        }
+        requireBound();
+        await _container
+            .read(primaryAccountSwitcherProvider)
+            .useOpenWebUi(request.accountId, force: true, stillFrom: stillFrom);
+        return await _result(
+          await _settled(AccountChangeOutcome.needsSignIn),
+          announce: true,
+        );
+      }
+      final activeId = _container.read(settledActiveAccountIdProvider);
+      if (activeId != request.accountId &&
+          !await _mayLeave(force: request.force)) {
+        return await _result(AccountChangeOutcome.blockedByActiveReply);
+      }
+      requireBound();
+      final outcome = await _controller.switchTo(
+        request.accountId,
+        force: request.force,
+        stillFrom: stillFrom,
+      );
+      return await _result(await _settled(_outcome(outcome)), announce: true);
+    } on AccountChangeSuperseded {
+      // Another account took charge while it waited its turn.
+      throw refused;
+    }
   }
 
   /// Signs out of [request]'s account and removes it with its local data,

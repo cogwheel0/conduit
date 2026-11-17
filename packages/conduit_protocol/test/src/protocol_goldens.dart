@@ -442,6 +442,13 @@ const Map<String, String> protocolGoldens = <String, String>{
   "force": false
 }''',
 
+  'accountRefAskedOver': r'''
+{
+  "accountId": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
+  "force": true,
+  "askedOver": "3e9d2c1b-0a8f-4e7d-9c6b-5a4f3e2d1c0b"
+}''',
+
   'accountSignOut': r'''
 {
   "force": true
@@ -3165,7 +3172,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "serverOrigins": [
     "https://chat.example.org"
   ],
-  "basePath": ""
+  "basePath": "",
+  "startId": "sso-start-1"
 }''',
 
   'libreChatSsoCompletion': r'''
@@ -3175,7 +3183,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     "refreshToken": "r1",
     "token_provider": "openid"
   },
-  "force": false
+  "force": false,
+  "startId": "sso-start-1"
 }''',
 
   'libreChatSignInResult': r'''

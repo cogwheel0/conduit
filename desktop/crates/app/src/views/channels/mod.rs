@@ -26,6 +26,7 @@ pub mod members;
 pub mod model;
 pub mod timeline;
 
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
@@ -52,7 +53,7 @@ use crate::stores::Stores;
 use crate::stores::channel::{
     CHANNEL_EVENTS, ChannelStore, ChannelStoreEvent, Failure, Subscribe, scope,
 };
-use crate::stores::composer::{ComposerPrefs, ComposerStore};
+use crate::stores::composer::{ComposerPrefs, ComposerStore, OneShot};
 use crate::stores::connection::ConnectionEvent;
 use crate::stores::navigation::{Area, AreaItem};
 use crate::views::chat::composer::{ChatComposer, ChatComposerEvent};
@@ -134,6 +135,10 @@ pub struct ChannelPane {
     pub composer: Entity<ChatComposer>,
     thread_store: Entity<ComposerStore>,
     pub thread_composer: Entity<ChatComposer>,
+    /// The thread the thread composer holds words for, and the words (with
+    /// what they would send) left in the other threads opened here.
+    thread_parent: Option<String>,
+    thread_drafts: HashMap<String, (String, OneShot)>,
     picker: Option<Picker>,
     picker_focus: FocusHandle,
     pub unavailable: bool,
@@ -198,7 +203,9 @@ impl ChannelPane {
             cx.subscribe(&store, |this, _, e: &ChannelStoreEvent, cx| {
                 this.on_store_event(e, cx)
             }),
-            cx.observe(&store, |this, _, cx| this.sync_store(cx)),
+            cx.observe_in(&store, window, |this, _, window, cx| {
+                this.sync_store(window, cx)
+            }),
             cx.subscribe_in(
                 &composer,
                 window,
@@ -251,6 +258,8 @@ impl ChannelPane {
             composer,
             thread_store,
             thread_composer,
+            thread_parent: None,
+            thread_drafts: HashMap::new(),
             picker: None,
             picker_focus: cx.focus_handle(),
             unavailable: false,
@@ -373,13 +382,14 @@ impl ChannelPane {
     }
 
     /// The thread view follows the store's open thread.
-    fn sync_store(&mut self, cx: &mut Context<Self>) {
+    fn sync_store(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let parent = self
             .store
             .read(cx)
             .thread
             .as_ref()
             .map(|t| t.parent_id.clone());
+        self.swap_thread_draft(parent.clone(), window, cx);
         let shown = self.thread.as_ref().map(|t| t.read(cx).source.clone());
         match (parent, shown) {
             (Some(p), Some(Source::Thread(q))) if p == q => {}
@@ -392,6 +402,91 @@ impl ChannelPane {
             (None, None) => {}
         }
         cx.notify();
+    }
+
+    /// Another thread (or none) is open: the thread composer's words stay
+    /// with the thread they were typed for, and that thread's come back.
+    fn swap_thread_draft(
+        &mut self,
+        parent: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.thread_parent == parent {
+            return;
+        }
+        let text = self.thread_composer.read(cx).text(cx);
+        let mentions = self.thread_composer.read(cx).mentions(cx);
+        let used = self.thread_store.update(cx, |c, cx| c.take_draft(cx));
+        if let Some(left) = self.thread_parent.take()
+            && (!text.trim().is_empty() || !used.attachments.is_empty())
+        {
+            self.thread_drafts
+                .insert(left, (text, used.with_mentions(mentions)));
+        }
+        self.thread_composer
+            .update(cx, |c, cx| c.set_text("", window, cx));
+        if let Some((text, used)) = parent.as_ref().and_then(|p| self.thread_drafts.remove(p)) {
+            self.put_thread_draft(text, used, window, cx);
+        }
+        self.thread_parent = parent;
+    }
+
+    /// `text` and what it would send, back in the thread composer.
+    fn put_thread_draft(
+        &mut self,
+        text: String,
+        used: OneShot,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mentions = used.mentions.clone();
+        if self.thread_store.update(cx, |c, cx| c.put_draft(used, cx)) {
+            self.thread_composer
+                .update(cx, |c, cx| c.restore_with(&text, &mentions, window, cx));
+        }
+    }
+
+    /// A post that failed: its words go back where they were typed. A thread
+    /// post's go to its own thread (kept for it while another is open).
+    fn post_failed(
+        &mut self,
+        parent: Option<String>,
+        text: String,
+        used: OneShot,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(parent) = parent else {
+            self.composer
+                .update(cx, |c, cx| c.give_back(&text, used, window, cx));
+            return;
+        };
+        // Words typed for the thread since stay, and so do the failed post's:
+        // both kept, the failed post's first, with both posts' files.
+        if self.thread_parent.as_ref() == Some(&parent) {
+            let typed = self.thread_composer.read(cx).text(cx);
+            let (text, used) = if typed.trim().is_empty() {
+                (text, used)
+            } else {
+                let mentions = self.thread_composer.read(cx).mentions(cx);
+                let later = self
+                    .thread_store
+                    .read(cx)
+                    .text_only()
+                    .with_mentions(mentions);
+                self.thread_composer
+                    .update(cx, |c, cx| c.set_text("", window, cx));
+                OneShot::merge(&text, used, &typed, later)
+            };
+            self.put_thread_draft(text, used, window, cx);
+        } else {
+            let (text, used) = match self.thread_drafts.remove(&parent) {
+                Some((typed, later)) => OneShot::merge(&text, used, &typed, later),
+                None => (text, used),
+            };
+            self.thread_drafts.insert(parent, (text, used));
+        }
     }
 
     fn sync_placeholder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -445,11 +540,6 @@ impl ChannelPane {
         // Given back with the text if the post fails.
         let used = composer_store.read(cx).one_shot();
         composer_store.update(cx, |c, cx| c.clear_message(cx));
-        let composer = if thread {
-            self.thread_composer.downgrade()
-        } else {
-            self.composer.downgrade()
-        };
         let parent = if thread {
             self.store
                 .read(cx)
@@ -460,13 +550,15 @@ impl ChannelPane {
             None
         };
         let (text, mentions) = (text.clone(), mentions.clone());
+        let used = used.with_mentions(mentions.clone());
         let posted = self.store.update(cx, |s, cx| {
-            s.post(text.clone(), mentions, files, parent, cx)
+            s.post(text.clone(), mentions, files, parent.clone(), cx)
         });
-        cx.spawn_in(window, async move |_, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             if posted.await == Ok(false) {
-                let _ =
-                    composer.update_in(cx, |c, window, cx| c.give_back(&text, used, window, cx));
+                let _ = this.update_in(cx, |this, window, cx| {
+                    this.post_failed(parent, text, used, window, cx)
+                });
             }
         })
         .detach();
@@ -1309,6 +1401,94 @@ mod tests {
         assert_eq!(channel_icon(&private), IconName::Lock);
         let nameless = summary(serde_json::json!({"id": "x", "name": "", "kind": "dm"}));
         assert_eq!(display_title(&nameless, &l), l.channel_unknown_member());
+    }
+
+    /// A thread's words stay with the thread: another thread opens on an
+    /// empty composer (its post would go to that thread), and the words come
+    /// back when their thread does.
+    #[gpui_kit::test]
+    fn a_threads_draft_stays_with_its_thread(cx: &mut gpui_kit::TestAppContext) {
+        use crate::views::sheet::bench::bench;
+
+        let (_daemon, stores, vcx) = bench(cx);
+        let pane = vcx.update(|window, cx| {
+            cx.new(|cx| ChannelPane::new(stores.clone(), "c1".into(), window, cx))
+        });
+        let thread_text = |vcx: &mut gpui_kit::VisualTestContext| {
+            pane.read_with(vcx, |p, cx| p.thread_composer.read(cx).text(cx))
+        };
+        pane.update_in(vcx, |p, window, cx| p.open_thread("m1".into(), window, cx));
+        vcx.run_until_parked();
+        pane.update_in(vcx, |p, window, cx| {
+            p.thread_composer
+                .update(cx, |c, cx| c.set_text("Seedlings by Friday", window, cx))
+        });
+        pane.update_in(vcx, |p, window, cx| p.open_thread("m2".into(), window, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            thread_text(vcx),
+            "",
+            "the last thread's words would post in this one"
+        );
+        pane.update_in(vcx, |p, window, cx| p.open_thread("m1".into(), window, cx));
+        vcx.run_until_parked();
+        assert_eq!(thread_text(vcx), "Seedlings by Friday");
+    }
+
+    /// A thread post that fails while another thread is open, its own thread
+    /// holding words typed since: both are kept for the thread, the failed
+    /// post's words and file with the newer words.
+    #[gpui_kit::test]
+    fn a_failed_thread_post_joins_the_threads_newer_draft(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::composer::Attachment;
+        use crate::views::sheet::bench::bench;
+
+        let (_daemon, stores, vcx) = bench(cx);
+        let pane = vcx.update(|window, cx| {
+            cx.new(|cx| ChannelPane::new(stores.clone(), "c1".into(), window, cx))
+        });
+        pane.update_in(vcx, |p, window, cx| p.open_thread("m1".into(), window, cx));
+        vcx.run_until_parked();
+        let mut used = pane.read_with(vcx, |p, cx| p.thread_store.read(cx).one_shot());
+        used.attachments
+            .push(Attachment::uploaded_for_test(99, "plan.pdf", "f99"));
+        pane.update_in(vcx, |p, window, cx| {
+            p.thread_composer
+                .update(cx, |c, cx| c.set_text("Newer words", window, cx))
+        });
+        pane.update_in(vcx, |p, window, cx| p.open_thread("m2".into(), window, cx));
+        vcx.run_until_parked();
+        pane.update_in(vcx, |p, window, cx| {
+            p.post_failed(
+                Some("m1".into()),
+                "Seedlings by Friday".into(),
+                used,
+                window,
+                cx,
+            )
+        });
+        pane.update_in(vcx, |p, window, cx| p.open_thread("m1".into(), window, cx));
+        vcx.run_until_parked();
+        let (text, files) = pane.read_with(vcx, |p, cx| {
+            (
+                p.thread_composer.read(cx).text(cx),
+                p.thread_store
+                    .read(cx)
+                    .attachments
+                    .iter()
+                    .map(|a| a.name.clone())
+                    .collect::<Vec<_>>(),
+            )
+        });
+        assert!(
+            text.contains("Seedlings by Friday") && text.contains("Newer words"),
+            "a thread's words were dropped: {text:?}"
+        );
+        assert_eq!(
+            files,
+            vec!["plan.pdf".to_string()],
+            "the failed post's file was dropped"
+        );
     }
 
     /// New Channel, a channel's members and its Leave question belong to

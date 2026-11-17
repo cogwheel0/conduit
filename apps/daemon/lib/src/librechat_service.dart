@@ -17,6 +17,7 @@ import 'package:conduit_core/features/librechat/services/librechat_api_service.d
 import 'package:conduit_core/features/librechat/services/librechat_auth_service.dart'
     show LibreChatAuthService, LibreChatSignedIn, LibreChatTwoFactorRequired;
 import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
+import 'package:conduit_core/providers/account_change_superseded.dart';
 import 'package:conduit_core/features/librechat/services/librechat_probe.dart'
     show
         LibreChatProbeFound,
@@ -31,6 +32,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import 'account_scope.dart';
 import 'accounts_service.dart';
 import 'event_bus.dart';
 import 'models_service.dart' show currentModel;
@@ -77,6 +79,34 @@ final class LibreChatService {
 
   /// Two-step sign-ins waiting for their code, by flow id.
   final Map<String, _TwoFactorFlow> _flows = {};
+
+  /// Bumped as each sign-in begins (a password sent, single sign-on
+  /// started): an older one still out, a two-step flow waiting for its code
+  /// or a single sign-on started before, then puts no account in charge.
+  /// A code sent for a two-step flow, or a single sign-on completed, goes
+  /// on in the round of the step that began it.
+  int _signInRound = 0;
+
+  /// The single sign-on started last: its id, round and account; only its
+  /// completion goes ahead, in that round, under that account.
+  ({String id, _Begun begun})? _ssoStarted;
+
+  /// A newer sign-in begins: the ones before it are superseded. Captured
+  /// before the step's first wait.
+  _Begun _beginSignIn() {
+    _flows.clear();
+    _ssoStarted = null;
+    return (
+      round: ++_signInRound,
+      account: AccountScope.capture(_container),
+    );
+  }
+
+  /// Whether a step [begun] is still the sign-in under way: no newer one
+  /// began, and the account in charge is the one it began under (no account
+  /// change at all since).
+  bool _current(_Begun begun) =>
+      begun.round == _signInRound && begun.account.isCurrent;
 
   // -------------------------------------------------------------------------
   // Probe
@@ -144,6 +174,7 @@ final class LibreChatService {
   // -------------------------------------------------------------------------
 
   Future<LibreChatSignInResult> signIn(LibreChatSignIn request) async {
+    final begun = _beginSignIn();
     final target = await _server(request.url);
     if (target == null) {
       return const LibreChatSignInResult(
@@ -158,8 +189,15 @@ final class LibreChatService {
       );
       switch (result) {
         case LibreChatSignedIn(:final session):
-          return await _finish(target, session, force: request.force);
+          return await _finish(
+            target,
+            session,
+            force: request.force,
+            begun: begun,
+          );
         case LibreChatTwoFactorRequired(:final tempToken):
+          // Superseded meanwhile: no flow waits for its code.
+          if (!_current(begun)) return _superseded;
           _expireFlows();
           final flowId = _uuid.v4();
           _flows[flowId] = _TwoFactorFlow(
@@ -167,6 +205,7 @@ final class LibreChatService {
             info: target.info,
             tempToken: tempToken,
             started: _clock(),
+            begun: begun,
           );
           return LibreChatSignInResult(
             outcome: LibreChatSignInOutcome.twoFactorRequired,
@@ -180,14 +219,22 @@ final class LibreChatService {
     }
   }
 
+  /// A code for a two-step flow: it goes on in the round of the password
+  /// step that began the flow, under the account in charge then. A code for
+  /// a flow that is gone supersedes nothing, and tries of one flow's code
+  /// never supersede each other: the server takes its token once.
   Future<LibreChatSignInResult> verify(LibreChatVerify request) async {
     _expireFlows();
     final flow = _flows[request.flowId];
-    if (flow == null) {
+    if (flow == null || !_current(flow.begun)) {
+      // Begun under another account than the one in charge now: the flow
+      // is no good for this one.
+      _flows.remove(request.flowId);
       return const LibreChatSignInResult(
         outcome: LibreChatSignInOutcome.expired,
       );
     }
+    final begun = flow.begun;
     final code = request.code.trim();
     if (code.isEmpty) {
       return LibreChatSignInResult(
@@ -202,11 +249,16 @@ final class LibreChatService {
         code: request.backupCode ? null : code,
         backupCode: request.backupCode ? code : null,
       );
-      _flows.remove(request.flowId);
-      return await _finish((
-        server: flow.server,
-        info: flow.info,
-      ), session, force: request.force);
+      // The server took the code: the flow is done, whatever comes next.
+      if (identical(_flows[request.flowId], flow)) {
+        _flows.remove(request.flowId);
+      }
+      return await _finish(
+        (server: flow.server, info: flow.info),
+        session,
+        force: request.force,
+        begun: begun,
+      );
     } on LibreChatApiException catch (error) {
       if (error.statusCode == 401) {
         return LibreChatSignInResult(
@@ -226,6 +278,9 @@ final class LibreChatService {
   /// the window's browser follows (the core's, which the phone's web view
   /// follows too).
   Future<LibreChatSsoPlan> ssoStart(LibreChatSsoStart request) async {
+    final begun = _beginSignIn();
+    final startId = _uuid.v4();
+    _ssoStarted = (id: startId, begun: begun);
     final target = await _server(request.url);
     if (target == null) {
       throw RpcError(
@@ -256,12 +311,22 @@ final class LibreChatService {
       cookieUrl: libreChatSsoCookieUrl(base).toString(),
       serverOrigins: <String>[base.origin],
       basePath: path,
+      startId: startId,
     );
   }
 
+  /// Completes the single sign-on started last, in its round and under the
+  /// account in charge when it started: one started before another sign-in
+  /// began, or under another account, puts no account in charge.
   Future<LibreChatSignInResult> completeSso(
     LibreChatSsoCompletion request,
   ) async {
+    final started = _ssoStarted;
+    // Cookies from another start than the one started last (an older
+    // sign-in window), or naming none, put no account in charge.
+    if (started == null || started.id != request.startId) return _superseded;
+    final begun = started.begun;
+    if (!_current(begun)) return _superseded;
     final target = await _server(request.url);
     if (target == null) {
       return const LibreChatSignInResult(
@@ -282,7 +347,7 @@ final class LibreChatService {
     final auth = _auth(target.server);
     try {
       final session = await auth.sessionFromCookies(cookies);
-      return await _finish(target, session, force: request.force);
+      return await _finish(target, session, force: request.force, begun: begun);
     } on LibreChatSessionExpiredException {
       return const LibreChatSignInResult(
         outcome: LibreChatSignInOutcome.ssoUnfinished,
@@ -297,11 +362,21 @@ final class LibreChatService {
   /// Saves the account signed in to and puts it in charge of the chats, as
   /// the phone's sign-in does: saved first, then switched to through the
   /// core's switcher, which parks Open WebUI.
+  ///
+  /// A sign-in another step superseded, or begun under another account
+  /// than the one in charge now (the user chose one meanwhile), saves and
+  /// switches nothing: the round and the account it began under are asked
+  /// again after every wait, last inside the save (before the session is
+  /// written) and inside the switch (before the account is put in charge).
+  /// One superseded after its save, before its switch, stays saved, not in
+  /// charge.
   Future<LibreChatSignInResult> _finish(
     ({LibreChatServer server, LibreChatServerInfo info}) target,
     LibreChatSession session, {
     required bool force,
+    required _Begun begun,
   }) async {
+    if (!_current(begun)) return _superseded;
     final LibreChatAccount account;
     try {
       account = await _container
@@ -311,11 +386,26 @@ final class LibreChatService {
             session: session,
             info: target.info,
             activate: false,
+            stillCurrent: () => _current(begun),
           );
+    } on AccountChangeSuperseded {
+      return _superseded;
     } on Object catch (error, stackTrace) {
       return _failure(error, stackTrace);
     }
-    final result = await _accounts.useLibreChat(account.id, force: force);
+    final AccountChangeResult result;
+    try {
+      // Parking Open WebUI moves the account in charge: past the switch's
+      // own check of where it starts from, only the round is asked.
+      result = await _accounts.useLibreChat(
+        account.id,
+        force: force,
+        scope: begun.account,
+        stillCurrent: () => begun.round == _signInRound,
+      );
+    } on AccountChangeSuperseded {
+      return _superseded;
+    }
     return LibreChatSignInResult(
       outcome: result.outcome == AccountChangeOutcome.blockedByActiveReply
           ? LibreChatSignInOutcome.blockedByActiveReply
@@ -324,6 +414,10 @@ final class LibreChatService {
       accounts: result.accounts,
     );
   }
+
+  static const _superseded = LibreChatSignInResult(
+    outcome: LibreChatSignInOutcome.expired,
+  );
 
   LibreChatAuthService _auth(LibreChatServer server) => LibreChatAuthService(
     server,
@@ -546,16 +640,23 @@ final class LibreChatService {
   }
 }
 
+/// A sign-in's round and the account in charge when it began.
+typedef _Begun = ({int round, AccountScope account});
+
 final class _TwoFactorFlow {
   _TwoFactorFlow({
     required this.server,
     required this.info,
     required this.tempToken,
     required this.started,
+    required this.begun,
   });
 
   final LibreChatServer server;
   final LibreChatServerInfo info;
   final String tempToken;
   final DateTime started;
+
+  /// The password step's round and account in charge.
+  final _Begun begun;
 }

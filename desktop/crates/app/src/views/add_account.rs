@@ -133,18 +133,21 @@ impl AddAccountSheet {
     /// Cancel, as the form's Cancel button: unless a server is being
     /// checked.
     pub fn cancel(&mut self, cx: &mut Context<Self>) {
-        let busy = match self.kind {
-            Kind::OpenWebUi => self.form.read(cx).busy,
-            Kind::LibreChat => self.librechat.read(cx).busy,
-        };
-        if !busy {
+        if !self.busy(cx) {
             cx.emit(ServerFormEvent::Back);
         }
     }
 
-    /// Shows the form for `kind`, its first field focused.
+    /// Either form has a server check or a sign-in out: one that can still
+    /// put its account in charge is never hidden or cancelled under it.
+    fn busy(&self, cx: &App) -> bool {
+        self.form.read(cx).busy || self.librechat.read(cx).busy
+    }
+
+    /// Shows the form for `kind`, its first field focused (not while a form
+    /// is busy).
     pub fn set_kind(&mut self, kind: Kind, window: &mut Window, cx: &mut Context<Self>) {
-        if self.kind == kind {
+        if self.kind == kind || self.busy(cx) {
             return;
         }
         self.kind = kind;
@@ -296,6 +299,39 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// A sign-in still out keeps its form: the other kind is not shown over
+    /// it, and Cancel waits, so a sign-in that can still put its account in
+    /// charge is never hidden behind an idle form.
+    #[gpui_kit::test]
+    fn a_sign_in_still_out_keeps_its_form(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        let sheet = vcx.update(|window, cx| cx.new(|cx| AddAccountSheet::new(stores, window, cx)));
+        let backs = Rc::new(Cell::new(0));
+        let b = backs.clone();
+        let _watch = vcx.update(|_, cx| {
+            cx.subscribe(&sheet, move |_, e: &ServerFormEvent, _| {
+                if matches!(e, ServerFormEvent::Back) {
+                    b.set(b.get() + 1);
+                }
+            })
+        });
+        sheet.update_in(vcx, |s, window, cx| s.set_kind(Kind::LibreChat, window, cx));
+        sheet.update(vcx, |s, cx| s.librechat.update(cx, |l, _| l.busy = true));
+        sheet.update_in(vcx, |s, window, cx| s.set_kind(Kind::OpenWebUi, window, cx));
+        assert_eq!(
+            sheet.read_with(vcx, |s, _| s.kind),
+            Kind::LibreChat,
+            "the LibreChat sign-in still out was hidden"
+        );
+        // Either form busy: Cancel waits, whichever kind is shown.
+        sheet.update(vcx, |s, cx| {
+            s.librechat.update(cx, |l, _| l.busy = false);
+            s.form.update(cx, |f, _| f.busy = true);
+        });
+        sheet.update(vcx, |s, cx| s.cancel(cx));
+        assert_eq!(backs.get(), 0, "Cancel left a sign-in still out");
     }
 
     #[test]

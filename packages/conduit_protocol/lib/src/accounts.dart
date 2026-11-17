@@ -167,6 +167,13 @@ abstract class AddAccount with _$AddAccount {
 }
 
 /// Params for `accounts.switch` and `accounts.remove`.
+///
+/// `askedOver` (`accounts.switch` only): the account in charge when the
+/// window asked the user about the switch -- a "Switch Anyway" that stops
+/// the answer being written there. When another account is in charge by the
+/// time the switch arrives, it is refused with `auth.sessionExpired`,
+/// `reason: account`, and nothing is switched or stopped. Absent, the switch
+/// goes ahead from whichever account is in charge.
 @freezed
 abstract class AccountRef with _$AccountRef {
   const factory AccountRef({
@@ -175,6 +182,7 @@ abstract class AccountRef with _$AccountRef {
     /// Leave the active account even while an answer is being written there,
     /// stopping it. See [AccountChangeOutcome.blockedByActiveReply].
     @Default(false) bool force,
+    String? askedOver,
   }) = _AccountRef;
 
   factory AccountRef.fromJson(Map<String, dynamic> json) =>

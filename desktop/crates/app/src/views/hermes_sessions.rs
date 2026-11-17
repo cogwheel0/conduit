@@ -280,6 +280,7 @@ fn confirm_delete(stores: &Stores, id: &str, window: &mut Window, cx: &mut App) 
         cx.update(|cx| match result {
             Ok(sessions) => {
                 stores.areas.update(cx, |a, cx| {
+                    a.forget_hermes_hidden(&id);
                     a.adopt_hermes(sessions, cx);
                     // Hidden Chats, when read, lists what is left.
                     if a.hermes_hidden.is_some() {
@@ -455,6 +456,47 @@ mod tests {
                 "Hidden Chats still lists the deleted session"
             );
         });
+    }
+
+    /// A deleted hidden session is not found again through the Hidden Chats
+    /// last listed when the refresh after the delete fails.
+    #[gpui_kit::test]
+    fn a_deleted_hidden_session_is_not_found_after_a_failed_refresh(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-hdel2-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            cx.set_global(crate::shell::sheet::AutoAnswer(Some(true)));
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        daemon.once::<methods::HermesHiddenList>(Ok(conduit_protocol::HermesSessions {
+            sessions: vec![session(false, false, true)],
+            ..Default::default()
+        }));
+        daemon.once::<methods::HermesHiddenList>(Err(conduit_daemon::protocol::error(
+            "rpc.daemonUnavailable",
+            "away",
+        )));
+        daemon.returns::<methods::HermesDeleteSession>(conduit_protocol::HermesSessions::default());
+        stores.areas.update(cx, |a, cx| a.refresh_hermes_hidden(cx));
+        cx.run_until_parked();
+        assert!(
+            stores
+                .areas
+                .read_with(cx, |a, _| a.hermes_session("s1").is_some())
+        );
+        let vcx = cx.add_empty_window();
+        vcx.update(|window, cx| run(&stores, "s1", HermesCommand::Delete, window, cx));
+        vcx.run_until_parked();
+        assert!(
+            stores
+                .areas
+                .read_with(vcx, |a, _| a.hermes_session("s1").is_none()),
+            "the deleted session is still found"
+        );
     }
 
     #[test]

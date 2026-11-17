@@ -31,6 +31,7 @@ import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:riverpod/riverpod.dart';
 
+import 'account_scope.dart';
 import 'event_bus.dart';
 import 'settled.dart';
 
@@ -136,7 +137,8 @@ final class NotesService {
     // The account it is read under, with its database: a read answered
     // after another account became active is refused, never shown or
     // remembered as that account's.
-    final scope = currentPreferenceAccountId();
+    final account = AccountScope.capture(_container);
+    final scope = account.preferenceAccount;
     final db = _container.read(appDatabaseProvider);
     final access = await _access();
     if (db != null) {
@@ -147,7 +149,7 @@ final class NotesService {
       final row = await db.notesDao.getNote(id);
       if (row != null && row.deleted) return null;
       if (row != null && (row.dirtyTitle || row.dirtyData || row.dirtyPinned)) {
-        _requireStill(scope, id);
+        account.require('note $id was read');
         return _detail(
           Note.fromJson(noteRowToServer(row)),
           access,
@@ -161,7 +163,7 @@ final class NotesService {
     _container.invalidate(noteByIdProvider(id));
     try {
       final note = await readSettled(_container, noteByIdProvider(id).future);
-      _requireStill(scope, id);
+      account.require('note $id was read');
       return note == null
           ? null
           : _detail(note, access, pageId: pageId, scope: scope);
@@ -371,9 +373,11 @@ final class NotesService {
   };
 
   Future<NoteDetail> save(NoteSave request) async {
-    // The account the save was asked under, before any wait: a new note is
-    // made under it or not at all.
-    final scope = currentPreferenceAccountId();
+    // The account the save was asked under, before any wait, whether or not
+    // the editor names one: the note is written (or made) under it or not
+    // at all.
+    final account = AccountScope.capture(_container);
+    final scope = account.preferenceAccount;
     // The editor's own account, when it says: another one active (a switch
     // this side has made and the window not yet heard of) takes nothing.
     _requireExpected(request.accountId, request.id);
@@ -394,8 +398,11 @@ final class NotesService {
     if (id == null) {
       // Save as My Own Note, begun under another account than the one
       // active now: the draft is not made into this account's note.
-      _requireStill(scope, 'a new note');
+      account.require('a new note was made');
     } else {
+      // Begun under another account than the one active now (even when
+      // that account has since read the same note): written by no path.
+      account.require('note $id was saved');
       // A note opened under another account is written by no path (a
       // rename, the core's updater, the text): its draft stays with the
       // editor, never in this account's notes.
@@ -423,6 +430,7 @@ final class NotesService {
     // to save to: its text is kept as a new note.
     final resolved = await db.notesDao.resolveNoteRemapTarget(id);
     final existing = await db.notesDao.getNote(resolved);
+    account.require('note $id was saved');
     if (existing == null || existing.deleted) {
       return _recover(
         id,
@@ -515,6 +523,8 @@ final class NotesService {
     if (recorder != null) {
       _recorders[recovered.id] = recorder;
       recorder.note = recovered;
+      // Its news is the recovered note's from now on.
+      recorder.noteId = recovered.id;
       unawaited(recorder.controller.rebindTo(previous, recovered));
     }
     return _detail(recovered, access).copyWith(recoveredFrom: id);
@@ -535,6 +545,23 @@ final class NotesService {
     );
   }
 
+  /// The account a recording request for note [id] comes under, captured
+  /// before anything is awaited: refused at once when the note was handed
+  /// out under another one.
+  AccountScope _recordingAccount(String id) {
+    _requireOpenedHere(id);
+    return AccountScope.capture(_container);
+  }
+
+  /// Refuses a recording request for note [id] begun under [account] once
+  /// another account is active -- also for a note this daemon never handed
+  /// out (it restarted under an open editor) -- or once the note was handed
+  /// out under another account meanwhile.
+  void _requireRecordingStill(String id, AccountScope account) {
+    account.require('a request for note $id answered');
+    _requireOpenedHere(id);
+  }
+
   /// Refuses a save the editor made for account [expected] while another
   /// account is active (nothing is checked when the editor names none).
   void _requireExpected(String? expected, String? id) {
@@ -543,17 +570,6 @@ final class NotesService {
       code: ConduitErrorCodes.sessionExpired,
       args: const <String, String>{'reason': 'account'},
       debugMessage: 'note ${id ?? '(new)'} is for another account',
-    );
-  }
-
-  /// Refuses a read of note [id] begun under [scope] once another account
-  /// is active.
-  void _requireStill(String? scope, String id) {
-    if (scope == currentPreferenceAccountId()) return;
-    throw RpcError(
-      code: ConduitErrorCodes.sessionExpired,
-      args: const <String, String>{'reason': 'account'},
-      debugMessage: 'note $id was read under another account',
     );
   }
 
@@ -693,8 +709,13 @@ final class NotesService {
   /// [noteId]'s recordings not attached yet; uploads the waiting ones when
   /// the server can be reached.
   Future<NoteRecordings> recordings(String noteId) async {
+    // A note opened under another account: its recordings are that
+    // account's, listed to no other (checked again after each read).
+    final account = _recordingAccount(noteId);
     final recorder = await _recorderFor(noteId);
+    _requireRecordingStill(noteId, account);
     await recorder.controller.loadPending();
+    _requireRecordingStill(noteId, account);
     return _recordingsOf(noteId, recorder);
   }
 
@@ -702,11 +723,11 @@ final class NotesService {
   /// into the account's storage before anything else), then uploads and
   /// attaches it.
   Future<NoteRecordings> addRecording(NoteRecordingAdd request) async {
-    _requireOpenedHere(request.noteId);
+    final account = _recordingAccount(request.noteId);
     final recorder = await _recorderFor(request.noteId);
     // Checked again after the reads: a switch meanwhile keeps the audio out
     // of the next account's storage.
-    _requireOpenedHere(request.noteId);
+    _requireRecordingStill(request.noteId, account);
     final file = File(request.path);
     if (!file.existsSync()) {
       throw RpcError(
@@ -718,6 +739,9 @@ final class NotesService {
       file,
       pageId: request.pageId,
     );
+    // Another account may have opened and listed this note id meanwhile:
+    // its list is not this request's answer.
+    _requireRecordingStill(request.noteId, account);
     if (!staged) {
       throw const RpcError(
         code: ConduitErrorCodes.serverError,
@@ -728,9 +752,9 @@ final class NotesService {
   }
 
   Future<NoteRecordings> retryRecording(NoteRecordingRef request) async {
-    _requireOpenedHere(request.noteId);
+    final account = _recordingAccount(request.noteId);
     final recorder = await _recorderFor(request.noteId);
-    _requireOpenedHere(request.noteId);
+    _requireRecordingStill(request.noteId, account);
     unawaited(
       recorder.controller.retry(ids: <String>[request.id], showFeedback: true),
     );
@@ -738,8 +762,11 @@ final class NotesService {
   }
 
   Future<NoteRecordings> removeRecording(NoteRecordingRef request) async {
+    final account = _recordingAccount(request.noteId);
     final recorder = await _recorderFor(request.noteId);
+    _requireRecordingStill(request.noteId, account);
     await recorder.controller.removePending(request.id);
+    _requireRecordingStill(request.noteId, account);
     return _recordingsOf(request.noteId, recorder);
   }
 
@@ -768,15 +795,17 @@ final class NotesService {
         recorder.note = note;
         _seen[note.id] = note;
         _container.invalidate(noteByIdProvider(note.id));
-        _changed(noteId);
+        _changed(recorder.noteId);
       },
       // Only a change of the list is news: the controller also notifies
       // after every scan, and an editor asks for the list again on
       // `notes.changed` -- announcing each scan fed back without end.
-      onChanged: () => _recordingsChanged(noteId),
+      // By the id the recorder is kept under now: a recovered note's
+      // recorder moved to the new note's id.
+      onChanged: () => _recordingsChanged(recorder.noteId),
       onNotice: (notice) => recorder.lastNotice = notice,
     );
-    recorder = _NoteRecorder(controller)..note = note;
+    recorder = _NoteRecorder(controller, noteId)..note = note;
     _recorders[noteId] = recorder;
     controller.start();
     return recorder;
@@ -905,9 +934,13 @@ typedef _Access = ({String? accountId, bool sharing});
 
 /// A note's recordings controller and the note it works on.
 final class _NoteRecorder {
-  _NoteRecorder(this.controller);
+  _NoteRecorder(this.controller, this.noteId);
 
   final NoteAttachmentsController controller;
+
+  /// The note it is kept under in `_recorders`: the recovered note's id
+  /// once a deleted note's draft was kept as a new one.
+  String noteId;
   Note? note;
   NoteAudioNotice? lastNotice;
 

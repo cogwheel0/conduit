@@ -997,6 +997,17 @@ pub fn blocks_to_ops(blocks: &[Block]) -> Vec<Value> {
     ops
 }
 
+/// A link the copied HTML keeps: `http`, `https` or `mailto` (a
+/// `javascript:` or `file:` one stays words).
+fn copyable_link(url: &str) -> bool {
+    let scheme = url
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    url.contains(':') && matches!(scheme.as_str(), "http" | "https" | "mailto")
+}
+
 /// `blocks` as HTML, for the pasteboard's rich form (Mail, Pages and Notes
 /// paste it with its formatting).
 pub fn blocks_to_html(blocks: &[Block]) -> String {
@@ -1025,7 +1036,8 @@ pub fn blocks_to_html(blocks: &[Block]) -> String {
             if m.bold {
                 text = format!("<b>{text}</b>");
             }
-            if let Some(url) = &m.link {
+            // Only web and mail addresses: another app follows the link.
+            if let Some(url) = m.link.as_ref().filter(|u| copyable_link(u)) {
                 text = format!("<a href=\"{}\">{text}</a>", escape(url));
             }
             out.push_str(&text);
@@ -1416,6 +1428,34 @@ mod tests {
         ] {
             assert!(html.contains(part), "{part} in {html}");
         }
+    }
+
+    /// Copied rich text links only to web and mail addresses: a `javascript:`
+    /// or `file:` link stays words, never a link another app would follow.
+    #[test]
+    fn copies_link_only_web_and_mail_addresses() {
+        let doc = Doc::from_ops(&ops(json!([
+            { "insert": "map", "attributes": { "link": "https://example.com/trail" } },
+            { "insert": " " },
+            { "insert": "mail", "attributes": { "link": "mailto:ranger@example.com" } },
+            { "insert": " " },
+            { "insert": "run", "attributes": { "link": "javascript:alert(1)" } },
+            { "insert": " " },
+            { "insert": "disk", "attributes": { "link": "file:///etc/hosts" } },
+            { "insert": "\n" },
+        ])));
+        let html = blocks_to_html(&doc.blocks);
+        assert!(
+            html.contains("<a href=\"https://example.com/trail\">map</a>"),
+            "{html}"
+        );
+        assert!(
+            html.contains("<a href=\"mailto:ranger@example.com\">mail</a>"),
+            "{html}"
+        );
+        assert!(!html.contains("javascript:"), "{html}");
+        assert!(!html.contains("file:"), "{html}");
+        assert!(html.contains("run") && html.contains("disk"), "{html}");
     }
 
     #[test]

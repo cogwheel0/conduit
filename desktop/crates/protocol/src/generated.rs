@@ -366,6 +366,13 @@ pub struct AddAccount {
 }
 
 /// Params for `accounts.switch` and `accounts.remove`.
+///
+/// `askedOver` (`accounts.switch` only): the account in charge when the
+/// window asked the user about the switch -- a "Switch Anyway" that stops
+/// the answer being written there. When another account is in charge by the
+/// time the switch arrives, it is refused with `auth.sessionExpired`,
+/// `reason: account`, and nothing is switched or stopped. Absent, the switch
+/// goes ahead from whichever account is in charge.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountRef {
@@ -374,6 +381,8 @@ pub struct AccountRef {
     /// stopping it. See `AccountChangeOutcome.blockedByActiveReply`.
     #[serde(default)]
     pub force: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked_over: Option<String>,
 }
 
 /// Params for `accounts.signOut`: signs out of the active account.
@@ -6607,6 +6616,11 @@ pub struct LibreChatSsoPlan {
     /// The server's path below its origin (`/chat`), or empty.
     #[serde(default)]
     pub base_path: String,
+    /// This start's id. `librechat.completeSso` names it: only the single
+    /// sign-on started last completes, so cookies an older sign-in window
+    /// left put no account in charge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_id: Option<String>,
 }
 
 /// Params for `librechat.completeSso`.
@@ -6620,6 +6634,11 @@ pub struct LibreChatSsoCompletion {
     pub cookies: BTreeMap<String, String>,
     #[serde(default)]
     pub force: bool,
+    /// `LibreChatSsoPlan.startId` of the start these cookies came from. A
+    /// completion naming another start, or none, is refused with
+    /// `LibreChatSignInOutcome.expired`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_id: Option<String>,
 }
 
 /// How a sign-in step went.

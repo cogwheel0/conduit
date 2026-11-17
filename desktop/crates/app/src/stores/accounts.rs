@@ -17,8 +17,8 @@ use std::pin::Pin;
 use conduit_daemon::RpcError;
 use conduit_protocol::{
     AccountChangeOutcome, AccountChangeResult, AccountList, AccountRef, AccountSignOut,
-    AccountSummary, AddAccount, LibreChatAccountSummary, LibreChatSessionPhase, NoParams,
-    PrimaryAccount, ServerDraft, methods,
+    AccountSummary, AddAccount, ErrorCode, LibreChatAccountSummary, LibreChatSessionPhase,
+    NoParams, PrimaryAccount, ServerDraft, methods,
 };
 use gpui_kit::{AsyncApp, Context, EventEmitter, Task, WeakEntity};
 
@@ -218,6 +218,9 @@ pub struct AccountsStore {
     pub busy: Option<AccountChange>,
     /// A change refused by `blockedByActiveReply`, waiting for the user.
     pub blocked: Option<AccountChange>,
+    /// The account in charge when [`Self::blocked`] was asked for: the one
+    /// its forced repeat is bound to.
+    blocked_over: Option<String>,
     /// The last change's notice, until the next one.
     pub notice: Option<AccountNotice>,
     generation: u64,
@@ -234,6 +237,7 @@ impl AccountsStore {
             load_error: None,
             busy: None,
             blocked: None,
+            blocked_over: None,
             notice: None,
             generation: 0,
             _fetch: None,
@@ -248,6 +252,12 @@ impl AccountsStore {
         let list = self.list.as_ref()?;
         let id = list.active_account_id.as_deref()?;
         list.accounts.iter().find(|a| a.id == id)
+    }
+
+    /// The id of the account in charge of the chats: the active Open WebUI
+    /// account, or the LibreChat account in use while LibreChat owns them.
+    pub fn in_charge_id(&self) -> Option<String> {
+        in_charge(self.list.as_ref()?).map(str::to_string)
     }
 
     /// The account in charge of the chats, as a scope: the active Open
@@ -305,6 +315,7 @@ impl AccountsStore {
         self.list = None;
         self.busy = None;
         self.blocked = None;
+        self.blocked_over = None;
         cx.notify();
     }
 
@@ -367,12 +378,34 @@ impl AccountsStore {
         force: bool,
         cx: &mut Context<Self>,
     ) -> Task<Result<AccountChangeResult, RpcError>> {
-        let call = self.call(&change, force);
+        self.change_asked_over(change, force, None, cx)
+    }
+
+    /// [`Self::change`], for a switch the user was asked about while
+    /// `asked_over` was in charge (Switch Anyway): conduitd refuses it, and
+    /// stops nothing, once another account is in charge. A forced switch
+    /// with no account it was asked over is not sent at all (conduitd would
+    /// refuse it too).
+    pub fn change_asked_over(
+        &mut self,
+        change: AccountChange,
+        force: bool,
+        asked_over: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<AccountChangeResult, RpcError>> {
+        if force && asked_over.is_none() && matches!(change, AccountChange::Switch { .. }) {
+            return Task::ready(Err(RpcError {
+                debug_message: Some("a forced switch needs the account it was asked over".into()),
+                ..RpcError::new(ErrorCode::InvalidParams)
+            }));
+        }
+        let call = self.call(&change, force, asked_over);
         // Names in the notice come from the list as it was: by the time the
         // reply arrives, accounts.changed may have refetched it already.
         let before = self.list.clone();
         self.busy = Some(change.clone());
         self.blocked = None;
+        self.blocked_over = None;
         self.generation += 1;
         let generation = self.generation;
         cx.notify();
@@ -386,7 +419,12 @@ impl AccountsStore {
         })
     }
 
-    fn call(&self, change: &AccountChange, force: bool) -> ChangeFuture {
+    fn call(
+        &self,
+        change: &AccountChange,
+        force: bool,
+        asked_over: Option<String>,
+    ) -> ChangeFuture {
         let rpc = &self.rpc;
         match change {
             AccountChange::Add(server) => Box::pin(rpc.call::<methods::AccountsAdd>(&AddAccount {
@@ -398,12 +436,14 @@ impl AccountsStore {
                 Box::pin(rpc.call::<methods::AccountsSwitch>(&AccountRef {
                     account_id: account_id.clone(),
                     force,
+                    asked_over,
                 }))
             }
             AccountChange::Remove { account_id } => {
                 Box::pin(rpc.call::<methods::AccountsRemove>(&AccountRef {
                     account_id: account_id.clone(),
                     force,
+                    asked_over: None,
                 }))
             }
             AccountChange::SignOut => {
@@ -431,6 +471,7 @@ impl AccountsStore {
                 }
                 match notice {
                     None => {
+                        self.blocked_over = before.and_then(in_charge).map(str::to_string);
                         self.blocked = Some(change.clone());
                         cx.emit(AccountsEvent::Blocked(change));
                     }
@@ -460,10 +501,12 @@ impl AccountsStore {
         cx: &mut Context<Self>,
     ) -> Option<Task<Result<AccountChangeResult, RpcError>>> {
         let change = self.blocked.take()?;
-        Some(self.change(change, true, cx))
+        let over = self.blocked_over.take();
+        Some(self.change_asked_over(change, true, over, cx))
     }
 
     pub fn dismiss_blocked(&mut self, cx: &mut Context<Self>) {
+        self.blocked_over = None;
         if self.blocked.take().is_some() {
             cx.notify();
         }
@@ -740,6 +783,58 @@ pub(crate) mod tests {
             &[AccountsEvent::Notice(AccountNotice::SwitchedTo {
                 name: "Blake".into()
             })]
+        );
+    }
+
+    /// A blocked switch, confirmed, names the account that was in charge
+    /// when it was asked for; a forced switch with no such account is never
+    /// sent.
+    #[gpui_kit::test]
+    fn a_forced_switch_names_the_account_it_was_asked_over(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(two());
+        daemon.once::<methods::AccountsSwitch>(Ok(result(
+            AccountChangeOutcome::BlockedByActiveReply,
+            two(),
+        )));
+        daemon.once::<methods::AccountsSwitch>(Ok(result(AccountChangeOutcome::Done, two())));
+        let store = cx.new(|_| AccountsStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+        let asked_over = store.read_with(cx, |s, _| s.in_charge_id());
+        assert!(asked_over.is_some());
+        let switch = AccountChange::Switch {
+            account_id: "b".into(),
+        };
+        store
+            .update(cx, |s, cx| s.change(switch.clone(), false, cx))
+            .detach();
+        cx.run_until_parked();
+        store
+            .update(cx, |s, cx| s.confirm_blocked(cx))
+            .expect("a blocked change to confirm")
+            .detach();
+        cx.run_until_parked();
+        let calls = daemon.calls::<methods::AccountsSwitch>();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].get("askedOver"), None, "a plain switch names none");
+        assert_eq!(calls[1]["force"], json!(true));
+        assert_eq!(calls[1]["askedOver"].as_str(), asked_over.as_deref());
+
+        let refused = store.update(cx, |s, cx| s.change_asked_over(switch, true, None, cx));
+        let failed = std::rc::Rc::new(std::cell::Cell::new(false));
+        let seen = failed.clone();
+        cx.spawn(async move |_| seen.set(refused.await.is_err()))
+            .detach();
+        cx.run_until_parked();
+        assert!(
+            failed.get(),
+            "the forced switch with no origin did not fail"
+        );
+        assert_eq!(
+            daemon.calls::<methods::AccountsSwitch>().len(),
+            2,
+            "a forced switch with no account it was asked over was sent"
         );
     }
 

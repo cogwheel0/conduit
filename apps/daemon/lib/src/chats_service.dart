@@ -875,7 +875,7 @@ final class ChatsService {
     if (_isDirectLocal(id)) {
       await mutations.pinConversation(_container, id, value);
     } else if (_isLibreChat(id)) {
-      await pinConversation(_container, id, value);
+      await pinConversation(_container, _libreChatScoped(id), value);
     } else {
       await _api.pinConversation(id, value);
     }
@@ -893,7 +893,9 @@ final class ChatsService {
     if (_isDirectLocal(id)) {
       return mutations.archiveConversation(_container, id, value);
     }
-    if (_isLibreChat(id)) return archiveConversation(_container, id, value);
+    if (_isLibreChat(id)) {
+      return archiveConversation(_container, _libreChatScoped(id), value);
+    }
     return _api.archiveConversation(id, value);
   }
 
@@ -915,6 +917,18 @@ final class ChatsService {
         !id.startsWith('local:') &&
         _container.read(primaryAccountKindProvider) ==
             PrimaryAccountKind.libreChat;
+  }
+
+  /// [id] as the core's mutations know a LibreChat chat whether or not the
+  /// list holds it yet (a copy just made): a bare server id they would
+  /// otherwise take for Open WebUI's.
+  static String _libreChatScoped(String id) {
+    final identity = ChatStorageIdentity.parse(id);
+    if (identity.storage != null) return id;
+    return ChatStorageIdentity(
+      rawId: identity.rawId,
+      storage: ChatStorageKind.libreChat,
+    ).scopedId;
   }
 
   Future<ChatList> delete(String id) async {

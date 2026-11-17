@@ -4,5 +4,6 @@
     "refreshToken": "r1",
     "token_provider": "openid"
   },
-  "force": false
+  "force": false,
+  "startId": "sso-start-1"
 }

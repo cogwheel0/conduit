@@ -86,6 +86,7 @@ final class _Accounts extends OpenWebUiAccountsController {
   Future<OpenWebUiAccountChangeResult> switchTo(
     String accountId, {
     bool force = false,
+    bool Function()? stillFrom,
   }) async {
     if (failSwitches) throw StateError('switch failed');
     switches.add(accountId);

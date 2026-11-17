@@ -51,8 +51,9 @@ import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_core/models/openwebui_chat_settings.dart'
     show OpenWebUiChatSettingsAccess, kChatParamSystem;
 import 'package:conduit_core/ports/ui_request_port.dart';
-import 'package:conduit_core/persistence/account_scoped_preferences.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart'
+    show PrimaryAccountRef, primaryAccountProvider;
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/message_rating.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -69,6 +70,7 @@ import 'package:riverpod/riverpod.dart';
 import 'chat_prompts_service.dart';
 import 'chats_service.dart' show ChatTurns;
 import 'composer_wire.dart';
+import 'account_scope.dart';
 import 'event_bus.dart';
 import 'files_service.dart';
 import 'hermes_cards_service.dart';
@@ -160,6 +162,16 @@ final class TurnsService implements ChatTurns {
       }),
       _container.listen<Object?>(apiServiceProvider, (previous, next) {
         if (!identical(previous, next)) _closeAll(reason: 'session-changed');
+      }),
+      // The account in charge of the chats: one LibreChat account after
+      // another changes neither Open WebUI's session nor its client.
+      _container.listen<PrimaryAccountRef>(primaryAccountProvider, (
+        previous,
+        next,
+      ) {
+        if (previous == null || previous == next) return;
+        _closeAll(reason: 'account-changed');
+        this.temporary.clear();
       }),
     ];
     _remaps = _container
@@ -468,6 +480,9 @@ final class TurnsService implements ChatTurns {
   // ---------------------------------------------------------------------------
 
   Future<SendTurnAccepted> send(SendTurn request) async {
+    // The account the words are for: every wait below (the model, the
+    // rights, the chat) is followed by its check, last as the turn starts.
+    final account = AccountScope.capture(_container);
     _refuseDeleted(request.chatId);
     // `@` users and channels and `$` skills, in Open WebUI's wire format.
     final text = composerWireText(request.text, request.mentions).trim();
@@ -483,11 +498,13 @@ final class TurnsService implements ChatTurns {
           ? request.compareModels.first
           : request.model,
     );
-    final paramsOwner = request.chatId == null
-        ? await _requireChatParamsAccess(model, request)
-        : null;
+    account.require('the model was read');
+    if (request.chatId == null) {
+      await _requireChatParamsAccess(model, request, account);
+    }
     await _requireBackendFor(model);
-    final session = await _sessionFor(request.chatId);
+    account.require('the backend was ready');
+    final session = await _sessionFor(request.chatId, account: account);
     try {
       await _requireIdle(session);
       final scope = session.scope.container;
@@ -509,9 +526,7 @@ final class TurnsService implements ChatTurns {
         // with the settings its window kept for it (`chatSettings.*`).
         // Checked again here, as they are stored: the rights were the
         // asking account's, and the waits since could have let another in.
-        if (paramsOwner != null && !_stillOwner(paramsOwner)) {
-          throw _accountChanged;
-        }
+        account.require('the chat settings were stored');
         final folderId = request.folderId;
         if (folderId != null && folderId.isNotEmpty) {
           scope.read(pendingFolderIdProvider.notifier).set(folderId);
@@ -536,10 +551,11 @@ final class TurnsService implements ChatTurns {
         for (final context in request.context) contextFromDto(context),
       ];
       if (request.compareModels.isNotEmpty) {
-        return await _compare(session, request, text, knowledge);
+        return await _compare(session, request, text, knowledge, account);
       }
       return await _run(
         session,
+        account: account,
         refuseIfBusy: true,
         modelId: model.id,
         userMessageId: null,
@@ -562,28 +578,23 @@ final class TurnsService implements ChatTurns {
   /// prompt by the account's prompt right and the rest by its parameters
   /// right. A Direct or Hermes chat keeps no Open WebUI settings.
   ///
-  /// Returns the account the rights were read for, to check again as the
-  /// settings are stored; null when nothing needs them.
-  Future<_ParamsOwner?> _requireChatParamsAccess(
+  /// The rights are [account]'s: another account in charge once they are
+  /// read gets nothing stored or sent.
+  Future<void> _requireChatParamsAccess(
     Model model,
     SendTurn request,
+    AccountScope account,
   ) async {
     final params = request.chatParams;
-    if (params == null || params.isEmpty) return null;
+    if (params == null || params.isEmpty) return;
     // Only a chat this device runs keeps no Open WebUI settings: Hermes, or
     // a Direct connection of its own. A server's own connection is still
     // the server's chat, held to its rights.
     if (isHermesModel(model) ||
         _container.read(directModelRegistryProvider).resolve(model)?.source ==
             DirectModelSource.device) {
-      return null;
+      return;
     }
-    // The rights are the asking account's: another one signed in or made
-    // active while they load gets nothing stored or sent.
-    final owner = (
-      session: _container.read(openWebUiAuthSessionEpochProvider),
-      accountId: currentPreferenceAccountId(),
-    );
     OpenWebUiChatSettingsAccess access;
     try {
       access = await readSettled(
@@ -593,7 +604,7 @@ final class TurnsService implements ChatTurns {
     } on Object {
       access = OpenWebUiChatSettingsAccess.denied;
     }
-    if (!_stillOwner(owner)) throw _accountChanged;
+    account.require('its chat rights were read');
     for (final key in params.keys) {
       final allowed = key == kChatParamSystem
           ? access.canEditSystemPrompt
@@ -606,22 +617,7 @@ final class TurnsService implements ChatTurns {
         );
       }
     }
-    return owner;
   }
-
-  /// The session (the signed-in user's, by its epoch) and account the rights
-  /// were read for, still the current ones.
-  bool _stillOwner(_ParamsOwner owner) =>
-      identical(
-        owner.session,
-        _container.read(openWebUiAuthSessionEpochProvider),
-      ) &&
-      owner.accountId == currentPreferenceAccountId();
-
-  static const _accountChanged = RpcError(
-    code: ConduitErrorCodes.sessionExpired,
-    debugMessage: 'the account changed after its chat rights were read',
-  );
 
   /// Compare Models: one message to two models, as one durable Open WebUI
   /// turn (the core's [durableCompareSend]); the server answers each under
@@ -636,6 +632,7 @@ final class TurnsService implements ChatTurns {
     SendTurn request,
     String text,
     List<ChatContextAttachment> context,
+    AccountScope account,
   ) async {
     final scope = session.scope.container;
     if (!scope.read(comparisonRuntimeAvailableProvider)) {
@@ -651,6 +648,7 @@ final class TurnsService implements ChatTurns {
     try {
       return await _run(
         session,
+        account: account,
         refuseIfBusy: true,
         modelId: models.first.id,
         userMessageId: null,
@@ -695,8 +693,9 @@ final class TurnsService implements ChatTurns {
   /// A branch, not an overwrite: the new answer is another child of the same
   /// question, so the previous one stays reachable as a version.
   Future<SendTurnAccepted> regenerate(RegenerateTurn request) async {
+    final account = AccountScope.capture(_container);
     _refuseTemporary(request.chatId);
-    final session = await _sessionFor(request.chatId);
+    final session = await _sessionFor(request.chatId, account: account);
     try {
       await _requireIdle(session);
       final target = resolveAssistantRegenerationTarget(
@@ -743,6 +742,7 @@ final class TurnsService implements ChatTurns {
       }
       return await _run(
         session,
+        account: account,
         refuseIfBusy: true,
         modelId: model.id,
         userMessageId: target.userMessage.id,
@@ -761,6 +761,7 @@ final class TurnsService implements ChatTurns {
   /// The new question is a sibling of the old one, so the old question keeps
   /// its answer and everything after it.
   Future<SendTurnAccepted> edit(EditTurn request) async {
+    final account = AccountScope.capture(_container);
     _refuseTemporary(request.chatId);
     final text = request.text.trim();
     if (text.isEmpty) {
@@ -769,7 +770,7 @@ final class TurnsService implements ChatTurns {
         debugMessage: 'turns.edit needs a non-empty text',
       );
     }
-    final session = await _sessionFor(request.chatId);
+    final session = await _sessionFor(request.chatId, account: account);
     try {
       await _requireIdle(session);
       final messages = session.scope.messages;
@@ -806,6 +807,7 @@ final class TurnsService implements ChatTurns {
       _choose(session.scope.container, model);
       return await _run(
         session,
+        account: account,
         refuseIfBusy: true,
         modelId: model.id,
         userMessageId: null,
@@ -842,6 +844,7 @@ final class TurnsService implements ChatTurns {
   /// reply's turn (the phone's `branchHermesChatFromMessage`), told to the
   /// windows and answered with, to open.
   Future<HermesSessionDto> branchHermes(HermesBranch request) async {
+    final account = AccountScope.capture(_container);
     final hermes = _hermes;
     final sessionId = hermesSessionOf(request.chatId);
     if (hermes == null || sessionId == null) {
@@ -851,11 +854,12 @@ final class TurnsService implements ChatTurns {
         debugMessage: 'not a Hermes chat',
       );
     }
-    final session = await _sessionFor(request.chatId);
+    final session = await _sessionFor(request.chatId, account: account);
     try {
       _refuseReadOnlyHermes(hermes, sessionId);
       // Never from a reply still being written.
       await _requireIdle(session);
+      account.require('the branch was made');
       final scope = session.scope.container;
       final messages = session.scope.messages;
       final index = messages.indexWhere((m) => m.id == request.messageId);
@@ -910,6 +914,7 @@ final class TurnsService implements ChatTurns {
   }
 
   Future<OkResult> undoHermes(ChatRef request) async {
+    final account = AccountScope.capture(_container);
     final sessionId = hermesSessionOf(request.id);
     if (_hermes == null || sessionId == null) {
       throw RpcError(
@@ -918,10 +923,11 @@ final class TurnsService implements ChatTurns {
         debugMessage: 'not a Hermes chat',
       );
     }
-    final session = await _sessionFor(request.id);
+    final session = await _sessionFor(request.id, account: account);
     try {
       _refuseReadOnlyHermes(_hermes, sessionId);
       await _requireIdle(session);
+      account.require('the last turn was undone');
       final undone = await undoLastHermesTurn(session.scope.container);
       if (undone) {
         // The undone answer must not come back as the turn a window that
@@ -944,7 +950,8 @@ final class TurnsService implements ChatTurns {
   }
 
   Future<int> deleteMessages(DeleteMessages request) async {
-    final session = await _sessionFor(request.chatId);
+    final account = AccountScope.capture(_container);
+    final session = await _sessionFor(request.chatId, account: account);
     var reserved = false;
     try {
       if (isRunning(request.chatId) ||
@@ -960,6 +967,8 @@ final class TurnsService implements ChatTurns {
       // it refuses, so a turn or merge started meanwhile would be lost.
       session.deleting = reserved = true;
       await _requireIdle(session, deleting: true);
+      // Counted or deleted for the account that asked, or not at all.
+      account.require('the messages were deleted');
       final scope = session.scope.container;
       final count = chatMessageIdsRemovedByDelete(
         session.scope.messages,
@@ -1015,6 +1024,7 @@ final class TurnsService implements ChatTurns {
   /// The text goes out as `messages.merge`, at most one frame per tick, and
   /// once more as it ends. [MergeTurn.stop] stops the running merge.
   Future<MergeStarted> merge(MergeTurn request) async {
+    final account = AccountScope.capture(_container);
     if (request.stop) {
       final session = _sessionOf(request.chatId);
       final running = session?.merge;
@@ -1034,7 +1044,7 @@ final class TurnsService implements ChatTurns {
       );
     }
     _refuseTemporary(request.chatId);
-    final session = await _sessionFor(request.chatId);
+    final session = await _sessionFor(request.chatId, account: account);
     var started = false;
     // Reserved before the first await, so a second merge, or a send, edit
     // or regenerate ([_requireIdle]), is refused while this one is admitted.
@@ -1092,6 +1102,7 @@ final class TurnsService implements ChatTurns {
       }
       final scope = session.scope.container;
       final model = target.model ?? displayed.model ?? '';
+      account.require('the merge started');
       // The hold [_sessionFor] took is the merge's now; [_endMerge] lets it
       // go.
       final admitted = run;
@@ -1197,13 +1208,14 @@ final class TurnsService implements ChatTurns {
   /// [saveTemporaryChat], in its scope). Windows showing it follow it to its
   /// new id (`route.remap`), which this answers with.
   Future<ChatForked> saveTemporary(String chatId) async {
+    final account = AccountScope.capture(_container);
     if (!temporary.contains(chatId)) {
       throw const RpcError(
         code: ConduitErrorCodes.invalidParams,
         debugMessage: 'only a temporary chat can be saved',
       );
     }
-    final session = await _sessionFor(chatId);
+    final session = await _sessionFor(chatId, account: account);
     // One save at a time: a second would make a second server chat.
     if (session.saving) {
       _release(session);
@@ -1217,6 +1229,7 @@ final class TurnsService implements ChatTurns {
     var closing = false;
     try {
       await _requireIdle(session, saving: true);
+      account.require('the temporary chat was read');
       final messages = session.scope.messages;
       if (messages.isEmpty) {
         throw const RpcError(
@@ -1230,6 +1243,8 @@ final class TurnsService implements ChatTurns {
           .lastOrNull
           ?.model;
       final model = await _resolveModel(answeredWith);
+      // Saved into the account that asked, or not at all.
+      account.require('the temporary chat was saved');
       _requireOpenWebUi();
       final scope = session.scope.container;
       _choose(scope, model, temporary: true);
@@ -1541,6 +1556,7 @@ final class TurnsService implements ChatTurns {
     onAssistantPlaceholderCreated,
     void Function(ChatSendAdmissionReceipt receipt)? onAdmissionCommitted,
   }) {
+    final account = AccountScope.capture(_container);
     final scope = session.scope.container;
     final model = scope.read(selectedModelProvider);
     if (model == null) {
@@ -1562,6 +1578,7 @@ final class TurnsService implements ChatTurns {
         await _afterRunningAnswer(session);
         await _run(
           session,
+          account: account,
           modelId: model.id,
           userMessageId: null,
           start: (onPlaceholder) async {
@@ -1612,10 +1629,13 @@ final class TurnsService implements ChatTurns {
     String? folderId,
     bool temporary = false,
   }) async {
+    final account = AccountScope.capture(_container);
     final chosen = await _resolveModel(model);
+    account.require('the call\'s model was read');
     await _requireBackendFor(chosen);
-    final session = await _sessionFor(chatId);
+    final session = await _sessionFor(chatId, account: account);
     try {
+      account.require('the call took the chat');
       final scope = session.scope.container;
       final running = session.turn != null && !session.turn!.finished;
       if (!running) {
@@ -1670,6 +1690,7 @@ final class TurnsService implements ChatTurns {
     void Function(ChatSendPlaceholderHandle handle)?
     onAssistantPlaceholderCreated,
   }) async {
+    final account = AccountScope.capture(_container);
     final scope = session.scope.container;
     // The call's choice for a new chat, as these words began: a call that
     // ends while they wait below still makes the chat as it chose.
@@ -1680,6 +1701,7 @@ final class TurnsService implements ChatTurns {
     try {
       await _run(
         session,
+        account: account,
         modelId: model?.id ?? '',
         userMessageId: null,
         // The user talked over the answer (barge-in): it stops as Stop
@@ -1759,8 +1781,10 @@ final class TurnsService implements ChatTurns {
   Future<SteerResult> steer(SteerTurn request) async {
     final text = composerWireText(request.text, request.mentions).trim();
     if (text.isEmpty) return const SteerResult(accepted: false);
-    final session = await _sessionFor(request.chatId);
+    final account = AccountScope.capture(_container);
+    final session = await _sessionFor(request.chatId, account: account);
     try {
+      account.require('the words were handed to the running answer');
       final accepted = await session.scope.container
           .read(hermesBusyTurnControllerProvider)
           .submit(
@@ -1822,8 +1846,11 @@ final class TurnsService implements ChatTurns {
   /// [onAdmitted] runs once it is this send's turn, before it is pending.
   /// A window's own turn ([refuseIfBusy], after [_requireIdle]) is refused
   /// if an answer has started meanwhile: two answers would interleave.
+  /// [account]: the account the turn was asked for, captured at its
+  /// request's entry; checked once the turn is admitted, as it starts.
   Future<SendTurnAccepted> _run(
     _ChatSession session, {
+    required AccountScope account,
     required String modelId,
     required String? userMessageId,
     bool compare = false,
@@ -1860,6 +1887,7 @@ final class TurnsService implements ChatTurns {
           debugMessage: 'the chat closed before this turn could start',
         );
       }
+      account.require('the turn started');
       return await _runAdmitted(
         session,
         modelId: modelId,
@@ -2341,9 +2369,11 @@ final class TurnsService implements ChatTurns {
 
   /// `turns.retryQueued`: sends a queued answer's request again now.
   Future<OkResult> retryQueued(QueuedTurnRef ref) async {
-    final session = await _sessionFor(ref.chatId);
+    final account = AccountScope.capture(_container);
+    final session = await _sessionFor(ref.chatId, account: account);
     try {
       final info = await _queuedInfo(session, ref.messageId);
+      account.require('the queued answer was sent again');
       final actions = session.scope.container.read(
         queuedCompletionActionsProvider,
       );
@@ -2361,9 +2391,11 @@ final class TurnsService implements ChatTurns {
 
   /// `turns.removeQueued`: removes a queued answer before it goes out.
   Future<OkResult> removeQueued(QueuedTurnRef ref) async {
-    final session = await _sessionFor(ref.chatId);
+    final account = AccountScope.capture(_container);
+    final session = await _sessionFor(ref.chatId, account: account);
     try {
       final info = await _queuedInfo(session, ref.messageId);
+      account.require('the queued answer was removed');
       final removed = await session.scope.container
           .read(queuedCompletionActionsProvider)
           .cancel(info);
@@ -2778,9 +2810,9 @@ final class TurnsService implements ChatTurns {
       ),
       stop: () => stop(session.chatId ?? turn.chatId),
     );
-    // Not sent, and nobody to ask again now: the pause is offered once more
-    // the next time the answer is followed (a window that subscribes, a
-    // reconnect), rather than left marked as asked.
+    // Not sent, and nobody to ask (the pause waited for a window while its
+    // turn ran): not left marked as asked, so the answer's next projection
+    // offers it again.
     if (outcome == LibreChatPauseOutcome.failed) {
       session.asked.remove('librechat:${action.actionId}');
     }
@@ -2921,7 +2953,8 @@ final class TurnsService implements ChatTurns {
     OpenWebUiToolCallAction action,
     Map<String, dynamic>? answers,
   ) async {
-    final session = await _sessionFor(chatId);
+    final account = AccountScope.capture(_container);
+    final session = await _sessionFor(chatId, account: account);
     try {
       final running = session.turn;
       if (running != null &&
@@ -2952,6 +2985,7 @@ final class TurnsService implements ChatTurns {
       }
       await _run(
         session,
+        account: account,
         refuseIfBusy: true,
         modelId: answer.model ?? '',
         userMessageId: null,
@@ -3044,13 +3078,22 @@ final class TurnsService implements ChatTurns {
     }
   }
 
-  Future<_ChatSession> _sessionFor(String? chatId) async {
+  /// [account]: the account the request began under, captured at its entry
+  /// (now, when not given).
+  Future<_ChatSession> _sessionFor(
+    String? chatId, {
+    AccountScope? account,
+  }) async {
+    account ??= AccountScope.capture(_container);
     if (_disposed) {
       throw const RpcError(
         code: ConduitErrorCodes.shuttingDown,
         debugMessage: 'the daemon is stopping',
       );
     }
+    // Whatever the caller waited for before this (a model, the backend),
+    // an open chat too is handed only to the account that asked.
+    account.require('the chat was asked for');
     _refuseDeleted(chatId);
     if (chatId != null) {
       final existing = _sessionOf(chatId);
@@ -3063,17 +3106,8 @@ final class TurnsService implements ChatTurns {
     }
     // Loaded under one account, a chat is not opened under the next: an
     // account change while it loads closes only the sessions already open.
-    final account = _container.read(openWebUiAuthSessionEpochProvider);
     final conversation = chatId == null ? null : await _conversation(chatId);
-    if (!identical(
-      account,
-      _container.read(openWebUiAuthSessionEpochProvider),
-    )) {
-      throw const RpcError(
-        code: ConduitErrorCodes.sessionExpired,
-        debugMessage: 'the account changed while the chat loaded',
-      );
-    }
+    account.require('the chat opened');
     late final _ChatSession session;
     final scope = ChatSessionScope.open(
       _container,
@@ -4055,7 +4089,6 @@ final class _Ended {
 }
 
 /// Who a new chat's settings were checked for.
-typedef _ParamsOwner = ({Object session, String? accountId});
 /// A chat scope a voice call holds ([TurnsService.holdForCall]).
 final class CallScopeHold {
   CallScopeHold._(

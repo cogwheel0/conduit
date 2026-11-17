@@ -82,6 +82,15 @@ pub const NOTE_PANE_CONTEXT: &str = "NotePane";
 const SAVE_DELAY: Duration = Duration::from_millis(800);
 /// A failed save is tried again after this.
 const RETRY_DELAY: Duration = Duration::from_secs(5);
+/// A failed save tried again while Quit waits (well within its 3 s).
+const QUIT_RETRY_DELAY: Duration = Duration::from_secs(1);
+
+/// What a recording's transcript was asked for: the card it follows, on
+/// the page shown then.
+struct Transcription {
+    block: Option<u64>,
+    page: u64,
+}
 /// The longest a page change waits for a dictation's last words.
 const RUN_END_WAIT: Duration = Duration::from_secs(3);
 /// The text column's widest.
@@ -212,12 +221,17 @@ pub struct NotePane {
     /// refresh, an upload or a file taken out) applies only while no other
     /// page was asked for since.
     page_asked: u64,
+    /// Another page is being read over the one shown: the shown one takes
+    /// no typing and no refresh until the asked page's answer is in.
+    page_loading: bool,
     saving_rev: Option<(u64, String)>,
     save_again: bool,
     waiters: Vec<futures::channel::oneshot::Sender<()>>,
     /// Quit waits on these: told once nothing is saving and no recording,
     /// dictation or recording hand-off is still on its way.
     quit_waiters: Vec<futures::channel::oneshot::Sender<()>>,
+    /// A failed save waits to be tried again ([`Self::retry_after`]).
+    retrying: bool,
     /// Recordings sent to conduitd (`notes.addRecording`) not answered yet.
     recordings_out: u32,
     /// Counts this pane's saves that landed: a refresh asked before one is
@@ -358,10 +372,12 @@ impl NotePane {
             opened_under,
             held_for_account: false,
             page_asked: 0,
+            page_loading: false,
             saving_rev: None,
             save_again: false,
             waiters: vec![],
             quit_waiters: vec![],
+            retrying: false,
             recordings_out: 0,
             saves_landed: 0,
             refresh_asked: 0,
@@ -391,6 +407,7 @@ impl NotePane {
     /// nothing was refused.
     pub fn editable(&self) -> bool {
         self.load == Load::Ready
+            && !self.page_loading
             && self.refused.is_none()
             && self.detail.as_ref().is_some_and(|d| d.summary.can_edit)
             && self.ai != Some(AiAction::Enhance)
@@ -439,6 +456,16 @@ impl NotePane {
         accounts.active().map(|a| &a.id) == Some(opened)
     }
 
+    /// The account the note was opened under is the active one (true when
+    /// it opened with none known), even while an account change is in
+    /// flight: the pane's own account may take it back.
+    pub fn opened_under_active(&self, cx: &App) -> bool {
+        let Some(opened) = &self.opened_under else {
+            return true;
+        };
+        self.stores.accounts.read(cx).active().map(|a| &a.id) == Some(opened)
+    }
+
     pub fn has_refused_draft(&self) -> bool {
         self.refused.is_some()
     }
@@ -457,6 +484,12 @@ impl NotePane {
 
     /// Reads page `page` (the main page when None) and shows it.
     fn open_page(&mut self, page: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        // The page shown takes no typing until the next one is in: its words
+        // would be replaced by it.
+        if self.load == Load::Ready {
+            self.editor.update(cx, |e, cx| e.set_read_only(true, cx));
+            self.page_loading = true;
+        }
         self.page_asked += 1;
         let asked = self.page_asked;
         let call = self.rpc.call::<methods::NotesGet>(&NoteOpen {
@@ -468,14 +501,18 @@ impl NotePane {
             let _ = this.update_in(cx, |this, window, cx| match result {
                 // A later page was asked for: this answer is old.
                 _ if this.page_asked != asked => {}
-                Ok(found) => match found.note {
-                    Some(detail) => this.show_detail(detail, true, window, cx),
-                    None => {
-                        this.load = Load::Missing;
-                        cx.notify();
+                Ok(found) => {
+                    this.page_loading = false;
+                    match found.note {
+                        Some(detail) => this.show_detail(detail, true, window, cx),
+                        None => {
+                            this.load = Load::Missing;
+                            cx.notify();
+                        }
                     }
-                },
+                }
                 Err(e) => {
+                    this.page_loading = false;
                     log::warn!("notes.get: {e}");
                     this.load = Load::Failed(e.to_string());
                     cx.notify();
@@ -531,6 +568,7 @@ impl NotePane {
     /// when nothing here is waiting to be saved; the recordings always.
     fn changed_elsewhere(&mut self, cx: &mut Context<Self>) {
         if self.load != Load::Ready
+            || self.page_loading
             || self.saving_rev.is_some()
             || self.dirty(cx)
             || self.refused.is_some()
@@ -565,6 +603,7 @@ impl NotePane {
             let result = call.await;
             let _ = this.update(cx, |this, cx| {
                 if this.page_asked != asked
+                    || this.page_loading
                     || this.saves_landed != landed
                     || this.refresh_asked != refresh
                     || this.editor.read(cx).revision() != revision
@@ -696,6 +735,8 @@ impl NotePane {
     /// Saves now what differs from the server's copy.
     pub fn save_now(&mut self, cx: &mut Context<Self>) {
         self._debounce = None;
+        // This save is the retry any failed one waited for.
+        self.retrying = false;
         if self.hold {
             return;
         }
@@ -843,11 +884,24 @@ impl NotePane {
         }
     }
 
-    /// A failed save is tried again after a while (or on the next edit).
+    /// A failed save is tried again after a while (or on the next edit);
+    /// soon while Quit waits on it, within Quit's wait.
     fn retry_later(&mut self, cx: &mut Context<Self>) {
+        let delay = if self.quit_waiters.is_empty() {
+            RETRY_DELAY
+        } else {
+            QUIT_RETRY_DELAY
+        };
+        self.retry_after(delay, cx);
+    }
+
+    /// [`Self::retry_later`], after `delay`. Quit waits for the retry (its
+    /// text is not saved yet).
+    fn retry_after(&mut self, delay: Duration, cx: &mut Context<Self>) {
+        self.retrying = true;
         self._debounce = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                cx.background_executor().timer(RETRY_DELAY).await;
+                cx.background_executor().timer(delay).await;
                 let _ = this.update(cx, |this, cx| {
                     this._debounce = None;
                     this.save_now(cx);
@@ -864,7 +918,9 @@ impl NotePane {
         for waiter in self.waiters.drain(..) {
             let _ = waiter.send(());
         }
-        if !self.audio_pending() {
+        // A failed save still to be tried again keeps Quit waiting too
+        // (within its wait).
+        if !self.audio_pending() && !self.retrying {
             for waiter in self.quit_waiters.drain(..) {
                 let _ = waiter.send(());
             }
@@ -929,6 +985,13 @@ impl NotePane {
 
     /// The note is left (another note or area shown): dictation and a
     /// recording end, and what is unsaved is saved.
+    /// Shown again after it was left (its save still out): no longer
+    /// leaving.
+    pub fn shown_again(&mut self, cx: &mut Context<Self>) {
+        self.leaving = false;
+        cx.notify();
+    }
+
     pub fn leave(&mut self, cx: &mut Context<Self>) {
         self.leaving = true;
         if self.dictation.read(cx).is_active() {
@@ -944,6 +1007,7 @@ impl NotePane {
     /// it (it is not kept as a new note, as a note deleted elsewhere is).
     pub fn forget_edits(&mut self, cx: &mut Context<Self>) {
         self._debounce = None;
+        self.retrying = false;
         self.hold = true;
         self.refused = None;
         self.saved_ops = self.editor.read(cx).ops();
@@ -1106,7 +1170,7 @@ impl NotePane {
                 this.ai = None;
                 let can_edit = this.detail.as_ref().is_some_and(|d| d.summary.can_edit);
                 this.editor.update(cx, |e, cx| {
-                    e.set_read_only(!can_edit || this.refused.is_some(), cx)
+                    e.set_read_only(!can_edit || this.refused.is_some() || this.page_loading, cx)
                 });
                 let l = this.l(cx);
                 match result {
@@ -1558,7 +1622,10 @@ impl NotePane {
     fn transcribe(&mut self, file: FileRef, link: FileLink, cx: &mut Context<Self>) {
         let http = self.stores.connection.read(cx).http().cloned();
         let staged = stage_file(file, &link.name, cx);
-        let block = self.editor.read(cx).card_block(&link.id);
+        let asked = Transcription {
+            block: self.editor.read(cx).card_block(&link.id),
+            page: self.page_asked,
+        };
         self.ai = None;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result: Result<String, String> = async {
@@ -1581,22 +1648,33 @@ impl NotePane {
                     .to_string())
             }
             .await;
-            let _ = this.update(cx, |this, cx| {
-                let l = this.l(cx);
-                match result {
-                    Ok(text) if !text.trim().is_empty() => {
-                        this.editor
-                            .update(cx, |e, cx| e.insert_after_block(block, &text, cx));
-                    }
-                    Ok(_) => this.toast(NoticeLevel::Info, l.desktop_nothing_heard(), cx),
-                    Err(e) => {
-                        log::warn!("transcribing a note's recording: {e}");
-                        this.toast(NoticeLevel::Error, l.desktop_transcription_failed(), cx);
-                    }
-                }
-            });
+            let _ = this.update(cx, |this, cx| this.transcribed(asked, result, cx));
         })
         .detach();
+    }
+
+    /// A recording's transcript is in: after the card it was asked from.
+    fn transcribed(
+        &mut self,
+        asked: Transcription,
+        result: Result<String, String>,
+        cx: &mut Context<Self>,
+    ) {
+        let l = self.l(cx);
+        match result {
+            // Another page is shown (or asked for) now: the words were said
+            // on the one left, and are not put into this one.
+            Ok(_) if asked.page != self.page_asked => {}
+            Ok(text) if !text.trim().is_empty() => {
+                self.editor
+                    .update(cx, |e, cx| e.insert_after_block(asked.block, &text, cx));
+            }
+            Ok(_) => self.toast(NoticeLevel::Info, l.desktop_nothing_heard(), cx),
+            Err(e) => {
+                log::warn!("transcribing a note's recording: {e}");
+                self.toast(NoticeLevel::Error, l.desktop_transcription_failed(), cx);
+            }
+        }
     }
 
     fn confirm_remove(&mut self, link: FileLink, window: &mut Window, cx: &mut Context<Self>) {
@@ -3155,6 +3233,270 @@ mod tests {
         pub fn text(pane: &Entity<NotePane>, vcx: &mut VisualTestContext) -> String {
             pane.read_with(vcx, |p, cx| p.editor.read(cx).doc.plain_text())
         }
+    }
+
+    /// New Note answered after another account signed in: the note made
+    /// under the first account opens in nobody's window.
+    #[gpui_kit::test]
+    fn a_new_note_answered_after_a_switch_opens_nothing(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::accounts::tests::{account, list};
+        use crate::stores::navigation::{AreaItem, Selection};
+        let (daemon, stores, _area, vcx) = bench::open(cx);
+        daemon.on::<methods::NotesSave>(|_| {
+            Ok(serde_json::to_value(bench::detail("made-under-a", "main", "")).unwrap())
+        });
+        let late = daemon.hold::<methods::NotesSave>();
+        vcx.update(|_, cx| super::super::new_note(&stores, cx));
+        vcx.run_until_parked();
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blair", true, true),
+                ]),
+                cx,
+            )
+        });
+        drop(late);
+        vcx.run_until_parked();
+        assert_ne!(
+            stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone()),
+            Selection::Area(AreaItem::Note("made-under-a".into())),
+            "the last account's new note opened under the next"
+        );
+    }
+
+    /// A note opened again while its save is still out shows the pane that
+    /// is saving it, not a fresh one reading the stored text from before
+    /// that save (whose own later save would write over it).
+    #[gpui_kit::test]
+    fn a_note_reopened_while_saving_shows_the_pane_saving_it(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::navigation::AreaItem;
+        let (daemon, stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        daemon.on::<methods::NotesSave>(|p| {
+            let page = p["pageId"].as_str().unwrap_or("main").to_string();
+            Ok(serde_json::to_value(bench::detail("n1", &page, "kept")).unwrap())
+        });
+        let held = daemon.hold::<methods::NotesSave>();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::AllNotes, cx));
+        vcx.run_until_parked();
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n1".into()), cx));
+        vcx.run_until_parked();
+        let shown = bench::pane(&area, vcx);
+        assert_eq!(
+            shown.entity_id(),
+            pane.entity_id(),
+            "a second pane opened over the save still out"
+        );
+        assert!(bench::text(&shown, vcx).contains("Cairn"));
+        drop(held);
+        vcx.run_until_parked();
+    }
+
+    /// A note left under one account while its save is out, then opened
+    /// under the next account (a note shared with both): a fresh pane, with
+    /// none of the last account's words; the last account gets its own pane
+    /// back once it is active again.
+    #[gpui_kit::test]
+    fn a_note_reopened_under_another_account_gets_its_own_pane(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::accounts::tests::{account, list};
+        use crate::stores::navigation::AreaItem;
+        let (daemon, stores, area, vcx) = bench::open(cx);
+        let accounts = |active: &str| {
+            list(vec![
+                account("a", "Avery", active == "a", true),
+                account("b", "Blair", active == "b", true),
+            ])
+        };
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("a"), cx));
+        let pane = bench::pane(&area, vcx);
+        daemon.on::<methods::NotesSave>(|p| {
+            let page = p["pageId"].as_str().unwrap_or("main").to_string();
+            Ok(serde_json::to_value(bench::detail("n1", &page, "kept")).unwrap())
+        });
+        let held = daemon.hold::<methods::NotesSave>();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::AllNotes, cx));
+        vcx.run_until_parked();
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("b"), cx));
+        vcx.run_until_parked();
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n1".into()), cx));
+        vcx.run_until_parked();
+        let shown = bench::pane(&area, vcx);
+        assert_ne!(
+            shown.entity_id(),
+            pane.entity_id(),
+            "the last account's pane was shown under the next account"
+        );
+        assert!(
+            !bench::text(&shown, vcx).contains("Cairn"),
+            "the last account's unsaved words showed under the next account"
+        );
+        drop(held);
+        vcx.run_until_parked();
+    }
+
+    /// A note change heard while the next page is read does not make the
+    /// page being left take typing again (its words would be replaced when
+    /// the next page shows).
+    #[gpui_kit::test]
+    fn a_change_heard_while_a_page_opens_takes_no_typing(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        let held = daemon.hold_one::<methods::NotesGet>(0);
+        pane.update_in(vcx, |p, window, cx| p.show_page("p2".into(), window, cx));
+        vcx.run_until_parked();
+        pane.update(vcx, |p, cx| p.changed_elsewhere(cx));
+        vcx.run_until_parked();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        assert!(
+            !bench::text(&pane, vcx).contains("Cairn"),
+            "a refresh made the page being left take typing"
+        );
+        held.release();
+        vcx.run_until_parked();
+        assert_eq!(bench::text(&pane, vcx), "Second page");
+    }
+
+    /// Quit after a save conduitd refused for another account, its account
+    /// active again by the answer: the save is tried again within Quit's
+    /// wait, not after the usual pause Quit would not wait out.
+    #[gpui_kit::test]
+    fn quit_waits_for_an_account_refusals_retry(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        let mut refused = conduit_daemon::protocol::error("auth.sessionExpired", "another account");
+        refused.args.insert("reason".into(), "account".into());
+        daemon.once::<methods::NotesSave>(Err(refused));
+        daemon.on::<methods::NotesSave>(|p| {
+            let page = p["pageId"].as_str().unwrap_or("main").to_string();
+            Ok(serde_json::to_value(bench::detail("n1", &page, "kept")).unwrap())
+        });
+        let quits = Rc::new(std::cell::Cell::new(0));
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        let q = quits.clone();
+        vcx.update(|_, cx| {
+            crate::views::sheet::quit_with(cx, Rc::new(move |_| q.set(q.get() + 1)))
+        });
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::NotesSave>().len(), 1);
+        assert_eq!(quits.get(), 0);
+        vcx.executor().advance_clock(QUIT_RETRY_DELAY);
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::NotesSave>().len(),
+            2,
+            "the refused save waited longer than Quit does"
+        );
+        assert_eq!(quits.get(), 1);
+    }
+
+    /// Typing while another page is read goes nowhere: the page being left
+    /// takes no words until the next one shows, so nothing typed is
+    /// replaced by it.
+    #[gpui_kit::test]
+    fn typing_waits_for_the_page_being_opened(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        let held = daemon.hold_one::<methods::NotesGet>(0);
+        pane.update_in(vcx, |p, window, cx| p.show_page("p2".into(), window, cx));
+        vcx.run_until_parked();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        assert!(
+            !bench::text(&pane, vcx).contains("Cairn"),
+            "typing went into the page being left, to be replaced by the next"
+        );
+        held.release();
+        vcx.run_until_parked();
+        assert_eq!(bench::text(&pane, vcx), "Second page");
+        assert!(
+            !pane.read_with(vcx, |p, cx| p.editor.read(cx).is_read_only()),
+            "the page shown takes no typing"
+        );
+    }
+
+    /// Quit after a failed save waits for the save tried again, within
+    /// Quit's wait: the note's text is not left unsaved.
+    #[gpui_kit::test]
+    fn quit_waits_for_a_failed_saves_retry(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        daemon.once::<methods::NotesSave>(Err(conduit_daemon::protocol::error(
+            "rpc.daemonUnavailable",
+            "away",
+        )));
+        daemon.on::<methods::NotesSave>(|p| {
+            let page = p["pageId"].as_str().unwrap_or("main").to_string();
+            Ok(serde_json::to_value(bench::detail("n1", &page, "kept")).unwrap())
+        });
+        let quits = Rc::new(std::cell::Cell::new(0));
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        let q = quits.clone();
+        vcx.update(|_, cx| {
+            crate::views::sheet::quit_with(cx, Rc::new(move |_| q.set(q.get() + 1)))
+        });
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::NotesSave>().len(), 1);
+        assert_eq!(
+            quits.get(),
+            0,
+            "the app quit after a failed save, the note's text unsaved"
+        );
+        vcx.executor().advance_clock(QUIT_RETRY_DELAY);
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::NotesSave>().len(), 2);
+        assert_eq!(quits.get(), 1);
+    }
+
+    /// A transcript that comes in after the page changed is not put into
+    /// the page shown then.
+    #[gpui_kit::test]
+    fn a_transcript_after_a_page_change_goes_nowhere(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        let asked = pane.read_with(vcx, |p, _| Transcription {
+            block: None,
+            page: p.page_asked,
+        });
+        pane.update_in(vcx, |p, window, cx| p.show_page("p2".into(), window, cx));
+        vcx.run_until_parked();
+        assert_eq!(bench::text(&pane, vcx), "Second page");
+        pane.update(vcx, |p, cx| {
+            p.transcribed(asked, Ok("Heard by the river".into()), cx)
+        });
+        assert_eq!(
+            bench::text(&pane, vcx),
+            "Second page",
+            "the first page's transcript went into the second"
+        );
     }
 
     /// A note left while its save fails is kept, and saved again, until

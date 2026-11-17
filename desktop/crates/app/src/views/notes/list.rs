@@ -106,7 +106,13 @@ pub fn rows(notes: &[NoteSummary], closed: &HashSet<Group>, searching: bool) -> 
             Group::Section(section),
             notes
                 .iter()
-                .filter(|n| !n.pinned && n.section == section)
+                // One from a newer conduitd's unknown group goes with the
+                // oldest.
+                .filter(|n| {
+                    !n.pinned
+                        && (n.section == section
+                            || section == NoteSection::Older && n.section == NoteSection::Unknown)
+                })
                 .collect(),
         );
     }
@@ -811,6 +817,24 @@ mod tests {
             "section": section,
         }))
         .unwrap()
+    }
+
+    /// A note in a time group this build does not know (from a newer
+    /// conduitd) is listed under Older, not left out.
+    #[test]
+    fn a_note_in_an_unknown_time_group_is_listed_as_older() {
+        let notes = vec![
+            note("o", NoteSection::Older, false),
+            note("u", NoteSection::Unknown, false),
+        ];
+        let ids: Vec<String> = rows(&notes, &HashSet::new(), false)
+            .iter()
+            .filter_map(|r| match r {
+                Row::Note(n) => Some(n.id.clone()),
+                Row::Heading { .. } => None,
+            })
+            .collect();
+        assert_eq!(ids, ["o", "u"], "the note in an unknown group was left out");
     }
 
     #[test]

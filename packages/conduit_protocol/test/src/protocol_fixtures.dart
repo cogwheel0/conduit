@@ -222,6 +222,11 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   'accountRef': const AccountRef(
     accountId: '7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d',
   ),
+  'accountRefAskedOver': const AccountRef(
+    accountId: '7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d',
+    force: true,
+    askedOver: '3e9d2c1b-0a8f-4e7d-9c6b-5a4f3e2d1c0b',
+  ),
   'accountSignOut': const AccountSignOut(force: true),
   'accountChangeResult': const AccountChangeResult(
     outcome: AccountChangeOutcome.blockedByActiveReply,
@@ -1576,10 +1581,12 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     startUrl: 'https://chat.example.org/oauth/openid',
     cookieUrl: 'https://chat.example.org/',
     serverOrigins: <String>['https://chat.example.org'],
+    startId: 'sso-start-1',
   ),
   'libreChatSsoCompletion': const LibreChatSsoCompletion(
     url: 'https://chat.example.org',
     cookies: <String, String>{'refreshToken': 'r1', 'token_provider': 'openid'},
+    startId: 'sso-start-1',
   ),
   'libreChatSignInResult': const LibreChatSignInResult(
     outcome: LibreChatSignInOutcome.twoFactorRequired,
@@ -3839,6 +3846,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'accountList': AccountList.fromJson,
       'addAccount': AddAccount.fromJson,
       'accountRef': AccountRef.fromJson,
+      'accountRefAskedOver': AccountRef.fromJson,
       'accountSignOut': AccountSignOut.fromJson,
       'accountChangeResult': AccountChangeResult.fromJson,
       'accountsChanged': AccountsChanged.fromJson,

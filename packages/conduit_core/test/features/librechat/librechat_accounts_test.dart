@@ -10,6 +10,7 @@ import 'package:conduit_core/features/librechat/models/librechat_session.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/features/librechat/services/librechat_auth_service.dart';
 import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
+import 'package:conduit_core/providers/account_change_superseded.dart';
 import 'package:conduit_core/features/librechat/services/librechat_registry_store.dart';
 import 'package:conduit_core/features/librechat/services/librechat_session_store.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
@@ -710,6 +711,43 @@ void main() {
       await registry.blockForAppDataClear();
       await container.read(libreChatRegistryStoreProvider).deleteAll();
       registry.finishAppDataClear();
+      release.complete();
+      await signingOut;
+
+      await refused;
+      check(await SecureLibreChatSessionStore(held, account.id).read())
+          .isNull();
+      check(
+        (await container.read(libreChatRegistryStoreProvider).read()).accounts,
+      ).isEmpty();
+    });
+
+    test('a sign-in step superseded while it waits to be saved saves '
+        'nothing', () async {
+      final held = _HeldSessionDeletes();
+      secure = held;
+      final container = newContainer();
+      final accounts = container.read(libreChatAccountsProvider);
+      final account = await accounts.saveSignedIn(
+        server: server,
+        session: await signIn(),
+      );
+      final release = held.hold = Completer<void>();
+      final signingOut = accounts.signOut(account.id);
+      await held.deleting.future;
+      var current = true;
+      final signingIn = accounts.saveSignedIn(
+        server: server,
+        session: await signIn(),
+        activate: false,
+        stillCurrent: () => current,
+      );
+      final refused = check(signingIn).throws<AccountChangeSuperseded>();
+      await pumpEventQueue();
+
+      // A newer sign-in step begins while this one waits for the sign-out.
+      current = false;
+      held.hold = null;
       release.complete();
       await signingOut;
 

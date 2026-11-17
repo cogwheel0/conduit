@@ -175,8 +175,10 @@ pub struct SessionStore {
     accounts: Entity<AccountsStore>,
     pub auth: Option<AuthSnapshot>,
     pub server: Option<ServerStatus>,
-    /// The active account `auth` and `server` were asked for (`None`: no
-    /// account). Another account's are dropped, never routed on.
+    /// The account in charge `auth` and `server` were asked for (its
+    /// [`AccountsStore::scope_key`]; `None`: no account). Another account's
+    /// are dropped, never routed on: one LibreChat account after another
+    /// changes no Open WebUI id.
     facts_for: Option<String>,
     pub direct: Option<DirectConnectionList>,
     pub hermes: Option<HermesSettings>,
@@ -242,9 +244,9 @@ impl SessionStore {
         let subscription = cx.observe(&accounts, |this, accounts, cx| {
             let list = accounts.read(cx).list.as_ref();
             let sig = list.map(signature);
-            if let Some(list) = list {
-                let active = list.active_account_id.clone();
-                this.forget_other_account(active);
+            if list.is_some() {
+                let in_charge = accounts.read(cx).scope_key();
+                this.forget_other_account(in_charge);
             }
             if sig.is_some() && sig != this.seen_accounts {
                 this.seen_accounts = sig;
@@ -363,8 +365,8 @@ impl SessionStore {
     }
 
     /// Drops the auth snapshot and server status when they were asked for
-    /// another account than `active`: the route waits for the new account's
-    /// own answers rather than pairing it with the last one's.
+    /// another account in charge than `active`: the route waits for the new
+    /// account's own answers rather than pairing it with the last one's.
     fn forget_other_account(&mut self, active: Option<String>) {
         if self.handshake_for.is_none() {
             self.handshake_for = Some(active.clone());
@@ -496,7 +498,6 @@ impl SessionStore {
     /// own fetch may have failed while the core started). Account-scoped
     /// reads start only once the store shows this list.
     fn accounts_listed(&mut self, list: AccountList, cx: &mut Context<Self>) {
-        let active = list.active_account_id.clone();
         let seen = self.seen_accounts.replace(signature(&list));
         if !self.accounts.update(cx, |a, cx| a.adopt(list, cx)) {
             // A change of the accounts store is in flight: the list it shows
@@ -505,7 +506,8 @@ impl SessionStore {
             self.keep_resolving(None, cx);
             return;
         }
-        self.forget_other_account(active);
+        let in_charge = self.accounts.read(cx).scope_key();
+        self.forget_other_account(in_charge);
         let auth = self.rpc.call::<methods::AuthStatus>(&NoParams);
         // Asked again now that the core is up: its own answer.
         let rpc = self.rpc.clone();
@@ -1368,6 +1370,37 @@ mod tests {
                 });
             }
         }
+    }
+
+    /// Another LibreChat account in charge, with Open WebUI's account as it
+    /// was: the last account's capabilities are not kept for it.
+    #[gpui_kit::test]
+    fn another_librechat_account_drops_the_last_ones_facts(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let store = session(cx, &daemon);
+        let accounts = store.read_with(cx, |s, _| s.accounts().clone());
+        let in_charge = |id: &str| {
+            let mut l = list(vec![account("a", "Avery", true, true)]);
+            l.primary = PrimaryAccount::LibreChat;
+            l.active_libre_chat_account_id = Some(id.into());
+            l
+        };
+        accounts.update(cx, |a, cx| a.adopt(in_charge("lc-avery"), cx));
+        cx.run_until_parked();
+        store.update(cx, |s, _| {
+            s.system_capabilities = Some(Capabilities {
+                notes: true,
+                ..Default::default()
+            })
+        });
+        accounts.update(cx, |a, cx| a.adopt(in_charge("lc-blake"), cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(
+                s.system_capabilities.is_none(),
+                "the last LibreChat account's capabilities stayed"
+            )
+        });
     }
 
     #[gpui_kit::test]

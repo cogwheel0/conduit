@@ -268,8 +268,9 @@ void main() {
     expect(blocked.outcome, AccountChangeOutcome.blockedByActiveReply);
     expect(blocked.accounts.activeAccountId, adaAccount);
 
+    // Switch Anyway names the account it was asked over.
     final forced = await accounts.switchTo(
-      AccountRef(accountId: bobAccount, force: true),
+      AccountRef(accountId: bobAccount, force: true, askedOver: adaAccount),
     );
     expect(forced.outcome, AccountChangeOutcome.done);
     expect(forced.accounts.activeAccountId, bobAccount);

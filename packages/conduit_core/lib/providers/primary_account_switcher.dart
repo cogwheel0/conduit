@@ -2,6 +2,7 @@ import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/providers/account_change_superseded.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -129,10 +130,29 @@ final class PrimaryAccountSwitcher {
   });
 
   /// Makes LibreChat account [accountId] the primary account.
+  ///
+  /// [stillFrom] is asked at the switch's turn, once the switches before it
+  /// are done and before anything changes: whether the account it was asked
+  /// over is still the one in charge. A sign-in step also passes
+  /// [stillCurrent], asked then and after every wait of the switch: the
+  /// intent, the park, putting the account in charge, and last after the
+  /// backend preference is written. Answering false at any of them undoes
+  /// what the switch changed so far (the preference, the active LibreChat
+  /// account, Open WebUI's park) and the switch throws
+  /// [AccountChangeSuperseded].
   Future<PrimarySwitchResult> useLibreChat(
     String accountId, {
     bool force = false,
-  }) => _afterLastSwitch(() => _useLibreChat(accountId, force: force));
+    bool Function()? stillFrom,
+    bool Function()? stillCurrent,
+  }) => _afterLastSwitch(
+    () => _useLibreChat(
+      accountId,
+      force: force,
+      stillFrom: stillFrom,
+      stillCurrent: stillCurrent,
+    ),
+  );
 
   /// [stillWanted], from a recovery, is asked just before the switch puts
   /// the backend in charge: one the user chose meanwhile stands.
@@ -140,60 +160,123 @@ final class PrimaryAccountSwitcher {
     String accountId, {
     required bool force,
     bool Function()? stillWanted,
+    bool Function()? stillFrom,
+    bool Function()? stillCurrent,
   }) async {
+    bool current() => stillCurrent?.call() ?? true;
     final registry = await _ref.read(libreChatRegistryProvider.future);
     if (registry.byId(accountId) == null) {
       return PrimarySwitchResult.unknownAccount;
     }
     final from = _ref.read(primaryAccountProvider);
+    if (!(stillFrom?.call() ?? true) || !current()) {
+      throw const AccountChangeSuperseded();
+    }
     final to = PrimaryAccountRef(PrimaryAccountKind.libreChat, accountId);
     if (from == to) return PrimarySwitchResult.done;
     if (!force && _ref.read(accountChangeReplyGuardProvider)()) {
       return PrimarySwitchResult.blockedByActiveReply;
     }
+    // What each step changed, captured exactly before anything is written,
+    // for a step superseded after it: everything goes back to the value it
+    // had (the saved backend choice as stored, Direct, Hermes or none
+    // included; the active LibreChat account; the Open WebUI account it
+    // parked), in reverse, and nothing of the switch stays.
+    final previousBackend = PreferencesStore.getString(
+      PreferenceKeys.preferredBackend,
+    );
+    final previousActive = registry.activeId;
+    String? parkedId;
+    var activated = false;
+    var preferred = false;
+    Future<Never> superseded() async {
+      if (preferred) await _restoreBackend(previousBackend);
+      if (activated) {
+        await _ref
+            .read(libreChatRegistryProvider.notifier)
+            .setActive(previousActive);
+      }
+      if (parkedId case final id?) {
+        await _ref
+            .read(openWebUiAccountsControllerProvider)
+            .switchTo(id, force: true);
+      }
+      await PrimarySwitchIntent.clear();
+      throw const AccountChangeSuperseded();
+    }
+
     _ref.read(accountChangeStopRepliesProvider)();
     await PrimarySwitchIntent(from: from, to: to).write();
+    if (!current()) await superseded();
     if (from.kind == PrimaryAccountKind.openWebUi) {
-      await _parkOpenWebUi();
+      parkedId = await _parkOpenWebUi();
+      if (!current()) await superseded();
     }
     await _ref.read(libreChatRegistryProvider.notifier).setActive(accountId);
+    activated = true;
+    if (!current()) await superseded();
     final registryNow = await _ref.read(libreChatRegistryProvider.future);
     if (registryNow.activeId != accountId) {
       // Signed out of while Open WebUI was parked for it: there is nothing
       // to put in charge. The account that was takes the tab back, Open
       // WebUI out of its park as a start-up recovery would take it.
-      if (from.kind == PrimaryAccountKind.openWebUi && from.id != null) {
-        await _ref
-            .read(openWebUiAccountsControllerProvider)
-            .switchTo(from.id!, force: true);
-      }
+      await _takeOpenWebUiBack(from);
       await PrimarySwitchIntent.clear();
       return PrimarySwitchResult.unknownAccount;
     }
+    if (!current()) await superseded();
     if (stillWanted != null && !stillWanted()) {
       await PrimarySwitchIntent.clear();
       return PrimarySwitchResult.done;
     }
+    // The last write: a step superseded while it is made takes it back too.
     await _preferBackend(PreferredBackend.libreChat);
+    preferred = true;
+    if (!current()) await superseded();
     await PrimarySwitchIntent.clear();
     return PrimarySwitchResult.done;
   }
 
+  /// Takes Open WebUI out of the park a switch from [from] put it in, as a
+  /// start-up recovery would.
+  Future<void> _takeOpenWebUiBack(PrimaryAccountRef from) async {
+    if (from.kind == PrimaryAccountKind.openWebUi && from.id != null) {
+      await _ref
+          .read(openWebUiAccountsControllerProvider)
+          .switchTo(from.id!, force: true);
+    }
+  }
+
   /// Makes Open WebUI account [accountId] the primary account, un-parking
   /// Open WebUI. Its saved session is taken up when it still has one.
+  ///
+  /// [stillFrom], as for [useLibreChat]: asked at the switch's turn, and
+  /// after the saved accounts are read, before anything changes.
   Future<PrimarySwitchResult> useOpenWebUi(
     String accountId, {
     bool force = false,
-  }) => _afterLastSwitch(() => _useOpenWebUi(accountId, force: force));
+    bool Function()? stillFrom,
+  }) => _afterLastSwitch(
+    () => _useOpenWebUi(accountId, force: force, stillFrom: stillFrom),
+  );
 
   Future<PrimarySwitchResult> _useOpenWebUi(
     String accountId, {
     required bool force,
     bool Function()? stillWanted,
+    bool Function()? stillFrom,
   }) async {
+    void requireFrom() {
+      if (!(stillFrom?.call() ?? true)) {
+        throw const AccountChangeSuperseded();
+      }
+    }
+
+    requireFrom();
     final saved = await _ref
         .read(optimizedStorageServiceProvider)
         .getServerConfigsStrict();
+    requireFrom();
     if (!saved.any((account) => account.id == accountId)) {
       return PrimarySwitchResult.unknownAccount;
     }
@@ -202,7 +285,7 @@ final class PrimaryAccountSwitcher {
     if (from.kind == PrimaryAccountKind.openWebUi) {
       final result = await _ref
           .read(openWebUiAccountsControllerProvider)
-          .switchTo(accountId, force: force);
+          .switchTo(accountId, force: force, stillFrom: stillFrom);
       return result == OpenWebUiAccountChangeResult.blockedByActiveReply
           ? PrimarySwitchResult.blockedByActiveReply
           : PrimarySwitchResult.done;
@@ -326,13 +409,23 @@ final class PrimaryAccountSwitcher {
     await _ref.read(preferredBackendProvider.notifier).set(backend);
   }
 
-  Future<void> _parkOpenWebUi() async {
+  /// The saved backend choice put back exactly as [raw] was stored (none at
+  /// all when it was absent).
+  Future<void> _restoreBackend(String? raw) async {
+    await PreferencesStore.putChecked(PreferenceKeys.preferredBackend, raw);
+    _ref.invalidate(preferredBackendProvider);
+  }
+
+  /// Parks the active Open WebUI account; returns its id, or null when this
+  /// park put nothing away (no account active, or one already parked).
+  Future<String?> _parkOpenWebUi() async {
     final storage = _ref.read(optimizedStorageServiceProvider);
     // Parked, no account reads as active, unless a park was cut short after
     // the flag was set, leaving the stored id naming one.
     final active = await storage.getEffectiveActiveServerId();
-    if (active == null) return;
-    if (storage.isOpenWebUiParked) {
+    if (active == null) return null;
+    final wasParked = storage.isOpenWebUiParked;
+    if (wasParked) {
       // That park had already filed the session away. Take it up first, so
       // parking again files it rather than the empty live slots over it.
       await storage.switchActiveServer(
@@ -341,6 +434,7 @@ final class PrimaryAccountSwitcher {
       );
     }
     await _ref.read(authStateManagerProvider.notifier).parkActiveAccount();
+    return wasParked ? null : active;
   }
 }
 

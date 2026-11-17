@@ -11,13 +11,13 @@ import 'package:test/test.dart';
 
 /// What a LibreChat run paused on, put to a window and answered.
 void main() {
-  late EventBus events;
+  late _Bus events;
   late UiRequestsService windows;
   late List<UiRequest> asked;
   late StreamController<UiRequest> cards;
 
   setUp(() {
-    events = EventBus();
+    events = _Bus();
     windows = UiRequestsService(events);
     asked = <UiRequest>[];
     cards = StreamController<UiRequest>.broadcast();
@@ -163,6 +163,135 @@ void main() {
     expect(tries, 1);
   });
 
+  test('a failed resume with no window waits for one, and puts the card to it', () async {
+    var resumes = 0;
+    final sent = <Map<String, String>?>[];
+    final ended = Completer<void>();
+    addTearDown(() {
+      if (!ended.isCompleted) ended.complete();
+    });
+    var card = nextCard();
+    final outcome = answerLibreChatPause(
+      _question,
+      windows: windows,
+      chatId: 'chat-1',
+      asking: () => !ended.isCompleted,
+      until: ended.future,
+      resume: ({decisions, answers}) async {
+        sent.add(answers);
+        if (++resumes == 1) {
+          // The window goes away (a reconnect) as the send fails.
+          events.detach('w1');
+          throw StateError('the server could not be reached');
+        }
+      },
+      stop: () async => fail('nothing was to stop'),
+    );
+    final first = await card;
+    card = nextCard();
+    windows.respond(
+      UiResponse(requestId: first.requestId, choice: 'allow', text: 'Ridge'),
+    );
+    // The resume fails with nobody to ask: the pause waits for a window,
+    // still pending. The window comes back: the pause is put to it, rather
+    // than left with no card to answer.
+    await events.waiting;
+    expect(await _settledYet(outcome), isFalse, reason: 'the pause gave up');
+    events.attach('w2', (envelope) {
+      if (envelope.event != ConduitEvents.uiRequest) return;
+      cards.add(UiRequest.fromJson(envelope.payload));
+    });
+    final again = await Future.any<UiRequest?>([
+      card,
+      outcome.then((_) => null),
+    ]);
+    expect(again, isNotNull, reason: 'the pause was given up');
+    windows.respond(
+      UiResponse(requestId: again!.requestId, choice: 'allow', text: 'Lake'),
+    );
+    expect(await outcome, LibreChatPauseOutcome.resumed);
+    expect(sent, [
+      {'call-1': 'Ridge'},
+      {'call-1': 'Lake'},
+    ]);
+
+    // The turn ends while no window is there: the wait ends with it, and
+    // leaves nothing waiting for a window.
+    events
+      ..detach('w2')
+      ..rearm();
+    final over = Completer<void>();
+    var tries = 0;
+    final waiting = answerLibreChatPause(
+      _toolCall(const ['approve', 'reject']),
+      windows: windows,
+      chatId: 'chat-1',
+      asking: () => !over.isCompleted,
+      until: over.future,
+      resume: ({decisions, answers}) async {
+        tries++;
+        throw StateError('the server could not be reached');
+      },
+      stop: () async => fail('nothing was to stop'),
+    );
+    await events.waiting;
+    expect(tries, 1);
+    expect(await _settledYet(waiting), isFalse, reason: 'it did not wait');
+    over.complete();
+    expect(await waiting, LibreChatPauseOutcome.failed);
+    expect(tries, 1);
+    expect(events.attachWaiters, 0, reason: 'a wait was left behind');
+  });
+
+  test('a card no window answered after a failed resume refuses nothing', () async {
+    final sent = <Map<String, LibreChatToolDecisionInput>?>[];
+    final ended = Completer<void>();
+    addTearDown(() {
+      if (!ended.isCompleted) ended.complete();
+    });
+    var card = nextCard();
+    final outcome = answerLibreChatPause(
+      _toolCall(const ['approve', 'reject']),
+      windows: windows,
+      chatId: 'chat-1',
+      asking: () => !ended.isCompleted,
+      until: ended.future,
+      resume: ({decisions, answers}) async {
+        sent.add(decisions);
+        if (sent.length == 1) {
+          throw StateError('the server could not be reached');
+        }
+      },
+      stop: () async => fail('nothing was to stop'),
+    );
+    final first = await card;
+    card = nextCard();
+    windows.respond(UiResponse(requestId: first.requestId, choice: 'allow'));
+    // The send fails; the card is put back, and the window goes away (a
+    // reconnect) before answering it: it settles with its default.
+    await card;
+    events.rearm();
+    card = nextCard();
+    events.detach('w1');
+    windows.onWindowsChanged();
+    await Future.any<Object?>([events.waiting, outcome]);
+    expect(sent, hasLength(1), reason: 'a refusal went out nobody gave');
+    expect(await _settledYet(outcome), isFalse, reason: 'the pause gave up');
+
+    // A window comes back: the card is put to it, and its answer is sent.
+    events.attach('w2', (envelope) {
+      if (envelope.event != ConduitEvents.uiRequest) return;
+      cards.add(UiRequest.fromJson(envelope.payload));
+    });
+    final again = await card;
+    windows.respond(UiResponse(requestId: again.requestId, choice: 'allow'));
+    expect(await outcome, LibreChatPauseOutcome.resumed);
+    expect(sent.map((d) => d?['call-2']?.decision), [
+      LibreChatToolDecision.approve,
+      LibreChatToolDecision.approve,
+    ]);
+  });
+
   test('a tool call is refused only where the pause allows refusing', () async {
     // Approve only: the window says no, and no `reject` goes out; the
     // reply stops instead.
@@ -294,6 +423,34 @@ void main() {
     expect(checks, lessThan(5), reason: 'tried over and over with no card up');
     expect(sends, 1, reason: 'something went out for a card never shown');
   });
+}
+
+/// The event bus, telling the test when a pause starts waiting for a
+/// window to attach, and how many such waits are left.
+final class _Bus extends EventBus {
+  Completer<void> _waiting = Completer<void>();
+  int attachWaiters = 0;
+
+  /// Completes once a pause waits for a window (since the last [rearm]).
+  Future<void> get waiting => _waiting.future;
+
+  void rearm() => _waiting = Completer<void>();
+
+  @override
+  Future<bool> attachBefore(Future<void> until) {
+    attachWaiters++;
+    final wait = super.attachBefore(until);
+    if (!_waiting.isCompleted) _waiting.complete();
+    return wait.whenComplete(() => attachWaiters--);
+  }
+}
+
+/// Whether [future] has completed once everything already queued has run.
+Future<bool> _settledYet(Future<Object?> future) async {
+  var settled = false;
+  unawaited(future.then((_) => settled = true));
+  await pumpEventQueue();
+  return settled;
 }
 
 /// A value whose text cannot be read (any throw before a card is up).
