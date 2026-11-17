@@ -203,6 +203,9 @@ pub struct HermesConnectionSheet {
     /// and its turn: an answer for an older turn is dropped.
     profiles_asked: Option<String>,
     profiles_turn: u64,
+    /// Bumped by each profile picked by hand: a profile read asked before
+    /// a pick lists its profiles but leaves the pick alone.
+    profile_picks: u64,
     pub headers: Vec<HeaderRow>,
     /// For each header row, the saved header it shows (its value is kept
     /// while the row's value is left blank).
@@ -246,6 +249,7 @@ impl HermesConnectionSheet {
             profiles: Profiles::default(),
             profiles_asked: None,
             profiles_turn: 0,
+            profile_picks: 0,
             headers: vec![],
             header_saved: vec![],
             header_error: None,
@@ -553,6 +557,7 @@ impl HermesConnectionSheet {
     pub fn load_profiles(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.profiles_turn += 1;
         let turn = self.profiles_turn;
+        let picks = self.profile_picks;
         self.profiles_asked = Some(self.profiles_asker(cx));
         let Some(edit) = self.edit_with(false, cx) else {
             let url_ok = forms::normalize_url(&forms::text(&self.url, cx)).is_some();
@@ -582,7 +587,9 @@ impl HermesConnectionSheet {
                     }
                     s.profiles = match result {
                         Ok(r) => {
-                            if let Some(selected) = r.selected.filter(|p| *p != s.profile) {
+                            if s.profile_picks == picks
+                                && let Some(selected) = r.selected.filter(|p| *p != s.profile)
+                            {
                                 s.profile = selected;
                             }
                             Profiles {
@@ -620,6 +627,7 @@ impl HermesConnectionSheet {
             self.load_profiles(window, cx);
         } else {
             self.profile = value.to_string();
+            self.profile_picks += 1;
             self.note = None;
         }
         cx.notify();
@@ -2260,6 +2268,29 @@ mod tests {
             "the renamed header keeps its saved value"
         );
         assert_eq!(sent[2]["value"], json!("new-1"));
+    }
+
+    /// A profile picked while Refresh Profiles is out stays picked.
+    #[gpui_kit::test]
+    fn a_profile_picked_during_a_refresh_stays(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsProfiles>(
+            serde_json::from_value(json!({
+                "profiles": ["default", "research"],
+                "selected": "default",
+            }))
+            .unwrap(),
+        );
+        let held = daemon.hold::<methods::HermesConnectionsProfiles>();
+        let sheet = open_b(&stores, vcx, "nativePkce");
+        on_sheet(vcx, &sheet, |s, w, cx| s.choose_profile("research", w, cx));
+        drop(held);
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            let s = sheet.read(cx);
+            assert_eq!(s.profile, "research", "the refresh undid the pick");
+            assert_eq!(s.profiles.names, ["default", "research"]);
+        });
     }
 
     /// Typed words make Quit ask first.
