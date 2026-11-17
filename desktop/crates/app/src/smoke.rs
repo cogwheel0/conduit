@@ -239,7 +239,7 @@ pub(crate) async fn shoot(handle: AnyWindowHandle, out: PathBuf, cx: &mut AsyncA
     }
 }
 
-fn set_mode(mode: ThemeMode, cx: &mut App) {
+pub(crate) fn set_mode(mode: ThemeMode, cx: &mut App) {
     let settings = cx.global::<AppState>().settings.clone();
     settings.update(cx, |s, cx| s.set_appearance(|a| a.mode = mode, cx));
     for w in cx.windows() {

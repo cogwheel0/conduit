@@ -929,6 +929,15 @@ abstract final class ConduitMethods {
   /// did.
   static const String appleReport = 'apple.report';
 
+  static const String locationPrefix = 'location.';
+
+  // location.* -- the Mac's location services, for `{{USER_LOCATION}}`. The
+  // daemon decides when to ask (the core's location policy); the window
+  // asks CoreLocation.
+
+  /// The window answers a `location.command`.
+  static const String locationReport = 'location.report';
+
   // notes.* -- listed with the prefixes because they are few.
 
   /// Every note, or those matching a query; pinned first.
@@ -1472,6 +1481,10 @@ abstract final class ConduitMethods {
 
   /// The chats Shortcuts offers (Open Chat): by id, by search, or recent.
   static const String intentsChats = 'intents.chats';
+
+  /// What the server reads from a link (Send Link to Conduit): a web
+  /// page's text or a YouTube video's transcript, for a new chat.
+  static const String intentsSendLink = 'intents.sendLink';
   static const String settingsPrefix = 'settings.';
   static const String syncPrefix = 'sync.';
   static const String socketPrefix = 'socket.';
@@ -1544,6 +1557,7 @@ abstract final class ConduitMethods {
     calendarPrefix,
     automationsPrefix,
     applePrefix,
+    locationPrefix,
   };
 
   /// Whether [method] sits in a namespace this protocol version defines.

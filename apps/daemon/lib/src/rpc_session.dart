@@ -38,6 +38,7 @@ import 'hermes_cards_service.dart';
 import 'hermes_rooms_service.dart';
 import 'hermes_service.dart';
 import 'apple_models_service.dart';
+import 'location_bridge.dart';
 import 'calls_service.dart';
 import 'librechat_service.dart';
 import 'intents_service.dart';
@@ -103,6 +104,7 @@ final class CoreServices {
     this.speech,
     this.calls,
     this.apple,
+    this.location,
     this.handoff,
     this.calendar,
     this.automations,
@@ -164,6 +166,9 @@ final class CoreServices {
 
   /// `apple.*`: Apple's on-device model, run in the window.
   final AppleModelsService? apple;
+
+  /// `location.*`: the window's location services, for `{{USER_LOCATION}}`.
+  final WindowLocationBridge? location;
 
   /// A server's `chat:handoff`, put to the windows.
   final HandoffService? handoff;
@@ -263,6 +268,7 @@ class RpcSession {
   SpeechService? get _speech => _services().speech;
   CallsService? get _calls => _services().calls;
   AppleModelsService? get _apple => _services().apple;
+  WindowLocationBridge? get _location => _services().location;
   ReleaseNotesRpcService? get _releaseNotes => _services().releaseNotes;
   DataService? get _data => _services().data;
   ChatSettingsService? get _chatSettings => _services().chatSettings;
@@ -937,7 +943,8 @@ class RpcSession {
   }
 
   /// `intents.*`: Shortcuts' Ask Conduit and Open Chat (the Mac's App
-  /// Intents), over the turns and chats services.
+  /// Intents), over the turns and chats services; Send Link to Conduit's
+  /// page or transcript, over the composer's Web Page reader.
   void _registerIntents() {
     IntentsService intents() => IntentsService.over(
       turns: _requireTurns(),
@@ -946,6 +953,10 @@ class RpcSession {
     );
     _on(ConduitMethodSpecs.intentsAsk, (request) => intents().ask(request));
     _on(ConduitMethodSpecs.intentsChats, (query) => intents().chats(query));
+    _on(
+      ConduitMethodSpecs.intentsSendLink,
+      (link) => _requireComposer().sendLink(link.url),
+    );
   }
 
   void _registerModels() {
@@ -1444,6 +1455,12 @@ class RpcSession {
     _on(ConduitMethodSpecs.appleChoose, (_) => _need(_apple).choose());
     _on(ConduitMethodSpecs.appleReport, (p) async {
       _need(_apple).report(p, from: sessionId);
+      return const OkResult(ok: true);
+    });
+
+    // location.*: the window answers the daemon's location questions.
+    _on(ConduitMethodSpecs.locationReport, (p) async {
+      _need(_location).report(p);
       return const OkResult(ok: true);
     });
 

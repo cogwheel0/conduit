@@ -2050,6 +2050,16 @@
       "name": "intents.chats",
       "params": "IntentChatsQuery",
       "result": "IntentChats"
+    },
+    {
+      "name": "intents.sendLink",
+      "params": "IntentLink",
+      "result": "IntentLinkResult"
+    },
+    {
+      "name": "location.report",
+      "params": "LocationReport",
+      "result": "OkResult"
     }
   ],
   "events": [
@@ -2296,6 +2306,11 @@
     {
       "name": "apple.command",
       "payload": "AppleCommand",
+      "scoped": false
+    },
+    {
+      "name": "location.command",
+      "payload": "LocationCommand",
       "scoped": false
     }
   ]

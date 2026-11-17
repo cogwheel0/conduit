@@ -38,6 +38,7 @@ export 'src/hermes_rooms.dart';
 export 'src/hermes_work.dart';
 export 'src/intents.dart';
 export 'src/librechat.dart';
+export 'src/location.dart';
 export 'src/mcp.dart';
 export 'src/mcp_apps.dart';
 export 'src/memories.dart';

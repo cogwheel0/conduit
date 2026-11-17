@@ -1,5 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'composer.dart';
+
 part 'intents.freezed.dart';
 part 'intents.g.dart';
 
@@ -108,4 +110,41 @@ abstract class IntentChats with _$IntentChats {
 
   factory IntentChats.fromJson(Map<String, dynamic> json) =>
       _$IntentChatsFromJson(json);
+}
+
+/// Params for `intents.sendLink`: Shortcuts' Send Link to Conduit, a link
+/// put into a new chat for a summary or an analysis.
+@freezed
+abstract class IntentLink with _$IntentLink {
+  const factory IntentLink({required String url}) = _IntentLink;
+
+  factory IntentLink.fromJson(Map<String, dynamic> json) =>
+      _$IntentLinkFromJson(json);
+}
+
+/// Reply to `intents.sendLink`: what the server read from the link, as the
+/// composer's Web Page attaches it, or why it read nothing.
+///
+/// The app opens a new chat either way, as the phone does: with the page's
+/// text (or the video's transcript) attached when there is one.
+@freezed
+abstract class IntentLinkResult with _$IntentLinkResult {
+  const factory IntentLinkResult({
+    /// The link, trimmed.
+    required String url,
+
+    /// A YouTube video, whose transcript is read instead of the page.
+    @Default(false) bool youtube,
+
+    /// The page's text or the video's transcript, ready for the composer.
+    ContextAttachmentDto? attachment,
+
+    /// Null with an attachment; else `invalidUrl` (not an http or https
+    /// link), `noContent` (nothing readable, no transcript) or `failed` (no
+    /// Open WebUI account to read it, or the server refused).
+    String? error,
+  }) = _IntentLinkResult;
+
+  factory IntentLinkResult.fromJson(Map<String, dynamic> json) =>
+      _$IntentLinkResultFromJson(json);
 }

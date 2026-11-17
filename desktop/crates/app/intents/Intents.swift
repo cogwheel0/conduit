@@ -118,3 +118,84 @@ struct QuickAskIntent: AppIntent {
         return .result()
     }
 }
+
+/// Send to Conduit: a new chat with the text in the message box, never
+/// sent, as the phone's Send to Conduit does.
+struct SendTextIntent: AppIntent {
+    static let title: LocalizedStringResource = "Send to Conduit"
+    static let description = IntentDescription(
+        "Starts a new Conduit chat with the text you give it."
+    )
+    static let openAppWhenRun = true
+
+    @Parameter(
+        title: "Text",
+        requestValueDialog: IntentDialog("What should Conduit process?")
+    )
+    var text: String?
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Send \(\.$text) to Conduit")
+    }
+
+    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        let reply = try await ConduitApp.send(.sendText(text))
+        return .result(value: reply.value ?? "")
+    }
+}
+
+/// Send Link to Conduit: a new chat about a link, as the phone's: the
+/// server reads the page (or a YouTube video's transcript), which is
+/// attached as Web Page attaches it, with a request to summarize it in the
+/// message box, never sent.
+struct SendLinkIntent: AppIntent {
+    static let title: LocalizedStringResource = "Send Link to Conduit"
+    static let description = IntentDescription(
+        "Sends a link into Conduit for a summary or an analysis."
+    )
+    static let openAppWhenRun = true
+
+    @Parameter(
+        title: "URL",
+        requestValueDialog: IntentDialog("Which link should Conduit analyze?")
+    )
+    var url: URL
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Send \(\.$url) to Conduit")
+    }
+
+    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        let reply = try await ConduitApp.send(.sendLink(url.absoluteString))
+        return .result(value: reply.value ?? "")
+    }
+}
+
+/// Send Image to Conduit: a new chat with the image attached, never sent,
+/// as the phone's. Images only, up to 20 MB, as on the phone.
+struct SendImageIntent: AppIntent {
+    static let title: LocalizedStringResource = "Send Image to Conduit"
+    static let description = IntentDescription(
+        "Sends an image into Conduit for analysis."
+    )
+    static let openAppWhenRun = true
+
+    @Parameter(
+        title: "Image",
+        requestValueDialog: IntentDialog("Choose an image for Conduit.")
+    )
+    var image: IntentFile
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Send \(\.$image) to Conduit")
+    }
+
+    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        let staged = try ImageStaging.stage(image)
+        let reply = try await ConduitApp.send(
+            .sendImage(
+                path: staged.path, filename: staged.filename, isImage: staged.isImage,
+                byteCount: staged.byteCount))
+        return .result(value: reply.value ?? "")
+    }
+}

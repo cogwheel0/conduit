@@ -250,8 +250,8 @@ assemble() {
   # Services menu titles in every language (share/build.sh).
   share_build "$app" "$bundle_id" Conduit "$version" "$build"
   services_strings "$app"
-  # The privacy prompts (microphone, speech recognition, local network)
-  # in every language.
+  # The privacy prompts (microphone, speech recognition, local network,
+  # location) in every language.
   python3 "$PACKAGING_DIR/native_strings.py" infoplist "$REPO_ROOT/lib/l10n" \
     "$app/Contents/Info.plist" "$app/Contents/Resources" >&2
 
@@ -527,6 +527,12 @@ do_verify() {
     ok "privacy prompts: ${v#native_strings: ok: }"
   else
     fail "privacy prompts: $v"
+  fi
+  if codesign -d --entitlements - --xml "$app" 2>/dev/null | plutil -convert xml1 -o - - 2>/dev/null |
+    grep -q 'com.apple.security.personal-information.location'; then
+    ok "Location entitlement (hardened runtime)"
+  else
+    fail "no location entitlement: CoreLocation is refused under the hardened runtime"
   fi
   if "$PACKAGING_DIR/intents.sh" verify "$app" >"$out/intents-verify.txt" 2>&1; then
     ok "App Intents: $(sed -n 's/^native_strings: ok: //p' "$out/intents-verify.txt")"

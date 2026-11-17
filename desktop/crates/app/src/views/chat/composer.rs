@@ -131,6 +131,20 @@ pub enum ComposerMenu {
 /// A menu's rows as drawn: each one's group heading and title.
 pub type MenuRows = Vec<(Option<String>, String)>;
 
+/// One row of the + menu.
+enum PlusRow {
+    Item {
+        label: String,
+        disabled: bool,
+        /// A switch's state (`None`: not a switch).
+        checked: Option<bool>,
+        action: ComposerMenu,
+    },
+    Separator,
+    /// Continuity Camera's items (AppKit's), when a device is near.
+    ImportFromDevice,
+}
+
 /// A `/`, `@`, `#` or `$` menu open over the composer.
 struct Menu {
     trigger: Trigger,
@@ -273,6 +287,9 @@ pub struct ChatComposer {
     sent_recordings: Option<u64>,
     /// The text before the dictation under way; its words follow it.
     dictation_base: Option<String>,
+    /// The composition a saved recording's transcription was asked for in:
+    /// its words are added only while that composition is shown.
+    transcribing: Option<crate::stores::composer::CompositionTicket>,
     /// The field's placeholder, put back after "Listening…".
     placeholder: String,
     /// The window this composer is in: Esc cancels dictation there only.
@@ -485,6 +502,7 @@ impl ChatComposer {
             dictation: None,
             sent_recordings: None,
             dictation_base: None,
+            transcribing: None,
             placeholder: placeholder.to_string(),
             window_handle: window.window_handle(),
             channel_mode: false,
@@ -608,9 +626,15 @@ impl ChatComposer {
                 }
             }
             DictationEvent::Transcribed(text) => {
-                let current = self.text(cx);
-                self.set_text(&join_dictated(&current, text), window, cx);
-                self.focus_input(window, cx);
+                // Only into the composition it was asked for in.
+                match self.transcribing.take() {
+                    Some(ticket) if self.composer.read(cx).holds(ticket) => {
+                        let current = self.text(cx);
+                        self.set_text(&join_dictated(&current, text), window, cx);
+                        self.focus_input(window, cx);
+                    }
+                    _ => log::info!("dictation: a transcription for another composition; dropped"),
+                }
             }
             DictationEvent::Heard => {
                 let placeholder = self.placeholder.clone();
@@ -641,7 +665,12 @@ impl ChatComposer {
         cx: &mut Context<Self>,
     ) {
         if let Some(store) = self.dictation.clone() {
+            // One at a time: a request while one runs is not taken.
+            let free = store.read(cx).busy.is_none() && !store.read(cx).is_active();
             store.update(cx, |s, cx| s.transcribe_saved(id, on_this_mac, cx));
+            if free && store.read(cx).busy.is_some() {
+                self.transcribing = Some(self.composer.read(cx).ticket());
+            }
         }
     }
 
@@ -1625,6 +1654,28 @@ impl ChatComposer {
         self.render_prompt(prompt, at, values, window, cx);
     }
 
+    /// A fresh composition starts with `text` alone, even in the new chat
+    /// already shown (the same draft, so no draft switch): the last
+    /// composition's prompt form, panel and menu go, a prompt still being
+    /// rendered for it, a send still out and its dictation land nowhere, and
+    /// what applied to the last message is cleared. (Writing the text replaces a draft read still on its way:
+    /// [`ComposerStore::draft_changed`].)
+    pub fn start_fresh(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        // The draft starts over: a send still out from the last composition
+        // gives nothing back to this one.
+        self.composer.update(cx, |c, cx| c.start_over(cx));
+        self.form = None;
+        self.prompt_request += 1;
+        self.panel = None;
+        self.menu = None;
+        // Dictation for the last composition ends: with no base left, its
+        // later words and its cancel write nothing.
+        self.dictation_base = None;
+        self.cancel_dictation(window, cx);
+        self.set_text(text, window, cx);
+        cx.notify();
+    }
+
     /// Another account: drops a prompt form filled for the last one, and
     /// any render still on its way. (A refresh of the same account keeps it.)
     pub fn forget_account(&mut self, cx: &mut Context<Self>) {
@@ -1883,13 +1934,12 @@ impl ChatComposer {
     /// Generation, Code Interpreter, Compare Models…, Save as Note), then
     /// Tools and Filters under their headings. Switches show a check while
     /// on.
-    fn show_plus_menu(
+    pub(crate) fn show_plus_menu(
         &mut self,
         position: gpui_kit::Point<gpui_kit::Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        use gpui_kit::component::native_menu::NativeMenu;
         let l10n = cx.l10n().clone();
         let has_text = !self.text(cx).trim().is_empty();
         let store = self.composer.read(cx);
@@ -1903,35 +1953,43 @@ impl ChatComposer {
         let filter_ids = store.filter_ids.clone();
         // Save as Note is the main window's (not Quick Ask's).
         let notes_button = self.follow_ups && store.prefs.show_notes_button;
-        // The entries as drawn, to measure the menu (`None`: a separator).
-        let mut entries: Vec<Option<String>> = vec![];
-        let mut menu = NativeMenu::new();
-        let item = |menu: NativeMenu,
-                    entries: &mut Vec<Option<String>>,
+        // The rows in order; shown by AppKit (with Continuity Camera's
+        // items) or GPUI Kit's native menu.
+        let mut rows: Vec<PlusRow> = vec![];
+        let item = |rows: &mut Vec<PlusRow>,
                     label: String,
                     disabled: bool,
                     checked: Option<bool>,
                     action: ComposerMenu| {
-            entries.push(Some(label.clone()));
-            match checked {
-                Some(on) if !disabled => menu.menu_with_check(label, on, Box::new(action)),
-                _ => menu.menu_with_disabled(label, disabled, Box::new(action)),
-            }
+            rows.push(PlusRow::Item {
+                label,
+                disabled,
+                checked,
+                action,
+            });
         };
         let a = &options.attachments;
         let ellipsis = |s: String| format!("{s}\u{2026}");
-        menu = item(
-            menu,
-            &mut entries,
+        item(
+            &mut rows,
             ellipsis(l10n.desktop_attach_files()),
             !(a.files || a.images),
             None,
             ComposerMenu::AttachFiles,
         );
+        // Take Photo and Scan Documents with a nearby iPhone or iPad
+        // (Continuity Camera): AppKit's own items, in the main window's
+        // composer while it takes pictures.
+        let in_main = cx
+            .try_global::<crate::AppState>()
+            .and_then(|s| s.main_window)
+            == Some(window.window_handle());
+        if a.images && in_main {
+            rows.push(PlusRow::ImportFromDevice);
+        }
         if a.server_files {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 ellipsis(l10n.composer_attach_server_files()),
                 false,
                 None,
@@ -1939,9 +1997,8 @@ impl ChatComposer {
             );
         }
         if a.web_page {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 ellipsis(l10n.web_page()),
                 false,
                 None,
@@ -1949,9 +2006,8 @@ impl ChatComposer {
             );
         }
         if a.mcp_content {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 ellipsis(l10n.direct_mcp_content_action()),
                 false,
                 None,
@@ -1964,13 +2020,11 @@ impl ChatComposer {
         // Not for a temporary chat, which the server never stores.
         let compare = options.compare_models && self.compare_ui && !self.temporary;
         if options.web_search || options.image_generation || code_shown || compare || draft_note {
-            entries.push(None);
-            menu = menu.separator();
+            rows.push(PlusRow::Separator);
         }
         if options.web_search {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 l10n.web_search(),
                 false,
                 Some(web),
@@ -1978,9 +2032,8 @@ impl ChatComposer {
             );
         }
         if options.image_generation {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 l10n.desktop_image_generation(),
                 false,
                 Some(image),
@@ -1991,9 +2044,8 @@ impl ChatComposer {
             // One that will not run stays visible, off, to say so; one chosen
             // can always be turned off.
             let blocked = options.code_interpreter_block.is_some();
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 l10n.code_interpreter(),
                 blocked && !code,
                 Some(code),
@@ -2001,9 +2053,8 @@ impl ChatComposer {
             );
         }
         if compare {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 ellipsis(l10n.chat_compare_models_action()),
                 !has_text,
                 None,
@@ -2011,9 +2062,8 @@ impl ChatComposer {
             );
         }
         if draft_note {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 l10n.composer_save_draft_as_note(),
                 false,
                 None,
@@ -2026,20 +2076,11 @@ impl ChatComposer {
         let tools: Vec<_> = options.tools.iter().chain(&options.mcp_tools).collect();
         let librechat = store.librechat_tools();
         if !tools.is_empty() || !librechat.is_empty() {
-            entries.push(None);
-            menu = menu.separator();
-            menu = item(
-                menu,
-                &mut entries,
-                l10n.tools(),
-                true,
-                None,
-                ComposerMenu::Heading,
-            );
+            rows.push(PlusRow::Separator);
+            item(&mut rows, l10n.tools(), true, None, ComposerMenu::Heading);
             for tool in tools {
-                menu = item(
-                    menu,
-                    &mut entries,
+                item(
+                    &mut rows,
                     tool.name.clone(),
                     false,
                     Some(tool_ids.contains(&tool.id)),
@@ -2068,24 +2109,15 @@ impl ChatComposer {
                 };
                 let checked =
                     matches!(action, ComposerMenu::Tool(_)).then(|| tool_ids.contains(&id));
-                menu = item(menu, &mut entries, label, false, checked, action);
+                item(&mut rows, label, false, checked, action);
             }
         }
         if !options.filters.is_empty() {
-            entries.push(None);
-            menu = menu.separator();
-            menu = item(
-                menu,
-                &mut entries,
-                l10n.filters(),
-                true,
-                None,
-                ComposerMenu::Heading,
-            );
+            rows.push(PlusRow::Separator);
+            item(&mut rows, l10n.filters(), true, None, ComposerMenu::Heading);
             for filter in &options.filters {
-                menu = item(
-                    menu,
-                    &mut entries,
+                item(
+                    &mut rows,
                     filter.name.clone(),
                     false,
                     Some(filter_ids.contains(&filter.id)),
@@ -2127,20 +2159,17 @@ impl ChatComposer {
             })
             .unwrap_or_default();
         if !terminals.is_empty() {
-            entries.push(None);
-            menu = menu.separator();
-            menu = item(
-                menu,
-                &mut entries,
+            rows.push(PlusRow::Separator);
+            item(
+                &mut rows,
                 l10n.terminal(),
                 true,
                 None,
                 ComposerMenu::Heading,
             );
             for (id, name, selected) in terminals {
-                menu = item(
-                    menu,
-                    &mut entries,
+                item(
+                    &mut rows,
                     name,
                     false,
                     Some(selected),
@@ -2151,7 +2180,131 @@ impl ChatComposer {
         // The menu's action goes to the focused element's path: keep focus
         // in the composer so its handler hears it.
         self.focus_input(window, cx);
-        menu.show(self.plus_menu_origin(&entries, position), window, cx);
+        // The entries as drawn, to measure the menu (`None`: a separator).
+        let entries: Vec<Option<String>> = rows
+            .iter()
+            .filter_map(|r| match r {
+                PlusRow::Item { label, .. } => Some(Some(label.clone())),
+                PlusRow::Separator => Some(None),
+                PlusRow::ImportFromDevice => None,
+            })
+            .collect();
+        let origin = self.plus_menu_origin(&entries, position);
+        #[cfg(target_os = "macos")]
+        self.show_plus_rows(rows, origin, window, cx);
+        #[cfg(not(target_os = "macos"))]
+        {
+            use gpui_kit::component::native_menu::NativeMenu;
+            let mut menu = NativeMenu::new();
+            for row in rows {
+                menu = match row {
+                    PlusRow::Item {
+                        label,
+                        disabled,
+                        checked: Some(on),
+                        action,
+                    } if !disabled => menu.menu_with_check(label, on, Box::new(action)),
+                    PlusRow::Item {
+                        label,
+                        disabled,
+                        action,
+                        ..
+                    } => menu.menu_with_disabled(label, disabled, Box::new(action)),
+                    PlusRow::Separator => menu.separator(),
+                    PlusRow::ImportFromDevice => menu,
+                };
+            }
+            menu.show(origin, window, cx);
+        }
+    }
+
+    /// The + menu built by the app (AppKit's NSMenu), with Continuity
+    /// Camera's placeholder ([`crate::shell::continuity_camera`]); the item
+    /// chosen does what GPUI Kit's menu would dispatch. AppKit's tracking
+    /// loop runs from a task, outside any GPUI borrow.
+    #[cfg(target_os = "macos")]
+    fn show_plus_rows(
+        &mut self,
+        rows: Vec<PlusRow>,
+        origin: gpui_kit::Point<gpui_kit::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::shell::continuity_camera::{self as camera, Entry};
+        let mut actions: Vec<ComposerMenu> = vec![];
+        let mut import = false;
+        let entries: Vec<Entry> = rows
+            .into_iter()
+            .map(|row| match row {
+                PlusRow::Item {
+                    label,
+                    disabled,
+                    checked,
+                    action,
+                } => {
+                    let index = (!disabled).then(|| {
+                        actions.push(action);
+                        actions.len() - 1
+                    });
+                    Entry::Item {
+                        label,
+                        disabled,
+                        checked: checked.unwrap_or(false) && !disabled,
+                        action: index,
+                    }
+                }
+                PlusRow::Separator => Entry::Separator,
+                PlusRow::ImportFromDevice => {
+                    import = true;
+                    Entry::ImportFromDevice
+                }
+            })
+            .collect();
+        let Some(ns_window) = crate::shell::macos::ns_window(window) else {
+            return;
+        };
+        if import {
+            // This menu session's ticket: what a device sends through it is
+            // for this composer, this composition and this account scope
+            // alone.
+            let composer = self.composer.read(cx);
+            let target = crate::shell::continuity_camera::ImportTarget {
+                scope: cx
+                    .try_global::<crate::AppState>()
+                    .and_then(|s| s.stores.accounts.read(cx).scope_key()),
+                draft: composer.draft_key().cloned(),
+                round: composer.draft_round(),
+            };
+            crate::desktop::install_continuity_camera(&ns_window, target, cx);
+        }
+        // The menu's choice acts on this composition only.
+        let ticket = self.composer.read(cx).ticket();
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(view) = ns_window.contentView() else {
+                return;
+            };
+            // `origin` is window-relative, top-left; AppKit's view
+            // coordinates start at the bottom-left.
+            let location = objc2_foundation::NSPoint::new(
+                f32::from(origin.x) as f64,
+                view.bounds().size.height - f32::from(origin.y) as f64,
+            );
+            // The requestor answers only while this menu is open.
+            let report =
+                camera::while_menu_tracks(import, || camera::popup(&view, &entries, location));
+            let _ = this.update_in(cx, |this, window, cx| {
+                if let Some(action) = report.chosen.and_then(|i| actions.get(i))
+                    && this.composer.read(cx).holds(ticket)
+                {
+                    this.on_menu(action, window, cx);
+                }
+                // As GPUI Kit's menu does: wake the window after AppKit's
+                // tracking loop.
+                window.refresh();
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Where the + menu's top-left goes: over the button, its bottom edge
@@ -2414,9 +2567,15 @@ impl ChatComposer {
             prompt: Some(prompt.into()),
         });
         let composer = self.composer.clone();
+        // Chosen for this composition: not attached to one that replaced it.
+        let ticket = composer.read(cx).ticket();
         cx.spawn_in(window, async move |_, cx| {
             if let Ok(Ok(Some(paths))) = paths.await {
-                composer.update(cx, |c, cx| c.add_paths(&paths, cx));
+                composer.update(cx, |c, cx| {
+                    if c.holds(ticket) {
+                        c.add_paths(&paths, cx);
+                    }
+                });
             }
         })
         .detach();
@@ -4412,7 +4571,13 @@ mod tests {
         );
         emit(DictationEvent::Ended { restore: true }, cx);
         assert_eq!(value(&view, cx), "Draft: plant the beans");
-        // A saved recording's words are added at the end.
+        // A saved recording's words, asked for in this composition (as
+        // transcribe_recording records it), are added at the end.
+        cx.update(|_, cx| {
+            view.update(cx, |c, cx| {
+                c.transcribing = Some(c.composer.read(cx).ticket())
+            })
+        });
         emit(DictationEvent::Transcribed("Then rest.".into()), cx);
         assert_eq!(value(&view, cx), "Draft: plant the beans Then rest.");
     }
@@ -4543,6 +4708,153 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(value(&view, cx), "");
         assert!(view.read_with(cx, |c, _| c.form.is_none()));
+    }
+
+    /// Send to Conduit, Send Link, Send Image or the widget's Clipboard in
+    /// the new chat already shown (the same draft, so no draft switch):
+    /// neither the last composition's prompt render nor the draft read
+    /// still on its way lands in what it brought.
+    #[gpui_kit::test]
+    fn a_fresh_composition_takes_nothing_the_last_one_had_coming(cx: &mut TestAppContext) {
+        use conduit_protocol::methods::{DraftsGet, PromptsRender};
+        let daemon = FakeDaemon::new();
+        daemon.returns::<DraftsGet>(
+            serde_json::from_value(serde_json::json!({"text": "Old unsent words"})).unwrap(),
+        );
+        let read = daemon.hold::<DraftsGet>();
+        daemon.returns::<PromptsRender>(
+            serde_json::from_value(serde_json::json!({"content": "LATE", "inputs": []})).unwrap(),
+        );
+        let render = daemon.hold::<PromptsRender>();
+        let (view, cx, _) = composer_on(daemon, cx);
+        // The new chat's draft is being read, and a prompt rendered in it.
+        view.update(cx, |c, cx| {
+            c.composer
+                .update(cx, |s, cx| s.switch_new_chat(None, false, "", cx))
+        });
+        view.update_in(cx, |c, window, cx| {
+            let prompt = serde_json::from_value(serde_json::json!({
+                "command": "/greet", "title": "Greet"
+            }))
+            .unwrap();
+            c.render_prompt(prompt, 0, BTreeMap::new(), window, cx);
+        });
+        // A picture arrives from Shortcuts: no text of its own.
+        view.update_in(cx, |c, window, cx| c.start_fresh("", window, cx));
+        render.release();
+        read.release();
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "");
+        assert!(view.read_with(cx, |c, _| c.form.is_none()));
+    }
+
+    /// A fresh composition while dictation runs and a send is still out:
+    /// neither the dictation's words (nor its cancel) nor the refused send's
+    /// text lands in what it brought.
+    #[gpui_kit::test]
+    fn a_fresh_composition_takes_nothing_from_dictation_or_a_send_in_flight(
+        cx: &mut TestAppContext,
+    ) {
+        use crate::stores::dictation::{DictationEvent, DictationStore};
+        let (view, cx, _) = composer(cx);
+        let dictation = cx.new(|_| DictationStore::new(FakeDaemon::new().rpc(), None));
+        cx.update(|window, cx| {
+            view.update(cx, |c, cx| {
+                c.set_dictation(dictation.clone(), window, cx);
+                c.set_text("Draft:", window, cx);
+                // As toggle_dictation does before the store starts.
+                c.dictation_base = Some(c.text(cx));
+            })
+        });
+        // A send still on its way, from before.
+        let used = view.read_with(cx, |c, cx| c.composer.read(cx).one_shot());
+        view.update_in(cx, |c, window, cx| {
+            c.start_fresh("Copied packing list", window, cx)
+        });
+        let emit = |e: DictationEvent, cx: &mut VisualTestContext| {
+            dictation.update(cx, |_, cx| cx.emit(e));
+            cx.run_until_parked();
+        };
+        emit(
+            DictationEvent::Text {
+                text: "plant the".into(),
+                done: false,
+            },
+            cx,
+        );
+        view.update_in(cx, |c, window, cx| {
+            c.give_back("Old words", used, window, cx)
+        });
+        emit(DictationEvent::Ended { restore: true }, cx);
+        assert_eq!(value(&view, cx), "Copied packing list");
+    }
+
+    /// A saved recording's words, still being transcribed when a fresh
+    /// composition replaces the last one, land nowhere.
+    #[gpui_kit::test]
+    fn a_transcription_asked_for_the_last_composition_lands_nowhere(cx: &mut TestAppContext) {
+        use crate::stores::dictation::DictationStore;
+        use conduit_protocol::methods::{DictationStatus, RecordingsTranscribe};
+        let (view, cx, _) = composer(cx);
+        let daemon = FakeDaemon::new();
+        daemon.returns::<DictationStatus>(
+            serde_json::from_value(serde_json::json!({"engine": "server"})).unwrap(),
+        );
+        daemon.returns::<RecordingsTranscribe>(
+            serde_json::from_value(serde_json::json!({"text": "plant the beans"})).unwrap(),
+        );
+        let held = daemon.hold::<RecordingsTranscribe>();
+        let dictation = cx.new(|_| DictationStore::new(daemon.rpc(), None));
+        view.update_in(cx, |c, window, cx| {
+            c.set_dictation(dictation.clone(), window, cx);
+            c.set_text("Draft:", window, cx);
+            c.transcribe_recording("rec-1", false, window, cx);
+        });
+        cx.run_until_parked();
+        view.update_in(cx, |c, window, cx| {
+            c.start_fresh("Copied packing list", window, cx)
+        });
+        held.release();
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "Copied packing list");
+
+        // Asked in this composition: its words are added.
+        view.update_in(cx, |c, window, cx| {
+            c.transcribe_recording("rec-1", false, window, cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "Copied packing list plant the beans");
+    }
+
+    /// Files chosen in Attach Files after a fresh composition replaced the
+    /// one that asked are not attached to it.
+    #[gpui_kit::test]
+    fn files_picked_for_the_last_composition_are_not_attached(cx: &mut TestAppContext) {
+        let (view, cx, _) = composer(cx);
+        let dir = std::env::temp_dir().join(format!("conduit-pick-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let notes = dir.join("notes.txt");
+        let _ = std::fs::write(&notes, "Synthetic notes");
+        view.update_in(cx, |c, window, cx| c.pick_files(window, cx));
+        assert!(cx.did_prompt_for_paths());
+        view.update_in(cx, |c, window, cx| {
+            c.start_fresh("Copied packing list", window, cx)
+        });
+        let picked = notes.clone();
+        cx.simulate_path_prompt_response(move |_| Some(vec![picked]));
+        cx.run_until_parked();
+        assert!(
+            view.read_with(cx, |c, cx| c.composer.read(cx).attachments.is_empty()),
+            "files picked for the last composition were attached"
+        );
+        // Picked for this composition: attached.
+        view.update_in(cx, |c, window, cx| c.pick_files(window, cx));
+        cx.simulate_path_prompt_response(move |_| Some(vec![notes]));
+        cx.run_until_parked();
+        assert_eq!(
+            view.read_with(cx, |c, cx| c.composer.read(cx).attachments.len()),
+            1
+        );
     }
 
     #[gpui_kit::test]

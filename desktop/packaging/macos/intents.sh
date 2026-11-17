@@ -15,7 +15,7 @@
 #       intents, which refuses a string with no desktop ARB key). bundle.sh and
 #       crates/app/run.sh run this before signing.
 #   intents.sh verify APP
-#       The bundle's metadata names the five actions, the chat entity and
+#       The bundle's metadata names the eight actions, the chat entity and
 #       its query, and the App Shortcuts; every locale has its strings.
 #
 # Environment: MACOSX_DEPLOYMENT_TARGET (default MACOS_MIN from

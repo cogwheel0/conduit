@@ -44,6 +44,7 @@ import 'turns.dart';
 import 'valves.dart';
 import 'speech.dart';
 import 'apple.dart';
+import 'location.dart';
 import 'calls.dart';
 import 'voice.dart';
 import 'web_search.dart';
@@ -2391,6 +2392,19 @@ abstract final class ConduitMethodSpecs {
     params: IntentChatsQuery.fromJson,
     result: IntentChats.fromJson,
   );
+  static const intentsSendLink =
+      ConduitMethodSpec<IntentLink, IntentLinkResult>(
+        ConduitMethods.intentsSendLink,
+        params: IntentLink.fromJson,
+        result: IntentLinkResult.fromJson,
+      );
+
+  // location.*
+  static const locationReport = ConduitMethodSpec<LocationReport, OkResult>(
+    ConduitMethods.locationReport,
+    params: LocationReport.fromJson,
+    result: OkResult.fromJson,
+  );
 
   /// Every method, once.
   static const List<ConduitMethodSpec<Object?, Object?>> all =
@@ -2801,6 +2815,8 @@ abstract final class ConduitMethodSpecs {
         librechatDuplicate,
         intentsAsk,
         intentsChats,
+        intentsSendLink,
+        locationReport,
       ];
 
   static final Map<String, ConduitMethodSpec<Object?, Object?>> _byName =
@@ -3032,6 +3048,11 @@ abstract final class ConduitEventSpecs {
     payload: AppleCommand.fromJson,
     scoped: false,
   );
+  static const locationCommand = ConduitEventSpec<LocationCommand>(
+    ConduitEvents.locationCommand,
+    payload: LocationCommand.fromJson,
+    scoped: false,
+  );
   static const callsCommand = ConduitEventSpec<CallCommand>(
     ConduitEvents.callsCommand,
     payload: CallCommand.fromJson,
@@ -3121,6 +3142,7 @@ abstract final class ConduitEventSpecs {
         hermesRoomsChanged,
         hermesRoomsListChanged,
         appleCommand,
+        locationCommand,
       ];
 
   static final Map<String, ConduitEventSpec<Object?>> _byName =

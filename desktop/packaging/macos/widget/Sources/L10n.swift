@@ -9,6 +9,7 @@ struct WidgetL10n {
         case ask
         case newChat
         case voiceCall
+        case clipboard
         case recentChats
         case noChats
         case signedOut

@@ -69,6 +69,28 @@ pub struct OpenChat {
     _subscriptions: Vec<Subscription>,
 }
 
+/// What [`ChatPane::compose_new_chat`] writes into a new chat.
+#[derive(Default)]
+pub struct NewChatContent {
+    /// The message box's text.
+    pub text: Option<String>,
+    /// The new chat starts empty, its draft replaced (the phone's Send to
+    /// Conduit, Send Link, Send Image and widget Clipboard reset it); else
+    /// the text goes in and an unsent draft is kept, as New Chat keeps it.
+    pub fresh: bool,
+    /// Files, uploaded as the composer's Attach Files uploads them.
+    pub paths: Vec<std::path::PathBuf>,
+    /// Pictures, attached as a paste attaches them.
+    pub images: Vec<gpui_kit::Image>,
+    /// A web page's text or a video's transcript.
+    pub context: Vec<conduit_protocol::ContextAttachmentDto>,
+    /// Attachments already uploaded (Quick Ask's Open in Conduit).
+    pub carried: Vec<crate::stores::composer::Attachment>,
+    /// The account scope the content was read under, when it is that
+    /// scope's: written only while that same scope is in charge.
+    pub owner: Option<crate::shell::deep_link::ReadUnder>,
+}
+
 pub struct ChatPane {
     stores: Stores,
     layout: Entity<LayoutStore>,
@@ -81,7 +103,10 @@ pub struct ChatPane {
     pub composer: Entity<ChatComposer>,
     pub chat: Option<OpenChat>,
     /// A new chat's first message is on its way.
-    starting: bool,
+    /// The composition a new chat's first message was sent from, while it
+    /// is on its way: it holds back another send (and Chat Settings) only
+    /// while that composition is the one shown.
+    starting: Option<crate::stores::composer::CompositionTicket>,
     /// The active account the composer's attachments belong to.
     account: Option<String>,
     /// The read-only notice's Continue Here or Continue in a Copy is on its
@@ -293,7 +318,7 @@ impl ChatPane {
                     this.account = active;
                     // A first send of the last account's no longer holds
                     // this one's composer back.
-                    this.starting = false;
+                    this.starting = None;
                     this.composer_store.update(cx, |c, cx| c.reset(cx));
                     this.composer.update(cx, |c, cx| c.forget_account(cx));
                     // The new account's draft for what is shown.
@@ -442,7 +467,7 @@ impl ChatPane {
             composer_store,
             composer,
             chat: None,
-            starting: false,
+            starting: None,
             account,
             hermes_continuing: false,
             handoff: None,
@@ -1186,7 +1211,7 @@ impl ChatPane {
         }
         // A new chat's first message is still on its way: keep this one in
         // the composer rather than starting a second chat.
-        if self.chat.is_none() && self.starting {
+        if self.chat.is_none() && self.first_send_pending(cx) {
             self.composer.update(cx, |c, cx| {
                 // Not sent: its recordings stay with the draft too.
                 let held = c.take_sent_recordings();
@@ -1257,7 +1282,11 @@ impl ChatPane {
         // "New Chat in Folder": the daemon makes the chat in the folder (the
         // composer keeps which, a temporary chat's too), so the folder's
         // prompt and knowledge apply to the first answer.
-        self.starting = true;
+        // The composition it was sent from: replaced meanwhile (a fresh
+        // Clipboard or Compose in the same new chat), it is not taken over,
+        // nor does it hold the fresh one's send back.
+        let ticket = self.composer_store.read(cx).ticket();
+        self.starting = Some(ticket);
         // The new chat this send came from: if the user has gone elsewhere
         // by the reply, the chat is made but not opened over their choice.
         // A new chat in a folder is the same selection in another folder:
@@ -1280,8 +1309,12 @@ impl ChatPane {
                 if this.account != account {
                     return;
                 }
-                this.starting = false;
-                let still_here = place(this.stores.navigation.read(cx)) == origin;
+                // Its own wait only: a later send owns it now otherwise.
+                if this.starting == Some(ticket) {
+                    this.starting = None;
+                }
+                let still_here = place(this.stores.navigation.read(cx)) == origin
+                    && this.composer_store.read(cx).holds(ticket);
                 match result {
                     // Made (in its folder, by the daemon), but not opened over
                     // where the user went since. Its settings went with it.
@@ -1781,6 +1814,13 @@ impl ChatPane {
         });
     }
 
+    /// Whether a new chat's first message, sent from the composition shown
+    /// now, is still on its way.
+    fn first_send_pending(&self, cx: &App) -> bool {
+        self.starting
+            .is_some_and(|ticket| self.composer_store.read(cx).holds(ticket))
+    }
+
     /// Whether the call's strip belongs in this pane now: the call is in
     /// the open chat, or it is starting the new chat this pane shows.
     fn call_here(&self, cx: &App) -> bool {
@@ -1882,6 +1922,115 @@ impl ChatPane {
             }
             p.focus_composer(window, cx);
         });
+    }
+
+    /// What a new chat opened from outside starts with (Send to Conduit,
+    /// Send Link, Send Image, the widget's links, Open With, Quick Ask's Open
+    /// in Conduit), once the pane has followed it: written only while the
+    /// new chat that request opened is still the one selected (`ticket`, the
+    /// selection it made). A link handled right after it in the same batch
+    /// (`conduit://chat/<id>`) keeps its own draft. Says whether it was
+    /// written.
+    pub fn compose_new_chat(
+        &mut self,
+        ticket: &Selection,
+        content: NewChatContent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.stores.navigation.read(cx).selection() != ticket {
+            return false;
+        }
+        // Read under one account scope, never written for another (a switch
+        // while it was read, or while it waited for the main window).
+        // "No account" is a scope too: a page read with none never lands
+        // once an account signed in, nor one read under an account once none
+        // is in charge.
+        if content
+            .owner
+            .as_ref()
+            .is_some_and(|crate::shell::deep_link::ReadUnder(scope)| {
+                *scope != self.stores.accounts.read(cx).scope_key()
+            })
+        {
+            log::info!("new chat: its content was read under another account; dropped");
+            return false;
+        }
+        let NewChatContent {
+            text,
+            fresh,
+            paths,
+            images,
+            context,
+            carried,
+            owner: _,
+        } = content;
+        if fresh {
+            let text = text.as_deref().unwrap_or_default();
+            self.composer
+                .update(cx, |c, cx| c.start_fresh(text, window, cx));
+        } else if let Some(text) = &text {
+            self.composer
+                .update(cx, |c, cx| c.set_text(text, window, cx));
+        }
+        if !paths.is_empty() {
+            self.composer_store
+                .update(cx, |c, cx| c.add_paths(&paths, cx));
+        }
+        for image in &images {
+            self.composer_store
+                .update(cx, |c, cx| c.add_image(image, cx));
+        }
+        for item in context {
+            self.composer_store
+                .update(cx, |c, cx| c.add_context(item, cx));
+        }
+        if !carried.is_empty() {
+            self.composer_store
+                .update(cx, |c, cx| c.adopt_attachments(carried, cx));
+        }
+        self.focus_composer(window, cx);
+        true
+    }
+
+    /// The ticket a Continuity Camera photo asked for now would carry: this
+    /// account scope, this composer's draft and its composition.
+    pub fn import_target(&self, cx: &App) -> crate::shell::continuity_camera::ImportTarget {
+        let composer = self.composer_store.read(cx);
+        crate::shell::continuity_camera::ImportTarget {
+            scope: self.stores.accounts.read(cx).scope_key(),
+            draft: composer.draft_key().cloned(),
+            round: composer.draft_round(),
+        }
+    }
+
+    /// A Continuity Camera photo or scan saved at `path` (`name`, as the
+    /// composer names it), with the ticket its + menu session took
+    /// (`asked`): attached only while that account scope, composer and
+    /// composition are still the ones shown. Otherwise it is dropped, and a
+    /// toast says it couldn't be attached. Says whether it was attached.
+    pub fn attach_import(
+        &mut self,
+        asked: &crate::shell::continuity_camera::ImportTarget,
+        path: &std::path::Path,
+        name: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if *asked != self.import_target(cx) {
+            log::info!(
+                "continuity camera: asked for another account, chat or composition; dropped"
+            );
+            let message = cx.l10n().desktop_attachment_failed(name);
+            self.stores
+                .toasts
+                .update(cx, |t, cx| t.show(NoticeLevel::Warning, message, cx));
+            return false;
+        }
+        self.composer_store
+            .update(cx, |c, cx| c.add_paths(&[path.to_path_buf()], cx));
+        self.focus_composer(window, cx);
+        true
     }
 
     pub fn open_model_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -2034,7 +2183,7 @@ impl ChatPane {
         }
         // A new chat whose first message is on its way: its settings went
         // with it, and the chat it makes is not open yet.
-        if self.starting && self.open_chat_id(cx).is_none() {
+        if self.first_send_pending(cx) && self.open_chat_id(cx).is_none() {
             return;
         }
         let composer = self.composer_store.read(cx);
@@ -3313,6 +3462,198 @@ mod tests {
             })
         }
 
+        /// A link handled right after a new chat's in the same batch
+        /// (`conduit://clipboard`, then `conduit://chat/<id>`) keeps its own
+        /// draft: what the new chat brought is written only while that new
+        /// chat is still the one selected.
+        #[gpui_kit::test]
+        fn a_new_chats_words_never_land_in_a_chat_opened_after_it(cx: &mut TestAppContext) {
+            use crate::views::chat_pane::NewChatContent;
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            let content = || NewChatContent {
+                text: Some("Copied packing list".into()),
+                fresh: true,
+                ..NewChatContent::default()
+            };
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            let ticket = stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone());
+            stores.navigation.update(vcx, |n, cx| n.open("c2", cx));
+            vcx.run_until_parked();
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&ticket, content(), window, cx)
+            });
+            vcx.run_until_parked();
+            assert!(!wrote, "written into the chat opened after it");
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                ""
+            );
+
+            // Still on the new chat it opened: written.
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+            let ticket = stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone());
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&ticket, content(), window, cx)
+            });
+            vcx.run_until_parked();
+            assert!(wrote);
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                "Copied packing list"
+            );
+        }
+
+        /// Send Link's page, read under one account, is never written into
+        /// a new chat once another account is in charge.
+        #[gpui_kit::test]
+        fn a_page_read_under_one_account_never_reaches_anothers_new_chat(cx: &mut TestAppContext) {
+            use crate::views::chat_pane::NewChatContent;
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+            let ticket = stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone());
+            let page = |owner: &str| NewChatContent {
+                text: Some("Summarize this page".into()),
+                fresh: true,
+                owner: Some(crate::shell::deep_link::ReadUnder(Some(owner.into()))),
+                ..NewChatContent::default()
+            };
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&ticket, page("b"), window, cx)
+            });
+            assert!(!wrote, "account b's page written while a is in charge");
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                ""
+            );
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&ticket, page("a"), window, cx)
+            });
+            assert!(wrote);
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                "Summarize this page"
+            );
+        }
+
+        /// "No account" is a scope too (Direct only, Hermes only): a page
+        /// read with no account opens there, and never lands once an
+        /// account has signed in.
+        #[gpui_kit::test]
+        fn a_page_read_with_no_account_lands_only_while_there_is_none(cx: &mut TestAppContext) {
+            use crate::shell::deep_link::ReadUnder;
+            use crate::views::chat_pane::NewChatContent;
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            let page = || NewChatContent {
+                text: Some("Summarize this page".into()),
+                fresh: true,
+                owner: Some(ReadUnder(None)),
+                ..NewChatContent::default()
+            };
+            let ticket = |vcx: &mut VisualTestContext| {
+                stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+                vcx.run_until_parked();
+                stores
+                    .navigation
+                    .read_with(vcx, |n, _| n.selection().clone())
+            };
+            // An account is in charge: a page read with none is refused.
+            let t = ticket(vcx);
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&t, page(), window, cx)
+            });
+            assert!(
+                !wrote,
+                "a page read with no account landed under an account"
+            );
+            // No account now: it opens.
+            stores
+                .accounts
+                .update(vcx, |a, cx| a.adopt(list(vec![]), cx));
+            vcx.run_until_parked();
+            assert_eq!(stores.accounts.read_with(vcx, |a, _| a.scope_key()), None);
+            let t = ticket(vcx);
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&t, page(), window, cx)
+            });
+            assert!(wrote, "a page read with no account was refused with none");
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                "Summarize this page"
+            );
+        }
+
+        /// A Continuity Camera photo carries the ticket its + menu took:
+        /// it is attached only while that composer, that composition and
+        /// that account scope are still the ones shown. A later menu (another
+        /// account's) never stands in for it, and replacing the composition
+        /// (Send Text) drops it; otherwise it attaches.
+        #[gpui_kit::test]
+        fn a_continuity_photo_lands_only_in_the_composition_that_asked(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            let dir = std::env::temp_dir().join(format!("conduit-import-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&dir);
+            let photo = dir.join("Photo.jpeg");
+            let _ = std::fs::write(&photo, [0xFF, 0xD8, 0xFF, 0xD9]);
+            let attach = |ticket, vcx: &mut VisualTestContext| {
+                pane.update_in(vcx, |p, window, cx| {
+                    p.attach_import(&ticket, &photo, "Photo.jpeg", window, cx)
+                })
+            };
+            let toasts = |vcx: &mut VisualTestContext| -> usize {
+                stores.toasts.read_with(vcx, |t, _| t.toasts.len())
+            };
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+
+            // (1) Asked in account a's chat; account b's + menu opens before
+            // the photo lands: it is judged by its own ticket, not b's.
+            let asked_in_a = pane.read_with(vcx, |p, cx| p.import_target(cx));
+            stores.accounts.update(vcx, |a, cx| {
+                a.adopt(
+                    list(vec![
+                        account("a", "Avery", false, true),
+                        account("b", "Blake", true, true),
+                    ]),
+                    cx,
+                )
+            });
+            vcx.run_until_parked();
+            let _menu_in_b = pane.read_with(vcx, |p, cx| p.import_target(cx));
+            assert!(
+                !attach(asked_in_a, vcx),
+                "account a's photo landed in b's composer"
+            );
+            assert!(attachment_names(&pane, vcx).is_empty());
+            assert_eq!(toasts(vcx), 1);
+            stores.toasts.update(vcx, |t, _| t.toasts.clear());
+
+            // (2) Asked, then Send Text replaces the composition (same draft
+            // slot): dropped.
+            let asked = pane.read_with(vcx, |p, cx| p.import_target(cx));
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer.update(cx, |c, cx| {
+                    c.start_fresh("Shared from Shortcuts", window, cx)
+                })
+            });
+            assert!(!attach(asked, vcx), "a replaced composition took the photo");
+            assert!(attachment_names(&pane, vcx).is_empty());
+            assert_eq!(toasts(vcx), 1);
+
+            // Asked in this composition: attached.
+            let asked = pane.read_with(vcx, |p, cx| p.import_target(cx));
+            assert!(attach(asked, vcx));
+            vcx.run_until_parked();
+            assert_eq!(attachment_names(&pane, vcx), vec!["Photo.jpeg".to_string()]);
+        }
+
         /// The widget's and Shortcuts' calls start in the new chat as it
         /// shows: temporary when Temporary by Default makes it so, in its
         /// folder, as the composer's call button would start them.
@@ -4127,6 +4468,58 @@ mod tests {
                 Some("chat-new".to_string()),
                 "a follow-up typed now is kept as the new chat's draft"
             );
+        }
+
+        /// A first send whose composition is replaced while it waits (a
+        /// fresh Clipboard or Send Text in the same new chat): the chat is
+        /// made, but neither opened over the fresh composition nor handed
+        /// its text as a draft.
+        #[gpui_kit::test]
+        fn a_first_send_never_takes_over_a_composition_that_replaced_it(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            // The first send makes chat-old, the next one chat-new.
+            let sent = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let count = sent.clone();
+            daemon.on::<methods::TurnsSend>(move |_| {
+                let n = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(serde_json::json!({
+                    "chatId": if n == 0 { "chat-old" } else { "chat-new" },
+                    "userMessageId": "m",
+                    "assistantMessageId": "a",
+                }))
+            });
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Hello".into(), vec![], window, cx)
+            });
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer
+                    .update(cx, |c, cx| c.start_fresh("Copied packing list", window, cx))
+            });
+            // The fresh composition is not held back by the first send.
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Copied packing list".into(), vec![], window, cx)
+            });
+            vcx.run_until_parked();
+            assert_eq!(
+                daemon.calls::<methods::TurnsSend>().len(),
+                2,
+                "the fresh composition's send waited for the replaced one"
+            );
+            held.release();
+            vcx.run_until_parked();
+            // Only the fresh composition's own send opened its chat and
+            // became its draft's owner; the replaced one's took over nothing.
+            assert_eq!(
+                stores
+                    .navigation
+                    .read_with(vcx, |n, _| n.selected_chat().map(String::from)),
+                Some("chat-new".to_string()),
+                "the replaced first send opened its chat over the fresh composition"
+            );
+            let key = pane.read_with(vcx, |p, cx| p.composer_store.read(cx).draft_key().cloned());
+            assert_eq!(key.and_then(|k| k.chat_id), Some("chat-new".to_string()));
         }
 
         /// A daemon that keeps drafts by chat (`""` for New Chat).

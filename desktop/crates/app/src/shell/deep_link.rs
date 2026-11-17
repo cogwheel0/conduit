@@ -47,7 +47,45 @@ pub enum OpenRequest {
     /// `conduit://share/<id>`: what the Share extension staged in the
     /// inbox ([`super::share_inbox`]), as a new chat.
     Share { id: String },
+    /// `conduit://clipboard` (the widget's Clipboard, the phone's too): a
+    /// new chat with the copied text, read when the main window can show
+    /// it (only text: any page or app can open the link).
+    Clipboard,
+    /// A new chat with more than a link can carry (Shortcuts' Send Link and
+    /// Send Image): never from a link.
+    Compose(Box<Compose>),
 }
+
+/// What a new chat starts with: never sent, the user reads it first.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Compose {
+    /// The message box's text.
+    pub text: Option<String>,
+    /// Files attached through the composer's upload path.
+    pub files: Vec<PathBuf>,
+    /// Pictures attached as a paste attaches them.
+    pub images: Vec<gpui_kit::Image>,
+    /// A web page's text or a video's transcript (Web Page's attachment).
+    pub context: Vec<conduit_protocol::ContextAttachmentDto>,
+    /// The account scope the server read the content under, for content
+    /// that is that scope's (Send Link's page): the new chat is written only
+    /// while that same scope is in charge. None: the user's own words and
+    /// files, for whichever account is in charge.
+    pub owner: Option<ReadUnder>,
+}
+
+/// The account scope content was read under: [`AccountsStore::scope_key`]
+/// then, `None` when no account was in charge (Direct only, Hermes only).
+/// "No account" is a scope like any other: only a change (one account to
+/// another, an account to none, none to an account) refuses.
+///
+/// [`AccountsStore::scope_key`]: crate::stores::accounts::AccountsStore::scope_key
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReadUnder(pub Option<String>);
+
+// The protocol's DTOs derive `PartialEq` only; equality here is plain
+// field equality (no floats).
+impl Eq for Compose {}
 
 impl OpenRequest {
     /// Whether the request needs the main frame (signed in, routed to
@@ -143,6 +181,14 @@ pub fn parse(url: &str) -> Option<OpenRequest> {
             .filter(|i| valid_id(i))
             .map(|id| OpenRequest::Note { id }),
         "quick-ask" => id.is_none().then_some(OpenRequest::QuickAsk { text: None }),
+        "clipboard" => id.is_none().then_some(OpenRequest::Clipboard),
+        // The phone widget's Camera and Photos: the Mac has no picker a
+        // link can open (Continuity Camera is in the composer's + menu), so
+        // a new chat, as the phone does with an action it doesn't know.
+        "camera" | "photos" => id.is_none().then_some(OpenRequest::NewChat {
+            text: None,
+            files: vec![],
+        }),
         "call" | "mic" => id.is_none().then_some(OpenRequest::VoiceCall),
         "share" => id
             .filter(|i| super::share_inbox::valid_id(i))
@@ -227,6 +273,9 @@ pub fn redacted(url: &str) -> String {
                             | "call"
                             | "mic"
                             | "share"
+                            | "clipboard"
+                            | "camera"
+                            | "photos"
                     )
                 })
                 .unwrap_or_else(|| "?".into());
@@ -324,6 +373,20 @@ mod tests {
         // Neither takes an id.
         assert_eq!(parse("conduit://quick-ask/x"), None);
         assert_eq!(parse("conduit://call/c1"), None);
+    }
+
+    #[test]
+    fn opens_the_clipboard_or_a_new_chat_for_the_phone_widgets_other_buttons() {
+        assert_eq!(parse("conduit://clipboard"), Some(OpenRequest::Clipboard));
+        assert_eq!(
+            parse("conduit://clipboard?homeWidget=true"),
+            Some(OpenRequest::Clipboard)
+        );
+        assert_eq!(parse("conduit://clipboard/x"), None);
+        // Camera and Photos: the Mac has no picker a link can open.
+        assert_eq!(parse("conduit://camera?homeWidget=true"), new_chat(None));
+        assert_eq!(parse("conduit://photos"), new_chat(None));
+        assert_eq!(parse("conduit://camera/x"), None);
     }
 
     #[test]

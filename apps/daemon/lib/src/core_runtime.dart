@@ -58,6 +58,7 @@ import 'hermes_dashboard_cookies.dart';
 import 'hermes_service.dart' show hermesAwaitsSignIn;
 import 'log.dart';
 import 'apple_models_service.dart' show AppleModelsBridge, appleModelsOverrides;
+import 'location_bridge.dart';
 import 'calls_service.dart' show CallPorts;
 import 'ports/handoff.dart';
 import 'ports/connectivity.dart';
@@ -92,6 +93,7 @@ final class CoreRuntime {
     required this.calls,
     required this.apple,
     required this.dashboardCookies,
+    required this.location,
     required List<Box<dynamic>> boxes,
   }) : _connectivity = connectivity,
        _boxes = boxes;
@@ -123,6 +125,9 @@ final class CoreRuntime {
   /// The Hermes dashboard sessions the window's sign-in handed over, and
   /// the core's cookie store ([DaemonHermesDashboardCookies]).
   final DaemonHermesDashboardCookies dashboardCookies;
+  /// The window's location services, as the core's location port: the
+  /// server binds it to the event bus once there is one.
+  final WindowLocationBridge location;
 
   /// Takes a window's view of the network, which arrives as an event where
   /// the port can only poll.
@@ -268,6 +273,7 @@ final class CoreRuntime {
     final dashboardCookies = await DaemonHermesDashboardCookies.open(
       secureStore,
     );
+    final location = WindowLocationBridge();
 
     final container = ProviderContainer(
       observers: observers,
@@ -366,6 +372,11 @@ final class CoreRuntime {
                 ),
               ),
         ),
+        // `{{USER_LOCATION}}` from the window's location services, asked
+        // only for a request or a prompt template that names it, and only
+        // while the account's location setting is on (the phone asks for
+        // every request while it is on).
+        ...windowLocationOverrides(location),
         // The remaining ports keep the core's own defaults, and each is a
         // deliberate choice rather than an omission:
         //
@@ -445,6 +456,7 @@ final class CoreRuntime {
       calls: calls,
       apple: apple,
       dashboardCookies: dashboardCookies,
+      location: location,
       boxes: boxes.all,
     );
   }
