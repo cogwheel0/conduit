@@ -10,7 +10,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatSessionRegistryProvider;
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_ports.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart'
-    show chatDraftQueueSendProvider;
+    show chatDraftQueueAdmissionWaitProvider, chatDraftQueueSendProvider;
 import 'package:conduit_core/features/chat/voice_mode/chat_voice_send.dart';
 
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
@@ -303,13 +303,14 @@ void main() {
       addTearDown(hold.release);
       final scope = hold.scope.container;
       await scope.read(chatVoiceSendProvider)(null, 'drop this one');
-      await pumpEventQueue(times: 2000);
+      // The core's queue admits the batch: its admission wait says the chat
+      // is quiet.
+      await scope.read(chatDraftQueueAdmissionWaitProvider)()!;
       final chatId = hold.scope.conversation!.id;
       final dropped = hold.scope.messages
           .lastWhere((m) => m.role == 'assistant')
           .id;
-      // The chat is quiet, so the core has admitted the batch; a delete
-      // begins before the batch is sent.
+      // Admitted, the batch is about to be sent; a delete begins first.
       final deleting = turns.deleteMessages(
         DeleteMessages(chatId: chatId, messageIds: <String>[dropped]),
       );

@@ -252,7 +252,9 @@ void main() {
     'a renewal the proxy still turns away keeps the connection issue',
     () async {
       // Robin is in charge and signed in; the proxy's session expires.
+      await accounts.switchTo(AccountRef(accountId: robin));
       owui.proxyRefuses = true;
+      addTearDown(() => owui.proxyRefuses = false);
       runtime.container.read(authStateManagerProvider.notifier).onAuthIssue();
       final cookie = await cookieOf(robin);
       await check(
@@ -272,7 +274,19 @@ void main() {
   );
 
   test('once the proxy takes the session, the renewal signs back in', () async {
-    owui.proxyRefuses = false;
+    // Robin is in charge, on the connection issue an expired proxy session
+    // showed; the proxy takes only the renewed session's cookie.
+    await accounts.switchTo(AccountRef(accountId: robin));
+    owui.proxyRefuses = true;
+    owui.proxyAccepts = 'proxy_session=robin-taken';
+    addTearDown(() {
+      owui.proxyRefuses = false;
+      owui.proxyAccepts = null;
+    });
+    runtime.container.read(authStateManagerProvider.notifier).onAuthIssue();
+    check(
+      runtime.container.read(authStateManagerProvider).value?.isAuthenticated,
+    ).equals(false);
     final renewed = await auth.renewProxy(
       ExternalAuthCompletion(
         origin: owui.url,

@@ -1688,13 +1688,15 @@ final class TurnsService implements ChatTurns {
     final sent = Completer<void>();
     unawaited(() async {
       try {
+        // Stored copies already given their time, for every retry below.
+        final waitedOut = <Future<void>>{};
         while (true) {
           // The core sent the batch once it found no answer on screen, but
           // a turn asked for before it (words in a call) may start one, a
           // delete may begin, a stored copy may still be pulled: the batch
           // waits for all of it, without holding admission, so words said
           // meanwhile can still talk over that answer.
-          await _untilQuiet(session);
+          await _untilQuiet(session, waitedOut: waitedOut);
           try {
             await _run(
               session,
@@ -1702,7 +1704,9 @@ final class TurnsService implements ChatTurns {
               modelId: model.id,
               userMessageId: null,
               onAdmitted: () async {
-                if (!_quietNow(session)) throw const _NotQuietYet();
+                if (!_quietNow(session, waitedOut: waitedOut)) {
+                  throw const _NotQuietYet();
+                }
               },
               start: (onPlaceholder) => _sendBatch(
                 session,
@@ -3920,11 +3924,16 @@ final class TurnsService implements ChatTurns {
   /// Nothing here holds the chat's admission ([_run]): a queued batch waits
   /// for this, then takes admission and asks [_quietNow] again
   /// ([_queuedSend]), so words said meanwhile can still talk over an answer.
+  ///
+  /// [waitedOut] holds the stored copies already given their
+  /// [_settleTimeout]: one set for a whole queued send, so a retry after a
+  /// refused admission does not wait for the same one again.
   Future<void> _untilQuiet(
     _ChatSession session, {
     bool ownPending = false,
+    Set<Future<void>>? waitedOut,
   }) async {
-    final waitedOut = <Future<void>>{};
+    waitedOut ??= <Future<void>>{};
     while (!session.scope.isDisposed) {
       final pending = session.pending;
       if (!ownPending && pending != null && !pending.started.isCompleted) {

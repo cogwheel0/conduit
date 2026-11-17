@@ -25,8 +25,10 @@ final class FakeOwuiAuthServer {
   Completer<void> sessionChecked = Completer<void>();
 
   /// While set, a sign-in proxy in front turns every request away with its
-  /// own sign-in page (HTML), as an expired proxy session does.
+  /// own sign-in page (HTML), as an expired proxy session does -- but one
+  /// carrying the renewed proxy cookie [proxyAccepts], when that is set.
   bool proxyRefuses = false;
+  String? proxyAccepts;
 
   /// The email of every user whose session was ended through sign-out.
   final List<String> signedOut = <String>[];
@@ -60,7 +62,11 @@ final class FakeOwuiAuthServer {
 
     final path = request.uri.path;
     requests.add('${request.method} $path');
-    if (proxyRefuses) {
+    final accepted = proxyAccepts;
+    final renewed =
+        accepted != null &&
+        (request.headers.value('cookie') ?? '').contains(accepted);
+    if (proxyRefuses && !renewed) {
       await request.drain<void>();
       response
         ..statusCode = 200
