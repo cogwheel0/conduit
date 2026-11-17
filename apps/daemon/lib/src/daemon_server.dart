@@ -969,11 +969,9 @@ class DaemonServer {
               _log.error('session $sessionId failed', error, stack);
             })
             .whenComplete(() {
+              // listen() has closed the session (whatever ended it), which
+              // let go of everything it held; only the list is left.
               _sessions.remove(sessionId);
-              events.detach(sessionId);
-              // A window that dropped is gone as surely as one that closed:
-              // if it was the last, waiting questions take their default.
-              _uiRequests?.onWindowsChanged();
               _log.debug('session $sessionId closed');
             }),
       );

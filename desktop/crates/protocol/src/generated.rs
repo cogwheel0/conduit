@@ -766,8 +766,10 @@ pub struct AppleReport {
     /// `ready`: whether this Mac's macOS has Apple's models (26 or later).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supported: Option<bool>,
-    /// `ready`: the runs the engine is still running. A socket that came
-    /// back keeps them; the daemon ends any other it started.
+    /// `ready`: the runs the engine is still running. Runs end with the
+    /// session that ran them, so after a reconnect the daemon tells the
+    /// engine to stop each one; on the same session it ends any other it
+    /// started.
     #[serde(default)]
     pub runs: Vec<String>,
     /// A `status` command's answer.

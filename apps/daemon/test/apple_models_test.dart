@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
@@ -14,7 +15,10 @@ import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:riverpod/riverpod.dart';
+import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
+
+import 'support/null_sink.dart';
 
 /// Apple's on-device model runs in the window; the chat runs here, in the
 /// core's Direct engine and Apple adapter. A fake window answers
@@ -27,6 +31,9 @@ void main() {
   late _Window window;
 
   setUp(() async {
+    // A fresh store each test: one test's preferences (Private Cloud
+    // Compute switched on, say) never reach the next.
+    PreferencesStore.debugReset();
     PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
     await PreferencesStore.ensureInitialized();
     bus = EventBus();
@@ -388,8 +395,10 @@ void main() {
     await window.until(() => window.cancelled.contains(run.id));
   });
 
-  test('a socket that comes back keeps a run whose reports arrive in order, '
-      'even before it says ready', () async {
+  test('a window that goes ends its runs: the turn gets its failure, and '
+      'nothing of the run is kept', () async {
+    final other = _Window(bus, apple, id: 'other');
+    other.ready(supported: false);
     window.ready(supported: true);
     window.reply = const <String>['Half '];
     window.holdOpen = true;
@@ -402,23 +411,34 @@ void main() {
     final events = <DirectStreamEvent>[];
     final done = run.events.listen(events.add).asFuture<void>();
     await window.until(() => events.whereType<DirectContentDelta>().isNotEmpty);
-    // The same engine on a new session: its queued reports come first.
-    final back = _Window(bus, apple, id: 'window-2')
-      .._numbers.addAll(window._numbers);
     window.detach();
-    back._report(
-      AppleReport(
-        kind: AppleReportKind.content,
-        runId: run.id,
-        content: 'way.',
-      ),
-    );
-    back.ready(supported: true, runs: <String>[run.id]);
-    back.finish(run.id);
     await done;
-    final text = events.whereType<DirectContentDelta>().map((e) => e.content);
-    expect(text.join(), 'Half way.');
-    expect(events.last, isA<DirectStreamDone>());
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      'Apple On-Device request failed.',
+    );
+    // Nothing kept: a report for it counts from no one, and Stop asks no
+    // window.
+    other.sendRaw(
+      AppleReport(kind: AppleReportKind.content, runId: run.id, seq: 2),
+    );
+    await run.cancel('stop');
+    await pumpEventQueue();
+    expect(
+      other.commands.where((c) => c.kind == AppleCommandKind.cancel),
+      isEmpty,
+    );
+    expect(events.whereType<DirectContentDelta>(), hasLength(1));
+  });
+
+  test('the only engine going takes the model out of the offer', () async {
+    window.ready(supported: true);
+    await window.until(() => container.read(appleOnDeviceAnswersProvider));
+    expect(await offered(), <String>[kAppleOnDeviceProfileId]);
+    window.detach();
+    await pumpEventQueue();
+    expect(container.read(appleOnDeviceAnswersProvider), isFalse);
+    expect(await offered(), isEmpty);
   });
 
   test('a tool result the window cannot be given ends the run, and the '
@@ -441,6 +461,89 @@ void main() {
     final back = _Window(bus, apple, id: 'window-2');
     back.ready(supported: true, runs: <String>[run.id]);
     await back.until(() => back.cancelled.contains(run.id));
+  });
+
+  group('a window whose socket just goes away', () {
+    late Directory temporary;
+    late StreamChannelController<String> pipe;
+    late RpcSession session;
+
+    setUp(() async {
+      temporary = await Directory.systemTemp.createTemp('conduitd_apple_drop');
+      final log = DaemonLog(level: 'error', sink: NullSink());
+      pipe = StreamChannelController<String>(sync: true);
+      // The window's daemon session, as DaemonServer makes one per socket.
+      session = RpcSession(
+        sessionId: window.id,
+        channel: pipe.local,
+        system: SystemService(
+          directories: DaemonDirectories.create(temporary.path),
+          daemonVersion: '0.0.0-test',
+          log: log,
+          requestStop: (_) => fail('nothing here stops the daemon'),
+        ),
+        events: bus,
+        log: log,
+        services: () => CoreServices(apple: apple),
+      );
+      // The session's own fan-out stands in for the window's socket; the
+      // fake engine keeps hearing the commands.
+      bus.attach(window.id, window._deliver);
+    });
+
+    tearDown(() => temporary.delete(recursive: true));
+
+    test('is cleaned up as one that closed: its turn ends, and the window '
+        'that comes back runs the next one', () async {
+      final listening = session.listen();
+      window.ready(supported: true);
+      window.reply = const <String>['Half '];
+      window.holdOpen = true;
+      final run = container
+          .read(applePccAdapterProvider)
+          .startCompletion(
+            DirectConnectionProfile.appleOnDevice(),
+            ask('Keep going.'),
+          );
+      final events = <DirectStreamEvent>[];
+      var finished = false;
+      run.events.listen(events.add, onDone: () => finished = true);
+      await window.until(
+        () => events.whereType<DirectContentDelta>().isNotEmpty,
+      );
+
+      // The socket drops: no close(), the stream just ends.
+      await pipe.foreign.sink.close();
+      await listening;
+      await window.until(() => finished);
+      expect(events.last, isA<DirectStreamError>());
+
+      // The same engine on its new session, still holding the old run: it
+      // is told to stop it, and runs the next turn.
+      final back = _Window(bus, apple, id: 'window-2');
+      back.ready(supported: true, runs: <String>[run.id]);
+      await back.until(() => back.cancelled.contains(run.id));
+      back.reply = const <String>['All of it.'];
+      final next = await container
+          .read(applePccAdapterProvider)
+          .startCompletion(
+            DirectConnectionProfile.appleOnDevice(),
+            ask('Again.'),
+          )
+          .events
+          .toList();
+      final text = next.whereType<DirectContentDelta>().map((e) => e.content);
+      expect(text.join(), 'All of it.');
+      expect(next.last, isA<DirectStreamDone>());
+    });
+
+    test('closing twice, or after the socket went, is harmless', () async {
+      final listening = session.listen();
+      await pipe.foreign.sink.close();
+      await listening;
+      await session.close();
+      await session.close();
+    });
   });
 
   test('a turn with no window to run it fails rather than waits', () async {

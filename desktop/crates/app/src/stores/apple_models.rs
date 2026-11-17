@@ -8,7 +8,8 @@
 //! order the engine said them. Each time the window connects it says
 //! whether this Mac has Apple's models (`ready`), which is when the daemon
 //! offers the Apple On-Device connection, and which runs the engine still
-//! has: a socket that came back keeps them going.
+//! has: runs end with the session that ran them, so after a reconnect the
+//! daemon stops each one (its turn has already failed).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 

@@ -264,9 +264,24 @@ class RpcSession {
   /// which then tells every window. Null before the core is up.
   final void Function(bool online)? _reportNetwork;
 
-  Future<void> listen() => _peer.listen();
+  /// Serves the window until its socket ends, however it ends (the window
+  /// closed it, it dropped, or it failed), then [close]s: a window gone is
+  /// cleaned up as one closed.
+  Future<void> listen() async {
+    try {
+      await _peer.listen();
+    } finally {
+      await close();
+    }
+  }
 
-  Future<void> close() async {
+  /// Ends the session and lets go of what it held: the one way out for
+  /// every end ([listen] done or failed, the daemon stopping), once however
+  /// often it is called.
+  Future<void> close() => _closing ??= _close();
+  Future<void>? _closing;
+
+  Future<void> _close() async {
     _events.detach(sessionId);
     // If that was the last window, nobody is left to answer: questions
     // still waiting take their conservative default now rather than hang

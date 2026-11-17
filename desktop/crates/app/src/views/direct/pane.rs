@@ -119,48 +119,54 @@ impl DirectPane {
         let apple = cfg!(target_os = "macos").then(|| rpc.call::<methods::AppleStatus>(&NoParams));
         let ask = self.ask_apple(apple.is_some());
         self.reloading = true;
+        // Each answer lands on its own: a slow one (Apple's, or the models
+        // of every connection) holds back none of the others.
+        self.land(list, window, cx, |s, list, _| {
+            s.reloading = false;
+            match list {
+                Ok(l) => s.adopt_list(l),
+                Err(e) => log::warn!("direct.reload: {e}"),
+            }
+        });
+        if let Some(apple) = apple {
+            self.land(apple, window, cx, move |s, apple, cx| {
+                s.take_apple(ask, apple, cx)
+            });
+        }
+        self.land(mcp, window, cx, |s, mcp, _| match mcp {
+            Ok(m) => {
+                s.mcp = Some(m);
+                s.mcp_failed = false;
+            }
+            Err(e) => {
+                log::warn!("mcp.list: {e}");
+                s.mcp_failed = true;
+            }
+        });
+        self.land(search, window, cx, |s, search, _| match search {
+            Ok(w) => s.search = Some(w),
+            Err(e) => log::warn!("webSearch.get: {e}"),
+        });
+        self.land(options, window, cx, |s, options, _| match options {
+            Ok(o) => s.options = Some(o),
+            Err(e) => log::warn!("direct.options: {e}"),
+        });
+    }
+
+    /// Takes `call`'s answer with `apply` when it lands, then redraws.
+    fn land<T: 'static>(
+        &self,
+        call: impl std::future::Future<Output = T> + 'static,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        apply: impl FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
+    ) {
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
-                let list = list.await;
+                let answer = call.await;
                 let _ = this.update(cx, |s, cx| {
-                    s.reloading = false;
-                    match list {
-                        Ok(l) => s.adopt_list(l),
-                        Err(e) => log::warn!("direct.reload: {e}"),
-                    }
-                    cx.notify();
-                });
-                if let Some(apple) = apple {
-                    let apple = apple.await;
-                    let _ = this.update(cx, |s, cx| s.take_apple(ask, apple, cx));
-                }
-                let mcp = mcp.await;
-                let search = search.await;
-                let _ = this.update(cx, |s, cx| {
-                    match mcp {
-                        Ok(m) => {
-                            s.mcp = Some(m);
-                            s.mcp_failed = false;
-                        }
-                        Err(e) => {
-                            log::warn!("mcp.list: {e}");
-                            s.mcp_failed = true;
-                        }
-                    }
-                    match search {
-                        Ok(w) => s.search = Some(w),
-                        Err(e) => log::warn!("webSearch.get: {e}"),
-                    }
-                    cx.notify();
-                });
-                // Lists every connection's models: last, it can be slow.
-                let options = options.await;
-                let _ = this.update(cx, |s, cx| {
-                    match options {
-                        Ok(o) => s.options = Some(o),
-                        Err(e) => log::warn!("direct.options: {e}"),
-                    }
+                    apply(s, answer, cx);
                     cx.notify();
                 });
             },
@@ -1577,6 +1583,33 @@ mod tests {
             );
             assert!(!p.apple_checking);
         });
+    }
+
+    /// An Apple ask still out holds back none of the other answers.
+    #[cfg(target_os = "macos")]
+    #[gpui_kit::test]
+    fn the_other_settings_land_while_apple_is_still_asked(cx: &mut TestAppContext) {
+        use conduit_protocol::{McpServerList, methods};
+
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AppleStatus>(on_device(AppleAvailability::Available));
+        let held = daemon.hold::<methods::AppleStatus>();
+        daemon.returns::<methods::McpList>(McpServerList::default());
+        daemon.on::<methods::WebSearchGet>(|_| Ok(serde_json::json!({})));
+        daemon.on::<methods::DirectOptions>(|_| Ok(serde_json::json!({})));
+        let (pane, vcx) = apple_pane(cx, &daemon);
+        vcx.run_until_parked();
+        pane.read_with(vcx, |p, _| {
+            assert!(p.apple_checking, "Apple is still being asked");
+            assert!(p.mcp.is_some(), "MCP servers");
+            assert!(p.search.is_some(), "web search");
+            assert!(p.options.is_some(), "Direct options");
+            assert!(p.list.is_some(), "connections");
+        });
+        held.release();
+        vcx.run_until_parked();
+        pane.read_with(vcx, |p, _| assert!(p.apple.is_some()));
     }
 
     /// Two history switches out at once, both refused: the pane goes back

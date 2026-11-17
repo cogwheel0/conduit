@@ -58,6 +58,7 @@ List<Override> appleModelsOverrides(AppleModelsBridge bridge) => <Override>[
 final class AppleModelsService {
   AppleModelsService(this._container, {required this.bridge}) {
     bridge._onReady = _ready;
+    bridge._onGone = _gone;
   }
 
   final ProviderContainer _container;
@@ -160,6 +161,10 @@ final class AppleModelsService {
     }());
   }
 
+  /// A window's engine went: the offer follows the engines left, and with
+  /// none that has the model it is withdrawn at once.
+  void _gone() => unawaited(_onDevice());
+
   Future<void> _rediscover() async {
     try {
       await _container.read(directModelDiscoveryProvider.notifier).refresh();
@@ -185,8 +190,9 @@ final class AppleModelsService {
 /// said `ready` last (one whose Mac has the models first), each run keeps
 /// the window that started it, and only that window's reports count for
 /// it. A run's reports are numbered: one lost on the way, a tool result
-/// the window cannot be given, or a window that comes back without the
-/// run ends it here ([_end]), and the window is told to stop it.
+/// the window cannot be given, or the window's session ending ends the run
+/// here ([_end]); a window still running a run this side no longer has is
+/// told to stop it.
 final class AppleModelsBridge implements ApplePccHost {
   AppleModelsBridge({
     Duration timeout = const Duration(seconds: 10),
@@ -199,6 +205,7 @@ final class AppleModelsBridge implements ApplePccHost {
   EventBus? _events;
   ApplePccHostListener? _listener;
   void Function(bool supported)? _onReady;
+  void Function()? _onGone;
   int _nextId = 0;
 
   /// Commands not answered yet, with the window each went to: only that
@@ -363,16 +370,22 @@ final class AppleModelsBridge implements ApplePccHost {
     );
   }
 
-  /// A window's session closed: it is no engine any more, and what it was
-  /// asked is not answered. Its runs wait for a window to come back with
-  /// them (a socket that reconnects keeps them) or without them.
+  /// A window's session ended (closed, dropped or failed): it is no
+  /// engine any more, what it was asked is not answered, and its runs end
+  /// with it (nothing else would finish them; an engine that comes back
+  /// still holding one is told to stop it). The offer then follows the
+  /// engines left.
   void forgetWindow(String window) {
-    _engines.remove(window);
+    final wasEngine = _engines.remove(window) != null;
     for (final pending in _pending.values.toList()) {
       if (pending.window == window && !pending.answer.isCompleted) {
         pending.answer.completeError(StateError('the window closed'));
       }
     }
+    for (final MapEntry(key: runId, value: owner) in _owners.entries.toList()) {
+      if (owner == window) _end(runId, stop: false);
+    }
+    if (wasEngine) _onGone?.call();
   }
 
   /// Ends [runId] here, failed, and stops it in the window running it: the
@@ -404,22 +417,14 @@ final class AppleModelsBridge implements ApplePccHost {
     );
   }
 
-  /// Whether [report], about a run, counts: from the window running it (or,
-  /// for a run whose window is gone, the next report in order from the
-  /// window that has come back with it), and next in the run's numbering.
-  /// A number skipped ends the run; one already taken is a repeat.
+  /// Whether [report], about a run, counts: from the window running it,
+  /// and next in the run's numbering. A number skipped ends the run; one
+  /// already taken is a repeat.
   bool _take(AppleReport report, String from) {
     final runId = report.runId ?? '';
-    final owner = _owners[runId];
-    if (owner == null) return false;
+    if (_owners[runId] != from) return false;
     final last = _numbers[runId] ?? 0;
     final seq = report.seq;
-    if (owner != from) {
-      // Another window's run, or this window's before a reconnect: only
-      // the very next report proves nothing went missing meanwhile.
-      if (_engines.containsKey(owner) || seq != last + 1) return false;
-      _owners[runId] = from;
-    }
     if (seq == null) return true;
     if (seq <= last) return false;
     if (seq > last + 1) {
@@ -502,11 +507,10 @@ final class AppleModelsBridge implements ApplePccHost {
     }
   }
 
-  /// Window [from] (re)connected. It runs commands from now on; a socket
-  /// that came back keeps the runs its engine still has. A run it has that
-  /// is not its own here (ended meanwhile, or another window's) is stopped
-  /// there; a run of its own, or of a window gone, that it does not have
-  /// ends here.
+  /// Window [from] said `ready` (it connected, or said it again): it runs
+  /// commands from now on. A run it has that is not its own here (one that
+  /// ended with an earlier session, or another window's) is stopped there;
+  /// a run of its own that it no longer has ends here.
   void _ready(String from, AppleReport report) {
     final supported = report.supported ?? false;
     _engines
@@ -514,19 +518,10 @@ final class AppleModelsBridge implements ApplePccHost {
       ..[from] = supported;
     final kept = report.runs.toSet();
     for (final runId in kept) {
-      final owner = _owners[runId];
-      if (owner == from) continue;
-      if (owner != null && !_engines.containsKey(owner)) {
-        _owners[runId] = from;
-      } else {
-        _stopIn(from, runId);
-      }
+      if (_owners[runId] != from) _stopIn(from, runId);
     }
     for (final MapEntry(key: runId, value: owner) in _owners.entries.toList()) {
-      if (kept.contains(runId)) continue;
-      if (owner == from || !_engines.containsKey(owner)) {
-        _end(runId, stop: false);
-      }
+      if (owner == from && !kept.contains(runId)) _end(runId, stop: false);
     }
     _onReady?.call(supported);
   }
@@ -554,8 +549,7 @@ final class AppleModelsBridge implements ApplePccHost {
         result = PlatformPccToolResult(content: '', cancelled: true);
       }
     }
-    // Ended meanwhile: nothing waits for it. Moved to a window that came
-    // back: that one is waiting.
+    // Ended meanwhile: nothing waits for it.
     final owner = _owners[runId];
     if (owner == null) return;
     try {
