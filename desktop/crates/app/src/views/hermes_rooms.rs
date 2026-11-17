@@ -237,6 +237,18 @@ pub fn stop(stores: &Stores, room_id: &str, cx: &mut App) {
 /// Disband Room…: asks, then ends room `room_id` for good; the pane goes
 /// back to a new chat if it showed the room.
 pub fn confirm_disband(stores: &Stores, room_id: &str, window: &mut Window, cx: &mut App) {
+    confirm_disband_then(stores, room_id, window, cx, |_| {});
+}
+
+/// [`confirm_disband`], running `disbanded` once the room is disbanded
+/// (and the store still on the account, gateway and connection asked).
+pub fn confirm_disband_then(
+    stores: &Stores,
+    room_id: &str,
+    window: &mut Window,
+    cx: &mut App,
+    disbanded: impl FnOnce(&mut App) + 'static,
+) {
     let l = cx.l10n().clone();
     let name = stores
         .hermes_rooms
@@ -290,6 +302,7 @@ pub fn confirm_disband(stores: &Stores, room_id: &str, window: &mut Window, cx: 
                     stores.navigation.update(cx, |n, cx| n.new_chat(false, cx));
                 }
                 stores.hermes_rooms.update(cx, |r, cx| r.refresh(cx));
+                disbanded(cx);
             }
             Err(e) => {
                 log::warn!("hermes.rooms.disband: {e}");

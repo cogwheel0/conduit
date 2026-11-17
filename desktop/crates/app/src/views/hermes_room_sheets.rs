@@ -69,17 +69,17 @@ fn sheet_note(text: String, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// Runs `then` on the main window once the sheet has gone.
-fn after_sheet(cx: &mut App, then: impl FnOnce(&mut Window, &mut App) + 'static) {
-    sheet::dismiss(cx);
-    cx.defer(move |cx| {
-        if let Some(handle) = cx
-            .try_global::<crate::AppState>()
-            .and_then(|s| s.main_window)
-        {
-            let _ = handle.update(cx, |_, window, cx| then(window, cx));
-        }
-    });
+/// Opens room `id`, made under generation `asked_in` -- only if the rooms
+/// store is still there when this runs (it runs deferred, after the sheet
+/// went: another account, gateway or connection may have taken charge in
+/// between).
+fn open_made_room(stores: &Stores, id: String, asked_in: u64, cx: &mut App) {
+    if stores.hermes_rooms.read(cx).generation() != asked_in {
+        return;
+    }
+    stores
+        .navigation
+        .update(cx, |n, cx| n.open_item(AreaItem::HermesRoom(id), cx));
 }
 
 // ── New Room ───────────────────────────────────────────────────────────
@@ -233,11 +233,12 @@ impl CreateRoomSheet {
                                 h.patch_listed(room, asked_in, cx);
                                 h.refresh(cx);
                             });
-                            let navigation = stores.navigation.clone();
-                            after_sheet(cx, move |_, cx| {
-                                navigation
-                                    .update(cx, |n, cx| n.open_item(AreaItem::HermesRoom(id), cx));
-                            });
+                            let this = cx.entity();
+                            if sheet::current::<Self>(cx).is_some_and(|open| open == this) {
+                                sheet::dismiss(cx);
+                            }
+                            let stores = stores.clone();
+                            cx.defer(move |cx| open_made_room(&stores, id, asked_in, cx));
                         }
                         Err(e) => {
                             log::warn!("hermes.rooms.create: {e}");
@@ -781,17 +782,23 @@ impl RoomInfoSheet {
         if self.refuse_if_stale(cx) {
             return;
         }
-        let (stores, id) = (self.stores.clone(), self.room_id.clone());
-        after_sheet(cx, move |_, cx| hermes_rooms::stop(&stores, &id, cx));
+        // The sheet stays, edits and all: Stop Work changes nothing it shows.
+        hermes_rooms::stop(&self.stores, &self.room_id, cx);
     }
 
-    fn disband(&mut self, cx: &mut Context<Self>) {
+    /// Disband, asked over the sheet: it stays (with its edits) until the
+    /// room is disbanded, and closes only then.
+    fn disband(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.refuse_if_stale(cx) {
             return;
         }
-        let (stores, id) = (self.stores.clone(), self.room_id.clone());
-        after_sheet(cx, move |window, cx| {
-            hermes_rooms::confirm_disband(&stores, &id, window, cx)
+        let this = cx.entity().downgrade();
+        hermes_rooms::confirm_disband_then(&self.stores, &self.room_id, window, cx, move |cx| {
+            if let Some(this) = this.upgrade()
+                && sheet::current::<Self>(cx).is_some_and(|open| open == this)
+            {
+                sheet::dismiss(cx);
+            }
         });
     }
 
@@ -984,8 +991,8 @@ impl SheetBody for RoomInfoSheet {
                     d.child(
                         Button::new("hermes-room-disband", l.desktop_hermes_disband_room_menu())
                             .danger()
-                            .on_click(Rc::new(move |_, _, cx| {
-                                let _ = disband.update(cx, |v, cx| v.disband(cx));
+                            .on_click(Rc::new(move |_, window, cx| {
+                                let _ = disband.update(cx, |v, cx| v.disband(window, cx));
                             })),
                     )
                 })
@@ -1026,10 +1033,18 @@ impl SheetBody for RoomInfoSheet {
         )
         .destructive();
         let ask = present_sheet(window, spec, cx);
-        cx.spawn(async move |_, cx: &mut AsyncApp| {
-            if ask.await {
-                cx.update(sheet::dismiss);
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            if !ask.await {
+                return;
             }
+            // Only this sheet, if it is still the one down when the answer
+            // comes.
+            let _ = this.update(cx, |_, cx| {
+                let this = cx.entity();
+                if sheet::current::<Self>(cx).is_some_and(|open| open == this) {
+                    sheet::dismiss(cx);
+                }
+            });
         })
         .detach();
     }
@@ -1210,6 +1225,7 @@ mod tests {
 
     use super::{CreateRoomSheet, RoomInfoSheet};
     use crate::stores::Stores;
+    use crate::stores::navigation::{AreaItem, Selection};
     use crate::stores::rpc::fake::FakeDaemon;
     use crate::views::sheet::SheetBody as _;
 
@@ -1350,7 +1366,7 @@ mod tests {
     fn create_with(
         cx: &mut TestAppContext,
         meanwhile: impl FnOnce(&Stores, &mut VisualTestContext),
-    ) -> bool {
+    ) -> (bool, Selection) {
         let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
         creatable(&daemon);
         stores
@@ -1377,23 +1393,29 @@ mod tests {
         meanwhile(&stores, vcx);
         drop(held);
         vcx.run_until_parked();
-        vcx.update(|_, cx| crate::views::sheet::current::<CreateRoomSheet>(cx))
-            .is_some()
+        let open = vcx
+            .update(|_, cx| crate::views::sheet::current::<CreateRoomSheet>(cx))
+            .is_some();
+        let shown = stores
+            .navigation
+            .read_with(vcx, |n, _| n.selection().clone());
+        (open, shown)
     }
 
     #[gpui_kit::test]
     fn a_room_made_after_the_account_changed_does_not_close_or_open_anything(
         cx: &mut TestAppContext,
     ) {
-        let open = create_with(cx, |stores, vcx| {
+        let (open, shown) = create_with(cx, |stores, vcx| {
             stores.hermes_rooms.update(vcx, |h, cx| h.reset(cx));
         });
-        assert!(open, "a stale answer closed the sheet and opened its room");
+        assert!(open, "a stale answer closed the sheet");
+        assert_ne!(shown, made(), "a stale answer opened its room");
     }
 
     #[gpui_kit::test]
     fn a_room_made_opens_even_when_a_list_event_came_first(cx: &mut TestAppContext) {
-        let open = create_with(cx, |stores, vcx| {
+        let (open, shown) = create_with(cx, |stores, vcx| {
             let list = serde_json::from_value(json!({
                 "available": true, "canCreate": true, "seatable": ["fern", "moss"],
                 "rooms": [{"id": "r9", "name": "Seed swap"}],
@@ -1404,6 +1426,7 @@ mod tests {
             });
         });
         assert!(!open, "the room made did not close the sheet");
+        assert_eq!(shown, made(), "the room made was not opened");
     }
 
     fn info_sheet(
@@ -1464,5 +1487,89 @@ mod tests {
             vcx.update(|_, cx| crate::views::sheet::current::<RoomInfoSheet>(cx))
                 .is_none()
         );
+    }
+
+    fn made() -> Selection {
+        Selection::Area(AreaItem::HermesRoom("r9".into()))
+    }
+
+    #[gpui_kit::test]
+    fn a_made_room_opens_only_if_its_binding_still_holds_when_the_open_runs(
+        cx: &mut TestAppContext,
+    ) {
+        let (_daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        let asked = stores.hermes_rooms.read_with(vcx, |h, _| h.generation());
+        // The binding moves between scheduling the open and running it.
+        stores.hermes_rooms.update(vcx, |h, cx| h.reset(cx));
+        vcx.update(|_, cx| super::open_made_room(&stores, "r9".into(), asked, cx));
+        assert_ne!(
+            stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone()),
+            made()
+        );
+        let now = stores.hermes_rooms.read_with(vcx, |h, _| h.generation());
+        vcx.update(|_, cx| super::open_made_room(&stores, "r9".into(), now, cx));
+        assert_eq!(
+            stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone()),
+            made()
+        );
+    }
+
+    #[gpui_kit::test]
+    fn room_info_stays_open_over_its_edits_when_disband_is_cancelled(cx: &mut TestAppContext) {
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        let sheet = info_sheet(&daemon, &stores, vcx);
+        sheet.update_in(vcx, |s, window, cx| {
+            s.type_into("purpose", "Seed trays", window, cx);
+            // The bench answers the Disband question Cancel.
+            s.disband(window, cx);
+        });
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| crate::views::sheet::current::<RoomInfoSheet>(cx))
+                .is_some(),
+            "Room Info closed before Disband was confirmed"
+        );
+        sheet.read_with(vcx, |s, _| assert_eq!(s.edit.purpose, "Seed trays"));
+        assert!(daemon.calls::<methods::HermesRoomsDisband>().is_empty());
+    }
+
+    #[gpui_kit::test]
+    fn room_info_closes_once_its_room_is_disbanded(cx: &mut TestAppContext) {
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        daemon.returns::<methods::HermesRoomsDisband>(conduit_protocol::OkResult { ok: true });
+        let sheet = info_sheet(&daemon, &stores, vcx);
+        sheet.update_in(vcx, |s, window, cx| s.disband(window, cx));
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::HermesRoomsDisband>().len(), 1);
+        assert!(
+            vcx.update(|_, cx| crate::views::sheet::current::<RoomInfoSheet>(cx))
+                .is_none()
+        );
+    }
+
+    #[gpui_kit::test]
+    fn stop_work_keeps_room_info_and_its_edits(cx: &mut TestAppContext) {
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        daemon.returns::<methods::HermesRoomsStop>(conduit_protocol::HermesRoomStopped {
+            stopped: 1,
+        });
+        let sheet = info_sheet(&daemon, &stores, vcx);
+        sheet.update_in(vcx, |s, window, cx| {
+            s.type_into("purpose", "Seed trays", window, cx);
+            s.stop(cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::HermesRoomsStop>().len(), 1);
+        assert!(
+            vcx.update(|_, cx| crate::views::sheet::current::<RoomInfoSheet>(cx))
+                .is_some(),
+            "Stop Work closed Room Info over its edits"
+        );
+        sheet.read_with(vcx, |s, _| assert_eq!(s.edit.purpose, "Seed trays"));
     }
 }
