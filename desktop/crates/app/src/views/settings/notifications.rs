@@ -67,6 +67,10 @@ impl NotificationsPane {
         if advanced_on {
             this.refresh_webhooks(window, cx);
         }
+        // The settings could not be read: opening the pane reads again.
+        if this.stores.notifications.read(cx).load_failed {
+            this.stores.notifications.update(cx, |s, cx| s.refresh(cx));
+        }
         this
     }
 
@@ -159,6 +163,7 @@ impl NotificationsPane {
             l10n.notifications_enabled_title(),
             enabled,
         )
+        .disabled(!self.stores.notifications.read(cx).loaded)
         .on_click(Rc::new(move |_, _, cx| {
             store.update(cx, |s, cx| {
                 s.set(
@@ -219,8 +224,10 @@ impl NotificationsPane {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = cx.entity().downgrade();
+        // Unknown settings take no change (see `NotificationsStore::set`).
+        let unknown = !self.stores.notifications.read(cx).loaded;
         let control = Switch::new(id, title.clone(), on)
-            .disabled(disabled)
+            .disabled(disabled || unknown)
             .on_click(Rc::new(move |_, _, cx| {
                 let _ = view.update(cx, |v, cx| v.set(patch(!on), cx));
             }));
@@ -497,6 +504,18 @@ impl Render for NotificationsPane {
         ];
         if let Some(hooks) = self.webhooks(&l10n, window, cx) {
             sections.push(hooks);
+        }
+        let unread = {
+            let store = self.stores.notifications.read(cx);
+            !store.loaded && store.load_failed
+        };
+        if unread {
+            // What is shown is not what was saved: say so.
+            sections.insert(
+                0,
+                forms::form_error("notifications-load-error", l10n.error_message(), cx)
+                    .into_any_element(),
+            );
         }
         if let Some(e) = &self.stores.notifications.read(cx).error {
             log::debug!("notifications: last change refused: {e}");
