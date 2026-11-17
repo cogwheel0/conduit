@@ -11,6 +11,7 @@ import 'package:conduit_core/utils/server_version_compat.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'account_scope.dart';
 import 'settled.dart';
 import 'voice_service.dart';
 
@@ -120,6 +121,9 @@ final class ServersService {
     // the provider it depends on has not resolved yet. Reading it directly
     // here reported "unknown" for a server that was about to work.
     await readSettled(_container, activeServerProvider.future);
+    // What the checks below find belongs to the account whose client is
+    // read here, taken once its server has settled.
+    final account = AccountScope.capture(_container);
     final api = _container.read(apiServiceProvider);
     if (api == null) {
       return ServerStatus(
@@ -153,7 +157,7 @@ final class ServersService {
         if (health == HealthCheckResult.unreachable) {
           return _unreachable(activeId, null);
         }
-        _noteProxySession(health);
+        _noteProxySession(health, account);
       } on Object catch (error) {
         return _unreachable(activeId, error);
       }
@@ -180,7 +184,11 @@ final class ServersService {
   /// core as its client tells it a redirect on the session endpoint, so the
   /// account keeps its session and the window offers to renew the proxy's
   /// (`auth.renewProxy`) instead of signing out.
-  void _noteProxySession(HealthCheckResult health) {
+  ///
+  /// Only for the account the check was made for ([account]): another
+  /// account's server answering meanwhile is no word on this one's proxy.
+  void _noteProxySession(HealthCheckResult health, AccountScope account) {
+    if (!account.isCurrent) return;
     final server = _container.read(activeServerProvider).asData?.value;
     final auth = _container.read(authStateManagerProvider).asData?.value;
     if (auth == null ||
