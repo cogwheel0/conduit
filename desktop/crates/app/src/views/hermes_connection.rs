@@ -950,7 +950,11 @@ impl HermesConnectionSheet {
                 forms::set_hint(&input, l.hermes_configured_replace_placeholder(), cx);
             }
         }
-        if !saved.has_memory_key && self.memory_cleared && sent.memory_cleared {
+        // The Save carried the clear: the saved key went, or a replacement
+        // typed after Clear took its place. Either way it is done, so a
+        // later Save leaves the key as saved. (Clear can't be pressed while
+        // a Save is out.)
+        if sent.memory_cleared {
             self.memory_cleared = false;
         }
         // Each row is followed by its identity (the row, not its name): a
@@ -2538,6 +2542,54 @@ mod tests {
                 "clear last: {clear_last}"
             );
         }
+    }
+
+    /// Clear, then a replacement typed and saved: the Save carried the
+    /// clear (the replacement is what it saved), so a later Save that
+    /// leaves the key alone keeps the replacement instead of clearing it.
+    #[gpui_kit::test]
+    fn a_saved_replacement_ends_the_clear(cx: &mut gpui_kit::TestAppContext) {
+        let api = |saved: Option<&str>| {
+            let mut l = list("a", saved, "nativePkce");
+            l.connections[1].mode = "responses".into();
+            l.connections[1].has_memory_key = true;
+            l
+        };
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsSave>(api(Some("b")));
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.adopt_connections(api(None), cx));
+        let s = stores.clone();
+        vcx.update(|window, cx| open(&s, Some("b".into()), window, cx));
+        vcx.run_until_parked();
+        let sheet = vcx
+            .update(|_, cx| sheet::current::<HermesConnectionSheet>(cx))
+            .expect("the editor opens");
+        let held = daemon.hold::<methods::HermesConnectionsSave>();
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.clear_memory_key(w, cx);
+            s.memory_key
+                .update(cx, |i, cx| i.set_value("synthetic-memory-key", w, cx));
+            s.save(w, cx);
+        });
+        // A word typed while the Save is out keeps the editor open.
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.name.update(cx, |i, cx| i.set_value("Cold frame", w, cx))
+        });
+        drop(held);
+        vcx.run_until_parked();
+        vcx.update(|_, cx| assert!(sheet::current::<HermesConnectionSheet>(cx).is_some()));
+        on_sheet(vcx, &sheet, |s, w, cx| s.save(w, cx));
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::HermesConnectionsSave>();
+        assert_eq!(saves.len(), 2);
+        assert_eq!(saves[0]["memoryKey"], json!("synthetic-memory-key"));
+        assert!(
+            saves[1]["memoryKey"].is_null(),
+            "the second Save cleared the saved replacement: {}",
+            saves[1]["memoryKey"]
+        );
     }
 
     /// Typed words make Quit ask first.
