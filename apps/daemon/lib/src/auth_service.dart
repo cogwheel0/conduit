@@ -145,12 +145,15 @@ final class AuthService {
   /// What to add to an authenticator app for an `enroll` step.
   Future<TwoStepSetup> twoStepSetup() async {
     final pending = _pendingAt({OpenWebUiTwoStepKind.enroll});
+    final challenge = pending.challenge;
     final OpenWebUiTwoStepSetup setup;
     try {
-      setup = await _manager.startTwoStepEnrollment(pending.challenge);
+      setup = await _manager.startTwoStepEnrollment(challenge);
     } catch (error) {
       throw _twoStepError(error);
     }
+    // A key for an attempt cancelled or replaced meanwhile: not this one's.
+    _requireAttempt(pending, challenge);
     return TwoStepSetup(
       manualKey: setup.manualKey,
       qrSvg: setup.qrSvg,
@@ -170,18 +173,21 @@ final class AuthService {
     if (params.code.trim().isEmpty) {
       throw const RpcError(code: ConduitErrorCodes.twoStepInvalidCode);
     }
+    final challenge = pending.challenge;
     final OpenWebUiTwoStepSession session;
     try {
       session = await _manager.submitTwoStepCode(
-        pending.challenge,
+        challenge,
         params.code,
         recovery:
-            params.recovery &&
-            pending.challenge.kind == OpenWebUiTwoStepKind.verify,
+            params.recovery && challenge.kind == OpenWebUiTwoStepKind.verify,
       );
     } catch (error) {
       throw _twoStepError(error);
     }
+    // Cancelled, or another sign-in began, while the code was checked: the
+    // session it brought finishes nothing.
+    _requireAttempt(pending, challenge);
     if (session.recoveryCodes.isNotEmpty) {
       pending.issued = session;
       _announce();
@@ -197,14 +203,18 @@ final class AuthService {
     if (params.resetToken.trim().isEmpty) {
       throw const RpcError(code: ConduitErrorCodes.twoStepInvalidCode);
     }
+    final challenge = pending.challenge;
+    final OpenWebUiTwoStepChallenge next;
     try {
-      pending.challenge = await _manager.redeemTwoStepResetToken(
-        pending.challenge,
+      next = await _manager.redeemTwoStepResetToken(
+        challenge,
         params.resetToken,
       );
     } catch (error) {
       throw _twoStepError(error);
     }
+    _requireAttempt(pending, challenge);
+    pending.challenge = next;
     _announce();
     return _snapshot();
   }
@@ -230,6 +240,9 @@ final class AuthService {
     _PendingTwoStep pending,
     OpenWebUiTwoStepSession session,
   ) async {
+    // Checked with no wait before the core commits the session: once it
+    // starts, this attempt is the one in charge.
+    _requireAttempt(pending, pending.challenge);
     final bool signedIn;
     try {
       signedIn = await _manager.finishTwoStepSignIn(session);
@@ -254,6 +267,25 @@ final class AuthService {
       return null;
     }
     return pending;
+  }
+
+  /// The ticket every answer of a two-step attempt is checked against after
+  /// its wait, and before the session is signed in to: still this attempt
+  /// ([pending], for the same server and account) at the same step
+  /// ([challenge]). Cancelling, a new sign-in, another server or a step
+  /// moved on ends it.
+  void _requireAttempt(
+    _PendingTwoStep pending,
+    OpenWebUiTwoStepChallenge challenge,
+  ) {
+    if (identical(_currentTwoStep(), pending) &&
+        identical(pending.challenge, challenge)) {
+      return;
+    }
+    throw const RpcError(
+      code: ConduitErrorCodes.twoStepExpired,
+      args: <String, String>{'reason': 'superseded'},
+    );
   }
 
   _PendingTwoStep _pendingAt(Set<OpenWebUiTwoStepKind> kinds) {
