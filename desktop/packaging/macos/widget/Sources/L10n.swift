@@ -1,5 +1,6 @@
 // The widget's words, in the app's 14 languages (WidgetStrings.swift,
-// generated from lib/l10n), and dates by the app's sidebar rules.
+// generated from lib/l10n by packaging/macos/native_strings.py when the
+// widget builds), and dates by the app's sidebar rules.
 
 import Foundation
 

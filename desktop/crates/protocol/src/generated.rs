@@ -6477,6 +6477,99 @@ pub struct HermesModelChoiceDto {
     pub label: String,
 }
 
+/// Params for `intents.ask`: Shortcuts' Ask Conduit, a question whose answer
+/// goes back to the shortcut as text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntentAsk {
+    pub text: String,
+    /// Null lets the daemon choose, as `turns.send` does: the account's
+    /// default model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// How long to wait for the answer before giving the shortcut the chat
+    /// instead. The answer keeps going in the chat either way.
+    #[serde(default = "default_intent_ask_timeout_ms")]
+    pub timeout_ms: i64,
+}
+
+fn default_intent_ask_timeout_ms() -> i64 {
+    120000
+}
+
+/// Reply to `intents.ask`.
+///
+/// A question that started always names its chat, whatever happened next,
+/// so the shortcut can say where the answer will be and open it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntentAnswer {
+    pub chat_id: String,
+    pub message_id: String,
+    /// One of `IntentAskOutcome`.
+    pub outcome: String,
+    /// The answer as the Copy action copies it: Markdown, without the
+    /// reasoning and tool-call blocks. Whatever had arrived when it failed
+    /// or timed out.
+    #[serde(default)]
+    pub text: String,
+    /// The server's own words for a failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// The chat's title as it is now (a new chat's title may not be in yet).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// Params for `intents.chats`: the chats Shortcuts offers for Open Chat.
+///
+/// With `ids`, those chats (a saved shortcut checking that its chat is still
+/// there); else with `query`, the chats that match it; else the recent ones.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntentChatsQuery {
+    #[serde(default)]
+    pub ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    #[serde(default = "default_intent_chats_query_limit")]
+    pub limit: i64,
+}
+
+impl Default for IntentChatsQuery {
+    fn default() -> Self {
+        Self {
+            ids: Default::default(),
+            query: None,
+            limit: default_intent_chats_query_limit(),
+        }
+    }
+}
+
+fn default_intent_chats_query_limit() -> i64 {
+    20
+}
+
+/// One chat as Shortcuts shows it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntentChat {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub updated_at_ms: i64,
+    #[serde(default)]
+    pub pinned: bool,
+}
+
+/// Reply to `intents.chats`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct IntentChats {
+    #[serde(default)]
+    pub chats: Vec<IntentChat>,
+}
+
 /// What checking an address for a LibreChat server found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum LibreChatProbeOutcome {
@@ -15687,6 +15780,31 @@ pub mod methods {
         type Params = super::ChatRef;
         type Result = super::ChatForked;
     }
+
+    /// A question whose answer comes back in the reply (Ask Conduit): sends
+    /// it as a new chat and waits for the answer, up to a timeout.
+    ///
+    /// `intents.ask`: IntentAsk -> IntentAnswer.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct IntentsAsk;
+
+    impl RpcMethod for IntentsAsk {
+        const NAME: &'static str = "intents.ask";
+        type Params = super::IntentAsk;
+        type Result = super::IntentAnswer;
+    }
+
+    /// The chats Shortcuts offers (Open Chat): by id, by search, or recent.
+    ///
+    /// `intents.chats`: IntentChatsQuery -> IntentChats.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct IntentsChats;
+
+    impl RpcMethod for IntentsChats {
+        const NAME: &'static str = "intents.chats";
+        type Params = super::IntentChatsQuery;
+        type Result = super::IntentChats;
+    }
 }
 
 /// Every method, with its params and result DTOs by name (`None` for none).
@@ -17361,6 +17479,16 @@ pub const METHODS: &[MethodSpec] = &[
         params: Some("ChatRef"),
         result: Some("ChatForked"),
     },
+    MethodSpec {
+        name: "intents.ask",
+        params: Some("IntentAsk"),
+        result: Some("IntentAnswer"),
+    },
+    MethodSpec {
+        name: "intents.chats",
+        params: Some("IntentChatsQuery"),
+        result: Some("IntentChats"),
+    },
 ];
 
 /// The event names, for `events.subscribe`.
@@ -18348,6 +18476,11 @@ pub mod conformance {
         "HermesWork",
         "HermesWorkChat",
         "HermesWorkWatch",
+        "IntentAnswer",
+        "IntentAsk",
+        "IntentChat",
+        "IntentChats",
+        "IntentChatsQuery",
         "KnowledgeList",
         "KnowledgeQuery",
         "KnowledgeSummary",
@@ -18896,6 +19029,11 @@ pub mod conformance {
             "HermesWork" => roundtrip::<super::HermesWork>(json),
             "HermesWorkChat" => roundtrip::<super::HermesWorkChat>(json),
             "HermesWorkWatch" => roundtrip::<super::HermesWorkWatch>(json),
+            "IntentAnswer" => roundtrip::<super::IntentAnswer>(json),
+            "IntentAsk" => roundtrip::<super::IntentAsk>(json),
+            "IntentChat" => roundtrip::<super::IntentChat>(json),
+            "IntentChats" => roundtrip::<super::IntentChats>(json),
+            "IntentChatsQuery" => roundtrip::<super::IntentChatsQuery>(json),
             "KnowledgeList" => roundtrip::<super::KnowledgeList>(json),
             "KnowledgeQuery" => roundtrip::<super::KnowledgeQuery>(json),
             "KnowledgeSummary" => roundtrip::<super::KnowledgeSummary>(json),

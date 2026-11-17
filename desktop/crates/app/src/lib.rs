@@ -32,6 +32,7 @@ pub mod desktop;
 pub mod e2e;
 #[cfg(all(target_os = "macos", feature = "harness"))]
 pub mod fixture;
+pub mod intents;
 pub mod keymap;
 pub mod l10n;
 pub mod menus;
@@ -436,6 +437,9 @@ pub fn run() {
         desktop::install(urls_rx, hidden, cx);
         #[cfg(target_os = "macos")]
         desktop::install_services(services, cx);
+        // Shortcuts, Siri and Spotlight: requests that came with the launch
+        // and those that follow.
+        intents::install(cx);
         updates::install(cx);
         // The setup window and the main window follow the session.
         windows::install(cx);

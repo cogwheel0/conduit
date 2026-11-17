@@ -4,6 +4,244 @@
   "@scheduledTaskDeleteTitle": {
     "description": "Title of the confirmation dialog before deleting a scheduled task."
   },
+  "desktopIntentAskTitle": "Ask Conduit",
+  "@desktopIntentAskTitle": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). The Ask Conduit action's name and its short title, in Title Case."
+  },
+  "desktopIntentAskDescription": "Asks Conduit a question and gives back the answer as text.",
+  "@desktopIntentAskDescription": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). What the Ask Conduit action does, in sentence case."
+  },
+  "desktopIntentQuestion": "Question",
+  "@desktopIntentQuestion": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). The Ask Conduit action's question field, in Title Case."
+  },
+  "desktopIntentQuestionPrompt": "What would you like to ask?",
+  "@desktopIntentQuestionPrompt": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). What Shortcuts or Siri asks when the question is missing."
+  },
+  "desktopIntentOpenInConduit": "Open in Conduit",
+  "@desktopIntentOpenInConduit": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). The Ask Conduit action's switch that shows the chat in Conduit afterwards, in Title Case."
+  },
+  "desktopIntentOpenInConduitDescription": "Shows the chat in Conduit once the answer is in.",
+  "@desktopIntentOpenInConduitDescription": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). What the Open in Conduit switch does."
+  },
+  "desktopIntentAskSummary": "Ask Conduit {prompt}",
+  "@desktopIntentAskSummary": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). The Ask Conduit action as a sentence in the shortcut editor; {prompt} is the question field.",
+    "placeholders": {
+      "prompt": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentNewChatTitle": "New Chat",
+  "@desktopIntentNewChatTitle": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). The New Chat action's name and short title, in Title Case."
+  },
+  "desktopIntentNewChatDescription": "Opens a new chat in Conduit with your text in the message box, ready to send.",
+  "@desktopIntentNewChatDescription": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). What the New Chat action does."
+  },
+  "desktopIntentMessage": "Message",
+  "@desktopIntentMessage": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). The New Chat action's text field, in Title Case."
+  },
+  "desktopIntentNewChatSummary": "New chat with {prompt}",
+  "@desktopIntentNewChatSummary": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). The New Chat action as a sentence in the shortcut editor; {prompt} is the message field.",
+    "placeholders": {
+      "prompt": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentOpenChatTitle": "Open Chat",
+  "@desktopIntentOpenChatTitle": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). The Open Chat action's name and short title, in Title Case."
+  },
+  "desktopIntentOpenChatDescription": "Opens one of your chats in Conduit.",
+  "@desktopIntentOpenChatDescription": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). What the Open Chat action does."
+  },
+  "desktopIntentChat": "Chat",
+  "@desktopIntentChat": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). The Open Chat action's chat field, and the name Shortcuts gives a chat, in Title Case."
+  },
+  "desktopIntentWhichChat": "Which chat?",
+  "@desktopIntentWhichChat": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). What Shortcuts or Siri asks when the chat is missing."
+  },
+  "desktopIntentOpenChatSummary": "Open {target}",
+  "@desktopIntentOpenChatSummary": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). The Open Chat action as a sentence in the shortcut editor; {target} is the chat field.",
+    "placeholders": {
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentVoiceCallTitle": "Start Voice Call",
+  "@desktopIntentVoiceCallTitle": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). The Start Voice Call action's name and short title, in Title Case."
+  },
+  "desktopIntentVoiceCallDescription": "Starts a voice call with Conduit in a new chat.",
+  "@desktopIntentVoiceCallDescription": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). What the Start Voice Call action does."
+  },
+  "desktopIntentQuickAskTitle": "Show Quick Ask",
+  "@desktopIntentQuickAskTitle": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). The Show Quick Ask action's name, in Title Case; Quick Ask is the floating panel."
+  },
+  "desktopIntentQuickAskDescription": "Opens Quick Ask over the app you're using, with your text in it if you give some.",
+  "@desktopIntentQuickAskDescription": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). What the Show Quick Ask action does."
+  },
+  "desktopIntentText": "Text",
+  "@desktopIntentText": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). The Show Quick Ask action's text field, in Title Case."
+  },
+  "desktopIntentQuickAskSummary": "Show Quick Ask with {text}",
+  "@desktopIntentQuickAskSummary": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). The Show Quick Ask action as a sentence in the shortcut editor; {text} is the text field.",
+    "placeholders": {
+      "text": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentQuickAskShortTitle": "Quick Ask",
+  "@desktopIntentQuickAskShortTitle": {
+    "description": "Shown in Shortcuts, Spotlight and Siri (App Intents, read from Localizable.strings that packaging/macos/intents.sh writes). Show Quick Ask's short title on its tile, in Title Case."
+  },
+  "desktopIntentUnexpected": "Conduit couldn't do that. Try again.",
+  "@desktopIntentUnexpected": {
+    "description": "When a Shortcuts action fails for no reason Conduit can name (also for the app's own unexpected failures)."
+  },
+  "desktopIntentPhraseAsk": "Ask {applicationName}",
+  "@desktopIntentPhraseAsk": {
+    "description": "A phrase Siri and Spotlight recognise for an App Shortcut (AppShortcuts.strings); {applicationName} is the app's name and must stay exactly once. Runs Ask Conduit.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentPhraseAskQuestion": "Ask {applicationName} a question",
+  "@desktopIntentPhraseAskQuestion": {
+    "description": "A phrase Siri and Spotlight recognise for an App Shortcut (AppShortcuts.strings); {applicationName} is the app's name and must stay exactly once. Runs Ask Conduit.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentPhraseNewChat": "Start a new chat in {applicationName}",
+  "@desktopIntentPhraseNewChat": {
+    "description": "A phrase Siri and Spotlight recognise for an App Shortcut (AppShortcuts.strings); {applicationName} is the app's name and must stay exactly once. Runs New Chat.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentPhraseNewChatShort": "New {applicationName} chat",
+  "@desktopIntentPhraseNewChatShort": {
+    "description": "A phrase Siri and Spotlight recognise for an App Shortcut (AppShortcuts.strings); {applicationName} is the app's name and must stay exactly once. Runs New Chat.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentPhraseOpenChat": "Open a chat in {applicationName}",
+  "@desktopIntentPhraseOpenChat": {
+    "description": "A phrase Siri and Spotlight recognise for an App Shortcut (AppShortcuts.strings); {applicationName} is the app's name and must stay exactly once. Runs Open Chat (Siri then asks which chat).",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentPhraseVoiceCall": "Start a voice call in {applicationName}",
+  "@desktopIntentPhraseVoiceCall": {
+    "description": "A phrase Siri and Spotlight recognise for an App Shortcut (AppShortcuts.strings); {applicationName} is the app's name and must stay exactly once. Runs Start Voice Call.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentPhraseCall": "Call {applicationName}",
+  "@desktopIntentPhraseCall": {
+    "description": "A phrase Siri and Spotlight recognise for an App Shortcut (AppShortcuts.strings); {applicationName} is the app's name and must stay exactly once. Runs Start Voice Call.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentPhraseQuickAsk": "Show Quick Ask in {applicationName}",
+  "@desktopIntentPhraseQuickAsk": {
+    "description": "A phrase Siri and Spotlight recognise for an App Shortcut (AppShortcuts.strings); {applicationName} is the app's name and must stay exactly once. Runs Show Quick Ask.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentNeedsSignIn": "Open Conduit and sign in, then try again.",
+  "@desktopIntentNeedsSignIn": {
+    "description": "The error a Shortcuts action shows (sentence case). Conduit has no signed-in account yet."
+  },
+  "desktopIntentNotReady": "Conduit is still starting up. Try again in a moment.",
+  "@desktopIntentNotReady": {
+    "description": "The error a Shortcuts action shows (sentence case). Conduit was launched for the action and could not get ready in time."
+  },
+  "desktopIntentAskEmpty": "Type a question for Conduit to answer.",
+  "@desktopIntentAskEmpty": {
+    "description": "The error a Shortcuts action shows (sentence case). Ask Conduit was run with an empty question."
+  },
+  "desktopIntentAskTimedOut": "Conduit is still answering. You'll find the answer in the chat “{title}”.",
+  "@desktopIntentAskTimedOut": {
+    "description": "The error a Shortcuts action shows (sentence case). Ask Conduit stopped waiting; the answer keeps going in the chat titled {title}.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentAskTimedOutUntitled": "Conduit is still answering. You'll find the answer in Conduit.",
+  "@desktopIntentAskTimedOutUntitled": {
+    "description": "The error a Shortcuts action shows (sentence case). Ask Conduit stopped waiting; the answer keeps going in a chat that has no title yet."
+  },
+  "desktopIntentAskFailed": "The answer didn't come through: {detail}",
+  "@desktopIntentAskFailed": {
+    "description": "The error a Shortcuts action shows (sentence case). The model answered with an error; {detail} is the server's own words.",
+    "placeholders": {
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopIntentAskFailedPlain": "The answer didn't come through. Try again.",
+  "@desktopIntentAskFailedPlain": {
+    "description": "The error a Shortcuts action shows (sentence case). The model answered with an error and gave no reason."
+  },
+  "desktopIntentAskQueued": "You're offline. Conduit will send your question when you're back online, and the answer will be in Conduit.",
+  "@desktopIntentAskQueued": {
+    "description": "The error a Shortcuts action shows (sentence case). The question waits in the outbox until the Mac is online again."
+  },
+  "desktopIntentChatMissing": "That chat isn't in Conduit anymore.",
+  "@desktopIntentChatMissing": {
+    "description": "The error a Shortcuts action shows (sentence case). Open Chat named a chat that was deleted."
+  },
+  "desktopIntentOffline": "Conduit can't reach your server. Check your connection and try again.",
+  "@desktopIntentOffline": {
+    "description": "The error a Shortcuts action shows (sentence case). Conduit could not reach the server to ask the question."
+  },
   "desktopAddLinkEllipsis": "Add Link…",
   "@desktopAddLinkEllipsis": {
     "description": "Format menu item that asks for an address and links the selected text (⌘K). Title Case, ellipsis because it asks."
@@ -4020,6 +4258,22 @@
   "desktopKeyboardWorkspaceFooter": "Saves the model, prompt, tool, skill or knowledge open in Workspace.",
   "@desktopKeyboardWorkspaceFooter": {
     "description": "Settings › Keyboard: footer under the Workspace group, whose ⌘S saves the item open in a Workspace editor. Sentence case."
+  },
+  "desktopKeyboardCalendarEarlier": "Earlier Days",
+  "@desktopKeyboardCalendarEarlier": {
+    "description": "Settings › Keyboard: row in the Calendar group for ⌘←, which moves the agenda to the days before the ones shown. Title Case."
+  },
+  "desktopKeyboardCalendarLater": "Later Days",
+  "@desktopKeyboardCalendarLater": {
+    "description": "Settings › Keyboard: row in the Calendar group for ⌘→, which moves the agenda to the days after the ones shown. Title Case."
+  },
+  "desktopKeyboardCalendarFooter": "These work in Calendar: Delete removes the selected event, and Save saves the event you're editing.",
+  "@desktopKeyboardCalendarFooter": {
+    "description": "Settings › Keyboard: footer under the Calendar group, whose keys work only in the Calendar pane (Delete on the selected event; Save in the event editor). Sentence case."
+  },
+  "desktopKeyboardTasksFooter": "These work in Scheduled Tasks: Delete removes the selected task, and Save saves the task you're editing.",
+  "@desktopKeyboardTasksFooter": {
+    "description": "Settings › Keyboard: footer under the Scheduled Tasks group, whose keys work only in the Scheduled Tasks pane (Delete on the selected task; Save in the task editor). Sentence case."
   },
   "desktopNotificationAnswerReady": "The answer is ready.",
   "@desktopNotificationAnswerReady": {

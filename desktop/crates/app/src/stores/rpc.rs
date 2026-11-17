@@ -22,8 +22,10 @@ pub type CallFuture = Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Sen
 pub trait Daemon: Send + Sync + 'static {
     fn call_value(&self, method: &'static str, params: Value) -> CallFuture;
 
-    /// A call that may take longer than the usual deadline (a sign-in the
-    /// user finishes in the browser).
+    /// [`Daemon::call_value`], waiting up to `timeout` instead of the
+    /// client's usual call timeout: a sign-in the user finishes in the
+    /// browser, or a call that waits for an answer, as `intents.ask` does.
+    /// Answers that have no clock of their own (the test fakes) ignore it.
     fn call_value_with_timeout(
         &self,
         method: &'static str,

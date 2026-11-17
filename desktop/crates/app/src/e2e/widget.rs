@@ -274,15 +274,35 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= ok("conduit://quick-ask shows Quick Ask", shown);
     cx.update(desktop::hide_quick_ask);
     settle(cx, 400).await;
-    for link in ["conduit://call", "conduit://mic?homeWidget=true"] {
+    let quiet = super::voice_call::prepare_quiet_call(dir, cx).await;
+    pass &= ok("a quiet stand-in for the call's microphone", quiet);
+    // Never a call on the real microphone: without the stand-in, no links
+    // that start one.
+    let call_links: &[&str] = if quiet {
+        &["conduit://call", "conduit://mic?homeWidget=true"]
+    } else {
+        &[]
+    };
+    for &link in call_links {
         links(&[link], cx);
-        // No voice calls in this build: a new chat with the caret in the
-        // composer, as the phone does when a call can't start.
-        let fallback = wait_until(cx, Duration::from_secs(10), |cx| {
-            matches!(selection(cx), Selection::New { .. })
+        // A voice call in a new chat, as the phone's widget starts one.
+        let started = wait_until(cx, Duration::from_secs(10), |cx| {
+            super::voice_call::call_on(cx).is_some()
+                && matches!(selection(cx), Selection::New { .. })
         })
         .await;
-        pass &= ok(&format!("{link} opens a new chat"), fallback);
+        pass &= ok(
+            &format!("{link} starts a voice call in a new chat"),
+            started,
+        );
+        if link == "conduit://call" {
+            settle(cx, 600).await;
+            shoot_main(dir, "widget-voice-call", cx).await;
+        }
+        pass &= ok(
+            &format!("…and the call from {link} ends"),
+            super::voice_call::end_call(cx).await,
+        );
         if let Some(id) = second.clone() {
             links(&[&format!("conduit://chat/{id}")], cx);
             settle(cx, 600).await;

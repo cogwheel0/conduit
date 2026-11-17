@@ -35,6 +35,7 @@ import 'hermes_cards_service.dart';
 import 'hermes_service.dart';
 import 'calls_service.dart';
 import 'librechat_service.dart';
+import 'intents_service.dart';
 import 'speech_service.dart';
 import 'voice_service.dart';
 import 'dictation_service.dart';
@@ -376,6 +377,7 @@ class RpcSession {
     _registerReleaseNotesAndData();
     _registerChats();
     _registerTurns();
+    _registerIntents();
     _registerModels();
 
     _peer.registerFallback((json_rpc.Parameters params) {
@@ -818,6 +820,18 @@ class RpcSession {
       (r) => _requireTurns().queueSendNow(r),
     );
     _on(ConduitMethodSpecs.queueRetry, (r) => _requireTurns().queueRetry(r.id));
+  }
+
+  /// `intents.*`: Shortcuts' Ask Conduit and Open Chat (the Mac's App
+  /// Intents), over the turns and chats services.
+  void _registerIntents() {
+    IntentsService intents() => IntentsService.over(
+      turns: _requireTurns(),
+      chats: _requireChats(),
+      events: _events,
+    );
+    _on(ConduitMethodSpecs.intentsAsk, (request) => intents().ask(request));
+    _on(ConduitMethodSpecs.intentsChats, (query) => intents().chats(query));
   }
 
   void _registerModels() {

@@ -7,14 +7,16 @@
 #    the desktop widget is embedded (a sandboxed WidgetKit extension under
 #    the app's id, sharing its app group) with the library the app reloads
 #    it through; the Share extension embedded, sandboxed and signed, and the
-#    Services items with their titles in every language (share/build.sh).
+#    Services items with their titles in every language (share/build.sh);
+#    and its App Intents' metadata and strings (intents.sh verify).
 # 2. The bundled conduitd, as signed (hardened runtime, entitlements,
 #    its own libsqlite3): apps/daemon/tool/smoke.dart starts it, checks the
 #    handshake, and that it exits 0 on stdin EOF and on system.shutdown.
 # 3. With --launch: the app itself runs its `--shots` smoke pass against a
 #    throwaway profile (CONDUIT_USER_DATA, CONDUIT_LOGS): it starts the
-#    bundled conduitd, connects, captures its windows and quits. Afterwards
-#    no conduitd from this bundle may still run.
+#    bundled conduitd, connects, checks that every type the App Intents
+#    metadata names is in the binary, captures its windows and quits.
+#    Afterwards no conduitd from this bundle may still run.
 #
 # Set CONDUIT_FLAVOR=dev to keep the master key in the dev Keychain item
 # (on a Mac that should not get the release item); CI uses the default.
@@ -65,6 +67,9 @@ nm -gU "$app/Contents/Frameworks/libconduit_widget.dylib" | grep -q _conduit_wid
   die "libconduit_widget.dylib is missing or lacks conduit_widget_reload_all"
 printf 'widget %s, app group %s\n' "$widget_id" "$group"
 
+log "App Intents"
+"$here/intents.sh" verify "$app"
+
 log "conduitd handshake (apps/daemon/tool/smoke.dart)"
 (cd "$REPO_ROOT/apps/daemon" && dart run tool/smoke.dart "$daemon")
 
@@ -78,7 +83,8 @@ if [ "$launch" = 1 ]; then
     "$app/Contents/MacOS/Conduit" --shots "$scratch/shots" >"$scratch/run.log" 2>&1 || status=$?
   grep '^SMOKE' "$scratch/run.log" || true
   if [ "$status" != 0 ] || grep -q 'SMOKE FAILED' "$scratch/run.log" ||
-    ! grep -q 'SMOKE status Connected' "$scratch/run.log"; then
+    ! grep -q 'SMOKE status Connected' "$scratch/run.log" ||
+    ! grep -Eq 'SMOKE intents [0-9]+ types resolve' "$scratch/run.log"; then
     tail -n 60 "$scratch/run.log" >&2
     die "the app smoke failed (exit $status)"
   fi

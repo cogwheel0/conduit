@@ -12,7 +12,7 @@ import AppKit
 import UniformTypeIdentifiers
 
 /// The sheet's words, from Localizable.strings (generated from the app's
-/// ARB catalogs by packaging/macos/native-strings.swift), with English kept
+/// ARB catalogs by packaging/macos/native_strings.py), with English kept
 /// here for a missing table.
 private enum Words {
   static func word(_ key: String, _ english: String) -> String {

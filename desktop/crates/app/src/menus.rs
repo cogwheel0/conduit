@@ -1707,8 +1707,16 @@ mod tests {
                     K::MarkChecked => Box::new(e::ToggleChecked),
                     K::Quote => Box::new(e::QuoteBlock),
                     K::CodeBlock => Box::new(e::CodeBlock),
-                    // The Workspace editor takes ⌘S in its key handler.
-                    K::SaveWorkspaceItem => continue,
+                    // The Workspace editor, the Calendar and Scheduled
+                    // Tasks take theirs in their own key handlers.
+                    K::SaveWorkspaceItem
+                    | K::CalendarEarlier
+                    | K::CalendarLater
+                    | K::CalendarToday
+                    | K::DeleteCalendarItem
+                    | K::SaveCalendarEvent
+                    | K::DeleteScheduledTask
+                    | K::SaveScheduledTask => continue,
                 };
                 let bound = cx
                     .key_bindings()
