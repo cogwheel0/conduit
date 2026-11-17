@@ -206,6 +206,9 @@ pub struct DesktopPrefs {
     /// Settings › About › "Receive beta updates": Sparkle may offer items
     /// on the appcast's `beta` channel too.
     pub beta_updates: bool,
+    /// Settings › Keyboard › "Use Option as Meta Key": in the terminal,
+    /// Option sends Escape before the key instead of typing a character.
+    pub terminal_option_as_meta: bool,
 }
 
 impl Default for DesktopPrefs {
@@ -218,6 +221,7 @@ impl Default for DesktopPrefs {
             notify_answers: true,
             notify_channels: true,
             beta_updates: false,
+            terminal_option_as_meta: false,
         }
     }
 }

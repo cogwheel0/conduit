@@ -32,6 +32,7 @@
 //!   row and scrolls to the current match ([`find`]).
 
 mod find;
+pub use find::find_fills;
 mod reading;
 pub use find::{FindMatch, FindPart, find_ranges};
 

@@ -42,6 +42,7 @@ pub mod sidebar_model;
 pub mod sign_in;
 pub mod status;
 pub mod tasks;
+pub mod terminal;
 pub mod toasts;
 pub mod valves;
 pub mod words;

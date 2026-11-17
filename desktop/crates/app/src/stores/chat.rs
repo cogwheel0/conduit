@@ -81,6 +81,8 @@ pub const CHAT_EVENTS: &[&str] = &[
     events::CHAT_PROMPTS_CHANGED,
     events::MCP_APPS_EVENT,
     events::HERMES_WORK_CHANGED,
+    // A model's terminal tool showing a file (the chat pane opens it).
+    events::TERMINAL_DISPLAY_FILE,
 ];
 
 /// How many of the newest messages show at first, and how many more each

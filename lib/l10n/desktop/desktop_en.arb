@@ -489,6 +489,94 @@
   "@desktopNoteShowDraft": {
     "description": "Alert button that goes back to a note whose changes could not be saved. Title Case."
   },
+  "desktopTerminalServerPicker": "Terminal Server: {name}",
+  "@desktopTerminalServerPicker": {
+    "description": "Accessibility label of the terminal pane's title, a pop-up button listing the terminal servers. {name} is the server shown.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopTerminalView": "View",
+  "@desktopTerminalView": {
+    "description": "Accessibility label of the terminal pane's Terminal/Files switch in the toolbar."
+  },
+  "desktopTerminalConnectionFailed": "Connection Failed",
+  "@desktopTerminalConnectionFailed": {
+    "description": "Terminal status badge: the shell could not connect, or the server ended it with an error. Title Case."
+  },
+  "desktopTerminalConnecting": "Connecting…",
+  "@desktopTerminalConnecting": {
+    "description": "Terminal status badge while the shell connects."
+  },
+  "desktopTerminalReconnect": "Reconnect",
+  "@desktopTerminalReconnect": {
+    "description": "Toolbar button that opens a new shell after the last one ended. Title Case."
+  },
+  "desktopTerminalFind": "Find in Terminal",
+  "@desktopTerminalFind": {
+    "description": "Placeholder and accessibility label of the terminal's find field (⌘F)."
+  },
+  "desktopTerminalLoadingPorts": "Looking for listening ports…",
+  "@desktopTerminalLoadingPorts": {
+    "description": "Shown in the Listening Ports list while the ports load."
+  },
+  "desktopTerminalOpenPort": "Open {address}",
+  "@desktopTerminalOpenPort": {
+    "description": "Accessibility label of a listening port's row, which opens its preview. {address} is like localhost:5173.",
+    "placeholders": {
+      "address": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopTerminalDeleteTitle": "Delete “{name}”?",
+  "@desktopTerminalDeleteTitle": {
+    "description": "Title of the sheet asking before a terminal file or folder is deleted. {name} is its name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopTerminalDeleteMessage": "It’s deleted from the terminal’s computer. This can’t be undone.",
+  "@desktopTerminalDeleteMessage": {
+    "description": "Message of the sheet asking before a terminal file or folder is deleted."
+  },
+  "desktopTerminalOpen": "Open",
+  "@desktopTerminalOpen": {
+    "description": "Context menu item that opens a terminal file or folder. Title Case."
+  },
+  "desktopTerminalRefresh": "Refresh",
+  "@desktopTerminalRefresh": {
+    "description": "Button and menu item that lists a terminal folder again. Title Case."
+  },
+  "desktopTerminalEnclosingFolder": "Enclosing Folder",
+  "@desktopTerminalEnclosingFolder": {
+    "description": "Button that shows the folder holding the terminal folder shown (⌘↑). Title Case."
+  },
+  "desktopTerminalFolderRow": "{name}, folder",
+  "@desktopTerminalFolderRow": {
+    "description": "Accessibility label of a folder row in the terminal's files. {name} is the folder's name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopTerminalOptionAsMeta": "Use Option as Meta Key",
+  "@desktopTerminalOptionAsMeta": {
+    "description": "Settings › Keyboard switch. Title Case."
+  },
+  "desktopTerminalOptionAsMetaFooter": "In the terminal, Option sends Escape before the key, as Meta does in shells and editors, instead of typing a special character.",
+  "@desktopTerminalOptionAsMetaFooter": {
+    "description": "Footer under the Use Option as Meta Key switch in Settings › Keyboard."
+  },
+  "desktopTerminalClearScrollback": "Clear Scrollback",
+  "@desktopTerminalClearScrollback": {
+    "description": "Terminal context menu item that clears the history above the screen. Title Case."
+  },
   "desktopSignIn": "Sign In",
   "@desktopSignIn": {
     "description": "Title and button of the desktop sign-in form, in Title Case as Mac buttons are."

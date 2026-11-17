@@ -83,6 +83,43 @@ impl HttpClient {
         format!("Bearer {}", self.token)
     }
 
+    /// `http://127.0.0.1:{port}`.
+    pub(crate) fn base(&self) -> &str {
+        &self.base
+    }
+
+    pub(crate) fn token(&self) -> &str {
+        &self.token
+    }
+
+    /// `POST /terminal-upload`: `body` as `name` into `directory` on the
+    /// machine of the terminal `handle` names.
+    pub async fn terminal_upload(
+        &self,
+        handle: &str,
+        directory: &str,
+        name: &str,
+        body: Bytes,
+    ) -> Result<(), RpcError> {
+        let response = self
+            .client
+            .post(format!("{}/terminal-upload", self.base))
+            .header("authorization", self.bearer())
+            .header("x-conduit-filename", encode_component(name))
+            .header("x-conduit-terminal", encode_component(handle))
+            .header("x-conduit-directory", encode_component(directory))
+            .body(body)
+            .send()
+            .await
+            .map_err(transport)?;
+        let status = response.status();
+        if !status.is_success() {
+            let text = response.text().await.map_err(transport)?;
+            return Err(problem(status.as_u16(), &text));
+        }
+        Ok(())
+    }
+
     /// Uploads `body` as `name`; answers the daemon's `UploadedFile` JSON.
     /// `progress` sees `(sent, total)` as chunks go out, ending at
     /// `(total, total)`.
