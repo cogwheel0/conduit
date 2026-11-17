@@ -229,7 +229,7 @@ impl ConnectionEditorSheet {
         self.entry.as_ref().is_some_and(|e| !e.editable)
     }
 
-    pub fn busy(&self) -> bool {
+    pub fn in_flight(&self) -> bool {
         self.saving || self.testing || self.deleting
     }
 
@@ -265,9 +265,9 @@ impl ConnectionEditorSheet {
     /// The fields take no typing while a save or test is out: its answer is
     /// about the form as it stands, so a save never closes over words typed
     /// after it went and a test never judges a newer form. (The segments,
-    /// switch and key button already wait on [`Self::busy`].)
+    /// switch and key button already wait on [`Self::in_flight`].)
     fn locked(&self) -> bool {
-        self.busy()
+        self.in_flight()
     }
 
     fn fingerprint(&self, cx: &App) -> String {
@@ -329,7 +329,7 @@ impl ConnectionEditorSheet {
     }
 
     pub fn save(&mut self, cx: &mut Context<Self>) {
-        if self.busy() || self.read_only() {
+        if self.in_flight() || self.read_only() {
             return;
         }
         let (op, identity) = match &self.entry {
@@ -382,7 +382,7 @@ impl ConnectionEditorSheet {
     }
 
     fn test(&mut self, cx: &mut Context<Self>) {
-        if self.busy() || self.read_only() {
+        if self.in_flight() || self.read_only() {
             return;
         }
         let call = self
@@ -430,7 +430,7 @@ impl ConnectionEditorSheet {
         let Some(entry) = self.entry.clone() else {
             return;
         };
-        if self.busy() {
+        if self.in_flight() {
             return;
         }
         let call = self
@@ -483,7 +483,7 @@ impl ConnectionEditorSheet {
         let Some(entry) = self.entry.clone() else {
             return;
         };
-        if self.busy() {
+        if self.in_flight() {
             return;
         }
         let l10n = cx.l10n().clone();
@@ -546,7 +546,7 @@ impl ConnectionEditorSheet {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = cx.entity().downgrade();
-        let busy = self.busy();
+        let busy = self.in_flight();
         let index = options
             .iter()
             .position(|(v, _)| *v == selected)
@@ -605,7 +605,7 @@ impl ConnectionEditorSheet {
             },
         )
         .ghost()
-        .disabled(self.busy())
+        .disabled(self.in_flight())
         .on_click(Rc::new(move |_, window, cx| {
             let _ = view.update(cx, |v, cx| {
                 v.key_mode = if removing {
@@ -762,7 +762,7 @@ impl ConnectionEditorSheet {
         let view = cx.entity().downgrade();
         let on = self.enabled;
         let switch = Switch::new("connection-enabled", l10n.enabled_label(), on)
-            .disabled(self.busy())
+            .disabled(self.in_flight())
             .on_click(Rc::new(move |_, _, cx| {
                 let _ = view.update(cx, |v, cx| v.press_switch(cx));
             }));
@@ -850,14 +850,20 @@ fn attempt(result: &PersonalConnectionTestResult, l10n: &L10n) -> Attempt {
 }
 
 impl SheetBody for ConnectionEditorSheet {
-    /// A form changed, or a save still out: Quit asks first, as Cancel does.
+    /// A save, test or delete is out (from its start until it ends): Quit
+    /// beeps instead of asking.
+    fn busy(&self, _: &App) -> bool {
+        self.in_flight()
+    }
+
+    /// A form changed: Quit asks first, as Cancel does.
     fn unsaved(&self, cx: &App) -> bool {
-        self.saving || self.is_dirty(cx)
+        self.is_dirty(cx)
     }
 
     fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let l10n = cx.l10n().clone();
-        let busy = self.busy();
+        let busy = self.in_flight();
         let read_only = self.read_only();
         let view = cx.entity().downgrade();
         let delete = self.entry.is_some().then(|| {
@@ -1202,5 +1208,69 @@ mod tests {
             assert!(!s.enabled, "the switch stayed on although nothing saved");
             assert!(s.error.is_some());
         });
+    }
+
+    fn quit_counted(vcx: &mut VisualTestContext) -> Rc<Cell<u32>> {
+        let quits = Rc::new(Cell::new(0));
+        let counted = quits.clone();
+        vcx.update(|_, cx| sheet::quit_with(cx, Rc::new(move |_| counted.set(counted.get() + 1))));
+        vcx.run_until_parked();
+        quits
+    }
+
+    fn settle(vcx: &mut VisualTestContext) {
+        for _ in 0..2 {
+            vcx.run_until_parked();
+            vcx.executor()
+                .advance_clock(std::time::Duration::from_secs(5));
+        }
+        vcx.run_until_parked();
+    }
+
+    fn beeps(vcx: &mut VisualTestContext) -> u32 {
+        vcx.update(|_, cx| cx.global::<crate::shell::sheet::Beeps>().0)
+    }
+
+    fn editor_up(vcx: &mut VisualTestContext) -> bool {
+        vcx.update(|_, cx| sheet::current::<ConnectionEditorSheet>(cx))
+            .is_some()
+    }
+
+    /// Quit while a save is out queues nothing: a beep, no question (the
+    /// bench would answer it No) and no quit, and the sheet stays.
+    #[gpui_kit::test]
+    fn quit_during_a_save_beeps_and_stays(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.once::<methods::IntegrationsSave>(Err(conduit_daemon::RpcError::internal("down")));
+        let sheet = open(&stores, Some(entry(false, true)), vcx);
+        type_into(&sheet, |s| s.name.clone(), "Seed swap", vcx);
+        let held = daemon.hold::<methods::IntegrationsSave>();
+        sheet.update(vcx, |s, cx| s.save(cx));
+        let quits = quit_counted(vcx);
+        assert_eq!(beeps(vcx), 1, "Quit during the save did not beep");
+        assert!(editor_up(vcx));
+        drop(held);
+        settle(vcx);
+        assert!(editor_up(vcx), "the failed save's sheet closed");
+        assert_eq!(quits.get(), 0, "a Quit waited on the save");
+    }
+
+    /// After a save fails the sheet is idle and dirty: Quit asks, and
+    /// Discard quits.
+    #[gpui_kit::test]
+    fn after_a_failed_save_quit_asks_and_discard_quits(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.once::<methods::IntegrationsSave>(Err(conduit_daemon::RpcError::internal("down")));
+        let sheet = open(&stores, Some(entry(false, true)), vcx);
+        type_into(&sheet, |s| s.name.clone(), "Seed swap", vcx);
+        sheet.update(vcx, |s, cx| s.save(cx));
+        settle(vcx);
+        assert!(sheet.read_with(vcx, |s, _| s.error.is_some()));
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        let quits = quit_counted(vcx);
+        settle(vcx);
+        assert!(!editor_up(vcx), "Discard left the sheet open");
+        assert_eq!(quits.get(), 1, "Discard after the failed save did not quit");
+        assert_eq!(beeps(vcx), 0);
     }
 }

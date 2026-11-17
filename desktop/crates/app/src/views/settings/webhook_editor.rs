@@ -139,7 +139,7 @@ impl WebhookEditorSheet {
         }
     }
 
-    pub fn busy(&self) -> bool {
+    pub fn in_flight(&self) -> bool {
         self.running.is_some()
     }
 
@@ -273,7 +273,7 @@ impl WebhookEditorSheet {
     }
 
     pub fn save(&mut self, cx: &mut Context<Self>) {
-        if self.busy() {
+        if self.in_flight() {
             return;
         }
         let url = forms::text(&self.url, cx);
@@ -321,7 +321,7 @@ impl WebhookEditorSheet {
         let Some(target) = self.target.clone() else {
             return;
         };
-        if self.busy() || self.is_dirty(cx) {
+        if self.in_flight() || self.is_dirty(cx) {
             return;
         }
         let call = self
@@ -338,7 +338,7 @@ impl WebhookEditorSheet {
         let Some(target) = self.target.clone() else {
             return;
         };
-        if self.busy() || self.is_dirty(cx) {
+        if self.in_flight() || self.is_dirty(cx) {
             return;
         }
         let call = self.rpc(cx).call::<methods::WebhooksTest>(&WebhookRef {
@@ -362,7 +362,7 @@ impl WebhookEditorSheet {
         let Some(target) = self.target.clone() else {
             return;
         };
-        if self.busy() {
+        if self.in_flight() {
             return;
         }
         let l10n = cx.l10n().clone();
@@ -398,7 +398,7 @@ impl WebhookEditorSheet {
         // No typing while an action is out: Save, Make Default and Delete
         // close the sheet when they land, so words typed meanwhile would go
         // with it unsaved. (The switch, segments and events wait on busy.)
-        let locked = self.busy();
+        let locked = self.in_flight();
         let mut rows: Vec<AnyElement> = vec![];
         match &self.target {
             None => {
@@ -459,7 +459,7 @@ impl WebhookEditorSheet {
     fn options(&self, l10n: &L10n, cx: &mut Context<Self>) -> AnyElement {
         let view = cx.entity().downgrade();
         let enabled = self.enabled;
-        let busy = self.busy();
+        let busy = self.in_flight();
         let switch = Switch::new(
             "webhook-enabled",
             l10n.notification_target_enabled_title(),
@@ -526,7 +526,7 @@ impl WebhookEditorSheet {
 
     fn events_group(&self, l10n: &L10n, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let rows = self.event_rows(l10n);
-        let busy = self.busy();
+        let busy = self.in_flight();
         let items: Vec<AnyElement> = if rows.is_empty() {
             vec![
                 setting_row(
@@ -574,7 +574,7 @@ impl WebhookEditorSheet {
     fn actions(&self, l10n: &L10n, cx: &mut Context<Self>) -> Option<AnyElement> {
         let target = self.target.as_ref()?;
         let dirty = self.is_dirty(cx);
-        let busy = self.busy();
+        let busy = self.in_flight();
         let view = cx.entity().downgrade();
         let mut rows = vec![];
         if !target.is_default {
@@ -621,14 +621,20 @@ impl WebhookEditorSheet {
 }
 
 impl SheetBody for WebhookEditorSheet {
-    /// A form changed, or a save still out: Quit asks first, as Cancel does.
+    /// An action is out (from its start until it ends): Quit beeps instead
+    /// of asking.
+    fn busy(&self, _: &App) -> bool {
+        self.in_flight()
+    }
+
+    /// A form changed: Quit asks first, as Cancel does.
     fn unsaved(&self, cx: &App) -> bool {
-        self.running == Some(Action::Save) || self.is_dirty(cx)
+        self.is_dirty(cx)
     }
 
     fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let l10n = cx.l10n().clone();
-        let busy = self.busy();
+        let busy = self.in_flight();
         let view = cx.entity().downgrade();
         let delete = self.target.is_some().then(|| {
             let view = view.clone();
@@ -674,7 +680,7 @@ impl SheetBody for WebhookEditorSheet {
     }
 
     fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy() {
+        if self.in_flight() {
             return;
         }
         if !self.is_dirty(cx) {
@@ -801,5 +807,75 @@ mod tests {
             vcx.update(|_, cx| sheet::current::<WebhookEditorSheet>(cx))
                 .is_some()
         );
+    }
+
+    /// Quit while a new destination saves queues nothing: a beep, no quit,
+    /// and the sheet stays until its save ends; once that fails, Quit asks
+    /// and Discard quits.
+    #[gpui_kit::test]
+    fn quit_beeps_during_a_destination_save_and_asks_after_it_fails(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.once::<conduit_protocol::methods::WebhooksCreate>(Err(
+            conduit_daemon::RpcError::internal("down"),
+        ));
+        let sheet = vcx
+            .update(|window, cx| {
+                WebhookEditorSheet::open(
+                    stores.clone(),
+                    "w1".into(),
+                    vec![],
+                    None,
+                    Rc::new(|_, _: &mut App| {}),
+                    window,
+                    cx,
+                )
+            })
+            .expect("the editor opens");
+        vcx.run_until_parked();
+        let url = sheet.read_with(vcx, |s, _| s.url.clone());
+        vcx.update(|window, cx| {
+            url.update(cx, |s, cx| {
+                s.set_value("https://hooks.example.com/seed", window, cx)
+            })
+        });
+        vcx.run_until_parked();
+        let held = daemon.hold::<conduit_protocol::methods::WebhooksCreate>();
+        sheet.update(vcx, |s, cx| s.save(cx));
+        let quit = |vcx: &mut gpui_kit::VisualTestContext| {
+            let quits = Rc::new(Cell::new(0));
+            let q = quits.clone();
+            vcx.update(|_, cx| sheet::quit_with(cx, Rc::new(move |_| q.set(q.get() + 1))));
+            vcx.run_until_parked();
+            quits
+        };
+        let settle = |vcx: &mut gpui_kit::VisualTestContext| {
+            for _ in 0..2 {
+                vcx.run_until_parked();
+                vcx.executor()
+                    .advance_clock(std::time::Duration::from_secs(5));
+            }
+            vcx.run_until_parked();
+        };
+        let up = |vcx: &mut gpui_kit::VisualTestContext| {
+            vcx.update(|_, cx| sheet::current::<WebhookEditorSheet>(cx))
+                .is_some()
+        };
+        let during = quit(vcx);
+        assert_eq!(
+            vcx.update(|_, cx| cx.global::<crate::shell::sheet::Beeps>().0),
+            1,
+            "Quit during the save did not beep"
+        );
+        drop(held);
+        settle(vcx);
+        assert!(up(vcx), "the failed save's sheet closed");
+        assert_eq!(during.get(), 0, "a Quit waited on the save");
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        let after = quit(vcx);
+        settle(vcx);
+        assert!(!up(vcx), "Discard left the sheet open");
+        assert_eq!(after.get(), 1, "Discard after the failed save did not quit");
     }
 }
