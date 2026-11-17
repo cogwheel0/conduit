@@ -339,15 +339,15 @@ void main() {
     () async {
       final hold = await turns.holdForCall(model: model);
       addTearDown(hold.release);
-      addTearDown(() => provider.release('soil'));
-      addTearDown(() => provider.release('tide'));
-      addTearDown(() => provider.release('moon'));
+      addTearDown(() => provider.release('loam'));
+      addTearDown(() => provider.release('surf'));
+      addTearDown(() => provider.release('dusk'));
       final scope = hold.scope.container;
       final send = scope.read(chatVoiceSendProvider);
       // An answer runs; the queue's batch comes and waits for it.
-      final soil = provider.asked('hold:soil');
+      final soil = provider.asked('hold:loam');
       unawaited(
-        send(null, 'hold:soil is the soil warm yet', isVoiceMode: true),
+        send(null, 'hold:loam is the soil warm yet', isVoiceMode: true),
       );
       await soil;
       final batch = scope.read(chatDraftQueueSendProvider)(
@@ -356,10 +356,10 @@ void main() {
         null,
       );
       // Words talk over that answer, and theirs runs in turn.
-      final tide = provider.asked('hold:tide');
+      final tide = provider.asked('hold:surf');
       final second = send(
         null,
-        'hold:tide when is high tide',
+        'hold:surf when is high tide',
         isVoiceMode: true,
       );
       await tide;
@@ -374,8 +374,8 @@ void main() {
       // More words, while the batch waits: they are admitted at once and
       // reach the model while the answer before them is still held (were
       // they behind the batch, this would wait until that answer ended).
-      final moon = provider.asked('hold:moon');
-      final third = send(null, 'hold:moon and the moon', isVoiceMode: true);
+      final moon = provider.asked('hold:dusk');
+      final third = send(null, 'hold:dusk and the moon', isVoiceMode: true);
       await moon;
       expect(
         [
@@ -385,7 +385,7 @@ void main() {
         hasLength(lessThanOrEqualTo(1)),
         reason: 'the answer talked over still streams',
       );
-      provider.release('moon');
+      provider.release('dusk');
       await third;
       await batch;
       expect(secondEnded, isTrue);
