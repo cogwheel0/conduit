@@ -97,11 +97,29 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
   bool _unpurged(String origin, ({int epoch, int purges}) ticket) =>
       ticket == _ticket(origin);
 
-  /// The intake of one dashboard request to [root]: taken when the
-  /// request reads its cookies, it keeps the answer's cookies only if no
-  /// purge started since, in turn with the commits and clears.
+  /// Purges asked whose emptying has not run yet: per origin key, and
+  /// full ones. Set as a purge is asked, cleared once it has emptied the
+  /// jar (in its turn, before its write).
+  final Map<String, int> _pendingPurges = {};
+  int _pendingFullPurges = 0;
+
+  /// Whether a purge covering [origin] is asked and has not emptied the
+  /// jar yet: the jar still holds what it will remove.
+  bool _purgePending(String origin) =>
+      _pendingFullPurges > 0 || (_pendingPurges[_originKey(origin)] ?? 0) > 0;
+
+  /// The intake of one dashboard request to [root], taken as the request
+  /// reads its cookies, and with its ticket taken at that same moment. A
+  /// request made while a purge of its origin waits to empty the jar reads
+  /// nothing: it is refused (it would read the cookies the purge removes
+  /// under a ticket the purge already moved past). The intake keeps the
+  /// answer's cookies only if no purge started since, in turn with the
+  /// commits and clears.
   HermesDashboardCookieIntake _intake(Uri root) {
     final origin = root.toString();
+    if (_purgePending(origin)) {
+      throw StateError('The dashboard sign-in is being cleared.');
+    }
     final ticket = _ticket(origin);
     return (url, setCookies) => _inTurn(() async {
       if (!_unpurged(origin, ticket)) return;
@@ -349,11 +367,24 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
     }
     final key = _originKey(origin);
     _purges[key] = (_purges[key] ?? 0) + 1;
+    _pendingPurges[key] = (_pendingPurges[key] ?? 0) + 1;
     return _inTurn(() async {
-      final recorded = HermesDashboardCookieRegistry.identitiesFor(origin);
+      final bool removed;
+      try {
+        removed = _jar.removeAll(
+          HermesDashboardCookieRegistry.identitiesFor(origin),
+        );
+      } finally {
+        final left = (_pendingPurges[key] ?? 1) - 1;
+        if (left > 0) {
+          _pendingPurges[key] = left;
+        } else {
+          _pendingPurges.remove(key);
+        }
+      }
       // Gone from the jar but still in the secure store: not cleared yet,
       // and the record stays for the purge that writes it.
-      if (!await _purged(_jar.removeAll(recorded))) return false;
+      if (!await _purged(removed)) return false;
       await HermesDashboardCookieRegistry.forget(origin);
       return true;
     });
@@ -370,9 +401,16 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
   @override
   Future<bool> clearAll() {
     _epoch++;
-    return _inTurn(
-      () => _purged(_jar.removeAll({for (final c in _jar.cookies) c.identity})),
-    );
+    _pendingFullPurges++;
+    return _inTurn(() {
+      final bool removed;
+      try {
+        removed = _jar.removeAll({for (final c in _jar.cookies) c.identity});
+      } finally {
+        _pendingFullPurges--;
+      }
+      return _purged(removed);
+    });
   }
 
   /// Writes a purge whose write failed before.

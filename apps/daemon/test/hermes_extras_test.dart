@@ -771,6 +771,47 @@ void main() {
     expect(await store.completePendingClear(), isTrue);
     expect((await DaemonHermesDashboardCookies.open(secure)).cookies, isEmpty);
   });
+
+  /// A dashboard request of [store]'s bridge whose answer rotates the
+  /// session; settles to its answer or its error.
+  Future<Object?> rotateNow(DaemonHermesDashboardCookies store) {
+    final root = Uri.parse(dashboard.baseUrl);
+    return store
+        .bridge(root: root, accessHeaders: const {})
+        .request('GET', root.resolve('/api/rotate'))
+        .then<Object?>((a) => a, onError: (Object e) => e);
+  }
+
+  for (final full in [true, false]) {
+    test(
+      'a request made while a purge waits reads nothing (full: $full)',
+      () async {
+        final secure = _HeldStore();
+        final store = await signedInStore(secure);
+        // An earlier write holds the store's turn: a rotation being saved.
+        final writing = secure.holdNext();
+        final first = rotateNow(store);
+        await writing;
+        final purge = full
+            ? store.clearAll()
+            : store.clearForOrigin(dashboard.baseUrl);
+        // Asked while the purge waits behind that write.
+        final out = holdCheck();
+        final late = rotateNow(store);
+        await Future.any<Object?>([out, late]);
+        secure.release();
+        expect(await purge, isTrue);
+        releaseCheck();
+        await late;
+        await first;
+        expect(store.cookies, isEmpty);
+        expect(
+          (await DaemonHermesDashboardCookies.open(secure)).cookies,
+          isEmpty,
+        );
+      },
+    );
+  }
 }
 
 /// A secure store whose writes fail while [failing] (a Keychain that
@@ -782,4 +823,35 @@ final class _FailingStore extends InMemorySecureKeyValueStore {
   Future<void> write({required String key, required String? value}) => failing
       ? Future<void>.error(const FileSystemException('refused'))
       : super.write(key: key, value: value);
+}
+
+/// A secure store whose next write waits for [release] once [holdNext]
+/// asked for it.
+final class _HeldStore extends InMemorySecureKeyValueStore {
+  Completer<void>? _held;
+  Completer<void>? _started;
+
+  /// Holds the next write; completes once it started.
+  Future<void> holdNext() {
+    _held = Completer<void>();
+    _started = Completer<void>();
+    return _started!.future;
+  }
+
+  void release() => _waiting?.complete();
+
+  /// The write being held, until [release].
+  Completer<void>? _waiting;
+
+  @override
+  Future<void> write({required String key, required String? value}) async {
+    final held = _held;
+    if (held != null) {
+      _held = null;
+      _waiting = held;
+      _started?.complete();
+      await held.future;
+    }
+    await super.write(key: key, value: value);
+  }
 }
