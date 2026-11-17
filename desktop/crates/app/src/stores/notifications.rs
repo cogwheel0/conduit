@@ -21,25 +21,39 @@ pub const SUBSCRIPTION_KEY: &str = "notification-settings";
 
 pub struct NotificationsStore {
     rpc: Rpc,
-    /// What the daemon last said; the desktop's defaults until it has.
+    /// What is shown: [`Self::confirmed`] with every write still out applied
+    /// on top, oldest first.
     settings: NotificationSettingsDto,
+    /// What the daemon last confirmed (a read, or a write's answer); the
+    /// desktop's defaults until it has.
+    confirmed: NotificationSettingsDto,
+    /// The write whose answer (or the read asked after it) [`Self::confirmed`]
+    /// came from: an older write's answer, landing later, never replaces it.
+    confirmed_by: u64,
     /// The daemon has answered at least once since connecting. Until then
     /// the settings are unknown: shown as the defaults, never written.
     pub loaded: bool,
     /// The read that would have made them known failed (Settings says so
     /// and reads again when it opens).
     pub load_failed: bool,
-    /// Why the last change was refused, until the next one.
+    /// Why the newest write was refused, until the next one.
     pub error: Option<RpcError>,
-    generation: u64,
-    /// The read in flight; a newer read replaces it. Writes never share it:
-    /// each runs to its end on its own task.
-    _fetch: Option<Task<()>>,
-    /// Writes sent and not yet answered.
-    writes: usize,
+    /// The daemon session the store reads and writes under; an answer from
+    /// an earlier one is dropped whole.
+    session: u64,
+    /// The last write started. A write's ticket is (session, its number):
+    /// only the newest write's outcome sets or clears [`Self::error`].
+    write_seq: u64,
+    /// Writes sent this session and not answered yet, by number.
+    pending: Vec<(u64, NotificationSettingsPatch)>,
     /// Writes answered so far: a read asked before one of them ended does
     /// not clear that write's refusal.
     writes_done: u64,
+    /// The newest read asked; an older read's answer is not taken.
+    read_seq: u64,
+    /// The read in flight; a newer read replaces it. Writes never share it:
+    /// each runs to its end on its own task.
+    _fetch: Option<Task<()>>,
     /// A read was asked while writes were out (with [`Self::writes_done`]
     /// as it was then): it runs once they have all ended, its answer then
     /// the daemon's after them.
@@ -67,13 +81,17 @@ impl NotificationsStore {
         Self {
             rpc,
             settings: desktop_defaults(),
+            confirmed: desktop_defaults(),
+            confirmed_by: 0,
             loaded: false,
             load_failed: false,
             error: None,
-            generation: 0,
-            _fetch: None,
-            writes: 0,
+            session: 0,
+            write_seq: 0,
+            pending: Vec::new(),
             writes_done: 0,
+            read_seq: 0,
+            _fetch: None,
             read_after_writes: None,
         }
     }
@@ -82,12 +100,22 @@ impl NotificationsStore {
         &self.settings
     }
 
+    /// Shows what the daemon confirmed with the writes still out on top.
+    fn show(&mut self, cx: &mut Context<Self>) {
+        let mut shown = self.confirmed.clone();
+        for (_, patch) in &self.pending {
+            apply(&mut shown, patch);
+        }
+        self.settings = shown;
+        cx.notify();
+    }
+
     /// Reads the settings again: every read path (Settings opening, a
     /// reconnect, `notifications.changed`) comes here. A read never cancels
     /// a write: asked while writes are out, it runs once they have ended.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         let asked = self.writes_done;
-        if self.writes > 0 {
+        if !self.pending.is_empty() {
             // The earliest ask counts: no write it waited for clears.
             self.read_after_writes.get_or_insert(asked);
             return;
@@ -95,16 +123,28 @@ impl NotificationsStore {
         self.read(asked, cx);
     }
 
-    /// The read itself, asked when [`Self::writes_done`] was `asked_after`.
-    fn read(&mut self, asked_after: u64, cx: &mut Context<Self>) {
-        self.generation += 1;
-        let generation = self.generation;
+    /// The read itself, asked when [`Self::writes_done`] was `asked_done`.
+    /// Its answer is taken only if no newer read, write or session started
+    /// after it was asked.
+    fn read(&mut self, asked_done: u64, cx: &mut Context<Self>) {
+        self.read_seq += 1;
+        let (session, read, writes) = (self.session, self.read_seq, self.write_seq);
         let call = self.rpc.call::<methods::NotificationsGet>(&NoParams);
         self._fetch = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
-                    if s.generation != generation {
+                    if s.session != session || s.read_seq != read {
+                        return;
+                    }
+                    if s.write_seq != writes {
+                        // A write started after it was asked: this answer
+                        // may be from before it. Read again after the writes.
+                        if s.pending.is_empty() {
+                            s.read(asked_done, cx);
+                        } else {
+                            s.read_after_writes.get_or_insert(asked_done);
+                        }
                         return;
                     }
                     match result {
@@ -112,10 +152,14 @@ impl NotificationsStore {
                             // What the daemon holds now: a refusal older
                             // than this read no longer stands (one that
                             // ended after it was asked still does).
-                            if s.writes_done == asked_after {
+                            if s.writes_done == asked_done {
                                 s.error = None;
                             }
-                            s.adopt(settings, cx);
+                            s.confirmed = settings;
+                            s.confirmed_by = writes;
+                            s.loaded = true;
+                            s.load_failed = false;
+                            s.show(cx);
                         }
                         Err(e) => {
                             log::warn!("notifications.get: {e}");
@@ -132,61 +176,62 @@ impl NotificationsStore {
 
     /// A new daemon session: what was read under the last one is not known
     /// to hold now, so the settings are unknown again (nothing is written,
-    /// an answer meant for the old session is not taken) until this
-    /// session's read lands; a failed read then says so.
+    /// and no answer meant for the old session, read or write, is taken)
+    /// until this session's read lands; a failed read then says so.
     pub fn new_session(&mut self, cx: &mut Context<Self>) {
+        self.session += 1;
         self.loaded = false;
         self.load_failed = false;
         self.error = None;
+        self.pending.clear();
+        self.read_after_writes = None;
         self.refresh(cx);
         cx.notify();
     }
 
-    fn adopt(&mut self, settings: NotificationSettingsDto, cx: &mut Context<Self>) {
-        self.loaded = true;
-        self.load_failed = false;
-        self.settings = settings;
-        cx.notify();
-    }
-
     /// Sends `patch`, showing it at once; the store then shows what the
-    /// daemon answers (or puts back what it had, on a refusal).
+    /// daemon confirms (a refused patch drops out of what is shown).
     /// Nothing is sent while the settings are unknown: a switch shown at a
     /// default would write that default over what was saved.
     pub fn set(&mut self, patch: NotificationSettingsPatch, cx: &mut Context<Self>) {
         if !self.loaded {
             return;
         }
-        self.generation += 1;
-        let generation = self.generation;
-        let before = self.settings.clone();
-        apply(&mut self.settings, &patch);
-        cx.notify();
+        self.write_seq += 1;
+        let (session, seq) = (self.session, self.write_seq);
+        self.pending.push((seq, patch.clone()));
+        self.show(cx);
         let call = self.rpc.call::<methods::NotificationsSet>(&patch);
-        self.writes += 1;
         // Its own task, never replaced by a read.
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
-                s.writes -= 1;
+                // An earlier session's write: nothing of it is taken.
+                if s.session != session {
+                    return;
+                }
+                s.pending.retain(|(n, _)| *n != seq);
                 s.writes_done += 1;
+                let newest = seq == s.write_seq;
                 match result {
                     Ok(settings) => {
-                        s.error = None;
-                        if s.generation == generation {
-                            s.adopt(settings, cx);
+                        if seq > s.confirmed_by {
+                            s.confirmed = settings;
+                            s.confirmed_by = seq;
+                        }
+                        if newest {
+                            s.error = None;
                         }
                     }
                     Err(e) => {
                         log::warn!("notifications.set: {e}");
-                        if s.generation == generation {
-                            s.settings = before;
+                        if newest {
+                            s.error = Some(e);
                         }
-                        s.error = Some(e);
-                        cx.notify();
                     }
                 }
-                if s.writes == 0
+                s.show(cx);
+                if s.pending.is_empty()
                     && let Some(asked) = s.read_after_writes.take()
                 {
                     s.read(asked, cx);
@@ -457,7 +502,8 @@ mod tests {
 
     /// A read asked while a write is out (a refresh, a new session, the
     /// daemon's change event) never cancels it: a write that lands shows the
-    /// value written, and one refused still says so and puts the value back.
+    /// value written, and one refused still says so and puts the value back
+    /// (unless a new session began meanwhile: its read then wins).
     #[gpui_kit::test]
     fn a_read_never_cancels_a_write(cx: &mut TestAppContext) {
         for (read, refused) in [
@@ -509,7 +555,12 @@ mod tests {
             cx.run_until_parked();
             store.read_with(cx, |s, _| {
                 assert!(s.loaded, "{read}: the settings stayed unknown");
-                if refused {
+                if refused && read == "new_session" {
+                    // The write belongs to the session before: its refusal
+                    // is dropped, and the new session's read is shown.
+                    assert!(s.error.is_none(), "{read}: the old session's refusal shows");
+                    assert!(s.settings().sound, "{read}: the refused value stayed shown");
+                } else if refused {
                     assert!(s.error.is_some(), "{read}: the refused write says nothing");
                     assert!(s.settings().sound, "{read}: the refused value stayed shown");
                 } else {
@@ -521,5 +572,103 @@ mod tests {
                 }
             });
         }
+    }
+
+    /// Two writes out at once; the newer is refused first, then the older
+    /// lands: the refusal stays shown, and the refused value goes back to the
+    /// daemon's while the older write's value stays.
+    #[gpui_kit::test]
+    fn an_older_write_landing_late_never_hides_a_newer_refusal(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::NotificationsGet>(desktop_defaults());
+        let store = cx.new(|_| NotificationsStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+        // The older write (sound off) lands; the newer (banner off) is refused.
+        daemon.on::<methods::NotificationsSet>(|p| {
+            if p.get("inAppBanner").is_some() {
+                return Err(conduit_daemon::protocol::error(
+                    conduit_daemon::protocol::codes::INVALID_PARAMS,
+                    "no",
+                ));
+            }
+            Ok(serde_json::to_value(NotificationSettingsDto {
+                sound: false,
+                ..desktop_defaults()
+            })
+            .unwrap())
+        });
+        let older = daemon.hold_one::<methods::NotificationsSet>(0);
+        store.update(cx, |s, cx| {
+            s.set(
+                NotificationSettingsPatch {
+                    sound: Some(false),
+                    ..Default::default()
+                },
+                cx,
+            );
+            s.set(
+                NotificationSettingsPatch {
+                    in_app_banner: Some(false),
+                    ..Default::default()
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.error.is_some(), "the newer refusal is not shown")
+        });
+        drop(older);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(
+                s.error.is_some(),
+                "the older write's answer hid the newer refusal"
+            );
+            assert!(s.settings().in_app_banner, "the refused value stayed shown");
+            assert!(!s.settings().sound, "the older write's value went");
+        });
+    }
+
+    /// A write still out when a new daemon session begins: the new
+    /// session's read lands at once, and the old write's answer (here a
+    /// refusal) is dropped whole.
+    #[gpui_kit::test]
+    fn a_write_from_an_earlier_session_is_dropped(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::NotificationsGet>(desktop_defaults());
+        daemon.on::<methods::NotificationsSet>(|_| {
+            Err(conduit_daemon::protocol::error(
+                conduit_daemon::protocol::codes::INTERNAL,
+                "the old session went",
+            ))
+        });
+        let store = cx.new(|_| NotificationsStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+        let held = daemon.hold::<methods::NotificationsSet>();
+        store.update(cx, |s, cx| {
+            s.set(
+                NotificationSettingsPatch {
+                    sound: Some(false),
+                    ..Default::default()
+                },
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.new_session(cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.loaded, "the new session's read waited on the old write");
+            assert!(s.settings().sound);
+        });
+        drop(held);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.error.is_none(), "the old session's refusal was shown");
+            assert!(s.settings().sound, "the old session's write was taken");
+        });
     }
 }
