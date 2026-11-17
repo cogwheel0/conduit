@@ -92,7 +92,7 @@ fn apple_model(cx: &mut App) -> Option<conduit_protocol::ModelSummary> {
 
 fn engine_asked(kind: AppleCommandKind, cx: &mut App) -> usize {
     let apple = cx.global::<AppState>().stores.apple.clone();
-    apple.read(cx).asked.iter().filter(|k| **k == kind).count()
+    apple.read(cx).asked.get(&kind).copied().unwrap_or(0)
 }
 
 pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
