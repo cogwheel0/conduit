@@ -27,6 +27,7 @@ use gpui_kit::{App, AsyncApp, Context, Task, WeakEntity};
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::stores::Stores;
 use crate::stores::connection::ConnectionEvent;
+use crate::stores::navigation::{Area, AreaItem, NavigationEvent, NavigationStore, Selection};
 use crate::stores::rpc::Rpc;
 
 /// How often the jobs are read while a run is going or being stopped: a
@@ -99,6 +100,10 @@ pub struct HermesAdminStore {
     /// The connections list's order, which a switch leaves alone (only a
     /// reset drops what was asked before it).
     list_order: Order,
+    /// The Hermes page shown, and the connection in use (as this window
+    /// knew it; none with Hermes off) when it opened: what a switch's or
+    /// Turn Off's clean-up may close is a page of another connection.
+    shown_page: Option<(AreaItem, Option<String>)>,
 }
 
 /// When the reads and actions of one thing were asked, and the newest
@@ -239,6 +244,40 @@ impl HermesAdminStore {
             l.active_id == opened.active_id
                 && (opened.connection.is_none() || l.connection == opened.connection)
         })
+    }
+
+    /// The saved connection in use, none while Hermes is off.
+    fn in_use(&self) -> Option<String> {
+        self.connections
+            .as_ref()
+            .filter(|l| l.enabled)
+            .and_then(|l| l.active_id.clone())
+    }
+
+    /// The navigation shows `selection`: a Hermes page newly shown is
+    /// noted with the connection in use now.
+    pub fn note_page(&mut self, selection: &Selection) {
+        match selection {
+            Selection::Area(item) if item.area() == Area::Hermes => {
+                if self.shown_page.as_ref().map(|(shown, _)| shown) != Some(item) {
+                    self.shown_page = Some((item.clone(), self.in_use()));
+                }
+            }
+            _ => self.shown_page = None,
+        }
+    }
+
+    /// Whether `selection` is a Hermes page that opened under another
+    /// connection than the one in use now (or before Hermes was turned off):
+    /// the only kind a switch's or Turn Off's clean-up closes, however late
+    /// or often it runs.
+    pub fn shows_another_connections_page(&self, selection: &Selection) -> bool {
+        match (selection, &self.shown_page) {
+            (Selection::Area(item), Some((shown, owner))) => {
+                item == shown && *owner != self.in_use()
+            }
+            _ => false,
+        }
     }
 
     /// The connection in use, if any.
@@ -677,6 +716,7 @@ pub fn toast_failure(stores: &Stores, message: String, cx: &mut App) {
 /// Follows the daemon for `stores.hermes_admin`: a Hermes change reads the
 /// connections again (and the jobs, while shown); a reconnect forgets.
 pub fn wire(stores: &Stores, cx: &mut App) {
+    follow_pages(stores, cx);
     stores.connection.update(cx, |c, _| {
         c.subscribe("hermes-admin", &[events::HERMES_CHANGED], vec![])
     });
@@ -720,6 +760,19 @@ pub fn wire(stores: &Stores, cx: &mut App) {
                 s.toasts.update(cx, |t, cx| t.show(level, text, cx));
             }
         }
+    })
+    .detach();
+}
+
+/// Keeps `stores.hermes_admin` told which Hermes page is shown, and under
+/// which connection it opened.
+pub fn follow_pages(stores: &Stores, cx: &mut App) {
+    let shown = stores.navigation.read(cx).selection().clone();
+    stores.hermes_admin.update(cx, |a, _| a.note_page(&shown));
+    let admin = stores.hermes_admin.clone();
+    cx.subscribe(&stores.navigation, move |_, event, cx| {
+        let NavigationEvent::Changed(selection) = event;
+        admin.update(cx, |a, _| a.note_page(selection));
     })
     .detach();
 }
@@ -806,12 +859,12 @@ pub fn set_enabled(stores: &Stores, enabled: bool, cx: &mut App) {
         call,
         failure,
         move |a, list, ticket, cx| {
-            // The list follows the order lists were asked in; the action's
-            // own outcome does not: done, and Hermes still off by the list
-            // shown now (whichever answer brought it), its section goes.
+            // The list follows the order lists were asked in. Turned off, a
+            // Hermes page that opened under another connection than the one
+            // in use now (none, while Hermes stays off) goes.
             a.answer_list(ticket, list, cx);
-            if !enabled && a.connections.as_ref().is_some_and(|l| !l.enabled) {
-                leave_hermes(&navigation, cx);
+            if !enabled {
+                close_other_connections_page(a, &navigation, false, cx);
             }
         },
         cx,
@@ -820,11 +873,16 @@ pub fn set_enabled(stores: &Stores, enabled: bool, cx: &mut App) {
 
 /// Opens a new chat when the main window shows something of Hermes's (a
 /// session, Hidden Chats, Scheduled Agents) that is no longer there.
-fn leave_hermes(navigation: &WeakEntity<crate::stores::navigation::NavigationStore>, cx: &mut App) {
+fn close_other_connections_page(
+    admin: &HermesAdminStore,
+    navigation: &WeakEntity<NavigationStore>,
+    chats_only: bool,
+    cx: &mut App,
+) {
     let _ = navigation.update(cx, |n, cx| {
-        if let crate::stores::navigation::Selection::Area(item) = n.selection()
-            && item.area() == crate::stores::navigation::Area::Hermes
-        {
+        let selection = n.selection();
+        let chat = matches!(selection, Selection::Area(AreaItem::HermesSession(_)));
+        if (chat || !chats_only) && admin.shows_another_connections_page(selection) {
             n.new_chat(false, cx);
         }
     });
@@ -837,31 +895,17 @@ pub fn activate(stores: &Stores, id: &str, cx: &mut App) {
     let call = rpc.call::<methods::HermesConnectionsActivate>(&HermesRef { id: id.to_string() });
     let failure = cx.l10n().hermes_switch_connection_failed();
     let navigation = stores.navigation.downgrade();
-    let target = id.to_string();
     act_on_list(
         stores,
         call,
         failure,
         move |a, list, ticket, cx| {
-            // The list follows the order lists were asked in; the action's
-            // own outcome does not: done, and its connection still the one in
-            // use by the list shown now (whichever answer brought it), the
-            // last connection's Hermes chat goes. Another switch since leaves
-            // what the user opened meanwhile.
+            // The list follows the order lists were asked in. The clean-up
+            // goes by whose page is shown: a Hermes chat that opened under
+            // another connection than the one in use now closes; one of the
+            // connection in use stays, however late this answer comes.
             a.answer_list(ticket, list, cx);
-            if a.connections.as_ref().and_then(|l| l.active_id.as_deref()) != Some(&target) {
-                return;
-            }
-            let _ = navigation.update(cx, |n, cx| {
-                if matches!(
-                    n.selection(),
-                    crate::stores::navigation::Selection::Area(
-                        crate::stores::navigation::AreaItem::HermesSession(_)
-                    )
-                ) {
-                    n.new_chat(false, cx);
-                }
-            });
+            close_other_connections_page(a, &navigation, true, cx);
         },
         cx,
     );

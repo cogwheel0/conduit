@@ -678,6 +678,7 @@ mod tests {
     #[gpui_kit::test]
     fn a_dropped_activation_answer_leaves_the_page_alone(cx: &mut gpui_kit::TestAppContext) {
         let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| crate::stores::hermes_admin::follow_pages(&stores, cx));
         use_connection(&stores, vcx, "a");
         let n = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let count = n.clone();
@@ -734,6 +735,105 @@ mod tests {
         })
     }
 
+    fn open_session(stores: &Stores, vcx: &mut VisualTestContext, id: &str) {
+        stores.navigation.update(vcx, |n, cx| {
+            n.open_item(
+                crate::stores::navigation::AreaItem::HermesSession(id.into()),
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+    }
+
+    fn shows_session(stores: &Stores, vcx: &mut VisualTestContext, id: &str) -> bool {
+        stores.navigation.read_with(vcx, |n, _| {
+            *n.selection()
+                == crate::stores::navigation::Selection::Area(
+                    crate::stores::navigation::AreaItem::HermesSession(id.into()),
+                )
+        })
+    }
+
+    /// Ordering 1: the refresh hermes.changed asked for lands first, the
+    /// user opens one of B's chats, then the activation's own answer comes:
+    /// B's chat stays (only a page of another connection than the one in
+    /// use is closed).
+    #[gpui_kit::test]
+    fn a_late_activation_answer_leaves_the_new_connections_chat(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| crate::stores::hermes_admin::follow_pages(&stores, cx));
+        use_connection(&stores, vcx, "a");
+        open_session(&stores, vcx, "sess-a");
+        daemon.returns::<methods::HermesConnectionsActivate>(list("b"));
+        daemon.returns::<methods::HermesConnectionsList>(list("b"));
+        let held = daemon.hold::<methods::HermesConnectionsActivate>();
+        vcx.update(|_, cx| crate::stores::hermes_admin::activate(&stores, "b", cx));
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.refresh_connections(cx));
+        vcx.run_until_parked();
+        open_session(&stores, vcx, "sess-b");
+        drop(held);
+        vcx.run_until_parked();
+        assert!(shows_session(&stores, vcx, "sess-b"), "B's chat was closed");
+    }
+
+    /// Ordering 2: the activation's answer lands first and closes A's chat;
+    /// the user opens one of B's; the same clean-up running again (Use This
+    /// Connection asked again) leaves it.
+    #[gpui_kit::test]
+    fn the_switch_clean_up_runs_again_without_closing_bs_chat(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| crate::stores::hermes_admin::follow_pages(&stores, cx));
+        use_connection(&stores, vcx, "a");
+        open_session(&stores, vcx, "sess-a");
+        daemon.returns::<methods::HermesConnectionsActivate>(list("b"));
+        vcx.update(|_, cx| crate::stores::hermes_admin::activate(&stores, "b", cx));
+        vcx.run_until_parked();
+        assert!(left_hermes_page(&stores, vcx), "A's chat stayed open");
+        open_session(&stores, vcx, "sess-b");
+        vcx.update(|_, cx| crate::stores::hermes_admin::activate(&stores, "b", cx));
+        vcx.run_until_parked();
+        assert!(shows_session(&stores, vcx, "sess-b"), "B's chat was closed");
+    }
+
+    /// Ordering 3: Hermes turned off while A's chat is open, and on again
+    /// with B (another window) before the off answer comes: A's chat goes,
+    /// as a page of a connection not in use; one of B's opened then stays
+    /// through another such answer.
+    #[gpui_kit::test]
+    fn turning_hermes_off_closes_only_the_last_connections_page(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| crate::stores::hermes_admin::follow_pages(&stores, cx));
+        use_connection(&stores, vcx, "a");
+        open_session(&stores, vcx, "sess-a");
+        let mut off = list("a");
+        off.enabled = false;
+        daemon.returns::<methods::HermesConnectionsSetEnabled>(off);
+        let held = daemon.hold::<methods::HermesConnectionsSetEnabled>();
+        vcx.update(|_, cx| crate::stores::hermes_admin::set_enabled(&stores, false, cx));
+        vcx.run_until_parked();
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.adopt_connections(list("b"), cx));
+        drop(held);
+        vcx.run_until_parked();
+        assert!(
+            left_hermes_page(&stores, vcx),
+            "A's chat stayed open under B"
+        );
+        open_session(&stores, vcx, "sess-b");
+        let held = daemon.hold::<methods::HermesConnectionsSetEnabled>();
+        vcx.update(|_, cx| crate::stores::hermes_admin::set_enabled(&stores, false, cx));
+        vcx.run_until_parked();
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.adopt_connections(list("b"), cx));
+        drop(held);
+        vcx.run_until_parked();
+        assert!(shows_session(&stores, vcx, "sess-b"), "B's chat was closed");
+    }
+
     /// Use This Connection closes the last connection's Hermes chat when it
     /// succeeded, even when the refresh its hermes.changed asked for lands
     /// first and its own list is not the one taken.
@@ -742,6 +842,7 @@ mod tests {
         cx: &mut gpui_kit::TestAppContext,
     ) {
         let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| crate::stores::hermes_admin::follow_pages(&stores, cx));
         use_connection(&stores, vcx, "a");
         on_hermes_page(&stores, vcx);
         daemon.returns::<methods::HermesConnectionsActivate>(list("b"));
@@ -767,6 +868,7 @@ mod tests {
         cx: &mut gpui_kit::TestAppContext,
     ) {
         let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| crate::stores::hermes_admin::follow_pages(&stores, cx));
         use_connection(&stores, vcx, "a");
         on_hermes_page(&stores, vcx);
         daemon.returns::<methods::HermesConnectionsActivate>(list("b"));
@@ -791,6 +893,7 @@ mod tests {
         cx: &mut gpui_kit::TestAppContext,
     ) {
         let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| crate::stores::hermes_admin::follow_pages(&stores, cx));
         use_connection(&stores, vcx, "a");
         on_hermes_page(&stores, vcx);
         let mut off = list("a");
@@ -816,6 +919,7 @@ mod tests {
         cx: &mut gpui_kit::TestAppContext,
     ) {
         let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| crate::stores::hermes_admin::follow_pages(&stores, cx));
         use_connection(&stores, vcx, "a");
         on_hermes_page(&stores, vcx);
         let mut off = list("a");
