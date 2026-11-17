@@ -277,6 +277,8 @@ class RpcSession {
     _hermesCards?.forgetWindow(sessionId);
     // And the rooms it showed or listed.
     _hermesRooms?.forgetWindow(sessionId);
+    // Its Apple engine runs nothing more; its commands are not answered.
+    _apple?.forgetWindow(sessionId);
     // What this window was recording is kept for its next launch.
     await _recordings?.closeOwnedBy(sessionId);
     await _peer.close();
@@ -1328,7 +1330,7 @@ class RpcSession {
     _on(ConduitMethodSpecs.appleStatus, (_) => _need(_apple).status());
     _on(ConduitMethodSpecs.appleRefresh, (_) => _need(_apple).refresh());
     _on(ConduitMethodSpecs.appleReport, (p) async {
-      _need(_apple).report(p);
+      _need(_apple).report(p, from: sessionId);
       return const OkResult(ok: true);
     });
 

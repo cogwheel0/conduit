@@ -3729,11 +3729,13 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     kind: AppleReportKind.content,
     runId: 'run-5c1e',
     content: 'Thyme, rosemary and sage.',
+    seq: 1,
   ),
   'appleReportFailed': const AppleReport(
     kind: AppleReportKind.failed,
     runId: 'run-5c1e',
     failure: AppleFailure.contextExceeded,
+    seq: 2,
   ),
   'appleReportToolCall': const AppleReport(
     kind: AppleReportKind.toolCall,
@@ -3741,6 +3743,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     callId: 'call-1',
     toolName: 'garden_lookup',
     argumentsJson: '{}',
+    seq: 1,
   ),
   'hermesWorkWatch': const HermesWorkWatch(
     chatId: 'local:hermes_s-4f2a',

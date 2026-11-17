@@ -270,6 +270,12 @@ abstract class AppleReport with _$AppleReport {
     /// A `status` command's answer.
     AppleEngineStatus? status,
     String? runId,
+
+    /// A run's reports (`content`, `usage`, `toolCall`, `done`, `failed`)
+    /// are numbered from 1 by the window: a number skipped is a report lost
+    /// on the way, and the daemon ends the run rather than keep a reply with
+    /// words missing.
+    int? seq,
     String? content,
     int? inputTokens,
     int? outputTokens,

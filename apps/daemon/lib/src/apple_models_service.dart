@@ -78,7 +78,11 @@ final class AppleModelsService {
   }
 
   /// The window's engine answered a command, or says what a run did.
-  void report(AppleReport report) => bridge.report(report);
+  void report(AppleReport report, {required String from}) =>
+      bridge.report(report, from: from);
+
+  /// A window's session closed: its engine runs nothing more.
+  void forgetWindow(String session) => bridge.forgetWindow(session);
 
   /// The on-device model as the engine says it is now; what it says also
   /// decides whether the connection is offered.
@@ -170,6 +174,13 @@ final class AppleModelsService {
 /// Made before the core (its overrides name it); [bind] gives it the event
 /// bus once the daemon's services exist. Unbound, or with no window to
 /// answer, the on-device model says it has no engine.
+///
+/// One window's engine runs each request: commands go to the window that
+/// said `ready` last (one whose Mac has the models first), each run keeps
+/// the window that started it, and only that window's reports count for
+/// it. A run's reports are numbered: one lost on the way, a tool result
+/// the window cannot be given, or a window that comes back without the
+/// run ends it here ([_end]), and the window is told to stop it.
 final class AppleModelsBridge implements ApplePccHost {
   AppleModelsBridge({
     Duration timeout = const Duration(seconds: 10),
@@ -183,19 +194,43 @@ final class AppleModelsBridge implements ApplePccHost {
   ApplePccHostListener? _listener;
   void Function(bool supported)? _onReady;
   int _nextId = 0;
-  final Map<int, Completer<AppleReport>> _pending =
-      <int, Completer<AppleReport>>{};
 
-  /// The runs the window is running, so a window that comes back without
-  /// them ends them here.
-  final Set<String> _runs = <String>{};
+  /// Commands not answered yet, with the window each went to: only that
+  /// window's answer counts.
+  final Map<int, ({Completer<AppleReport> answer, String window})> _pending =
+      <int, ({Completer<AppleReport> answer, String window})>{};
+
+  /// The windows whose engines said `ready`, in the order they last said
+  /// it, with whether this Mac has Apple's models.
+  final Map<String, bool> _engines = <String, bool>{};
+
+  /// Each run not ended, and the window whose engine runs it.
+  final Map<String, String> _owners = <String, String>{};
+
+  /// The number of the last report taken from each run.
+  final Map<String, int> _numbers = <String, int>{};
 
   /// What the engine last said of the on-device model (for its reason).
   AppleEngineStatus? lastStatus;
 
-  /// What the last window said: whether this Mac has Apple's models; null
-  /// before any said.
-  bool? supported;
+  /// What the window commands go to said: whether this Mac has Apple's
+  /// models; null before any said.
+  bool? get supported => switch (_engine) {
+    final window? => _engines[window],
+    null => null,
+  };
+
+  /// The window commands go to: the last to say `ready` among those whose
+  /// Mac has the models, else the last to say it.
+  String? get _engine {
+    String? any;
+    String? able;
+    for (final MapEntry(key: window, value: has) in _engines.entries) {
+      any = window;
+      if (has) able = window;
+    }
+    return able ?? any;
+  }
 
   void bind(EventBus events) => _events = events;
 
@@ -221,6 +256,7 @@ final class AppleModelsBridge implements ApplePccHost {
           kind: AppleCommandKind.status,
           model: AppleModelKind.onDevice,
         ),
+        to: _engine,
       );
       status =
           report.status ??
@@ -262,7 +298,11 @@ final class AppleModelsBridge implements ApplePccHost {
       // The adapter refuses these before here; never put them to the model.
       throw StateError('not an on-device request');
     }
-    _runs.add(request.runId);
+    final engine = _engine;
+    if (engine != null) {
+      _owners[request.runId] = engine;
+      _numbers[request.runId] = 0;
+    }
     try {
       await _command(
         (id) => AppleCommand(
@@ -293,45 +333,117 @@ final class AppleModelsBridge implements ApplePccHost {
             responseSchemaJson: request.responseSchemaJson,
           ),
         ),
+        to: engine,
         timeout: _startTimeout,
       );
     } on Object {
-      _runs.remove(request.runId);
+      // Never started, or not known to: an engine that did start it is
+      // stopped, and its reports no longer count.
+      if (_owners.remove(request.runId) case final owner?) {
+        _numbers.remove(request.runId);
+        _stopIn(owner, request.runId);
+      }
       rethrow;
     }
   }
 
   @override
   Future<void> cancel(String runId) async {
-    if (!_runs.contains(runId)) return;
+    final owner = _owners[runId];
+    if (owner == null) return;
     await _command(
       (id) => AppleCommand(id: id, kind: AppleCommandKind.cancel, runId: runId),
+      to: owner,
     );
   }
 
-  /// What the window said: what a run did first, then the answer, so a
+  /// A window's session closed: it is no engine any more, and what it was
+  /// asked is not answered. Its runs wait for a window to come back with
+  /// them (a socket that reconnects keeps them) or without them.
+  void forgetWindow(String window) {
+    _engines.remove(window);
+    for (final pending in _pending.values.toList()) {
+      if (pending.window == window && !pending.answer.isCompleted) {
+        pending.answer.completeError(StateError('the window closed'));
+      }
+    }
+  }
+
+  /// Ends [runId] here, failed, and stops it in the window running it: the
+  /// one way out for a run whose words or tool results went astray. Once.
+  void _end(String runId, {bool stop = true}) {
+    final owner = _owners.remove(runId);
+    _numbers.remove(runId);
+    if (owner == null) return;
+    _event(
+      PlatformPccStreamEvent(
+        runId: runId,
+        kind: PlatformPccEventKind.error,
+        content: appleFailureMessage(AppleFailure.failed),
+      ),
+    );
+    if (stop) _stopIn(owner, runId);
+  }
+
+  /// Tells [window]'s engine to stop [runId], if it is still connected;
+  /// nothing waits for its answer.
+  void _stopIn(String window, String runId) {
+    if (!_engines.containsKey(window)) return;
+    unawaited(
+      _command(
+        (id) =>
+            AppleCommand(id: id, kind: AppleCommandKind.cancel, runId: runId),
+        to: window,
+      ).then<void>((_) {}, onError: (Object _) {}),
+    );
+  }
+
+  /// Whether [report], about a run, counts: from the window running it (or,
+  /// for a run whose window is gone, the next report in order from the
+  /// window that has come back with it), and next in the run's numbering.
+  /// A number skipped ends the run; one already taken is a repeat.
+  bool _take(AppleReport report, String from) {
+    final runId = report.runId ?? '';
+    final owner = _owners[runId];
+    if (owner == null) return false;
+    final last = _numbers[runId] ?? 0;
+    final seq = report.seq;
+    if (owner != from) {
+      // Another window's run, or this window's before a reconnect: only
+      // the very next report proves nothing went missing meanwhile.
+      if (_engines.containsKey(owner) || seq != last + 1) return false;
+      _owners[runId] = from;
+    }
+    if (seq == null) return true;
+    if (seq <= last) return false;
+    if (seq > last + 1) {
+      DebugLogger.warning(
+        'report-lost',
+        scope: 'daemon/apple',
+        data: <String, Object?>{'expected': last + 1, 'got': seq},
+      );
+      _end(runId);
+      return false;
+    }
+    _numbers[runId] = seq;
+    return true;
+  }
+
+  /// What window [from] said: what a run did first, then the answer, so a
   /// command's caller sees the state it left.
-  void report(AppleReport report) {
+  void report(AppleReport report, {required String from}) {
     switch (report.kind) {
       case null:
         break;
       case AppleReportKind.ready:
-        final supported = report.supported ?? false;
-        this.supported = supported;
-        // A socket that came back keeps the runs the engine still has; a
-        // window without them (a new one) ends the rest here.
-        final kept = report.runs.toSet();
-        for (final runId in _runs.where((id) => !kept.contains(id)).toList()) {
-          _runs.remove(runId);
-          _event(
-            PlatformPccStreamEvent(
-              runId: runId,
-              kind: PlatformPccEventKind.error,
-              content: appleFailureMessage(AppleFailure.failed),
-            ),
-          );
-        }
-        _onReady?.call(supported);
+        _ready(from, report);
+      case AppleReportKind.content ||
+              AppleReportKind.usage ||
+              AppleReportKind.failed ||
+              AppleReportKind.done ||
+              AppleReportKind.toolCall
+          when !_take(report, from):
+        break;
       case AppleReportKind.content:
         _event(
           PlatformPccStreamEvent(
@@ -353,7 +465,8 @@ final class AppleModelsBridge implements ApplePccHost {
         );
       case AppleReportKind.failed:
         final runId = report.runId ?? '';
-        _runs.remove(runId);
+        _owners.remove(runId);
+        _numbers.remove(runId);
         _event(
           PlatformPccStreamEvent(
             runId: runId,
@@ -365,7 +478,8 @@ final class AppleModelsBridge implements ApplePccHost {
         );
       case AppleReportKind.done:
         final runId = report.runId ?? '';
-        _runs.remove(runId);
+        _owners.remove(runId);
+        _numbers.remove(runId);
         _event(
           PlatformPccStreamEvent(runId: runId, kind: PlatformPccEventKind.done),
         );
@@ -374,8 +488,41 @@ final class AppleModelsBridge implements ApplePccHost {
     }
     if (report.id case final id?) {
       final waiting = _pending[id];
-      if (waiting != null && !waiting.isCompleted) waiting.complete(report);
+      if (waiting != null &&
+          waiting.window == from &&
+          !waiting.answer.isCompleted) {
+        waiting.answer.complete(report);
+      }
     }
+  }
+
+  /// Window [from] (re)connected. It runs commands from now on; a socket
+  /// that came back keeps the runs its engine still has. A run it has that
+  /// is not its own here (ended meanwhile, or another window's) is stopped
+  /// there; a run of its own, or of a window gone, that it does not have
+  /// ends here.
+  void _ready(String from, AppleReport report) {
+    final supported = report.supported ?? false;
+    _engines
+      ..remove(from)
+      ..[from] = supported;
+    final kept = report.runs.toSet();
+    for (final runId in kept) {
+      final owner = _owners[runId];
+      if (owner == from) continue;
+      if (owner != null && !_engines.containsKey(owner)) {
+        _owners[runId] = from;
+      } else {
+        _stopIn(from, runId);
+      }
+    }
+    for (final MapEntry(key: runId, value: owner) in _owners.entries.toList()) {
+      if (kept.contains(runId)) continue;
+      if (owner == from || !_engines.containsKey(owner)) {
+        _end(runId, stop: false);
+      }
+    }
+    _onReady?.call(supported);
   }
 
   void _event(PlatformPccStreamEvent event) => _listener?.onEvent(event);
@@ -401,6 +548,10 @@ final class AppleModelsBridge implements ApplePccHost {
         result = PlatformPccToolResult(content: '', cancelled: true);
       }
     }
+    // Ended meanwhile: nothing waits for it. Moved to a window that came
+    // back: that one is waiting.
+    final owner = _owners[runId];
+    if (owner == null) return;
     try {
       await _command(
         (id) => AppleCommand(
@@ -411,33 +562,38 @@ final class AppleModelsBridge implements ApplePccHost {
           toolContent: result.content,
           toolCancelled: result.cancelled,
         ),
+        to: owner,
       );
     } on StateError catch (error) {
+      // The engine would wait for it until stopped: the run ends instead.
       DebugLogger.warning(
         'tool-result-undelivered',
         scope: 'daemon/apple',
         data: <String, Object?>{'error': error.message},
       );
+      _end(runId);
     }
   }
 
-  /// Sends a command and waits for its answer; throws [StateError] when no
-  /// window has the engine, it refuses, or none answers in time.
+  /// Sends a command to window [to]'s engine and waits for its answer;
+  /// throws [StateError] when that window has no engine (or none is
+  /// given), refuses, closes, or does not answer in time.
   Future<AppleReport> _command(
     AppleCommand Function(int id) build, {
+    required String? to,
     Duration? timeout,
   }) async {
     final events = _events;
     if (events == null) throw StateError('no engine yet');
     final id = ++_nextId;
-    final completer = Completer<AppleReport>();
-    _pending[id] = completer;
     final command = build(id);
+    if (to == null || !_engines.containsKey(to)) {
+      throw StateError('no window to run ${command.kind.name}');
+    }
+    final completer = Completer<AppleReport>();
+    _pending[id] = (answer: completer, window: to);
     try {
-      final reached = events.emit(ConduitEventSpecs.appleCommand, command);
-      if (reached == 0) {
-        throw StateError('no window to run ${command.kind.name}');
-      }
+      events.emitTo(to, ConduitEventSpecs.appleCommand, command);
       final report = await completer.future.timeout(timeout ?? _timeout);
       if (!report.ok) {
         throw StateError(report.error ?? '${command.kind.name} failed');

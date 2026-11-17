@@ -57,7 +57,10 @@ void main() {
         final command = AppleCommand.fromJson(envelope.payload);
         if (command.kind == AppleCommandKind.status) {
           scheduleMicrotask(
-            () => apple.report(AppleReport(id: command.id, status: engine)),
+            () => apple.report(
+              AppleReport(id: command.id, status: engine),
+              from: 'window',
+            ),
           );
         }
       });
@@ -68,6 +71,7 @@ void main() {
       expect((await direct.list()).usable, isFalse);
       apple.report(
         const AppleReport(kind: AppleReportKind.ready, supported: true),
+        from: 'window',
       );
       await apple.refresh();
       expect(runtime.container.read(appleOnDeviceAnswersProvider), isFalse);

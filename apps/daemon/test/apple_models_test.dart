@@ -286,6 +286,149 @@ void main() {
     );
   });
 
+  test('with two windows, one engine runs a request: the last to say '
+      'ready', () async {
+    final other = _Window(bus, apple, id: 'other');
+    window.ready(supported: true);
+    other.ready(supported: true);
+    window.reply = const <String>['From the first window.'];
+    other.reply = const <String>['From the second window.'];
+    final run = container
+        .read(applePccAdapterProvider)
+        .startCompletion(
+          DirectConnectionProfile.appleOnDevice(),
+          ask('Name a herb.'),
+        );
+    final events = await run.events.toList();
+    expect(
+      window.commands.where((c) => c.kind == AppleCommandKind.start),
+      isEmpty,
+    );
+    expect(
+      other.commands.where((c) => c.kind == AppleCommandKind.start),
+      hasLength(1),
+    );
+    final text = events.whereType<DirectContentDelta>().map((e) => e.content);
+    expect(text.join(), 'From the second window.');
+    expect(events.last, isA<DirectStreamDone>());
+  });
+
+  test("a window's report for a run it does not run is ignored", () async {
+    final other = _Window(bus, apple, id: 'other');
+    window.ready(supported: true);
+    window.reply = const <String>['Basil.'];
+    window.holdOpen = true;
+    final run = container
+        .read(applePccAdapterProvider)
+        .startCompletion(
+          DirectConnectionProfile.appleOnDevice(),
+          ask('Name a herb.'),
+        );
+    final events = <DirectStreamEvent>[];
+    final done = run.events.listen(events.add).asFuture<void>();
+    await window.until(() => events.whereType<DirectContentDelta>().isNotEmpty);
+    other.sendRaw(
+      AppleReport(
+        kind: AppleReportKind.content,
+        runId: run.id,
+        content: ' Forged.',
+        seq: 2,
+      ),
+    );
+    other.sendRaw(
+      AppleReport(kind: AppleReportKind.done, runId: run.id, seq: 3),
+    );
+    await pumpEventQueue();
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+    window.finish(run.id);
+    await done;
+    final text = events.whereType<DirectContentDelta>().map((e) => e.content);
+    expect(text.join(), 'Basil.');
+    expect(events.last, isA<DirectStreamDone>());
+  });
+
+  test('a report lost on the way ends the run and stops it in the window, '
+      'rather than keep a reply with words missing', () async {
+    window.ready(supported: true);
+    window.reply = const <String>['One ', 'two ', 'three.'];
+    window.holdOpen = true;
+    final run = container
+        .read(applePccAdapterProvider)
+        .startCompletion(
+          DirectConnectionProfile.appleOnDevice(),
+          ask('Count to three.'),
+        );
+    final events = <DirectStreamEvent>[];
+    final done = run.events.listen(events.add).asFuture<void>();
+    await window.until(
+      () => events.whereType<DirectContentDelta>().length >= 3,
+    );
+    window.lose = 1;
+    window.finish(run.id);
+    await done;
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      'Apple On-Device request failed.',
+    );
+    await window.until(() => window.cancelled.contains(run.id));
+  });
+
+  test('a socket that comes back keeps a run whose reports arrive in order, '
+      'even before it says ready', () async {
+    window.ready(supported: true);
+    window.reply = const <String>['Half '];
+    window.holdOpen = true;
+    final run = container
+        .read(applePccAdapterProvider)
+        .startCompletion(
+          DirectConnectionProfile.appleOnDevice(),
+          ask('Keep going.'),
+        );
+    final events = <DirectStreamEvent>[];
+    final done = run.events.listen(events.add).asFuture<void>();
+    await window.until(() => events.whereType<DirectContentDelta>().isNotEmpty);
+    // The same engine on a new session: its queued reports come first.
+    final back = _Window(bus, apple, id: 'window-2')
+      .._numbers.addAll(window._numbers);
+    window.detach();
+    back._report(
+      AppleReport(
+        kind: AppleReportKind.content,
+        runId: run.id,
+        content: 'way.',
+      ),
+    );
+    back.ready(supported: true, runs: <String>[run.id]);
+    back.finish(run.id);
+    await done;
+    final text = events.whereType<DirectContentDelta>().map((e) => e.content);
+    expect(text.join(), 'Half way.');
+    expect(events.last, isA<DirectStreamDone>());
+  });
+
+  test('a tool result the window cannot be given ends the run, and the '
+      'window is told to stop it when it comes back', () async {
+    window.ready(supported: true);
+    window.toolCall = true;
+    window.detachAfterToolCall = true;
+    final run = container
+        .read(applePccAdapterProvider)
+        .startCompletion(
+          DirectConnectionProfile.appleOnDevice(),
+          ask('Look up thyme.'),
+        );
+    final events = await run.events.toList();
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      'Apple On-Device request failed.',
+    );
+    // The engine, still waiting on that call, comes back with the run.
+    final back = _Window(bus, apple, id: 'window-2');
+    back.ready(supported: true, runs: <String>[run.id]);
+    await back.until(() => back.cancelled.contains(run.id));
+  });
+
   test('a turn with no window to run it fails rather than waits', () async {
     window.ready(supported: true);
     window.detach();
@@ -307,12 +450,22 @@ void main() {
 
 /// The desktop app's Foundation Models engine, as the daemon sees it.
 final class _Window {
-  _Window(this.bus, this.apple) {
-    bus.attach('window', _deliver);
+  _Window(this.bus, this.apple, {this.id = 'window'}) {
+    bus.attach(id, _deliver);
   }
 
   final EventBus bus;
   final AppleModelsService apple;
+
+  /// Its daemon session.
+  final String id;
+
+  /// The next number of each run's reports, as the desktop numbers them.
+  final Map<String, int> _numbers = <String, int>{};
+
+  /// Skips this many numbers before the run's next report (a report lost
+  /// on the way).
+  int lose = 0;
   final commands = <AppleCommand>[];
   final cancelled = <String>[];
   AppleEngineStatus engine = const AppleEngineStatus(
@@ -323,12 +476,21 @@ final class _Window {
   List<String> reply = const <String>['Yes.'];
   bool holdOpen = false;
   bool toolCall = false;
+
+  /// The socket drops right after the tool call is reported, while the
+  /// core works out its answer.
+  bool detachAfterToolCall = false;
   AppleFailure? failure;
   int statusAsked = 0;
+
   final Map<String, Completer<void>> _toolAnswered =
       <String, Completer<void>>{};
 
-  void detach() => bus.detach('window');
+  /// The window's session closes.
+  void detach() {
+    bus.detach(id);
+    apple.forgetWindow(id);
+  }
 
   void ready({required bool supported, List<String> runs = const []}) =>
       apple.report(
@@ -337,6 +499,7 @@ final class _Window {
           supported: supported,
           runs: runs,
         ),
+        from: id,
       );
 
   /// Ends a run held open.
@@ -350,7 +513,22 @@ final class _Window {
     scheduleMicrotask(() => _run(command));
   }
 
-  void _report(AppleReport report) => apple.report(report);
+  void _report(AppleReport report) {
+    final runId = report.runId;
+    if (report.kind != null &&
+        report.kind != AppleReportKind.ready &&
+        runId != null) {
+      final number = (_numbers[runId] ?? 0) + 1 + lose;
+      lose = 0;
+      _numbers[runId] = number;
+      report = report.copyWith(seq: number);
+    }
+    apple.report(report, from: id);
+  }
+
+  /// A report this window did not number in order: another window's run,
+  /// or a forged one.
+  void sendRaw(AppleReport report) => apple.report(report, from: id);
 
   Future<void> _run(AppleCommand c) async {
     switch (c.kind) {
@@ -381,6 +559,10 @@ final class _Window {
               argumentsJson: '{"plant":"thyme"}',
             ),
           );
+          if (detachAfterToolCall) {
+            detach();
+            return;
+          }
           await answered.future;
         }
         for (final part in reply) {

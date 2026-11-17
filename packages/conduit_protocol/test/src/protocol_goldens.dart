@@ -7521,6 +7521,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "kind": "content",
   "runs": [],
   "runId": "run-5c1e",
+  "seq": 1,
   "content": "Thyme, rosemary and sage."
 }''',
 
@@ -7530,6 +7531,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "kind": "failed",
   "runs": [],
   "runId": "run-5c1e",
+  "seq": 2,
   "failure": "contextExceeded"
 }''',
 
@@ -7539,6 +7541,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "kind": "toolCall",
   "runs": [],
   "runId": "run-5c1e",
+  "seq": 1,
   "callId": "call-1",
   "toolName": "garden_lookup",
   "argumentsJson": "{}"

@@ -775,6 +775,12 @@ pub struct AppleReport {
     pub status: Option<AppleEngineStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_id: Option<String>,
+    /// A run's reports (`content`, `usage`, `toolCall`, `done`, `failed`)
+    /// are numbered from 1 by the window: a number skipped is a report lost
+    /// on the way, and the daemon ends the run rather than keep a reply with
+    /// words missing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -809,6 +815,7 @@ impl Default for AppleReport {
             runs: Default::default(),
             status: None,
             run_id: None,
+            seq: None,
             content: None,
             input_tokens: None,
             output_tokens: None,
