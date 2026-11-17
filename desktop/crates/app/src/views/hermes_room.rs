@@ -542,11 +542,12 @@ impl HermesRoomPane {
         cx.notify();
     }
 
-    /// The room's log showing this key's unresolved send's exact words
-    /// posted after it went out confirms it posted: the guard goes. The words
-    /// stay where they are -- a matching message is not proof enough to take
-    /// them away. Nothing else the room shows settles it.
-    fn settle_by_room(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    /// The room's log showing this key's unresolved send's exact words, as
+    /// the user's own message newer than the send, confirms it posted: like a
+    /// send answered as sent, the guard goes and the words leave the field --
+    /// only if it still holds exactly them (words edited since stay). Nothing
+    /// else the room shows settles it.
+    fn settle_by_room(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.sending.is_some() {
             return;
         }
@@ -563,9 +564,15 @@ impl HermesRoomPane {
             return;
         }
         let key = self.key.clone();
-        self.stores
-            .hermes_rooms
-            .update(cx, |h, _| h.settle_seen_posted(&key, unresolved.token));
+        self.stores.hermes_rooms.update(cx, |h, _| {
+            h.settle_seen_posted(&key, unresolved.token);
+            // Given up here and now, not again by the next look.
+            h.take_confirmed(&key);
+        });
+        if self.text(cx).trim() == unresolved.text {
+            self.input.update(cx, |s, cx| s.set_value("", window, cx));
+            self.text_changed(cx);
+        }
     }
 
     /// Discard: the user lets the unresolved send go; its words stay in the
@@ -1977,7 +1984,8 @@ mod tests {
             drop(held);
             vcx.run_until_parked();
             pane.read_with(vcx, |p, cx| {
-                assert!(!p.send_waits(cx), "the log's confirmation was lost")
+                assert!(!p.send_waits(cx), "the log's confirmation was lost");
+                assert_eq!(p.text(cx), "", "a second Send would post them twice");
             });
         }
 
@@ -2023,12 +2031,12 @@ mod tests {
             drop(held);
             vcx.run_until_parked();
             pane.read_with(vcx, |p, cx| assert_eq!(p.text(cx), "hello"));
-            // Shown posted later: that confirms it (the guard goes); the
-            // words are not taken away on a matching message alone.
+            // Shown posted later (the user's own message, newer than the
+            // send): a confirmed post, as a send answered as sent.
             changed(&stores, posted(None, &[(4, "hello")]), vcx);
             pane.read_with(vcx, |p, cx| {
                 assert!(!p.send_waits(cx));
-                assert_eq!(p.text(cx), "hello");
+                assert_eq!(p.text(cx), "");
             });
         }
 
@@ -2146,7 +2154,10 @@ mod tests {
                 assert!(p.send_waits(cx), "the words went sendable")
             });
             changed(&stores, posted(None, &[(4, "hello")]), vcx);
-            pane.read_with(vcx, |p, cx| assert!(!p.send_waits(cx)));
+            pane.read_with(vcx, |p, cx| {
+                assert!(!p.send_waits(cx));
+                assert_eq!(p.text(cx), "");
+            });
         }
 
         #[gpui_kit::test]
@@ -2168,6 +2179,28 @@ mod tests {
             });
             vcx.run_until_parked();
             assert_eq!(daemon.calls::<methods::HermesRoomsSend>().len(), 1);
+        }
+
+        #[gpui_kit::test]
+        fn words_edited_since_the_send_survive_its_confirmation(cx: &mut TestAppContext) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(None));
+            daemon.returns::<methods::HermesRoomsSend>(HermesRoomSendResult::default());
+            let held = daemon.hold::<methods::HermesRoomsSend>();
+            let (stores, pane, vcx) = open(cx, &daemon, "edited");
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("hello", window, cx);
+                p.send(window, cx);
+            });
+            changed(&stores, room(Some("hello")), vcx);
+            drop(held);
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| p.type_text("hello again", window, cx));
+            changed(&stores, posted(None, &[(4, "hello")]), vcx);
+            pane.read_with(vcx, |p, cx| {
+                assert!(!p.send_waits(cx));
+                assert_eq!(p.text(cx), "hello again");
+            });
         }
 
         #[gpui_kit::test]
@@ -2321,9 +2354,12 @@ mod tests {
             vcx.run_until_parked();
             assert_eq!(daemon.calls::<methods::HermesRoomsSend>().len(), 1);
             back.update_in(vcx, |p, window, cx| p.type_text("hello", window, cx));
-            // The log shows them posted: that confirms the send.
+            // The log shows them posted: a confirmed post leaves the field.
             changed(&stores, posted(None, &[(4, "hello")]), vcx);
-            back.read_with(vcx, |p, cx| assert!(!p.send_waits(cx)));
+            back.read_with(vcx, |p, cx| {
+                assert!(!p.send_waits(cx));
+                assert_eq!(p.text(cx), "");
+            });
         }
 
         #[gpui_kit::test]

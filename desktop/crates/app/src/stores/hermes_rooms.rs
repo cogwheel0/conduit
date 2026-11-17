@@ -299,12 +299,13 @@ impl HermesRoomsStore {
         );
     }
 
-    /// The room's log shows send `token`'s exact words posted after it went
-    /// out: that confirms it posted. The guard goes; the words are left where
-    /// they are (a matching message is not proof enough to take them away).
+    /// The room's log shows send `token`'s exact words, as the user's own
+    /// message, newer than the send: a confirmed post, settled as a send
+    /// answered as sent (a draft still holding exactly them goes, and the
+    /// pane showing the key gives them up if its field holds exactly them).
     pub fn settle_seen_posted(&mut self, key: &RoomKey, token: u64) {
         if self.unresolved.get(key).is_some_and(|u| u.token == token) {
-            self.unresolved.remove(key);
+            self.settle_posted(key);
         }
     }
 
