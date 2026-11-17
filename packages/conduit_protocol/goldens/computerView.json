@@ -1,0 +1,10 @@
+{
+  "surface": "desktop",
+  "state": "live",
+  "handle": "v1",
+  "streamUrl": "ws://127.0.0.1:41235/s1/stream",
+  "transport": "vnc",
+  "audio": true,
+  "title": "",
+  "url": ""
+}

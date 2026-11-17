@@ -105,6 +105,10 @@ abstract final class ConduitEvents {
   /// [TerminalDisplayFile], scoped to the chat.
   static const String terminalDisplayFile = 'terminal.displayFile';
 
+  /// A watched terminal's directory or ports changed (`terminal.watch`).
+  /// Payload [TerminalChanged]; unscoped, named by its handle.
+  static const String terminalChanged = 'terminal.changed';
+
   /// A chat's queued messages changed. Payload [QueueState], scoped to the
   /// chat.
   static const String queueChanged = 'queue.changed';
@@ -189,6 +193,7 @@ abstract final class ConduitEvents {
     hermesChanged,
     voiceChanged,
     terminalDisplayFile,
+    terminalChanged,
     settingsChanged,
     queueChanged,
     messagesMerge,

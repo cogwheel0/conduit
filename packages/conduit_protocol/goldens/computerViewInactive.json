@@ -1,0 +1,9 @@
+{
+  "surface": "browser",
+  "state": "inactive",
+  "transport": "frames",
+  "audio": false,
+  "tabId": "tab-2",
+  "title": "Docs",
+  "url": "https://example.com/docs"
+}

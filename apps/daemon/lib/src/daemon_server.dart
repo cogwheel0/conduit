@@ -48,6 +48,7 @@ import 'valves_service.dart';
 import 'web_search_service.dart';
 import 'workspace_service.dart';
 import 'terminals_service.dart';
+import 'computer_rpc_service.dart';
 import 'handoff_service.dart';
 import 'automations_service.dart';
 import 'calendar_service.dart';
@@ -134,6 +135,7 @@ class DaemonServer {
   ChannelsService? _channels;
   WorkspaceService? _workspace;
   TerminalsService? _terminals;
+  ComputerRpcService? _computer;
   HermesService? _hermes;
   VoiceService? _voice;
   DictationService? _dictation;
@@ -266,7 +268,8 @@ class DaemonServer {
     );
     _channels = ChannelsService(core.container, events: events);
     _workspace = WorkspaceService(core.container, events: events);
-    _terminals = TerminalsService(core.container, log: _log);
+    _terminals = TerminalsService(core.container, log: _log, events: events);
+    _computer = ComputerRpcService(core.container, log: _log);
     _voice = VoiceService(
       core.container,
       events: events,
@@ -338,6 +341,7 @@ class DaemonServer {
       channels: _channels,
       workspace: _workspace,
       terminals: _terminals,
+      computer: _computer,
       hermes: _hermes,
       voice: _voice,
       dictation: _dictation,
@@ -1079,8 +1083,10 @@ class DaemonServer {
     await _calls?.dispose();
     await _readAloud?.dispose();
     await _terminals?.dispose();
+    await _computer?.dispose();
     await _data?.dispose();
     _terminals = null;
+    _computer = null;
     await _server?.close(force: true);
     _server = null;
     // The services that hold chats and watches go while the core they read

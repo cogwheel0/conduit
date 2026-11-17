@@ -9,6 +9,7 @@ import 'channels.dart';
 import 'chat_settings.dart';
 import 'chats.dart';
 import 'composer.dart';
+import 'computer.dart';
 import 'data.dart';
 import 'dictation.dart';
 import 'direct.dart';
@@ -1818,6 +1819,52 @@ abstract final class ConduitMethodSpecs {
         params: TerminalPortRef.fromJson,
         result: TerminalPreview.fromJson,
       );
+  static const terminalWatch =
+      ConduitMethodSpec<TerminalWatch, TerminalWatching>(
+        ConduitMethods.terminalWatch,
+        params: TerminalWatch.fromJson,
+        result: TerminalWatching.fromJson,
+      );
+  static const terminalDetach = ConduitMethodSpec<TerminalHandleRef, OkResult>(
+    ConduitMethods.terminalDetach,
+    params: TerminalHandleRef.fromJson,
+    result: OkResult.fromJson,
+  );
+
+  // computer.*
+
+  static const computerStatus =
+      ConduitMethodSpec<ComputerScope, ComputerStatus>(
+        ConduitMethods.computerStatus,
+        params: ComputerScope.fromJson,
+        result: ComputerStatus.fromJson,
+      );
+  static const computerOpen = ConduitMethodSpec<ComputerOpen, ComputerView>(
+    ConduitMethods.computerOpen,
+    params: ComputerOpen.fromJson,
+    result: ComputerView.fromJson,
+  );
+  static const computerTabs = ConduitMethodSpec<ComputerScope, ComputerTabs>(
+    ConduitMethods.computerTabs,
+    params: ComputerScope.fromJson,
+    result: ComputerTabs.fromJson,
+  );
+  static const computerCloseTab = ConduitMethodSpec<ComputerTabRef, OkResult>(
+    ConduitMethods.computerCloseTab,
+    params: ComputerTabRef.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const computerShortcut =
+      ConduitMethodSpec<ComputerShortcut, OkResult>(
+        ConduitMethods.computerShortcut,
+        params: ComputerShortcut.fromJson,
+        result: OkResult.fromJson,
+      );
+  static const computerClose = ConduitMethodSpec<ComputerHandleRef, OkResult>(
+    ConduitMethods.computerClose,
+    params: ComputerHandleRef.fromJson,
+    result: OkResult.fromJson,
+  );
 
   // voice.*
 
@@ -2293,6 +2340,14 @@ abstract final class ConduitMethodSpecs {
         terminalFileAction,
         terminalPorts,
         terminalPreviewPort,
+        terminalWatch,
+        terminalDetach,
+        computerStatus,
+        computerOpen,
+        computerTabs,
+        computerCloseTab,
+        computerShortcut,
+        computerClose,
         voiceSettings,
         voiceSaveSettings,
         voiceVoices,
@@ -2474,6 +2529,11 @@ abstract final class ConduitEventSpecs {
     payload: TerminalDisplayFile.fromJson,
     scoped: true,
   );
+  static const terminalChanged = ConduitEventSpec<TerminalChanged>(
+    ConduitEvents.terminalChanged,
+    payload: TerminalChanged.fromJson,
+    scoped: false,
+  );
   static const settingsChanged = ConduitEventSpec<void>(
     ConduitEvents.settingsChanged,
     scoped: false,
@@ -2583,6 +2643,7 @@ abstract final class ConduitEventSpecs {
         hermesChanged,
         voiceChanged,
         terminalDisplayFile,
+        terminalChanged,
         settingsChanged,
         queueChanged,
         messagesMerge,

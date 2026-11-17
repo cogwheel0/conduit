@@ -2618,7 +2618,10 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'terminalPreview': r'''
 {
-  "url": "http://127.0.0.1:41234/k1"
+  "url": "http://127.0.0.1:41234/k1",
+  "scripts": [
+    "addEventListener(1)"
+  ]
 }''',
 
   'hermesSettings': r'''
@@ -3322,6 +3325,117 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "chatId": "c1",
   "path": "/home/user/report.md"
+}''',
+
+  'terminalDisplayFilePage': r'''
+{
+  "chatId": "c1",
+  "path": "/home/user/guide.pdf",
+  "page": 3
+}''',
+
+  'terminalWatch': r'''
+{
+  "handle": "h1",
+  "path": "/home/ada/"
+}''',
+
+  'terminalWatching': r'''
+{
+  "live": true
+}''',
+
+  'terminalChanged': r'''
+{
+  "handle": "h1",
+  "files": true,
+  "ports": [
+    {
+      "port": 5173,
+      "pid": 7,
+      "process": "vite"
+    }
+  ]
+}''',
+
+  'computerScope': r'''
+{
+  "chatId": "c1"
+}''',
+
+  'computerStatus': r'''
+{
+  "enabled": true,
+  "desktop": true,
+  "browser": false
+}''',
+
+  'computerOpen': r'''
+{
+  "chatId": "c1",
+  "surface": "browser",
+  "tabId": "tab-2",
+  "newTab": false
+}''',
+
+  'computerView': r'''
+{
+  "surface": "desktop",
+  "state": "live",
+  "handle": "v1",
+  "streamUrl": "ws://127.0.0.1:41235/s1/stream",
+  "transport": "vnc",
+  "audio": true,
+  "title": "",
+  "url": ""
+}''',
+
+  'computerViewInactive': r'''
+{
+  "surface": "browser",
+  "state": "inactive",
+  "transport": "frames",
+  "audio": false,
+  "tabId": "tab-2",
+  "title": "Docs",
+  "url": "https://example.com/docs"
+}''',
+
+  'computerTab': r'''
+{
+  "id": "tab-2",
+  "title": "Docs",
+  "url": "https://example.com/docs",
+  "selected": true
+}''',
+
+  'computerTabs': r'''
+{
+  "tabs": [
+    {
+      "id": "tab-1",
+      "title": "",
+      "url": "",
+      "selected": false
+    }
+  ]
+}''',
+
+  'computerTabRef': r'''
+{
+  "chatId": "c1",
+  "tabId": "tab-2"
+}''',
+
+  'computerShortcut': r'''
+{
+  "handle": "v1",
+  "key": "ctrl+c"
+}''',
+
+  'computerHandleRef': r'''
+{
+  "handle": "v1"
 }''',
 
   'noteFile': r'''

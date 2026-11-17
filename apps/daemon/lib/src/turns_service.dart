@@ -40,6 +40,8 @@ import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart'
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
     show TerminalFileRequest, terminalDisplayFileProvider;
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart'
+    show terminalAgentTerminalId;
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/features/chat/providers/temporary_chat_save.dart';
 import 'package:conduit_core/models/chat_comparison.dart';
@@ -172,6 +174,16 @@ final class TurnsService implements ChatTurns {
         if (previous == null || previous == next) return;
         _closeAll(reason: 'account-changed');
         this.temporary.clear();
+      }),
+      // The terminal the account selects (`terminal.select`) is every open
+      // chat's from then on: whichever way its next turn goes out (typed,
+      // a queued batch, words in a call), its tools run there.
+      _container.listen<String?>(selectedTerminalIdProvider, (previous, next) {
+        for (final session in _sessions) {
+          if (!session.scope.isDisposed) {
+            _followAccountTerminal(session.scope.container);
+          }
+        }
       }),
     ];
     _remaps = _container
@@ -3225,6 +3237,7 @@ final class TurnsService implements ChatTurns {
       ],
     );
     session = _ChatSession(scope, requestedChatId: chatId)..holds = 1;
+    _followAccountTerminal(scope.container);
     _sessions.add(session);
     session.subscriptions.addAll(<ProviderSubscription<Object?>>[
       scope.container.listen<List<ChatMessage>>(
@@ -3498,6 +3511,21 @@ final class TurnsService implements ChatTurns {
     scope
         .read(hermesFastTierSelectionProvider.notifier)
         .set(_container.read(hermesFastTierSelectionProvider));
+    _followAccountTerminal(scope);
+  }
+
+  /// Gives [scope] the terminal chats use: the account's (`terminal.select`,
+  /// the composer's Terminal section), as on mobile, or a coding agent's own
+  /// when the scope's model is one (it runs nowhere else). The one place a
+  /// scope's terminal is set: when the scope opens, when a turn chooses its
+  /// composer, and whenever the account selects another, so every send
+  /// reads the selection current when it goes out.
+  void _followAccountTerminal(ProviderContainer scope) {
+    final agent = terminalAgentTerminalId(scope.read(selectedModelProvider));
+    final terminal = agent ?? _container.read(selectedTerminalIdProvider);
+    if (scope.read(selectedTerminalIdProvider) != terminal) {
+      scope.read(selectedTerminalIdProvider.notifier).set(terminal);
+    }
   }
 
   /// The Hermes agent cards (`hermes.*` work and decisions), told about

@@ -2704,6 +2704,164 @@ void main() {
         timeout: const Timeout(Duration(minutes: 2)),
       );
 
+      // The server's own terminal (owui.sh's fake Open Terminal, "Build
+      // box"): live changes through its events socket, a preview that lands
+      // on a page, and the Computer relay putting the token in.
+      test(
+        "the server's terminal: live changes, a preview, Computer",
+        () async {
+          final events = EventBus();
+          final portsSeen = Completer<TerminalChanged>();
+          var filesSeen = Completer<void>();
+          var count = 0;
+          events
+            ..attach('window', (e) {
+              if (e.event != ConduitEvents.terminalChanged) return;
+              count++;
+              final changed = TerminalChanged.fromJson(e.payload);
+              if (changed.ports != null && !portsSeen.isCompleted) {
+                portsSeen.complete(changed);
+              }
+              if (changed.files && !filesSeen.isCompleted) {
+                filesSeen.complete();
+              }
+            })
+            ..subscribe(
+              'window',
+              EventSubscription(
+                events: <String>[ConduitEvents.terminalChanged],
+              ),
+            );
+          final terminals = TerminalsService(runtime.container, events: events);
+          addTearDown(terminals.dispose);
+          final listed = await terminals.servers('');
+          final box = listed.servers.where((s) => s.id == 'buildbox');
+          if (box.isEmpty) {
+            markTestSkipped('the server runs without the fake terminal');
+            return;
+          }
+          final previous = listed.selectedId;
+          addTearDown(() => terminals.select(previous));
+          await terminals.select('buildbox');
+          final attached = await terminals.attach(
+            const TerminalAttach(serverId: 'buildbox'),
+          );
+          final handle = attached.handle;
+          final watching = terminals.watch(
+            TerminalWatch(handle: handle, path: '/home/demo'),
+          );
+          expect(watching.live, isTrue);
+          expect((await portsSeen.future).ports!.single.port, 5173);
+          final folder =
+              '/home/demo/live-${DateTime.now().millisecondsSinceEpoch}';
+          // Only the folder's own change counts: the wait starts here.
+          filesSeen = Completer<void>();
+          await terminals.fileAction(
+            TerminalFileAction(
+              handle: handle,
+              op: TerminalFileOp.mkdir,
+              path: folder,
+            ),
+          );
+          addTearDown(() async {
+            try {
+              await terminals.fileAction(
+                TerminalFileAction(
+                  handle: handle,
+                  op: TerminalFileOp.delete,
+                  path: folder,
+                ),
+              );
+            } on RpcError {
+              // Gone already, or the handle went with the test's end.
+            }
+          });
+          await filesSeen.future;
+          await terminals.fileAction(
+            TerminalFileAction(
+              handle: handle,
+              op: TerminalFileOp.delete,
+              path: folder,
+            ),
+          );
+
+          // The preview lands on the page asked for; a request with Open
+          // WebUI's proxy prefix in it loses the prefix.
+          final preview = await terminals.previewPort(
+            TerminalPortRef(handle: handle, port: 5173),
+          );
+          expect(preview.scripts, isNotEmpty);
+          final client = HttpClient();
+          addTearDown(() => client.close(force: true));
+          final entry = Uri.parse(preview.url);
+          final first = await client.getUrl(
+            entry.replace(queryParameters: <String, String>{'to': '/about'}),
+          );
+          first.followRedirects = false;
+          final keyed = await first.close();
+          expect(keyed.headers.value('location'), '/about');
+          final cookie = keyed.cookies.single;
+          await keyed.drain<void>();
+          final about = await client.getUrl(entry.replace(path: '/about'));
+          about.cookies.add(cookie);
+          final shown = await about.close();
+          expect(
+            await utf8.decoder.bind(shown).join(),
+            contains('About the Log'),
+          );
+          final style = await client.getUrl(
+            entry.replace(
+              path: '/api/v1/terminals/buildbox/proxy/5173/style.css',
+            ),
+          );
+          style.cookies.add(cookie);
+          final css = await style.close();
+          expect(css.statusCode, HttpStatus.ok);
+          expect(await utf8.decoder.bind(css).join(), contains('font:'));
+
+          await terminals.detach(handle);
+          final before = count;
+          await terminals.detach(handle);
+          expect(count, before);
+
+          // Computer: the desktop streams through a relay that holds the
+          // token; the viewer's own auth carries none.
+          final computer = ComputerRpcService(runtime.container);
+          addTearDown(computer.dispose);
+          const chatId = 'live-computer-chat';
+          final status = await computer.status(chatId);
+          expect(status.enabled, isTrue);
+          expect(status.desktop, isTrue);
+          expect((await computer.status('')).desktop, isFalse);
+          final view = await computer.open(
+            const ComputerOpen(
+              chatId: chatId,
+              surface: ComputerSurfaceKind.desktop,
+            ),
+          );
+          expect(view.state, ComputerViewState.live);
+          expect(view.transport, 'frames');
+          final socket = await WebSocket.connect(
+            view.streamUrl!,
+            headers: <String, String>{'origin': 'http://127.0.0.1'},
+          );
+          addTearDown(socket.close);
+          socket.add(
+            jsonEncode(<String, String>{
+              'type': 'auth',
+              'token': '',
+              'chat_id': chatId,
+            }),
+          );
+          final frame = jsonDecode(
+            await socket.first.timeout(const Duration(seconds: 10)) as String,
+          ) as Map<String, dynamic>;
+          expect(frame['type'], 'frame');
+          await computer.close(view.handle!);
+        },
+        timeout: const Timeout(Duration(minutes: 2)),
+      );
+
       // Dictation and speech. The server transcribes a recording: the local
       // server's speech-to-text is the fake model, which answers every
       // recording with the same synthetic sentence, so a tone checks the
