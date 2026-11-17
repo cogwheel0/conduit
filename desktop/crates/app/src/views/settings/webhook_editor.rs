@@ -395,26 +395,32 @@ impl WebhookEditorSheet {
     }
 
     fn fields(&self, l10n: &L10n, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        // No typing while an action is out: Save, Make Default and Delete
+        // close the sheet when they land, so words typed meanwhile would go
+        // with it unsaved. (The switch, segments and events wait on busy.)
+        let locked = self.busy();
         let mut rows: Vec<AnyElement> = vec![];
         match &self.target {
             None => {
                 rows.push(
-                    forms::field(
+                    forms::field_locked(
                         l10n.notification_target_url_label(),
                         &self.url,
                         None,
                         self.url_error(l10n, cx),
+                        locked,
                         window,
                         cx,
                     )
                     .into_any_element(),
                 );
                 rows.push(
-                    forms::field(
+                    forms::field_locked(
                         l10n.notification_target_name_label(),
                         &self.name,
                         Some(l10n.notification_target_name_helper().into()),
                         None,
+                        locked,
                         window,
                         cx,
                     )
@@ -434,11 +440,12 @@ impl WebhookEditorSheet {
                 // Display only: the server never returns the saved URL. A
                 // URL typed here replaces it.
                 rows.push(
-                    forms::field(
+                    forms::field_locked(
                         l10n.notification_target_url_label(),
                         &self.url,
                         target.masked_url.clone().map(SharedString::from),
                         None,
+                        locked,
                         window,
                         cx,
                     )
@@ -614,6 +621,11 @@ impl WebhookEditorSheet {
 }
 
 impl SheetBody for WebhookEditorSheet {
+    /// A form changed, or a save still out: Quit asks first, as Cancel does.
+    fn unsaved(&self, cx: &App) -> bool {
+        self.running == Some(Action::Save) || self.is_dirty(cx)
+    }
+
     fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let l10n = cx.l10n().clone();
         let busy = self.busy();
@@ -742,5 +754,52 @@ impl Render for WebhookEditorSheet {
                     ),
             )
             .children(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use gpui_kit::App;
+
+    use super::WebhookEditorSheet;
+    use crate::views::sheet::{self, bench::bench};
+
+    /// A destination typed and not saved: Quit asks first.
+    #[gpui_kit::test]
+    fn quit_asks_before_dropping_a_destination_not_saved(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, stores, vcx) = bench(cx);
+        let sheet = vcx
+            .update(|window, cx| {
+                WebhookEditorSheet::open(
+                    stores.clone(),
+                    "w1".into(),
+                    vec![],
+                    None,
+                    Rc::new(|_, _: &mut App| {}),
+                    window,
+                    cx,
+                )
+            })
+            .expect("the editor opens");
+        vcx.run_until_parked();
+        let url = sheet.read_with(vcx, |s, _| s.url.clone());
+        vcx.update(|window, cx| {
+            url.update(cx, |s, cx| {
+                s.set_value("https://hooks.example.com/seed", window, cx)
+            })
+        });
+        vcx.run_until_parked();
+        let quits = Rc::new(Cell::new(0));
+        let q = quits.clone();
+        vcx.update(|_, cx| sheet::quit_with(cx, Rc::new(move |_| q.set(q.get() + 1))));
+        vcx.run_until_parked();
+        assert_eq!(quits.get(), 0, "Quit dropped the destination typed");
+        assert!(
+            vcx.update(|_, cx| sheet::current::<WebhookEditorSheet>(cx))
+                .is_some()
+        );
     }
 }

@@ -177,8 +177,9 @@ impl ConnectionEditorSheet {
                 .detach();
         }
         cx.observe(&key, |this: &mut Self, key, cx| {
-            // Typing a key replaces the stored one; clearing it keeps it.
-            if this.entry.as_ref().is_some_and(|e| e.has_key) {
+            // On an entry, typing a key replaces the stored one (or gives a
+            // keyless one its first); clearing it keeps what is stored.
+            if this.entry.is_some() {
                 let typed = !forms::raw(&key, cx).is_empty();
                 if typed {
                     this.key_mode = PersonalKeyMode::Replace;
@@ -237,15 +238,36 @@ impl ConnectionEditorSheet {
         self.test(cx);
     }
 
+    /// Enabled, as its switch presses it: the form's value, or on a
+    /// connection the editor can't read (no Save), a change saved at once.
+    pub fn press_switch(&mut self, cx: &mut Context<Self>) {
+        if self.read_only() {
+            self.switch_now(!self.enabled, cx);
+        } else {
+            self.enabled = !self.enabled;
+            self.changed(cx);
+        }
+    }
+
     /// Delete…, as its button presses it.
     pub fn press_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.delete(window, cx);
     }
 
-    /// Any change makes an earlier test result out of date.
+    /// Any change makes an earlier test result, and the issues the core
+    /// found in the form as it was, out of date.
     fn changed(&mut self, cx: &mut Context<Self>) {
         self.attempt = None;
+        self.issues = Issues::default();
         cx.notify();
+    }
+
+    /// The fields take no typing while a save or test is out: its answer is
+    /// about the form as it stands, so a save never closes over words typed
+    /// after it went and a test never judges a newer form. (The segments,
+    /// switch and key button already wait on [`Self::busy`].)
+    fn locked(&self) -> bool {
+        self.busy()
     }
 
     fn fingerprint(&self, cx: &App) -> String {
@@ -401,6 +423,62 @@ impl ConnectionEditorSheet {
         .detach();
     }
 
+    /// A connection the editor can't read has no Save: its switch saves at
+    /// once (`setEnabled`), as its row's switch does, and goes back with the
+    /// reason when that is refused.
+    fn switch_now(&mut self, on: bool, cx: &mut Context<Self>) {
+        let Some(entry) = self.entry.clone() else {
+            return;
+        };
+        if self.busy() {
+            return;
+        }
+        let call = self
+            .rpc(cx)
+            .call::<methods::IntegrationsSave>(&PersonalConnectionSave {
+                owner: self.owner.clone(),
+                kind: self.kind,
+                op: PersonalEditOp::SetEnabled,
+                identity: Some(entry.identity.clone()),
+                draft: None,
+                enabled: Some(on),
+            });
+        self.saving = true;
+        self.enabled = on;
+        self.error = None;
+        cx.notify();
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| {
+                s.saving = false;
+                let l10n = cx.l10n().clone();
+                match result {
+                    Ok(list) => {
+                        if list.saved_for_previous_account {
+                            s.error = Some(l10n.personal_connections_saved_for_previous_account());
+                        } else if let Some(saved) = list
+                            .tool_servers
+                            .iter()
+                            .chain(&list.terminals)
+                            .find(|e| e.kind == s.kind && e.identity == entry.identity)
+                        {
+                            s.enabled = saved.enabled;
+                            s.entry = Some(saved.clone());
+                        }
+                        (s.on_change)(list, cx);
+                    }
+                    Err(e) => {
+                        log::warn!("integrations.save setEnabled: {e}");
+                        s.enabled = !on;
+                        s.error = Some(save_error(&e, &l10n));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     fn delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(entry) = self.entry.clone() else {
             return;
@@ -505,7 +583,15 @@ impl ConnectionEditorSheet {
         } else {
             None
         };
-        let field = forms::field(l10n.api_key(), &self.key, help, None, window, cx);
+        let field = forms::field_locked(
+            l10n.api_key(),
+            &self.key,
+            help,
+            None,
+            self.locked(),
+            window,
+            cx,
+        );
         if !stored {
             return field.into_any_element();
         }
@@ -545,15 +631,19 @@ impl ConnectionEditorSheet {
 
     fn form(&self, l10n: &L10n, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let tool = self.tool();
-        let mut identity =
-            vec![forms::field(l10n.name(), &self.name, None, None, window, cx).into_any_element()];
+        let locked = self.locked();
+        let mut identity = vec![
+            forms::field_locked(l10n.name(), &self.name, None, None, locked, window, cx)
+                .into_any_element(),
+        ];
         if tool {
             identity.push(
-                forms::field(
+                forms::field_locked(
                     l10n.personal_connections_description_field(),
                     &self.description,
                     None,
                     None,
+                    locked,
                     window,
                     cx,
                 )
@@ -561,11 +651,12 @@ impl ConnectionEditorSheet {
             );
         }
         identity.push(
-            forms::field(
+            forms::field_locked(
                 l10n.personal_connections_url(),
                 &self.url,
                 None,
                 self.issues.url.clone().map(SharedString::from),
+                locked,
                 window,
                 cx,
             )
@@ -624,11 +715,12 @@ impl ConnectionEditorSheet {
         }
         if !tool || self.spec_type == SPEC_TYPES[0] {
             document.push(
-                forms::field(
+                forms::field_locked(
                     l10n.personal_connections_path(),
                     &self.path,
                     None,
                     self.issues.path.clone().map(SharedString::from),
+                    locked,
                     window,
                     cx,
                 )
@@ -647,7 +739,7 @@ impl ConnectionEditorSheet {
                             .text_size(px(t.metrics.control))
                             .child(l10n.personal_connections_spec_json()),
                     )
-                    .child(Textarea::new(&self.spec))
+                    .child(Textarea::new(&self.spec).disabled(locked))
                     .when_some(self.issues.spec.clone(), |d, e| {
                         d.child(
                             div()
@@ -672,10 +764,7 @@ impl ConnectionEditorSheet {
         let switch = Switch::new("connection-enabled", l10n.enabled_label(), on)
             .disabled(self.busy())
             .on_click(Rc::new(move |_, _, cx| {
-                let _ = view.update(cx, |v, cx| {
-                    v.enabled = !on;
-                    v.changed(cx);
-                });
+                let _ = view.update(cx, |v, cx| v.press_switch(cx));
             }));
         settings_section(
             SharedString::default(),
@@ -761,6 +850,11 @@ fn attempt(result: &PersonalConnectionTestResult, l10n: &L10n) -> Attempt {
 }
 
 impl SheetBody for ConnectionEditorSheet {
+    /// A form changed, or a save still out: Quit asks first, as Cancel does.
+    fn unsaved(&self, cx: &App) -> bool {
+        self.saving || self.is_dirty(cx)
+    }
+
     fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let l10n = cx.l10n().clone();
         let busy = self.busy();
@@ -907,5 +1001,206 @@ impl Render for ConnectionEditorSheet {
                     ),
             )
             .children(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use conduit_protocol::{PersonalConnectionDto, PersonalConnections, PersonalKind, methods};
+    use gpui_kit::{App, Entity, VisualTestContext};
+    use serde_json::json;
+
+    use super::ConnectionEditorSheet;
+    use crate::stores::Stores;
+    use crate::views::sheet::{self, bench::bench};
+
+    fn entry(has_key: bool, editable: bool) -> PersonalConnectionDto {
+        serde_json::from_value(json!({
+            "kind": "toolServer",
+            "identity": "conduit-1",
+            "name": "Seed catalogue",
+            "endpoint": "https://tools.example.com",
+            "enabled": true,
+            "editable": editable,
+            "url": "https://tools.example.com",
+            "specType": "url",
+            "path": "openapi.json",
+            "authType": "bearer",
+            "hasKey": has_key,
+        }))
+        .unwrap()
+    }
+
+    fn listed(entry: PersonalConnectionDto) -> PersonalConnections {
+        PersonalConnections {
+            owner: "p1".into(),
+            tool_servers: vec![entry],
+            ..Default::default()
+        }
+    }
+
+    fn open(
+        stores: &Stores,
+        entry: Option<PersonalConnectionDto>,
+        vcx: &mut VisualTestContext,
+    ) -> Entity<ConnectionEditorSheet> {
+        let stores = stores.clone();
+        let sheet = vcx
+            .update(|window, cx| {
+                ConnectionEditorSheet::open(
+                    stores,
+                    "p1".into(),
+                    PersonalKind::ToolServer,
+                    entry,
+                    Rc::new(|_, _: &mut App| {}),
+                    window,
+                    cx,
+                )
+            })
+            .expect("the editor opens");
+        vcx.run_until_parked();
+        sheet
+    }
+
+    fn type_into(
+        sheet: &Entity<ConnectionEditorSheet>,
+        field: fn(&ConnectionEditorSheet) -> Entity<gpui_kit::component::input::InputState>,
+        text: &str,
+        vcx: &mut VisualTestContext,
+    ) {
+        let state = sheet.read_with(vcx, |s, _| field(s));
+        let text = text.to_string();
+        vcx.update(|window, cx| state.update(cx, |s, cx| s.set_value(text, window, cx)));
+        vcx.run_until_parked();
+    }
+
+    fn draw_sheet(vcx: &mut VisualTestContext) {
+        vcx.update(|_, cx| {
+            if let Some(handle) = sheet::current_window(cx) {
+                let _ = handle.update(cx, |_, window, cx| window.draw(cx).clear(cx));
+            }
+        });
+        vcx.run_until_parked();
+    }
+
+    /// A key typed into a connection that has none yet is its first key:
+    /// Save and Test send it to replace (nothing), not to keep.
+    #[gpui_kit::test]
+    fn a_first_key_typed_on_a_keyless_connection_is_sent(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::IntegrationsSave>(listed(entry(true, true)));
+        daemon.returns::<methods::IntegrationsTest>(Default::default());
+        let sheet = open(&stores, Some(entry(false, true)), vcx);
+        type_into(&sheet, |s| s.key.clone(), "seed-token", vcx);
+        sheet.update(vcx, |s, cx| s.press_test(cx));
+        vcx.run_until_parked();
+        sheet.update(vcx, |s, cx| s.save(cx));
+        vcx.run_until_parked();
+        let tests = daemon.calls::<methods::IntegrationsTest>();
+        assert_eq!(tests[0]["draft"]["keyMode"], "replace");
+        assert_eq!(tests[0]["draft"]["key"], "seed-token");
+        let saves = daemon.calls::<methods::IntegrationsSave>();
+        assert_eq!(saves[0]["draft"]["keyMode"], "replace");
+        assert_eq!(saves[0]["draft"]["key"], "seed-token");
+    }
+
+    /// Nothing can be typed while a save is out, so the sheet never closes
+    /// over words typed after the save went.
+    #[gpui_kit::test]
+    fn nothing_typed_while_a_connection_saves_is_dropped(cx: &mut gpui_kit::TestAppContext) {
+        let app = cx.clone();
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::IntegrationsSave>(listed(entry(false, true)));
+        let sheet = open(&stores, Some(entry(false, true)), vcx);
+        type_into(&sheet, |s| s.name.clone(), "Seed swap", vcx);
+        let held = daemon.hold_one::<methods::IntegrationsSave>(0);
+        sheet.update(vcx, |s, cx| s.save(cx));
+        vcx.run_until_parked();
+        draw_sheet(vcx);
+        let window = vcx
+            .update(|_, cx| sheet::current_window(cx))
+            .expect("the sheet's window");
+        let mut sheet_cx = VisualTestContext::from_window(window, &app);
+        // The name field has the caret; this is typed while the save is out.
+        sheet_cx.simulate_input(" club");
+        vcx.run_until_parked();
+        let typed = sheet.read_with(vcx, |s, cx| super::forms::raw(&s.name, cx));
+        drop(held);
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::IntegrationsSave>();
+        assert_eq!(saves.len(), 1);
+        assert_eq!(
+            saves[0]["draft"]["name"], typed,
+            "the sheet closed over words typed while it saved"
+        );
+    }
+
+    /// An issue the core found goes once its field changes.
+    #[gpui_kit::test]
+    fn a_corrected_field_drops_its_old_issue(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::IntegrationsSave>(|_| {
+            let mut e = conduit_daemon::RpcError::internal("the form has a problem");
+            e.args.insert("url".into(), "urlInvalid".into());
+            Err(e)
+        });
+        let sheet = open(&stores, None, vcx);
+        type_into(&sheet, |s| s.url.clone(), "tools", vcx);
+        sheet.update(vcx, |s, cx| s.save(cx));
+        vcx.run_until_parked();
+        assert!(sheet.read_with(vcx, |s, _| s.issues.url.is_some()));
+        type_into(&sheet, |s| s.url.clone(), "https://tools.example.com", vcx);
+        assert_eq!(
+            sheet.read_with(vcx, |s, _| s.issues.clone()),
+            super::Issues::default()
+        );
+    }
+
+    /// Edits not saved: Quit asks first (and keeps them on "keep editing").
+    #[gpui_kit::test]
+    fn quit_asks_before_dropping_an_edited_connection(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, stores, vcx) = bench(cx);
+        let sheet = open(&stores, Some(entry(false, true)), vcx);
+        type_into(&sheet, |s| s.name.clone(), "Seed swap", vcx);
+        let quits = Rc::new(Cell::new(0));
+        let q = quits.clone();
+        vcx.update(|_, cx| sheet::quit_with(cx, Rc::new(move |_| q.set(q.get() + 1))));
+        vcx.run_until_parked();
+        assert_eq!(quits.get(), 0, "Quit dropped the edited connection");
+        assert!(
+            vcx.update(|_, cx| sheet::current::<ConnectionEditorSheet>(cx))
+                .is_some()
+        );
+    }
+
+    /// A connection the editor can't read has no Save: its switch saves at
+    /// once, and goes back when that is refused.
+    #[gpui_kit::test]
+    fn an_unsupported_connections_switch_saves_at_once(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        let mut off = entry(false, false);
+        off.enabled = false;
+        daemon.returns::<methods::IntegrationsSave>(listed(off));
+        let sheet = open(&stores, Some(entry(false, false)), vcx);
+        sheet.update(vcx, |s, cx| s.press_switch(cx));
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::IntegrationsSave>();
+        assert_eq!(saves.len(), 1);
+        assert_eq!(saves[0]["op"], "setEnabled");
+        assert_eq!(saves[0]["enabled"], false);
+        assert!(!sheet.read_with(vcx, |s, _| s.enabled));
+
+        daemon.on::<methods::IntegrationsSave>(|_| {
+            Err(conduit_daemon::RpcError::internal("refused"))
+        });
+        sheet.update(vcx, |s, cx| s.press_switch(cx));
+        vcx.run_until_parked();
+        sheet.read_with(vcx, |s, _| {
+            assert!(!s.enabled, "the switch stayed on although nothing saved");
+            assert!(s.error.is_some());
+        });
     }
 }

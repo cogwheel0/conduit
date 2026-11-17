@@ -219,6 +219,7 @@ fn field_box(
     state: &Entity<InputState>,
     hint: Option<SharedString>,
     error: bool,
+    locked: bool,
     window: &Window,
     cx: &App,
 ) -> Div {
@@ -275,7 +276,7 @@ fn field_box(
             div()
                 .flex_1()
                 .min_w_0()
-                .child(bare_input(state, label.clone(), m.control)),
+                .child(bare_input(state, label.clone(), m.control).disabled(locked)),
         )
 }
 
@@ -294,6 +295,22 @@ pub fn field(
     field_hinted(label, state, hint, help, error, window, cx)
 }
 
+/// [`field`] that takes no typing while `locked`: a form whose save or test
+/// is out, so what it answers is the form as it stands (nothing typed
+/// meanwhile is closed over or judged by an older answer).
+pub fn field_locked(
+    label: impl Into<SharedString>,
+    state: &Entity<InputState>,
+    help: Option<SharedString>,
+    error: Option<SharedString>,
+    locked: bool,
+    window: &Window,
+    cx: &App,
+) -> Div {
+    let hint = hint(state, cx);
+    field_with(label, state, hint, help, error, locked, window, cx)
+}
+
 /// [`field`] with its placeholder given here (one input that serves two
 /// labels, as sign-in's email or LDAP user name).
 pub fn field_hinted(
@@ -302,6 +319,20 @@ pub fn field_hinted(
     hint: Option<SharedString>,
     help: Option<SharedString>,
     error: Option<SharedString>,
+    window: &Window,
+    cx: &App,
+) -> Div {
+    field_with(label, state, hint, help, error, false, window, cx)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn field_with(
+    label: impl Into<SharedString>,
+    state: &Entity<InputState>,
+    hint: Option<SharedString>,
+    help: Option<SharedString>,
+    error: Option<SharedString>,
+    locked: bool,
     window: &Window,
     cx: &App,
 ) -> Div {
@@ -316,7 +347,15 @@ pub fn field_hinted(
         .flex()
         .flex_col()
         .gap(px(4.))
-        .child(field_box(&label, state, hint, error.is_some(), window, cx))
+        .child(field_box(
+            &label,
+            state,
+            hint,
+            error.is_some(),
+            locked,
+            window,
+            cx,
+        ))
         .when_some(help, |d, h| {
             d.child(
                 div()
