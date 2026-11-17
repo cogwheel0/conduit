@@ -63,6 +63,22 @@ pub struct Attempt {
     pub text: String,
 }
 
+/// What the form holds, field by field: compared as fields, so text in one
+/// field can never pass for text in the next.
+#[derive(Clone, Debug, PartialEq)]
+struct Fingerprint {
+    name: String,
+    description: String,
+    url: String,
+    path: String,
+    spec: String,
+    key_typed: bool,
+    spec_type: String,
+    auth_type: String,
+    key_mode: PersonalKeyMode,
+    enabled: bool,
+}
+
 pub struct ConnectionEditorSheet {
     stores: Stores,
     owner: String,
@@ -86,7 +102,7 @@ pub struct ConnectionEditorSheet {
     pub attempt: Option<Attempt>,
     pub error: Option<String>,
     /// The form as it opened, to tell whether it was changed.
-    initial: String,
+    initial: Fingerprint,
     on_change: OnChange,
 }
 
@@ -214,7 +230,18 @@ impl ConnectionEditorSheet {
             issues: Issues::default(),
             attempt: None,
             error: None,
-            initial: String::new(),
+            initial: Fingerprint {
+                name: String::new(),
+                description: String::new(),
+                url: String::new(),
+                path: String::new(),
+                spec: String::new(),
+                key_typed: false,
+                spec_type: String::new(),
+                auth_type: String::new(),
+                key_mode,
+                enabled,
+            },
             on_change,
         };
         this.initial = this.fingerprint(cx);
@@ -270,20 +297,19 @@ impl ConnectionEditorSheet {
         self.in_flight()
     }
 
-    fn fingerprint(&self, cx: &App) -> String {
-        format!(
-            "{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}",
-            forms::raw(&self.name, cx),
-            forms::raw(&self.description, cx),
-            forms::raw(&self.url, cx),
-            forms::raw(&self.path, cx),
-            self.spec.read(cx).value(),
-            !forms::raw(&self.key, cx).is_empty(),
-            self.spec_type,
-            self.auth_type,
-            self.key_mode,
-            self.enabled,
-        )
+    fn fingerprint(&self, cx: &App) -> Fingerprint {
+        Fingerprint {
+            name: forms::raw(&self.name, cx),
+            description: forms::raw(&self.description, cx),
+            url: forms::raw(&self.url, cx),
+            path: forms::raw(&self.path, cx),
+            spec: self.spec.read(cx).value().to_string(),
+            key_typed: !forms::raw(&self.key, cx).is_empty(),
+            spec_type: self.spec_type.clone(),
+            auth_type: self.auth_type.clone(),
+            key_mode: self.key_mode,
+            enabled: self.enabled,
+        }
     }
 
     pub fn is_dirty(&self, cx: &App) -> bool {
@@ -1272,5 +1298,22 @@ mod tests {
         assert!(!editor_up(vcx), "Discard left the sheet open");
         assert_eq!(quits.get(), 1, "Discard after the failed save did not quit");
         assert_eq!(beeps(vcx), 0);
+    }
+
+    /// Text moved from one field to the next is a change: Cancel and Quit
+    /// still ask before dropping it.
+    #[gpui_kit::test]
+    fn text_moved_between_fields_is_still_a_change(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, stores, vcx) = bench(cx);
+        let mut start = entry(false, true);
+        start.name = "Seed|catalogue".into();
+        start.description = "local".into();
+        let sheet = open(&stores, Some(start), vcx);
+        type_into(&sheet, |s| s.name.clone(), "Seed", vcx);
+        type_into(&sheet, |s| s.description.clone(), "catalogue|local", vcx);
+        assert!(
+            sheet.read_with(vcx, |s, cx| s.is_dirty(cx)),
+            "the edit read as the form it opened with"
+        );
     }
 }
