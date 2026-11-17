@@ -34,8 +34,8 @@ use conduit_protocol::{
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, App, AsyncApp, Context, Entity, FontWeight, Role, SharedString, Subscription,
-    WeakEntity, Window, div, px, relative,
+    AnyElement, App, AsyncApp, Context, Entity, EntityId, FontWeight, Role, SharedString,
+    Subscription, WeakEntity, Window, div, px, relative,
 };
 
 use crate::actions::SettingsChoice;
@@ -843,6 +843,7 @@ impl HermesConnectionSheet {
         };
         let url = edit.base_url.clone();
         let sent = self.form(cx);
+        let sent_rows = self.sent_rows(cx);
         let call = self
             .stores
             .connection
@@ -872,7 +873,7 @@ impl HermesConnectionSheet {
                             // empties); words typed meanwhile stay to save.
                             let before = s.form(cx);
                             if let Some(saved) = saved {
-                                s.adopt_saved(saved, &sent, window, cx);
+                                s.adopt_saved(saved, &sent, &sent_rows, window, cx);
                             }
                             s.initial = Form::saved(&sent, &before, s.form(cx));
                             let admin = s.stores.hermes_admin.clone();
@@ -907,10 +908,27 @@ impl HermesConnectionSheet {
     /// The connection as saved: its secrets now kept, so their fields are
     /// emptied and say so, and its headers' values too -- each only while
     /// it still holds what `sent` saved (a value typed since stays).
+    /// Each header row as a Save sends it, by the row (its name field's
+    /// entity, which stays the row's however it is renamed): its name and
+    /// value then.
+    fn sent_rows(&self, cx: &App) -> Vec<(EntityId, String, String)> {
+        self.headers
+            .iter()
+            .map(|r| {
+                (
+                    r.name.entity_id(),
+                    forms::raw(&r.name, cx),
+                    forms::raw(&r.value, cx),
+                )
+            })
+            .collect()
+    }
+
     fn adopt_saved(
         &mut self,
         saved: HermesConnectionDto,
         sent: &Form,
+        sent_rows: &[(EntityId, String, String)],
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -933,26 +951,36 @@ impl HermesConnectionSheet {
         if !saved.has_memory_key && self.memory_cleared && sent.memory_cleared {
             self.memory_cleared = false;
         }
-        // A row as it was sent becomes the saved header (dropped when the
-        // daemon did not keep it); a row added or edited since stays as it
-        // is, still to save, under the saved header it stood for if the
-        // daemon still holds that one.
+        // Each row is followed by its identity (the row, not its name): a
+        // row the Save sent now stands for the header saved under the name
+        // it was sent as, however it was renamed before or since. Unchanged
+        // since, it shows the saved state (dropped when the daemon did not
+        // keep it); edited since, it stays as it is, still to save. A row
+        // added since stands for what it did.
         let rows = std::mem::take(&mut self.headers);
         let stood_for = std::mem::take(&mut self.header_saved);
         let mut kept = vec![];
         for (row, was) in rows.into_iter().zip(stood_for) {
-            let pair = (forms::raw(&row.name, cx), forms::raw(&row.value, cx));
-            let name = pair.0.trim().to_string();
-            if !sent.headers.contains(&pair) {
+            let now = (forms::raw(&row.name, cx), forms::raw(&row.value, cx));
+            let Some((_, name, value)) = sent_rows
+                .iter()
+                .find(|(id, _, _)| *id == row.name.entity_id())
+            else {
                 let was = was.filter(|n| saved.access_header_names.contains(n));
                 kept.push((row, was));
-            } else if saved.access_header_names.contains(&name) {
-                if !pair.1.is_empty() {
-                    row.value.update(cx, |i, cx| i.set_value("", window, cx));
-                    forms::set_hint(&row.value, l.hermes_configured_replace_placeholder(), cx);
-                }
-                kept.push((row, Some(name)));
+                continue;
+            };
+            let sent_as = name.trim().to_string();
+            let held = saved.access_header_names.contains(&sent_as);
+            let unchanged = &now.0 == name && &now.1 == value;
+            if unchanged && !held {
+                continue;
             }
+            if unchanged && !now.1.is_empty() {
+                row.value.update(cx, |i, cx| i.set_value("", window, cx));
+                forms::set_hint(&row.value, l.hermes_configured_replace_placeholder(), cx);
+            }
+            kept.push((row, held.then_some(sent_as)));
         }
         self.header_saved = kept.iter().map(|(_, n)| n.clone()).collect();
         self.headers = kept.into_iter().map(|(r, _)| r).collect();
@@ -2321,6 +2349,64 @@ mod tests {
             "the renamed header keeps its saved value"
         );
         assert_eq!(sent[2]["value"], json!("new-1"));
+    }
+
+    /// A header renamed by a Save, then renamed again while that Save is
+    /// out, keeps its saved value: the next Save renames the header the
+    /// first one saved, and sends no value.
+    #[gpui_kit::test]
+    fn a_header_renamed_again_during_its_save_keeps_its_value(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsSave>(with_headers(
+            "a",
+            Some("b"),
+            &["X-Gate-2"],
+        ));
+        stores.hermes_admin.update(vcx, |a, cx| {
+            a.adopt_connections(with_headers("a", None, &["X-Gate"]), cx)
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(&s, Some("b".into()), window, cx));
+        vcx.run_until_parked();
+        let sheet = vcx
+            .update(|_, cx| sheet::current::<HermesConnectionSheet>(cx))
+            .expect("the editor opens");
+        let held = daemon.hold::<methods::HermesConnectionsSave>();
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.headers[0]
+                .name
+                .update(cx, |i, cx| i.set_value("X-Gate-2", w, cx));
+            s.save(w, cx);
+            s.headers[0]
+                .name
+                .update(cx, |i, cx| i.set_value("X-Gate-3", w, cx));
+        });
+        drop(held);
+        vcx.run_until_parked();
+        on_sheet(vcx, &sheet, |s, w, cx| s.save(w, cx));
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::HermesConnectionsSave>();
+        assert_eq!(saves.len(), 2);
+        let first = saves[0]["accessHeaders"]
+            .as_array()
+            .expect("the rename is sent");
+        assert_eq!(
+            (&first[0]["name"], &first[0]["savedName"]),
+            (&json!("X-Gate-2"), &json!("X-Gate"))
+        );
+        let next = saves[1]["accessHeaders"]
+            .as_array()
+            .expect("the rename is sent");
+        assert_eq!(next.len(), 1);
+        assert_eq!(
+            (&next[0]["name"], &next[0]["savedName"]),
+            (&json!("X-Gate-3"), &json!("X-Gate-2")),
+            "the saved value is lost"
+        );
+        assert!(
+            next[0].get("value").is_none_or(|v| v.is_null()),
+            "an empty value is sent"
+        );
     }
 
     /// A profile picked while Refresh Profiles is out stays picked.
