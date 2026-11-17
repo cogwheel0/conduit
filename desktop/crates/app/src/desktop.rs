@@ -64,6 +64,7 @@ use crate::stores::navigation::{Area, AreaItem};
 use crate::stores::session::Route;
 use crate::stores::settings::SettingsEvent;
 use crate::stores::shell::{HotkeyState, LoginState, NotificationAccess, ShellStore};
+use crate::views::chat_pane::NewChatContent;
 use crate::views::quick_ask::{QuickAskEvent, QuickAskView};
 use crate::views::settings::Tab;
 #[cfg(target_os = "macos")]
@@ -492,35 +493,24 @@ fn open_new_chat(
     let (too_many, too_large) = (plan.too_many, plan.too_large.clone());
     crate::with_main_view(cx, move |view, window, cx| {
         view.new_chat(false, window, cx);
+        // The new chat this request opened: what follows in the same batch
+        // (another link) may select something else before the write below.
+        let ticket = view.stores.navigation.read(cx).selection().clone();
         let pane = view.chat_pane.clone();
+        let content = NewChatContent {
+            text,
+            fresh,
+            paths: plan.accepted,
+            images,
+            context,
+            carried,
+        };
         // After this update: the pane follows the new selection as it ends,
         // and its draft switch empties the message box (a chat was open
         // before), so the text goes in after that.
         cx.spawn_in(window, async move |_, cx| {
             let _ = pane.update_in(cx, |p, window, cx| {
-                if fresh {
-                    p.composer_store.update(cx, |c, cx| c.clear_message(cx));
-                    let text = text.as_deref().unwrap_or_default();
-                    p.composer.update(cx, |c, cx| c.set_text(text, window, cx));
-                } else if let Some(text) = &text {
-                    p.composer.update(cx, |c, cx| c.set_text(text, window, cx));
-                }
-                if !plan.accepted.is_empty() {
-                    p.composer_store
-                        .update(cx, |c, cx| c.add_paths(&plan.accepted, cx));
-                }
-                for image in &images {
-                    p.composer_store.update(cx, |c, cx| c.add_image(image, cx));
-                }
-                for item in &context {
-                    p.composer_store
-                        .update(cx, |c, cx| c.add_context(item.clone(), cx));
-                }
-                if !carried.is_empty() {
-                    p.composer_store
-                        .update(cx, |c, cx| c.adopt_attachments(carried.clone(), cx));
-                }
-                p.focus_composer(window, cx);
+                p.compose_new_chat(&ticket, content, window, cx)
             });
         })
         .detach();

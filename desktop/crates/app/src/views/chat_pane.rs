@@ -69,6 +69,25 @@ pub struct OpenChat {
     _subscriptions: Vec<Subscription>,
 }
 
+/// What [`ChatPane::compose_new_chat`] writes into a new chat.
+#[derive(Default)]
+pub struct NewChatContent {
+    /// The message box's text.
+    pub text: Option<String>,
+    /// The new chat starts empty, its draft replaced (the phone's Send to
+    /// Conduit, Send Link, Send Image and widget Clipboard reset it); else
+    /// the text goes in and an unsent draft is kept, as New Chat keeps it.
+    pub fresh: bool,
+    /// Files, uploaded as the composer's Attach Files uploads them.
+    pub paths: Vec<std::path::PathBuf>,
+    /// Pictures, attached as a paste attaches them.
+    pub images: Vec<gpui_kit::Image>,
+    /// A web page's text or a video's transcript.
+    pub context: Vec<conduit_protocol::ContextAttachmentDto>,
+    /// Attachments already uploaded (Quick Ask's Open in Conduit).
+    pub carried: Vec<crate::stores::composer::Attachment>,
+}
+
 pub struct ChatPane {
     stores: Stores,
     layout: Entity<LayoutStore>,
@@ -1884,6 +1903,59 @@ impl ChatPane {
         });
     }
 
+    /// What a new chat opened from outside starts with (Send to Conduit,
+    /// Send Link, Send Image, the widget's links, Open With, Quick Ask's Open
+    /// in Conduit), once the pane has followed it: written only while the
+    /// new chat that request opened is still the one selected (`ticket`, the
+    /// selection it made). A link handled right after it in the same batch
+    /// (`conduit://chat/<id>`) keeps its own draft. Says whether it was
+    /// written.
+    pub fn compose_new_chat(
+        &mut self,
+        ticket: &Selection,
+        content: NewChatContent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.stores.navigation.read(cx).selection() != ticket {
+            return false;
+        }
+        let NewChatContent {
+            text,
+            fresh,
+            paths,
+            images,
+            context,
+            carried,
+        } = content;
+        if fresh {
+            let text = text.as_deref().unwrap_or_default();
+            self.composer
+                .update(cx, |c, cx| c.start_fresh(text, window, cx));
+        } else if let Some(text) = &text {
+            self.composer
+                .update(cx, |c, cx| c.set_text(text, window, cx));
+        }
+        if !paths.is_empty() {
+            self.composer_store
+                .update(cx, |c, cx| c.add_paths(&paths, cx));
+        }
+        for image in &images {
+            self.composer_store
+                .update(cx, |c, cx| c.add_image(image, cx));
+        }
+        for item in context {
+            self.composer_store
+                .update(cx, |c, cx| c.add_context(item, cx));
+        }
+        if !carried.is_empty() {
+            self.composer_store
+                .update(cx, |c, cx| c.adopt_attachments(carried, cx));
+        }
+        self.focus_composer(window, cx);
+        true
+    }
+
     pub fn open_model_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.composer.update(cx, |c, cx| c.open_picker(window, cx));
     }
@@ -3311,6 +3383,52 @@ mod tests {
                     .map(|a| a.name.clone())
                     .collect()
             })
+        }
+
+        /// A link handled right after a new chat's in the same batch
+        /// (`conduit://clipboard`, then `conduit://chat/<id>`) keeps its own
+        /// draft: what the new chat brought is written only while that new
+        /// chat is still the one selected.
+        #[gpui_kit::test]
+        fn a_new_chats_words_never_land_in_a_chat_opened_after_it(cx: &mut TestAppContext) {
+            use crate::views::chat_pane::NewChatContent;
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            let content = || NewChatContent {
+                text: Some("Copied packing list".into()),
+                fresh: true,
+                ..NewChatContent::default()
+            };
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            let ticket = stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone());
+            stores.navigation.update(vcx, |n, cx| n.open("c2", cx));
+            vcx.run_until_parked();
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&ticket, content(), window, cx)
+            });
+            vcx.run_until_parked();
+            assert!(!wrote, "written into the chat opened after it");
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                ""
+            );
+
+            // Still on the new chat it opened: written.
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+            let ticket = stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone());
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&ticket, content(), window, cx)
+            });
+            vcx.run_until_parked();
+            assert!(wrote);
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                "Copied packing list"
+            );
         }
 
         /// The widget's and Shortcuts' calls start in the new chat as it

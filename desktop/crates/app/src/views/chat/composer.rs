@@ -1639,6 +1639,22 @@ impl ChatComposer {
         self.render_prompt(prompt, at, values, window, cx);
     }
 
+    /// A fresh composition starts with `text` alone, even in the new chat
+    /// already shown (the same draft, so no draft switch): the last
+    /// composition's prompt form, panel and menu go, a prompt still being
+    /// rendered for it lands nowhere, and what applied to the last message
+    /// is cleared. (Writing the text replaces a draft read still on its way:
+    /// [`ComposerStore::draft_changed`].)
+    pub fn start_fresh(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.composer.update(cx, |c, cx| c.clear_message(cx));
+        self.form = None;
+        self.prompt_request += 1;
+        self.panel = None;
+        self.menu = None;
+        self.set_text(text, window, cx);
+        cx.notify();
+    }
+
     /// Another account: drops a prompt form filled for the last one, and
     /// any render still on its way. (A refresh of the same account keeps it.)
     pub fn forget_account(&mut self, cx: &mut Context<Self>) {
@@ -4641,6 +4657,44 @@ mod tests {
             c.cancel_form(window, cx);
         });
         held.release();
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "");
+        assert!(view.read_with(cx, |c, _| c.form.is_none()));
+    }
+
+    /// Send to Conduit, Send Link, Send Image or the widget's Clipboard in
+    /// the new chat already shown (the same draft, so no draft switch):
+    /// neither the last composition's prompt render nor the draft read
+    /// still on its way lands in what it brought.
+    #[gpui_kit::test]
+    fn a_fresh_composition_takes_nothing_the_last_one_had_coming(cx: &mut TestAppContext) {
+        use conduit_protocol::methods::{DraftsGet, PromptsRender};
+        let daemon = FakeDaemon::new();
+        daemon.returns::<DraftsGet>(
+            serde_json::from_value(serde_json::json!({"text": "Old unsent words"})).unwrap(),
+        );
+        let read = daemon.hold::<DraftsGet>();
+        daemon.returns::<PromptsRender>(
+            serde_json::from_value(serde_json::json!({"content": "LATE", "inputs": []})).unwrap(),
+        );
+        let render = daemon.hold::<PromptsRender>();
+        let (view, cx, _) = composer_on(daemon, cx);
+        // The new chat's draft is being read, and a prompt rendered in it.
+        view.update(cx, |c, cx| {
+            c.composer
+                .update(cx, |s, cx| s.switch_new_chat(None, false, "", cx))
+        });
+        view.update_in(cx, |c, window, cx| {
+            let prompt = serde_json::from_value(serde_json::json!({
+                "command": "/greet", "title": "Greet"
+            }))
+            .unwrap();
+            c.render_prompt(prompt, 0, BTreeMap::new(), window, cx);
+        });
+        // A picture arrives from Shortcuts: no text of its own.
+        view.update_in(cx, |c, window, cx| c.start_fresh("", window, cx));
+        render.release();
+        read.release();
         cx.run_until_parked();
         assert_eq!(value(&view, cx), "");
         assert!(view.read_with(cx, |c, _| c.form.is_none()));
