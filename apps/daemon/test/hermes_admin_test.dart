@@ -399,6 +399,30 @@ void main() {
     );
   });
 
+  test(
+    'a job whose delivery cannot be read says so, with no routes shown',
+    () async {
+      await saveHome();
+      first.jobs['j-far'] = <String, dynamic>{
+        'id': 'j-far',
+        'name': 'Seed report',
+        'prompt': 'Report the seed stock',
+        'schedule': '0 6 * * *',
+        'enabled': true,
+        // Longer than any route list the core reads.
+        'deliver': 'telegram:${'7' * 2100}',
+      };
+      final job = (await admin.jobs()).jobs.single;
+      expect(job.deliveryKnown, isFalse);
+      expect(
+        job.deliver,
+        isEmpty,
+        reason: 'shown as local, an edit would replace it',
+      );
+      first.jobs.clear();
+    },
+  );
+
   test('a job made whose list cannot be read after is still answered with '
       'its id', () async {
     await saveHome();

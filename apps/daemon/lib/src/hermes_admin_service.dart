@@ -734,12 +734,17 @@ final class HermesAdminService {
       lastRunAtMs: job.lastRun?.millisecondsSinceEpoch,
       nextRunAtMs: job.nextRun?.millisecondsSinceEpoch,
       state: job.state,
+      // Routes the core could not read are not shown as `local`: an edit
+      // of what is shown would replace them.
       deliver: <HermesDeliveryTargetDto>[
-        for (final target in parseHermesDeliveryTargets(job.deliveryTarget))
-          _target(
-            options?.optionFor(target) ?? describeHermesDeliveryTarget(target),
-          ),
+        if (job.deliveryKnown)
+          for (final target in parseHermesDeliveryTargets(job.deliveryTarget))
+            _target(
+              options?.optionFor(target) ??
+                  describeHermesDeliveryTarget(target),
+            ),
       ],
+      deliveryKnown: job.deliveryKnown,
       lastDeliveryError: job.lastDeliveryError,
       catchUp: _catchUpName(job.catchUpChoice),
       running: running,
@@ -828,7 +833,14 @@ final class HermesAdminService {
     }
     final scheduling =
         _container.read(hermesApiServiceProvider) is HermesDesktopApiService;
-    final deliver = scheduling ? _deliverValue(edit.deliver) : null;
+    // An edit never replaces routes the core could not read: they were
+    // never shown, so no choice of the user's is about them.
+    final unread =
+        edit.id != null &&
+        (_container.read(hermesJobsProvider).value ?? const <HermesJob>[]).any(
+          (j) => j.id == edit.id && !j.deliveryKnown,
+        );
+    final deliver = scheduling && !unread ? _deliverValue(edit.deliver) : null;
     final catchUp = scheduling ? _catchUp(edit.catchUp) : null;
     // The job written, named in the answer: an editor left open saves to
     // it from then on rather than making another.

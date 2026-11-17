@@ -315,7 +315,8 @@ impl HermesJobSheet {
             name: Some(name),
             prompt,
             schedule,
-            deliver: (self.scheduling && deliver_changed).then(|| self.deliver.join(",")),
+            deliver: (self.scheduling && deliver_changed && self.delivery_known())
+                .then(|| self.deliver.join(",")),
             catch_up: (self.scheduling && catch_up_changed)
                 .then(|| CATCH_UP[self.catch_up].to_string()),
             connection: self.opened.connection.clone(),
@@ -399,8 +400,17 @@ impl HermesJobSheet {
         .detach();
     }
 
+    /// The job's stored routes could be read: only then are they shown and
+    /// sent (an edit never replaces routes it never showed).
+    fn delivery_known(&self) -> bool {
+        self.job.as_ref().is_none_or(|j| j.delivery_known)
+    }
+
     /// Ticks or clears delivery target `target`; the last one stays.
     pub fn toggle_target(&mut self, target: &str, cx: &mut Context<Self>) {
+        if !self.delivery_known() {
+            return;
+        }
         if let Some(ix) = self.deliver.iter().position(|t| t == target) {
             if self.deliver.len() > 1 {
                 self.deliver.remove(ix);
@@ -762,7 +772,11 @@ impl Render for HermesJobSheet {
         ];
         if self.scheduling {
             body.push(self.catch_up_section(&l, window, cx));
-            body.push(self.deliver_section(&l, window, cx));
+            // Routes that could not be read are not shown as a checklist:
+            // ticking one would replace them all.
+            if self.delivery_known() {
+                body.push(self.deliver_section(&l, window, cx));
+            }
         }
         div()
             .id("hermes-job-sheet")
@@ -1034,6 +1048,49 @@ mod tests {
             assert!(sheet.read(cx).error.is_some(), "the editor says nothing");
             assert!(sheet::has_unsaved(cx), "the words typed later are dropped");
         });
+    }
+
+    /// A job whose delivery routes could not be read is saved without any
+    /// delivery choice: the routes stored stay as they are.
+    #[gpui_kit::test]
+    fn unread_delivery_routes_are_never_replaced(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        use_connection(&stores, vcx, "a");
+        stores.hermes_admin.update(vcx, |a, cx| {
+            a.adopt_jobs(
+                serde_json::from_value(json!({"jobs": [], "scheduling": true})).unwrap(),
+                cx,
+            )
+        });
+        daemon.returns::<methods::HermesSaveJob>(jobs("Seed report"));
+        daemon.returns::<methods::HermesJobsDelivery>(
+            serde_json::from_value(json!({"available": true, "options": []})).unwrap(),
+        );
+        let unread: HermesJobDto = serde_json::from_value(json!({
+            "id": "j1", "name": "Seed report", "prompt": "Report", "schedule": "0 6 * * *",
+            "deliveryKnown": false,
+        }))
+        .unwrap();
+        let s = stores.clone();
+        vcx.update(|window, cx| open(&s, Some(unread), window, cx));
+        vcx.run_until_parked();
+        let sheet = vcx
+            .update(|_, cx| sheet::current::<HermesJobSheet>(cx))
+            .expect("the editor opens");
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.toggle_target("telegram", cx);
+            s.prompt
+                .update(cx, |i, cx| i.set_value("Report the seed stock", w, cx));
+            s.save(w, cx);
+        });
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::HermesSaveJob>();
+        assert_eq!(saves.len(), 1);
+        assert_eq!(
+            saves[0]["deliver"],
+            json!(null),
+            "a delivery replacement was sent"
+        );
     }
 
     /// An editor opened for one connection's job saves nothing once
