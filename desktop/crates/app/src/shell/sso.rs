@@ -599,6 +599,29 @@ mod macos {
         !format!("{cookie:?}").contains("domain: Some(Concrete(\".")
     }
 
+    /// `cookie` as the daemon takes it: a domain cookie's domain keeps its
+    /// leading dot ([`host_only`]), so a session set for a parent domain
+    /// (`Domain=example.org`) is still sent to the gateway's host.
+    pub(super) fn dashboard_cookie(
+        cookie: &wry::cookie::Cookie<'_>,
+        host: &str,
+    ) -> conduit_protocol::HermesCookieDto {
+        let domain = cookie.domain().unwrap_or(host);
+        conduit_protocol::HermesCookieDto {
+            name: cookie.name().to_string(),
+            value: cookie.value().to_string(),
+            domain: if host_only(cookie) {
+                domain.to_string()
+            } else {
+                format!(".{domain}")
+            },
+            path: cookie.path().unwrap_or("/").to_string(),
+            secure: cookie.secure().unwrap_or(false),
+            http_only: cookie.http_only().unwrap_or(false),
+            expires_ms: cookie.expires_datetime().map(|t| t.unix_timestamp() * 1000),
+        }
+    }
+
     /// What the LibreChat window's navigation callback tells the flow.
     enum LibreChatSignal {
         Loaded,
@@ -872,15 +895,7 @@ mod macos {
                 let cookies: Vec<HermesCookieDto> = all
                     .iter()
                     .filter(|c| cookie_matches(c.domain(), &host))
-                    .map(|c| HermesCookieDto {
-                        name: c.name().to_string(),
-                        value: c.value().to_string(),
-                        domain: c.domain().unwrap_or(&host).to_string(),
-                        path: c.path().unwrap_or("/").to_string(),
-                        secure: c.secure().unwrap_or(false),
-                        http_only: c.http_only().unwrap_or(false),
-                        expires_ms: c.expires_datetime().map(|t| t.unix_timestamp() * 1000),
-                    })
+                    .map(|c| dashboard_cookie(c, &host))
                     .collect();
                 if !cookies
                     .iter()
@@ -1011,6 +1026,25 @@ mod tests {
             .build();
         assert!(!macos::host_only(&domain));
         assert!(macos::host_only(&host));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_parent_domain_session_reaches_the_daemon_as_a_domain_cookie() {
+        let parent = wry::cookie::CookieBuilder::new("hermes_session_at", "1")
+            .domain(".example.org")
+            .build();
+        let own = wry::cookie::CookieBuilder::new("hermes_session_at", "1")
+            .domain("agent.example.org")
+            .build();
+        assert_eq!(
+            macos::dashboard_cookie(&parent, "agent.example.org").domain,
+            ".example.org"
+        );
+        assert_eq!(
+            macos::dashboard_cookie(&own, "agent.example.org").domain,
+            "agent.example.org"
+        );
     }
 
     #[test]
