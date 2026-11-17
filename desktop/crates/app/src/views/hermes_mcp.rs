@@ -797,6 +797,34 @@ mod tests {
         assert!(shows_session(&stores, vcx, "sess-b"), "B's chat was closed");
     }
 
+    /// A saved connection edited to another gateway (the daemon names it
+    /// anew under the same saved id) is another connection: the old
+    /// gateway's chat closes on the switch's clean-up.
+    #[gpui_kit::test]
+    fn a_chat_of_the_gateway_a_connection_was_edited_away_from_closes(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| crate::stores::hermes_admin::follow_pages(&stores, cx));
+        let named = |key: &str| {
+            let mut l = list("a");
+            l.connection = Some(key.to_string());
+            l
+        };
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.adopt_connections(named("0a1b2c3d:1"), cx));
+        vcx.run_until_parked();
+        open_session(&stores, vcx, "sess-old-gateway");
+        daemon.returns::<methods::HermesConnectionsActivate>(named("0a1b2c3d:2"));
+        vcx.update(|_, cx| crate::stores::hermes_admin::activate(&stores, "a", cx));
+        vcx.run_until_parked();
+        assert!(
+            left_hermes_page(&stores, vcx),
+            "the old gateway's chat stayed open under the new one"
+        );
+    }
+
     /// The clean-up reads whose page is shown, and which connection is in
     /// use, when it runs, not when its action was sent: B's chat, of
     /// another connection than the one in use while a switch to C was out,

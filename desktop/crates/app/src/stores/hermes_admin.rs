@@ -103,7 +103,7 @@ pub struct HermesAdminStore {
     /// The Hermes page shown, and the connection in use (as this window
     /// knew it; none with Hermes off) when it opened: what a switch's or
     /// Turn Off's clean-up may close is a page of another connection.
-    shown_page: Option<(AreaItem, Option<String>)>,
+    shown_page: Option<(AreaItem, Option<InUse>)>,
 }
 
 /// When the reads and actions of one thing were asked, and the newest
@@ -135,6 +135,10 @@ impl Order {
         self.taken = self.asked;
     }
 }
+
+/// The connection a Hermes page opened under: its saved id and the
+/// daemon's name for it.
+type InUse = (Option<String>, Option<String>);
 
 /// A read or action of the connection in use, as it was asked: its
 /// answer is taken only while that connection is still the one (no switch
@@ -246,12 +250,14 @@ impl HermesAdminStore {
         })
     }
 
-    /// The saved connection in use, none while Hermes is off.
-    fn in_use(&self) -> Option<String> {
+    /// The connection in use, none while Hermes is off: its saved id and
+    /// the daemon's name for it (another gateway under the same saved id is
+    /// another connection).
+    fn in_use(&self) -> Option<InUse> {
         self.connections
             .as_ref()
             .filter(|l| l.enabled)
-            .and_then(|l| l.active_id.clone())
+            .map(|l| (l.active_id.clone(), l.connection.clone()))
     }
 
     /// The navigation shows `selection`: a Hermes page newly shown is
