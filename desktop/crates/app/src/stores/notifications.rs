@@ -99,6 +99,18 @@ impl NotificationsStore {
         );
     }
 
+    /// A new daemon session: what was read under the last one is not known
+    /// to hold now, so the settings are unknown again (nothing is written,
+    /// an answer meant for the old session is not taken) until this
+    /// session's read lands; a failed read then says so.
+    pub fn new_session(&mut self, cx: &mut Context<Self>) {
+        self.loaded = false;
+        self.load_failed = false;
+        self.error = None;
+        self.refresh(cx);
+        cx.notify();
+    }
+
     fn adopt(&mut self, settings: NotificationSettingsDto, cx: &mut Context<Self>) {
         self.loaded = true;
         self.load_failed = false;
@@ -181,7 +193,10 @@ pub fn wire(stores: &Stores, cx: &mut App) {
     cx.subscribe(&stores.connection, move |_, event, cx| {
         use super::connection::ConnectionEvent;
         match event {
-            ConnectionEvent::Connected { .. } | ConnectionEvent::Gap => {
+            ConnectionEvent::Connected { .. } => {
+                s.update(cx, |s, cx| s.new_session(cx));
+            }
+            ConnectionEvent::Gap => {
                 s.update(cx, |s, cx| s.refresh(cx));
             }
             ConnectionEvent::Daemon(event) => {
@@ -321,5 +336,81 @@ mod tests {
         store.update(cx, |s, cx| s.refresh(cx));
         cx.run_until_parked();
         assert!(store.read_with(cx, |s, _| s.error.is_none()));
+    }
+
+    /// A new daemon session makes the settings unknown again: nothing is
+    /// written until its read lands, and a failed read says so.
+    #[gpui_kit::test]
+    fn a_new_session_reads_again_before_anything_is_written(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::NotificationsGet>(desktop_defaults());
+        daemon.returns::<methods::NotificationsSet>(desktop_defaults());
+        let scratch = std::env::temp_dir().join(format!("conduit-notify-s-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            let stores = Stores::for_test(daemon.rpc(), &scratch, cx);
+            wire(&stores, cx);
+            stores
+        });
+        let reconnect = |cx: &mut TestAppContext| {
+            stores.connection.update(cx, |_, cx| {
+                cx.emit(super::super::connection::ConnectionEvent::Connected {
+                    handshake: Box::new(conduit_daemon::rpc::Handshake::from_value(
+                        serde_json::json!({}),
+                    )),
+                    request: serde_json::from_value(serde_json::json!({
+                        "protocolVersion": "1", "clientName": "test", "clientVersion": "1",
+                        "windowKind": "main", "locale": "en"
+                    }))
+                    .unwrap(),
+                })
+            });
+        };
+        let sound_off = |cx: &mut TestAppContext| {
+            stores.notifications.update(cx, |s, cx| {
+                s.set(
+                    NotificationSettingsPatch {
+                        sound: Some(false),
+                        ..Default::default()
+                    },
+                    cx,
+                )
+            });
+            cx.run_until_parked();
+        };
+        reconnect(cx);
+        cx.run_until_parked();
+        assert!(stores.notifications.read_with(cx, |s, _| s.loaded));
+
+        // The next session's read is slow: nothing is written meanwhile.
+        let held = daemon.hold::<methods::NotificationsGet>();
+        reconnect(cx);
+        cx.run_until_parked();
+        sound_off(cx);
+        assert!(
+            daemon.calls::<methods::NotificationsSet>().is_empty(),
+            "a setting read under the last session was written before this one's read"
+        );
+        drop(held);
+        cx.run_until_parked();
+        assert!(stores.notifications.read_with(cx, |s, _| s.loaded));
+
+        // The next session's read fails: that shows, and nothing is written.
+        daemon.on::<methods::NotificationsGet>(|_| {
+            Err(conduit_daemon::protocol::error(
+                conduit_daemon::protocol::codes::INTERNAL,
+                "unreadable",
+            ))
+        });
+        reconnect(cx);
+        cx.run_until_parked();
+        assert!(
+            stores
+                .notifications
+                .read_with(cx, |s, _| !s.loaded && s.load_failed),
+            "the failed read under the new session is not shown"
+        );
+        sound_off(cx);
+        assert!(daemon.calls::<methods::NotificationsSet>().is_empty());
     }
 }
