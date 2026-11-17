@@ -268,9 +268,6 @@ impl SheetBody for CreateRoomSheet {
         self.creating
     }
 
-    fn alert(&self, _: &App) -> bool {
-        self.failure.is_some()
-    }
     fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let l = cx.l10n().clone();
         let view = cx.entity().downgrade();
@@ -1010,9 +1007,6 @@ impl SheetBody for RoomInfoSheet {
         self.saving
     }
 
-    fn alert(&self, _: &App) -> bool {
-        self.failure.is_some()
-    }
     /// Edits not saved yet: Quit asks first, as Cancel does.
     fn unsaved(&self, _: &App) -> bool {
         self.is_dirty()
@@ -1596,11 +1590,26 @@ mod tests {
         );
     }
 
-    /// Quit while the room is being made: the made room closes the sheet
-    /// and the app quits; a refused create keeps the sheet and its error up
-    /// and drops the Quit (a later Discard does not quit).
+    fn beeps(vcx: &mut VisualTestContext) -> u32 {
+        vcx.update(|_, cx| cx.global::<crate::shell::sheet::Beeps>().0)
+    }
+
+    /// Answers the `n`th question still held (in the order they came).
+    fn answer_held(vcx: &mut VisualTestContext, n: usize, yes: bool) {
+        vcx.update(|_, cx| {
+            let tx = cx
+                .global_mut::<crate::shell::sheet::HeldAnswers>()
+                .0
+                .remove(n);
+            let _ = tx.send(yes);
+        });
+        settle(vcx);
+    }
+
+    /// Quit while the room is being made queues nothing: the sheet comes
+    /// forward with a beep, and the made room closes it without quitting.
     #[gpui_kit::test]
-    fn quit_during_a_create_waits_for_its_answer(cx: &mut TestAppContext) {
+    fn quit_during_a_create_beeps_and_stays(cx: &mut TestAppContext) {
         let (daemon, sheet, vcx) = new_room_typed(cx);
         let held = daemon.hold::<methods::HermesRoomsCreate>();
         sheet.update_in(vcx, |s, window, cx| {
@@ -1610,26 +1619,51 @@ mod tests {
         });
         assert_eq!(daemon.calls::<methods::HermesRoomsCreate>().len(), 1);
         let quits = quit(vcx);
+        assert_eq!(beeps(vcx), 1, "Quit during the create did not beep");
         assert!(
             sheet_open(vcx),
             "Quit closed the sheet while its room was being made"
         );
-        assert_eq!(quits.get(), 0);
         drop(held);
         settle(vcx);
         assert!(!sheet_open(vcx), "the made room left its sheet open");
+        assert_eq!(quits.get(), 0, "a Quit waited on the create");
+    }
+
+    /// A refused create leaves the sheet idle with its error: ⌘Q now asks,
+    /// and Discard quits.
+    #[gpui_kit::test]
+    fn after_a_refused_create_quit_asks_and_discard_quits(cx: &mut TestAppContext) {
+        let (daemon, sheet, vcx) = new_room_typed(cx);
+        daemon.once::<methods::HermesRoomsCreate>(Err(RpcError::internal("no room")));
+        let held = daemon.hold::<methods::HermesRoomsCreate>();
+        sheet.update_in(vcx, |s, window, cx| {
+            s.toggle("fern", cx);
+            s.toggle("moss", cx);
+            s.create(window, cx);
+        });
+        let early = quit(vcx);
+        drop(held);
+        settle(vcx);
+        assert!(sheet_open(vcx), "a refused create closed its sheet");
+        sheet.read_with(vcx, |s, _| {
+            assert!(s.failure.is_some(), "the refusal is not shown")
+        });
+        assert_eq!(early.get(), 0);
+        answer(vcx, true);
+        let quits = quit(vcx);
+        assert!(!sheet_open(vcx), "Discard left the sheet open");
         assert_eq!(
             quits.get(),
             1,
-            "Quit was dropped while the room was being made"
+            "Discard after the refused create did not quit"
         );
     }
 
-    /// A question in another window answered No (a Settings confirmation)
-    /// is not this sheet's: the Quit waiting on the room being made still
-    /// goes on once the made room closes the sheet.
+    /// A create answered for a store that moved on (stale) leaves the sheet
+    /// idle and still dirty: ⌘Q asks, and Discard quits.
     #[gpui_kit::test]
-    fn another_windows_question_leaves_the_quit_waiting(cx: &mut TestAppContext) {
+    fn after_a_stale_create_quit_asks_and_discard_quits(cx: &mut TestAppContext) {
         let (daemon, sheet, vcx) = new_room_typed(cx);
         let held = daemon.hold::<methods::HermesRoomsCreate>();
         sheet.update_in(vcx, |s, window, cx| {
@@ -1637,8 +1671,29 @@ mod tests {
             s.toggle("moss", cx);
             s.create(window, cx);
         });
+        let stores = sheet.read_with(vcx, |s, _| s.stores.clone());
+        stores.hermes_rooms.update(vcx, |h, cx| h.reset(cx));
+        drop(held);
+        settle(vcx);
+        assert!(sheet_open(vcx), "the stale create closed its sheet");
+        answer(vcx, true);
         let quits = quit(vcx);
-        // The main window (not the sheet) asks something; the user says No.
+        assert!(!sheet_open(vcx), "Discard left the sheet open");
+        assert_eq!(
+            quits.get(),
+            1,
+            "Discard after the stale create did not quit"
+        );
+    }
+
+    /// While the sheet's discard question is up, a question in another window
+    /// answered No is not that Quit's: Discard still quits, once.
+    #[gpui_kit::test]
+    fn another_windows_question_leaves_the_quit_alone(cx: &mut TestAppContext) {
+        let (_daemon, _sheet, vcx) = new_room_typed(cx);
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::HeldAnswers::default()));
+        let quits = quit(vcx);
+        // The main window (not the sheet) asks something.
         vcx.update(|window, cx| {
             let spec = crate::shell::sheet::SheetSpec::new(
                 "Sign Out?".to_string(),
@@ -1648,75 +1703,14 @@ mod tests {
             );
             crate::shell::sheet::present_sheet(window, spec, cx).detach();
         });
-        settle(vcx);
+        answer_held(vcx, 1, false);
         assert_eq!(quits.get(), 0);
-        drop(held);
-        settle(vcx);
-        assert!(!sheet_open(vcx), "the made room left its sheet open");
+        answer_held(vcx, 0, true);
+        assert!(!sheet_open(vcx), "Discard left the sheet open");
         assert_eq!(
             quits.get(),
             1,
             "another window's question dropped the sheet's Quit"
-        );
-    }
-
-    /// Quit during a create whose room comes back for a store that moved on
-    /// (stale): the sheet is still dirty, so the discard question comes up
-    /// for that Quit, and Discard quits.
-    #[gpui_kit::test]
-    fn quit_during_a_stale_create_asks_then_discard_quits(cx: &mut TestAppContext) {
-        let (daemon, sheet, vcx) = new_room_typed(cx);
-        let held = daemon.hold::<methods::HermesRoomsCreate>();
-        sheet.update_in(vcx, |s, window, cx| {
-            s.toggle("fern", cx);
-            s.toggle("moss", cx);
-            s.create(window, cx);
-        });
-        assert_eq!(daemon.calls::<methods::HermesRoomsCreate>().len(), 1);
-        let quits = quit(vcx);
-        let stores = sheet.read_with(vcx, |s, _| s.stores.clone());
-        stores.hermes_rooms.update(vcx, |h, cx| h.reset(cx));
-        answer(vcx, true);
-        drop(held);
-        settle(vcx);
-        assert!(
-            !sheet_open(vcx),
-            "the stale create left Quit with nothing to answer"
-        );
-        assert_eq!(
-            quits.get(),
-            1,
-            "Discard after the stale create did not quit"
-        );
-    }
-
-    #[gpui_kit::test]
-    fn a_refused_create_drops_the_quit_that_waited_for_it(cx: &mut TestAppContext) {
-        let (daemon, sheet, vcx) = new_room_typed(cx);
-        daemon.once::<methods::HermesRoomsCreate>(Err(RpcError::internal("no room")));
-        let held = daemon.hold::<methods::HermesRoomsCreate>();
-        sheet.update_in(vcx, |s, window, cx| {
-            s.toggle("fern", cx);
-            s.toggle("moss", cx);
-            s.create(window, cx);
-        });
-        assert_eq!(daemon.calls::<methods::HermesRoomsCreate>().len(), 1);
-        let quits = quit(vcx);
-        drop(held);
-        settle(vcx);
-        assert!(sheet_open(vcx), "a refused create closed its sheet");
-        sheet.read_with(vcx, |s, _| {
-            assert!(s.failure.is_some(), "the refusal is not shown")
-        });
-        assert_eq!(quits.get(), 0, "a refused create quit the app");
-        answer(vcx, true);
-        sheet.update_in(vcx, |s, window, cx| s.cancel(window, cx));
-        settle(vcx);
-        assert!(!sheet_open(vcx));
-        assert_eq!(
-            quits.get(),
-            0,
-            "the dropped Quit came back on a later Discard"
         );
     }
 

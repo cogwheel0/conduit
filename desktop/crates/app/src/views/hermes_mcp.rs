@@ -240,9 +240,6 @@ impl SheetBody for AddMcpSheet {
         self.busy
     }
 
-    fn alert(&self, _: &App) -> bool {
-        self.error.is_some()
-    }
     /// A form typed, or an Add still out: Quit asks first.
     fn unsaved(&self, cx: &App) -> bool {
         self.busy || self.typed(cx)
@@ -496,9 +493,6 @@ impl SheetBody for McpKeySheet {
         self.busy
     }
 
-    fn alert(&self, _: &App) -> bool {
-        self.error.is_some()
-    }
     /// A key typed, or a Save still out: Quit asks first.
     fn unsaved(&self, cx: &App) -> bool {
         self.busy || !forms::raw(&self.key, cx).is_empty()

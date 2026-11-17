@@ -241,9 +241,6 @@ impl SheetBody for FormSheet {
         self.busy
     }
 
-    fn alert(&self, _: &App) -> bool {
-        self.failure.is_some()
-    }
     fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;

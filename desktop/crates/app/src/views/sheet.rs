@@ -48,16 +48,9 @@ pub trait SheetBody: Render + Sized + 'static {
         false
     }
 
-    /// A save (or create) is on its way: [`Self::cancel`] does nothing until
-    /// it lands, and a Quit waits for it.
+    /// A save, test or create is on its way: [`Self::cancel`] does nothing
+    /// until it lands, and Quit only beeps (nothing waits for it).
     fn busy(&self, cx: &App) -> bool {
-        let _ = cx;
-        false
-    }
-
-    /// A failure or warning is showing that the user must see: a Quit that
-    /// waited on a save never closes the sheet over it.
-    fn alert(&self, cx: &App) -> bool {
         let _ = cx;
         false
     }
@@ -94,46 +87,24 @@ struct Unsaved {
     edits: BodyState,
     /// [`SheetBody::busy`].
     busy: BodyState,
-    /// [`SheetBody::alert`].
-    alert: BodyState,
     ask: Rc<dyn Fn(&mut App)>,
-    /// Settles Quit `ticket` each time the body changes (its save landed).
-    watch: QuitWatch,
 }
 
 /// One of the body's states, read through the sheet.
 type BodyState = Rc<dyn Fn(&App) -> bool>;
 
-/// Starts settling a Quit on each change of the body ([`Unsaved::watch`]).
-type QuitWatch = Rc<dyn Fn(u64, &mut App) -> Option<Subscription>>;
-
-/// A Quit the sheet down now asked about (unsaved edits), owned by that
-/// sheet and its [`ticket`]. The invariant: it is outstanding only while
-/// its question is on screen, its save is in flight, or its Discard is
-/// closing the sheet. Every other way it ends at once: it goes on with its
-/// own outcome (Discard, or the sheet's own save landing and closing it),
-/// and is dropped when the user answers its question No, when the sheet
-/// stays up with a warning, when the sheet is closed any other way (another
-/// account), or when another sheet takes over. Questions in other windows
-/// never touch it.
+/// The discard question a Quit asked a sheet with unsaved edits, owned by
+/// that sheet ([`ticket`]). It exists only while that question is on
+/// screen: Discard closes the sheet and quits, No drops it, and the sheet
+/// ending any other way drops it. Nothing else ever waits for a Quit.
 ///
 /// [`ticket`]: PendingQuit::ticket
 struct PendingQuit {
     ticket: u64,
     sheet: AnyWindowHandle,
     then: Rc<dyn Fn(&mut App)>,
-    stage: QuitStage,
-    _watch: Option<Subscription>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum QuitStage {
-    /// The sheet is being asked to close; `shown` once its question is up.
-    Asking { shown: bool },
-    /// The sheet's save is in flight; it settles when the save lands.
-    Saving,
-    /// Discard was answered; the sheet is being dismissed.
-    Confirmed,
+    /// Its question is up (set as the body shows it).
+    shown: bool,
 }
 
 /// The sheet on the main window now, if any, and what runs once it has
@@ -208,16 +179,10 @@ pub fn open<V: SheetBody>(
     };
     let body = host.read(cx).body.clone();
     adopt(handle, body.clone().into_any(), cx);
-    let (weak, asked, watched) = (body.downgrade(), body.downgrade(), body.downgrade());
-    let (busy, alert) = (body.downgrade(), body.downgrade());
+    let (weak, asked, busy) = (body.downgrade(), body.downgrade(), body.downgrade());
     cx.default_global::<OpenSheet>().unsaved = Some(Unsaved {
         edits: Rc::new(move |cx: &App| weak.upgrade().is_some_and(|b| b.read(cx).unsaved(cx))),
         busy: Rc::new(move |cx: &App| busy.upgrade().is_some_and(|b| b.read(cx).busy(cx))),
-        alert: Rc::new(move |cx: &App| alert.upgrade().is_some_and(|b| b.read(cx).alert(cx))),
-        watch: Rc::new(move |ticket, cx: &mut App| {
-            let body = watched.upgrade()?;
-            Some(cx.observe(&body, move |_, cx| cx.defer(move |cx| settle(ticket, cx))))
-        }),
         ask: Rc::new(move |cx: &mut App| {
             let Some(body) = asked.upgrade() else { return };
             let _ = handle.update(cx, |_, window, cx| {
@@ -360,28 +325,34 @@ pub(crate) fn quit_with(cx: &mut App, then: Rc<dyn Fn(&mut App)>) {
         after_saves(cx, then);
         return;
     }
-    // Unsaved edits: the sheet comes forward and asks, as Esc does (see
-    // [`PendingQuit`] for how a Quit ends).
-    if has_unsaved(cx) {
+    let open = cx.default_global::<OpenSheet>();
+    let Some((sheet, _)) = open.current.clone() else {
+        return;
+    };
+    let waiting = open.quit.is_some();
+    let unsaved = open.unsaved.clone();
+    // Mid-operation (a save, test or create on its way) or asking something
+    // (its discard question, a consent, any confirmation): Quit queues
+    // nothing. The sheet comes forward and the Mac beeps, as a Mac app does
+    // while it can't take the key; ⌘Q works again once the sheet is idle.
+    let busy = unsaved.as_ref().is_some_and(|u| (u.busy)(cx));
+    if busy || waiting || crate::shell::sheet::question_up(sheet, cx) {
+        let _ = sheet.update(cx, |_, window, _| window.activate_window());
+        crate::shell::sheet::beep(cx);
+        return;
+    }
+    // Unsaved edits: the sheet comes forward and asks now, as Esc does.
+    if unsaved.as_ref().is_some_and(|u| (u.edits)(cx)) {
         let open = cx.default_global::<OpenSheet>();
-        let Some((sheet, _)) = open.current.clone() else {
-            return;
-        };
-        // Quit again while this sheet's Quit waits (its question is up or
-        // its save in flight): the same Quit; the first answer decides.
-        if open.quit.as_ref().is_some_and(|q| q.sheet == sheet) {
-            return;
-        }
         open.quit_tickets += 1;
         let ticket = open.quit_tickets;
         open.quit = Some(PendingQuit {
             ticket,
             sheet,
             then,
-            stage: QuitStage::Asking { shown: false },
-            _watch: None,
+            shown: false,
         });
-        cx.defer(move |cx| ask_for(ticket, cx));
+        cx.defer(move |cx| ask(ticket, cx));
         return;
     }
     cx.default_global::<OpenSheet>().after = None;
@@ -401,159 +372,77 @@ fn quit_once_gone(cx: &mut App, then: Rc<dyn Fn(&mut App)>) {
     .detach();
 }
 
-/// Quit `ticket`, still this sheet's, and the sheet's state readers: None
-/// (and the Quit dropped) once its sheet is not the one down.
-fn pending(ticket: u64, cx: &mut App) -> Option<Unsaved> {
+/// Quit `ticket`'s sheet asks its discard question (its body's
+/// [`SheetBody::cancel`]). A body that closes itself instead (nothing left
+/// to discard) lets the Quit go on; one that neither asks nor closes leaves
+/// nothing on screen, so the Quit is dropped.
+fn ask(ticket: u64, cx: &mut App) {
     let open = cx.default_global::<OpenSheet>();
-    let pending = open.quit.as_ref().filter(|q| q.ticket == ticket)?;
-    if open.current.as_ref().map(|(h, _)| *h) != Some(pending.sheet) {
-        open.quit = None;
-        return None;
-    }
-    let unsaved = open.unsaved.clone();
-    if unsaved.is_none() {
-        open.quit = None;
-    }
-    unsaved
-}
-
-fn set_stage(ticket: u64, stage: QuitStage, cx: &mut App) {
-    if let Some(q) = cx
-        .default_global::<OpenSheet>()
-        .quit
-        .as_mut()
-        .filter(|q| q.ticket == ticket)
-    {
-        q.stage = stage;
-    }
-}
-
-fn drop_quit(ticket: u64, cx: &mut App) {
-    let open = cx.default_global::<OpenSheet>();
-    if open.quit.as_ref().is_some_and(|q| q.ticket == ticket) {
-        open.quit = None;
-    }
-}
-
-/// Quit `ticket` asks its sheet to close: the discard question, or, while
-/// a save is in flight, a wait for it to land ([`settle`]).
-fn ask_for(ticket: u64, cx: &mut App) {
-    let Some(unsaved) = pending(ticket, cx) else {
-        return;
-    };
-    if (unsaved.busy)(cx) {
-        let watch = (unsaved.watch)(ticket, cx);
-        if let Some(q) = cx
-            .default_global::<OpenSheet>()
-            .quit
-            .as_mut()
-            .filter(|q| q.ticket == ticket)
-        {
-            q.stage = QuitStage::Saving;
-            q._watch = watch;
-        }
-    } else {
-        ask_now(ticket, &unsaved, cx);
-    }
-    check_quit(cx);
-}
-
-/// The body asks (its [`SheetBody::cancel`]); a body that neither asks nor
-/// closes leaves nothing on screen, so the Quit is dropped.
-fn ask_now(ticket: u64, unsaved: &Unsaved, cx: &mut App) {
-    set_stage(ticket, QuitStage::Asking { shown: false }, cx);
-    (unsaved.ask)(cx);
-    let unanswerable = cx
-        .default_global::<OpenSheet>()
+    let Some(sheet) = open
         .quit
         .as_ref()
-        .is_some_and(|q| q.ticket == ticket && q.stage == QuitStage::Asking { shown: false });
-    if unanswerable {
-        drop_quit(ticket, cx);
-    }
-}
-
-/// Quit `ticket`'s sheet changed while its save was in flight: once the
-/// save has landed, the Quit ends one way or another, in every outcome.
-/// Clean, it goes on (the sheet closes); clean with a warning up, it is
-/// dropped (the user reads it, and quits again); still dirty (the save
-/// failed with its error showing, or its answer came for a store that moved
-/// on), the discard question comes up now for this same Quit.
-fn settle(ticket: u64, cx: &mut App) {
-    let saving = cx
-        .try_global::<OpenSheet>()
-        .and_then(|o| o.quit.as_ref())
-        .is_some_and(|q| q.ticket == ticket && q.stage == QuitStage::Saving);
-    if !saving {
-        return;
-    }
-    let Some(unsaved) = pending(ticket, cx) else {
+        .filter(|q| q.ticket == ticket)
+        .map(|q| q.sheet)
+    else {
         return;
     };
-    if (unsaved.busy)(cx) {
-        return;
-    }
-    if (unsaved.edits)(cx) {
-        ask_now(ticket, &unsaved, cx);
-    } else if (unsaved.alert)(cx) {
-        drop_quit(ticket, cx);
-    } else {
-        set_stage(ticket, QuitStage::Confirmed, cx);
-        dismiss(cx);
-    }
-    check_quit(cx);
-}
-
-/// The invariant of [`PendingQuit`], checked after each change.
-fn check_quit(cx: &App) {
-    let Some(open) = cx.try_global::<OpenSheet>() else {
+    let Some(unsaved) = open
+        .unsaved
+        .clone()
+        .filter(|_| open.current.as_ref().map(|(h, _)| *h) == Some(sheet))
+    else {
+        open.quit = None;
         return;
     };
-    let Some(q) = open.quit.as_ref() else {
-        return;
-    };
-    debug_assert_eq!(
-        open.current.as_ref().map(|(h, _)| *h),
-        Some(q.sheet),
-        "a Quit outlived its sheet"
-    );
-    match q.stage {
-        QuitStage::Asking { shown } => debug_assert!(shown, "a Quit waits with no question up"),
-        QuitStage::Saving => debug_assert!(
-            open.unsaved.as_ref().is_some_and(|u| (u.busy)(cx)),
-            "a Quit waits on no save"
-        ),
-        QuitStage::Confirmed => {}
+    (unsaved.ask)(cx);
+    let open = cx.default_global::<OpenSheet>();
+    if open
+        .quit
+        .as_ref()
+        .is_some_and(|q| q.ticket == ticket && !q.shown)
+    {
+        open.quit = None;
     }
 }
 
 /// A question is about to show on `window`
 /// ([`crate::shell::sheet::present_sheet`]): the Quit it answers, when it is
-/// the question that Quit's own sheet was just asked for. Any other
-/// question (another window, another sheet, one asked during a save) is
-/// not that Quit's.
+/// the discard question that Quit's own sheet was just asked for. Any other
+/// question (another window, another sheet) is not that Quit's.
 pub(crate) fn question_shown(window: AnyWindowHandle, cx: &mut App) -> Option<u64> {
     let q = cx.default_global::<OpenSheet>().quit.as_mut()?;
-    if q.sheet != window || q.stage != (QuitStage::Asking { shown: false }) {
+    if q.sheet != window || q.shown {
         return None;
     }
-    q.stage = QuitStage::Asking { shown: true };
+    q.shown = true;
     Some(q.ticket)
 }
 
 /// The question [`question_shown`] tied to Quit `asked` was answered: No
-/// (keep editing) drops that Quit, so a later dismissal never quits the app;
-/// Discard closes the sheet and quits. Any other question does nothing.
+/// (keep editing) drops that Quit; Discard closes the sheet and quits. Any
+/// other question does nothing.
 pub(crate) fn question_answered(asked: Option<u64>, yes: bool, cx: &mut App) {
     let Some(ticket) = asked else { return };
+    let open = cx.default_global::<OpenSheet>();
+    let Some(sheet) = open
+        .quit
+        .as_ref()
+        .filter(|q| q.ticket == ticket)
+        .map(|q| q.sheet)
+    else {
+        return;
+    };
     if !yes {
-        drop_quit(ticket, cx);
+        open.quit = None;
         return;
     }
-    set_stage(ticket, QuitStage::Confirmed, cx);
-    // Outside the question's (and the sheet's) update.
+    // Outside the question's (and the sheet's) update; the body's own
+    // dismissal may come first, which quits the same way.
     cx.defer(move |cx| {
-        if pending(ticket, cx).is_some() {
+        let open = cx.default_global::<OpenSheet>();
+        let ours = open.quit.as_ref().is_some_and(|q| q.ticket == ticket)
+            && open.current.as_ref().map(|(h, _)| *h) == Some(sheet);
+        if ours {
             dismiss(cx);
         }
     });
@@ -665,32 +554,26 @@ pub fn dismiss(cx: &mut App) {
 /// How a sheet ends, for a Quit waiting on it.
 #[derive(Clone, Copy, PartialEq)]
 enum Ending {
-    /// The sheet's own outcome: Discard, a save that landed, Cancel.
+    /// The sheet's own outcome: Discard, a save that closed it, Cancel.
     Own,
     /// Closed for it (another account): never the Quit's answer.
     ClosedForIt,
 }
 
-/// The one place a sheet ends. A Quit waiting on it goes on only with the
-/// Quit's own outcome: its Discard ([`QuitStage::Confirmed`]), the sheet's
-/// own save landing and closing it ([`QuitStage::Saving`]), or the sheet
-/// closing itself when asked, with nothing left to discard (still
-/// `Asking { shown: false }`). Ended any other way, the Quit is dropped
-/// (the user can quit again).
+/// The one place a sheet ends. A Quit's discard question goes on to quit
+/// only with the sheet's own ending (Discard, or the sheet closing itself
+/// when asked); closed any other way (another account), the Quit is
+/// dropped and the user can quit again.
 fn end_sheet(cx: &mut App, ending: Ending) {
     let open = cx.default_global::<OpenSheet>();
     let Some((handle, _)) = open.current.take() else {
         return;
     };
     open.unsaved = None;
-    let quit = open.quit.take().filter(|q| {
-        q.sheet == handle
-            && ending == Ending::Own
-            && matches!(
-                q.stage,
-                QuitStage::Confirmed | QuitStage::Saving | QuitStage::Asking { shown: false }
-            )
-    });
+    let quit = open
+        .quit
+        .take()
+        .filter(|q| q.sheet == handle && ending == Ending::Own);
     let after = if quit.is_some() {
         None
     } else {
@@ -882,10 +765,10 @@ mod tests {
         }
     }
 
-    /// Quit again while the discard question of the first is up: no second
-    /// question, and Discard quits once.
+    /// Quit again while the discard question of the first is up: ignored
+    /// with a beep (no second question), and Discard quits once.
     #[gpui_kit::test]
-    fn a_second_quit_waits_on_the_first_question(cx: &mut gpui_kit::TestAppContext) {
+    fn a_second_quit_while_the_question_is_up_beeps(cx: &mut gpui_kit::TestAppContext) {
         let (_daemon, _stores, vcx) = bench::bench(cx);
         let asks = Rc::new(Cell::new(0));
         let shown = Rc::new(Cell::new(None));
@@ -906,6 +789,11 @@ mod tests {
         assert!(asked.is_some());
         quit(vcx);
         assert_eq!(asks.get(), 1, "a second Quit asked again");
+        assert_eq!(
+            vcx.update(|_, cx| cx.global::<crate::shell::sheet::Beeps>().0),
+            1,
+            "the second Quit did not beep"
+        );
         // Discard.
         vcx.update(|_, cx| question_answered(asked, true, cx));
         for _ in 0..2 {
@@ -951,8 +839,10 @@ pub mod bench {
         let scratch = std::env::temp_dir().join(format!("conduit-sheet-{}", std::process::id()));
         let stores = cx.update(|cx| {
             crate::views::test_globals(cx);
-            // Questions answer "no" (keep editing) unless a test says.
+            // Questions answer "no" (keep editing) unless a test says, and
+            // beeps are counted.
             cx.set_global(crate::shell::sheet::AutoAnswer(Some(false)));
+            cx.set_global(crate::shell::sheet::Beeps::default());
             Stores::for_test(daemon.rpc(), &scratch, cx)
         });
         stores.accounts.update(cx, |a, cx| {

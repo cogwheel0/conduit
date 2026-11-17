@@ -620,9 +620,6 @@ impl SheetBody for ValvesSheet {
         self.saving
     }
 
-    fn alert(&self, _: &App) -> bool {
-        self.failure.is_some()
-    }
     fn unsaved(&self, _: &App) -> bool {
         ValvesSheet::is_dirty(self)
     }

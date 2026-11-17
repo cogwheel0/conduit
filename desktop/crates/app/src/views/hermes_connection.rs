@@ -566,13 +566,12 @@ fn is_plain_http(e: &RpcError) -> bool {
 }
 
 impl SheetBody for HermesConnectionSheet {
+    /// A save, test, activation or sign-in is out: set when one starts and
+    /// cleared only when it ends (an edit clears the note, never this).
     fn busy(&self, _: &App) -> bool {
-        self.busy && self.note != Some(Note::SigningIn)
+        self.busy
     }
 
-    fn alert(&self, _: &App) -> bool {
-        self.error.is_some()
-    }
     fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy && self.note != Some(Note::SigningIn) {
             return;
@@ -1068,6 +1067,98 @@ mod tests {
             assert!(s.error.is_some(), "the editor did not say why");
             assert!(!s.busy);
         });
+    }
+
+    /// Quit while a sign-in is out beeps, and still does after a field is
+    /// edited (which clears the "Signing in" note, not the sign-in).
+    #[gpui_kit::test]
+    fn quit_during_a_sign_in_beeps_even_after_an_edit(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsSave>(list("a", Some("b"), "nativePkce"));
+        daemon.returns::<methods::HermesConnectionsActivate>(list("b", None, "nativePkce"));
+        daemon.on::<methods::HermesSignIn>(|_| Ok(json!({})));
+        daemon.returns::<methods::HermesConnectionsList>(list("b", None, "nativePkce"));
+        let held = daemon.hold::<methods::HermesSignIn>();
+        let sheet = open_b(&stores, vcx, "nativePkce");
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.name.update(cx, |i, cx| i.set_value("Cold frame", w, cx));
+            s.sign_in(w, cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::HermesSignIn>().len(), 1);
+        let quits = std::rc::Rc::new(std::cell::Cell::new(0));
+        let quit = |vcx: &mut VisualTestContext| {
+            let counted = quits.clone();
+            vcx.update(|_, cx| {
+                sheet::quit_with(
+                    cx,
+                    std::rc::Rc::new(move |_| counted.set(counted.get() + 1)),
+                )
+            });
+            vcx.run_until_parked();
+        };
+        let beeps = |vcx: &mut VisualTestContext| {
+            vcx.update(|_, cx| cx.global::<crate::shell::sheet::Beeps>().0)
+        };
+        quit(vcx);
+        assert_eq!(beeps(vcx), 1, "Quit during the sign-in did not beep");
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.name
+                .update(cx, |i, cx| i.set_value("Cold frame east", w, cx));
+        });
+        vcx.run_until_parked();
+        quit(vcx);
+        assert_eq!(beeps(vcx), 2, "an edit made the sign-in look over");
+        assert_eq!(quits.get(), 0);
+        assert!(vcx.update(|_, cx| sheet::current::<HermesConnectionSheet>(cx).is_some()));
+        drop(held);
+    }
+
+    /// Quit while the editor asks to send credentials unencrypted (its
+    /// Save's consent question is up): Quit queues nothing behind it, no
+    /// discard question comes; the sheet comes forward with a beep.
+    #[gpui_kit::test]
+    fn quit_while_the_consent_question_is_up_beeps(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.once::<methods::HermesConnectionsSave>(Err(serde_json::from_value(
+            json!({"code": "rpc.invalidParams", "args": {"reason": "plainHttpConsent"}}),
+        )
+        .unwrap()));
+        daemon.returns::<methods::HermesConnectionsSave>(list("a", Some("b"), "nativePkce"));
+        let sheet = open_b(&stores, vcx, "nativePkce");
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::HeldAnswers::default()));
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.name.update(cx, |i, cx| i.set_value("Cold frame", w, cx));
+            s.save(w, cx);
+        });
+        vcx.run_until_parked();
+        let held = |vcx: &mut VisualTestContext| {
+            vcx.update(|_, cx| cx.global::<crate::shell::sheet::HeldAnswers>().0.len())
+        };
+        assert_eq!(held(vcx), 1, "the consent question is not up");
+        let quits = std::rc::Rc::new(std::cell::Cell::new(0));
+        let counted = quits.clone();
+        vcx.update(|_, cx| {
+            sheet::quit_with(
+                cx,
+                std::rc::Rc::new(move |_| counted.set(counted.get() + 1)),
+            )
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            held(vcx),
+            1,
+            "a discard question was queued behind the consent"
+        );
+        assert_eq!(
+            vcx.update(|_, cx| cx
+                .try_global::<crate::shell::sheet::Beeps>()
+                .map_or(0, |b| b.0)),
+            1,
+            "Quit over the consent question did not beep"
+        );
+        assert_eq!(quits.get(), 0);
+        assert!(vcx.update(|_, cx| sheet::current::<HermesConnectionSheet>(cx).is_some()));
     }
 
     /// Agreeing to send credentials unencrypted carries on with what was
