@@ -76,9 +76,12 @@ pub struct DirectPane {
     /// History switches sent and not yet answered.
     history_out: u32,
     /// Apple Intelligence on this Mac, once asked; and whether it is being
-    /// asked (again) now.
+    /// asked (again) now. An ask that failed reads as unknown, which keeps
+    /// Check Again on screen.
     pub apple: Option<AppleModels>,
     pub apple_checking: bool,
+    /// The latest Apple ask: only its answer is taken.
+    apple_ask: u64,
 }
 
 impl DirectPane {
@@ -95,6 +98,7 @@ impl DirectPane {
             history_out: 0,
             apple: None,
             apple_checking: false,
+            apple_ask: 0,
         };
         this.refresh(window, cx);
         this
@@ -113,7 +117,7 @@ impl DirectPane {
         let options = rpc.call::<methods::DirectOptions>(&NoParams);
         let search = rpc.call::<methods::WebSearchGet>(&NoParams);
         let apple = cfg!(target_os = "macos").then(|| rpc.call::<methods::AppleStatus>(&NoParams));
-        self.apple_checking = apple.is_some();
+        let ask = self.ask_apple(apple.is_some());
         self.reloading = true;
         cx.spawn_in(
             window,
@@ -129,14 +133,7 @@ impl DirectPane {
                 });
                 if let Some(apple) = apple {
                     let apple = apple.await;
-                    let _ = this.update(cx, |s, cx| {
-                        s.apple_checking = false;
-                        match apple {
-                            Ok(a) => s.apple = Some(a),
-                            Err(e) => log::warn!("apple.status: {e}"),
-                        }
-                        cx.notify();
-                    });
+                    let _ = this.update(cx, |s, cx| s.take_apple(ask, apple, cx));
                 }
                 let mcp = mcp.await;
                 let search = search.await;
@@ -178,24 +175,50 @@ impl DirectPane {
         if self.apple_checking {
             return;
         }
-        self.apple_checking = true;
+        let ask = self.ask_apple(true);
         cx.notify();
         let call = self.rpc(cx).call::<methods::AppleRefresh>(&NoParams);
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
                 let result = call.await;
-                let _ = this.update(cx, |s, cx| {
-                    s.apple_checking = false;
-                    match result {
-                        Ok(a) => s.apple = Some(a),
-                        Err(e) => log::warn!("apple.refresh: {e}"),
-                    }
-                    cx.notify();
-                });
+                let _ = this.update(cx, |s, cx| s.take_apple(ask, result, cx));
             },
         )
         .detach();
+    }
+
+    /// Starts an Apple ask (when `asking`): earlier ones are no longer
+    /// taken.
+    fn ask_apple(&mut self, asking: bool) -> u64 {
+        if asking {
+            self.apple_ask += 1;
+            self.apple_checking = true;
+        }
+        self.apple_ask
+    }
+
+    /// The answer to Apple ask `ask`, if it is still the latest. A failed
+    /// ask leaves the model unknown, never absent: the row and its Check
+    /// Again stay.
+    fn take_apple(
+        &mut self,
+        ask: u64,
+        answer: Result<AppleModels, conduit_daemon::RpcError>,
+        cx: &mut Context<Self>,
+    ) {
+        if ask != self.apple_ask {
+            return;
+        }
+        self.apple_checking = false;
+        self.apple = Some(match answer {
+            Ok(a) => a,
+            Err(e) => {
+                log::warn!("apple: {e}");
+                unknown_apple()
+            }
+        });
+        cx.notify();
     }
 
     /// What a sheet runs after a save or a delete.
@@ -1128,6 +1151,20 @@ pub fn endpoint_label(endpoint: &str) -> String {
 
 /// The line under Apple On-Device: "Available" with its context limit, or
 /// why it cannot answer now.
+/// Apple's on-device model when this Mac could not be asked: unavailable
+/// for now, with no reason known.
+fn unknown_apple() -> AppleModels {
+    AppleModels {
+        models: vec![AppleModelStatus {
+            model: AppleModelKind::OnDevice,
+            availability: AppleAvailability::Unavailable,
+            reason: Some(AppleUnavailableReason::Other),
+            context_size: None,
+            supports_current_locale: None,
+        }],
+    }
+}
+
 pub fn apple_detail(m: &AppleModelStatus, l10n: &L10n) -> String {
     if m.availability == AppleAvailability::Available {
         let available = l10n.apple_pcc_status_available();
@@ -1441,6 +1478,104 @@ mod tests {
                 Some(false),
                 "the pane says chats stay on this Mac; they still sync"
             );
+        });
+    }
+
+    fn apple_pane<'a>(
+        cx: &'a mut TestAppContext,
+        daemon: &crate::stores::rpc::fake::FakeDaemon,
+    ) -> (
+        gpui_kit::Entity<DirectPane>,
+        &'a mut gpui_kit::VisualTestContext,
+    ) {
+        use conduit_protocol::methods;
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-dpane-apple-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        daemon.returns::<methods::DirectReload>(DirectConnectionList::default());
+        daemon.returns::<methods::DirectList>(DirectConnectionList::default());
+        cx.add_window_view(move |window, cx| DirectPane::new(stores, window, cx))
+    }
+
+    fn on_device(availability: AppleAvailability) -> AppleModels {
+        AppleModels {
+            models: vec![AppleModelStatus {
+                model: AppleModelKind::OnDevice,
+                availability,
+                reason: None,
+                context_size: None,
+                supports_current_locale: None,
+            }],
+        }
+    }
+
+    /// The first Apple ask fails: the row stays, unknown, with Check Again,
+    /// rather than the section going away.
+    #[cfg(target_os = "macos")]
+    #[gpui_kit::test]
+    fn a_failed_first_apple_ask_keeps_the_row_and_check_again(cx: &mut TestAppContext) {
+        use conduit_protocol::methods;
+
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        daemon.on::<methods::AppleStatus>(|_| {
+            Err(conduit_daemon::protocol::error("rpc.timeout", "slow"))
+        });
+        daemon.returns::<methods::AppleRefresh>(on_device(AppleAvailability::Available));
+        let (pane, vcx) = apple_pane(cx, &daemon);
+        vcx.run_until_parked();
+        pane.read_with(vcx, |p, _| {
+            let apple = p.apple.as_ref().expect("the Apple row is shown");
+            assert_eq!(apple.models[0].availability, AppleAvailability::Unavailable);
+            assert!(!p.apple_checking);
+        });
+        pane.update_in(vcx, |p, window, cx| p.check_apple(window, cx));
+        vcx.run_until_parked();
+        pane.read_with(vcx, |p, _| {
+            assert_eq!(
+                p.apple.as_ref().map(|a| a.models[0].availability),
+                Some(AppleAvailability::Available)
+            );
+        });
+    }
+
+    /// An older Apple ask answering after a newer one is not taken.
+    #[cfg(target_os = "macos")]
+    #[gpui_kit::test]
+    fn an_older_apple_answer_never_replaces_a_newer_one(cx: &mut TestAppContext) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        use conduit_protocol::methods;
+
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        // The first ask (held) finds the model not ready; the second, ready.
+        let asks = std::sync::Arc::new(AtomicUsize::new(0));
+        daemon.on::<methods::AppleStatus>(move |_| {
+            let first = asks.fetch_add(1, Ordering::SeqCst) == 0;
+            Ok(serde_json::to_value(on_device(if first {
+                AppleAvailability::Unavailable
+            } else {
+                AppleAvailability::Available
+            }))
+            .unwrap())
+        });
+        let held = daemon.hold_one::<methods::AppleStatus>(0);
+        let (pane, vcx) = apple_pane(cx, &daemon);
+        vcx.run_until_parked();
+        pane.update_in(vcx, |p, window, cx| p.refresh(window, cx));
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        pane.read_with(vcx, |p, _| {
+            assert_eq!(
+                p.apple.as_ref().map(|a| a.models[0].availability),
+                Some(AppleAvailability::Available)
+            );
+            assert!(!p.apple_checking);
         });
     }
 
