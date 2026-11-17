@@ -307,6 +307,27 @@ pub fn has_unsaved(cx: &App) -> bool {
         .is_some_and(|unsaved| (unsaved.edits)(cx))
 }
 
+/// The sheet window's keyed state that holds its body's scroll.
+const SCROLL_KEY: &str = "sheet-scroll-handle";
+
+/// A scroll of the sheet's body asked for from outside a render.
+#[derive(Clone, Copy, Debug, Default)]
+struct ScrollRequest(Option<f32>);
+
+impl gpui_kit::Global for ScrollRequest {}
+
+/// Scrolls the sheet down now to `fraction` of its body (0 the top, 1 the
+/// end), as a person would to reach what is below the fold: made on the
+/// sheet's next render (its scroll is the window's, which only a render
+/// can reach).
+pub fn scroll_to(fraction: f32, cx: &mut App) {
+    let Some(handle) = current_window(cx) else {
+        return;
+    };
+    cx.set_global(ScrollRequest(Some(fraction)));
+    let _ = handle.update(cx, |_, window, _| window.refresh());
+}
+
 /// Whether a sheet is down on the main window.
 pub fn is_open(cx: &App) -> bool {
     cx.try_global::<OpenSheet>()
@@ -638,6 +659,17 @@ impl<V: SheetBody> Render for SheetHost<V> {
         let requested = self.requested.clone();
         let footer_height = self.footer_height.clone();
         let label = self.body.read(cx).label(cx);
+        // The body's scroll, kept by the sheet's window; a scroll asked for
+        // from outside a render ([`scroll_to`]) is made here.
+        let scroll = window
+            .use_keyed_state(SCROLL_KEY, cx, |_, _| gpui_kit::ScrollHandle::new())
+            .read(cx)
+            .clone();
+        if let Some(fraction) = cx.try_global::<ScrollRequest>().and_then(|r| r.0) {
+            let max = scroll.max_offset();
+            scroll.set_offset(gpui_kit::point(gpui_kit::px(0.), -max.y * fraction));
+            cx.set_global(ScrollRequest(None));
+        }
         let footer = self.body.update(cx, |b, cx| b.footer(window, cx));
         let has_footer = footer.is_some();
         // The body's natural height (padding included), and the footer's:
@@ -707,6 +739,7 @@ impl<V: SheetBody> Render for SheetHost<V> {
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
+                    .track_scroll(&scroll)
                     .child(
                         div()
                             .relative()

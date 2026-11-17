@@ -91,7 +91,12 @@ pub fn sections(stores: &Stores, window: &mut Window, cx: &mut App) -> Vec<AnyEl
 
     let usable = list.enabled
         && active.as_ref().is_some_and(|c| {
-            c.mode != "desktop" || c.desktop_auth_kind != "nativePkce" || c.desktop_signed_in
+            c.mode != "desktop"
+                || match c.desktop_auth_kind.as_str() {
+                    "nativePkce" => c.desktop_signed_in,
+                    "dashboardCookie" => c.dashboard_signed_in,
+                    _ => true,
+                }
         });
     if !usable {
         return out;
@@ -100,7 +105,8 @@ pub fn sections(stores: &Stores, window: &mut Window, cx: &mut App) -> Vec<AnyEl
     // servers, schedules), what the agent brings (skills, toolsets), and
     // last, as on a phone, the server's own report.
     out.push(status_section(stores, status.as_ref(), &l, window, cx));
-    if active.is_some_and(|c| c.mode == "desktop") {
+    let gateway = active.is_some_and(|c| c.mode == "desktop");
+    if gateway {
         out.push(mcp_section(stores, mcp.as_ref(), &l, window, cx));
     }
     let jobs = status
@@ -110,7 +116,7 @@ pub fn sections(stores: &Stores, window: &mut Window, cx: &mut App) -> Vec<AnyEl
     if jobs {
         out.push(schedules_section(stores, &l, cx));
     }
-    out.extend(catalog_sections(catalog.as_ref(), &l, cx));
+    out.extend(catalog_sections(stores, catalog.as_ref(), gateway, &l, cx));
     if let Some(details) = status
         .as_ref()
         .and_then(Loaded::ready)
@@ -505,8 +511,13 @@ fn schedules_section(stores: &Stores, l: &L10n, cx: &mut App) -> AnyElement {
     .into_any_element()
 }
 
+/// The agent's skills and toolsets. On a Desktop Gateway, as on a phone,
+/// its toolsets are switches (for new sessions) and Reload Skills has it
+/// read its skills again; an API server's are only listed.
 fn catalog_sections(
+    stores: &Stores,
     catalog: Option<&Loaded<conduit_protocol::HermesCatalog>>,
+    gateway: bool,
     l: &L10n,
     cx: &mut App,
 ) -> Vec<AnyElement> {
@@ -561,8 +572,50 @@ fn catalog_sections(
             .child(SharedString::from(named.join("  ")))
             .into_any_element()
     };
+    let (busy, reloading) = {
+        let admin = stores.hermes_admin.read(cx);
+        (admin.toolsets_busy.clone(), admin.skills_reloading)
+    };
+    let toolset_rows: Vec<AnyElement> = if gateway && !catalog.toolsets.is_empty() {
+        catalog
+            .toolsets
+            .iter()
+            .map(|toolset| {
+                let label = if toolset.label.trim().is_empty() {
+                    toolset.name.clone()
+                } else {
+                    toolset.label.clone()
+                };
+                let name = toolset.name.clone();
+                let on = toolset.enabled;
+                let stores = stores.clone();
+                setting_row(
+                    label.clone(),
+                    Some(l.hermes_tool_count(toolset.tools.len() as i64).into()),
+                    Switch::new(
+                        ElementId::Name(format!("hermes-toolset-{}", toolset.name).into()),
+                        label,
+                        on,
+                    )
+                    .disabled(busy.contains(&toolset.name))
+                    .on_click(Rc::new(move |_, _, cx| {
+                        let s = stores.clone();
+                        stores
+                            .hermes_admin
+                            .update(cx, |a, cx| a.set_toolset(&s, &name, !on, cx));
+                    })),
+                    cx,
+                )
+                .into_any_element()
+            })
+            .collect()
+    } else {
+        vec![]
+    };
     let toolsets = if catalog.toolsets.is_empty() {
         note_row(l.hermes_no_toolsets(), cx)
+    } else if !toolset_rows.is_empty() {
+        div().into_any_element()
     } else {
         div()
             .id("hermes-toolsets")
@@ -618,7 +671,7 @@ fn catalog_sections(
             }))
             .into_any_element()
     };
-    vec![
+    let mut out = vec![
         settings_section(
             l.hermes_capability_skills(),
             (!catalog.skills.is_empty()).then(|| l.desktop_hermes_skills_footer().into()),
@@ -626,14 +679,39 @@ fn catalog_sections(
             cx,
         )
         .into_any_element(),
+    ];
+    if gateway {
+        let stores = stores.clone();
+        out.push(
+            buttons(vec![
+                Button::new("hermes-reload-skills", l.hermes_reload_skills())
+                    .icon(IconName::RotateCw)
+                    .disabled(reloading)
+                    .on_click(Rc::new(move |_, _, cx| {
+                        let s = stores.clone();
+                        stores
+                            .hermes_admin
+                            .update(cx, |a, cx| a.reload_skills(&s, cx));
+                    }))
+                    .into_any_element(),
+            ])
+            .into_any_element(),
+        );
+    }
+    out.push(
         settings_section(
             l.hermes_capability_toolsets(),
             (!catalog.toolsets.is_empty()).then(|| l.hermes_toolsets_new_sessions().into()),
-            vec![toolsets],
+            if toolset_rows.is_empty() {
+                vec![toolsets]
+            } else {
+                toolset_rows
+            },
             cx,
         )
         .into_any_element(),
-    ]
+    );
+    out
 }
 
 fn mcp_section(

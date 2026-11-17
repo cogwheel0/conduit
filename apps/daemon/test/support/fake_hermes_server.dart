@@ -41,6 +41,8 @@ final class FakeHermesServer {
 
   /// Run (once) when `/v1/capabilities` is asked, before it is answered.
   Future<void> Function()? onCapabilities;
+  /// Every request's headers (names in lower case), oldest first.
+  final List<Map<String, String>> requestHeaders = [];
 
   /// Runs waiting on an approval, by run id.
   final Map<String, Completer<bool>> _waiting = {};
@@ -108,6 +110,9 @@ final class FakeHermesServer {
       await response.close();
     }
 
+    final headers = <String, String>{};
+    request.headers.forEach((name, values) => headers[name] = values.join(','));
+    requestHeaders.add(headers);
     if (path == '/health') return json(<String, dynamic>{'status': 'ok'});
     if (request.headers.value('authorization') != 'Bearer $key') {
       return json(<String, dynamic>{'error': 'unauthorized'}, 401);

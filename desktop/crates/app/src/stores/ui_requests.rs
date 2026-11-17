@@ -459,13 +459,19 @@ impl UiRequestsStore {
         cx.notify();
     }
 
-    /// `ui.request`.
+    /// `ui.request`. The same request raised again is refreshed in place
+    /// (what it says may have changed), not announced again: its card keeps
+    /// what is typed into it.
     pub fn on_request(&mut self, request: UiRequest, cx: &mut Context<Self>) {
-        if self
+        if let Some(shown) = self
             .queue
-            .iter()
-            .any(|r| r.request_id == request.request_id)
+            .iter_mut()
+            .find(|r| r.request_id == request.request_id)
         {
+            if *shown != request {
+                *shown = request;
+                cx.notify();
+            }
             return;
         }
         let id = request.request_id.clone();

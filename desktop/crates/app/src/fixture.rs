@@ -444,6 +444,11 @@ pub(crate) fn stores(rpc: Rpc, scratch: &std::path::Path, cx: &mut App) -> Store
         let rpc = rpc.clone();
         cx.new(|cx| crate::stores::call::CallStore::new(rpc, connection, cx))
     };
+    // A test's stores install no Apple engine: its report sink is
+    // process-wide, so one test's engine would wake another test's tasks.
+    #[cfg(test)]
+    let apple = cx.new(|_| crate::stores::apple_models::AppleModelsStore::for_test(rpc.clone()));
+    #[cfg(not(test))]
     let apple = {
         let rpc = rpc.clone();
         cx.new(|cx| crate::stores::apple_models::AppleModelsStore::new(rpc, cx))

@@ -3501,7 +3501,13 @@ const Map<String, String> protocolGoldens = <String, String>{
   "plainHttp": true,
   "hasApiKey": true,
   "hasLegacyToken": true,
-  "desktopSignedIn": true
+  "desktopSignedIn": true,
+  "accessHeaderNames": [
+    "CF-Access-Client-Id",
+    "CF-Access-Client-Secret"
+  ],
+  "hasMemoryKey": true,
+  "dashboardSignedIn": true
 }''',
 
   'hermesConnections': r'''
@@ -3521,7 +3527,10 @@ const Map<String, String> protocolGoldens = <String, String>{
       "plainHttp": false,
       "hasApiKey": false,
       "hasLegacyToken": false,
-      "desktopSignedIn": false
+      "desktopSignedIn": false,
+      "accessHeaderNames": [],
+      "hasMemoryKey": false,
+      "dashboardSignedIn": false
     }
   ],
   "canAdd": false,
@@ -3540,7 +3549,104 @@ const Map<String, String> protocolGoldens = <String, String>{
   "apiKey": "sk-demo",
   "legacyToken": "demo-token",
   "allowSelfSignedCertificates": true,
-  "allowPlainHttp": true
+  "allowPlainHttp": true,
+  "accessHeaders": [
+    {
+      "name": "CF-Access-Client-Id",
+      "value": "demo.access"
+    },
+    {
+      "name": "X-Gate",
+      "savedName": "X-Old-Gate"
+    }
+  ],
+  "memoryKey": "demo-memory"
+}''',
+
+  'hermesAccessHeaderEdit': r'''
+{
+  "name": "X-Gate",
+  "value": "demo-value",
+  "savedName": "X-Old-Gate"
+}''',
+
+  'hermesProfiles': r'''
+{
+  "profiles": [
+    "default",
+    "writer"
+  ],
+  "selected": "writer",
+  "issue": "signInFirst"
+}''',
+
+  'hermesToolsetToggle': r'''
+{
+  "name": "web",
+  "enabled": false,
+  "connection": "0a1b2c3d:2"
+}''',
+
+  'hermesConnectionRef': r'''
+{
+  "connection": "0a1b2c3d:2"
+}''',
+
+  'hermesDashboardStart': r'''
+{
+  "id": "c1",
+  "connection": "0a1b2c3d:2"
+}''',
+
+  'hermesDashboardPlan': r'''
+{
+  "loginUrl": "https://agent.example.test/login",
+  "origin": "https://agent.example.test",
+  "supported": false
+}''',
+
+  'hermesCookieDto': r'''
+{
+  "name": "hermes_session_at",
+  "value": "demo-session",
+  "domain": "agent.example.test",
+  "path": "/",
+  "secure": true,
+  "httpOnly": true,
+  "expiresMs": 1794490018000
+}''',
+
+  'hermesDashboardCookies': r'''
+{
+  "id": "c1",
+  "cookies": [
+    {
+      "name": "hermes_session_rt",
+      "value": "r",
+      "domain": ".example.test",
+      "path": "/",
+      "secure": false,
+      "httpOnly": false
+    }
+  ],
+  "connection": "0a1b2c3d:2",
+  "attempt": "dashboard-1"
+}''',
+
+  'hermesDashboardCancel': r'''
+{
+  "attempt": "dashboard-1"
+}''',
+
+  'hermesDashboardResult': r'''
+{
+  "signedIn": true,
+  "connections": {
+    "enabled": false,
+    "activeId": "c1",
+    "connections": [],
+    "canAdd": true
+  }
 }''',
 
   'hermesConnectionTestResult': r'''

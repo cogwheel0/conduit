@@ -48,11 +48,11 @@ const JOB: &str = "Standup notes";
 const JOB_PROMPT: &str = "Write a short standup summary, slowly.";
 const MCP: &str = "demo_shop";
 
-fn admin(cx: &mut App) -> Entity<HermesAdminStore> {
+pub(super) fn admin(cx: &mut App) -> Entity<HermesAdminStore> {
     cx.global::<AppState>().stores.hermes_admin.clone()
 }
 
-fn connections(cx: &mut App) -> Vec<(String, String, bool)> {
+pub(super) fn connections(cx: &mut App) -> Vec<(String, String, bool)> {
     admin(cx)
         .read(cx)
         .connections
@@ -66,18 +66,18 @@ fn connections(cx: &mut App) -> Vec<(String, String, bool)> {
         .unwrap_or_default()
 }
 
-fn connection_named(name: &str, cx: &mut App) -> Option<String> {
+pub(super) fn connection_named(name: &str, cx: &mut App) -> Option<String> {
     connections(cx)
         .into_iter()
         .find(|(_, n, _)| n == name)
         .map(|(id, _, _)| id)
 }
 
-fn active_name(cx: &mut App) -> Option<String> {
+pub(super) fn active_name(cx: &mut App) -> Option<String> {
     admin(cx).read(cx).active().map(|c| c.name.clone())
 }
 
-fn enabled(cx: &mut App) -> bool {
+pub(super) fn enabled(cx: &mut App) -> bool {
     admin(cx)
         .read(cx)
         .connections
@@ -85,7 +85,7 @@ fn enabled(cx: &mut App) -> bool {
         .is_some_and(|l| l.enabled)
 }
 
-fn sessions(cx: &mut App) -> Vec<HermesSessionDto> {
+pub(super) fn sessions(cx: &mut App) -> Vec<HermesSessionDto> {
     let areas = cx.global::<AppState>().stores.areas.read(cx);
     areas
         .hermes
@@ -94,7 +94,7 @@ fn sessions(cx: &mut App) -> Vec<HermesSessionDto> {
         .unwrap_or_default()
 }
 
-fn listed(title: &str, cx: &mut App) -> bool {
+pub(super) fn listed(title: &str, cx: &mut App) -> bool {
     sessions(cx).iter().any(|s| s.title == title)
 }
 
@@ -114,12 +114,12 @@ fn job(cx: &mut App) -> Option<HermesJobDto> {
         .find(|j| j.name.as_deref() == Some(JOB))
 }
 
-fn toasts(cx: &mut App) -> Vec<String> {
+pub(super) fn toasts(cx: &mut App) -> Vec<String> {
     let toasts = cx.global::<AppState>().stores.toasts.read(cx);
     toasts.toasts.iter().map(|t| t.message.clone()).collect()
 }
 
-async fn toast(contains: &str, cx: &mut AsyncApp) -> bool {
+pub(super) async fn toast(contains: &str, cx: &mut AsyncApp) -> bool {
     let want = contains.to_string();
     let seen = wait_until(cx, Duration::from_secs(30), move |cx| {
         toasts(cx).iter().any(|t| t.contains(&want))
@@ -131,7 +131,7 @@ async fn toast(contains: &str, cx: &mut AsyncApp) -> bool {
     seen
 }
 
-fn settings_window(cx: &mut App) -> Option<AnyWindowHandle> {
+pub(super) fn settings_window(cx: &mut App) -> Option<AnyWindowHandle> {
     cx.global::<AppState>()
         .settings_window
         .as_ref()
@@ -139,7 +139,10 @@ fn settings_window(cx: &mut App) -> Option<AnyWindowHandle> {
 }
 
 /// Runs `f` in the Settings window (its window, for a sheet to hang from).
-fn in_settings<R>(cx: &mut AsyncApp, f: impl FnOnce(&mut Window, &mut App) -> R) -> Option<R> {
+pub(super) fn in_settings<R>(
+    cx: &mut AsyncApp,
+    f: impl FnOnce(&mut Window, &mut App) -> R,
+) -> Option<R> {
     cx.update(|cx| {
         let handle = settings_window(cx)?;
         handle.update(cx, |_, window, cx| f(window, cx)).ok()
@@ -147,7 +150,7 @@ fn in_settings<R>(cx: &mut AsyncApp, f: impl FnOnce(&mut Window, &mut App) -> R)
 }
 
 /// Runs `f` on the open sheet's body of type `V`, in the sheet's window.
-fn in_sheet<V: 'static, R>(
+pub(super) fn in_sheet<V: 'static, R>(
     cx: &mut AsyncApp,
     f: impl FnOnce(&mut V, &mut Window, &mut Context<V>) -> R,
 ) -> Option<R> {
@@ -162,24 +165,24 @@ fn in_sheet<V: 'static, R>(
     })
 }
 
-async fn wait_sheet<V: 'static>(cx: &mut AsyncApp) -> bool {
+pub(super) async fn wait_sheet<V: 'static>(cx: &mut AsyncApp) -> bool {
     wait_until(cx, Duration::from_secs(15), |cx| {
         sheet::current::<V>(cx).is_some()
     })
     .await
 }
 
-async fn sheet_gone(cx: &mut AsyncApp) -> bool {
+pub(super) async fn sheet_gone(cx: &mut AsyncApp) -> bool {
     wait_until(cx, Duration::from_secs(30), |cx| !sheet::is_open(cx)).await
 }
 
-async fn shoot_sheet(dir: &Path, name: &str, cx: &mut AsyncApp) {
+pub(super) async fn shoot_sheet(dir: &Path, name: &str, cx: &mut AsyncApp) {
     if let Some(handle) = cx.update(|cx| sheet::current_window(cx)) {
         shoot_both_modes(handle, dir, name, cx).await;
     }
 }
 
-async fn shoot_settings(dir: &Path, name: &str, cx: &mut AsyncApp) -> Vec<String> {
+pub(super) async fn shoot_settings(dir: &Path, name: &str, cx: &mut AsyncApp) -> Vec<String> {
     let Some(handle) = cx.update(settings_window) else {
         return vec![];
     };
@@ -201,7 +204,7 @@ fn fill_connection(
     set_text(&sheet.name, name, window, cx);
     set_text(&sheet.url, url, window, cx);
     sheet.desktop = true;
-    sheet.token_auth = true;
+    sheet.auth = crate::views::hermes_connection::Auth::Token;
     if let Some(token) = token {
         set_text(&sheet.token, token, window, cx);
     }
@@ -209,7 +212,7 @@ fn fill_connection(
 }
 
 /// Tests the open editor and waits for its answer: whether it reached it.
-async fn test_connection(cx: &mut AsyncApp) -> bool {
+pub(super) async fn test_connection(cx: &mut AsyncApp) -> bool {
     in_sheet::<HermesConnectionSheet, _>(cx, |s, w, cx| s.test(w, cx));
     let answered = wait_until(cx, Duration::from_secs(40), |cx| {
         sheet::current::<HermesConnectionSheet>(cx).is_some_and(|s| {
@@ -229,7 +232,7 @@ async fn test_connection(cx: &mut AsyncApp) -> bool {
         })
 }
 
-async fn open_editor(id: Option<String>, cx: &mut AsyncApp) -> bool {
+pub(super) async fn open_editor(id: Option<String>, cx: &mut AsyncApp) -> bool {
     in_settings(cx, |window, cx| {
         let stores = cx.global::<AppState>().stores.clone();
         crate::views::hermes_connection::open(&stores, id, window, cx);
@@ -262,7 +265,7 @@ fn mcp_servers(cx: &mut App) -> Vec<(String, Vec<String>)> {
 
 /// Closes (or opens) every sidebar section but Hermes's; answers the
 /// sections it changed.
-fn set_others_collapsed(collapsed: bool, cx: &mut AsyncApp) -> Vec<String> {
+pub(super) fn set_others_collapsed(collapsed: bool, cx: &mut AsyncApp) -> Vec<String> {
     let keys: Vec<String> = cx.update(|cx| {
         let caps = cx
             .global::<AppState>()
@@ -280,7 +283,7 @@ fn set_others_collapsed(collapsed: bool, cx: &mut AsyncApp) -> Vec<String> {
     keys
 }
 
-fn set_others_collapsed_list(keys: &[String], collapsed: bool, cx: &mut AsyncApp) {
+pub(super) fn set_others_collapsed_list(keys: &[String], collapsed: bool, cx: &mut AsyncApp) {
     let keys = keys.to_vec();
     cx.update(|cx| {
         let sections = cx.global::<AppState>().stores.sections.clone();
@@ -292,14 +295,14 @@ fn set_others_collapsed_list(keys: &[String], collapsed: bool, cx: &mut AsyncApp
     });
 }
 
-fn open_item(item: AreaItem, cx: &mut AsyncApp) {
+pub(super) fn open_item(item: AreaItem, cx: &mut AsyncApp) {
     cx.update(|cx| {
         let nav = cx.global::<AppState>().stores.navigation.clone();
         nav.update(cx, |n, cx| n.open_item(item, cx));
     });
 }
 
-fn selection(cx: &mut App) -> Selection {
+pub(super) fn selection(cx: &mut App) -> Selection {
     cx.global::<AppState>()
         .stores
         .navigation

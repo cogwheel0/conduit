@@ -98,6 +98,18 @@ abstract class HermesConnectionDto with _$HermesConnectionDto {
 
     /// Signed in natively (a Desktop Gateway with `nativePkce`).
     @Default(false) bool desktopSignedIn,
+
+    /// The names of the headers sent with every request to the server
+    /// (Cloudflare Access and the like), in the order saved. Their values
+    /// stay in the daemon.
+    @Default(<String>[]) List<String> accessHeaderNames,
+
+    /// An API server's memory key is set (else the daemon makes one).
+    @Default(false) bool hasMemoryKey,
+
+    /// The daemon holds a dashboard sign-in for the server (a Desktop
+    /// Gateway with `dashboardCookie`).
+    @Default(false) bool dashboardSignedIn,
   }) = _HermesConnectionDto;
 
   factory HermesConnectionDto.fromJson(Map<String, dynamic> json) =>
@@ -153,10 +165,205 @@ abstract class HermesConnectionEdit with _$HermesConnectionEdit {
     /// The user agreed to send this connection's credentials unencrypted
     /// (asked when the daemon refuses with `hermes.plainHttpConsent`).
     @Default(false) bool allowPlainHttp,
+
+    /// The headers every request carries, in order; null keeps the saved
+    /// ones. A refused list is `invalidParams` with `reason: accessHeader`,
+    /// `issue` (`tooMany`, `invalidName`, `duplicate`, `reserved`,
+    /// `tooLong`, `invalidValue`) and `header`.
+    List<HermesAccessHeaderEdit>? accessHeaders,
+
+    /// An API server's memory key (`X-Hermes-Session-Key`): null keeps the
+    /// saved one, empty clears it (the daemon makes one).
+    String? memoryKey,
   }) = _HermesConnectionEdit;
 
   factory HermesConnectionEdit.fromJson(Map<String, dynamic> json) =>
       _$HermesConnectionEditFromJson(json);
+}
+
+/// One access header in a connection's form. A saved header's value is
+/// never sent to the window, so a row left as it was says which saved
+/// header it keeps.
+@freezed
+abstract class HermesAccessHeaderEdit with _$HermesAccessHeaderEdit {
+  const factory HermesAccessHeaderEdit({
+    required String name,
+
+    /// The value typed; null keeps the saved value of [savedName] (or of
+    /// [name] when that is null). Saved values never follow a connection
+    /// to another server.
+    String? value,
+
+    /// The saved header this row was, when it was renamed.
+    String? savedName,
+  }) = _HermesAccessHeaderEdit;
+
+  factory HermesAccessHeaderEdit.fromJson(Map<String, dynamic> json) =>
+      _$HermesAccessHeaderEditFromJson(json);
+}
+
+/// Reply to `hermes.connections.profiles`: the profiles a Desktop
+/// Gateway offers the form's connection, as the phone's profile menu
+/// lists them.
+@freezed
+abstract class HermesProfiles with _$HermesProfiles {
+  const factory HermesProfiles({
+    @Default(<String>[]) List<String> profiles,
+
+    /// The profile the form should show: the one it had while listed,
+    /// else `default`, else the first. Null when nothing was listed.
+    String? selected,
+
+    /// Why none were listed (the form keeps its profile and says so):
+    /// `noUrl`, `testFirst` (credentials would go unencrypted unasked),
+    /// `empty`, `signInFirst`.
+    String? issue,
+  }) = _HermesProfiles;
+
+  factory HermesProfiles.fromJson(Map<String, dynamic> json) =>
+      _$HermesProfilesFromJson(json);
+}
+
+/// Params naming only the Hermes connection a change is for
+/// (`hermes.skills.reload`).
+@freezed
+abstract class HermesConnectionRef with _$HermesConnectionRef {
+  const factory HermesConnectionRef({
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): a change naming none, or another
+    /// connection than the one in use, is refused.
+    String? connection,
+  }) = _HermesConnectionRef;
+
+  factory HermesConnectionRef.fromJson(Map<String, dynamic> json) =>
+      _$HermesConnectionRefFromJson(json);
+}
+
+/// Params for `hermes.dashboard.start`: the saved connection whose
+/// dashboard sign-in opens, put in use first.
+@freezed
+abstract class HermesDashboardStart with _$HermesDashboardStart {
+  const factory HermesDashboardStart({
+    required String id,
+
+    /// The Hermes connection in use once [id] was put in use
+    /// (`HermesChanged.connection`): refused once another is in use, or
+    /// when it names none.
+    String? connection,
+  }) = _HermesDashboardStart;
+
+  factory HermesDashboardStart.fromJson(Map<String, dynamic> json) =>
+      _$HermesDashboardStartFromJson(json);
+}
+
+/// Params for `hermes.toolsets.set`: a toolset on or off for new sessions.
+@freezed
+abstract class HermesToolsetToggle with _$HermesToolsetToggle {
+  const factory HermesToolsetToggle({
+    required String name,
+    required bool enabled,
+
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`): a change naming none, or another
+    /// connection than the one in use, is refused.
+    String? connection,
+  }) = _HermesToolsetToggle;
+
+  factory HermesToolsetToggle.fromJson(Map<String, dynamic> json) =>
+      _$HermesToolsetToggleFromJson(json);
+}
+
+/// Reply to `hermes.dashboard.start`: where a Desktop Gateway's dashboard
+/// sign-in opens, for the window's browser window.
+@freezed
+abstract class HermesDashboardPlan with _$HermesDashboardPlan {
+  const factory HermesDashboardPlan({
+    /// The dashboard's own sign-in page.
+    required String loginUrl,
+
+    /// The dashboard's origin (`scheme://host[:port]`): the flow is done
+    /// back there, and leaving it after the identity provider is refused.
+    required String origin,
+
+    /// False when this Mac's browser window cannot carry the connection's
+    /// access headers to the dashboard (as on an iPhone): the window says
+    /// so instead of opening.
+    @Default(true) bool supported,
+  }) = _HermesDashboardPlan;
+
+  factory HermesDashboardPlan.fromJson(Map<String, dynamic> json) =>
+      _$HermesDashboardPlanFromJson(json);
+}
+
+/// One cookie the dashboard sign-in window holds for the dashboard's host.
+@freezed
+abstract class HermesCookieDto with _$HermesCookieDto {
+  const factory HermesCookieDto({
+    required String name,
+    required String value,
+
+    /// As WebKit reports it: the host for a host-only cookie, a leading
+    /// dot for a domain cookie.
+    required String domain,
+    @Default('/') String path,
+    @Default(false) bool secure,
+    @Default(false) bool httpOnly,
+
+    /// Milliseconds since the epoch; null for a session cookie.
+    int? expiresMs,
+  }) = _HermesCookieDto;
+
+  factory HermesCookieDto.fromJson(Map<String, dynamic> json) =>
+      _$HermesCookieDtoFromJson(json);
+}
+
+/// Params for `hermes.dashboard.complete`: the cookies a page the sign-in
+/// window loaded on the dashboard had.
+@freezed
+abstract class HermesDashboardCookies with _$HermesDashboardCookies {
+  const factory HermesDashboardCookies({
+    /// The connection signing in.
+    required String id,
+    @Default(<HermesCookieDto>[]) List<HermesCookieDto> cookies,
+
+    /// The Hermes connection in use the sign-in was started under
+    /// (`HermesChanged.connection`): refused once another is in use, or
+    /// when it names none.
+    String? connection,
+
+    /// The sign-in window's own id: nothing is kept once
+    /// `hermes.dashboard.cancel` named it (the window closed).
+    String? attempt,
+  }) = _HermesDashboardCookies;
+
+  factory HermesDashboardCookies.fromJson(Map<String, dynamic> json) =>
+      _$HermesDashboardCookiesFromJson(json);
+}
+
+/// `hermes.dashboard.cancel` params: the sign-in window [attempt] closed.
+@freezed
+abstract class HermesDashboardCancel with _$HermesDashboardCancel {
+  const factory HermesDashboardCancel({required String attempt}) =
+      _HermesDashboardCancel;
+
+  factory HermesDashboardCancel.fromJson(Map<String, dynamic> json) =>
+      _$HermesDashboardCancelFromJson(json);
+}
+
+/// Reply to `hermes.dashboard.complete`.
+@freezed
+abstract class HermesDashboardResult with _$HermesDashboardResult {
+  const factory HermesDashboardResult({
+    /// The dashboard accepted the cookies as a signed-in session; they are
+    /// kept. False: not signed in yet (the window keeps waiting).
+    @Default(false) bool signedIn,
+
+    /// The connections, once signed in.
+    HermesConnections? connections,
+  }) = _HermesDashboardResult;
+
+  factory HermesDashboardResult.fromJson(Map<String, dynamic> json) =>
+      _$HermesDashboardResultFromJson(json);
 }
 
 /// Reply to `hermes.connections.test`.

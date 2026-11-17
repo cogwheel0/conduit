@@ -1,0 +1,5 @@
+{
+  "name": "web",
+  "enabled": false,
+  "connection": "0a1b2c3d:2"
+}

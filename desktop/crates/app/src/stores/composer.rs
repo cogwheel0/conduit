@@ -1001,6 +1001,23 @@ impl ComposerStore {
                 .is_some_and(|m| m.id.starts_with("hermes:"))
     }
 
+    /// The agent's skills were read again (Reload Skills) on
+    /// `hermes_connection`, the one in use: a Hermes chat's `/` list is read
+    /// again now, so a menu that is open shows them.
+    pub fn reload_hermes_prompts(
+        &mut self,
+        hermes_connection: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.prompts_hermes {
+            return;
+        }
+        self.prompts = None;
+        if self.is_hermes() {
+            self.load_prompts(hermes_connection, cx);
+        }
+    }
+
     /// What `/` lists, once (and again after `reset`, or when the chat
     /// moves between Hermes and the rest): saved prompts (`prompts.list`),
     /// or in a Hermes chat the agent's commands (`hermes.catalog`), as

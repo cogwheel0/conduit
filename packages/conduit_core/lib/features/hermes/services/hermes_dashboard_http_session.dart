@@ -311,6 +311,18 @@ final class HermesDashboardCookieJar {
 /// certificate trust).
 typedef HermesDashboardHttpClientFactory = HttpClient Function();
 
+/// Takes the `Set-Cookie` headers of one dashboard answer to its URL.
+typedef HermesDashboardCookieIntake = Future<void> Function(
+  Uri url,
+  List<String> setCookies,
+);
+
+/// Called as a request reads the cookies it sends; what it returns takes
+/// that request's answer's cookies, in place of the jar. A host that can
+/// purge the jar while a request is out uses it to drop what an answer
+/// from before the purge brings.
+typedef HermesDashboardExchangeStart = HermesDashboardCookieIntake Function();
+
 /// [HermesDashboardBridge] over plain HTTP with [jar]'s cookies.
 final class HermesDashboardHttpSession implements HermesDashboardBridge {
   HermesDashboardHttpSession({
@@ -318,6 +330,7 @@ final class HermesDashboardHttpSession implements HermesDashboardBridge {
     required Map<String, String> accessHeaders,
     required HermesDashboardCookieJar jar,
     Future<void> Function()? onCookiesChanged,
+    HermesDashboardExchangeStart? beginExchange,
     HermesDashboardHttpClientFactory? httpClient,
     this.requestTimeout = const Duration(seconds: 30),
     this.abortGrace = const Duration(seconds: 5),
@@ -325,12 +338,14 @@ final class HermesDashboardHttpSession implements HermesDashboardBridge {
        _accessHeaders = Map.unmodifiable(accessHeaders),
        _jar = jar,
        _onCookiesChanged = onCookiesChanged,
+       _beginExchange = beginExchange,
        _httpClient = httpClient ?? HttpClient.new;
 
   final Uri _root;
   final Map<String, String> _accessHeaders;
   final HermesDashboardCookieJar _jar;
   final Future<void> Function()? _onCookiesChanged;
+  final HermesDashboardExchangeStart? _beginExchange;
   final HermesDashboardHttpClientFactory _httpClient;
   final Duration requestTimeout;
 
@@ -460,6 +475,7 @@ final class HermesDashboardHttpSession implements HermesDashboardBridge {
     }
     request.followRedirects = false;
     _accessHeaders.forEach(request.headers.set);
+    final intake = _beginExchange?.call();
     final cookies = _jar.cookieHeader(url);
     if (cookies != null) request.headers.set(HttpHeaders.cookieHeader, cookies);
     request.headers.set(HttpHeaders.acceptHeader, 'application/json');
@@ -470,8 +486,12 @@ final class HermesDashboardHttpSession implements HermesDashboardBridge {
     final response = await request.close();
     if (exchange.aborted) throw TimeoutException(null, requestTimeout);
     final setCookies = response.headers[HttpHeaders.setCookieHeader];
-    if (setCookies != null && _jar.absorb(url, setCookies)) {
-      await _onCookiesChanged?.call();
+    if (setCookies != null) {
+      if (intake != null) {
+        await intake(url, setCookies);
+      } else if (_jar.absorb(url, setCookies)) {
+        await _onCookiesChanged?.call();
+      }
     }
     // A redirect or an answer too large is not read: closing the client
     // ends it.
@@ -540,6 +560,7 @@ Future<bool> hermesDashboardHttpSignOut({
   required Map<String, String> accessHeaders,
   required HermesDashboardCookieJar jar,
   Future<void> Function()? onCookiesChanged,
+  HermesDashboardExchangeStart? beginExchange,
   HermesDashboardHttpClientFactory? httpClient,
   Duration timeout = const Duration(seconds: 20),
 }) async {
@@ -550,6 +571,7 @@ Future<bool> hermesDashboardHttpSignOut({
       final request = await client.postUrl(url);
       request.followRedirects = false;
       accessHeaders.forEach(request.headers.set);
+      final intake = beginExchange?.call();
       final cookies = jar.cookieHeader(url);
       if (cookies != null) {
         request.headers.set(HttpHeaders.cookieHeader, cookies);
@@ -558,8 +580,12 @@ Future<bool> hermesDashboardHttpSignOut({
       request.headers.set('Origin', root.origin);
       final response = await request.close();
       final setCookies = response.headers[HttpHeaders.setCookieHeader];
-      if (setCookies != null && jar.absorb(url, setCookies)) {
-        await onCookiesChanged?.call();
+      if (setCookies != null) {
+        if (intake != null) {
+          await intake(url, setCookies);
+        } else if (jar.absorb(url, setCookies)) {
+          await onCookiesChanged?.call();
+        }
       }
       await response.drain<void>();
       return response.statusCode >= 300 && response.statusCode < 400;

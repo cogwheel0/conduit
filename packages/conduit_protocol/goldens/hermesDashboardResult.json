@@ -1,0 +1,9 @@
+{
+  "signedIn": true,
+  "connections": {
+    "enabled": false,
+    "activeId": "c1",
+    "connections": [],
+    "canAdd": true
+  }
+}

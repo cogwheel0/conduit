@@ -565,28 +565,41 @@ pub fn header_rows(
         .gap(px(6.))
         .children(rows.iter().enumerate().map(|(i, row)| {
             let remove = on_remove.clone();
+            // A placeholder a field was given (a kept value's "configured"
+            // note) shows under its input while it is empty.
+            let placed = |state: &Entity<InputState>, label: &SharedString| {
+                let shown = hint(state, cx).filter(|_| state.read(cx).value().is_empty());
+                field_frame(false, h, cx)
+                    .relative()
+                    .flex_1()
+                    .when_some(shown, |d, h| {
+                        d.child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .left(px(7.))
+                                .right(px(7.))
+                                .flex()
+                                .items_center()
+                                .overflow_hidden()
+                                .text_size(px(t.metrics.control))
+                                .text_color(t.roles.text_faint)
+                                .child(div().truncate().child(h)),
+                        )
+                    })
+                    .child(div().flex_1().min_w_0().child(bare_input(
+                        state,
+                        label.clone(),
+                        t.metrics.control,
+                    )))
+            };
             div()
                 .flex()
                 .items_center()
                 .gap(px(6.))
-                .child(
-                    field_frame(false, h, cx)
-                        .flex_1()
-                        .child(div().flex_1().child(bare_input(
-                            &row.name,
-                            name_label.clone(),
-                            t.metrics.control,
-                        ))),
-                )
-                .child(
-                    field_frame(false, h, cx)
-                        .flex_1()
-                        .child(div().flex_1().child(bare_input(
-                            &row.value,
-                            value_label.clone(),
-                            t.metrics.control,
-                        ))),
-                )
+                .child(placed(&row.name, &name_label))
+                .child(placed(&row.value, &value_label))
                 .child(
                     IconButton::new(
                         ElementId::NamedInteger("remove-header".into(), i as u64),

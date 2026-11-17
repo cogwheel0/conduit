@@ -14,19 +14,25 @@ import 'package:conduit_core/features/hermes/models/hermes_toolset.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_access.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_http_session.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_webview_rules.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart'
     show HermesDesktopRpcException;
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_validation.dart';
 import 'package:conduit_core/models/prompt.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'event_bus.dart';
 import 'hermes_connection.dart';
+import 'hermes_dashboard_cookies.dart';
 import 'hermes_service.dart';
 import 'settled.dart';
 
@@ -49,8 +55,13 @@ const Duration _kDeliveryOptionsTtl = Duration(seconds: 60);
 /// run, a Stop waiting for its run to end -- is kept here, per connection,
 /// so the window only polls the list while it shows it.
 final class HermesAdminService {
-  HermesAdminService(this._container, {EventBus? events, this.hermes})
-    : _events = events {
+  HermesAdminService(
+    this._container, {
+    EventBus? events,
+    this.hermes,
+    DaemonHermesDashboardCookies? dashboardCookies,
+  }) : _events = events,
+       _dashboardCookies = dashboardCookies {
     // A connection switch leaves nothing of the previous one's jobs to
     // settle.
     _serviceWatch = _container.listen<HermesBackendService?>(
@@ -63,6 +74,9 @@ final class HermesAdminService {
 
   final ProviderContainer _container;
   final EventBus? _events;
+
+  /// The dashboard sessions the window's sign-in hands over.
+  final DaemonHermesDashboardCookies? _dashboardCookies;
 
   /// Hermes's sessions, told of the sessions a job's runs wrote so they
   /// open as any other.
@@ -193,7 +207,17 @@ final class HermesAdminService {
             config = null;
           }
         }
-        rows.add(_connectionDto(profile, config, active: isActive));
+        rows.add(
+          _connectionDto(
+            profile,
+            config,
+            active: isActive,
+            dashboardSignedIn:
+                profile.desktopAuthKind ==
+                    HermesDesktopAuthKind.dashboardCookie &&
+                (_dashboardCookies?.hasSession(profile.baseUrl) ?? false),
+          ),
+        );
       }
       if (!_current(scope) && attempt < 3) continue;
       _check(scope);
@@ -212,6 +236,7 @@ final class HermesAdminService {
     HermesConnectionProfile profile,
     HermesConfig? config, {
     required bool active,
+    bool dashboardSignedIn = false,
   }) => HermesConnectionDto(
     id: profile.id,
     name: profile.name,
@@ -226,6 +251,9 @@ final class HermesAdminService {
     hasLegacyToken:
         config?.desktopCredentials?.legacyToken?.trim().isNotEmpty ?? false,
     desktopSignedIn: config?.desktopCredentials?.nativeTokens != null,
+    accessHeaderNames: config?.accessHeaders.keys.toList() ?? const [],
+    hasMemoryKey: config?.sessionKey?.trim().isNotEmpty ?? false,
+    dashboardSignedIn: dashboardSignedIn,
   );
 
   /// The stored connection [id] (with its secrets), or a blank one for a
@@ -251,6 +279,12 @@ final class HermesAdminService {
     HermesConfig saved,
   ) {
     final name = edit.name;
+    final headers = edit.accessHeaders == null
+        ? saved.accessHeaders
+        : _accessHeaders(edit.accessHeaders!, saved.accessHeaders);
+    final headersDirty =
+        edit.accessHeaders != null &&
+        !_sameHeaders(headers, saved.accessHeaders);
     return HermesConnectionForm(
       connectionId: edit.id,
       name: name ?? '',
@@ -273,11 +307,77 @@ final class HermesAdminService {
           : null,
       apiKey: edit.apiKey ?? '',
       apiKeyDirty: edit.apiKey != null,
+      sessionKey: edit.memoryKey ?? '',
+      sessionKeyDirty: edit.memoryKey != null,
       legacyToken: edit.legacyToken ?? '',
-      desktopCredentialsDirty: edit.legacyToken != null,
+      desktopCredentialsDirty: edit.legacyToken != null || headersDirty,
       initialAccessHeaders: saved.accessHeaders,
-      accessHeaders: saved.accessHeaders,
+      accessHeaders: headers,
+      accessHeadersDirty: headersDirty,
     );
+  }
+
+  /// The headers [rows] make: a row without a value keeps the saved value
+  /// of the header it was. A list the core refuses is `invalidParams`
+  /// (`reason: accessHeader`, the `issue` and the `header`).
+  static Map<String, String> _accessHeaders(
+    List<HermesAccessHeaderEdit> rows,
+    Map<String, String> saved,
+  ) {
+    String? savedValue(String name) => saved.entries
+        .where((entry) => entry.key.toLowerCase() == name.toLowerCase())
+        .firstOrNull
+        ?.value;
+    final headers = <String, String>{};
+    for (final row in rows) {
+      final value = row.value ?? savedValue(row.savedName ?? row.name);
+      if (value == null) {
+        throw RpcError(
+          code: ConduitErrorCodes.invalidParams,
+          args: <String, String>{
+            'reason': 'accessHeader',
+            'issue': HermesAccessHeaderIssue.invalidValue.name,
+            'header': row.name,
+          },
+          debugMessage: 'a new header needs its value',
+        );
+      }
+      if (headers.keys.any((k) => k.toLowerCase() == row.name.toLowerCase())) {
+        throw RpcError(
+          code: ConduitErrorCodes.invalidParams,
+          args: <String, String>{
+            'reason': 'accessHeader',
+            'issue': HermesAccessHeaderIssue.duplicate.name,
+            'header': row.name,
+          },
+          debugMessage: 'header names must be unique',
+        );
+      }
+      headers[row.name] = value;
+    }
+    final problem = HermesConfig.accessHeadersProblem(headers);
+    if (problem != null) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{
+          'reason': 'accessHeader',
+          'issue': problem.issue.name,
+          'header': ?problem.name,
+        },
+        debugMessage: HermesConfig.validateAccessHeaders(headers) ?? '',
+      );
+    }
+    return headers;
+  }
+
+  static bool _sameHeaders(Map<String, String> a, Map<String, String> b) {
+    if (a.length != b.length) return false;
+    final ak = a.keys.toList();
+    final bk = b.keys.toList();
+    for (var i = 0; i < ak.length; i++) {
+      if (ak[i] != bk[i] || a[ak[i]] != b[bk[i]]) return false;
+    }
+    return true;
   }
 
   /// The draft [edit] makes, or the reason it cannot be used: an address
@@ -362,7 +462,7 @@ final class HermesAdminService {
       config = _draft(edit, saved).config;
     } on RpcError catch (error) {
       final reason = error.args['reason'];
-      if (reason == 'plainHttpConsent') rethrow;
+      if (reason == 'plainHttpConsent' || reason == 'accessHeader') rethrow;
       return HermesConnectionTestResult(
         reason: reason == 'keyRequired' ? 'keyRequired' : 'invalid',
       );
@@ -445,6 +545,221 @@ final class HermesAdminService {
     _announce();
     return connections();
   });
+
+  /// The profiles a Desktop Gateway offers [edit]'s connection, as the
+  /// phone's Refresh Profiles lists them: through the live connection when
+  /// the form is the one in use, unchanged, else through one made for the
+  /// form. When none can be listed, why (the form keeps its profile).
+  Future<HermesProfiles> profiles(HermesConnectionEdit edit) async {
+    final saved = await _saved(edit.id);
+    final draft = buildHermesConnectionDraft(
+      saved,
+      _form(edit, saved),
+    ).config.copyWith(enabled: true);
+    final blocked = hermesProfileListBlocker(draft);
+    if (blocked != null) return HermesProfiles(issue: blocked.name);
+    final active = _container.read(hermesConfigProvider);
+    final live = _container.read(hermesApiServiceProvider);
+    final editsActive = edit.id != null && edit.id == active.connectionId;
+    // A token refresh while listing lands with the connection it belongs
+    // to, and only while the form still matches it.
+    final writeCredentials = _config.credentialsWriterFor(saved);
+    final coordinator = HermesDesktopConnectionCoordinator(
+      openExternalUrl: _container.read(openExternalUrlProvider),
+      dashboardBridgeFactory: _container.read(
+        hostHermesDashboardBridgeFactoryProvider,
+      ),
+    );
+    try {
+      final listed = await coordinator.profiles(
+        draft,
+        service: switch (live) {
+          final HermesDesktopApiService service
+              when editsActive &&
+                  hermesDesktopConnectionMatches(saved, draft) =>
+            service,
+          _ => null,
+        },
+        onCredentialsChanged: (credentials) async {
+          if (!hermesDesktopConnectionMatches(saved, draft)) {
+            throw StateError(
+              'Save the Hermes server before refreshing its sign-in.',
+            );
+          }
+          await writeCredentials(credentials);
+        },
+      );
+      if (listed.isEmpty) {
+        return HermesProfiles(issue: HermesProfileListIssue.empty.name);
+      }
+      return HermesProfiles(
+        profiles: listed,
+        selected: hermesProfileAfterRefresh(listed, draft.desktopProfile),
+      );
+    } on Object {
+      return HermesProfiles(issue: HermesProfileListIssue.signInFirst.name);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Toolsets and skills (a Desktop Gateway's)
+  // ---------------------------------------------------------------------------
+
+  /// Turns toolset [toggle] on or off for new sessions, as the phone's
+  /// switch does, on the connection it names; answers the catalog read
+  /// again.
+  Future<HermesCatalog> setToolset(HermesToolsetToggle toggle) =>
+      _change(toggle.connection, (scope) async {
+        final service = _gatewayService();
+        _check(scope);
+        await service.configureTools([toggle.name], enabled: toggle.enabled);
+        _check(scope);
+        _container.invalidate(hermesToolsetsProvider);
+        return catalog();
+      });
+
+  /// Has the gateway [request] names read its skills again (Reload
+  /// Skills); answers the catalog, whose `/` commands the window's Hermes
+  /// chats then offer.
+  Future<HermesCatalog> reloadSkills(HermesConnectionRef request) =>
+      _change(request.connection, (scope) async {
+        final service = _gatewayService();
+        _check(scope);
+        await service.reloadSkills();
+        _check(scope);
+        _container.invalidate(hermesSkillPromptsProvider);
+        _container.invalidate(hermesInstalledSkillsProvider);
+        return catalog();
+      });
+
+  // ---------------------------------------------------------------------------
+  // Dashboard sign-in
+  // ---------------------------------------------------------------------------
+
+  /// Where connection [id]'s dashboard sign-in opens. The window's browser
+  /// window, a WKWebView as on an iPhone, cannot add the access headers to
+  /// the dashboard page's own requests, so with headers it is unsupported,
+  /// as on an iPhone. Only for the connection in use [request] names.
+  Future<HermesDashboardPlan> dashboardStart(HermesDashboardStart request) =>
+      _change(request.connection, (scope) async {
+        final saved = await _dashboardConnection(scope, request.id);
+        final root = hermesDashboardRoot(saved.baseUrl);
+        return HermesDashboardPlan(
+          loginUrl: hermesDashboardLoginUrl(root).toString(),
+          origin: root.origin,
+          supported: hermesDashboardHeadersSupported(
+            isIOS: true,
+            accessHeaders: saved.accessHeaders,
+          ),
+        );
+      });
+
+  /// The sign-in windows closed (`hermes.dashboard.cancel`), newest last:
+  /// their sign-ins keep nothing from then on. A few are enough: a window's
+  /// completions come while it is open.
+  final List<String> _closedAttempts = <String>[];
+
+  /// Sign-in window [request]'s attempt closed: a completion still out for
+  /// it keeps nothing it has not kept already (checked where the cookies
+  /// would be kept), and any later one is refused the same way.
+  Future<CancelledResult> dashboardCancel(HermesDashboardCancel request) async {
+    _closedAttempts
+      ..remove(request.attempt)
+      ..add(request.attempt);
+    if (_closedAttempts.length > 32) _closedAttempts.removeAt(0);
+    return const CancelledResult(cancelled: true);
+  }
+
+  bool _open(String? attempt) =>
+      attempt == null || !_closedAttempts.contains(attempt);
+
+  /// Whether saved connection [id] is the one in use under [scope], and
+  /// [scope] is still current.
+  bool _inUse(_Scope scope, String id) =>
+      _current(scope) && scope.active.connectionId == id;
+
+  /// Saved connection [id] for a dashboard sign-in, the one guard of every
+  /// dashboard path: only the connection in use under [scope] (another
+  /// saved one, never put in use, is refused as a stale connection), and
+  /// only a Desktop Gateway.
+  Future<HermesConfig> _dashboardConnection(_Scope scope, String id) async {
+    if (!_inUse(scope, id)) {
+      throw HermesConnectionKey.stale(scope.connection ?? '', id);
+    }
+    final saved = await _saved(id);
+    _check(scope);
+    if (!_inUse(scope, id)) {
+      throw HermesConnectionKey.stale(scope.connection ?? '', id);
+    }
+    if (saved.mode != HermesBackendMode.desktopGateway) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'dashboard sign-in needs a Desktop Gateway',
+      );
+    }
+    return saved;
+  }
+
+  /// Takes the cookies a dashboard page in the sign-in window had: kept,
+  /// and the connection's dashboard requests sent with them, once the
+  /// dashboard says they are a signed-in session. Not yet: nothing is kept
+  /// and the window waits for the next page.
+  /// Refused when it names no connection, or once another than the one
+  /// the sign-in started under is in use.
+  Future<HermesDashboardResult> dashboardComplete(
+    HermesDashboardCookies request,
+  ) => _change(request.connection, (scope) async {
+    final store = _dashboardCookies;
+    if (store == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'this daemon keeps no dashboard sessions',
+      );
+    }
+    if (!_open(request.attempt)) return const HermesDashboardResult();
+    final saved = await _dashboardConnection(scope, request.id);
+    final root = hermesDashboardRoot(saved.baseUrl);
+    final signedIn = await store.adopt(
+      root,
+      [for (final cookie in request.cookies) ?_cookie(cookie)],
+      accessHeaders: saved.accessHeaders,
+      httpClient: hermesDashboardHttpClientFor(root, saved),
+      // Checked again where the cookies would be kept, after the dashboard
+      // answered: nothing is kept for a connection no longer in use.
+      // Nor for a sign-in window that closed meanwhile.
+      wanted: () => _inUse(scope, request.id) && _open(request.attempt),
+    );
+    if (!signedIn) return const HermesDashboardResult();
+    _check(scope);
+    // As the phone after its sign-in page: what the gateway offers is read
+    // again, through the session.
+    _container.invalidate(hermesDesktopModelsProvider);
+    _container.invalidate(hermesSessionsProvider);
+    _container.invalidate(hermesCapabilitiesProvider);
+    _container.invalidate(hermesToolsetsProvider);
+    _announce();
+    return HermesDashboardResult(
+      signedIn: true,
+      connections: await connections(),
+    );
+  });
+
+  static HermesDashboardCookie? _cookie(HermesCookieDto dto) {
+    final domain = dto.domain.trim().toLowerCase();
+    if (dto.name.isEmpty || domain.replaceFirst('.', '').isEmpty) return null;
+    return HermesDashboardCookie(
+      name: dto.name,
+      value: dto.value,
+      domain: domain.startsWith('.') ? domain.substring(1) : domain,
+      path: dto.path.startsWith('/') ? dto.path : '/',
+      secure: dto.secure,
+      httpOnly: dto.httpOnly,
+      hostOnly: !domain.startsWith('.'),
+      expires: dto.expiresMs == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(dto.expiresMs!, isUtc: true),
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // MCP servers

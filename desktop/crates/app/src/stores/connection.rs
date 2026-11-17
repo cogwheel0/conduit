@@ -210,16 +210,12 @@ pub struct ConnectionOptions {
 }
 
 impl ConnectionStore {
-    /// Starts the daemon and the connection.
+    /// Starts the daemon and the connection. In tests the client's events
+    /// are never followed, whoever starts it (a view test's stores or a
+    /// fixture's): nothing on the daemon's I/O thread may wake a test's
+    /// tasks, which the test scheduler refuses as not deterministic.
     pub fn start(options: ConnectionOptions, cx: &mut App) -> Entity<Self> {
-        cx.new(|cx| Self::new(options, true, cx))
-    }
-
-    /// A connection for view tests: its client's events are not followed,
-    /// so nothing on the daemon's I/O thread wakes the test's tasks.
-    #[cfg(test)]
-    pub fn start_quiet(options: ConnectionOptions, cx: &mut App) -> Entity<Self> {
-        cx.new(|cx| Self::new(options, false, cx))
+        cx.new(|cx| Self::new(options, !cfg!(test), cx))
     }
 
     fn new(options: ConnectionOptions, follow: bool, cx: &mut Context<Self>) -> Self {

@@ -1,0 +1,15 @@
+{
+  "id": "c1",
+  "cookies": [
+    {
+      "name": "hermes_session_rt",
+      "value": "r",
+      "domain": ".example.test",
+      "path": "/",
+      "secure": false,
+      "httpOnly": false
+    }
+  ],
+  "connection": "0a1b2c3d:2",
+  "attempt": "dashboard-1"
+}

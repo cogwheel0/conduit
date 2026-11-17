@@ -5948,5 +5948,45 @@
   "desktopBackendAppleOnDeviceSubtitle": "Run Apple's private model on this Mac, even offline.",
   "@desktopBackendAppleOnDeviceSubtitle": {
     "description": "First-run backend chooser: subtitle of the Apple On-Device row (the phone's says 'this device'; this is the Mac's). Apple's on-device model runs on the Mac without a network. Sentence case."
+  },
+  "desktopHermesDashboardWindowTitle": "Hermes Dashboard Sign-In",
+  "@desktopHermesDashboardWindowTitle": {
+    "description": "Title of the window a Hermes Desktop Gateway dashboard sign-in runs in."
+  },
+  "desktopHermesDashboardHeadersUnsupported": "Dashboard sign-in can't send custom headers on this Mac. Use Hermes Sign-In, or remove the headers.",
+  "@desktopHermesDashboardHeadersUnsupported": {
+    "description": "Shown in the Hermes connection editor when Dashboard sign-in is chosen for a connection with custom headers, which the sign-in window cannot send."
+  },
+  "desktopHermesDashboardFailed": "Hermes sign-in could not be loaded.",
+  "@desktopHermesDashboardFailed": {
+    "description": "Shown in the Hermes connection editor when the dashboard sign-in window could not load or failed."
+  },
+  "desktopHermesDashboardTimedOut": "Hermes sign-in took too long. Try again.",
+  "@desktopHermesDashboardTimedOut": {
+    "description": "Shown in the Hermes connection editor when the dashboard sign-in window was left open too long."
+  },
+  "desktopHermesDashboardSigningIn": "Finish signing in in the sign-in window…",
+  "@desktopHermesDashboardSigningIn": {
+    "description": "Shown in the Hermes connection editor while its dashboard sign-in window is open."
+  },
+  "desktopHermesProfilesNoUrl": "Enter the Hermes server URL first.",
+  "@desktopHermesProfilesNoUrl": {
+    "description": "Under a Hermes connection's profile menu when its profiles can't be listed: no server URL yet."
+  },
+  "desktopHermesProfilesTestFirst": "Test the connection, then refresh the profile list.",
+  "@desktopHermesProfilesTestFirst": {
+    "description": "Under a Hermes connection's profile menu when listing profiles would send credentials unencrypted before the user agreed."
+  },
+  "desktopHermesProfilesEmpty": "No Hermes profiles were returned.",
+  "@desktopHermesProfilesEmpty": {
+    "description": "Under a Hermes connection's profile menu when the gateway listed no profiles."
+  },
+  "desktopHermesProfilesSignInFirst": "Sign in, then refresh the profile list.",
+  "@desktopHermesProfilesSignInFirst": {
+    "description": "Under a Hermes connection's profile menu when the gateway refused or could not be reached."
+  },
+  "desktopHermesHeadersTooMany": "A connection can send up to 10 headers.",
+  "@desktopHermesHeadersTooMany": {
+    "description": "Error in the Hermes connection editor when more than 10 custom headers were added."
   }
 }

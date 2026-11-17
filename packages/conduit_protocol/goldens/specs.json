@@ -1647,6 +1647,36 @@
       "result": "HermesConnections"
     },
     {
+      "name": "hermes.connections.profiles",
+      "params": "HermesConnectionEdit",
+      "result": "HermesProfiles"
+    },
+    {
+      "name": "hermes.toolsets.set",
+      "params": "HermesToolsetToggle",
+      "result": "HermesCatalog"
+    },
+    {
+      "name": "hermes.skills.reload",
+      "params": "HermesConnectionRef",
+      "result": "HermesCatalog"
+    },
+    {
+      "name": "hermes.dashboard.start",
+      "params": "HermesDashboardStart",
+      "result": "HermesDashboardPlan"
+    },
+    {
+      "name": "hermes.dashboard.complete",
+      "params": "HermesDashboardCookies",
+      "result": "HermesDashboardResult"
+    },
+    {
+      "name": "hermes.dashboard.cancel",
+      "params": "HermesDashboardCancel",
+      "result": "CancelledResult"
+    },
+    {
       "name": "hermes.mcp.list",
       "params": null,
       "result": "HermesMcpServers"

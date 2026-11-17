@@ -14,7 +14,10 @@
       "plainHttp": false,
       "hasApiKey": false,
       "hasLegacyToken": false,
-      "desktopSignedIn": false
+      "desktopSignedIn": false,
+      "accessHeaderNames": [],
+      "hasMemoryKey": false,
+      "dashboardSignedIn": false
     }
   ],
   "canAdd": false,

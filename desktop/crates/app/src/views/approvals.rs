@@ -110,9 +110,24 @@ impl ApprovalsView {
         self.stores.ui_requests.read(cx).top().is_some()
     }
 
-    /// Resets the card's local state when the top request changes.
+    /// Resets the card's local state when the top request changes: another
+    /// request id. The same request raised again (Hermes replays what a
+    /// resumed chat still waits on; a prompt can be refreshed) keeps what
+    /// the user typed and chose, and the caret where it is: only a question
+    /// it did not ask before gets a field, and one it no longer asks loses
+    /// its own.
     fn sync(&mut self, top: &UiRequest, window: &mut Window, cx: &mut Context<Self>) {
         if self.for_request.as_deref() == Some(top.request_id.as_str()) {
+            if let Card::HermesClarify { questions, .. } = card(top) {
+                let open: Vec<_> = questions.iter().filter(|q| !q.locked).collect();
+                self.clarify_inputs
+                    .retain(|id, _| open.iter().any(|q| &q.id == id));
+                for q in open {
+                    if !self.clarify_inputs.contains_key(&q.id) {
+                        self.add_clarify_input(q, window, cx);
+                    }
+                }
+            }
             return;
         }
         self.for_request = Some(top.request_id.clone());
@@ -134,36 +149,8 @@ impl ApprovalsView {
         self._clarify_subscriptions.clear();
         match card(top) {
             Card::HermesClarify { questions, .. } => {
-                let hint = cx.l10n().hermes_clarify_other_answer();
-                let response = cx.l10n().hermes_response();
                 for q in questions.iter().filter(|q| !q.locked) {
-                    let placeholder = if q.choices.is_empty() {
-                        response.clone()
-                    } else {
-                        hint.clone()
-                    };
-                    let state = forms::input(placeholder.clone(), false, window, cx);
-                    state.update(cx, |i, cx| i.set_placeholder(placeholder, window, cx));
-                    let question = q.clone();
-                    self._clarify_subscriptions.push(cx.subscribe_in(
-                        &state,
-                        window,
-                        move |this: &mut Self, state, e: &InputEvent, _, cx| match e {
-                            InputEvent::Change => {
-                                let typed = forms::raw(state, cx);
-                                this.clarify
-                                    .entry(question.id.clone())
-                                    .or_default()
-                                    .typed(&question, &typed);
-                                cx.notify();
-                            }
-                            InputEvent::PressEnter { .. } => {
-                                this.allow(cx);
-                            }
-                            _ => {}
-                        },
-                    ));
-                    self.clarify_inputs.insert(q.id.clone(), state);
+                    self.add_clarify_input(q, window, cx);
                 }
             }
             Card::HermesSecret { .. } => {
@@ -205,6 +192,42 @@ impl ApprovalsView {
         }
     }
 
+    /// The own-words field of form question `q`.
+    fn add_clarify_input(
+        &mut self,
+        q: &crate::stores::ui_requests::ClarifyQuestion,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let placeholder = if q.choices.is_empty() {
+            cx.l10n().hermes_response()
+        } else {
+            cx.l10n().hermes_clarify_other_answer()
+        };
+        let state = forms::input(placeholder.clone(), false, window, cx);
+        state.update(cx, |i, cx| i.set_placeholder(placeholder, window, cx));
+        let question = q.clone();
+        self._clarify_subscriptions.push(cx.subscribe_in(
+            &state,
+            window,
+            move |this: &mut Self, state, e: &InputEvent, _, cx| match e {
+                InputEvent::Change => {
+                    let typed = forms::raw(state, cx);
+                    this.clarify
+                        .entry(question.id.clone())
+                        .or_default()
+                        .typed(&question, &typed);
+                    cx.notify();
+                }
+                InputEvent::PressEnter { .. } => {
+                    this.allow(cx);
+                }
+                _ => {}
+            },
+        ));
+        self.clarify_inputs.insert(q.id.clone(), state);
+    }
+
     fn top(&self, cx: &App) -> Option<UiRequest> {
         self.stores.ui_requests.read(cx).top().cloned()
     }
@@ -226,10 +249,14 @@ impl ApprovalsView {
                 input: InputKind::Password,
                 ..
             } => Some(forms::raw(&self.secret, cx)),
+            // What the card shows ([`Self::card_parts`] keeps the pick in
+            // range when the same request comes back with fewer choices).
             Card::Input {
                 input: InputKind::Select(options),
                 ..
-            } => options.get(self.selected).map(|o| o.value.clone()),
+            } => options
+                .get(self.selected.min(options.len().saturating_sub(1)))
+                .map(|o| o.value.clone()),
             Card::Input { .. } => Some(forms::raw(&self.input, cx)),
             _ => None,
         }
@@ -1353,5 +1380,224 @@ mod answer_tests {
         let calls = b.daemon.calls::<methods::UiRespond>();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0]["choice"], "retry");
+    }
+}
+
+#[cfg(test)]
+mod replay_tests {
+    use std::collections::BTreeMap;
+
+    use conduit_components::theme::{ConduitTheme, DesignPrefs, install};
+    use conduit_protocol::{UiInputOption, UiInputType};
+    use gpui_kit::{TestAppContext, VisualTestContext};
+    use serde_json::json;
+
+    use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    fn hermes(id: &str, kind: UiRequestKind, prompt: &str, detail: serde_json::Value) -> UiRequest {
+        UiRequest {
+            request_id: id.into(),
+            kind,
+            message_code: "hermes.secret".into(),
+            message_args: BTreeMap::from([("prompt".to_string(), prompt.to_string())]),
+            detail,
+            timeout_ms: Some(300_000),
+            default_choice: "deny".into(),
+            input_type: None,
+            options: None,
+        }
+    }
+
+    fn form(id: &str, questions: &[(&str, &str)]) -> UiRequest {
+        let rows: Vec<_> = questions
+            .iter()
+            .map(|(qid, text)| json!({"id": qid, "text": text, "choices": []}))
+            .collect();
+        hermes(
+            id,
+            UiRequestKind::HermesClarify,
+            "",
+            json!({"chatId": "local:hermes_s", "questions": rows}),
+        )
+    }
+
+    fn draw(vcx: &mut VisualTestContext) {
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        vcx.run_until_parked();
+    }
+
+    fn value(state: &Entity<InputState>, vcx: &mut VisualTestContext) -> String {
+        vcx.update(|_, cx| forms::raw(state, cx))
+    }
+
+    /// A Hermes secret, password or form field the user is typing into
+    /// keeps what it holds when the same request is raised again (Hermes
+    /// replays what a resumed chat waits on); what the request says is
+    /// refreshed. Only another request empties it.
+    #[gpui_kit::test]
+    fn a_request_raised_again_keeps_what_its_field_holds(cx: &mut TestAppContext) {
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-approvals-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&scratch);
+        let rpc = FakeDaemon::new().rpc();
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            install(
+                ConduitTheme::new("conduit", false, DesignPrefs::default(), gpui_kit::black()),
+                cx,
+            );
+            cx.set_global(conduit_components::Strings::default());
+            cx.set_global(L10n::new("en"));
+        });
+        let stores = cx.update(|cx| crate::fixture::stores(rpc, &scratch, cx));
+        let requests = stores.ui_requests.clone();
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| ApprovalsView::new(stores, window, cx));
+        draw(vcx);
+
+        for kind in [UiRequestKind::HermesSecret, UiRequestKind::HermesSudo] {
+            let id = format!("{kind:?}");
+            requests.update(vcx, |r, cx| {
+                r.on_request(
+                    hermes(&id, kind, "Enter your Demo Weather API key", json!({})),
+                    cx,
+                )
+            });
+            draw(vcx);
+            let secret = view.read_with(vcx, |v, _| v.secret_input());
+            vcx.update(|window, cx| {
+                secret.update(cx, |i, cx| i.set_value("synthetic-hal", window, cx))
+            });
+            draw(vcx);
+            // Raised again, its prompt refreshed.
+            requests.update(vcx, |r, cx| {
+                r.on_request(
+                    hermes(
+                        &id,
+                        kind,
+                        "Enter your Demo Weather API key again",
+                        json!({}),
+                    ),
+                    cx,
+                )
+            });
+            draw(vcx);
+            assert_eq!(value(&secret, vcx), "synthetic-hal", "{kind:?}");
+            let shown = requests.read_with(vcx, |r, _| {
+                (
+                    r.queue.len(),
+                    r.top().and_then(|t| t.message_args.get("prompt").cloned()),
+                )
+            });
+            assert_eq!(
+                shown,
+                (1, Some("Enter your Demo Weather API key again".to_string())),
+                "{kind:?}: refreshed in place"
+            );
+            // Withdrawn, then another request: emptied.
+            requests.update(vcx, |r, cx| r.on_settled(&id, cx));
+            requests.update(vcx, |r, cx| {
+                r.on_request(
+                    hermes(&format!("{id}-next"), kind, "Another key", json!({})),
+                    cx,
+                )
+            });
+            draw(vcx);
+            assert_eq!(value(&secret, vcx), "", "{kind:?}");
+            requests.update(vcx, |r, cx| r.on_settled(&format!("{id}-next"), cx));
+            draw(vcx);
+        }
+
+        // A form: a question's own words stay; a question asked anew gets a
+        // field; another request starts afresh.
+        requests.update(vcx, |r, cx| {
+            r.on_request(form("f1", &[("q0", "Any dietary notes?")]), cx)
+        });
+        draw(vcx);
+        let q0 = view
+            .read_with(vcx, |v, _| v.clarify_inputs.get("q0").cloned())
+            .expect("the question's field");
+        vcx.update(|window, cx| q0.update(cx, |i, cx| i.set_value("No nuts", window, cx)));
+        draw(vcx);
+        requests.update(vcx, |r, cx| {
+            r.on_request(
+                form(
+                    "f1",
+                    &[("q0", "Any dietary notes?"), ("q1", "Serving style?")],
+                ),
+                cx,
+            )
+        });
+        draw(vcx);
+        let (kept, added) = view.read_with(vcx, |v, _| {
+            (
+                v.clarify_inputs.get("q0").cloned(),
+                v.clarify_inputs.contains_key("q1"),
+            )
+        });
+        assert!(kept.is_some_and(|k| k == q0), "the same field");
+        assert_eq!(value(&q0, vcx), "No nuts");
+        assert!(added, "the new question has its field");
+        requests.update(vcx, |r, cx| r.on_settled("f1", cx));
+        requests.update(vcx, |r, cx| {
+            r.on_request(form("f2", &[("q0", "Any dietary notes?")]), cx)
+        });
+        draw(vcx);
+        let fresh = view.read_with(vcx, |v, _| v.clarify_inputs.get("q0").cloned());
+        assert!(
+            fresh.is_some_and(|f| f != q0),
+            "another request, another field"
+        );
+    }
+
+    /// A select raised again with fewer choices answers with the choice its
+    /// card shows, never an empty answer.
+    #[gpui_kit::test]
+    fn a_select_raised_again_answers_what_it_shows(cx: &mut TestAppContext) {
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-approvals-select-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&scratch);
+        let rpc = FakeDaemon::new().rpc();
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            install(
+                ConduitTheme::new("conduit", false, DesignPrefs::default(), gpui_kit::black()),
+                cx,
+            );
+            cx.set_global(conduit_components::Strings::default());
+            cx.set_global(L10n::new("en"));
+        });
+        let stores = cx.update(|cx| crate::fixture::stores(rpc, &scratch, cx));
+        let requests = stores.ui_requests.clone();
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| ApprovalsView::new(stores, window, cx));
+        let select = |values: &[&str]| UiRequest {
+            request_id: "s1".into(),
+            kind: UiRequestKind::InputPrompt,
+            message_code: "ui.input".into(),
+            message_args: BTreeMap::from([("title".to_string(), "Pick a bed".to_string())]),
+            detail: json!({}),
+            timeout_ms: Some(300_000),
+            default_choice: "cancel".into(),
+            input_type: Some(UiInputType::Select),
+            options: Some(
+                values
+                    .iter()
+                    .map(|v| UiInputOption {
+                        value: v.to_string(),
+                        label: v.to_uppercase(),
+                    })
+                    .collect(),
+            ),
+        };
+        requests.update(vcx, |r, cx| r.on_request(select(&["a", "b", "c"]), cx));
+        draw(vcx);
+        view.update(vcx, |v, _| v.selected = 2);
+        requests.update(vcx, |r, cx| r.on_request(select(&["a", "b"]), cx));
+        draw(vcx);
+        let top = select(&["a", "b"]);
+        let sent = view.read_with(vcx, |v, cx| v.typed(&top, cx));
+        assert_eq!(sent.as_deref(), Some("b"), "an empty answer would go");
     }
 }

@@ -1,0 +1,9 @@
+{
+  "name": "hermes_session_at",
+  "value": "demo-session",
+  "domain": "agent.example.test",
+  "path": "/",
+  "secure": true,
+  "httpOnly": true,
+  "expiresMs": 1794490018000
+}
