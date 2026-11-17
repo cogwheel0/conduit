@@ -31,6 +31,9 @@ pub struct PersonalConnectionsPane {
     stores: Stores,
     pub list: Option<PersonalConnections>,
     pub loading: bool,
+    /// The newest list read or change answered: an older read's answer,
+    /// landing after it, is not shown.
+    ticket: u64,
     /// Switches moved and not yet answered, by identity.
     pending: BTreeMap<String, bool>,
     /// Why the last switch was refused.
@@ -71,6 +74,7 @@ impl PersonalConnectionsPane {
             stores,
             list: None,
             loading: false,
+            ticket: 0,
             pending: BTreeMap::new(),
             error: None,
         };
@@ -84,12 +88,17 @@ impl PersonalConnectionsPane {
     }
 
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.ticket += 1;
+        let ticket = self.ticket;
         self.loading = true;
         cx.notify();
         let call = self.rpc(cx).call::<methods::IntegrationsList>(&NoParams);
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
+                if s.ticket != ticket {
+                    return;
+                }
                 s.loading = false;
                 match result {
                     Ok(list) => s.list = Some(list),
@@ -109,6 +118,9 @@ impl PersonalConnectionsPane {
     }
 
     pub fn adopt(&mut self, list: PersonalConnections, cx: &mut Context<Self>) {
+        // Newer than any read still out.
+        self.ticket += 1;
+        self.loading = false;
         self.list = Some(list);
         refresh_composer_tools(cx);
         cx.notify();
@@ -157,6 +169,8 @@ impl PersonalConnectionsPane {
                             s.error =
                                 Some(cx.l10n().personal_connections_saved_for_previous_account());
                         }
+                        s.ticket += 1;
+                        s.loading = false;
                         s.list = Some(list);
                         refresh_composer_tools(cx);
                     }
@@ -194,6 +208,14 @@ impl PersonalConnectionsPane {
         let Some(list) = &self.list else {
             return;
         };
+        // A switch still saving: the editor would open on the entry as it
+        // was and save that back.
+        if entry
+            .as_ref()
+            .is_some_and(|e| self.pending.contains_key(&e.identity))
+        {
+            return;
+        }
         let pane = cx.entity().downgrade();
         let on_change: OnChange = Rc::new(move |list, cx| {
             let _ = pane.update(cx, |p, cx| p.adopt(list, cx));
@@ -270,6 +292,7 @@ impl PersonalConnectionsPane {
                     ElementId::NamedInteger(format!("{prefix}-edit").into(), i as u64),
                     l10n.desktop_edit_ellipsis(),
                 )
+                .disabled(pending.is_some())
                 .on_click(Rc::new(move |_, window, cx| {
                     let entry = entry.clone();
                     let _ = view.update(cx, |v, cx| {
@@ -431,5 +454,81 @@ impl Render for PersonalConnectionsPane {
             );
         }
         div().flex().flex_col().gap(px(22.)).children(sections)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use conduit_protocol::{PersonalConnectionDto, PersonalConnections, PersonalKind, methods};
+    use gpui_kit::{AppContext as _, Entity, VisualTestContext};
+    use serde_json::json;
+
+    use super::PersonalConnectionsPane;
+    use crate::stores::Stores;
+    use crate::views::settings::connection_editor::ConnectionEditorSheet;
+    use crate::views::sheet::{self, bench::bench};
+
+    fn named(name: &str) -> PersonalConnections {
+        let entry: PersonalConnectionDto = serde_json::from_value(json!({
+            "kind": "toolServer",
+            "identity": "conduit-1",
+            "name": name,
+            "url": "https://tools.example.com",
+            "enabled": true,
+        }))
+        .unwrap();
+        PersonalConnections {
+            owner: "p1".into(),
+            tool_servers: vec![entry],
+            ..Default::default()
+        }
+    }
+
+    fn pane(stores: &Stores, vcx: &mut VisualTestContext) -> Entity<PersonalConnectionsPane> {
+        let stores = stores.clone();
+        vcx.update(|window, cx| cx.new(|cx| PersonalConnectionsPane::new(stores, window, cx)))
+    }
+
+    /// A read that lands after a newer one is not shown over it.
+    #[gpui_kit::test]
+    fn an_older_read_never_replaces_a_newer_list(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.once::<methods::IntegrationsList>(Ok(named("Seed catalogue")));
+        daemon.once::<methods::IntegrationsList>(Ok(named("Seed swap")));
+        let held = daemon.hold_one::<methods::IntegrationsList>(0);
+        let pane = pane(&stores, vcx);
+        vcx.run_until_parked();
+        pane.update(vcx, |p, cx| p.refresh(cx));
+        vcx.run_until_parked();
+        drop(held);
+        vcx.run_until_parked();
+        let shown = pane.read_with(vcx, |p, _| {
+            p.list.as_ref().map(|l| l.tool_servers[0].name.clone())
+        });
+        assert_eq!(shown.as_deref(), Some("Seed swap"));
+    }
+
+    /// Edit waits for a switch still saving: the editor would open on the
+    /// entry as it was and save that back.
+    #[gpui_kit::test]
+    fn edit_waits_for_a_switch_still_saving(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::IntegrationsList>(named("Seed catalogue"));
+        let pane = pane(&stores, vcx);
+        vcx.run_until_parked();
+        let entry = pane.read_with(vcx, |p, _| p.list.as_ref().unwrap().tool_servers[0].clone());
+        let _held = daemon.hold::<methods::IntegrationsSave>();
+        pane.update(vcx, |p, cx| p.press_switch(&entry, false, cx));
+        vcx.update(|window, cx| {
+            pane.update(cx, |p, cx| {
+                p.open_editor(PersonalKind::ToolServer, Some(entry.clone()), window, cx)
+            })
+        });
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<ConnectionEditorSheet>(cx))
+                .is_none(),
+            "the editor opened on the entry its switch was still saving"
+        );
     }
 }

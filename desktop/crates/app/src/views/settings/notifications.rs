@@ -36,6 +36,10 @@ pub struct NotificationsPane {
     /// The account's destinations, once read (Advanced only).
     pub webhooks: Option<WebhookList>,
     pub loading_webhooks: bool,
+    /// The newest list read or change asked for: an older read's answer,
+    /// landing after it, is not shown (a retry can overlap a reconnect's
+    /// read, and either can overlap an editor's change).
+    webhooks_ticket: u64,
     advanced: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -61,6 +65,7 @@ impl NotificationsPane {
             stores,
             webhooks: None,
             loading_webhooks: false,
+            webhooks_ticket: 0,
             advanced: advanced_on,
             _subscriptions: subscriptions,
         };
@@ -76,6 +81,8 @@ impl NotificationsPane {
 
     /// Reads the destinations again.
     pub fn refresh_webhooks(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.webhooks_ticket += 1;
+        let ticket = self.webhooks_ticket;
         self.loading_webhooks = true;
         cx.notify();
         let call = self
@@ -89,6 +96,9 @@ impl NotificationsPane {
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
+                    if s.webhooks_ticket != ticket {
+                        return;
+                    }
                     s.loading_webhooks = false;
                     match result {
                         Ok(list) => s.webhooks = Some(list),
@@ -110,6 +120,9 @@ impl NotificationsPane {
 
     /// What a change in the editor answered.
     pub fn adopt(&mut self, list: WebhookList, cx: &mut Context<Self>) {
+        // Newer than any read still out.
+        self.webhooks_ticket += 1;
+        self.loading_webhooks = false;
         self.webhooks = Some(list);
         cx.notify();
     }
@@ -525,5 +538,42 @@ impl Render for NotificationsPane {
             );
         }
         div().flex().flex_col().gap(px(22.)).children(sections)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use conduit_protocol::{WebhookList, methods};
+    use gpui_kit::AppContext as _;
+
+    use super::NotificationsPane;
+    use crate::views::sheet::bench::bench;
+
+    fn owned(owner: &str) -> WebhookList {
+        WebhookList {
+            available: true,
+            owner: owner.into(),
+            ..Default::default()
+        }
+    }
+
+    /// A destinations read that lands after a newer one (a retry beside a
+    /// reconnect's read) is not shown over it, nor its owner kept.
+    #[gpui_kit::test]
+    fn an_older_destinations_read_never_replaces_a_newer_one(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.once::<methods::WebhooksList>(Ok(owned("w1")));
+        daemon.once::<methods::WebhooksList>(Ok(owned("w2")));
+        let held = daemon.hold_one::<methods::WebhooksList>(0);
+        let s = stores.clone();
+        let pane = vcx.update(|window, cx| cx.new(|cx| NotificationsPane::new(s, window, cx)));
+        pane.update_in(vcx, |p, window, cx| p.refresh_webhooks(window, cx));
+        vcx.run_until_parked();
+        pane.update_in(vcx, |p, window, cx| p.refresh_webhooks(window, cx));
+        vcx.run_until_parked();
+        drop(held);
+        vcx.run_until_parked();
+        let owner = pane.read_with(vcx, |p, _| p.webhooks.as_ref().map(|l| l.owner.clone()));
+        assert_eq!(owner.as_deref(), Some("w2"));
     }
 }
