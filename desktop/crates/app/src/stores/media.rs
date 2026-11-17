@@ -303,14 +303,109 @@ impl Asset for RemoteImage {
 /// decodes it whole.
 pub(crate) const MAX_PIXELS: u64 = 40_000_000;
 
-/// Whether `bytes` say they unpack to more than [`MAX_PIXELS`] (read from
-/// the header alone; a format whose size is not read this way passes).
+/// Whether `bytes` say they unpack to more than [`MAX_PIXELS`], every frame
+/// of an animation counted (GPUI decodes and keeps them all): read from the
+/// header and the frame descriptors alone, nothing decoded. A format whose
+/// size is not read this way passes.
 pub(crate) fn too_many_pixels(bytes: &[u8]) -> bool {
     image::ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
         .ok()
         .and_then(|r| r.into_dimensions().ok())
-        .is_some_and(|(w, h)| u64::from(w) * u64::from(h) > MAX_PIXELS)
+        .is_some_and(|(w, h)| {
+            let frames = frames_in(bytes).max(1);
+            u64::from(w)
+                .saturating_mul(u64::from(h))
+                .saturating_mul(frames)
+                > MAX_PIXELS
+        })
+}
+
+/// How many frames an animated picture says it has (a GIF's image
+/// descriptors, an APNG's `acTL` count, an animated WebP's `ANMF` chunks),
+/// read without decoding; 1 for anything else. A truncated GIF counts the
+/// frames it has.
+fn frames_in(bytes: &[u8]) -> u64 {
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return gif_frames(bytes);
+    }
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        let mut i = 8;
+        while let (Some(len), Some(kind)) = (bytes.get(i..i + 4), bytes.get(i + 4..i + 8)) {
+            let len = u32::from_be_bytes([len[0], len[1], len[2], len[3]]) as usize;
+            if kind == b"acTL" {
+                return bytes.get(i + 8..i + 12).map_or(1, |n| {
+                    u64::from(u32::from_be_bytes([n[0], n[1], n[2], n[3]]))
+                });
+            }
+            if kind == b"IDAT" {
+                break;
+            }
+            i = i.saturating_add(12).saturating_add(len);
+        }
+        return 1;
+    }
+    if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        let (mut i, mut frames) = (12usize, 0u64);
+        while let (Some(kind), Some(len)) = (bytes.get(i..i + 4), bytes.get(i + 4..i + 8)) {
+            let len = u32::from_le_bytes([len[0], len[1], len[2], len[3]]) as usize;
+            if kind == b"ANMF" {
+                frames += 1;
+            }
+            i = i.saturating_add(8).saturating_add(len + (len & 1));
+        }
+        return frames.max(1);
+    }
+    1
+}
+
+/// A GIF's image descriptors, walked block by block.
+fn gif_frames(b: &[u8]) -> u64 {
+    // Past a block's data sub-blocks (each a length, then its bytes; a zero
+    // length ends them).
+    let sub_blocks = |mut i: usize| -> Option<usize> {
+        loop {
+            let n = *b.get(i)? as usize;
+            i += 1 + n;
+            if n == 0 {
+                return Some(i);
+            }
+        }
+    };
+    let table = |flags: u8| {
+        if flags & 0x80 != 0 {
+            3usize << ((flags & 7) + 1)
+        } else {
+            0
+        }
+    };
+    let Some(&screen) = b.get(10) else {
+        return 0;
+    };
+    let (mut i, mut frames) = (13 + table(screen), 0u64);
+    loop {
+        match b.get(i) {
+            // An extension: its label, then its sub-blocks.
+            Some(0x21) => match sub_blocks(i + 2) {
+                Some(next) => i = next,
+                None => break,
+            },
+            // An image: its descriptor, a local colour table, the LZW code
+            // size, then its sub-blocks.
+            Some(0x2C) => {
+                frames += 1;
+                let Some(&local) = b.get(i + 9) else {
+                    break;
+                };
+                match sub_blocks(i + 10 + table(local) + 1) {
+                    Some(next) => i = next,
+                    None => break,
+                }
+            }
+            _ => break,
+        }
+    }
+    frames
 }
 
 /// `url`'s picture: `None` while it loads (or with no daemon), then the
@@ -733,6 +828,57 @@ mod tests {
         out.extend(png_chunk(b"IHDR", &ihdr));
         out.extend(png_chunk(b"IDAT", &[0x78, 0x9c]));
         out
+    }
+
+    /// A GIF of `frames` images of `w` × `h` (no colour tables; one
+    /// minimal data sub-block each).
+    fn gif(w: u16, h: u16, frames: usize) -> Vec<u8> {
+        let mut out = b"GIF89a".to_vec();
+        out.extend_from_slice(&w.to_le_bytes());
+        out.extend_from_slice(&h.to_le_bytes());
+        out.extend_from_slice(&[0, 0, 0]);
+        // A comment extension, as files often carry.
+        out.extend_from_slice(&[0x21, 0xFE, 3, b'a', b'b', b'c', 0]);
+        for _ in 0..frames {
+            out.push(0x2C);
+            out.extend_from_slice(&[0, 0, 0, 0]);
+            out.extend_from_slice(&w.to_le_bytes());
+            out.extend_from_slice(&h.to_le_bytes());
+            out.push(0);
+            out.extend_from_slice(&[2, 2, 0x4C, 0x01, 0]);
+        }
+        out.push(0x3B);
+        out
+    }
+
+    /// An animation's frames count: refused by width × height × frames,
+    /// before anything is decoded.
+    #[test]
+    fn an_animation_is_refused_by_all_its_frames() {
+        assert_eq!(frames_in(&gif(1000, 1000, 50)), 50);
+        assert!(
+            too_many_pixels(&gif(1000, 1000, 50)),
+            "50 M pixels of frames"
+        );
+        assert!(!too_many_pixels(&gif(1000, 1000, 10)));
+        assert!(!too_many_pixels(&gif(64, 64, 500)));
+        // A truncated GIF counts what it has.
+        let mut cut = gif(1000, 1000, 50);
+        cut.truncate(cut.len() / 2);
+        assert!(frames_in(&cut) > 0);
+        // An APNG says its count in acTL.
+        let mut apng = b"\x89PNG\r\n\x1a\n".to_vec();
+        let mut ihdr = 1000u32.to_be_bytes().to_vec();
+        ihdr.extend_from_slice(&1000u32.to_be_bytes());
+        ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
+        apng.extend(png_chunk(b"IHDR", &ihdr));
+        let mut actl = 60u32.to_be_bytes().to_vec();
+        actl.extend_from_slice(&0u32.to_be_bytes());
+        apng.extend(png_chunk(b"acTL", &actl));
+        apng.extend(png_chunk(b"IDAT", &[0x78, 0x9c]));
+        assert_eq!(frames_in(&apng), 60);
+        assert!(too_many_pixels(&apng));
+        assert_eq!(frames_in(&png_header(480, 240)), 1);
     }
 
     #[test]
