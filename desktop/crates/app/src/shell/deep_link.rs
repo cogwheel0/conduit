@@ -67,12 +67,21 @@ pub struct Compose {
     pub images: Vec<gpui_kit::Image>,
     /// A web page's text or a video's transcript (Web Page's attachment).
     pub context: Vec<conduit_protocol::ContextAttachmentDto>,
-    /// The account (its scope key) the server read the content under, for
-    /// content that is that account's (Send Link's page): the new chat is
-    /// written only while that account is in charge. None: the user's own
-    /// words and files, for whichever account is in charge.
-    pub owner: Option<String>,
+    /// The account scope the server read the content under, for content
+    /// that is that scope's (Send Link's page): the new chat is written only
+    /// while that same scope is in charge. None: the user's own words and
+    /// files, for whichever account is in charge.
+    pub owner: Option<ReadUnder>,
 }
+
+/// The account scope content was read under: [`AccountsStore::scope_key`]
+/// then, `None` when no account was in charge (Direct only, Hermes only).
+/// "No account" is a scope like any other: only a change (one account to
+/// another, an account to none, none to an account) refuses.
+///
+/// [`AccountsStore::scope_key`]: crate::stores::accounts::AccountsStore::scope_key
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReadUnder(pub Option<String>);
 
 // The protocol's DTOs derive `PartialEq` only; equality here is plain
 // field equality (no floats).

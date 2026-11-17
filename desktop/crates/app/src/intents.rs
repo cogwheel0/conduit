@@ -56,7 +56,7 @@ use serde::{Deserialize, Serialize};
 use crate::AppState;
 use crate::desktop;
 use crate::l10n::{ActiveL10n as _, L10n};
-use crate::shell::deep_link::{self, Compose, OpenRequest};
+use crate::shell::deep_link::{self, Compose, OpenRequest, ReadUnder};
 use crate::stores::session::Route;
 
 /// How long Ask Conduit waits for the answer (the daemon's wait); the
@@ -611,22 +611,25 @@ async fn send_link(url: String, cx: &mut AsyncApp) -> Result<Response, Failure> 
     let (mut compose_with, value) = cx.update(|cx| link_compose(&result, cx.l10n()));
     // The page is the account's it was read under: the new chat is written
     // only while that account is in charge (it may wait for the window).
-    compose_with.owner = asked;
+    compose_with.owner = Some(ReadUnder(asked));
     compose(compose_with, cx);
     Ok(Response::value(value))
 }
 
 /// What Send Link opens with after the server's read: the read, or (when
-/// nothing could be read) the link alone; never anything once another
-/// account took charge while it was read (`asked`, then `now`), or when the
-/// daemon refused it for that reason.
+/// nothing could be read) the link alone; never anything once the account
+/// scope changed while it was read (`asked`, then `now`; `None` is no
+/// account, and a change to or from it counts), or when the daemon refused
+/// it for that reason.
 pub fn link_read(
     url: &str,
     read: Result<IntentLinkResult, RpcError>,
     asked: Option<&str>,
     now: Option<&str>,
 ) -> Result<IntentLinkResult, Failure> {
-    if asked.is_none() || asked != now {
+    // "No account" (Direct only, Hermes only) is a scope too: only a change
+    // of it refuses.
+    if asked != now {
         return Err(Failure::Unexpected);
     }
     match read {
@@ -1157,6 +1160,19 @@ mod tests {
             }),
             error: (!read).then(|| "noContent".into()),
         }
+    }
+
+    #[test]
+    fn send_link_opens_with_no_account_and_refuses_any_change_of_it() {
+        let read = || Ok(link(false, true));
+        // Direct-only or Hermes-only: no account, before and after.
+        let opened = link_read("https://example.org/a", read(), None, None).unwrap();
+        assert_eq!(opened.url, "https://example.com/tides");
+        // An account signed in while it was read.
+        assert_eq!(
+            link_read("https://example.org/a", read(), None, Some("a")).unwrap_err(),
+            Failure::Unexpected
+        );
     }
 
     #[test]

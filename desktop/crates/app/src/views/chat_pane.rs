@@ -86,9 +86,9 @@ pub struct NewChatContent {
     pub context: Vec<conduit_protocol::ContextAttachmentDto>,
     /// Attachments already uploaded (Quick Ask's Open in Conduit).
     pub carried: Vec<crate::stores::composer::Attachment>,
-    /// The account (scope key) the content was read under, when it is that
-    /// account's: written only while that account is in charge.
-    pub owner: Option<String>,
+    /// The account scope the content was read under, when it is that
+    /// scope's: written only while that same scope is in charge.
+    pub owner: Option<crate::shell::deep_link::ReadUnder>,
 }
 
 pub struct ChatPane {
@@ -1923,12 +1923,17 @@ impl ChatPane {
         if self.stores.navigation.read(cx).selection() != ticket {
             return false;
         }
-        // Read under one account, never written for another (a switch while
-        // it was read, or while it waited for the main window).
+        // Read under one account scope, never written for another (a switch
+        // while it was read, or while it waited for the main window).
+        // "No account" is a scope too: a page read with none never lands
+        // once an account signed in, nor one read under an account once none
+        // is in charge.
         if content
             .owner
             .as_ref()
-            .is_some_and(|owner| self.stores.accounts.read(cx).scope_key().as_ref() != Some(owner))
+            .is_some_and(|crate::shell::deep_link::ReadUnder(scope)| {
+                *scope != self.stores.accounts.read(cx).scope_key()
+            })
         {
             log::info!("new chat: its content was read under another account; dropped");
             return false;
@@ -3459,7 +3464,7 @@ mod tests {
             let page = |owner: &str| NewChatContent {
                 text: Some("Summarize this page".into()),
                 fresh: true,
-                owner: Some(owner.into()),
+                owner: Some(crate::shell::deep_link::ReadUnder(Some(owner.into()))),
                 ..NewChatContent::default()
             };
             let wrote = pane.update_in(vcx, |p, window, cx| {
@@ -3474,6 +3479,53 @@ mod tests {
                 p.compose_new_chat(&ticket, page("a"), window, cx)
             });
             assert!(wrote);
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                "Summarize this page"
+            );
+        }
+
+        /// "No account" is a scope too (Direct only, Hermes only): a page
+        /// read with no account opens there, and never lands once an
+        /// account has signed in.
+        #[gpui_kit::test]
+        fn a_page_read_with_no_account_lands_only_while_there_is_none(cx: &mut TestAppContext) {
+            use crate::shell::deep_link::ReadUnder;
+            use crate::views::chat_pane::NewChatContent;
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            let page = || NewChatContent {
+                text: Some("Summarize this page".into()),
+                fresh: true,
+                owner: Some(ReadUnder(None)),
+                ..NewChatContent::default()
+            };
+            let ticket = |vcx: &mut VisualTestContext| {
+                stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+                vcx.run_until_parked();
+                stores
+                    .navigation
+                    .read_with(vcx, |n, _| n.selection().clone())
+            };
+            // An account is in charge: a page read with none is refused.
+            let t = ticket(vcx);
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&t, page(), window, cx)
+            });
+            assert!(
+                !wrote,
+                "a page read with no account landed under an account"
+            );
+            // No account now: it opens.
+            stores
+                .accounts
+                .update(vcx, |a, cx| a.adopt(list(vec![]), cx));
+            vcx.run_until_parked();
+            assert_eq!(stores.accounts.read_with(vcx, |a, _| a.scope_key()), None);
+            let t = ticket(vcx);
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&t, page(), window, cx)
+            });
+            assert!(wrote, "a page read with no account was refused with none");
             assert_eq!(
                 pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
                 "Summarize this page"
