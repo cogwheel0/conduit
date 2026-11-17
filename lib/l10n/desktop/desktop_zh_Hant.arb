@@ -1623,5 +1623,13 @@
   "desktopTasksStale": "此清單可能已過期。",
   "desktopTasksSelect": "選取一項工作以查看其排程和記錄。",
   "desktopScheduledTasksDescription": "即使這台 Mac 已離線，您的 Open WebUI 伺服器仍會依自己的排程執行這些工作。",
-  "desktopTasksLastRun": "上次執行"
+  "desktopTasksLastRun": "上次執行",
+  "desktopWidgetAsk": "詢問 Conduit",
+  "desktopWidgetNewChat": "新對話",
+  "desktopWidgetVoiceCall": "語音通話",
+  "desktopWidgetRecentChats": "最近的聊天",
+  "desktopWidgetNoChats": "尚無聊天",
+  "desktopWidgetSignedOut": "登入 Conduit 後，這裡會顯示你最近的聊天。",
+  "desktopWidgetOpenConduit": "開啟 Conduit",
+  "desktopWidgetDescription": "最近的聊天，以及一鍵可達的「新對話」「快速提問」和「語音通話」。"
 }

@@ -5098,5 +5098,37 @@
   "desktopScheduledTasksDescription": "Your Open WebUI server runs these tasks on its own schedule, even while this Mac is offline.",
   "@desktopScheduledTasksDescription": {"description": "Explains scheduled tasks on the Mac (the phone's version says this phone)."},
   "desktopTasksLastRun": "Last Run",
-  "@desktopTasksLastRun": {"description": "Row label on a scheduled task's page: when it last ran."}
+  "@desktopTasksLastRun": {"description": "Row label on a scheduled task's page: when it last ran."},
+  "desktopWidgetAsk": "Ask Conduit",
+  "@desktopWidgetAsk": {
+    "description": "The desktop widget's field-like bar that opens Quick Ask (the phone widget's Ask Conduit pill). No ellipsis."
+  },
+  "desktopWidgetNewChat": "New Chat",
+  "@desktopWidgetNewChat": {
+    "description": "The desktop widget's New Chat button: a new chat in the main window. Title Case; the same words as New Chat elsewhere."
+  },
+  "desktopWidgetVoiceCall": "Voice Call",
+  "@desktopWidgetVoiceCall": {
+    "description": "The desktop widget's Voice Call button: a voice call in a new chat (the phone widget's mic). Title Case."
+  },
+  "desktopWidgetRecentChats": "Recent Chats",
+  "@desktopWidgetRecentChats": {
+    "description": "The desktop widget's heading over the latest chats' titles. Title Case."
+  },
+  "desktopWidgetNoChats": "No chats yet",
+  "@desktopWidgetNoChats": {
+    "description": "The desktop widget's list when the signed-in account has no chats yet. Sentence case, no period."
+  },
+  "desktopWidgetSignedOut": "Sign in to Conduit to see your recent chats here.",
+  "@desktopWidgetSignedOut": {
+    "description": "The desktop widget while nobody is signed in to Conduit: it shows no chats. Sentence case."
+  },
+  "desktopWidgetOpenConduit": "Open Conduit",
+  "@desktopWidgetOpenConduit": {
+    "description": "The desktop widget's button while signed out: opens the app (its sign-in). Title Case."
+  },
+  "desktopWidgetDescription": "Your recent chats, with New Chat, Quick Ask and Voice Call a click away.",
+  "@desktopWidgetDescription": {
+    "description": "The desktop widget's description in the macOS widget gallery, under its name Conduit. Names the widget's three buttons by their labels. Sentence case."
+  }
 }

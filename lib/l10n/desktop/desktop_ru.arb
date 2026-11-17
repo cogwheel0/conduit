@@ -1623,5 +1623,13 @@
   "desktopTasksStale": "Список может быть устаревшим.",
   "desktopTasksSelect": "Выберите задачу, чтобы увидеть её расписание и историю.",
   "desktopScheduledTasksDescription": "Ваш сервер Open WebUI выполняет эти задачи по собственному расписанию, даже когда этот Mac не в сети.",
-  "desktopTasksLastRun": "Последний запуск"
+  "desktopTasksLastRun": "Последний запуск",
+  "desktopWidgetAsk": "Спросите Conduit",
+  "desktopWidgetNewChat": "Новый чат",
+  "desktopWidgetVoiceCall": "Голосовой звонок",
+  "desktopWidgetRecentChats": "Недавние чаты",
+  "desktopWidgetNoChats": "Пока нет чатов",
+  "desktopWidgetSignedOut": "Войдите в Conduit, чтобы видеть здесь недавние чаты.",
+  "desktopWidgetOpenConduit": "Открыть Conduit",
+  "desktopWidgetDescription": "Недавние чаты, а также «Новый чат», «Быстрый вопрос» и «Голосовой звонок» в один клик."
 }

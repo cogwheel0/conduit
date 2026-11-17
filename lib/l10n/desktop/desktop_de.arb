@@ -1623,5 +1623,13 @@
   "desktopTasksStale": "Diese Liste ist möglicherweise veraltet.",
   "desktopTasksSelect": "Wähle eine Aufgabe, um ihren Zeitplan und Verlauf zu sehen.",
   "desktopScheduledTasksDescription": "Dein Open-WebUI-Server führt diese Aufgaben nach eigenem Zeitplan aus, auch wenn dieser Mac offline ist.",
-  "desktopTasksLastRun": "Letzte Ausführung"
+  "desktopTasksLastRun": "Letzte Ausführung",
+  "desktopWidgetAsk": "Frag Conduit",
+  "desktopWidgetNewChat": "Neuer Chat",
+  "desktopWidgetVoiceCall": "Sprachanruf",
+  "desktopWidgetRecentChats": "Letzte Chats",
+  "desktopWidgetNoChats": "Noch keine Chats",
+  "desktopWidgetSignedOut": "Melde dich bei Conduit an, um hier deine letzten Chats zu sehen.",
+  "desktopWidgetOpenConduit": "Conduit öffnen",
+  "desktopWidgetDescription": "Deine letzten Chats, dazu Neuer Chat, Schnellfrage und Sprachanruf mit einem Klick."
 }

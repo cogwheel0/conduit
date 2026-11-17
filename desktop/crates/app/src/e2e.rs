@@ -57,6 +57,8 @@
 //!   and branches kept on the server, Branch in New Chat, Delete, Compare
 //!   Models with Continue from Here and Merge Responses, Export, Share
 //!   Chat, Generate Title, Mark as Unread and Save Chat ([`actions`]).
+//! * `widget`: the desktop widget's snapshot (sign-in, rename, archive, a
+//!   new chat, the language, sign-out) and its links ([`widget`]).
 //! * `offline-setup`, `offline`: a signed-in account whose server is out of
 //!   reach at launch, with conduitd restarted once while the window opens;
 //!   two launches, run by `crates/app/e2e-offline.sh` ([`offline`]).
@@ -88,6 +90,7 @@ mod settings;
 pub mod shell;
 mod tasks;
 mod voice_call;
+mod widget;
 mod workspace;
 
 use std::collections::BTreeMap;
@@ -760,6 +763,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "workspace" => workspace::run(&inputs, &dir, cx).await,
         "calendar" => calendar::run(&inputs, &dir, cx).await,
         "tasks" => tasks::run(&inputs, &dir, cx).await,
+        "widget" => widget::run(&inputs, &dir, cx).await,
         other => ok(&format!("unknown scenario {other}"), false),
     }
 }

@@ -1623,5 +1623,13 @@
   "desktopTasksStale": "此列表可能已过期。",
   "desktopTasksSelect": "选择一个任务以查看其计划和历史记录。",
   "desktopScheduledTasksDescription": "即使此 Mac 已离线，您的 Open WebUI 服务器也会按其自身的计划运行这些任务。",
-  "desktopTasksLastRun": "上次运行"
+  "desktopTasksLastRun": "上次运行",
+  "desktopWidgetAsk": "询问 Conduit",
+  "desktopWidgetNewChat": "新对话",
+  "desktopWidgetVoiceCall": "语音通话",
+  "desktopWidgetRecentChats": "最近的聊天",
+  "desktopWidgetNoChats": "尚无聊天",
+  "desktopWidgetSignedOut": "登录 Conduit 后，这里会显示你最近的聊天。",
+  "desktopWidgetOpenConduit": "打开 Conduit",
+  "desktopWidgetDescription": "最近的聊天，以及一键可达的“新对话”“快速提问”和“语音通话”。"
 }

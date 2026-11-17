@@ -1623,5 +1623,13 @@
   "desktopTasksStale": "Cette liste est peut-être obsolète.",
   "desktopTasksSelect": "Sélectionnez une tâche pour voir sa planification et son historique.",
   "desktopScheduledTasksDescription": "Votre serveur Open WebUI exécute ces tâches selon son propre calendrier, même lorsque ce Mac est hors ligne.",
-  "desktopTasksLastRun": "Dernière exécution"
+  "desktopTasksLastRun": "Dernière exécution",
+  "desktopWidgetAsk": "Demandez à Conduit",
+  "desktopWidgetNewChat": "Nouveau chat",
+  "desktopWidgetVoiceCall": "Appel vocal",
+  "desktopWidgetRecentChats": "Chats récents",
+  "desktopWidgetNoChats": "Aucun chat pour l’instant",
+  "desktopWidgetSignedOut": "Connectez-vous à Conduit pour voir ici vos chats récents.",
+  "desktopWidgetOpenConduit": "Ouvrir Conduit",
+  "desktopWidgetDescription": "Vos chats récents, avec Nouveau chat, Question rapide et Appel vocal à portée de clic."
 }
