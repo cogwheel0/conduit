@@ -6217,59 +6217,6 @@ pub struct HermesRoomRename {
     pub connection: Option<String>,
 }
 
-/// What became of a send (`hermes.rooms.sendStatus`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum HermesRoomSendState {
-    /// An attempt is under way.
-    #[serde(rename = "pending")]
-    Pending,
-    /// Hermes may or may not have it; the room holds it for a retry.
-    #[serde(rename = "unclear")]
-    Unclear,
-    /// Hermes has it.
-    #[serde(rename = "posted")]
-    Posted,
-    /// Nothing was posted.
-    #[serde(rename = "refused")]
-    Refused,
-    /// This daemon run never received it.
-    ///
-    /// Also what a value this build does not know decodes as.
-    #[serde(other, rename = "unknown")]
-    Unknown,
-}
-
-/// Params for `hermes.rooms.sendStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HermesRoomSendRef {
-    pub room_id: String,
-    pub send_id: String,
-    /// The Hermes connection this was asked under (`HermesChanged.connection`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub connection: Option<String>,
-}
-
-/// Reply to `hermes.rooms.sendStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HermesRoomSendStatus {
-    #[serde(default = "default_hermes_room_send_status_state")]
-    pub state: HermesRoomSendState,
-}
-
-impl Default for HermesRoomSendStatus {
-    fn default() -> Self {
-        Self {
-            state: default_hermes_room_send_status_state(),
-        }
-    }
-}
-
-fn default_hermes_room_send_status_state() -> HermesRoomSendState {
-    HermesRoomSendState::Unknown
-}
-
 /// Who answers a message that names nobody.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HermesRoomRouting {
@@ -6322,10 +6269,6 @@ pub struct HermesRoomContextEdit {
 pub struct HermesRoomMessage {
     pub room_id: String,
     pub text: String,
-    /// The window's identity for this send, the same when the send goes
-    /// again: `hermes.rooms.sendStatus` says what became of it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub send_id: Option<String>,
     /// The Hermes connection this was asked under (`HermesChanged.connection`):
     /// refused (`sessionExpired`) once another connection is in use.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -16285,18 +16228,6 @@ pub mod methods {
         type Result = super::HermesRoomSendResult;
     }
 
-    /// What became of a send, by the identity the window gave it.
-    ///
-    /// `hermes.rooms.sendStatus`: HermesRoomSendRef -> HermesRoomSendStatus.
-    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-    pub struct HermesRoomsSendStatus;
-
-    impl RpcMethod for HermesRoomsSendStatus {
-        const NAME: &'static str = "hermes.rooms.sendStatus";
-        type Params = super::HermesRoomSendRef;
-        type Result = super::HermesRoomSendStatus;
-    }
-
     /// Stops the room's work.
     ///
     /// `hermes.rooms.stop`: HermesRoomRef -> HermesRoomStopped.
@@ -18430,11 +18361,6 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("HermesRoomSendResult"),
     },
     MethodSpec {
-        name: "hermes.rooms.sendStatus",
-        params: Some("HermesRoomSendRef"),
-        result: Some("HermesRoomSendStatus"),
-    },
-    MethodSpec {
         name: "hermes.rooms.stop",
         params: Some("HermesRoomRef"),
         result: Some("HermesRoomStopped"),
@@ -19731,9 +19657,7 @@ pub mod conformance {
         "HermesRoomMessage",
         "HermesRoomRef",
         "HermesRoomRename",
-        "HermesRoomSendRef",
         "HermesRoomSendResult",
-        "HermesRoomSendStatus",
         "HermesRoomStopped",
         "HermesRoomView",
         "HermesRooms",
@@ -20320,9 +20244,7 @@ pub mod conformance {
             "HermesRoomMessage" => roundtrip::<super::HermesRoomMessage>(json),
             "HermesRoomRef" => roundtrip::<super::HermesRoomRef>(json),
             "HermesRoomRename" => roundtrip::<super::HermesRoomRename>(json),
-            "HermesRoomSendRef" => roundtrip::<super::HermesRoomSendRef>(json),
             "HermesRoomSendResult" => roundtrip::<super::HermesRoomSendResult>(json),
-            "HermesRoomSendStatus" => roundtrip::<super::HermesRoomSendStatus>(json),
             "HermesRoomStopped" => roundtrip::<super::HermesRoomStopped>(json),
             "HermesRoomView" => roundtrip::<super::HermesRoomView>(json),
             "HermesRooms" => roundtrip::<super::HermesRooms>(json),

@@ -1494,18 +1494,9 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   'hermesRoomMessage': const HermesRoomMessage(
     roomId: 'room-1',
     text: '@fern how many seed trays?',
-    sendId: 'a1b2-3',
     connection: 'run1:2',
   ),
   'hermesRoomSendResult': const HermesRoomSendResult(sent: true),
-  'hermesRoomSendRef': const HermesRoomSendRef(
-    roomId: 'room-1',
-    sendId: 'a1b2-3',
-    connection: 'run1:2',
-  ),
-  'hermesRoomSendStatus': const HermesRoomSendStatus(
-    state: HermesRoomSendState.unclear,
-  ),
   'hermesRoomSendRefused': const HermesRoomSendResult(
     refused: true,
     detail: 'room is busy',
@@ -4374,8 +4365,6 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'hermesRoomContextEdit': HermesRoomContextEdit.fromJson,
       'hermesRoomMessage': HermesRoomMessage.fromJson,
       'hermesRoomSendResult': HermesRoomSendResult.fromJson,
-      'hermesRoomSendRef': HermesRoomSendRef.fromJson,
-      'hermesRoomSendStatus': HermesRoomSendStatus.fromJson,
       'hermesRoomSendRefused': HermesRoomSendResult.fromJson,
       'hermesRoomStopped': HermesRoomStopped.fromJson,
       'hermesRoomContinue': HermesRoomContinue.fromJson,

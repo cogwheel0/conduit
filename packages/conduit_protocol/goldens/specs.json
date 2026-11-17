@@ -1562,11 +1562,6 @@
       "result": "HermesRoomSendResult"
     },
     {
-      "name": "hermes.rooms.sendStatus",
-      "params": "HermesRoomSendRef",
-      "result": "HermesRoomSendStatus"
-    },
-    {
       "name": "hermes.rooms.stop",
       "params": "HermesRoomRef",
       "result": "HermesRoomStopped"

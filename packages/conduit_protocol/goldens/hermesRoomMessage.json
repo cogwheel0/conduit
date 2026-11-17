@@ -1,6 +1,5 @@
 {
   "roomId": "room-1",
   "text": "@fern how many seed trays?",
-  "sendId": "a1b2-3",
   "connection": "run1:2"
 }

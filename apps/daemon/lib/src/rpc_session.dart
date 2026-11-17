@@ -1142,10 +1142,6 @@ class RpcSession {
     );
     _on(ConduitMethodSpecs.hermesRoomsSend, (r) => _need(_hermesRooms).send(r));
     _on(
-      ConduitMethodSpecs.hermesRoomsSendStatus,
-      (r) => _need(_hermesRooms).sendStatus(r),
-    );
-    _on(
       ConduitMethodSpecs.hermesRoomsStop,
       (r) => _need(_hermesRooms).stop(r.roomId, connection: r.connection),
     );
