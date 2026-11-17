@@ -508,10 +508,16 @@ final class HermesCardsService {
           (decision.requestId != offer.decision.requestId ||
               decision.runtimeId != offer.decision.runtimeId);
       // The same question asked again under new ids (a resumed session
-      // replays what it still waits on): its card stays, with what the
-      // user is typing into it, and its answer goes to the question as
-      // asked now.
-      if (renewed && hermesDecisionsAskTheSame(offer.decision, decision)) {
+      // replays what it still waits on), by the connection that asked: its
+      // card stays, with what the user is typing into it, and its answer
+      // goes to the question as asked now. Asked by another connection, it
+      // is another card: nothing typed for one goes to the next.
+      if (renewed &&
+          hermesDecisionsAskTheSame(offer.decision, decision) &&
+          identical(
+            offer.container.read(hermesApiServiceProvider),
+            offer.service,
+          )) {
         _renew(offer, chatId, decision);
         continue;
       }
@@ -659,6 +665,10 @@ final class HermesCardsService {
     }
     offer.answering = true;
     final decision = offer.decision;
+    // The question as asked now: a replay meanwhile ([_renew]) makes this
+    // answer one to the question as it was, which settles nothing.
+    final turn = offer.turn;
+    bool current() => !offer.done && offer.turn == turn;
     final answers = <String, String?>{
       for (final answer in request.answers) answer.questionId: answer.answer,
     };
@@ -675,7 +685,7 @@ final class HermesCardsService {
         ownerConversationId: offer.owner,
         value: value,
         answers: decision.isForm ? answers : null,
-        isCurrent: () => !offer.done,
+        isCurrent: current,
       );
     } on Object catch (error) {
       DebugLogger.warning(
@@ -687,6 +697,13 @@ final class HermesCardsService {
       assert(error is! Error, '$error');
     } finally {
       offer.answering = false;
+    }
+    if (!current()) {
+      return HermesDecisionResult(
+        status: offer.done
+            ? HermesDecisionStatus.settled
+            : HermesDecisionStatus.failed,
+      );
     }
     switch (outcome) {
       case HermesDecisionAnswerOutcome.answered:
@@ -715,8 +732,7 @@ final class HermesCardsService {
     if (_offered[offer.key] == offer.requestId) _offered.remove(offer.key);
     offer.key = _key(chatId, decision);
     offer.decision = decision;
-    // Asked again: by the connection that asks now, which alone answers it.
-    offer.service = offer.container.read(hermesApiServiceProvider);
+    offer.turn++;
     _offered[offer.key] = offer.requestId;
   }
 
@@ -806,9 +822,13 @@ final class _Offer {
   /// The conversation that asked, as the scope opened it.
   final String owner;
 
-  /// The Hermes connection that asked: only it is answered
-  /// ([HermesCardsService._renew] takes the one that asks again).
-  HermesBackendService? service;
+  /// The Hermes connection that asked: only it is answered, and only its
+  /// replays renew the card.
+  final HermesBackendService? service;
+
+  /// Bumped by each replay ([HermesCardsService._renew]): an answer sent
+  /// under an older one settles nothing.
+  int turn = 0;
   bool answering = false;
   bool held = false;
   bool done = false;
