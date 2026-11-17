@@ -91,14 +91,13 @@ void main() {
     expect(changed.last.connection, status.connection);
     expect(status.capabilities.jobs, isTrue);
     expect(status.capabilities.runApproval, isTrue);
-  });
 
-  test('a sign-in asked for another connection than the one in use is '
-      'refused', () async {
-    final now = (await hermes.status()).connection;
-    expect(now, isNotNull);
+    // A sign-in asked for another connection than the one in use is
+    // refused.
     await expectLater(
-      hermes.signIn(HermesSignInRequest(connection: '$now-before')),
+      hermes.signIn(
+        HermesSignInRequest(connection: '${status.connection}-before'),
+      ),
       throwsA(
         isA<RpcError>().having(
           (e) => e.code,
