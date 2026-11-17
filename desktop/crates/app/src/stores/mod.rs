@@ -131,7 +131,7 @@ impl Stores {
     #[cfg(test)]
     pub fn for_test(rpc: rpc::Rpc, scratch: &std::path::Path, cx: &mut App) -> Self {
         use conduit_daemon::paths::{AppPaths, Flavor};
-        let connection = ConnectionStore::start_quiet(
+        let connection = ConnectionStore::start(
             connection::ConnectionOptions {
                 paths: AppPaths {
                     flavor: Flavor::Dev,
