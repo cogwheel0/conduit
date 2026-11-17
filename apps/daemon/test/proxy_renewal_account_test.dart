@@ -6,6 +6,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/auth/proxy_renewal.dart';
+import 'package:conduit_core/auth/proxy_session.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -154,6 +157,30 @@ void main() {
     final status = await auth.status();
     check(status.user?.name).equals('Sky');
   });
+
+  test(
+    'an account change while the renewed session is saved commits nothing',
+    () async {
+      // Sky is in charge, as the last case left it; a session for Robin is
+      // captured, and the account changes the moment its commit starts
+      // saving it (the core then shows the session loading).
+      final token = await sessionFor('robin@example.com', 'pw-r');
+      final active = await runtime.container.read(activeServerProvider.future);
+      bool saving() =>
+          runtime.container.read(authStateManagerProvider).value?.isLoading ??
+          false;
+      await renewProxySessionInPlace(
+        runtime.container,
+        activeServer: active!,
+        capture: ProxyAuthCapture(
+          cookies: const {'proxy_session': 'robin-saving'},
+          token: token,
+        ),
+        canCommit: () => !saving(),
+      );
+      check((await auth.status()).user?.name).equals('Sky');
+    },
+  );
 
   test('a renewal for the account in charge is saved and signs in', () async {
     await accounts.switchTo(AccountRef(accountId: robin));

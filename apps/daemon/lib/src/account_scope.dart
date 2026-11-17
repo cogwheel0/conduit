@@ -75,6 +75,16 @@ final class AccountScope {
         now._switches == _switches;
   }
 
+  /// Whether the same account is in charge, its session and the count of
+  /// session changes aside: for a commit that itself writes that account's
+  /// session (a renewed sign-in), which moves both as it lands. Another
+  /// account in charge is refused; anything else moving the session is the
+  /// core's own fences' (a newer attempt, a sign-out).
+  bool get isSameAccount {
+    final now = AccountScope.capture(_container);
+    return now.primary == primary && now.preferenceAccount == preferenceAccount;
+  }
+
   /// Refuses with `auth.sessionExpired`, `reason: account`, once another
   /// account is in charge than the one the request began under. [what]
   /// names the commit point in the log line.

@@ -120,10 +120,13 @@ Future<void> renewProxySessionInPlace(
       );
       if (!mayCommit()) return;
       final AuthActions actions = ref.read(authActionsProvider);
+      // Asked again inside the commit, around its own save: the account
+      // can change while it is written.
       await actions.commitPrevalidatedProxySession(
         serverConfig: updatedServer,
         token: capture.token!,
         user: user,
+        canCommit: canCommit,
       );
     } finally {
       api.dispose();

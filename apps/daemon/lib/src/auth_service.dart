@@ -429,7 +429,9 @@ final class AuthService {
         _container,
         activeServer: active,
         capture: capture,
-        canCommit: () => !(refused = !account.isCurrent),
+        // The renewal writes this account's own session as it lands, so
+        // the check is for the account, not for its session.
+        canCommit: () => !(refused = !account.isSameAccount),
       );
     } catch (error) {
       throw RpcError(
