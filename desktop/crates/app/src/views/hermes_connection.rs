@@ -138,6 +138,7 @@ struct Form {
     auth: Auth,
     api_key: String,
     memory_key: String,
+    memory_cleared: bool,
     token: String,
     profile: String,
     headers: Vec<(String, String)>,
@@ -160,6 +161,11 @@ impl Form {
             auth: pick(&sent.auth, &before.auth, now.auth),
             api_key: pick(&sent.api_key, &before.api_key, now.api_key),
             memory_key: pick(&sent.memory_key, &before.memory_key, now.memory_key),
+            memory_cleared: pick(
+                &sent.memory_cleared,
+                &before.memory_cleared,
+                now.memory_cleared,
+            ),
             token: pick(&sent.token, &before.token, now.token),
             profile: pick(&sent.profile, &before.profile, now.profile),
             headers: pick(&sent.headers, &before.headers, now.headers),
@@ -193,6 +199,8 @@ pub struct HermesConnectionSheet {
     pub url: Entity<InputState>,
     pub api_key: Entity<InputState>,
     pub memory_key: Entity<InputState>,
+    /// The saved memory key is to be cleared at the next Save.
+    pub memory_cleared: bool,
     pub token: Entity<InputState>,
     pub desktop: bool,
     pub auth: Auth,
@@ -242,6 +250,7 @@ impl HermesConnectionSheet {
             url,
             api_key,
             memory_key,
+            memory_cleared: false,
             token,
             desktop: false,
             auth: Auth::Token,
@@ -358,6 +367,7 @@ impl HermesConnectionSheet {
             auth: self.auth,
             api_key: forms::raw(&self.api_key, cx),
             memory_key: forms::raw(&self.memory_key, cx),
+            memory_cleared: self.memory_cleared,
             token: forms::raw(&self.token, cx),
             profile: self.profile.clone(),
             headers: self
@@ -475,7 +485,14 @@ impl HermesConnectionSheet {
             },
             // A blank secret field keeps the saved secret.
             api_key: (!self.desktop && !key.trim().is_empty()).then_some(key),
-            memory_key: (!self.desktop && !memory.trim().is_empty()).then_some(memory),
+            // A key typed replaces it; cleared, the daemon makes one.
+            memory_key: if self.desktop {
+                None
+            } else if !memory.trim().is_empty() {
+                Some(memory)
+            } else {
+                self.memory_cleared.then(String::new)
+            },
             legacy_token: (self.desktop && self.auth == Auth::Token && !token.trim().is_empty())
                 .then_some(token),
             allow_self_signed_certificates: self.self_signed,
@@ -630,6 +647,17 @@ impl HermesConnectionSheet {
             self.profile_picks += 1;
             self.note = None;
         }
+        cx.notify();
+    }
+
+    /// Clear (by the memory key): the saved key goes at the next Save, and
+    /// the daemon makes one, as before a key was set.
+    pub fn clear_memory_key(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.memory_cleared = true;
+        let hint = cx.l10n().desktop_optional();
+        forms::set_hint(&self.memory_key, hint, cx);
+        self.memory_key.update(cx, |i, cx| i.focus(window, cx));
+        self.note = None;
         cx.notify();
     }
 
@@ -898,6 +926,9 @@ impl HermesConnectionSheet {
                 input.update(cx, |i, cx| i.set_value("", window, cx));
                 forms::set_hint(&input, l.hermes_configured_replace_placeholder(), cx);
             }
+        }
+        if !saved.has_memory_key && self.memory_cleared && sent.memory_cleared {
+            self.memory_cleared = false;
         }
         // A row as it was sent becomes the saved header (dropped when the
         // daemon did not keep it); a row added or edited since stays as it
@@ -1546,6 +1577,25 @@ impl Render for HermesConnectionSheet {
                 )
                 .into_any_element(),
             );
+            if saved.as_ref().is_some_and(|c| c.has_memory_key) && !self.memory_cleared {
+                let this = this.clone();
+                auth.push(
+                    div()
+                        .px(px(12.))
+                        .py(px(6.))
+                        .flex()
+                        .justify_end()
+                        .child(
+                            Button::new("hermes-memory-key-clear", l.clear())
+                                .ghost()
+                                .disabled(self.busy)
+                                .on_click(Rc::new(move |_, window, cx| {
+                                    let _ = this.update(cx, |s, cx| s.clear_memory_key(window, cx));
+                                })),
+                        )
+                        .into_any_element(),
+                );
+            }
         }
         let profiles_note = self
             .desktop
@@ -2290,6 +2340,42 @@ mod tests {
             let s = sheet.read(cx);
             assert_eq!(s.profile, "research", "the refresh undid the pick");
             assert_eq!(s.profiles.names, ["default", "research"]);
+        });
+    }
+
+    /// A saved memory key can be cleared (the daemon then makes one).
+    #[gpui_kit::test]
+    fn a_saved_memory_key_can_be_cleared(cx: &mut gpui_kit::TestAppContext) {
+        let api = |saved: Option<&str>, has_key: bool| {
+            let mut l = list("a", saved, "nativePkce");
+            l.connections[1].mode = "responses".into();
+            l.connections[1].has_memory_key = has_key;
+            l
+        };
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsSave>(api(Some("b"), false));
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.adopt_connections(api(None, true), cx));
+        let s = stores.clone();
+        vcx.update(|window, cx| open(&s, Some("b".into()), window, cx));
+        vcx.run_until_parked();
+        let sheet = vcx
+            .update(|_, cx| sheet::current::<HermesConnectionSheet>(cx))
+            .expect("the editor opens");
+        vcx.update(|_, cx| assert!(!sheet.read(cx).dirty(cx)));
+        on_sheet(vcx, &sheet, |s, w, cx| s.clear_memory_key(w, cx));
+        vcx.update(|_, cx| assert!(sheet::has_unsaved(cx), "Quit would not ask"));
+        on_sheet(vcx, &sheet, |s, w, cx| s.save(w, cx));
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::HermesConnectionsSave>();
+        assert_eq!(saves.len(), 1);
+        assert_eq!(saves[0]["memoryKey"], json!(""), "the saved key is kept");
+        vcx.update(|_, cx| {
+            assert!(
+                sheet::current::<HermesConnectionSheet>(cx).is_none(),
+                "the editor stayed open once the key was cleared"
+            )
         });
     }
 
