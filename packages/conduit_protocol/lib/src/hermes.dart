@@ -214,6 +214,21 @@ abstract class HermesJobRef with _$HermesJobRef {
       _$HermesJobRefFromJson(json);
 }
 
+/// Params of `hermes.signIn`: the connection the sign-in is for.
+@freezed
+abstract class HermesSignInRequest with _$HermesSignInRequest {
+  const factory HermesSignInRequest({
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`, or the one an activation answered
+    /// with): refused once another is in use. Null from an older window,
+    /// not checked.
+    String? connection,
+  }) = _HermesSignInRequest;
+
+  factory HermesSignInRequest.fromJson(Map<String, dynamic> json) =>
+      _$HermesSignInRequestFromJson(json);
+}
+
 /// Params for `hermes.renameSession`.
 @freezed
 abstract class HermesRename with _$HermesRename {

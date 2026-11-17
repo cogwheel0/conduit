@@ -7,7 +7,9 @@ use std::rc::Rc;
 
 use conduit_components::views::kit::{Button, Segment, Segmented, Switch, grouped, setting_row};
 use conduit_daemon::RpcError;
-use conduit_protocol::{HermesSettings, HermesSettingsEdit, HermesTestResult, NoParams, methods};
+use conduit_protocol::{
+    HermesSettings, HermesSettingsEdit, HermesSignInRequest, HermesTestResult, NoParams, methods,
+};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -254,13 +256,16 @@ impl HermesView {
     }
 
     /// Native PKCE: the gateway's page opens in the browser.
+    /// For the connection in use as this window knows it: another
+    /// window's switch meanwhile is refused, not signed in to.
     pub fn sign_in(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let connection = self.stores.hermes_admin.read(cx).connection();
         let call = self
             .stores
             .connection
             .read(cx)
             .rpc()
-            .call::<methods::HermesSignIn>(&NoParams);
+            .call::<methods::HermesSignIn>(&HermesSignInRequest { connection });
         self.note = Some(HermesNote::SignInStarted);
         self.run(window, cx, call, |s, r, l10n, _, _| match r {
             Ok(saved) => {

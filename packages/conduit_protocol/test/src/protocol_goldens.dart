@@ -3285,6 +3285,11 @@ const Map<String, String> protocolGoldens = <String, String>{
   "connection": "0a1b2c3d:2"
 }''',
 
+  'hermesSignInRequest': r'''
+{
+  "connection": "0a1b2c3d:2"
+}''',
+
   'hermesSkillDto': r'''
 {
   "name": "review",

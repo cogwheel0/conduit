@@ -313,7 +313,11 @@ final class HermesService {
   /// Signs in to a desktop gateway with native PKCE: the gateway's page
   /// opens in the system browser, and the tokens it gives back are kept
   /// with the other Hermes secrets.
-  Future<HermesSettings> signIn() async {
+  ///
+  /// Asked for a connection no longer in use (another window switched it
+  /// meanwhile), nothing opens: no sign-in lands on another connection.
+  Future<HermesSettings> signIn(HermesSignInRequest request) async {
+    connection.require(request.connection);
     final service = _container.read(hermesApiServiceProvider);
     if (service is! HermesDesktopApiService) {
       throw const RpcError(

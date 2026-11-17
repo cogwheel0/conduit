@@ -1631,10 +1631,12 @@ abstract final class ConduitMethodSpecs {
     ConduitMethods.hermesStatus,
     result: HermesStatus.fromJson,
   );
-  static const hermesSignIn = ConduitMethodSpec<void, HermesSettings>(
-    ConduitMethods.hermesSignIn,
-    result: HermesSettings.fromJson,
-  );
+  static const hermesSignIn =
+      ConduitMethodSpec<HermesSignInRequest, HermesSettings>(
+        ConduitMethods.hermesSignIn,
+        params: HermesSignInRequest.fromJson,
+        result: HermesSettings.fromJson,
+      );
   static const hermesSignOut = ConduitMethodSpec<void, HermesSettings>(
     ConduitMethods.hermesSignOut,
     result: HermesSettings.fromJson,

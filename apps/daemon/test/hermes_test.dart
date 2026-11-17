@@ -93,6 +93,22 @@ void main() {
     expect(status.capabilities.runApproval, isTrue);
   });
 
+  test('a sign-in asked for another connection than the one in use is '
+      'refused', () async {
+    final now = (await hermes.status()).connection;
+    expect(now, isNotNull);
+    await expectLater(
+      hermes.signIn(HermesSignInRequest(connection: '$now-before')),
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+    );
+  });
+
   test('a conversation is a session, answered through turns', () async {
     final events = EventBus();
     final uiRequests = UiRequestsService(events);

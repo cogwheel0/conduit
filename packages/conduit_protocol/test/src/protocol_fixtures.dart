@@ -1637,6 +1637,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   ),
   'hermesJobToggle': const HermesJobToggle(id: 'j1', enabled: true),
   'hermesJobRef': const HermesJobRef(id: 'j1', connection: '0a1b2c3d:2'),
+  'hermesSignInRequest': const HermesSignInRequest(connection: '0a1b2c3d:2'),
   'hermesSkillDto': const HermesSkillDto(
     name: 'review',
     description: 'Reviews code',
@@ -4521,6 +4522,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'hermesJobEdit': HermesJobEdit.fromJson,
       'hermesJobToggle': HermesJobToggle.fromJson,
       'hermesJobRef': HermesJobRef.fromJson,
+      'hermesSignInRequest': HermesSignInRequest.fromJson,
       'hermesSkillDto': HermesSkillDto.fromJson,
       'hermesToolsetDto': HermesToolsetDto.fromJson,
       'hermesCatalog': HermesCatalog.fromJson,

@@ -5894,6 +5894,18 @@ pub struct HermesJobRef {
     pub connection: Option<String>,
 }
 
+/// Params of `hermes.signIn`: the connection the sign-in is for.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesSignInRequest {
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`, or the one an activation answered
+    /// with): refused once another is in use. Null from an older window,
+    /// not checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
+}
+
 /// Params for `hermes.renameSession`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -16311,13 +16323,13 @@ pub mod methods {
 
     /// Signs in to a desktop gateway in the system browser (native PKCE).
     ///
-    /// `hermes.signIn`: no params -> HermesSettings.
+    /// `hermes.signIn`: HermesSignInRequest -> HermesSettings.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     pub struct HermesSignIn;
 
     impl RpcMethod for HermesSignIn {
         const NAME: &'static str = "hermes.signIn";
-        type Params = NoParams;
+        type Params = super::HermesSignInRequest;
         type Result = super::HermesSettings;
     }
 
@@ -18875,7 +18887,7 @@ pub const METHODS: &[MethodSpec] = &[
     },
     MethodSpec {
         name: "hermes.signIn",
-        params: None,
+        params: Some("HermesSignInRequest"),
         result: Some("HermesSettings"),
     },
     MethodSpec {
@@ -20451,6 +20463,7 @@ pub mod conformance {
         "HermesSessions",
         "HermesSettings",
         "HermesSettingsEdit",
+        "HermesSignInRequest",
         "HermesSkillDto",
         "HermesStatus",
         "HermesSteerSubagent",
@@ -21056,6 +21069,7 @@ pub mod conformance {
             "HermesSessions" => roundtrip::<super::HermesSessions>(json),
             "HermesSettings" => roundtrip::<super::HermesSettings>(json),
             "HermesSettingsEdit" => roundtrip::<super::HermesSettingsEdit>(json),
+            "HermesSignInRequest" => roundtrip::<super::HermesSignInRequest>(json),
             "HermesSkillDto" => roundtrip::<super::HermesSkillDto>(json),
             "HermesStatus" => roundtrip::<super::HermesStatus>(json),
             "HermesSteerSubagent" => roundtrip::<super::HermesSteerSubagent>(json),

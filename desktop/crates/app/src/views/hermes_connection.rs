@@ -20,8 +20,8 @@ use conduit_components::views::kit::{
 };
 use conduit_daemon::RpcError;
 use conduit_protocol::{
-    HermesConnectionDto, HermesConnectionEdit, HermesConnections, HermesRef, NoParams, NoticeLevel,
-    methods,
+    HermesConnectionDto, HermesConnectionEdit, HermesConnections, HermesRef, HermesSignInRequest,
+    NoParams, NoticeLevel, methods,
 };
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
@@ -424,21 +424,27 @@ impl HermesConnectionSheet {
             let rpc = s.stores.connection.read(cx).rpc();
             let activate = (list.active_id.as_deref() != Some(id.as_str()))
                 .then(|| rpc.call::<methods::HermesConnectionsActivate>(&HermesRef { id }));
+            // Already in use: the connection the save's answer named.
+            let mut connection = list.connection.clone();
             s.busy = true;
             s.note = Some(Note::SigningIn);
             cx.notify();
             let handle = window.window_handle();
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let mut failed: Option<RpcError> = None;
-                if let Some(activate) = activate
-                    && let Err(e) = activate.await
-                {
-                    failed = Some(e);
+                if let Some(activate) = activate {
+                    match activate.await {
+                        Ok(now) => connection = now.connection,
+                        Err(e) => failed = Some(e),
+                    }
                 }
-                // Asked only once the connection is in use: a call goes out
-                // as soon as it is made.
+                // Asked only once the connection is in use (a call goes out
+                // as soon as it is made), for that connection: another
+                // window's switch in between is refused, not signed in to.
                 if failed.is_none()
-                    && let Err(e) = rpc.call::<methods::HermesSignIn>(&NoParams).await
+                    && let Err(e) = rpc
+                        .call::<methods::HermesSignIn>(&HermesSignInRequest { connection })
+                        .await
                 {
                     failed = Some(e);
                 }
@@ -1001,6 +1007,28 @@ mod tests {
         assert!(
             daemon.calls::<methods::HermesSignIn>().is_empty(),
             "sign-in was asked though the connection could not be put in use"
+        );
+    }
+
+    /// Sign In names the connection its activation put in use (or the one
+    /// already in use): a switch from another window in between is refused
+    /// by conduitd rather than signed in to.
+    #[gpui_kit::test]
+    fn sign_in_names_the_connection_it_put_in_use(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsSave>(list("a", Some("b"), "nativePkce"));
+        daemon.returns::<methods::HermesConnectionsActivate>(list("b", None, "nativePkce"));
+        daemon.on::<methods::HermesSignIn>(|_| Ok(json!({})));
+        daemon.returns::<methods::HermesConnectionsList>(list("b", None, "nativePkce"));
+        let sheet = open_b(&stores, vcx, "nativePkce");
+        on_sheet(vcx, &sheet, |s, w, cx| s.sign_in(w, cx));
+        vcx.run_until_parked();
+        let asked = daemon.calls::<methods::HermesSignIn>();
+        assert_eq!(asked.len(), 1);
+        assert_eq!(
+            asked[0]["connection"],
+            json!("0a1b2c3d:b"),
+            "sign-in named no connection, or not the one put in use"
         );
     }
 

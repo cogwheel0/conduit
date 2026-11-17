@@ -1398,7 +1398,7 @@
     },
     {
       "name": "hermes.signIn",
-      "params": null,
+      "params": "HermesSignInRequest",
       "result": "HermesSettings"
     },
     {

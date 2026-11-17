@@ -360,6 +360,7 @@
   "hermesSessionsSetAside": "HermesSessions",
   "hermesSettings": "HermesSettings",
   "hermesSettingsEdit": "HermesSettingsEdit",
+  "hermesSignInRequest": "HermesSignInRequest",
   "hermesSkillDto": "HermesSkillDto",
   "hermesStatus": "HermesStatus",
   "hermesSteerSubagent": "HermesSteerSubagent",

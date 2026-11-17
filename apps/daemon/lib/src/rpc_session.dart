@@ -1042,7 +1042,7 @@ class RpcSession {
     );
     _on(ConduitMethodSpecs.hermesTest, (p) => _requireHermes().test(p));
     _on(ConduitMethodSpecs.hermesStatus, (_) => _requireHermes().status());
-    _on(ConduitMethodSpecs.hermesSignIn, (_) => _requireHermes().signIn());
+    _on(ConduitMethodSpecs.hermesSignIn, (p) => _requireHermes().signIn(p));
     _on(ConduitMethodSpecs.hermesSignOut, (_) => _requireHermes().signOut());
     _on(ConduitMethodSpecs.hermesSessions, (_) => _requireHermes().sessions());
     _on(
