@@ -313,6 +313,9 @@ struct Renderer {
     in_flight: Option<(Job, Instant)>,
 }
 
+/// How many diagrams may wait for one renderer (beside the one it draws).
+const QUEUE_CAP: usize = 32;
+
 /// How long the renderer's page may take to load its scripts.
 const LOAD_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -458,7 +461,7 @@ fn enqueue(job: Job, window: &mut Window, cx: &mut App) {
     }
     RENDERERS.with(|r| {
         if let Some(renderer) = r.borrow_mut().get_mut(&wk) {
-            renderer.queue.push_back(job);
+            CACHE.with(|c| admit(&mut renderer.queue, job, &mut c.borrow_mut()));
         }
     });
     if !has {
@@ -472,6 +475,25 @@ fn enqueue(job: Job, window: &mut Window, cx: &mut App) {
         .detach();
     }
     pump(wk, cx);
+}
+
+/// Puts `job` on `queue`, once per key. Past [`QUEUE_CAP`] the oldest
+/// waiting job leaves, and its picture is no longer on its way (a message
+/// still showing it asks for it again): a transcript that shows diagrams
+/// faster than they are drawn never piles up their sources.
+fn admit(queue: &mut VecDeque<Job>, job: Job, cache: &mut Cache) {
+    if queue.iter().any(|j| j.key == job.key) {
+        return;
+    }
+    queue.push_back(job);
+    while queue.len() > QUEUE_CAP {
+        let Some(old) = queue.pop_front() else {
+            break;
+        };
+        if matches!(cache.drawn.get(&old.key), Some(Drawn::Pending)) {
+            cache.remove(&old.key);
+        }
+    }
 }
 
 /// What the renderer page says.
@@ -1292,6 +1314,41 @@ mod tests {
         assert!(cache.get(&key_n(7)).is_none() && !cache.used.contains_key(&key_n(7)));
         cache.put(key_n(7), Drawn::Pending, t0);
         assert_eq!(cache.drawn.len(), cache.used.len());
+    }
+
+    fn job_n(n: u64) -> Job {
+        Job {
+            id: n,
+            key: key_n(n),
+            kind: DiagramKind::Mermaid,
+            code: format!("graph TD; A{n}-->B"),
+            theme: String::new(),
+            scale: 2.,
+        }
+    }
+
+    /// A transcript shows diagrams faster than the renderer draws them: the
+    /// queue holds at most [`QUEUE_CAP`], the newest; one that leaves it is
+    /// no longer on its way (asked for again where a message shows it), and
+    /// a key already queued is queued once.
+    #[test]
+    fn the_queue_keeps_the_newest_diagrams_each_once() {
+        let t0 = Instant::now();
+        let mut cache = Cache::new();
+        let mut queue = VecDeque::new();
+        let n = QUEUE_CAP as u64 + 5;
+        for k in 0..n {
+            cache.put(key_n(k), Drawn::Pending, t0);
+            admit(&mut queue, job_n(k), &mut cache);
+        }
+        admit(&mut queue, job_n(n - 1), &mut cache);
+        assert_eq!(queue.len(), QUEUE_CAP);
+        assert_eq!(queue.front().map(|j| j.key.clone()), Some(key_n(5)));
+        assert_eq!(queue.back().map(|j| j.key.clone()), Some(key_n(n - 1)));
+        for k in 0..5 {
+            assert!(cache.get(&key_n(k)).is_none(), "{k} stays pending for ever");
+        }
+        assert!(matches!(cache.get(&key_n(5)), Some(Drawn::Pending)));
     }
 
     /// More diagrams than the cache holds, all on screen: each is drawn
