@@ -12,6 +12,7 @@ import 'package:conduit_core/features/integrations/personal_connection_settings.
     show PersonalConnectionKind;
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart'
     hide PersonalConnectionTestResult;
+import 'package:conduit_core/features/notifications/models/notification_target.dart';
 import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/account_metadata.dart';
@@ -815,9 +816,9 @@ void _withAnAccount() {
         ],
       );
       addTearDown(container.dispose);
-      final saving = CoreSettingsService(container).set(
-        const AppSettingsPatch(computerEnabled: false, sendOnEnter: false),
-      );
+      final saving = CoreSettingsService(
+        container,
+      ).set(const AppSettingsPatch(computerEnabled: false, sendOnEnter: false));
       // Another account signs in while the first setting is written.
       epoch = Object();
       container.invalidate(openWebUiAuthSessionEpochProvider);
@@ -841,9 +842,9 @@ void _withAnAccount() {
         () => PreferencesStore.put(PreferenceKeys.activeServerId, before),
       );
       await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-a');
-      final saving = CoreSettingsService(container).set(
-        const AppSettingsPatch(computerEnabled: false, sendOnEnter: false),
-      );
+      final saving = CoreSettingsService(
+        container,
+      ).set(const AppSettingsPatch(computerEnabled: false, sendOnEnter: false));
       // Account B becomes active with no sign-in: the session epoch stays.
       await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
       settings.written.complete();
@@ -890,6 +891,22 @@ void _withAnAccount() {
       await expectLater(reading, refused(ConduitErrorCodes.sessionExpired));
     });
 
+    test('a webhook list that could not be read is read again when the '
+        'window asks again', () async {
+      user = _avaAdmin;
+      var failing = true;
+      api.targets = () async {
+        if (failing) throw StateError('the server did not answer');
+        return const <NotificationTarget>[_pager];
+      };
+      final webhooks = WebhooksService(containerWith(extra: _webhooksOn));
+      expect((await webhooks.list()).failed, isTrue);
+      failing = false;
+      final again = await webhooks.list();
+      expect(again.failed, isFalse);
+      expect(again.items.map((w) => w.id), <String>['pager']);
+    });
+
     test('the composer offers a personal tool server once a config cached '
         'before sign-in is read again', () async {
       user = _avaAdmin;
@@ -934,22 +951,26 @@ void _withAnAccount() {
       expect(api.saved, isEmpty);
     });
 
-    test("a profile save survives the sign-in refresh core makes after it",
-        () async {
-      final container = containerWith();
-      final profiles = ProfileService(container);
-      api.saves = true;
-      // Core refreshes the same account's sign-in after a save: a new
-      // session epoch, the same account.
-      api.onSaved = () {
-        epoch = Object();
-        container.invalidate(openWebUiAuthSessionEpochProvider);
-      };
-      addTearDown(() => api.onSaved = null);
-      final saved = await profiles.update(const ProfileEdit(bio: 'A newer bio'));
-      expect(saved.bio, 'A newer bio');
-      expect(api.savedBios, <String?>['A newer bio']);
-    });
+    test(
+      "a profile save survives the sign-in refresh core makes after it",
+      () async {
+        final container = containerWith();
+        final profiles = ProfileService(container);
+        api.saves = true;
+        // Core refreshes the same account's sign-in after a save: a new
+        // session epoch, the same account.
+        api.onSaved = () {
+          epoch = Object();
+          container.invalidate(openWebUiAuthSessionEpochProvider);
+        };
+        addTearDown(() => api.onSaved = null);
+        final saved = await profiles.update(
+          const ProfileEdit(bio: 'A newer bio'),
+        );
+        expect(saved.bio, 'A newer bio');
+        expect(api.savedBios, <String?>['A newer bio']);
+      },
+    );
 
     test("another user signing in on the same entry during a save never gets "
         'the profile', () async {
@@ -1249,6 +1270,29 @@ final class _Connections extends PersonalConnectionsController {
   }
 }
 
+/// A destination the server lists.
+const _pager = NotificationTarget(
+  id: 'pager',
+  type: NotificationTarget.webhookType,
+  enabled: true,
+  events: <String>[],
+  delivery: NotificationTarget.deliveryAlways,
+);
+
+/// Webhook destinations on: the server offers them, and the account's
+/// session can own them.
+final List<Override> _webhooksOn = [
+  backendConfigProvider.overrideWith(_WebhooksOn.new),
+  authTokenProvider3.overrideWithValue('token-a'),
+];
+
+/// A server with webhook destinations on, for the account's own server.
+final class _WebhooksOn extends BackendConfigNotifier {
+  @override
+  Future<BackendConfig?> build() async =>
+      BackendConfig(serverId: _server.id, enableUserWebhooks: true);
+}
+
 /// Webhook destinations whose first read waits for [held].
 final class _Targets extends NotificationTargets {
   final asked = Completer<void>();
@@ -1307,6 +1351,20 @@ final class _Api extends ApiService {
   var deletedAll = 0;
   Future<AccountMetadata> Function() metadata = () async => _avaMetadata();
   Future<Map<String, dynamic>?> Function(String id) details = (_) async => null;
+
+  /// The account's webhook destinations, as the server lists them.
+  Future<List<NotificationTarget>> Function() targets = () async =>
+      throw StateError('no destinations in this test');
+
+  @override
+  Future<List<NotificationTarget>> getNotificationTargets({
+    required ApiAuthSnapshot authSnapshot,
+  }) => targets();
+
+  @override
+  Future<List<NotificationEvent>> getNotificationEvents({
+    required ApiAuthSnapshot authSnapshot,
+  }) async => const <NotificationEvent>[];
 
   @override
   Future<AccountMetadata> getAccountMetadata() => metadata();

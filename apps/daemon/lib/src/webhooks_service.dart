@@ -114,7 +114,11 @@ final class WebhooksService {
     final token = _remember(owner);
     final NotificationTargetsData data;
     try {
-      if (_container.read(notificationTargetsProvider).hasValue) {
+      // Every list is read from the server again, the user's own refresh
+      // (core never retries a load behind their back): after a failed load
+      // too, which would otherwise be answered until a restart. Only a
+      // load still running is waited for instead.
+      if (!_container.read(notificationTargetsProvider).isLoading) {
         await _targets.refresh(owner: owner);
       }
       data = await readSettled(_container, notificationTargetsProvider.future);
