@@ -139,26 +139,102 @@ void main() {
 
   test('a slow site times out, and a failure is never tried again', () async {
     final hold = Completer<void>();
+    final asked = Completer<void>();
     addTearDown(() {
       if (!hold.isCompleted) hold.complete();
     });
-    pages['/slow.png'] = (_) => hold.future;
+    pages['/slow.png'] = (_) {
+      asked.complete();
+      return hold.future;
+    };
     pages['/broken.png'] = (r) async => r.response.statusCode = 500;
-    final media = MediaService(
-      ownServer: own,
-      timeout: const Duration(milliseconds: 300),
-    );
+    final deadline = _Deadline();
+    final media = MediaService(ownServer: own, deadline: deadline.start);
     addTearDown(media.close);
-    await expectLater(
-      media.fetch(at('/slow.png'), MediaKind.image),
-      throwsA(_failure(MediaFailure.timedOut)),
-    );
+    final slow = media.fetch(at('/slow.png'), MediaKind.image);
+    await asked.future;
+    deadline.fire();
+    await expectLater(slow, throwsA(_failure(MediaFailure.timedOut)));
     seen.clear();
     await expectLater(
       media.fetch(at('/broken.png'), MediaKind.image),
       throwsA(_failure(MediaFailure.failed)),
     );
     expect(seen, hasLength(1), reason: 'one request, no retry');
+  });
+
+  test(
+    'the time limit covers the whole fetch: its connection and its body',
+    () async {
+      // A body that stops after its first bytes.
+      final hold = Completer<void>();
+      final stalled = Completer<void>();
+      addTearDown(() {
+        if (!hold.isCompleted) hold.complete();
+      });
+      pages['/stall.png'] = (r) async {
+        r.response.headers.contentType = ContentType('image', 'png');
+          r.response.add(_png.sublist(0, 8));
+        await r.response.flush();
+        stalled.complete();
+        await hold.future;
+      };
+      var deadline = _Deadline();
+      final lookups = Completer<List<InternetAddress>>();
+      addTearDown(() {
+        if (!lookups.isCompleted) lookups.complete(<InternetAddress>[]);
+      });
+      final media = MediaService(
+        ownServer: own,
+        deadline: (d, f) => deadline.start(d, f),
+        // A name whose lookup never answers.
+        lookup: (host) => lookups.future,
+      );
+      addTearDown(media.close);
+      final body = media.fetch(at('/stall.png'), MediaKind.image);
+      await stalled.future;
+      // The headers and first bytes reach the fetch, which reads on.
+      await pumpEventQueue(times: 50);
+      deadline.fire();
+      await expectLater(body, throwsA(_failure(MediaFailure.timedOut)));
+
+      deadline = _Deadline();
+      final connecting = media.fetch(
+        'http://pictures.example:${site.port}/tide.png',
+        MediaKind.image,
+      );
+      await pumpEventQueue();
+      deadline.fire();
+      await expectLater(connecting, throwsA(_failure(MediaFailure.timedOut)));
+    },
+  );
+
+  test('a fetch that starts on the account\'s server never leaves it on a '
+      'redirect', () async {
+    // The server's own address is loaded without asking: a redirect from it
+    // to another site would load that site without the user's say-so.
+    pages['/away.png'] = (r) async => r.response.redirect(
+      Uri.parse('http://pictures.example:${site.port}/tide.png'),
+    );
+    pages['/here.png'] = (r) async =>
+        r.response.redirect(Uri.parse(at('/tide.png')));
+    pages['/tide.png'] = (r) => serve(r, _png, 'image/png');
+    final looked = <String>[];
+    final media = MediaService(
+      ownServer: own,
+      lookup: (host) async {
+        looked.add(host);
+        return <InternetAddress>[];
+      },
+    );
+    addTearDown(media.close);
+    await expectLater(
+      media.fetch(at('/away.png'), MediaKind.image),
+      throwsA(_failure(MediaFailure.refused)),
+    );
+    expect(looked, isEmpty, reason: 'the other site is never asked');
+    // On the same origin it is followed.
+    expect((await media.fetch(at('/here.png'), MediaKind.image)).bytes, _png);
   });
 
   test('redirects are followed a few times, then refused', () async {
@@ -410,3 +486,32 @@ Future<InternetAddress?> _lanAddress() async {
 
 Matcher _failure(MediaFailure failure) =>
     isA<MediaFetchException>().having((e) => e.failure, 'failure', failure);
+
+/// The fetch's time limit, fired by the test instead of a clock.
+final class _Deadline implements Timer {
+  void Function()? _expire;
+  bool _active = false;
+
+  Timer start(Duration _, void Function() expire) {
+    _expire = expire;
+    _active = true;
+    return this;
+  }
+
+  void fire() {
+    final expire = _expire;
+    if (_active && expire != null) {
+      _active = false;
+      expire();
+    }
+  }
+
+  @override
+  void cancel() => _active = false;
+
+  @override
+  bool get isActive => _active;
+
+  @override
+  int get tick => 0;
+}

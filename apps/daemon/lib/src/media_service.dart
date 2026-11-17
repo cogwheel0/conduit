@@ -84,7 +84,9 @@ final class MediaService {
     this.connectTimeout = const Duration(seconds: 10),
     this.maxImageBytes = 15 * 1024 * 1024,
     this.maxPdfBytes = 30 * 1024 * 1024,
-  }) : _client = HttpClient(),
+    Timer Function(Duration, void Function())? deadline,
+  }) : _deadline = deadline ?? Timer.new,
+       _client = HttpClient(),
        _sites = VettedConnector(
          allowed: isLanOrPublicHostAddress,
          lookup: lookup,
@@ -107,6 +109,9 @@ final class MediaService {
   /// The active account's server, or null without one: its origin is
   /// reached as the app reaches it.
   final Future<Uri?> Function()? ownServer;
+
+  /// Starts a fetch's time limit (a [Timer]; a test fires its own).
+  final Timer Function(Duration, void Function()) _deadline;
 
   final HttpClient _client;
   final VettedConnector _sites;
@@ -136,73 +141,133 @@ final class MediaService {
     return url.removeFragment();
   }
 
+  /// Fetches [raw] as [kind]. One time limit bounds every wait (the
+  /// connection, the answer, every byte of the body): when it passes, the
+  /// fetch ends as timed out whatever it was waiting on. A fetch that
+  /// starts on the account's own server (which the window loads without
+  /// asking) follows redirects only on that origin: one to another site is
+  /// refused, so it can never load a site the user has not allowed.
   Future<({Uint8List bytes, String contentType})> fetch(
     String raw,
     MediaKind kind,
   ) async {
-    final url = parse(raw);
+    final start = parse(raw);
     final limit = limitFor(kind);
     HttpClientRequest? request;
-    var timedOut = false;
-    final deadline = Timer(timeout, () {
-      timedOut = true;
+    StreamSubscription<List<int>>? body;
+    final expired = Completer<Never>();
+    expired.future.ignore();
+    final deadline = _deadline(timeout, () {
+      if (expired.isCompleted) return;
+      expired.completeError(const MediaFetchException(MediaFailure.timedOut));
       request?.abort(const MediaFetchException(MediaFailure.timedOut));
+      body?.cancel().ignore();
     });
+    Future<T> inTime<T>(Future<T> work) =>
+        Future.any<T>(<Future<T>>[work, expired.future]);
     try {
-      request = await _client.getUrl(url);
-      request
-        ..followRedirects = true
-        ..maxRedirects = maxRedirects
-        ..persistentConnection = true;
-      request.headers
-        ..set(HttpHeaders.acceptHeader, switch (kind) {
-          MediaKind.image =>
-            'image/png,image/jpeg,image/gif,image/webp,image/svg+xml,'
-                'image/*;q=0.8',
-          MediaKind.pdf => 'application/pdf',
-        })
-        ..removeAll(HttpHeaders.refererHeader)
-        ..removeAll(HttpHeaders.cookieHeader)
-        ..removeAll(HttpHeaders.authorizationHeader);
-      final response = await request.close();
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw MediaFetchException(
-          MediaFailure.failed,
-          'status ${response.statusCode}',
-        );
-      }
-      final stated = response.contentLength;
-      if (stated > limit) {
-        throw const MediaFetchException(MediaFailure.tooLarge);
-      }
-      final builder = BytesBuilder(copy: false);
-      await for (final chunk in response) {
-        builder.add(chunk);
-        if (builder.length > limit) {
+      final own = await inTime(ownServer?.call() ?? Future<Uri?>.value());
+      final pinned = own != null && sameOrigin(start, own);
+      var url = start;
+      for (var redirects = 0; ; redirects++) {
+        final opening = _client.getUrl(url);
+        try {
+          request = await inTime(opening);
+        } on MediaFetchException {
+          // Connected after the limit: dropped unsent.
+          opening.then((late) => late.abort(), onError: (_) {}).ignore();
+          rethrow;
+        }
+        final open = request!;
+        open
+          ..followRedirects = false
+          ..persistentConnection = true;
+        open.headers
+          ..set(HttpHeaders.acceptHeader, switch (kind) {
+            MediaKind.image =>
+              'image/png,image/jpeg,image/gif,image/webp,image/svg+xml,'
+                  'image/*;q=0.8',
+            MediaKind.pdf => 'application/pdf',
+          })
+          ..removeAll(HttpHeaders.refererHeader)
+          ..removeAll(HttpHeaders.cookieHeader)
+          ..removeAll(HttpHeaders.authorizationHeader);
+        final response = await inTime(open.close());
+        if (response.isRedirect) {
+          await inTime(response.drain<void>());
+          final location = response.headers.value(HttpHeaders.locationHeader);
+          if (location == null || redirects >= maxRedirects) {
+            throw const MediaFetchException(MediaFailure.failed, 'redirects');
+          }
+          final next = url.resolve(location).removeFragment();
+          if (!(next.scheme == 'http' || next.scheme == 'https') ||
+              next.host.isEmpty ||
+              next.userInfo.isNotEmpty) {
+            throw const MediaFetchException(MediaFailure.failed, 'redirect');
+          }
+          if (pinned && !sameOrigin(next, own)) {
+            throw const MediaFetchException(
+              MediaFailure.refused,
+              'a redirect off the account\'s server',
+            );
+          }
+          url = next;
+          continue;
+        }
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          await response.drain<void>().catchError((_) {});
+          throw MediaFetchException(
+            MediaFailure.failed,
+            'status ${response.statusCode}',
+          );
+        }
+        final stated = response.contentLength;
+        if (stated > limit) {
           throw const MediaFetchException(MediaFailure.tooLarge);
         }
+        final builder = BytesBuilder(copy: false);
+        final done = Completer<void>();
+        body = response.listen(
+          (chunk) {
+            builder.add(chunk);
+            if (builder.length > limit && !done.isCompleted) {
+              done.completeError(
+                const MediaFetchException(MediaFailure.tooLarge),
+              );
+            }
+          },
+          onError: (Object error, StackTrace stack) {
+            if (!done.isCompleted) done.completeError(error, stack);
+          },
+          onDone: () {
+            if (!done.isCompleted) done.complete();
+          },
+          cancelOnError: true,
+        );
+        await inTime(done.future);
+        final bytes = builder.takeBytes();
+        final statedType = response.headers.contentType?.mimeType ?? '';
+        final type = typeOf(kind, statedType, bytes);
+        if (type == null) {
+          throw const MediaFetchException(MediaFailure.wrongType);
+        }
+        return (bytes: bytes, contentType: type);
       }
-      final bytes = builder.takeBytes();
-      final statedType = response.headers.contentType?.mimeType ?? '';
-      final type = typeOf(kind, statedType, bytes);
-      if (type == null) {
-        throw const MediaFetchException(MediaFailure.wrongType);
-      }
-      return (bytes: bytes, contentType: type);
     } on MediaFetchException {
-      if (timedOut) {
+      if (expired.isCompleted) {
         throw const MediaFetchException(MediaFailure.timedOut);
       }
       rethrow;
     } on RefusedAddressException {
       throw const MediaFetchException(MediaFailure.refused);
     } on Object catch (error) {
-      if (timedOut) {
+      if (expired.isCompleted) {
         throw const MediaFetchException(MediaFailure.timedOut);
       }
       throw MediaFetchException(MediaFailure.failed, '$error');
     } finally {
       deadline.cancel();
+      body?.cancel().ignore();
     }
   }
 
