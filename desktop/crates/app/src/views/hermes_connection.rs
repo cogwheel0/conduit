@@ -20,8 +20,8 @@ use conduit_components::views::kit::{
 };
 use conduit_daemon::RpcError;
 use conduit_protocol::{
-    HermesConnectionDto, HermesConnectionEdit, HermesConnections, HermesRef, HermesSignInRequest,
-    NoParams, NoticeLevel, methods,
+    ErrorCode, HermesConnectionDto, HermesConnectionEdit, HermesConnections, HermesRef,
+    HermesSignInRequest, NoParams, NoticeLevel, methods,
 };
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
@@ -422,8 +422,9 @@ impl HermesConnectionSheet {
                 return;
             };
             let rpc = s.stores.connection.read(cx).rpc();
-            let activate = (list.active_id.as_deref() != Some(id.as_str()))
-                .then(|| rpc.call::<methods::HermesConnectionsActivate>(&HermesRef { id }));
+            let activate = (list.active_id.as_deref() != Some(id.as_str())).then(|| {
+                rpc.call::<methods::HermesConnectionsActivate>(&HermesRef { id: id.clone() })
+            });
             // Already in use: the connection the save's answer named.
             let mut connection = list.connection.clone();
             s.busy = true;
@@ -434,7 +435,14 @@ impl HermesConnectionSheet {
                 let mut failed: Option<RpcError> = None;
                 if let Some(activate) = activate {
                     match activate.await {
-                        Ok(now) => connection = now.connection,
+                        // Put in use: the connection its answer names.
+                        Ok(now) if now.active_id.as_deref() == Some(id.as_str()) => {
+                            connection = now.connection
+                        }
+                        // Another window put another connection in use while
+                        // this one was activated: not signed in to; said as
+                        // the daemon's refusal of a stale sign-in is.
+                        Ok(_) => failed = Some(RpcError::new(ErrorCode::SessionExpired)),
                         Err(e) => failed = Some(e),
                     }
                 }
@@ -1030,6 +1038,29 @@ mod tests {
             json!("0a1b2c3d:b"),
             "sign-in named no connection, or not the one put in use"
         );
+    }
+
+    /// The activation's answer names another connection in use (another
+    /// window switched while it was out): nothing is signed in to, and the
+    /// editor says why.
+    #[gpui_kit::test]
+    fn sign_in_stops_when_another_connection_was_put_in_use(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsSave>(list("a", Some("b"), "nativePkce"));
+        daemon.returns::<methods::HermesConnectionsActivate>(list("a", None, "nativePkce"));
+        daemon.on::<methods::HermesSignIn>(|_| Ok(json!({})));
+        daemon.returns::<methods::HermesConnectionsList>(list("a", None, "nativePkce"));
+        let sheet = open_b(&stores, vcx, "nativePkce");
+        on_sheet(vcx, &sheet, |s, w, cx| s.sign_in(w, cx));
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::HermesSignIn>().is_empty(),
+            "signed in to the connection another window put in use"
+        );
+        sheet.read_with(vcx, |s, _| {
+            assert!(s.error.is_some(), "the editor did not say why");
+            assert!(!s.busy);
+        });
     }
 
     /// Agreeing to send credentials unencrypted carries on with what was
