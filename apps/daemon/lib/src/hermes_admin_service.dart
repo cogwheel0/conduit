@@ -483,6 +483,9 @@ final class HermesAdminService {
       ],
       bearerToken: add.apiKey,
     );
+    // Every window reads the list again, so one read before the
+    // change cannot leave it out.
+    _announce();
     return mcpServers();
   });
 
@@ -506,6 +509,9 @@ final class HermesAdminService {
       // The entry was read from the connection in use when asked.
       _check(scope);
       await service.addMcpCatalogEntry(entry);
+      // Every window reads the list again, so one read before the
+      // change cannot leave it out.
+      _announce();
       return mcpServers();
     },
   );
@@ -526,6 +532,9 @@ final class HermesAdminService {
           );
         }
         await service.setMcpApiKey(request.name, request.apiKey);
+        // Every window reads the list again, so one read before the
+        // change cannot leave it out.
+        _announce();
         return mcpServers();
       });
 
@@ -535,6 +544,9 @@ final class HermesAdminService {
         await _gatewayService().removeMcpServer(name);
         _check(scope);
         _mcpTools.remove(name);
+        // Every window reads the list again, so one read before the
+        // change cannot leave it out.
+        _announce();
         return mcpServers();
       });
 
@@ -561,6 +573,9 @@ final class HermesAdminService {
     toggle.connection,
     (scope) async {
       await _gatewayService().setMcpServerEnabled(toggle.name, toggle.enabled);
+      // Every window reads the list again, so one read before the
+      // change cannot leave it out.
+      _announce();
       return mcpServers();
     },
   );
