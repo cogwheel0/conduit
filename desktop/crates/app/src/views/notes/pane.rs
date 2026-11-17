@@ -330,11 +330,9 @@ impl NotePane {
             // active again.
             cx.observe(&stores.accounts, |this: &mut Self, accounts, cx| {
                 let active = accounts.read(cx).active().map(|a| a.id.clone());
-                // Another account in charge: the recording opened under the
-                // last one stops (a list being read again names nobody).
-                if this.opened_under.is_some() && active.is_some() && active != this.opened_under {
-                    this.stop_audio(cx);
-                }
+                // Another account in charge: a recording started under the
+                // last one stops (the one held-recording check).
+                this.playable_changed(cx);
                 if this.held_for_account && active.is_some() && active == this.opened_under {
                     this.held_for_account = false;
                     this.save_now(cx);
@@ -1543,15 +1541,27 @@ impl NotePane {
         keys
     }
 
+    /// The account in charge now (none while the list is being read).
+    fn active_account(&self, cx: &App) -> Option<String> {
+        self.stores.accounts.read(cx).active().map(|a| a.id.clone())
+    }
+
     /// Called after every change of what the note can play (its cards,
-    /// listed files, waiting recordings, the page shown): the player plays
-    /// only what still has a Play/Pause to stop it with, so a recording
-    /// removed, uploading or on another page stops; any other plays on.
+    /// listed files, waiting recordings, the page shown) and of the account
+    /// in charge: the player plays only what still has a Play/Pause to stop
+    /// it with, for the account it started under. A recording removed,
+    /// uploading, on another page, or started under another account than
+    /// the one in charge (loading or held) stops; any other plays on. A list
+    /// being read again names nobody: no change.
     fn playable_changed(&mut self, cx: &mut Context<Self>) {
-        let Some(held) = self.audio.read(cx).current_key().map(str::to_string) else {
+        let audio = self.audio.read(cx);
+        let Some(held) = audio.current_key().map(str::to_string) else {
             return;
         };
-        if !self.playable_keys(cx).contains(&held) {
+        let started_under = audio.current_account().map(str::to_string);
+        let active = self.active_account(cx);
+        let other_account = active.is_some() && active != started_under;
+        if other_account || !self.playable_keys(cx).contains(&held) {
             self.stop_audio(cx);
         }
     }
@@ -1663,8 +1673,9 @@ impl NotePane {
                     server_id: file.server_id.clone(),
                     file_id: file.file_id.clone(),
                 };
+                let account = self.active_account(cx);
                 self.audio
-                    .update(cx, |a, cx| a.toggle(&link.id, source, http, cx));
+                    .update(cx, |a, cx| a.toggle(&link.id, source, http, account, cx));
             }
             FileAction::QuickLook | FileAction::Open => {
                 let how = if action == FileAction::Open {
@@ -2659,8 +2670,9 @@ impl NotePane {
             id: id.to_string(),
         };
         let key = format!("waiting:{id}");
+        let account = self.active_account(cx);
         self.audio
-            .update(cx, |a, cx| a.toggle(&key, source, http, cx));
+            .update(cx, |a, cx| a.toggle(&key, source, http, account, cx));
     }
 
     /// The player's words.
@@ -3594,7 +3606,7 @@ mod tests {
                 server_id: "server".into(),
                 file_id: "trail-sounds".into(),
             };
-            a.toggle("trail-sounds", source, None, cx)
+            a.toggle("trail-sounds", source, None, Some("a".into()), cx)
         });
         assert_eq!(
             audio.read_with(vcx, |a, _| a.current_key().map(str::to_string)),
@@ -3635,6 +3647,95 @@ mod tests {
         vcx.run_until_parked();
     }
 
+    /// A recording belongs to the account in charge when it started, even
+    /// in a pane opened before any account was: another account taking
+    /// charge stops it, whether it is loading or already held.
+    #[gpui_kit::test]
+    fn another_account_stops_a_recording_in_a_pane_opened_with_none(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use std::sync::{Arc, Mutex};
+
+        use conduit_protocol::{NoteRecordingDto, NoteRecordings};
+
+        use crate::stores::accounts::tests::{account, list};
+        use crate::stores::navigation::AreaItem;
+        let (daemon, stores, area, vcx) = bench::open(cx);
+        let rec = |id: &str| NoteRecordingDto {
+            id: id.into(),
+            name: format!("{id}.m4a"),
+            state: NoteRecordingState::Waiting,
+            size: 1,
+            created_at_ms: 1,
+            page_id: None,
+        };
+        let listed: Arc<Mutex<Vec<NoteRecordingDto>>> = Arc::default();
+        {
+            let listed = listed.clone();
+            daemon.on::<methods::NotesRecordings>(move |p| {
+                Ok(serde_json::to_value(NoteRecordings {
+                    note_id: p["id"].as_str().unwrap_or("n2").into(),
+                    recordings: listed.lock().unwrap().clone(),
+                })
+                .unwrap())
+            });
+        }
+        let accounts = |active: Option<&str>| {
+            list(vec![
+                account("a", "Avery", active == Some("a"), true),
+                account("b", "Blair", active == Some("b"), true),
+            ])
+        };
+        // No account in charge yet: the next note opens under none.
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts(None), cx));
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n2".into()), cx));
+        vcx.run_until_parked();
+        let pane = bench::pane(&area, vcx);
+        assert_eq!(pane.read_with(vcx, |p, _| p.opened_under.clone()), None);
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts(Some("a")), cx));
+        *listed.lock().unwrap() = vec![rec("r1"), rec("r2")];
+        pane.update(vcx, |p, cx| p.refresh_recordings(cx));
+        vcx.run_until_parked();
+        let audio = pane.read_with(vcx, |p, _| p.audio.clone());
+        // Loading under A when B takes charge.
+        pane.update(vcx, |p, cx| p.toggle_waiting("r1", cx));
+        assert_eq!(
+            audio.read_with(vcx, |a, _| a.state("waiting:r1").map(|s| s.phase)),
+            Some(super::super::audio::Phase::Loading)
+        );
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts(Some("b")), cx));
+        assert_eq!(
+            held_recording(&pane, vcx),
+            None,
+            "A's recording kept loading after B took charge"
+        );
+        vcx.run_until_parked();
+        assert_eq!(held_recording(&pane, vcx), None);
+        // Held (its load done) under A when B takes charge.
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts(Some("a")), cx));
+        pane.update(vcx, |p, cx| p.toggle_waiting("r2", cx));
+        vcx.run_until_parked();
+        assert_eq!(held_recording(&pane, vcx), Some("waiting:r2".into()));
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts(Some("b")), cx));
+        assert_eq!(
+            held_recording(&pane, vcx),
+            None,
+            "A's recording went on playing after B took charge"
+        );
+    }
+
     /// A note deleted elsewhere shows no Play/Pause any more: its recording
     /// stops when a refresh finds it missing.
     #[gpui_kit::test]
@@ -3668,7 +3769,7 @@ mod tests {
                 server_id: "server".into(),
                 file_id: "f1".into(),
             };
-            a.toggle("f1", source, None, cx)
+            a.toggle("f1", source, None, Some("a".into()), cx)
         });
         assert_eq!(held_recording(&pane, vcx), Some("f1".into()));
         // Deleted elsewhere: the refresh finds no note.
@@ -3741,7 +3842,7 @@ mod tests {
                 server_id: "server".into(),
                 file_id: "f1".into(),
             };
-            a.toggle("f1", source, None, cx)
+            a.toggle("f1", source, None, Some("a".into()), cx)
         });
         pane.update(vcx, |p, cx| p.remove_file(links[1].clone(), cx));
         vcx.run_until_parked();

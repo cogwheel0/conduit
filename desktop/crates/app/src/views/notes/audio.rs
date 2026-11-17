@@ -72,6 +72,9 @@ impl PlayerState {
 
 struct Current {
     key: String,
+    /// The account in charge when its load started: it is played for that
+    /// account only.
+    account: Option<String>,
     phase: Phase,
     clip: Option<Box<dyn ClipOutput>>,
     /// It ran to its end: shown at its length, and Play starts over.
@@ -132,14 +135,21 @@ impl NoteAudio {
         self.current.as_ref().map(|c| c.key.as_str())
     }
 
+    /// The account the recording held was started under (None when none
+    /// was in charge, or nothing is held).
+    pub fn current_account(&self) -> Option<&str> {
+        self.current.as_ref().and_then(|c| c.account.as_deref())
+    }
+
     /// Play or Pause for recording `key` from `source`: the one held plays
     /// or pauses (from the start once it ended); another stops it and
-    /// loads, then plays.
+    /// loads, then plays, for `account` (the one in charge now).
     pub fn toggle(
         &mut self,
         key: &str,
         source: AudioSource,
         http: Option<HttpClient>,
+        account: Option<String>,
         cx: &mut Context<Self>,
     ) {
         if let Some(c) = self.current.as_mut().filter(|c| c.key == key) {
@@ -160,12 +170,12 @@ impl NoteAudio {
                 }
                 (_, Phase::Loading) => c.play_when_ready = !c.play_when_ready,
                 // Failed: try again.
-                _ => self.load(key, source, http, cx),
+                _ => self.load(key, source, http, account, cx),
             }
             cx.notify();
             return;
         }
-        self.load(key, source, http, cx);
+        self.load(key, source, http, account, cx);
     }
 
     fn load(
@@ -173,6 +183,7 @@ impl NoteAudio {
         key: &str,
         source: AudioSource,
         http: Option<HttpClient>,
+        account: Option<String>,
         cx: &mut Context<Self>,
     ) {
         self.stop(cx);
@@ -227,6 +238,7 @@ impl NoteAudio {
         });
         self.current = Some(Current {
             key,
+            account,
             phase: Phase::Loading,
             clip: None,
             ended: false,
