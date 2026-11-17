@@ -103,7 +103,10 @@ pub struct ChatPane {
     pub composer: Entity<ChatComposer>,
     pub chat: Option<OpenChat>,
     /// A new chat's first message is on its way.
-    starting: bool,
+    /// The composition a new chat's first message was sent from, while it
+    /// is on its way: it holds back another send (and Chat Settings) only
+    /// while that composition is the one shown.
+    starting: Option<crate::stores::composer::CompositionTicket>,
     /// The active account the composer's attachments belong to.
     account: Option<String>,
     /// The read-only notice's Continue Here or Continue in a Copy is on its
@@ -315,7 +318,7 @@ impl ChatPane {
                     this.account = active;
                     // A first send of the last account's no longer holds
                     // this one's composer back.
-                    this.starting = false;
+                    this.starting = None;
                     this.composer_store.update(cx, |c, cx| c.reset(cx));
                     this.composer.update(cx, |c, cx| c.forget_account(cx));
                     // The new account's draft for what is shown.
@@ -464,7 +467,7 @@ impl ChatPane {
             composer_store,
             composer,
             chat: None,
-            starting: false,
+            starting: None,
             account,
             hermes_continuing: false,
             handoff: None,
@@ -1208,7 +1211,7 @@ impl ChatPane {
         }
         // A new chat's first message is still on its way: keep this one in
         // the composer rather than starting a second chat.
-        if self.chat.is_none() && self.starting {
+        if self.chat.is_none() && self.first_send_pending(cx) {
             self.composer.update(cx, |c, cx| {
                 // Not sent: its recordings stay with the draft too.
                 let held = c.take_sent_recordings();
@@ -1279,7 +1282,11 @@ impl ChatPane {
         // "New Chat in Folder": the daemon makes the chat in the folder (the
         // composer keeps which, a temporary chat's too), so the folder's
         // prompt and knowledge apply to the first answer.
-        self.starting = true;
+        // The composition it was sent from: replaced meanwhile (a fresh
+        // Clipboard or Compose in the same new chat), it is not taken over,
+        // nor does it hold the fresh one's send back.
+        let ticket = self.composer_store.read(cx).ticket();
+        self.starting = Some(ticket);
         // The new chat this send came from: if the user has gone elsewhere
         // by the reply, the chat is made but not opened over their choice.
         // A new chat in a folder is the same selection in another folder:
@@ -1291,9 +1298,6 @@ impl ChatPane {
             )
         };
         let origin = place(self.stores.navigation.read(cx));
-        // The composition it was sent from: replaced meanwhile (a fresh
-        // Clipboard or Compose in the same new chat), it is not taken over.
-        let ticket = self.composer_store.read(cx).ticket();
         let account = self.account.clone();
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
@@ -1305,7 +1309,10 @@ impl ChatPane {
                 if this.account != account {
                     return;
                 }
-                this.starting = false;
+                // Its own wait only: a later send owns it now otherwise.
+                if this.starting == Some(ticket) {
+                    this.starting = None;
+                }
                 let still_here = place(this.stores.navigation.read(cx)) == origin
                     && this.composer_store.read(cx).holds(ticket);
                 match result {
@@ -1807,6 +1814,13 @@ impl ChatPane {
         });
     }
 
+    /// Whether a new chat's first message, sent from the composition shown
+    /// now, is still on its way.
+    fn first_send_pending(&self, cx: &App) -> bool {
+        self.starting
+            .is_some_and(|ticket| self.composer_store.read(cx).holds(ticket))
+    }
+
     /// Whether the call's strip belongs in this pane now: the call is in
     /// the open chat, or it is starting the new chat this pane shows.
     fn call_here(&self, cx: &App) -> bool {
@@ -2169,7 +2183,7 @@ impl ChatPane {
         }
         // A new chat whose first message is on its way: its settings went
         // with it, and the chat it makes is not open yet.
-        if self.starting && self.open_chat_id(cx).is_none() {
+        if self.first_send_pending(cx) && self.open_chat_id(cx).is_none() {
             return;
         }
         let composer = self.composer_store.read(cx);
@@ -4463,14 +4477,17 @@ mod tests {
         #[gpui_kit::test]
         fn a_first_send_never_takes_over_a_composition_that_replaced_it(cx: &mut TestAppContext) {
             let (daemon, stores, pane, vcx) = bench(cx);
-            daemon.returns::<methods::TurnsSend>(
-                serde_json::from_value(serde_json::json!({
-                    "chatId": "chat-new",
+            // The first send makes chat-old, the next one chat-new.
+            let sent = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let count = sent.clone();
+            daemon.on::<methods::TurnsSend>(move |_| {
+                let n = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(serde_json::json!({
+                    "chatId": if n == 0 { "chat-old" } else { "chat-new" },
                     "userMessageId": "m",
                     "assistantMessageId": "a",
                 }))
-                .unwrap(),
-            );
+            });
             let held = daemon.hold::<methods::TurnsSend>();
             pane.update_in(vcx, |p, window, cx| {
                 p.send_text("Hello".into(), vec![], window, cx)
@@ -4480,21 +4497,29 @@ mod tests {
                 p.composer
                     .update(cx, |c, cx| c.start_fresh("Copied packing list", window, cx))
             });
+            // The fresh composition is not held back by the first send.
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Copied packing list".into(), vec![], window, cx)
+            });
+            vcx.run_until_parked();
+            assert_eq!(
+                daemon.calls::<methods::TurnsSend>().len(),
+                2,
+                "the fresh composition's send waited for the replaced one"
+            );
             held.release();
             vcx.run_until_parked();
+            // Only the fresh composition's own send opened its chat and
+            // became its draft's owner; the replaced one's took over nothing.
             assert_eq!(
                 stores
                     .navigation
                     .read_with(vcx, |n, _| n.selected_chat().map(String::from)),
-                None,
-                "the first send opened its chat over the fresh composition"
-            );
-            assert_eq!(
-                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
-                "Copied packing list"
+                Some("chat-new".to_string()),
+                "the replaced first send opened its chat over the fresh composition"
             );
             let key = pane.read_with(vcx, |p, cx| p.composer_store.read(cx).draft_key().cloned());
-            assert_eq!(key.and_then(|k| k.chat_id), None);
+            assert_eq!(key.and_then(|k| k.chat_id), Some("chat-new".to_string()));
         }
 
         /// A daemon that keeps drafts by chat (`""` for New Chat).
