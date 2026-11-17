@@ -1689,19 +1689,21 @@ final class TurnsService implements ChatTurns {
         // The core sent the batch once it found no answer on screen, but a
         // turn asked for before it (words in a call) may start one
         // meanwhile: the batch goes after that answer has ended, however
-        // long it runs, never on top of it. Waited out before this send's
-        // turn, so words said meanwhile can still talk over that answer.
-        await _afterRunningAnswer(session);
+        // long it runs, never on top of it, nor on top of its stored copy's
+        // pull. Waited out before this send's turn, so words said meanwhile
+        // can still talk over that answer.
+        await _afterAnswerSettled(session);
         await _run(
           session,
           account: account,
           modelId: model.id,
           userMessageId: null,
           start: (onPlaceholder) async {
-            // And one started while this waited for its turn. (The wait for
-            // an answer that has only just ended is the core's admission
-            // wait, [_beforeQueuedBatch].)
-            await _afterRunningAnswer(session, ownPending: true);
+            // And one started while this waited for its turn, with its
+            // stored copy: the core's admission wait ([_beforeQueuedBatch])
+            // ends as a window's turn starts, so an answer can end, and its
+            // pull still be running, by the time the batch goes.
+            await _afterAnswerSettled(session, ownPending: true);
             final pending = session.pending;
             final sending = durableSend(
               scope,
@@ -3897,6 +3899,24 @@ final class TurnsService implements ChatTurns {
       if (givesWay && _busy(session)) return;
       final now = session.settling;
       if (now == null || identical(now, awaited)) return;
+    }
+  }
+
+  /// [_afterRunningAnswer], then the stored copy that answer (or a merge)
+  /// started: a pull that lands after a turn started replaces the
+  /// transcript it reads. Again until neither is left; each stored copy is
+  /// waited for at most [_settleTimeout].
+  Future<void> _afterAnswerSettled(
+    _ChatSession session, {
+    bool ownPending = false,
+  }) async {
+    Future<void>? awaited;
+    while (!session.scope.isDisposed) {
+      await _afterRunningAnswer(session, ownPending: ownPending);
+      final settling = session.settling;
+      if (settling == null || identical(settling, awaited)) return;
+      awaited = settling;
+      await _atMost(settling, _settleTimeout);
     }
   }
 
