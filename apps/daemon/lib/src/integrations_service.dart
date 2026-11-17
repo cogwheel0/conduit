@@ -8,11 +8,11 @@ import 'package:conduit_core/features/integrations/personal_connection_edits.dar
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart'
     hide PersonalConnectionTestResult;
-import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'account_scope.dart';
+import 'server_rules.dart';
 import 'settled.dart';
 
 /// `integrations.*`: the account's personal tool servers (OpenAPI) and
@@ -41,36 +41,10 @@ final class IntegrationsService {
   PersonalConnectionsController get _controller =>
       _container.read(personalConnectionsProvider.notifier);
 
-  /// Settles what the access rule reads (nothing watches it here).
-  Future<PersonalConnectionsAccess> _access() async {
-    if (_container.read(apiServiceProvider) == null) {
-      return const PersonalConnectionsAccess.blocked(
-        PersonalConnectionsBlock.noAccount,
-      );
-    }
-    for (final source in <Future<Object?>>[
-      readSettled(_container, backendConfigProvider.future),
-      readSettled(_container, userPermissionsProvider.future),
-    ]) {
-      try {
-        await source;
-      } on Object {
-        // The rule reads a failed source as a refusal.
-      }
-    }
-    var access = _container.read(personalConnectionsAccessProvider);
-    if (access.block == PersonalConnectionsBlock.serverDisabled) {
-      // The config cached at connect time was read before sign-in, when the
-      // server leaves its feature flags out: read it once more.
-      try {
-        await _container.read(backendConfigProvider.notifier).refresh();
-      } on Object {
-        // Still off, then.
-      }
-      access = _container.read(personalConnectionsAccessProvider);
-    }
-    return access;
-  }
+  /// Whether the account may use personal connections now (one rule with
+  /// the composer's, [readPersonalConnectionsAccess]).
+  Future<PersonalConnectionsAccess> _access() =>
+      readPersonalConnectionsAccess(_container);
 
   static PersonalAccess _accessDto(PersonalConnectionsAccess access) =>
       switch (access.block) {

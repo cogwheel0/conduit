@@ -30,6 +30,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import 'account_scope.dart';
+import 'server_rules.dart';
 import 'settled.dart';
 
 /// Implements `composer.*` (what the composer may offer) and what it draws
@@ -79,7 +80,7 @@ final class ComposerService {
     // them: each enabled one, chosen by its `direct_server:` id. A turn that
     // chooses one sends it to Open WebUI, which asks this session to run its
     // calls (core's `execute:tool` handler).
-    tools = <ToolSummary>[...tools, ...await _personalToolServers()];
+    tools = <ToolSummary>[...tools, ...await _personalToolServers(account)];
 
     // Listed without connecting to them: opening every server to count
     // its tools would make the composer wait on the slowest one.
@@ -182,10 +183,14 @@ final class ComposerService {
   /// "still loading" as "no".
   /// The enabled personal tool servers of the signed-in account, when it
   /// may use them; none while its list cannot be read.
-  Future<List<ToolSummary>> _personalToolServers() async {
-    if (!_container.read(personalConnectionsAccessProvider).available) {
-      return const <ToolSummary>[];
-    }
+  ///
+  /// Access is read as Personal Connections reads it
+  /// ([readPersonalConnectionsAccess]), refreshing a config cached before
+  /// sign-in once; [account] is required after that wait.
+  Future<List<ToolSummary>> _personalToolServers(AccountScope account) async {
+    final access = await readPersonalConnectionsAccess(_container);
+    account.require('the personal tool servers are offered');
+    if (!access.available) return const <ToolSummary>[];
     try {
       final snapshot = await readSettled(
         _container,

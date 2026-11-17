@@ -6,6 +6,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'account_scope.dart';
+import 'server_rules.dart';
 import 'settled.dart';
 
 /// `webhooks.*`: the account's webhook destinations on its Open WebUI server,
@@ -31,29 +32,15 @@ final class WebhooksService {
       _container.read(notificationTargetsProvider.notifier);
 
   /// Whether the account may manage destinations, once the server's config
-  /// and the account's permissions have loaded (nothing watches them here,
-  /// so the synchronous rule would read them as still loading).
+  /// and the account's permissions have loaded ([readServerRule], the one
+  /// rule every server feature reads through).
   Future<bool> _available() async {
     if (_container.read(apiServiceProvider) == null) return false;
-    for (final source in <Future<Object?>>[
-      readSettled(_container, backendConfigProvider.future),
-      readSettled(_container, userPermissionsProvider.future),
-    ]) {
-      try {
-        await source;
-      } on Object {
-        // A failed read is a denial, as core's rule has it.
-      }
-    }
-    if (_container.read(notificationTargetsAvailableProvider)) return true;
-    // The config cached at connect time was read before sign-in, when the
-    // server leaves its feature flags out: read it once more.
-    try {
-      await _container.read(backendConfigProvider.notifier).refresh();
-    } on Object {
-      // Still off, then.
-    }
-    return _container.read(notificationTargetsAvailableProvider);
+    return readServerRule(
+      _container,
+      () => _container.read(notificationTargetsAvailableProvider),
+      stale: (available) => !available,
+    );
   }
 
   String _remember(NotificationTargetsOwner owner) {

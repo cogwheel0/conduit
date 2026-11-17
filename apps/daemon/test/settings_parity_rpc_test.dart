@@ -8,7 +8,12 @@ import 'dart:io';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/integrations/personal_connection_settings.dart'
+    show PersonalConnectionKind;
+import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart'
+    hide PersonalConnectionTestResult;
 import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart';
+import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -885,6 +890,41 @@ void _withAnAccount() {
       await expectLater(reading, refused(ConduitErrorCodes.sessionExpired));
     });
 
+    test('the composer offers a personal tool server once a config cached '
+        'before sign-in is read again', () async {
+      user = _avaAdmin;
+      final container = containerWith(
+        extra: [
+          backendConfigProvider.overrideWith(_PreSignInConfig.new),
+          personalConnectionsProvider.overrideWith(
+            () => _Connections(() => api),
+          ),
+        ],
+      );
+      final options = await ComposerService(container).options();
+      expect(options.tools.map((t) => t.name), contains('Seed catalogue'));
+    });
+
+    test('an account switch while the composer reads the config again is '
+        'refused', () async {
+      user = _avaAdmin;
+      final config = _PreSignInConfig()..held = Completer<void>();
+      final container = containerWith(
+        extra: [
+          backendConfigProvider.overrideWith(() => config),
+          personalConnectionsProvider.overrideWith(
+            () => _Connections(() => api),
+          ),
+        ],
+      );
+      final reading = ComposerService(container).options();
+      await config.asked.future;
+      // Another account signs in while the config is read again.
+      switchAccount(container);
+      config.held!.complete();
+      await expectLater(reading, refused(ConduitErrorCodes.sessionExpired));
+    });
+
     test('a birth date past its month is refused', () async {
       final profiles = ProfileService(containerWith());
       await expectLater(
@@ -1137,6 +1177,75 @@ final class _Settings extends AppSettingsNotifier {
   @override
   Future<void> setNotificationSound(bool value) async {
     calls.add('notificationSound');
+  }
+}
+
+const _avaAdmin = User(
+  id: 'user-1',
+  username: 'ava',
+  email: 'ava@example.com',
+  name: 'Ava',
+  role: 'admin',
+);
+
+/// The config as read before sign-in (no feature flags); read again, it
+/// offers personal connections. [held] holds that second read.
+final class _PreSignInConfig extends BackendConfigNotifier {
+  final asked = Completer<void>();
+  Completer<void>? held;
+
+  @override
+  Future<BackendConfig?> build() async =>
+      BackendConfig(serverId: _server.id, enableDirectIntegrations: false);
+
+  @override
+  Future<void> refresh() async {
+    if (!asked.isCompleted) asked.complete();
+    await held?.future;
+    state = AsyncData(
+      BackendConfig(serverId: _server.id, enableDirectIntegrations: true),
+    );
+  }
+}
+
+/// The account's personal connections: one enabled tool server.
+final class _Connections extends PersonalConnectionsController {
+  _Connections(this._api);
+
+  final ApiService Function() _api;
+
+  @override
+  Future<PersonalConnectionsSnapshot?> build() async {
+    final api = _api();
+    final raw = <String, dynamic>{
+      'url': 'https://tools.example.com',
+      'path': 'openapi.json',
+      'auth_type': 'none',
+      'key': '',
+      'config': <String, dynamic>{'enable': true},
+      'info': <String, dynamic>{'name': 'Seed catalogue'},
+    };
+    final list = <dynamic>[raw];
+    return PersonalConnectionsSnapshot(
+      session: PersonalConnectionsSession(
+        api: api,
+        authSnapshot: api.captureAuthSnapshot(),
+        accountName: 'Ava',
+        isCurrent: () => true,
+      ),
+      serverId: _server.id,
+      accountName: 'Ava',
+      toolServers: <PersonalConnectionEntry>[
+        PersonalConnectionEntry(
+          kind: PersonalConnectionKind.toolServer,
+          index: 0,
+          identity: 'seed',
+          raw: raw,
+          list: list,
+        ),
+      ],
+      terminals: const <PersonalConnectionEntry>[],
+    );
   }
 }
 
