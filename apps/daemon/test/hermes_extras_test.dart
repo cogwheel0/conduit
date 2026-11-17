@@ -58,6 +58,15 @@ final class _FakeDashboard {
             'hermes_session_at=rotated-late; HttpOnly; Path=/',
           );
           response.write('{}');
+        // A dashboard answer that sets cookies the sign-in did not have.
+        case '/api/adds':
+          response.headers
+            ..add(
+              HttpHeaders.setCookieHeader,
+              'hermes_session_rt=fresh; HttpOnly; Path=/',
+            )
+            ..add(HttpHeaders.setCookieHeader, 'dashboard_pref=1; Path=/');
+          response.write('{}');
         case '/api/auth/me'
             when cookie?.contains('hermes_session_at=good') ?? false:
           final wait = fake.hold;
@@ -759,6 +768,28 @@ void main() {
     expect(await store.clearForOrigin(dashboard.baseUrl), isTrue);
     expect((await DaemonHermesDashboardCookies.open(secure)).cookies, isEmpty);
   });
+
+  test(
+    'cookies a dashboard answer adds are cleared with the sign-in',
+    () async {
+      final secure = InMemorySecureKeyValueStore();
+      final store = await signedInStore(secure);
+      final root = Uri.parse(dashboard.baseUrl);
+      await store
+          .bridge(root: root, accessHeaders: const {})
+          .request('GET', root.resolve('/api/adds'));
+      expect(
+        store.cookies.map((c) => c.name),
+        containsAll(<String>['hermes_session_rt', 'dashboard_pref']),
+      );
+      expect(await store.clearForOrigin(dashboard.baseUrl), isTrue);
+      expect(store.cookies, isEmpty);
+      expect(
+        (await DaemonHermesDashboardCookies.open(secure)).cookies,
+        isEmpty,
+      );
+    },
+  );
 
   test('a dashboard answer from before a purge keeps nothing', () async {
     final secure = InMemorySecureKeyValueStore();

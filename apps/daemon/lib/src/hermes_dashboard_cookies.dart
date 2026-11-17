@@ -122,7 +122,9 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
   /// nothing: it is refused (it would read the cookies the purge removes
   /// under a ticket the purge already moved past). The intake keeps the
   /// answer's cookies only if no purge started since, in turn with the
-  /// commits and clears.
+  /// commits and clears. Those it adds are recorded as the sign-in's for
+  /// [root], as [_commit] records the sign-in's own, so [clearForOrigin]
+  /// removes them too; one that cannot be recorded is not kept.
   HermesDashboardCookieIntake _intake(Uri root) {
     final origin = root.toString();
     if (_purgePending(origin)) {
@@ -131,7 +133,21 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
     final ticket = _ticket(origin);
     return (url, setCookies) => _inTurn(() async {
       if (!_unpurged(origin, ticket)) return;
-      if (_jar.absorb(url, setCookies)) await _saveRotated();
+      final before = _jar.identitiesFor(root.host);
+      if (!_jar.absorb(url, setCookies)) return;
+      final added = _jar.identitiesFor(root.host).difference(before);
+      if (added.isNotEmpty) {
+        try {
+          await HermesDashboardCookieRegistry.record(
+            origin,
+            identities: added,
+            retainedNames: kHermesDashboardRetainedCookieNames,
+          );
+        } on Object {
+          _jar.removeAll(added);
+        }
+      }
+      await _saveRotated();
     });
   }
 
