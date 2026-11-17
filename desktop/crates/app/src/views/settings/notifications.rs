@@ -18,8 +18,7 @@ use conduit_protocol::{
 };
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, App, AsyncWindowContext, Context, SharedString, Subscription, WeakEntity, Window,
-    div, px,
+    AnyElement, App, AsyncApp, Context, SharedString, Subscription, WeakEntity, Window, div, px,
 };
 
 use crate::desktop::Desktop;
@@ -79,8 +78,23 @@ impl NotificationsPane {
         this
     }
 
+    /// The tab is shown (again): a read that failed is tried again.
+    pub fn shown(&mut self, cx: &mut Context<Self>) {
+        if self.stores.notifications.read(cx).load_failed {
+            self.stores.notifications.update(cx, |s, cx| s.refresh(cx));
+        }
+        let failed = self.webhooks.as_ref().is_some_and(|l| l.failed);
+        if self.advanced && failed && !self.loading_webhooks {
+            self.reload_webhooks(cx);
+        }
+    }
+
     /// Reads the destinations again.
-    pub fn refresh_webhooks(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn refresh_webhooks(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.reload_webhooks(cx);
+    }
+
+    fn reload_webhooks(&mut self, cx: &mut Context<Self>) {
         self.webhooks_ticket += 1;
         let ticket = self.webhooks_ticket;
         self.loading_webhooks = true;
@@ -91,30 +105,27 @@ impl NotificationsPane {
             .read(cx)
             .rpc()
             .call::<methods::WebhooksList>(&NoParams);
-        cx.spawn_in(
-            window,
-            async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
-                let result = call.await;
-                let _ = this.update(cx, |s, cx| {
-                    if s.webhooks_ticket != ticket {
-                        return;
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| {
+                if s.webhooks_ticket != ticket {
+                    return;
+                }
+                s.loading_webhooks = false;
+                match result {
+                    Ok(list) => s.webhooks = Some(list),
+                    Err(e) => {
+                        log::warn!("webhooks.list: {e}");
+                        s.webhooks = Some(WebhookList {
+                            available: true,
+                            failed: true,
+                            ..Default::default()
+                        });
                     }
-                    s.loading_webhooks = false;
-                    match result {
-                        Ok(list) => s.webhooks = Some(list),
-                        Err(e) => {
-                            log::warn!("webhooks.list: {e}");
-                            s.webhooks = Some(WebhookList {
-                                available: true,
-                                failed: true,
-                                ..Default::default()
-                            });
-                        }
-                    }
-                    cx.notify();
-                });
-            },
-        )
+                }
+                cx.notify();
+            });
+        })
         .detach();
     }
 
@@ -555,6 +566,33 @@ mod tests {
             owner: owner.into(),
             ..Default::default()
         }
+    }
+
+    /// A destinations list that couldn't be read is read again when the tab
+    /// is shown again (Advanced on); one that was read is not.
+    #[gpui_kit::test]
+    fn a_failed_destinations_read_is_tried_again_when_shown(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        let s = stores.clone();
+        let pane = vcx.update(|window, cx| cx.new(|cx| NotificationsPane::new(s, window, cx)));
+        pane.update(vcx, |p, cx| {
+            p.advanced = true;
+            p.webhooks = Some(WebhookList {
+                available: true,
+                failed: true,
+                ..Default::default()
+            });
+            p.shown(cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::WebhooksList>().len(), 1);
+        daemon.returns::<methods::WebhooksList>(owned("w1"));
+        pane.update(vcx, |p, cx| p.shown(cx));
+        vcx.run_until_parked();
+        let calls = daemon.calls::<methods::WebhooksList>().len();
+        pane.update(vcx, |p, cx| p.shown(cx));
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::WebhooksList>().len(), calls);
     }
 
     /// A destinations read that lands after a newer one (a retry beside a

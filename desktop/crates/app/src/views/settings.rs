@@ -583,6 +583,12 @@ impl SettingsView {
             {
                 p.update(cx, |p, cx| p.refresh(cx));
             }
+            // A read that failed is tried again when its tab is shown.
+            if tab == Tab::Notifications
+                && let Some(p) = &self.notifications
+            {
+                p.update(cx, |p, cx| p.shown(cx));
+            }
         }
     }
 
@@ -2414,6 +2420,50 @@ mod language_tests {
             );
             assert!(v.profile.is_none());
         });
+    }
+
+    /// Settings › Notifications couldn't read the settings: showing the tab
+    /// again reads them again (as the pane opening does), not only a
+    /// reconnect.
+    #[gpui_kit::test]
+    fn a_failed_notification_settings_read_is_tried_again_when_the_tab_shows(
+        cx: &mut TestAppContext,
+    ) {
+        use conduit_protocol::methods;
+        let daemon = FakeDaemon::new();
+        daemon.on::<methods::NotificationsGet>(|_| {
+            Err(conduit_daemon::protocol::error(
+                conduit_daemon::protocol::codes::INTERNAL,
+                "unreadable",
+            ))
+        });
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-notify-tab-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.notifications.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+        let settings =
+            cx.new(|_| SettingsStore::load(scratch.join("prefs.json"), false, vec!["en".into()]));
+        let s = stores.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| {
+            SettingsView::new(settings, s, Tab::Notifications, window, cx)
+        });
+        view.update_in(vcx, |v, window, cx| {
+            v.notifications_pane(window, cx);
+        });
+        vcx.run_until_parked();
+        let reads = || daemon.calls::<methods::NotificationsGet>().len();
+        let before = reads();
+        assert!(stores.notifications.read_with(vcx, |s, _| s.load_failed));
+        view.update(vcx, |v, cx| {
+            v.show_tab(Tab::Language, cx);
+            v.show_tab(Tab::Notifications, cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(reads(), before + 1, "showing the tab again read nothing");
     }
 
     #[gpui_kit::test]
