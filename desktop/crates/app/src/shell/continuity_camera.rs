@@ -83,7 +83,10 @@ pub enum Entry {
 }
 
 #[cfg(target_os = "macos")]
-pub use macos::{MenuReport, chain, deliver, install, popup, requestor_in_chain, set_accepting};
+pub use macos::{
+    MenuReport, accepting, chain, deliver, install, popup, requestor_in_chain, set_accepting,
+    while_menu_tracks,
+};
 
 #[cfg(target_os = "macos")]
 mod macos {
@@ -107,12 +110,36 @@ mod macos {
         static NSMenuItemImportFromDeviceIdentifier: &'static NSString;
     }
 
-    /// Whether the main window's composer takes pictures now (set as the +
-    /// menu opens); AppKit offers the items only while it does.
-    static ACCEPTING: AtomicBool = AtomicBool::new(true);
+    /// Whether the requestor answers AppKit now: only while the + menu
+    /// that offers Continuity Camera is open ([`while_menu_tracks`]).
+    /// Outside it, a Services request that brings a picture back finds no
+    /// requestor here, so nothing reaches the composer without the menu.
+    /// (A photo taken from the menu still lands afterwards: AppKit hands it
+    /// to the requestor it was given while the menu was open.)
+    static ACCEPTING: AtomicBool = AtomicBool::new(false);
 
     pub fn set_accepting(on: bool) {
         ACCEPTING.store(on, Ordering::SeqCst);
+    }
+
+    /// Whether the requestor answers AppKit now.
+    pub fn accepting() -> bool {
+        ACCEPTING.load(Ordering::SeqCst)
+    }
+
+    /// Runs `menu` (the + menu's tracking loop) with the requestor answering
+    /// when `offer` is set, and stops it answering once `menu` returns, by
+    /// any path (an unwinding panic included).
+    pub fn while_menu_tracks<T>(offer: bool, menu: impl FnOnce() -> T) -> T {
+        struct Stop;
+        impl Drop for Stop {
+            fn drop(&mut self) {
+                set_accepting(false);
+            }
+        }
+        let _stop = Stop;
+        set_accepting(offer);
+        menu()
     }
 
     struct RequestorIvars {
@@ -142,7 +169,7 @@ mod macos {
                         return_type.as_ref().map(|s| s.to_string()),
                     )
                 };
-                if ACCEPTING.load(Ordering::SeqCst) && takes(send.as_deref(), ret.as_deref()) {
+                if accepting() && takes(send.as_deref(), ret.as_deref()) {
                     return self as *const Self as *mut AnyObject;
                 }
                 // SAFETY: NSResponder's own answer (the next responder's).
@@ -427,6 +454,23 @@ mod tests {
         assert!(!takes(Some("public.utf8-plain-text"), Some("public.jpeg")));
         assert!(!takes(None, Some("public.utf8-plain-text")));
         assert!(!takes(None, None));
+    }
+
+    /// Outside the + menu a Services request that brings a picture back
+    /// finds no requestor: only the open menu offers it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_requestor_answers_only_while_the_menu_is_open() {
+        assert!(!accepting(), "before any menu opened");
+        assert!(while_menu_tracks(true, accepting), "while the menu is open");
+        assert!(!accepting(), "after the menu closed");
+        assert!(
+            !while_menu_tracks(false, accepting),
+            "a menu without the items"
+        );
+        let unwound = std::panic::catch_unwind(|| while_menu_tracks(true, || panic!("menu")));
+        assert!(unwound.is_err());
+        assert!(!accepting(), "after a menu that unwound");
     }
 
     #[test]

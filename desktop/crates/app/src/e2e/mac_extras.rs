@@ -674,6 +674,17 @@ async fn continuity_camera_items(dir: &Path, cx: &mut AsyncApp) -> bool {
             continuity_camera::chain(w)
         );
     }
+    // The menu has closed: the requestor no longer answers (a Services
+    // request outside the menu brings nothing into the composer).
+    let closed = ns
+        .as_ref()
+        .is_some_and(|w| !continuity_camera::requestor_in_chain(w, "public.jpeg"));
+    pass &= ok(
+        "the requestor answers only while the + menu is open",
+        closed && !continuity_camera::accepting(),
+    );
+    // As while the menu is open, for the chain and delivery checks.
+    continuity_camera::set_accepting(true);
     let chained = ns
         .as_ref()
         .is_some_and(|w| continuity_camera::requestor_in_chain(w, "public.jpeg"));
@@ -683,6 +694,7 @@ async fn continuity_camera_items(dir: &Path, cx: &mut AsyncApp) -> bool {
     let not_text = ns
         .as_ref()
         .is_some_and(|w| !continuity_camera::requestor_in_chain(w, "public.utf8-plain-text"));
+    continuity_camera::set_accepting(false);
     pass &= ok(
         "the main window's responder chain offers the requestor for photos and scans, not text",
         chained && pdf && not_text,

@@ -2229,7 +2229,6 @@ impl ChatComposer {
         if import {
             crate::desktop::install_continuity_camera(&ns_window, cx);
         }
-        camera::set_accepting(import);
         cx.spawn_in(window, async move |this, cx| {
             let Some(view) = ns_window.contentView() else {
                 return;
@@ -2240,7 +2239,9 @@ impl ChatComposer {
                 f32::from(origin.x) as f64,
                 view.bounds().size.height - f32::from(origin.y) as f64,
             );
-            let report = camera::popup(&view, &entries, location);
+            // The requestor answers only while this menu is open.
+            let report =
+                camera::while_menu_tracks(import, || camera::popup(&view, &entries, location));
             let _ = this.update_in(cx, |this, window, cx| {
                 if let Some(action) = report.chosen.and_then(|i| actions.get(i)) {
                     this.on_menu(action, window, cx);
