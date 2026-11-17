@@ -523,7 +523,7 @@ impl NotePane {
                     match found.note {
                         Some(detail) => this.show_detail(detail, true, window, cx),
                         None => {
-                            this.load = Load::Missing;
+                            this.set_load(Load::Missing, cx);
                             cx.notify();
                         }
                     }
@@ -531,7 +531,7 @@ impl NotePane {
                 Err(e) => {
                     this.page_loading = false;
                     log::warn!("notes.get: {e}");
-                    this.load = Load::Failed(e.to_string());
+                    this.set_load(Load::Failed(e.to_string()), cx);
                     cx.notify();
                 }
             });
@@ -568,8 +568,7 @@ impl NotePane {
         };
         self.follow_id(&detail.summary.id, cx);
         self.detail = Some(detail);
-        self.playable_changed(cx);
-        self.load = Load::Ready;
+        self.set_load(Load::Ready, cx);
         self.save = SaveState::Saved;
         if fresh {
             self.refresh_recordings(cx);
@@ -634,7 +633,7 @@ impl NotePane {
                         Some(detail) => this.adopt_quietly(detail, cx),
                         None => {
                             // Deleted elsewhere, with nothing unsaved here.
-                            this.load = Load::Missing;
+                            this.set_load(Load::Missing, cx);
                             cx.notify();
                         }
                     },
@@ -1104,7 +1103,7 @@ impl NotePane {
         self.refused = None;
         self.save = SaveState::Saved;
         let page = self.page_id.clone();
-        self.load = Load::Loading;
+        self.set_load(Load::Loading, cx);
         self.open_page(Some(page), window, cx);
         self.settle(cx);
         cx.notify();
@@ -1499,6 +1498,13 @@ impl NotePane {
         .detach();
     }
 
+    /// The one place the note's load state changes: what is not shown any
+    /// more (missing, failed, reloading) is not played either.
+    fn set_load(&mut self, load: Load, cx: &mut Context<Self>) {
+        self.load = load;
+        self.playable_changed(cx);
+    }
+
     /// The one place the waiting recordings are replaced.
     fn adopt_recordings(&mut self, recordings: Vec<NoteRecordingDto>, cx: &mut Context<Self>) {
         self.recordings = recordings;
@@ -1509,6 +1515,10 @@ impl NotePane {
     /// recording cards, recordings among the files listed under it, and the
     /// waiting recordings not uploading.
     fn playable_keys(&self, cx: &App) -> Vec<String> {
+        // Loading, missing or failed: the note and its controls are not shown.
+        if self.load != Load::Ready {
+            return Vec::new();
+        }
         let cards: Vec<FileLink> = self.editor.read(cx).cards();
         let mut keys: Vec<String> = cards
             .iter()
@@ -3179,7 +3189,7 @@ impl Render for NotePane {
                             move |_, window, cx| {
                                 entity
                                     .update(cx, |p, cx| {
-                                        p.load = Load::Loading;
+                                        p.set_load(Load::Loading, cx);
                                         let page = p.page_id.clone();
                                         p.open_page(Some(page), window, cx);
                                     })
@@ -3623,6 +3633,56 @@ mod tests {
         );
         drop(held);
         vcx.run_until_parked();
+    }
+
+    /// A note deleted elsewhere shows no Play/Pause any more: its recording
+    /// stops when a refresh finds it missing.
+    #[gpui_kit::test]
+    fn a_note_found_missing_stops_its_recording(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_protocol::NoteResult;
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        // The stored note gains a recording card (another device attached it).
+        daemon.on::<methods::NotesGet>(|_| {
+            let mut detail = bench::detail("n1", "main", "First page");
+            detail.ops = vec![
+                serde_json::json!({ "insert": "First page\n" }),
+                serde_json::json!({
+                    "insert": "tide.wav",
+                    "attributes": { "link": "/api/v1/files/f1/content" }
+                }),
+                serde_json::json!({ "insert": "\n" }),
+            ];
+            Ok(serde_json::to_value(NoteResult { note: Some(detail) }).unwrap())
+        });
+        pane.update(vcx, |p, cx| p.changed_elsewhere(cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            pane.read_with(vcx, |p, cx| p.editor.read(cx).cards().len()),
+            1,
+            "the stored card was taken in"
+        );
+        let audio = pane.read_with(vcx, |p, _| p.audio.clone());
+        audio.update(vcx, |a, cx| {
+            let source = super::super::audio::AudioSource::File {
+                server_id: "server".into(),
+                file_id: "f1".into(),
+            };
+            a.toggle("f1", source, None, cx)
+        });
+        assert_eq!(held_recording(&pane, vcx), Some("f1".into()));
+        // Deleted elsewhere: the refresh finds no note.
+        daemon.on::<methods::NotesGet>(|_| {
+            Ok(serde_json::to_value(NoteResult { note: None }).unwrap())
+        });
+        pane.update(vcx, |p, cx| p.changed_elsewhere(cx));
+        vcx.run_until_parked();
+        assert_eq!(pane.read_with(vcx, |p, _| p.load.clone()), Load::Missing);
+        assert_eq!(
+            held_recording(&pane, vcx),
+            None,
+            "a missing note's recording went on playing with no control"
+        );
     }
 
     /// An attachment plays only while the note offers Play for it: removing
