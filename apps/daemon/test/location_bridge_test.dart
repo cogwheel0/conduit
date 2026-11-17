@@ -3,6 +3,7 @@ import 'package:conduit_core/ports/location_port.dart';
 import 'package:conduit_core/services/location_service.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -47,14 +48,32 @@ void main() {
       ]);
     });
 
-    test('a refusal or silence is no position', () async {
-      final window = _Window(bus, bridge)..fails = true;
-      expect(bridge.currentPosition, throwsStateError);
-      window
-        ..fails = false
-        ..silent = true;
-      expect(await bridge.isLocationServiceEnabled(), isFalse);
-      expect(await bridge.requestPermission(), LocationPermissionStatus.denied);
+    test('a refusal or silence is no position', () {
+      fakeAsync((time) {
+        final window = _Window(bus, bridge)..fails = true;
+        Object? refused;
+        bridge.currentPosition().catchError((Object error) {
+          refused = error;
+          throw error;
+        }).ignore();
+        time.flushMicrotasks();
+        expect(refused, isA<StateError>());
+
+        // Silence: each command waits out its deadline on the fake clock.
+        window
+          ..fails = false
+          ..silent = true;
+        bool? enabled;
+        LocationPermissionStatus? permission;
+        bridge.isLocationServiceEnabled().then((on) => enabled = on);
+        bridge.requestPermission().then((p) => permission = p);
+        time.flushMicrotasks();
+        expect(enabled, isNull, reason: 'it waits for the window');
+        expect(permission, isNull, reason: 'it waits for the window');
+        time.elapse(const Duration(milliseconds: 300));
+        expect(enabled, isFalse);
+        expect(permission, LocationPermissionStatus.denied);
+      });
     });
   });
 
