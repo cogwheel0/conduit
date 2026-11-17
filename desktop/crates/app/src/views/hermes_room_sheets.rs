@@ -1686,6 +1686,85 @@ mod tests {
         );
     }
 
+    /// New Room opened over the main window with "Seed swap" typed.
+    fn another_room_typed(stores: &Stores, vcx: &mut VisualTestContext) -> Entity<CreateRoomSheet> {
+        let sheet_stores = stores.clone();
+        let sheet = vcx
+            .update(|window, cx| {
+                crate::views::sheet::open(window, super::WIDTH, cx, move |w, cx| {
+                    CreateRoomSheet::new(sheet_stores, w, cx)
+                })
+            })
+            .expect("the second sheet opens");
+        vcx.run_until_parked();
+        sheet.update_in(vcx, |s, window, cx| s.set_name("Seed swap", window, cx));
+        sheet
+    }
+
+    /// Discard, and before the Quit it continues runs, another sheet opens
+    /// and starts work (an approval, a link): Quit judges what is on screen
+    /// then and beeps over the busy sheet, rather than quitting over it.
+    #[gpui_kit::test]
+    fn a_busy_sheet_opened_before_the_discarded_quit_runs_beeps(cx: &mut TestAppContext) {
+        let (daemon, sheet, vcx) = new_room_typed(cx);
+        let stores = sheet.read_with(vcx, |s, _| s.stores.clone());
+        answer(vcx, true);
+        let quits = Rc::new(Cell::new(0));
+        let counted = quits.clone();
+        vcx.update(|_, cx| {
+            crate::views::sheet::quit_with(cx, Rc::new(move |_| counted.set(counted.get() + 1)))
+        });
+        vcx.run_until_parked();
+        assert!(!sheet_open(vcx), "Discard left the first sheet open");
+        assert_eq!(quits.get(), 0, "quit before the sheet was ended");
+        // The second sheet comes before the Quit goes on; its question is held.
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::HeldAnswers::default()));
+        let second = another_room_typed(&stores, vcx);
+        let held = daemon.hold::<methods::HermesRoomsCreate>();
+        second.update_in(vcx, |s, window, cx| {
+            s.toggle("fern", cx);
+            s.toggle("moss", cx);
+            s.create(window, cx);
+        });
+        settle(vcx);
+        assert_eq!(quits.get(), 0, "the app quit over a sheet opened meanwhile");
+        assert!(sheet_open(vcx), "the second sheet was closed");
+        assert_eq!(beeps(vcx), 1, "the busy second sheet did not beep");
+        // The made room closes the second sheet; nothing waited, so nothing
+        // quits.
+        drop(held);
+        settle(vcx);
+        assert!(!sheet_open(vcx));
+        assert_eq!(quits.get(), 0, "a Quit waited on the second sheet's create");
+    }
+
+    /// Discard, and before the Quit runs another sheet opens idle with
+    /// edits: its discard question comes up and nothing quits.
+    #[gpui_kit::test]
+    fn an_idle_dirty_sheet_opened_before_the_quit_runs_asks(cx: &mut TestAppContext) {
+        let (_daemon, sheet, vcx) = new_room_typed(cx);
+        let stores = sheet.read_with(vcx, |s, _| s.stores.clone());
+        answer(vcx, true);
+        let quits = Rc::new(Cell::new(0));
+        let counted = quits.clone();
+        vcx.update(|_, cx| {
+            crate::views::sheet::quit_with(cx, Rc::new(move |_| counted.set(counted.get() + 1)))
+        });
+        vcx.run_until_parked();
+        assert!(!sheet_open(vcx));
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::HeldAnswers::default()));
+        let _second = another_room_typed(&stores, vcx);
+        settle(vcx);
+        assert_eq!(
+            quits.get(),
+            0,
+            "the app quit over a dirty sheet opened meanwhile"
+        );
+        assert!(sheet_open(vcx), "the second sheet was closed");
+        let asked = vcx.update(|_, cx| cx.global::<crate::shell::sheet::HeldAnswers>().0.len());
+        assert_eq!(asked, 1, "the new sheet's discard question did not come up");
+    }
+
     /// While the sheet's discard question is up, a question in another window
     /// answered No is not that Quit's: Discard still quits, once.
     #[gpui_kit::test]

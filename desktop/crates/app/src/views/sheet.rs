@@ -360,14 +360,16 @@ pub(crate) fn quit_with(cx: &mut App, then: Rc<dyn Fn(&mut App)>) {
     quit_once_gone(cx, then);
 }
 
-/// The sheet has gone: the app quits once AppKit has ended it and the
-/// saves Quit waits for have landed.
+/// The sheet has gone: once AppKit has ended it, Quit comes in again
+/// through [`quit_with`], judging what is on screen then. A sheet opened
+/// meanwhile (an approval, a link) beeps or asks; with none open, the app
+/// quits after the app-wide saves.
 fn quit_once_gone(cx: &mut App, then: Rc<dyn Fn(&mut App)>) {
     cx.spawn(async move |cx| {
         cx.background_executor()
             .timer(std::time::Duration::from_millis(250))
             .await;
-        cx.update(|cx| after_saves(cx, then));
+        cx.update(|cx| quit_with(cx, then));
     })
     .detach();
 }
@@ -483,7 +485,14 @@ fn after_saves(cx: &mut App, then: Rc<dyn Fn(&mut App)>) {
     cx.spawn(async move |cx| {
         let timer = cx.background_executor().timer(SAVES_BEFORE_QUIT);
         let _ = futures::future::select(futures::future::join_all(pending), Box::pin(timer)).await;
-        cx.update(|cx| then(cx));
+        // A sheet opened while the saves ran: Quit comes in again for it.
+        cx.update(|cx| {
+            if is_open(cx) {
+                quit_with(cx, then)
+            } else {
+                then(cx)
+            }
+        });
     })
     .detach();
 }
