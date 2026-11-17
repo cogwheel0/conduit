@@ -139,6 +139,11 @@ final class NotificationsService {
     _boundSocket = socket;
     _chatEvents?.dispose();
     _chatEvents = null;
+    // What the last socket heard belongs to the account it served.
+    for (final timer in _waiting) {
+      timer.cancel();
+    }
+    _waiting.clear();
     if (socket == null) return;
     // Every chat's events, open or not, as the phone's listener hears them.
     _chatEvents = socket.addChatEventHandler(
@@ -177,9 +182,16 @@ final class NotificationsService {
         messageId: messageId,
         title: notification.title,
       );
+      // The notice carries the account it was heard under: told only while
+      // that account (on the same socket) is still the one in charge, as a
+      // click opens its chat in whichever account is.
+      final heardOn = _boundSocket;
       late final Timer timer;
       timer = Timer(_answerGrace, () {
         _waiting.remove(timer);
+        if (!identical(_boundSocket, heardOn) || _notificationScope != scope) {
+          return;
+        }
         if (messageId.isNotEmpty && (_announced?.call(messageId) ?? false)) {
           return;
         }

@@ -1,7 +1,6 @@
 @TestOn('vm')
 library;
 
-import 'dart:async';
 
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/user.dart';
@@ -9,6 +8,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -27,7 +27,7 @@ void main() {
     socket = _Socket();
     container = ProviderContainer(
       overrides: [
-        socketServiceProvider.overrideWithValue(socket),
+        socketServiceProvider.overrideWith((ref) => ref.watch(_socketInUse)),
         apiServiceProvider.overrideWithValue(null),
         settledActiveAccountIdProvider.overrideWith(_SettledAccount.new),
         currentUserProvider2.overrideWithValue(
@@ -41,6 +41,7 @@ void main() {
         ),
       ],
     );
+    container.read(_socketInUse.notifier).use(socket);
     events = EventBus();
     heard = <EventEnvelope>[];
     events.attach('window', heard.add);
@@ -82,36 +83,62 @@ void main() {
         AnswerNotice.fromJson(e.payload),
   ];
 
-  Future<void> grace() =>
-      Future<void>.delayed(const Duration(milliseconds: 80));
+  // The grace runs on fake time: past it, every notice due has been told.
+  void grace(FakeAsync async) => async.elapse(const Duration(milliseconds: 80));
 
-  test('a finished answer from elsewhere notifies once', () async {
-    socket.chat(frame('tides', 'reply-1', done: false));
-    socket.chat(frame('tides', 'reply-1'));
-    // The same last frame again (a replay): no second notice.
-    socket.chat(frame('tides', 'reply-1'));
-    await grace();
-    expectOneNotice(answered());
-  });
-
-  test('an answer this daemon announced is left to turn.finished', () async {
-    announced.add('reply-2');
-    socket.chat(frame('harbour', 'reply-2'));
-    // Announced only after the frame came, within the grace.
-    socket.chat(frame('harbour', 'reply-3'));
-    announced.add('reply-3');
-    await grace();
-    expect(answered(), isEmpty);
-  });
-
-  test('a malformed frame or another event says nothing', () async {
-    socket.chat(<String, dynamic>{'data': 'not a map'});
-    socket.chat(<String, dynamic>{
-      'chat_id': 'tides',
-      'data': <String, dynamic>{'type': 'chat:title'},
+  test('a finished answer from elsewhere notifies once', () {
+    fakeAsync((async) {
+      socket.chat(frame('tides', 'reply-1', done: false));
+      socket.chat(frame('tides', 'reply-1'));
+      // The same last frame again (a replay): no second notice.
+      socket.chat(frame('tides', 'reply-1'));
+      grace(async);
+      expectOneNotice(answered());
     });
-    await grace();
-    expect(answered(), isEmpty);
+  });
+
+  test('an answer this daemon announced is left to turn.finished', () {
+    fakeAsync((async) {
+      announced.add('reply-2');
+      socket.chat(frame('harbour', 'reply-2'));
+      // Announced only after the frame came, within the grace.
+      socket.chat(frame('harbour', 'reply-3'));
+      announced.add('reply-3');
+      grace(async);
+      expect(answered(), isEmpty);
+    });
+  });
+
+  test('a malformed frame or another event says nothing', () {
+    fakeAsync((async) {
+      socket.chat(<String, dynamic>{'data': 'not a map'});
+      socket.chat(<String, dynamic>{
+        'chat_id': 'tides',
+        'data': <String, dynamic>{'type': 'chat:title'},
+      });
+      grace(async);
+      expect(answered(), isEmpty);
+    });
+  });
+
+  test('an answer heard before another account took over is not told', () {
+    fakeAsync((async) {
+      socket.chat(frame('tides', 'reply-1'));
+      container.read(settledActiveAccountIdProvider.notifier).state =
+          'account-sky';
+      grace(async);
+      expect(answered(), isEmpty, reason: "the last account's answer");
+    });
+  });
+
+  test('an answer heard on a socket since replaced is not told', () {
+    fakeAsync((async) {
+      socket.chat(frame('tides', 'reply-1'));
+      container.read(_socketInUse.notifier).use(_Socket());
+      async.flushMicrotasks();
+      grace(async);
+      expect(answered(), isEmpty, reason: "the last socket's answer");
+    });
   });
 }
 
@@ -149,9 +176,25 @@ class _Socket implements SocketService {
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
+/// The socket in use, which a switch replaces.
+final _socketInUse = NotifierProvider<_SocketInUse, SocketService?>(
+  _SocketInUse.new,
+);
+
+class _SocketInUse extends Notifier<SocketService?> {
+  @override
+  SocketService? build() => null;
+
+  // ignore: use_setters_to_change_properties
+  void use(SocketService socket) => state = socket;
+}
+
 /// The account the socket belongs to, settled: notifications carry its
 /// scope.
 class _SettledAccount extends SettledActiveAccountId {
   @override
   String? build() => 'account-robin';
+
+  // ignore: use_setters_to_change_properties
+  void switchTo(String accountId) => state = accountId;
 }
