@@ -248,12 +248,6 @@ impl CreateRoomSheet {
                         }
                         Err(e) => {
                             log::warn!("hermes.rooms.create: {e}");
-                            // The sheet stays up with the failure: a Quit
-                            // that waited for the create is dropped.
-                            let this = cx.entity();
-                            if sheet::current::<Self>(cx).is_some_and(|open| open == this) {
-                                sheet::keep_open(cx);
-                            }
                             let l = cx.l10n().clone();
                             s.failure = Some(match e.args.get("detail") {
                                 Some(d) if !d.trim().is_empty() => l.hermes_room_refused(d),
@@ -270,6 +264,13 @@ impl CreateRoomSheet {
 }
 
 impl SheetBody for CreateRoomSheet {
+    fn busy(&self, _: &App) -> bool {
+        self.creating
+    }
+
+    fn alert(&self, _: &App) -> bool {
+        self.failure.is_some()
+    }
     fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let l = cx.l10n().clone();
         let view = cx.entity().downgrade();
@@ -1005,6 +1006,13 @@ impl RoomInfoSheet {
 }
 
 impl SheetBody for RoomInfoSheet {
+    fn busy(&self, _: &App) -> bool {
+        self.saving
+    }
+
+    fn alert(&self, _: &App) -> bool {
+        self.failure.is_some()
+    }
     /// Edits not saved yet: Quit asks first, as Cancel does.
     fn unsaved(&self, _: &App) -> bool {
         self.is_dirty()
@@ -1649,6 +1657,36 @@ mod tests {
             quits.get(),
             1,
             "another window's question dropped the sheet's Quit"
+        );
+    }
+
+    /// Quit during a create whose room comes back for a store that moved on
+    /// (stale): the sheet is still dirty, so the discard question comes up
+    /// for that Quit, and Discard quits.
+    #[gpui_kit::test]
+    fn quit_during_a_stale_create_asks_then_discard_quits(cx: &mut TestAppContext) {
+        let (daemon, sheet, vcx) = new_room_typed(cx);
+        let held = daemon.hold::<methods::HermesRoomsCreate>();
+        sheet.update_in(vcx, |s, window, cx| {
+            s.toggle("fern", cx);
+            s.toggle("moss", cx);
+            s.create(window, cx);
+        });
+        assert_eq!(daemon.calls::<methods::HermesRoomsCreate>().len(), 1);
+        let quits = quit(vcx);
+        let stores = sheet.read_with(vcx, |s, _| s.stores.clone());
+        stores.hermes_rooms.update(vcx, |h, cx| h.reset(cx));
+        answer(vcx, true);
+        drop(held);
+        settle(vcx);
+        assert!(
+            !sheet_open(vcx),
+            "the stale create left Quit with nothing to answer"
+        );
+        assert_eq!(
+            quits.get(),
+            1,
+            "Discard after the stale create did not quit"
         );
     }
 

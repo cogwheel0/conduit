@@ -867,6 +867,13 @@ impl ChatSettingsSheet {
 }
 
 impl SheetBody for ChatSettingsSheet {
+    fn busy(&self, _: &App) -> bool {
+        self.saving
+    }
+
+    fn alert(&self, _: &App) -> bool {
+        self.failure.is_some()
+    }
     fn unsaved(&self, _: &App) -> bool {
         ChatSettingsSheet::is_dirty(self)
     }

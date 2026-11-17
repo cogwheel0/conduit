@@ -890,6 +890,13 @@ impl EventEditor {
 }
 
 impl SheetBody for EventEditor {
+    fn busy(&self, _: &App) -> bool {
+        self.saving
+    }
+
+    fn alert(&self, _: &App) -> bool {
+        self.failure.is_some()
+    }
     fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let l = cx.l10n().clone();
         let view = cx.entity().downgrade();

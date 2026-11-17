@@ -566,6 +566,13 @@ fn is_plain_http(e: &RpcError) -> bool {
 }
 
 impl SheetBody for HermesConnectionSheet {
+    fn busy(&self, _: &App) -> bool {
+        self.busy && self.note != Some(Note::SigningIn)
+    }
+
+    fn alert(&self, _: &App) -> bool {
+        self.error.is_some()
+    }
     fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy && self.note != Some(Note::SigningIn) {
             return;

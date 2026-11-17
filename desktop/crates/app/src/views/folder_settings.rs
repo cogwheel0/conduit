@@ -841,6 +841,13 @@ fn failure_text(e: &conduit_protocol::RpcError, l10n: &L10n) -> String {
 }
 
 impl SheetBody for FolderSettingsSheet {
+    fn busy(&self, _: &App) -> bool {
+        self.saving
+    }
+
+    fn alert(&self, _: &App) -> bool {
+        self.failure.is_some()
+    }
     fn unsaved(&self, _: &App) -> bool {
         FolderSettingsSheet::is_dirty(self)
     }
