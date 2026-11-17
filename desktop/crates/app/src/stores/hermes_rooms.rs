@@ -126,6 +126,9 @@ pub struct HermesRoomsStore {
     /// Sends whose fate is not known yet, by [`RoomKey`]: kept apart from
     /// the field's words, which a restored draft never replaces.
     unresolved: HashMap<RoomKey, Unresolved>,
+    /// Words a send for the key was answered as having posted, until the
+    /// pane showing that key gives them up (one opened since included).
+    confirmed: HashMap<RoomKey, String>,
     revision: u64,
     fetches: Vec<Task<()>>,
     watch: Option<Task<()>>,
@@ -189,10 +192,10 @@ impl HermesRoomsStore {
         };
     }
 
-    /// `key`'s send was answered as sent: its words are posted, and a
-    /// draft still holding exactly them goes too (a pane gone meanwhile
-    /// must not offer them again).
-    pub fn sent(&mut self, key: &RoomKey, text: &str) {
+    /// `key`'s send was answered as sent: its words are posted. A draft
+    /// still holding exactly them goes, and whatever pane shows the key now
+    /// (the one that sent, or one opened since) gives them up.
+    pub fn sent(&mut self, key: &RoomKey, text: &str, cx: &mut Context<Self>) {
         self.unresolved.remove(key);
         if self
             .drafts
@@ -201,6 +204,13 @@ impl HermesRoomsStore {
         {
             self.drafts.remove(key);
         }
+        self.confirmed.insert(key.clone(), text.trim().to_string());
+        cx.notify();
+    }
+
+    /// The words confirmed posted for `key` since its pane last looked.
+    pub fn take_confirmed(&mut self, key: &RoomKey) -> Option<String> {
+        self.confirmed.remove(key)
     }
 
     /// The Hermes connection requests go out under.

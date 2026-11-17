@@ -528,6 +528,19 @@ impl HermesRoomPane {
                 self.text_changed(cx);
             }
         }
+        // A send for this key answered as posted -- by this pane or by one
+        // shown before it -- takes its words from the field, if it still
+        // holds exactly them (words typed since stay).
+        let key = self.key.clone();
+        if let Some(words) = self
+            .stores
+            .hermes_rooms
+            .update(cx, |h, _| h.take_confirmed(&key))
+            && self.text(cx).trim() == words
+        {
+            self.input.update(cx, |s, cx| s.set_value("", window, cx));
+            self.text_changed(cx);
+        }
         self.give_up_posted(window, cx);
         cx.notify();
     }
@@ -747,8 +760,8 @@ impl HermesRoomPane {
             // The answer is the key's, whether or not this pane is still
             // there: sent, the words are posted; refused, nothing was.
             cx.update(|cx| {
-                stores.hermes_rooms.update(cx, |h, _| match &result {
-                    Ok(r) if r.sent => h.sent(&key, &sent),
+                stores.hermes_rooms.update(cx, |h, cx| match &result {
+                    Ok(r) if r.sent => h.sent(&key, &sent, cx),
                     Ok(r) if r.refused => h.set_unresolved(&key, None),
                     _ => {}
                 })
@@ -1990,6 +2003,34 @@ mod tests {
             assert_eq!(daemon.calls::<methods::HermesRoomsSend>().len(), 1);
             changed(&stores, posted(None, &[(4, "hello")]), vcx);
             back.read_with(vcx, |p, cx| assert_eq!(p.text(cx), ""));
+        }
+
+        #[gpui_kit::test]
+        fn a_send_confirmed_after_the_room_opened_again_leaves_its_field(cx: &mut TestAppContext) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(None));
+            daemon.returns::<methods::HermesRoomsSend>(HermesRoomSendResult {
+                sent: true,
+                ..Default::default()
+            });
+            let held = daemon.hold::<methods::HermesRoomsSend>();
+            let (stores, pane, vcx) = open(cx, &daemon, "confirm-again");
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("hello", window, cx);
+                p.send(window, cx);
+            });
+            // The room is left and opened again before Hermes answers.
+            drop(pane);
+            let back = again(&stores, vcx);
+            back.read_with(vcx, |p, cx| assert_eq!(p.text(cx), "hello"));
+            drop(held);
+            vcx.run_until_parked();
+            back.read_with(vcx, |p, cx| {
+                assert_eq!(p.text(cx), "", "the posted words stay sendable")
+            });
+            back.update_in(vcx, |p, window, cx| p.send(window, cx));
+            vcx.run_until_parked();
+            assert_eq!(daemon.calls::<methods::HermesRoomsSend>().len(), 1);
         }
 
         #[gpui_kit::test]
