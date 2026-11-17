@@ -918,6 +918,10 @@ final class CallPeerLink implements RealtimeWebRtcMediaPort {
   Completer<String>? _offer;
   Completer<void>? _answered;
   bool _stopped = false;
+
+  /// Completed by [close]: every wait of the link ends with it (the
+  /// window's answer to `webRtcStart`, its `ready`, its socket).
+  final Completer<void> _closing = Completer<void>();
   final StreamController<String> _messages =
       StreamController<String>.broadcast();
   final StreamController<RealtimeMediaState> _states =
@@ -939,14 +943,16 @@ final class CallPeerLink implements RealtimeWebRtcMediaPort {
   @override
   Future<String> createOffer({String dataChannel = 'oai-events'}) async {
     if (_stopped) throw StateError('The voice call ended.');
-    final report = await _service._command(
-      (id) =>
-          CallCommand(id: id, kind: CallCommandKind.webRtcStart, path: path),
-      // The system may ask the user for the microphone first.
-      timeout: const Duration(minutes: 2),
+    final report = await _untilClosed(
+      _service._command(
+        (id) =>
+            CallCommand(id: id, kind: CallCommandKind.webRtcStart, path: path),
+        // The system may ask the user for the microphone first.
+        timeout: const Duration(minutes: 2),
+      ),
     );
     if (!report.ok) throw _PeerFailed(report.error ?? 'the peer did not start');
-    await _ready.future.timeout(const Duration(seconds: 10));
+    await _untilClosed(_ready.future.timeout(const Duration(seconds: 10)));
     if (_stopped) throw StateError('The voice call ended.');
     final offer = _offer = Completer<String>();
     _send(<String, Object?>{'type': 'offer', 'dataChannel': dataChannel});
@@ -978,8 +984,16 @@ final class CallPeerLink implements RealtimeWebRtcMediaPort {
         if (!done.isCompleted) done.complete();
       },
     );
-    await done.future;
+    // Closed while the window's socket is open: the cancelled listener
+    // hears no end of it, so the close ends this wait.
+    await Future.any<void>(<Future<void>>[done.future, _closing.future]);
   }
+
+  /// [wait], unless [close] comes first: then the call's end.
+  Future<T> _untilClosed<T>(Future<T> wait) => Future.any<T>(<Future<T>>[
+    wait,
+    _closing.future.then<T>((_) => throw StateError('The voice call ended.')),
+  ]);
 
   void _frame(Object? data) {
     if (data is! String) return;
@@ -1073,6 +1087,7 @@ final class CallPeerLink implements RealtimeWebRtcMediaPort {
     if (_stopped) return;
     _send(<String, Object?>{'type': 'stop'});
     _stopped = true;
+    _closing.complete();
     _service._tell(
       (id) => CallCommand(id: id, kind: CallCommandKind.audioStop, path: path),
     );
