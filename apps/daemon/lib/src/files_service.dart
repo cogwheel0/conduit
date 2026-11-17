@@ -10,6 +10,7 @@ import 'package:conduit_core/services/attachment_upload_retry.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'account_scope.dart';
 import 'settled.dart';
 
 /// Implements `POST /upload`: attachments on their way to the server.
@@ -190,12 +191,15 @@ final class FilesService {
   /// itself, fetched with the account's credential (core's
   /// `getWorkspaceModelAvatar`); never one on another site. Refused for any
   /// server but the active one, as [download] is; not found when the model
-  /// has no picture of its own.
+  /// has no picture of its own. Bound to the account it was asked under:
+  /// another account signing in meanwhile gets no bytes of the earlier one's.
   Future<({Uint8List bytes, String contentType})> modelImage(
     String serverId,
     String modelId,
   ) async {
+    final account = AccountScope.capture(_container);
     final server = await readSettled(_container, activeServerProvider.future);
+    account.require('the server was read');
     if (server == null || server.id != serverId) {
       throw const RpcError(
         code: ConduitErrorCodes.notFound,
@@ -221,10 +225,12 @@ final class FilesService {
     } on Object {
       // Unreadable here (no access, offline): the endpoint still answers.
     }
+    account.require('the model was read');
     final bytes = await api.getWorkspaceModelAvatar(
       modelId,
       imageUrl: imageUrl,
     );
+    account.require('the picture arrived');
     if (bytes == null) {
       throw const RpcError(
         code: ConduitErrorCodes.notFound,

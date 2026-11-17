@@ -1,15 +1,21 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart'
+    show primaryAccountProvider;
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:conduitd/src/account_scope.dart'
+    show accountSwitchCountProvider;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -37,6 +43,8 @@ void main() {
         apiServiceProvider.overrideWith((ref) => api),
         authStateManagerProvider.overrideWith(_SignedIn.new),
         openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+        activeServerProvider.overrideWith((ref) async => _server),
+        workspaceModelDetailProvider.overrideWith((ref, id) async => null),
       ],
     );
     addTearDown(container.dispose);
@@ -75,6 +83,39 @@ void main() {
     expect(file.name, 'trail-map.pdf');
     expect(api.uploaded, ['trail-map.pdf']);
   });
+
+  test('a model\'s picture is not handed over once another account signs in '
+      'while it loads', () async {
+    final c = container();
+    await c.read(authStateManagerProvider.future);
+    // Settled, as in a running daemon: the account in charge is known.
+    await c.read(activeServerProvider.future);
+    c.read(primaryAccountProvider);
+    c.read(accountSwitchCountProvider);
+    final files = FilesService(c);
+    final gate = Completer<void>();
+    api.avatarGate = gate.future;
+    final loading = files.modelImage('server', 'trail-guide');
+    await api.avatarAsked.future;
+    // Another account signs in while the picture is on its way.
+    epoch = Object();
+    c.invalidate(openWebUiAuthSessionEpochProvider);
+    gate.complete();
+    await expectLater(
+      loading,
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+    );
+    // Under the account in charge, it is handed over.
+    api.avatarAsked = Completer<void>();
+    final image = await files.modelImage('server', 'trail-guide');
+    expect(image.contentType, 'image/png');
+  });
 }
 
 final class _SignedIn extends AuthStateManager {
@@ -88,6 +129,20 @@ final class _Api extends ApiService {
   _Api() : super(serverConfig: _server, workerManager: WorkerManager());
 
   final uploaded = <String>[];
+  Future<void>? avatarGate;
+  var avatarAsked = Completer<void>();
+
+  @override
+  Future<List<int>?> getWorkspaceModelAvatar(
+    String id, {
+    String? imageUrl,
+  }) async {
+    avatarAsked.complete();
+    final gate = avatarGate;
+    avatarGate = null;
+    if (gate != null) await gate;
+    return const [0x89, 0x50, 0x4E, 0x47, 0, 0];
+  }
 
   @override
   Future<String> uploadFileBytes(
