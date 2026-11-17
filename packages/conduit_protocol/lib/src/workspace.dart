@@ -8,6 +8,23 @@ part 'workspace.g.dart';
 /// The five sections of the workspace.
 enum WorkspaceKind { models, knowledge, prompts, tools, skills }
 
+/// Where a model's profile image comes from, by the address the model
+/// keeps ([WorkspaceModelDto.imageUrl]).
+enum WorkspaceImageSource {
+  /// A `data:` URL: the picture is in the address itself.
+  inline,
+
+  /// The model's server: the window loads it from the daemon's
+  /// `/files/{serverId}/models/{modelId}`, which asks the server with the
+  /// account's credential (the image the model keeps, or a picture at an
+  /// address on the server itself). None at all draws the model's initial.
+  server,
+
+  /// An address on another site: fetching it would tell that site the
+  /// user opened the model, so it is not loaded on its own.
+  remote,
+}
+
 /// What the signed-in user may do in one section.
 @freezed
 abstract class WorkspaceSectionAccess with _$WorkspaceSectionAccess {
@@ -157,6 +174,10 @@ abstract class WorkspaceModelDto with _$WorkspaceModelDto {
     String? baseModelId,
     @Default('') String description,
     String? imageUrl,
+
+    /// Where [imageUrl]'s picture comes from; output only (the daemon
+    /// decides it, and ignores it in a save).
+    @Default(WorkspaceImageSource.server) WorkspaceImageSource imageSource,
     @Default(<String>[]) List<String> tags,
     @Default('') String system,
     @Default(<String>[]) List<String> stop,
@@ -173,6 +194,11 @@ abstract class WorkspaceModelDto with _$WorkspaceModelDto {
 
     /// The terminal chats with this model use, selected when the model is.
     @Default('') String terminalId,
+
+    /// Open WebUI's built-in tools for the model, by name (`time`,
+    /// `memory`, `web_search`, ...): on or off, as its own editor keeps
+    /// them; empty for the server's defaults.
+    @Default(<String, dynamic>{}) Map<String, dynamic> builtinTools,
     @Default(true) bool active,
     @Default(false) bool hidden,
 

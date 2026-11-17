@@ -88,6 +88,7 @@
 
 mod actions;
 mod apple;
+mod apps_leftovers;
 mod calendar;
 mod channels;
 mod chat;
@@ -220,12 +221,12 @@ impl E2eInputs {
         Some(Self { scenario, env })
     }
 
-    fn get(&self, key: &str) -> Option<String> {
+    pub(crate) fn get(&self, key: &str) -> Option<String> {
         self.env.get(key).cloned().filter(|v| !v.is_empty())
     }
 
     /// The seeded admin: `OWUI_URL`, `OWUI_EMAIL` and `OWUI_PASSWORD`.
-    fn owui(&self) -> Option<(String, String, String)> {
+    pub(crate) fn owui(&self) -> Option<(String, String, String)> {
         Some((
             self.get("OWUI_URL")?,
             self.get("OWUI_EMAIL")?,
@@ -234,7 +235,7 @@ impl E2eInputs {
     }
 
     /// The fake model's name in the server's model list.
-    fn model(&self) -> String {
+    pub(crate) fn model(&self) -> String {
         self.get("OWUI_MODEL")
             .unwrap_or_else(|| "fake-model".into())
     }
@@ -391,6 +392,7 @@ const CONTROL_ROLES: &[&str] = &[
     "Tab",
     "ListBoxOption",
     "TreeItem",
+    "Slider",
 ];
 
 /// Activates accessibility on `handle`, reads GPUI's AccessKit tree, and
@@ -842,6 +844,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "integrations" => integrations::run(&inputs, &dir, cx).await,
         "sign-in-two-step" => sign_in::two_step(&inputs, &dir, cx).await,
         "sign-in-proxy" => sign_in::proxy(&inputs, &dir, cx).await,
+        "apps-leftovers" => apps_leftovers::run(&inputs, &dir, cx).await,
         other => ok(&format!("unknown scenario {other}"), false),
     }
 }

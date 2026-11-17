@@ -165,18 +165,6 @@ pub(crate) enum Panel {
     Mcp(Box<super::composer_panels::McpPanel>),
 }
 
-impl Panel {
-    /// This panel's own id: an answer is taken only by the panel that
-    /// asked for it, never by one opened since.
-    pub(crate) fn id(&self) -> u64 {
-        match self {
-            Self::ServerFiles(p) => p.id,
-            Self::WebPage(p) => p.id,
-            Self::Mcp(p) => p.id,
-        }
-    }
-}
-
 /// One field of a prompt's fill-in form.
 enum FieldInput {
     Text(Entity<InputState>),
@@ -2286,29 +2274,17 @@ impl ChatComposer {
     // ── Panels ──────────────────────────────────────────────────────────
 
     fn open_server_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let panel = super::composer_panels::ServerFilesPanel::new(window, cx);
-        self.panel = Some(Panel::ServerFiles(panel));
-        self.search_server_files(String::new(), cx);
+        use crate::views::server_files::{ServerFilesEvent, ServerFilesPicker};
+        let rpc = self.composer.read(cx).rpc();
+        let picker = cx.new(|cx| ServerFilesPicker::new(rpc, window, cx));
+        let subscription = cx.subscribe_in(&picker, window, |this, _, e, window, cx| match e {
+            ServerFilesEvent::Picked(file) => this.attach_server_file(file.clone(), window, cx),
+            ServerFilesEvent::Dismissed => this.close_panel(window, cx),
+        });
+        self.panel = Some(Panel::ServerFiles(
+            super::composer_panels::ServerFilesPanel::new(picker, subscription),
+        ));
         cx.notify();
-    }
-
-    pub(crate) fn search_server_files(&mut self, query: String, cx: &mut Context<Self>) {
-        let Some(id) = self.panel.as_ref().map(Panel::id) else {
-            return;
-        };
-        let task = self.composer.update(cx, |c, cx| c.server_files(&query, cx));
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let _ = this.update(cx, |this, cx| {
-                if let Some(Panel::ServerFiles(p)) = &mut this.panel
-                    && p.id == id
-                {
-                    p.loaded(&query, result.map(|l| l.items), cx);
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
     }
 
     /// The server-file picker's choice: attached as it is.

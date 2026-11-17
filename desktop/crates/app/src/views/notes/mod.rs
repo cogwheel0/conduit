@@ -15,6 +15,7 @@
 //! (the sidebar's rows, the list's rows, the note's own More menu).
 
 pub mod area;
+pub mod audio;
 pub mod doc;
 pub mod editor;
 #[cfg(test)]

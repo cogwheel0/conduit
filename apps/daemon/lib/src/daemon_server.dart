@@ -747,7 +747,8 @@ class DaemonServer {
   }
 
   /// `GET /files/{serverId}/{fileId}` -- an attachment's bytes, for an image
-  /// in a message.
+  /// in a message; `GET /files/{serverId}/models/{modelId}` -- a model's
+  /// profile image.
   ///
   /// The desktop app sends the daemon's token with it, as with every request
   /// to this port, so the daemon refuses anyone else.
@@ -764,11 +765,15 @@ class DaemonServer {
       return shelf.Response(405, body: 'GET only');
     }
     final segments = request.url.pathSegments;
-    if (segments.length != 3) {
+    final modelImage = segments.length == 4 && segments[2] == 'models';
+    if (segments.length != 3 && !modelImage) {
       return _problem(404, ConduitErrorCodes.notFound, 'no such file');
     }
     try {
-      final file = await files.download(segments[1], segments[2]);
+      // `/files/{server}/models/{model}`: a model's profile image.
+      final file = modelImage
+          ? await files.modelImage(segments[1], segments[3])
+          : await files.download(segments[1], segments[2]);
       return shelf.Response.ok(
         file.bytes,
         headers: <String, String>{
@@ -848,7 +853,9 @@ class DaemonServer {
   }
 
   /// `GET /recordings/{id}?chatId=&folderId=` -- a saved recording of a
-  /// draft as 16 kHz mono WAV. It needs the token, as `/files/` does.
+  /// draft as 16 kHz mono WAV; `GET /recordings/{id}?noteId=` -- a note's
+  /// recording still waiting to upload, as recorded. It needs the token,
+  /// as `/files/` does.
   Future<shelf.Response> _recording(shelf.Request request, String path) async {
     final recordings = _recordings;
     if (recordings == null) {
@@ -862,10 +869,39 @@ class DaemonServer {
       return shelf.Response(405, body: 'GET only');
     }
     final query = request.url.queryParameters;
+    final id = Uri.decodeComponent(path.substring('/recordings/'.length));
+    // `?noteId=`: one of a note's recordings still waiting to upload.
+    if (_nonEmpty(query['noteId']) case final noteId?) {
+      final notes = _notes;
+      if (notes == null) {
+        return _problem(
+          503,
+          ConduitErrorCodes.daemonUnavailable,
+          'core starting',
+        );
+      }
+      try {
+        final audio = await notes.waitingRecording(noteId, id);
+        return shelf.Response.ok(
+          audio.bytes,
+          headers: <String, String>{
+            'content-type': audio.contentType,
+            'x-content-type-options': 'nosniff',
+            'cache-control': 'no-store',
+            ..._corsHeaders,
+          },
+        );
+      } on RpcError catch (error) {
+        return _problem(_statusFor(error), error.code, error.debugMessage);
+      } on Object catch (error, stack) {
+        _log.error('note recording read failed', error, stack);
+        return _problem(500, ConduitErrorCodes.serverError, 'read failed');
+      }
+    }
     try {
       final wav = await recordings.wav(
         RecordingRef(
-          id: Uri.decodeComponent(path.substring('/recordings/'.length)),
+          id: id,
           chatId: _nonEmpty(query['chatId']),
           folderId: _nonEmpty(query['folderId']),
         ),

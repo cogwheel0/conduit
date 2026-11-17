@@ -435,6 +435,9 @@ pub fn is_audio(name: &str) -> bool {
 
 /// A file the note attaches, as a card: its kind's glyph, its name, and
 /// its actions (Quick Look, Download, Transcribe for a recording, Remove).
+/// A recording plays in the card instead of in Quick Look: Play or Pause
+/// leads it, and once it is held its scrubber and time stand under its
+/// name ([`super::audio`]).
 fn file_card(
     id: u64,
     link: FileLink,
@@ -464,8 +467,50 @@ fn file_card(
             },
         )
     };
+    // A control inside the card: its own action only, never the card's
+    // too (the click would reach the card after the control).
+    let control = |what: FileAction| {
+        let run = action(what);
+        Rc::new(
+            move |e: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut App| {
+                cx.stop_propagation();
+                run(e, window, cx);
+            },
+        )
+    };
     let read_only = editor.is_read_only();
     let name: SharedString = link.name.clone().into();
+    let player = if audio {
+        editor
+            .audio
+            .as_ref()
+            .and_then(|a| a.read(cx).state(&link.id).map(|s| (a.clone(), s)))
+    } else {
+        None
+    };
+    let playing = player.as_ref().is_some_and(|(_, s)| s.playing);
+    let words = super::audio::PlayerWords {
+        play: labels.play.clone(),
+        pause: labels.pause.clone(),
+        position: labels.position.clone(),
+        failed: labels.audio_failed.clone(),
+        loading: labels.audio_loading.clone(),
+    };
+    let second_line: AnyElement = match &player {
+        Some((a, state)) => super::audio::progress(
+            &format!("note-audio-{}", link.id),
+            &link.id,
+            *state,
+            a,
+            &words,
+            t,
+        ),
+        None => div()
+            .text_size(px(t.metrics.small))
+            .text_color(r.text_subtle)
+            .child(kind.clone())
+            .into_any_element(),
+    };
     let button = |key: &str, glyph: IconName, label: SharedString, what: FileAction| {
         IconButton::new(
             SharedString::from(format!("note-file-{key}-{}", link.id)),
@@ -473,10 +518,14 @@ fn file_card(
             label,
         )
         .size(26., 14.)
-        .on_click(action(what))
+        .on_click(control(what))
     };
     div()
         .id(ElementId::NamedInteger("note-file".into(), id))
+        .debug_selector({
+            let id = link.id.clone();
+            move || format!("note-file-{id}")
+        })
         .role(Role::Group)
         .aria_label(SharedString::from(format!("{}, {}", link.name, kind)))
         .my(px(6.))
@@ -499,18 +548,35 @@ fn file_card(
         // Presses on the card are the card's, not the text's.
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click({
-            let open = action(FileAction::QuickLook);
+            let open = action(if audio {
+                FileAction::Play
+            } else {
+                FileAction::QuickLook
+            });
             move |e, window, cx| open(e, window, cx)
         })
-        .child(icon(
-            if audio {
-                IconName::AudioLines
+        .child(if audio {
+            let label = if playing {
+                words.pause.clone()
             } else {
-                IconName::FileText
-            },
-            18.,
-            r.text_subtle,
-        ))
+                words.play.clone()
+            };
+            IconButton::new(
+                SharedString::from(format!("note-file-play-{}", link.id)),
+                if playing {
+                    IconName::Pause
+                } else {
+                    IconName::Play
+                },
+                label.clone(),
+            )
+            .size(28., 14.)
+            .tooltip(label)
+            .on_click(control(FileAction::Play))
+            .into_any_element()
+        } else {
+            icon(IconName::FileText, 18., r.text_subtle).into_any_element()
+        })
         .child(
             div()
                 .flex_1()
@@ -525,19 +591,16 @@ fn file_card(
                         .text_color(r.text)
                         .child(name),
                 )
-                .child(
-                    div()
-                        .text_size(px(t.metrics.small))
-                        .text_color(r.text_subtle)
-                        .child(kind),
-                ),
+                .child(second_line),
         )
-        .child(button(
-            "look",
-            IconName::Eye,
-            labels.quick_look,
-            FileAction::QuickLook,
-        ))
+        .when(!audio, |d| {
+            d.child(button(
+                "look",
+                IconName::Eye,
+                labels.quick_look.clone(),
+                FileAction::QuickLook,
+            ))
+        })
         .when(audio && !read_only, |d| {
             d.child(button(
                 "transcribe",

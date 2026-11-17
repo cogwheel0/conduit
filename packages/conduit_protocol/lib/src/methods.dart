@@ -1564,6 +1564,14 @@ abstract final class ConduitHttpRoutes {
   static String file(String serverId, String fileId) =>
       '/files/$serverId/$fileId';
 
+  /// `GET /files/{serverId}/models/{modelId}` -- a model's profile image
+  /// ([WorkspaceImageSource.server]), asked of the server with the
+  /// account's credential: the image the model keeps, or a picture at an
+  /// address on the server itself. 404 when it has none (the window draws
+  /// the model's initial); never an address on another site.
+  static String modelImage(String serverId, String modelId) =>
+      '/files/$serverId/models/${Uri.encodeComponent(modelId)}';
+
   /// `GET /tts/{jobId}` — audio for an `<audio>` element.
   static String tts(String jobId) => '/tts/$jobId';
 
@@ -1581,6 +1589,10 @@ abstract final class ConduitHttpRoutes {
   /// `GET /recordings/{id}?chatId=&folderId=` -- a saved recording
   /// (`recordings.*`) as 16 kHz mono WAV, for Export and for transcribing
   /// it on this computer.
+  ///
+  /// `GET /recordings/{id}?noteId=` -- one of a note's recordings still
+  /// waiting to go to the server (`notes.recordings`), as it was recorded
+  /// (its type as `content-type`), for playing it.
   static String recording(String id) => '/recordings/$id';
 
   /// `WS /terminal/{handle}` — raw byte tunnel to the Open WebUI terminal

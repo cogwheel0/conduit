@@ -1081,6 +1081,7 @@ impl Render for PromptEditor {
                 creating,
                 loading: self.loading,
                 failure: self.failure.clone(),
+                scroll: None,
             },
             self.pane.clone(),
             body,

@@ -1913,6 +1913,35 @@
       }
     }
   },
+  "desktopWorkspaceAttachServerFile": "Attach Server File…",
+  "@desktopWorkspaceAttachServerFile": {
+    "description": "Button in a knowledge base's files: pick one of the user's files already on the server and link it in (mobile's workspaceKnowledgeAttachExisting, as a Mac button opening a sheet)."
+  },
+  "desktopWorkspaceKnowledgeAttaching": "Attaching {name}…",
+  "@desktopWorkspaceKnowledgeAttaching": {
+    "description": "Progress label shown while one of the user's server files is linked into a knowledge base.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopPdfPagePosition": "Page {page} of {count}",
+  "@desktopPdfPagePosition": {
+    "description": "Under a PDF's name in the PDF viewer's toolbar: the page in view and how many pages the document has.",
+    "placeholders": {
+      "page": {
+        "type": "String"
+      },
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopNoteAudioPosition": "Playback Position",
+  "@desktopNoteAudioPosition": {
+    "description": "Accessible name of the scrubber under a note's recording while it plays (VoiceOver reads it with the time played and the length)."
+  },
   "desktopWorkspaceKnowledgeViewAll": "All",
   "@desktopWorkspaceKnowledgeViewAll": {
     "description": "Knowledge collection filter showing all knowledge bases. (Desktop copy of the phone's workspaceKnowledgeViewAll, translated for the desktop.)"
@@ -2041,6 +2070,18 @@
   "desktopWorkspaceModelStopHint": "Comma-separated stop sequences",
   "@desktopWorkspaceModelStopHint": {
     "description": "Helper text for the stop-sequences field. (Desktop copy of the phone's workspaceModelStopHint, translated for the desktop.)"
+  },
+  "desktopWorkspaceModelTerminal": "Terminal ID",
+  "@desktopWorkspaceModelTerminal": {
+    "description": "Label of the model editor's field for the terminal a chat with the model starts on (Open WebUI's terminal id); mobile's workspaceModelTerminal."
+  },
+  "desktopWorkspaceModelBuiltinTools": "Built-In Tools (JSON)",
+  "@desktopWorkspaceModelBuiltinTools": {
+    "description": "Label of the model editor's JSON field for Open WebUI's built-in tools; mobile's workspaceModelBuiltinTools."
+  },
+  "desktopWorkspaceModelBuiltinToolsHint": "JSON object turning Open WebUI's built-in tools on or off by name",
+  "@desktopWorkspaceModelBuiltinToolsHint": {
+    "description": "Footer under the built-in tools field: a JSON object turning Open WebUI's built-in tools on or off by name."
   },
   "desktopWorkspaceModelTags": "Tags",
   "@desktopWorkspaceModelTags": {

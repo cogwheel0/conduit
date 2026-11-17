@@ -537,9 +537,12 @@ async fn server_files(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool
     menu_action(ComposerMenu::ServerFiles, cx).await;
     let listed = wait_until(cx, Duration::from_secs(20), |cx| {
         pane(cx).is_some_and(|p| match &p.read(cx).composer.read(cx).panel {
-            Some(Panel::ServerFiles(panel)) => {
-                panel.files().iter().any(|f| f.name == "field-notes.txt")
-            }
+            Some(Panel::ServerFiles(panel)) => panel
+                .picker
+                .read(cx)
+                .files()
+                .iter()
+                .any(|f| f.name == "field-notes.txt"),
             _ => false,
         })
     })
@@ -550,6 +553,8 @@ async fn server_files(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool
     in_pane(cx, |p, window, cx| {
         let file = match &p.composer.read(cx).panel {
             Some(Panel::ServerFiles(panel)) => panel
+                .picker
+                .read(cx)
                 .files()
                 .iter()
                 .find(|f| f.name == "field-notes.txt")

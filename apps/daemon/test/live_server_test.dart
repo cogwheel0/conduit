@@ -2404,6 +2404,18 @@ void main() {
           NoteRecordingAdd(noteId: id, path: wav.path),
         );
         expect(added.recordings, isNotEmpty);
+        // While it waits, the window can play it from this computer
+        // (`/recordings/{id}?noteId=`); once uploaded it no longer waits.
+        try {
+          final waiting = await notes.waitingRecording(
+            id,
+            added.recordings.first.id,
+          );
+          expect(waiting.contentType, 'audio/wav');
+          expect(waiting.bytes, isNotEmpty);
+        } on RpcError catch (error) {
+          expect(error.code, ConduitErrorCodes.notFound);
+        }
         Future<List<NoteFileLink>> links() async {
           final note = await notes.get(id);
           return noteFileLinksInMarkdown(note?.markdown ?? '');
@@ -3729,6 +3741,12 @@ void main() {
                   system: 'Answer in one word.',
                   suggestionPrompts: const <String>['Hello'],
                   capabilities: const <String, bool>{'vision': true},
+                  terminalId: 'buildbox',
+                  builtinTools: const <String, dynamic>{
+                    'time': false,
+                    'memory': true,
+                  },
+                  imageUrl: 'https://pictures.example/gull.png',
                   params: const <String, dynamic>{'temperature': 0.2},
                 ),
               ),
@@ -3739,6 +3757,13 @@ void main() {
           expect(model.system, 'Answer in one word.');
           expect(model.capabilities['vision'], isTrue);
           expect(model.params['temperature'], 0.2);
+          expect(model.terminalId, 'buildbox');
+          expect(model.builtinTools, {'time': false, 'memory': true});
+          // Another site's picture is never fetched for the window.
+          expect(model.imageSource, WorkspaceImageSource.remote);
+          final raw0 = (await api.getWorkspaceModel(id))!;
+          expect(raw0.meta['terminalId'], 'buildbox');
+          expect(raw0.meta['builtinTools'], {'time': false, 'memory': true});
 
           // A key this editor does not show survives a save through it.
           final raw = (await api.getWorkspaceModel(id))!;

@@ -58,6 +58,7 @@ use gpui_kit::{
 };
 use serde_json::Value;
 
+use super::audio::{AudioSource, NoteAudio, PlayerWords};
 use super::doc::{BlockKind, Doc, FileLink, Mark};
 use super::editor::{CardLabels, EditorEvent, FileAction, NoteEditor};
 use super::element::is_audio;
@@ -245,6 +246,8 @@ pub struct NotePane {
     last_own_save: Option<Instant>,
     /// Saves wait (the E2E).
     hold: bool,
+    /// The note's player: its recordings play in the note.
+    pub audio: Entity<NoteAudio>,
     _debounce: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -261,13 +264,20 @@ impl NotePane {
     ) -> Self {
         let l = cx.l10n().clone();
         let rpc = stores.connection.read(cx).rpc();
+        let audio = cx.new(|_| NoteAudio::new());
         let editor = cx.new(|cx| {
             let mut e = NoteEditor::new(window, cx);
+            e.set_audio(audio.clone(), cx);
             e.set_placeholder(
                 l.desktop_note_body_placeholder().into(),
                 l.desktop_note_body().into(),
             );
             e.set_card_labels(CardLabels {
+                play: l.video_play().into(),
+                pause: l.voice_call_pause().into(),
+                position: l.desktop_note_audio_position().into(),
+                audio_failed: l.failed_to_load_audio().into(),
+                audio_loading: l.desktop_loading().into(),
                 quick_look: l.desktop_quick_look().into(),
                 download: l.download().into(),
                 transcribe: l.desktop_transcribe().into(),
@@ -320,11 +330,15 @@ impl NotePane {
             // active again.
             cx.observe(&stores.accounts, |this: &mut Self, accounts, cx| {
                 let active = accounts.read(cx).active().map(|a| a.id.clone());
+                // Another account in charge: a recording started under the
+                // last one stops (the one held-recording check).
+                this.playable_changed(cx);
                 if this.held_for_account && active.is_some() && active == this.opened_under {
                     this.held_for_account = false;
                     this.save_now(cx);
                 }
             }),
+            cx.observe(&audio, |_, _, cx| cx.notify()),
             cx.subscribe(&stores.connection, |this, _, e: &ConnectionEvent, cx| {
                 if let ConnectionEvent::Daemon(event) = e
                     && let conduit_protocol::Event::NotesChanged(changed) = event.as_ref()
@@ -384,6 +398,7 @@ impl NotePane {
             run_waiters: vec![],
             last_own_save: None,
             hold: false,
+            audio,
             _debounce: None,
             _subscriptions: subscriptions,
         };
@@ -506,7 +521,7 @@ impl NotePane {
                     match found.note {
                         Some(detail) => this.show_detail(detail, true, window, cx),
                         None => {
-                            this.load = Load::Missing;
+                            this.set_load(Load::Missing, cx);
                             cx.notify();
                         }
                     }
@@ -514,7 +529,7 @@ impl NotePane {
                 Err(e) => {
                     this.page_loading = false;
                     log::warn!("notes.get: {e}");
-                    this.load = Load::Failed(e.to_string());
+                    this.set_load(Load::Failed(e.to_string()), cx);
                     cx.notify();
                 }
             });
@@ -551,7 +566,7 @@ impl NotePane {
         };
         self.follow_id(&detail.summary.id, cx);
         self.detail = Some(detail);
-        self.load = Load::Ready;
+        self.set_load(Load::Ready, cx);
         self.save = SaveState::Saved;
         if fresh {
             self.refresh_recordings(cx);
@@ -616,7 +631,7 @@ impl NotePane {
                         Some(detail) => this.adopt_quietly(detail, cx),
                         None => {
                             // Deleted elsewhere, with nothing unsaved here.
-                            this.load = Load::Missing;
+                            this.set_load(Load::Missing, cx);
                             cx.notify();
                         }
                     },
@@ -653,6 +668,7 @@ impl NotePane {
             .update(cx, |e, cx| e.set_read_only(read_only, cx));
         self.follow_id(&detail.summary.id, cx);
         self.detail = Some(detail);
+        self.playable_changed(cx);
         cx.notify();
     }
 
@@ -676,6 +692,8 @@ impl NotePane {
     fn on_editor(&mut self, e: &EditorEvent, window: &mut Window, cx: &mut Context<Self>) {
         match e {
             EditorEvent::Edited => {
+                // A card removed (Remove, ⌫, undo or redo) takes its Play with it.
+                self.playable_changed(cx);
                 // Typed while dictating: the dictation ends, keeping the words
                 // it put in, and its later words never land over the typing.
                 if self
@@ -830,6 +848,7 @@ impl NotePane {
                     .filter(|f| !sent.contains(&f.id))
                     .collect();
                 self.detail = Some(detail);
+                self.playable_changed(cx);
                 self.save = SaveState::Saved;
                 if !gained.is_empty() {
                     self.editor.update(cx, |e, cx| e.append_cards(&gained, cx));
@@ -994,6 +1013,9 @@ impl NotePane {
 
     pub fn leave(&mut self, cx: &mut Context<Self>) {
         self.leaving = true;
+        // A pane whose save is still out stays alive a while after it is
+        // left: its recording stops now, not when the pane goes.
+        self.stop_audio(cx);
         if self.dictation.read(cx).is_active() {
             self.dictation.update(cx, |d, cx| d.stop(cx));
         }
@@ -1001,6 +1023,14 @@ impl NotePane {
             recorder.update(cx, |r, cx| r.stop(cx));
         }
         self.save_now(cx);
+    }
+
+    /// The player lets go of its recording: playing stops, and a download
+    /// still out is dropped with it (its answer finds no recording held).
+    fn stop_audio(&mut self, cx: &mut Context<Self>) {
+        if self.audio.read(cx).current_key().is_some() {
+            self.audio.update(cx, |a, cx| a.stop(cx));
+        }
     }
 
     /// The user deleted this note here: what was not saved yet goes with
@@ -1071,7 +1101,7 @@ impl NotePane {
         self.refused = None;
         self.save = SaveState::Saved;
         let page = self.page_id.clone();
-        self.load = Load::Loading;
+        self.set_load(Load::Loading, cx);
         self.open_page(Some(page), window, cx);
         self.settle(cx);
         cx.notify();
@@ -1447,7 +1477,7 @@ impl NotePane {
                 let l = this.l(cx);
                 match result {
                     Ok(list) => {
-                        this.recordings = list.recordings;
+                        this.adopt_recordings(list.recordings, cx);
                         this.toast(NoticeLevel::Info, l.audio_recording_saved(), cx);
                     }
                     Err(e) => {
@@ -1466,6 +1496,76 @@ impl NotePane {
         .detach();
     }
 
+    /// The one place the note's load state changes: what is not shown any
+    /// more (missing, failed, reloading) is not played either.
+    fn set_load(&mut self, load: Load, cx: &mut Context<Self>) {
+        self.load = load;
+        self.playable_changed(cx);
+    }
+
+    /// The one place the waiting recordings are replaced.
+    fn adopt_recordings(&mut self, recordings: Vec<NoteRecordingDto>, cx: &mut Context<Self>) {
+        self.recordings = recordings;
+        self.playable_changed(cx);
+    }
+
+    /// What the note offers Play/Pause for now, by the player's key: its
+    /// recording cards, recordings among the files listed under it, and the
+    /// waiting recordings not uploading.
+    fn playable_keys(&self, cx: &App) -> Vec<String> {
+        // Loading, missing or failed: the note and its controls are not shown.
+        if self.load != Load::Ready {
+            return Vec::new();
+        }
+        let cards: Vec<FileLink> = self.editor.read(cx).cards();
+        let mut keys: Vec<String> = cards
+            .iter()
+            .filter(|c| is_audio(&c.name))
+            .map(|c| c.id.clone())
+            .collect();
+        if let Some(detail) = &self.detail {
+            keys.extend(
+                detail
+                    .files
+                    .iter()
+                    .filter(|f| is_audio(&f.name) && !cards.iter().any(|c| c.id == f.id))
+                    .map(|f| f.id.clone()),
+            );
+        }
+        keys.extend(
+            self.recordings
+                .iter()
+                .filter(|r| r.state != NoteRecordingState::Uploading)
+                .map(|r| format!("waiting:{}", r.id)),
+        );
+        keys
+    }
+
+    /// The account in charge now (none while the list is being read).
+    fn active_account(&self, cx: &App) -> Option<String> {
+        self.stores.accounts.read(cx).active().map(|a| a.id.clone())
+    }
+
+    /// Called after every change of what the note can play (its cards,
+    /// listed files, waiting recordings, the page shown) and of the account
+    /// in charge: the player plays only what still has a Play/Pause to stop
+    /// it with, for the account it started under. A recording removed,
+    /// uploading, on another page, or started under another account than
+    /// the one in charge (loading or held) stops; any other plays on. A list
+    /// being read again names nobody: no change.
+    fn playable_changed(&mut self, cx: &mut Context<Self>) {
+        let audio = self.audio.read(cx);
+        let Some(held) = audio.current_key().map(str::to_string) else {
+            return;
+        };
+        let started_under = audio.current_account().map(str::to_string);
+        let active = self.active_account(cx);
+        let other_account = active.is_some() && active != started_under;
+        if other_account || !self.playable_keys(cx).contains(&held) {
+            self.stop_audio(cx);
+        }
+    }
+
     fn refresh_recordings(&mut self, cx: &mut Context<Self>) {
         let call = self.rpc.call::<methods::NotesRecordings>(&NoteRef {
             id: self.id.clone(),
@@ -1477,7 +1577,7 @@ impl NotePane {
                     && list.note_id == this.id
                     && list.recordings != this.recordings
                 {
-                    this.recordings = list.recordings;
+                    this.adopt_recordings(list.recordings, cx);
                     cx.notify();
                 }
             });
@@ -1495,7 +1595,7 @@ impl NotePane {
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             if let Ok(list) = call.await {
                 let _ = this.update(cx, |this, cx| {
-                    this.recordings = list.recordings;
+                    this.adopt_recordings(list.recordings, cx);
                     cx.notify();
                 });
             }
@@ -1524,7 +1624,7 @@ impl NotePane {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if let Ok(list) = result {
-                    this.recordings = list.recordings;
+                    this.adopt_recordings(list.recordings, cx);
                 }
                 cx.notify();
             });
@@ -1567,6 +1667,16 @@ impl NotePane {
             file_id: link.id.clone(),
         };
         match action {
+            FileAction::Play => {
+                let http = self.stores.connection.read(cx).http().cloned();
+                let source = AudioSource::File {
+                    server_id: file.server_id.clone(),
+                    file_id: file.file_id.clone(),
+                };
+                let account = self.active_account(cx);
+                self.audio
+                    .update(cx, |a, cx| a.toggle(&link.id, source, http, account, cx));
+            }
             FileAction::QuickLook | FileAction::Open => {
                 let how = if action == FileAction::Open {
                     OpenWith::DefaultApp
@@ -1702,6 +1812,13 @@ impl NotePane {
         if let Some(block) = self.editor.read(cx).card_block(&link.id) {
             self.editor.update(cx, |e, cx| e.remove_block(block, cx));
         }
+        // Gone from the files listed under the note too (not shown there
+        // while the server detaches it); back if the server refuses.
+        let removed = self.detail.as_mut().and_then(|d| {
+            let at = d.files.iter().position(|f| f.id == link.id)?;
+            Some(d.files.remove(at))
+        });
+        self.playable_changed(cx);
         let flushed = self.flush(cx);
         let call_for = {
             let rpc = self.rpc.clone();
@@ -1723,9 +1840,19 @@ impl NotePane {
                     if let Some(d) = &mut this.detail {
                         d.files = detail.files;
                     }
+                    this.playable_changed(cx);
                     cx.notify();
                 }
-                Err(e) => log::warn!("notes.detach: {e}"),
+                Err(e) => {
+                    log::warn!("notes.detach: {e}");
+                    if this.page_asked == asked
+                        && let (Some(d), Some(file)) = (&mut this.detail, removed)
+                        && !d.files.iter().any(|f| f.id == file.id)
+                    {
+                        d.files.push(file);
+                        cx.notify();
+                    }
+                }
             });
         })
         .detach();
@@ -1809,6 +1936,7 @@ impl NotePane {
                         d.files = detail.files.clone();
                     }
                     this.editor.update(cx, |e, cx| e.append_cards(&links, cx));
+                    this.playable_changed(cx);
                 }
                 for name in failed {
                     let text = this.l(cx).desktop_attachment_failed(&name);
@@ -2533,6 +2661,76 @@ impl NotePane {
         )
     }
 
+    /// Play or Pause for one of the note's recordings still waiting to
+    /// upload, played from this Mac.
+    pub fn toggle_waiting(&mut self, id: &str, cx: &mut Context<Self>) {
+        let http = self.stores.connection.read(cx).http().cloned();
+        let source = AudioSource::Waiting {
+            note_id: self.id.clone(),
+            id: id.to_string(),
+        };
+        let key = format!("waiting:{id}");
+        let account = self.active_account(cx);
+        self.audio
+            .update(cx, |a, cx| a.toggle(&key, source, http, account, cx));
+    }
+
+    /// The player's words.
+    fn player_words(&self, cx: &App) -> PlayerWords {
+        let l = self.l(cx);
+        PlayerWords {
+            play: l.video_play().into(),
+            pause: l.voice_call_pause().into(),
+            position: l.desktop_note_audio_position().into(),
+            failed: l.failed_to_load_audio().into(),
+            loading: l.desktop_loading().into(),
+        }
+    }
+
+    /// A recording row's Play or Pause, by the player's state for `key`.
+    fn play_button(
+        &self,
+        id: SharedString,
+        key: &str,
+        on_click: ClickHandler,
+        cx: &App,
+    ) -> AnyElement {
+        let words = self.player_words(cx);
+        let playing = self.audio.read(cx).state(key).is_some_and(|s| s.playing);
+        let label = if playing { words.pause } else { words.play };
+        IconButton::new(
+            id,
+            if playing {
+                IconName::Pause
+            } else {
+                IconName::Play
+            },
+            label.clone(),
+        )
+        .size(28., 14.)
+        .tooltip(label)
+        .on_click(on_click)
+        .into_any_element()
+    }
+
+    /// Under a recording row's name: the player's scrubber and time while
+    /// it holds `key`, else `fallback`.
+    fn player_line(
+        &self,
+        id: &str,
+        key: &str,
+        fallback: AnyElement,
+        t: &ConduitTheme,
+        cx: &App,
+    ) -> AnyElement {
+        match self.audio.read(cx).state(key) {
+            Some(state) => {
+                super::audio::progress(id, key, state, &self.audio, &self.player_words(cx), t)
+            }
+            None => fallback,
+        }
+    }
+
     fn waiting_recordings(
         &mut self,
         t: &ConduitTheme,
@@ -2555,8 +2753,41 @@ impl NotePane {
                     NoteRecordingState::Uploading => l.desktop_recording_uploading(),
                     NoteRecordingState::Failed => l.desktop_recording_upload_failed(),
                 };
-                let (retry, remove) = (entity.clone(), entity.clone());
-                let (retry_id, remove_id) = (rec.id.clone(), rec.id.clone());
+                let (retry, remove, play) = (entity.clone(), entity.clone(), entity.clone());
+                let (retry_id, remove_id, play_id) =
+                    (rec.id.clone(), rec.id.clone(), rec.id.clone());
+                let key = format!("waiting:{}", rec.id);
+                // While it uploads it is not played, as on the phone.
+                let playable = rec.state != NoteRecordingState::Uploading;
+                let leading = if playable {
+                    self.play_button(
+                        SharedString::from(format!("note-waiting-play-{}", rec.id)),
+                        &key,
+                        Rc::new(move |_, _, cx| {
+                            let id = play_id.clone();
+                            play.update(cx, |p, cx| p.toggle_waiting(&id, cx)).ok();
+                        }),
+                        cx,
+                    )
+                } else {
+                    icon(IconName::AudioLines, 18., r.text_subtle).into_any_element()
+                };
+                let status = div()
+                    .text_size(px(t.metrics.small))
+                    .text_color(if rec.state == NoteRecordingState::Failed {
+                        r.danger
+                    } else {
+                        r.text_subtle
+                    })
+                    .child(state.clone())
+                    .into_any_element();
+                let second = self.player_line(
+                    &format!("note-waiting-audio-{}", rec.id),
+                    &key,
+                    status,
+                    t,
+                    cx,
+                );
                 div()
                     .id(SharedString::from(format!("note-waiting-{}", rec.id)))
                     .role(Role::Group)
@@ -2570,7 +2801,7 @@ impl NotePane {
                     .rounded(px(10.))
                     .border_1()
                     .border_color(r.border)
-                    .child(icon(IconName::AudioLines, 18., r.text_subtle))
+                    .child(leading)
                     .child(
                         div()
                             .flex_1()
@@ -2578,16 +2809,7 @@ impl NotePane {
                             .flex()
                             .flex_col()
                             .child(div().truncate().text_color(r.text).child(rec.name.clone()))
-                            .child(
-                                div()
-                                    .text_size(px(t.metrics.small))
-                                    .text_color(if rec.state == NoteRecordingState::Failed {
-                                        r.danger
-                                    } else {
-                                        r.text_subtle
-                                    })
-                                    .child(state),
-                            ),
+                            .child(second),
                     )
                     .when(rec.state == NoteRecordingState::Failed, |d| {
                         d.child(
@@ -2680,6 +2902,38 @@ impl NotePane {
                     })
                 };
                 let audio = is_audio(&f.name);
+                let leading = if audio {
+                    self.play_button(
+                        SharedString::from(format!("note-listed-play-{}", f.id)),
+                        &f.id,
+                        act(FileAction::Play),
+                        cx,
+                    )
+                } else {
+                    icon(IconName::FileText, 18., r.text_subtle).into_any_element()
+                };
+                let name_line = div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(div().truncate().text_color(r.text).child(f.name.clone()))
+                    .when(audio, |d| {
+                        let id = format!("note-listed-audio-{}", f.id);
+                        d.when_some(
+                            self.audio.read(cx).state(&f.id).map(|state| (id, state)),
+                            |d, (id, state)| {
+                                d.child(super::audio::progress(
+                                    &id,
+                                    &f.id,
+                                    state,
+                                    &self.audio,
+                                    &self.player_words(cx),
+                                    t,
+                                ))
+                            },
+                        )
+                    });
                 div()
                     .id(SharedString::from(format!("note-listed-file-{}", f.id)))
                     .role(Role::Group)
@@ -2693,32 +2947,19 @@ impl NotePane {
                     .rounded(px(10.))
                     .border_1()
                     .border_color(r.border)
-                    .child(icon(
-                        if audio {
-                            IconName::AudioLines
-                        } else {
-                            IconName::FileText
-                        },
-                        18.,
-                        r.text_subtle,
-                    ))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_color(r.text)
-                            .child(f.name.clone()),
-                    )
-                    .child(
-                        IconButton::new(
-                            SharedString::from(format!("note-listed-look-{}", f.id)),
-                            IconName::Eye,
-                            l.desktop_quick_look(),
+                    .child(leading)
+                    .child(name_line)
+                    .when(!audio, |d| {
+                        d.child(
+                            IconButton::new(
+                                SharedString::from(format!("note-listed-look-{}", f.id)),
+                                IconName::Eye,
+                                l.desktop_quick_look(),
+                            )
+                            .size(26., 14.)
+                            .on_click(act(FileAction::QuickLook)),
                         )
-                        .size(26., 14.)
-                        .on_click(act(FileAction::QuickLook)),
-                    )
+                    })
                     .child(
                         IconButton::new(
                             SharedString::from(format!("note-listed-download-{}", f.id)),
@@ -2960,7 +3201,7 @@ impl Render for NotePane {
                             move |_, window, cx| {
                                 entity
                                     .update(cx, |p, cx| {
-                                        p.load = Load::Loading;
+                                        p.set_load(Load::Loading, cx);
                                         let page = p.page_id.clone();
                                         p.open_page(Some(page), window, cx);
                                     })
@@ -3354,6 +3595,362 @@ mod tests {
         );
         drop(held);
         vcx.run_until_parked();
+    }
+
+    /// The pane's player holds recording `key` (loading, as one from the
+    /// server would be).
+    fn hold_recording(pane: &Entity<NotePane>, vcx: &mut gpui_kit::VisualTestContext) {
+        let audio = pane.read_with(vcx, |p, _| p.audio.clone());
+        audio.update(vcx, |a, cx| {
+            let source = super::super::audio::AudioSource::File {
+                server_id: "server".into(),
+                file_id: "trail-sounds".into(),
+            };
+            a.toggle("trail-sounds", source, None, Some("a".into()), cx)
+        });
+        assert_eq!(
+            audio.read_with(vcx, |a, _| a.current_key().map(str::to_string)),
+            Some("trail-sounds".into())
+        );
+    }
+
+    fn held_recording(
+        pane: &Entity<NotePane>,
+        vcx: &mut gpui_kit::VisualTestContext,
+    ) -> Option<String> {
+        let audio = pane.read_with(vcx, |p, _| p.audio.clone());
+        audio.read_with(vcx, |a, _| a.current_key().map(str::to_string))
+    }
+
+    /// A note left while its save is still out stays alive a while: its
+    /// recording stops with the leaving, not when the save lands.
+    #[gpui_kit::test]
+    fn leaving_a_note_stops_its_recording(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::navigation::AreaItem;
+        let (daemon, stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        let held = daemon.hold::<methods::NotesSave>();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        hold_recording(&pane, vcx);
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::AllNotes, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            held_recording(&pane, vcx),
+            None,
+            "the note's recording went on playing after it was left"
+        );
+        drop(held);
+        vcx.run_until_parked();
+    }
+
+    /// A recording belongs to the account in charge when it started, even
+    /// in a pane opened before any account was: another account taking
+    /// charge stops it, whether it is loading or already held.
+    #[gpui_kit::test]
+    fn another_account_stops_a_recording_in_a_pane_opened_with_none(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use std::sync::{Arc, Mutex};
+
+        use conduit_protocol::{NoteRecordingDto, NoteRecordings};
+
+        use crate::stores::accounts::tests::{account, list};
+        use crate::stores::navigation::AreaItem;
+        let (daemon, stores, area, vcx) = bench::open(cx);
+        let rec = |id: &str| NoteRecordingDto {
+            id: id.into(),
+            name: format!("{id}.m4a"),
+            state: NoteRecordingState::Waiting,
+            size: 1,
+            created_at_ms: 1,
+            page_id: None,
+        };
+        let listed: Arc<Mutex<Vec<NoteRecordingDto>>> = Arc::default();
+        {
+            let listed = listed.clone();
+            daemon.on::<methods::NotesRecordings>(move |p| {
+                Ok(serde_json::to_value(NoteRecordings {
+                    note_id: p["id"].as_str().unwrap_or("n2").into(),
+                    recordings: listed.lock().unwrap().clone(),
+                })
+                .unwrap())
+            });
+        }
+        let accounts = |active: Option<&str>| {
+            list(vec![
+                account("a", "Avery", active == Some("a"), true),
+                account("b", "Blair", active == Some("b"), true),
+            ])
+        };
+        // No account in charge yet: the next note opens under none.
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts(None), cx));
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n2".into()), cx));
+        vcx.run_until_parked();
+        let pane = bench::pane(&area, vcx);
+        assert_eq!(pane.read_with(vcx, |p, _| p.opened_under.clone()), None);
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts(Some("a")), cx));
+        *listed.lock().unwrap() = vec![rec("r1"), rec("r2")];
+        pane.update(vcx, |p, cx| p.refresh_recordings(cx));
+        vcx.run_until_parked();
+        let audio = pane.read_with(vcx, |p, _| p.audio.clone());
+        // Loading under A when B takes charge.
+        pane.update(vcx, |p, cx| p.toggle_waiting("r1", cx));
+        assert_eq!(
+            audio.read_with(vcx, |a, _| a.state("waiting:r1").map(|s| s.phase)),
+            Some(super::super::audio::Phase::Loading)
+        );
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts(Some("b")), cx));
+        assert_eq!(
+            held_recording(&pane, vcx),
+            None,
+            "A's recording kept loading after B took charge"
+        );
+        vcx.run_until_parked();
+        assert_eq!(held_recording(&pane, vcx), None);
+        // Held (its load done) under A when B takes charge.
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts(Some("a")), cx));
+        pane.update(vcx, |p, cx| p.toggle_waiting("r2", cx));
+        vcx.run_until_parked();
+        assert_eq!(held_recording(&pane, vcx), Some("waiting:r2".into()));
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts(Some("b")), cx));
+        assert_eq!(
+            held_recording(&pane, vcx),
+            None,
+            "A's recording went on playing after B took charge"
+        );
+    }
+
+    /// A note deleted elsewhere shows no Play/Pause any more: its recording
+    /// stops when a refresh finds it missing.
+    #[gpui_kit::test]
+    fn a_note_found_missing_stops_its_recording(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_protocol::NoteResult;
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        // The stored note gains a recording card (another device attached it).
+        daemon.on::<methods::NotesGet>(|_| {
+            let mut detail = bench::detail("n1", "main", "First page");
+            detail.ops = vec![
+                serde_json::json!({ "insert": "First page\n" }),
+                serde_json::json!({
+                    "insert": "tide.wav",
+                    "attributes": { "link": "/api/v1/files/f1/content" }
+                }),
+                serde_json::json!({ "insert": "\n" }),
+            ];
+            Ok(serde_json::to_value(NoteResult { note: Some(detail) }).unwrap())
+        });
+        pane.update(vcx, |p, cx| p.changed_elsewhere(cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            pane.read_with(vcx, |p, cx| p.editor.read(cx).cards().len()),
+            1,
+            "the stored card was taken in"
+        );
+        let audio = pane.read_with(vcx, |p, _| p.audio.clone());
+        audio.update(vcx, |a, cx| {
+            let source = super::super::audio::AudioSource::File {
+                server_id: "server".into(),
+                file_id: "f1".into(),
+            };
+            a.toggle("f1", source, None, Some("a".into()), cx)
+        });
+        assert_eq!(held_recording(&pane, vcx), Some("f1".into()));
+        // Deleted elsewhere: the refresh finds no note.
+        daemon.on::<methods::NotesGet>(|_| {
+            Ok(serde_json::to_value(NoteResult { note: None }).unwrap())
+        });
+        pane.update(vcx, |p, cx| p.changed_elsewhere(cx));
+        vcx.run_until_parked();
+        assert_eq!(pane.read_with(vcx, |p, _| p.load.clone()), Load::Missing);
+        assert_eq!(
+            held_recording(&pane, vcx),
+            None,
+            "a missing note's recording went on playing with no control"
+        );
+    }
+
+    /// An attachment plays only while the note offers Play for it: removing
+    /// the one playing stops it; removing another leaves it playing.
+    #[gpui_kit::test]
+    fn removing_the_playing_attachment_stops_it(cx: &mut gpui_kit::TestAppContext) {
+        use std::sync::{Arc, Mutex};
+
+        use conduit_protocol::NoteFile;
+        let file = |id: &str, name: &str| NoteFile {
+            id: id.into(),
+            name: name.into(),
+            size: None,
+            content_type: None,
+        };
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let attached = Arc::new(Mutex::new(vec![
+            file("f1", "tide.wav"),
+            file("f2", "gull.wav"),
+        ]));
+        {
+            let attached = attached.clone();
+            daemon.on::<methods::NotesDetach>(move |p| {
+                let gone = p["fileId"].as_str().unwrap_or_default().to_string();
+                let mut files = attached.lock().unwrap();
+                files.retain(|f| f.id != gone);
+                let mut detail = bench::detail("n1", "main", "kept");
+                detail.files = files.clone();
+                Ok(serde_json::to_value(detail).unwrap())
+            });
+        }
+        daemon.on::<methods::NotesSave>(|_| {
+            Ok(serde_json::to_value(bench::detail("n1", "main", "kept")).unwrap())
+        });
+        let pane = bench::pane(&area, vcx);
+        let links = [
+            FileLink {
+                id: "f1".into(),
+                name: "tide.wav".into(),
+            },
+            FileLink {
+                id: "f2".into(),
+                name: "gull.wav".into(),
+            },
+        ];
+        pane.update(vcx, |p, cx| {
+            if let Some(d) = &mut p.detail {
+                d.files = attached.lock().unwrap().clone();
+            }
+            p.editor.update(cx, |e, cx| e.append_cards(&links, cx));
+        });
+        vcx.run_until_parked();
+        let audio = pane.read_with(vcx, |p, _| p.audio.clone());
+        audio.update(vcx, |a, cx| {
+            let source = super::super::audio::AudioSource::File {
+                server_id: "server".into(),
+                file_id: "f1".into(),
+            };
+            a.toggle("f1", source, None, Some("a".into()), cx)
+        });
+        pane.update(vcx, |p, cx| p.remove_file(links[1].clone(), cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            held_recording(&pane, vcx),
+            Some("f1".into()),
+            "removing another attachment stopped this one"
+        );
+        pane.update(vcx, |p, cx| p.remove_file(links[0].clone(), cx));
+        assert_eq!(
+            held_recording(&pane, vcx),
+            None,
+            "a removed attachment went on playing with no control"
+        );
+        vcx.run_until_parked();
+        assert_eq!(held_recording(&pane, vcx), None);
+    }
+
+    /// A waiting recording plays only while its row offers Play: the list
+    /// read again keeps it playing while it stays playable, and stops it
+    /// once it uploads (no control left) or has gone.
+    #[gpui_kit::test]
+    fn a_waiting_recording_stops_once_its_row_offers_no_play(cx: &mut gpui_kit::TestAppContext) {
+        use std::sync::{Arc, Mutex};
+
+        use conduit_protocol::NoteRecordings;
+        let rec = |id: &str, state: NoteRecordingState| NoteRecordingDto {
+            id: id.into(),
+            name: format!("{id}.m4a"),
+            state,
+            size: 1,
+            created_at_ms: 1,
+            page_id: None,
+        };
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let listed: Arc<Mutex<Vec<NoteRecordingDto>>> = Arc::default();
+        {
+            let listed = listed.clone();
+            daemon.on::<methods::NotesRecordings>(move |_| {
+                Ok(serde_json::to_value(NoteRecordings {
+                    note_id: "n1".into(),
+                    recordings: listed.lock().unwrap().clone(),
+                })
+                .unwrap())
+            });
+        }
+        let pane = bench::pane(&area, vcx);
+        let list_again = |now: Vec<NoteRecordingDto>, vcx: &mut gpui_kit::VisualTestContext| {
+            *listed.lock().unwrap() = now;
+            pane.update(vcx, |p, cx| p.refresh_recordings(cx));
+            vcx.run_until_parked();
+        };
+        use NoteRecordingState::{Uploading, Waiting};
+        list_again(vec![rec("r1", Waiting), rec("r2", Waiting)], vcx);
+        pane.update(vcx, |p, cx| p.toggle_waiting("r1", cx));
+        assert_eq!(held_recording(&pane, vcx), Some("waiting:r1".into()));
+        // Another one starts uploading; this one still offers Play.
+        list_again(vec![rec("r1", Waiting), rec("r2", Uploading)], vcx);
+        assert_eq!(
+            held_recording(&pane, vcx),
+            Some("waiting:r1".into()),
+            "a recording still playable was stopped"
+        );
+        // It uploads: its row has no Play/Pause left.
+        list_again(vec![rec("r1", Uploading), rec("r2", Uploading)], vcx);
+        assert_eq!(
+            held_recording(&pane, vcx),
+            None,
+            "an uploading recording went on playing with no control"
+        );
+        // One that goes from the list stops too.
+        list_again(vec![rec("r3", Waiting)], vcx);
+        pane.update(vcx, |p, cx| p.toggle_waiting("r3", cx));
+        list_again(vec![], vcx);
+        assert_eq!(
+            held_recording(&pane, vcx),
+            None,
+            "a recording gone from the list went on playing"
+        );
+    }
+
+    /// Another account taking charge stops a recording the note opened
+    /// under the last one was playing.
+    #[gpui_kit::test]
+    fn another_account_stops_the_notes_recording(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::accounts::tests::{account, list};
+        let (_daemon, stores, area, vcx) = bench::open(cx);
+        let accounts = |active: &str| {
+            list(vec![
+                account("a", "Avery", active == "a", true),
+                account("b", "Blair", active == "b", true),
+            ])
+        };
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("a"), cx));
+        vcx.run_until_parked();
+        let pane = bench::pane(&area, vcx);
+        hold_recording(&pane, vcx);
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("b"), cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            held_recording(&pane, vcx),
+            None,
+            "the last account's recording went on playing"
+        );
     }
 
     /// A note change heard while the next page is read does not make the
