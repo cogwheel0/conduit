@@ -12,9 +12,12 @@ import 'package:conduitd/conduitd.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
+/// `auth.*` over a manager whose server answers are held by the test.
+///
 /// A two-step sign-in is one attempt: an answer that comes back after the
 /// attempt was cancelled, replaced by another sign-in or moved on to
-/// another step finishes nothing.
+/// another step finishes nothing. The connection issue's Retry signs back in
+/// only once the server takes the kept session.
 void main() {
   late _Manager manager;
   late ProviderContainer container;
@@ -85,6 +88,17 @@ void main() {
     );
   });
 
+  test('Retry on a connection issue signs back in only once the server takes '
+      'the kept session', () async {
+    manager.kept = true;
+    container.invalidate(authStateManagerProvider);
+    await container.read(authStateManagerProvider.future);
+    // The proxy still turns the session away.
+    final snapshot = await auth.retry();
+    check(snapshot.isAuthenticated).isFalse();
+    check(snapshot.phase).equals(AuthPhase.error);
+  });
+
   test('a code checked for the attempt still in charge signs in', () async {
     await signIn(OpenWebUiTwoStepKind.verify);
     final verifying = auth.twoStepVerify(const TwoStepCode(code: '123456'));
@@ -105,9 +119,31 @@ final class _Manager extends AuthStateManager {
   final finished = <String>[];
   var _challenges = 0;
 
+  /// A session kept on a connection issue, which the server (behind its
+  /// sign-in proxy) still refuses.
+  var kept = false;
+
+  static const _issue = AuthState(
+    status: AuthStatus.error,
+    token: 'kept-token',
+    error: 'connection issue',
+  );
+
   @override
   Future<AuthState> build() async =>
-      const AuthState(status: AuthStatus.unauthenticated);
+      kept ? _issue : const AuthState(status: AuthStatus.unauthenticated);
+
+  /// Trusts the kept token at once, as the core's refresh does.
+  @override
+  Future<void> refresh() async {
+    state = const AsyncData(
+      AuthState(status: AuthStatus.authenticated, token: 'kept-token'),
+    );
+  }
+
+  /// Asks the server first: refused, the issue stays.
+  @override
+  Future<void> retryConnectionIssue() async {}
 
   @override
   Future<bool> login(

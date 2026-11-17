@@ -357,7 +357,11 @@ final class AuthService {
     _manager.resetRetryCounter();
     try {
       if (state.hasValidToken) {
-        await _manager.refresh();
+        // The server is asked about the kept session before it shows signed
+        // in, as the phone's Retry asks: a refresh would trust it at once,
+        // reopen the main window, and come back here while a sign-in proxy
+        // still turns it away.
+        await _manager.retryConnectionIssue();
       } else {
         await _manager.silentLogin();
       }
