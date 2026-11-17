@@ -125,6 +125,29 @@ final class HermesAdminService {
     return _bound(asked, body);
   }
 
+  /// The jobs read again after a change that was made: a read that fails
+  /// says so (`listFailed`, with [saved] still naming what the change
+  /// wrote) rather than turning the change into an error. Another
+  /// connection in use meanwhile is still refused.
+  Future<HermesJobs> _jobsAfter({String? saved}) async {
+    try {
+      return (await jobs()).copyWith(savedId: saved);
+    } on RpcError catch (error) {
+      if (error.code == ConduitErrorCodes.sessionExpired) rethrow;
+      return HermesJobs(savedId: saved, listFailed: true);
+    }
+  }
+
+  /// The servers read again after a change that was made, as [_jobsAfter].
+  Future<HermesMcpServers> _mcpAfter() async {
+    try {
+      return await mcpServers();
+    } on RpcError catch (error) {
+      if (error.code == ConduitErrorCodes.sessionExpired) rethrow;
+      return const HermesMcpServers(available: true, listFailed: true);
+    }
+  }
+
   /// [body], made under the connection in use now (refusing [asked] when
   /// it names another): its answer is checked against that connection
   /// last, and [body] checks it before each write or change after a wait.
@@ -503,7 +526,7 @@ final class HermesAdminService {
     // Every window reads the list again, so one read before the
     // change cannot leave it out.
     _announce();
-    return mcpServers();
+    return _mcpAfter();
   });
 
   Future<HermesMcpServers> addMcpFromCatalog(HermesMcpRef ref) => _change(
@@ -529,7 +552,7 @@ final class HermesAdminService {
       // Every window reads the list again, so one read before the
       // change cannot leave it out.
       _announce();
-      return mcpServers();
+      return _mcpAfter();
     },
   );
 
@@ -552,7 +575,7 @@ final class HermesAdminService {
         // Every window reads the list again, so one read before the
         // change cannot leave it out.
         _announce();
-        return mcpServers();
+        return _mcpAfter();
       });
 
   Future<HermesMcpServers> removeMcp(HermesMcpRef ref) =>
@@ -564,7 +587,7 @@ final class HermesAdminService {
         // Every window reads the list again, so one read before the
         // change cannot leave it out.
         _announce();
-        return mcpServers();
+        return _mcpAfter();
       });
 
   Future<HermesMcpTestResultDto> testMcp(HermesMcpRef ref) =>
@@ -593,7 +616,7 @@ final class HermesAdminService {
       // Every window reads the list again, so one read before the
       // change cannot leave it out.
       _announce();
-      return mcpServers();
+      return _mcpAfter();
     },
   );
 
@@ -612,7 +635,7 @@ final class HermesAdminService {
             debugMessage: 'MCP sign-in did not finish',
           );
         }
-        return mcpServers();
+        return _mcpAfter();
       });
 
   // ---------------------------------------------------------------------------
@@ -833,7 +856,7 @@ final class HermesAdminService {
     // The list read next, and the notices it takes, are this connection's.
     _check(scope);
     _announce();
-    return (await jobs()).copyWith(savedId: saved);
+    return _jobsAfter(saved: saved);
   });
 
   /// [value]'s targets as Hermes stores them, or null when the edit leaves
@@ -856,7 +879,7 @@ final class HermesAdminService {
         await _jobs.setEnabled(toggle.id, toggle.enabled);
         _check(scope);
         _announce();
-        return jobs();
+        return _jobsAfter();
       });
 
   /// Runs job [id] now. Hermes answers the trigger only once its run
@@ -865,9 +888,9 @@ final class HermesAdminService {
   /// at once (a run already going) is refused here.
   Future<HermesJobs> runJob(String id, {String? connection}) =>
       _change(connection, (scope) async {
-        if (_runPending.contains(id)) return jobs();
+        if (_runPending.contains(id)) return _jobsAfter();
         final service = _container.read(hermesApiServiceProvider);
-        if (service == null) return jobs();
+        if (service == null) return _jobsAfter();
         _runPending.add(id);
         final done = Completer<Object?>();
         unawaited(
@@ -888,7 +911,7 @@ final class HermesAdminService {
           _runPending.remove(id);
           if (early != null) throw early;
           _announce();
-          return jobs();
+          return _jobsAfter();
         }
         unawaited(
           done.future.then((error) {
@@ -900,7 +923,7 @@ final class HermesAdminService {
             _announce();
           }),
         );
-        return jobs();
+        return _jobsAfter();
       });
 
   static final Object _stillRunning = Object();
@@ -909,10 +932,10 @@ final class HermesAdminService {
   /// a later list.
   Future<HermesJobs> stopJob(String id, {String? connection}) =>
       _change(connection, (scope) async {
-        if (_stopping.containsKey(id)) return jobs();
+        if (_stopping.containsKey(id)) return _jobsAfter();
         if (_stopUnsupported) {
           _notices.add(HermesJobNotice(jobId: id, kind: 'stopUnsupported'));
-          return jobs();
+          return _jobsAfter();
         }
         _stopping[id] = null;
         try {
@@ -940,7 +963,7 @@ final class HermesAdminService {
           _stopping.remove(id);
           _notices.add(HermesJobNotice(jobId: id, kind: 'stopFailed'));
         }
-        return jobs();
+        return _jobsAfter();
       });
 
   Future<HermesJobs> deleteJob(String id, {String? connection}) =>
@@ -950,7 +973,7 @@ final class HermesAdminService {
         _stopping.remove(id);
         _runPending.remove(id);
         _announce();
-        return jobs();
+        return _jobsAfter();
       });
 
   /// The sessions job [id]'s runs wrote, newest first, each openable as a

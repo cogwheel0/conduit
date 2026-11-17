@@ -399,6 +399,28 @@ void main() {
     );
   });
 
+  test('a job made whose list cannot be read after is still answered with '
+      'its id', () async {
+    await saveHome();
+    final on = (await admin.connections()).connection;
+    // Read once, so the next reads are the quiet ones a window polls with.
+    await admin.jobs();
+    first.refuseJobList = true;
+    final jobs = await admin.saveJob(
+      HermesJobEdit(
+        name: 'Seed sowing',
+        prompt: 'Sow the tomatoes',
+        schedule: '0 8 * * *',
+        connection: on,
+      ),
+    );
+    first.refuseJobList = false;
+    expect(first.jobs, hasLength(1), reason: 'the job was made');
+    expect(jobs.savedId, first.jobs.keys.single, reason: 'its id came back');
+    expect(jobs.listFailed, isTrue, reason: 'the list was not read again');
+    first.jobs.clear();
+  });
+
   test('a Hermes settings change that names no connection is refused, and '
       'nothing of it reaches the server', () async {
     await saveHome();

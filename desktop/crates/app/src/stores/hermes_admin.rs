@@ -466,6 +466,11 @@ impl HermesAdminStore {
         if !self.answers(ticket, |s| &mut s.mcp_order) {
             return false;
         }
+        // Made, but not read again after: the list shown stays, read anew.
+        if servers.list_failed {
+            self.refresh_mcp(cx);
+            return true;
+        }
         self.mcp = Some(Loaded::Ready(servers));
         self.changed(cx);
         true
@@ -558,6 +563,11 @@ impl HermesAdminStore {
             self.pending_notices.extend(jobs.notices);
             self.changed(cx);
             return false;
+        }
+        // Made, but not read again after: the list shown stays, read anew.
+        if jobs.list_failed {
+            self.refresh_jobs(cx);
+            return true;
         }
         self.take_jobs(jobs, cx);
         true
@@ -1118,6 +1128,56 @@ mod tests {
                 "the newer list was thrown away by the switch before it"
             )
         });
+    }
+
+    /// A change whose list could not be read again after it keeps the
+    /// list shown (it is not emptied) and reads it again.
+    #[gpui_kit::test]
+    fn a_change_whose_list_failed_keeps_the_list_and_reads_it_again(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::HermesJobs>(jobs("Morning watering", None));
+        daemon.returns::<methods::HermesMcpList>(servers("seed-catalogue"));
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        let failed_jobs: HermesJobs =
+            serde_json::from_value(json!({"savedId": "j2", "listFailed": true})).unwrap();
+        let failed_mcp: HermesMcpServers =
+            serde_json::from_value(json!({"available": true, "listFailed": true})).unwrap();
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            s.adopt_jobs(jobs("Morning watering", None), cx);
+            s.adopt_mcp(servers("seed-catalogue"), cx);
+            s.adopt_jobs(failed_jobs, cx);
+            s.adopt_mcp(failed_mcp, cx);
+        });
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.jobs
+                    .as_ref()
+                    .and_then(Loaded::ready)
+                    .map(|j| j.jobs.len()),
+                Some(1),
+                "the jobs shown were emptied"
+            );
+            assert_eq!(
+                s.mcp
+                    .as_ref()
+                    .and_then(Loaded::ready)
+                    .map(|m| m.servers.len()),
+                Some(1),
+                "the servers shown were emptied"
+            );
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::HermesJobs>().len(),
+            1,
+            "the jobs were not read again"
+        );
+        assert_eq!(
+            daemon.calls::<methods::HermesMcpList>().len(),
+            1,
+            "the servers were not read again"
+        );
     }
 
     /// An MCP read asked before an action is answered after it: the
