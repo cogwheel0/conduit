@@ -1631,5 +1631,11 @@
   "desktopWidgetNoChats": "尚无聊天",
   "desktopWidgetSignedOut": "登录 Conduit 后，这里会显示你最近的聊天。",
   "desktopWidgetOpenConduit": "打开 Conduit",
-  "desktopWidgetDescription": "最近的聊天，以及一键可达的“新对话”“快速提问”和“语音通话”。"
+  "desktopWidgetDescription": "最近的聊天，以及一键可达的“新对话”“快速提问”和“语音通话”。",
+  "desktopShareSheetMessage": "添加消息",
+  "desktopShareSheetItems": "共享的项目",
+  "desktopShareSheetNothing": "这些项目都无法添加到对话中。",
+  "desktopShareSheetFailed": "无法打开 Conduit。请重试。",
+  "desktopServicesNewChat": "用所选内容新建 Conduit 对话",
+  "desktopShareSheetUnavailable": "无法打开共享的项目。请重新共享。"
 }

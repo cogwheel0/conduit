@@ -36,6 +36,10 @@ sed -e 's/@BUNDLE_ID@/app.cogwheel.conduit.desktop.dev/' \
     -e 's/@VERSION@/0.0.0/' \
     -e 's/@BUILD@/0/' \
     packaging/macos/Info.plist > "$app/Contents/Info.plist"
+# No Services menu items for dev bundles: every worktree's build would add
+# its own "Ask Conduit" to the Services menu of every app on this Mac. The
+# E2E pass calls the provider itself (desktop::services_provider).
+/usr/libexec/PlistBuddy -c 'Delete :NSServices' "$app/Contents/Info.plist" >/dev/null
 plutil -lint -s "$app/Contents/Info.plist"
 # The desktop widget, only when asked: every dev bundle would otherwise
 # register an extension with the system. Without it, an earlier build's

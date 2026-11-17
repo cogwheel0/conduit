@@ -19,6 +19,9 @@
   conduit:// is the same scheme the iOS app registers (kept on purpose:
   one set of links for both). The document types are "Open with" only
   (LSHandlerRank Alternate): Conduit never becomes the default app for them.
+
+  The Share extension (Contents/PlugIns/ConduitShare.appex) has its own
+  Info.plist, packaging/macos/share/Info.plist.
 -->
 <plist version="1.0">
 <dict>
@@ -126,6 +129,53 @@
 				<string>com.compuserve.gif</string>
 				<string>org.webmproject.webp</string>
 			</array>
+		</dict>
+	</array>
+
+	<!-- The Services menu (every app's app menu › Services, and the menu
+	     selected text opens): the selection goes to Conduit
+	     (shell/services.rs). Ask Conduit opens Quick Ask with it quoted;
+	     New Conduit Chat With Selection opens a new chat with it. Nothing
+	     is sent. ServicesMenu.strings (written from the ARB catalogs by
+	     share/build.sh) translates the titles. An empty NSRequiredContext
+	     turns the items on without a trip to System Settings. Dev bundles
+	     (crates/app/run.sh) drop this key, so worktree builds stay out of
+	     the Services menu. -->
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Ask Conduit</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>askConduit</string>
+			<key>NSPortName</key>
+			<string>@BUNDLE_NAME@</string>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.utf8-plain-text</string>
+			</array>
+			<key>NSRequiredContext</key>
+			<dict/>
+		</dict>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>New Conduit Chat With Selection</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>newChatWithSelection</string>
+			<key>NSPortName</key>
+			<string>@BUNDLE_NAME@</string>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.utf8-plain-text</string>
+			</array>
+			<key>NSRequiredContext</key>
+			<dict/>
 		</dict>
 	</array>
 

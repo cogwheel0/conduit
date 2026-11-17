@@ -1631,5 +1631,11 @@
   "desktopWidgetNoChats": "まだチャットがありません",
   "desktopWidgetSignedOut": "Conduit にサインインすると、ここに最近のチャットが表示されます。",
   "desktopWidgetOpenConduit": "Conduitを開く",
-  "desktopWidgetDescription": "最近のチャットと、ワンクリックで使える「新しいチャット」「クイック質問」「音声通話」。"
+  "desktopWidgetDescription": "最近のチャットと、ワンクリックで使える「新しいチャット」「クイック質問」「音声通話」。",
+  "desktopShareSheetMessage": "メッセージを追加",
+  "desktopShareSheetItems": "共有された項目",
+  "desktopShareSheetNothing": "これらの項目はどれもチャットに追加できません。",
+  "desktopShareSheetFailed": "Conduitを開けませんでした。もう一度お試しください。",
+  "desktopServicesNewChat": "選択部分で新しいConduitチャットを作成",
+  "desktopShareSheetUnavailable": "共有された項目を開けませんでした。もう一度共有してください。"
 }

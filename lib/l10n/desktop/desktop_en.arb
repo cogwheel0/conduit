@@ -5130,5 +5130,29 @@
   "desktopWidgetDescription": "Your recent chats, with New Chat, Quick Ask and Voice Call a click away.",
   "@desktopWidgetDescription": {
     "description": "The desktop widget's description in the macOS widget gallery, under its name Conduit. Names the widget's three buttons by their labels. Sentence case."
+  },
+  "desktopShareSheetMessage": "Add a message",
+  "@desktopShareSheetMessage": {
+    "description": "Placeholder of the optional message field in Conduit's Share sheet (Conduit chosen in another app's Share menu). The message goes into the new chat's message field with the shared items; nothing is sent."
+  },
+  "desktopShareSheetItems": "Shared items",
+  "@desktopShareSheetItems": {
+    "description": "Accessibility name of the list of items (files, links, text) in Conduit's Share sheet."
+  },
+  "desktopShareSheetNothing": "None of these items can be added to a chat.",
+  "@desktopShareSheetNothing": {
+    "description": "Note in Conduit's Share sheet when nothing shared can be used (for example only folders)."
+  },
+  "desktopShareSheetFailed": "Conduit couldn't be opened. Try again.",
+  "@desktopShareSheetFailed": {
+    "description": "Note in Conduit's Share sheet when handing the items to the app failed."
+  },
+  "desktopServicesNewChat": "New Conduit Chat With Selection",
+  "@desktopServicesNewChat": {
+    "description": "Services menu item (in every app's Services menu and text context menu) that starts a new Conduit chat with the selected text in the message field. Title Case, as Apple's \"New Email With Selection\"."
+  },
+  "desktopShareSheetUnavailable": "The shared items couldn't be opened. Share them again.",
+  "@desktopShareSheetUnavailable": {
+    "description": "Toast when Conduit was asked to open items from the Share menu that are no longer there."
   }
 }

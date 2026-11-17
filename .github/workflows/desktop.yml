@@ -277,6 +277,8 @@ jobs:
       # must run and find a licence for everything the app ships.
       - name: Third-party notices (generate, check the licence set)
         run: desktop/packaging/notices/notices.sh --check
+      - name: Share extension tests
+        run: desktop/packaging/macos/share/test.sh
       - name: Build, sign ad hoc, make the DMG and verify
         shell: bash
         run: |

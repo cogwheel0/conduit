@@ -6,7 +6,8 @@
 # 1. The bundle: Info.plist lints, Apple Silicon only, signature valid;
 #    the desktop widget is embedded (a sandboxed WidgetKit extension under
 #    the app's id, sharing its app group) with the library the app reloads
-#    it through.
+#    it through; the Share extension embedded, sandboxed and signed, and the
+#    Services items with their titles in every language (share/build.sh).
 # 2. The bundled conduitd, as signed (hardened runtime, entitlements,
 #    its own libsqlite3): apps/daemon/tool/smoke.dart starts it, checks the
 #    handshake, and that it exits 0 on stdin EOF and on system.shutdown.
@@ -21,6 +22,8 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
 . "$here/lib.sh"
+# shellcheck source=share/build.sh
+. "$here/share/build.sh"
 
 app="${1:-}"
 launch=0
@@ -36,6 +39,9 @@ while IFS= read -r f; do
   [ "$(lipo -archs "$f")" = "$ARCH" ] || die "$f is $(lipo -archs "$f")"
 done < <(macho_files "$app")
 codesign --verify --deep --strict --verbose=2 "$app"
+share_verify "$app" "$(plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist")" ||
+  die "the Share extension or the Services items are not as they should be"
+log "Share extension and Services items"
 
 log "desktop widget"
 appex="$app/Contents/PlugIns/ConduitWidget.appex"

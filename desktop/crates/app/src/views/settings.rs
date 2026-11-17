@@ -2239,11 +2239,13 @@ mod tests {
         assert_eq!(at(100), 1.);
     }
 
-    /// The app and its widget carry the same line (LICENSE's holder).
+    /// The app, its Share extension and its widget carry the same line
+    /// (LICENSE's holder).
     #[test]
     fn the_about_copyright_is_the_bundles() {
         for plist in [
             include_str!("../../../../packaging/macos/Info.plist"),
+            include_str!("../../../../packaging/macos/share/Info.plist"),
             include_str!("../../../../packaging/macos/widget/Info.plist"),
         ] {
             let key = plist.find("NSHumanReadableCopyright").unwrap();

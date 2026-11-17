@@ -287,6 +287,33 @@ impl QuickAskView {
         cx.notify();
     }
 
+    /// "Ask Conduit" from another app's Services menu: a fresh exchange
+    /// with `text` (the quoted selection), and nothing else, in the
+    /// composer and the caret after it, for the question. An exchange on
+    /// screen stays in the sidebar. `false`, and Quick Ask stays as it is,
+    /// while it holds something of the user's ([`Self::holds_a_draft`]):
+    /// the selection then goes to a new chat of its own.
+    pub fn ask_about(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.holds_a_draft(cx) {
+            return false;
+        }
+        self.new_chat(window, cx);
+        self.composer
+            .update(cx, |c, cx| c.set_text(text, window, cx));
+        cx.notify();
+        true
+    }
+
+    /// Words in the composer, a file (sent up, on its way or failed) or
+    /// context beside it, or a send still on its way.
+    fn holds_a_draft(&self, cx: &App) -> bool {
+        let store = self.composer_store.read(cx);
+        self.starting
+            || !self.composer.read(cx).text(cx).trim().is_empty()
+            || !store.attachments.is_empty()
+            || !store.context.is_empty()
+    }
+
     /// Open in Conduit: the main window on this chat, or on a new chat with
     /// the draft.
     pub fn open_in_conduit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1034,6 +1061,83 @@ mod tests {
         vcx.run_until_parked();
         view.read_with(vcx, |v, cx| {
             assert!(v.chat.is_none(), "the late reply opened its chat");
+            assert!(v.composer_store.read(cx).attachments.is_empty());
+        });
+    }
+    /// A Services selection never takes the place of what the user left in
+    /// Quick Ask, and never joins it: words, files (sent up or still on
+    /// their way) all stay as they were, with no selection among them.
+    #[gpui_kit::test]
+    fn a_services_selection_leaves_an_unsent_draft_as_it_is(cx: &mut TestAppContext) {
+        let (_daemon, _stores, view, vcx) = bench(cx);
+        view.update_in(vcx, |v, window, cx| {
+            v.composer
+                .update(cx, |c, cx| c.set_text("Draft for later", window, cx));
+            let _ = v.ask_about("> Prune in late winter.", window, cx);
+        });
+        view.read_with(vcx, |v, cx| {
+            assert_eq!(v.composer.read(cx).text(cx), "Draft for later");
+        });
+        let mut on_its_way = uploaded("orchard.pdf");
+        on_its_way.state = UploadState::Uploading { sent: 1, total: 3 };
+        for file in [uploaded("plan.pdf"), on_its_way] {
+            view.update_in(vcx, |v, window, cx| {
+                v.composer.update(cx, |c, cx| c.set_text("", window, cx));
+                v.composer_store
+                    .update(cx, |c, cx| c.adopt_attachments(vec![file], cx));
+                let _ = v.ask_about("> Prune in late winter.", window, cx);
+            });
+            view.read_with(vcx, |v, cx| {
+                assert_eq!(
+                    v.composer.read(cx).text(cx),
+                    "",
+                    "the selection joined old files"
+                );
+                assert_eq!(v.composer_store.read(cx).attachments.len(), 1);
+            });
+            view.update_in(vcx, |v, _, cx| {
+                v.composer_store.update(cx, |c, cx| c.reset(cx))
+            });
+        }
+    }
+
+    /// While a first send is on its way the panel is the user's: the
+    /// selection doesn't wait in its composer for that send's chat.
+    #[gpui_kit::test]
+    fn a_services_selection_during_a_first_send_stays_out_of_its_chat(cx: &mut TestAppContext) {
+        let (daemon, _stores, view, vcx) = bench(cx);
+        daemon.returns::<methods::TurnsSend>(
+            serde_json::from_value(serde_json::json!({
+                "chatId": "chat-first",
+                "userMessageId": "m",
+                "assistantMessageId": "a",
+            }))
+            .unwrap(),
+        );
+        let held = daemon.hold::<methods::TurnsSend>();
+        view.update_in(vcx, |v, window, cx| {
+            v.send_text("First question".into(), vec![], window, cx);
+            let _ = v.ask_about("> Prune in late winter.", window, cx);
+        });
+        held.release();
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, cx| {
+            assert_eq!(v.composer.read(cx).text(cx), "");
+        });
+    }
+
+    /// An idle panel (an exchange on screen, nothing typed) takes the
+    /// selection in a fresh exchange, with nothing else in it.
+    #[gpui_kit::test]
+    fn a_services_selection_in_an_idle_panel_starts_a_fresh_exchange(cx: &mut TestAppContext) {
+        let (_daemon, _stores, view, vcx) = bench(cx);
+        view.update_in(vcx, |v, window, cx| {
+            v.open_chat("chat-q".into(), cx);
+            let _ = v.ask_about("> Prune in late winter.", window, cx);
+        });
+        view.read_with(vcx, |v, cx| {
+            assert!(v.chat.is_none());
+            assert_eq!(v.composer.read(cx).text(cx), "> Prune in late winter.");
             assert!(v.composer_store.read(cx).attachments.is_empty());
         });
     }

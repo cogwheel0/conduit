@@ -6,7 +6,14 @@
 //!   Main, then [`dispatch`] opens them: a chat (`navigation.open`), a new
 //!   chat with the composer prefilled (text, or files attached through the
 //!   composer's upload path; at most 10, each up to 256 MB), a Settings
-//!   tab, or a toast for channels and notes (not opened here yet).
+//!   tab, a note or a channel.
+//! * **The Share menu** (`conduit://share/<id>` from the Share extension):
+//!   the share the extension staged ([`share_inbox`]) opens as a new chat,
+//!   as "Open with" does, with its message and text in the composer.
+//! * **The Services menu**: "Ask Conduit" opens Quick Ask with the
+//!   selected text quoted (a new chat when Quick Ask is off or not ready);
+//!   "New Conduit Chat With Selection" opens a new chat with it
+//!   ([`crate::shell::services`]).
 //! * **Answer notifications** on `turn.finished`, unless the chat is in
 //!   front of the user ([`notify::decide`]). Permission is asked the first
 //!   time the setting is turned on or a notification would go out. A
@@ -42,6 +49,8 @@ use crate::l10n::ActiveL10n as _;
 use crate::shell::deep_link::{self, OpenRequest};
 use crate::shell::notify::{self, NotificationKind, OnScreen};
 use crate::shell::open_files;
+use crate::shell::services::{self, ServiceRequest};
+use crate::shell::share_inbox;
 use crate::shell::widget::{self, Snapshot};
 use crate::stores::connection::ConnectionEvent;
 use crate::stores::navigation::{Area, AreaItem};
@@ -83,6 +92,8 @@ struct Platform {
     notifier: Option<crate::shell::notifications::Notifier>,
     hotkey: Option<crate::shell::hotkey::Hotkey>,
     tray: Option<crate::shell::tray::MenuBarItem>,
+    /// The Services menu's provider (set while the app launched).
+    services: Option<objc2::rc::Retained<services::Provider>>,
 }
 
 impl Global for Desktop {}
@@ -204,6 +215,7 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
     cx.observe(&stores.connection, |_, cx| cx.defer(drain))
         .detach();
     refresh_statuses(cx);
+    prune_shares(cx);
 
     let mut urls = urls;
     cx.spawn(async move |cx| {
@@ -253,6 +265,7 @@ pub fn handle_urls(urls: Vec<String>, cx: &mut App) {
 /// A request for the log: its kind, never ids, text or file names.
 fn describe(request: &OpenRequest) -> &'static str {
     match request {
+        OpenRequest::Share { .. } => "share",
         OpenRequest::Chat { .. } => "chat",
         OpenRequest::NewChat { files, .. } if !files.is_empty() => "new chat with files",
         OpenRequest::NewChat { .. } => "new chat",
@@ -319,6 +332,7 @@ fn dispatch(request: OpenRequest, cx: &mut App) {
             open_new_chat(text, vec![], attachments, cx);
         }
         OpenRequest::NewChat { text, files } => open_new_chat(text, files, vec![], cx),
+        OpenRequest::Share { id } => open_share(&id, cx),
         OpenRequest::Channel { id } => open_item(AreaItem::Channel(id), cx),
         OpenRequest::Note { id } => open_item(AreaItem::Note(id), cx),
         OpenRequest::QuickAsk => show_quick_ask(cx),
@@ -327,7 +341,8 @@ fn dispatch(request: OpenRequest, cx: &mut App) {
 }
 
 /// The main window on a new chat with `text`, the files at `files` and
-/// `attachments` (already uploaded) in its composer, never sent.
+/// `attachments` (already uploaded) in its composer, never sent; toasts for
+/// files left out.
 fn open_new_chat(
     text: Option<String>,
     files: Vec<std::path::PathBuf>,
@@ -344,35 +359,10 @@ fn open_new_chat(
         view.new_chat(false, window, cx);
         let pane = view.chat_pane.clone();
         pane.update(cx, |p, cx| {
-            if let Some(text) = &text {
-                p.composer.update(cx, |c, cx| c.set_text(text, window, cx));
-            }
-            if !plan.accepted.is_empty() {
-                p.composer_store
-                    .update(cx, |c, cx| c.add_paths(&plan.accepted, cx));
-            }
-            if !carried.is_empty() {
-                p.composer_store
-                    .update(cx, |c, cx| c.adopt_attachments(carried, cx));
-            }
-            p.focus_composer(window, cx);
+            p.hand_to_new_chat(text, plan.accepted, carried, window, cx);
         });
     });
-    let l10n = cx.l10n().clone();
-    if plan.too_many > 0 {
-        toast(
-            NoticeLevel::Warning,
-            l10n.desktop_open_files_too_many(plan.too_many as i64, open_files::MAX_FILES as i64),
-            cx,
-        );
-    }
-    for name in &plan.too_large {
-        toast(
-            NoticeLevel::Warning,
-            l10n.desktop_open_file_too_large(name),
-            cx,
-        );
-    }
+    refused_files(plan.too_many, &plan.too_large, cx);
 }
 
 /// `conduit://call` (the widget's Voice Call, mobile's `mic`): a voice call
@@ -391,6 +381,68 @@ fn start_voice_call(cx: &mut App) {
         },
         cx,
     );
+}
+
+/// The toasts for files a new chat could not take: past the count limit,
+/// or over the size limit.
+fn refused_files(too_many: usize, too_large: &[String], cx: &mut App) {
+    let l10n = cx.l10n().clone();
+    if too_many > 0 {
+        toast(
+            NoticeLevel::Warning,
+            l10n.desktop_open_files_too_many(too_many as i64, open_files::MAX_FILES as i64),
+            cx,
+        );
+    }
+    for name in too_large {
+        toast(
+            NoticeLevel::Warning,
+            l10n.desktop_open_file_too_large(name),
+            cx,
+        );
+    }
+}
+
+/// A share from the Share menu: the new chat the extension staged, with
+/// what it left out said as "Open with" says it.
+fn open_share(id: &str, cx: &mut App) {
+    let taken = match share_inbox::app_root() {
+        Some(root) => share_inbox::take(&root, id),
+        None => Err(share_inbox::TakeError::Missing),
+    };
+    prune_shares(cx);
+    match taken {
+        Ok(shared) => {
+            log::info!(
+                "share: {} file(s), text: {}",
+                shared.files.len(),
+                shared.text.is_some()
+            );
+            open_new_chat(shared.text, shared.files, vec![], cx);
+            refused_files(shared.too_many, &shared.too_large, cx);
+        }
+        Err(error) => {
+            log::warn!("share: not opened ({error:?})");
+            show_main(cx);
+            let text = cx.l10n().desktop_share_sheet_unavailable();
+            toast(NoticeLevel::Warning, text, cx);
+        }
+    }
+}
+
+/// Clears old shares from the inbox, off the main thread.
+fn prune_shares(cx: &mut App) {
+    let Some(root) = share_inbox::app_root() else {
+        return;
+    };
+    cx.background_executor()
+        .spawn(async move {
+            let removed = share_inbox::prune(&root, std::time::SystemTime::now());
+            if removed > 0 {
+                log::info!("share: cleared {removed} old share(s)");
+            }
+        })
+        .detach();
 }
 
 /// Opens `item` in its area's pane, or says the account has no such area
@@ -1499,6 +1551,95 @@ fn on_quick_ask_event(event: QuickAskEvent, cx: &mut App) {
             drain(cx);
         }
     }
+}
+
+// ── The Services menu ──────────────────────────────────────────────────────
+
+/// Keeps the Services provider [`services::install`] set while the app
+/// launched, and acts on what it receives.
+#[cfg(target_os = "macos")]
+pub fn install_services(
+    installed: Option<(
+        objc2::rc::Retained<services::Provider>,
+        mpsc::UnboundedReceiver<ServiceRequest>,
+    )>,
+    cx: &mut App,
+) {
+    let Some((provider, mut requests)) = installed else {
+        return;
+    };
+    if cx.has_global::<Desktop>() {
+        cx.global_mut::<Desktop>().platform.services = Some(provider);
+    }
+    cx.spawn(async move |cx| {
+        while let Some(request) = requests.next().await {
+            cx.update(|cx| cx.defer(move |cx| on_service(request, cx)));
+        }
+    })
+    .detach();
+}
+
+/// The Services provider (the E2E pass calls it as the Services menu does).
+#[cfg(target_os = "macos")]
+pub fn services_provider(cx: &App) -> Option<objc2::rc::Retained<services::Provider>> {
+    cx.try_global::<Desktop>()?.platform.services.clone()
+}
+
+/// What a Services item asked for: "Ask Conduit" quotes the selection in
+/// Quick Ask, or in a new chat when Quick Ask is off, can't ask yet (no
+/// account, not connected) or holds an unsent draft; "New Conduit Chat With Selection" puts it in a
+/// new chat as it is. Nothing is sent.
+pub fn on_service(request: ServiceRequest, cx: &mut App) {
+    match request {
+        ServiceRequest::Ask(text) => {
+            let quoted = services::quote(&text);
+            let quick_ask = cx
+                .try_global::<AppState>()
+                .is_some_and(|s| s.settings.read(cx).prefs.desktop.quick_ask);
+            if !(quick_ask && ask_in_quick_ask(&quoted, cx)) {
+                new_chat_with(quoted, cx);
+            }
+        }
+        ServiceRequest::NewChat(text) => new_chat_with(text, cx),
+    }
+}
+
+/// Quick Ask with `text` in a new exchange's composer, when it can ask
+/// and holds nothing of the user's (an unsent draft stays as it is).
+fn ask_in_quick_ask(text: &str, cx: &mut App) -> bool {
+    let Some((handle, view)) = quick_ask_window(cx) else {
+        return false;
+    };
+    if !view.read(cx).ready(cx) {
+        return false;
+    }
+    let text = text.to_string();
+    let asked = handle
+        .update(cx, |_, window, cx| {
+            view.update(cx, |v, cx| v.ask_about(&text, window, cx))
+        })
+        .unwrap_or(false);
+    if asked {
+        show_quick_ask(cx);
+    }
+    asked
+}
+
+/// A new chat in the main window with `text` in the composer.
+fn new_chat_with(text: String, cx: &mut App) {
+    if let Some(shell) = shell(cx) {
+        shell.update(cx, |s, cx| {
+            s.push(
+                OpenRequest::NewChat {
+                    text: Some(text),
+                    files: vec![],
+                },
+                cx,
+            )
+        });
+    }
+    show_main(cx);
+    drain(cx);
 }
 
 // ── The menu-bar item, the hotkey and notification clicks ──────────────────

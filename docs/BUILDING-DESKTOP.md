@@ -20,8 +20,11 @@ Conduit.app/Contents/
 ├── Frameworks/
 │   ├── Sparkle.framework       Sparkle 2, thinned to arm64 (release bundles)
 │   └── libconduit_widget.dylib the widget's WidgetCenter calls (Swift)
-├── PlugIns/ConduitWidget.appex the desktop widget (WidgetKit, Swift)
+├── PlugIns/
+│   ├── ConduitWidget.appex     the desktop widget (WidgetKit, Swift)
+│   └── ConduitShare.appex      the Share extension (packaging/macos/share), sandboxed
 └── Resources/
+    ├── <lang>.lproj/ServicesMenu.strings   the Services items' titles, 14 languages
     ├── AppIcon.icns            packaging/macos/AppIcon.icns (macOS 14/15)
     ├── Assets.car              packaging/macos/Assets.car (the icon on macOS 26+)
     ├── THIRD_PARTY_NOTICES.md  made by packaging/notices/notices.sh at bundle time
@@ -135,7 +138,8 @@ The order, all with `--options runtime` and a secure timestamp:
    `Updater.app`, then `Sparkle.framework`
 4. `Frameworks/libconduit_widget.dylib`, then `PlugIns/ConduitWidget.appex`
    with `widget/ConduitWidget.entitlements`
-5. `Conduit.app` with `Conduit.entitlements`
+5. `PlugIns/ConduitShare.appex` with `Share.entitlements` (filled in for the bundle id)
+6. `Conduit.app` with `Conduit.entitlements`
 
 Entitlements (`desktop/packaging/macos/`):
 
@@ -146,12 +150,74 @@ Entitlements (`desktop/packaging/macos/`):
 | `widget/ConduitWidget.entitlements` | `app-sandbox` | app extensions run in the App Sandbox |
 | both of the app's and the widget's, added when signing | `application-groups`: `WIDGET_APP_GROUP` | the widget reads the app's snapshot from the group's container ([The desktop widget](#the-desktop-widget)) |
 | both, with provisioning profiles only | `com.apple.application-identifier`, `com.apple.developer.team-identifier` | what each profile vouches for |
+| `share/Share.entitlements` | `app-sandbox`, `temporary-exception.files.home-relative-path.read-write` for `~/Library/Caches/<bundle id>.share-inbox/` | every app extension is sandboxed; the inbox is the one folder it hands shares through (see below) |
 
 Ad-hoc builds add `cs.disable-library-validation` to both, because without a
 team ID dyld refuses the bundle's own libraries (libsqlite3, the whisper
 library, Sparkle). Developer ID builds keep library validation. Nothing asks
 for the microphone yet: there is no `audio-input` entitlement and no
 `NSMicrophoneUsageDescription` until dictation lands.
+
+## The Share menu and the Services menu
+
+**Share extension** (`packaging/macos/share/`): "Conduit" in every app's
+Share menu takes text, web links and up to ten files, images or movies, and
+shows a small sheet with an optional message, Cancel and Open in Conduit.
+`share/build.sh` compiles it with `swiftc` (no Xcode project) and fills its
+Info.plist; `bundle.sh` embeds and signs it before the app.
+
+The hand-off works with ad-hoc and Developer ID signatures alike. The
+sandboxed extension copies what it was given into
+`~/Library/Caches/<bundle id>.share-inbox/<uuid>/` (a `manifest.json` and
+`files/<n>/<name>`; written as `<uuid>.part`, then renamed), and opens
+`conduit://share/<uuid>` **with its own containing app** (never whichever
+app owns `conduit://`). The app reads the share once
+(`shell/share_inbox.rs`), opens a new chat with the message and text in the
+composer and the files attached, nothing sent, and clears taken shares
+after ten minutes and abandoned ones after a day. Why not an App Group: since
+macOS 15 a group container needs a team ID prefix or a provisioning profile,
+or the system asks the user before the app may read it, and an ad-hoc build
+has no team ID. A home-relative temporary exception needs neither (the Mac
+App Store would refuse it; Conduit is not sold there).
+
+Limits of an ad-hoc build: Gatekeeper refuses it on other Macs, and
+PlugInKit only offers the extension once the app is registered with
+LaunchServices (a first launch, or `lsregister`) and the extension is turned
+on (System Settings › General › Login Items & Extensions › Sharing, or
+`pluginkit -e use -i <bundle id>.share`).
+
+**Services** (`NSServices` in `Info.plist`, `shell/services.rs`): "Ask
+Conduit" opens Quick Ask with the selected text quoted (a new chat when Quick
+Ask is off or not set up), and "New Conduit Chat With Selection" opens a new
+chat with it. Their titles are translated by `ServicesMenu.strings`, which
+`share/build.sh` writes from the ARB catalogs (`native-strings.swift`).
+Dev bundles (`crates/app/run.sh`) leave `NSServices` out, so worktree builds
+never appear in the Services menu.
+
+**Tests:**
+
+- `share/test.sh`: the inbox's tests (`share/tests/InboxTests.swift`, which
+  checks the manifest against `share/tests/manifest-v1.json`, as the app's
+  `share_inbox` tests do) and a type-check of the extension and its preview.
+- `share/preview.sh DIR`: the sheet's content in light and dark, drawn off
+  screen by the extension's own view controller over synthetic items
+  (built with `-D SHARE_PREVIEW`, which the extension never is).
+- `crates/app/run.sh --shots DIR --e2e share`: the app's side, against the
+  local Open WebUI: a share staged as the extension stages it, its link, the
+  new chat, the upload and the send; the Services provider called as macOS
+  calls it.
+- `share/e2e-system.sh APP --shots DIR`: a bundle built with a **test**
+  bundle id (`bundle.sh --bundle-id … --test-env CONDUIT_FLAVOR=dev …`; the
+  release id is refused) registered with LaunchServices and PlugInKit; the
+  real sheet opened from another app (`share/tests/ShareDriver.swift`) and
+  the copy the sandboxed extension stages; that share finished as Open in
+  Conduit finishes it and its link delivered to the test app;
+  `NSPerformService("Ask Conduit")` once only the test bundle provides it;
+  then everything unregistered. It never opens another app's extension.
+- By hand: the real sheet's Open in Conduit and Cancel, and its look in
+  place. Since macOS 13 the sheet is a remote view in windows ShareKit lays
+  over the host; it takes no synthetic keys from the host and cannot be
+  captured without Screen Recording permission.
 
 ## Notarization
 

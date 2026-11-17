@@ -1631,5 +1631,11 @@
   "desktopWidgetNoChats": "尚無聊天",
   "desktopWidgetSignedOut": "登入 Conduit 後，這裡會顯示你最近的聊天。",
   "desktopWidgetOpenConduit": "開啟 Conduit",
-  "desktopWidgetDescription": "最近的聊天，以及一鍵可達的「新對話」「快速提問」和「語音通話」。"
+  "desktopWidgetDescription": "最近的聊天，以及一鍵可達的「新對話」「快速提問」和「語音通話」。",
+  "desktopShareSheetMessage": "新增訊息",
+  "desktopShareSheetItems": "分享的項目",
+  "desktopShareSheetNothing": "這些項目都無法加入對話。",
+  "desktopShareSheetFailed": "無法開啟 Conduit。請再試一次。",
+  "desktopServicesNewChat": "以所選內容新增 Conduit 對話",
+  "desktopShareSheetUnavailable": "無法開啟分享的項目。請重新分享。"
 }

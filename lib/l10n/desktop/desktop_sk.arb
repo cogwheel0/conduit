@@ -1631,5 +1631,11 @@
   "desktopWidgetNoChats": "Zatiaľ žiadne chaty",
   "desktopWidgetSignedOut": "Prihláste sa do Conduitu a uvidíte tu svoje nedávne chaty.",
   "desktopWidgetOpenConduit": "Otvoriť Conduit",
-  "desktopWidgetDescription": "Vaše nedávne chaty a k tomu Nový chat, Rýchla otázka a Hlasový hovor na jedno kliknutie."
+  "desktopWidgetDescription": "Vaše nedávne chaty a k tomu Nový chat, Rýchla otázka a Hlasový hovor na jedno kliknutie.",
+  "desktopShareSheetMessage": "Pridajte správu",
+  "desktopShareSheetItems": "Zdieľané položky",
+  "desktopShareSheetNothing": "Žiadnu z týchto položiek nemožno pridať do chatu.",
+  "desktopShareSheetFailed": "Conduit sa nepodarilo otvoriť. Skúste to znova.",
+  "desktopServicesNewChat": "Nový chat v Conduite s výberom",
+  "desktopShareSheetUnavailable": "Zdieľané položky sa nepodarilo otvoriť. Zdieľajte ich znova."
 }

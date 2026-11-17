@@ -1631,5 +1631,11 @@
   "desktopWidgetNoChats": "Brak czatów",
   "desktopWidgetSignedOut": "Zaloguj się do Conduit, aby zobaczyć tu ostatnie czaty.",
   "desktopWidgetOpenConduit": "Otwórz Conduit",
-  "desktopWidgetDescription": "Ostatnie czaty oraz Nowy czat, Szybkie pytanie i Połączenie głosowe na jedno kliknięcie."
+  "desktopWidgetDescription": "Ostatnie czaty oraz Nowy czat, Szybkie pytanie i Połączenie głosowe na jedno kliknięcie.",
+  "desktopShareSheetMessage": "Dodaj wiadomość",
+  "desktopShareSheetItems": "Udostępnione elementy",
+  "desktopShareSheetNothing": "Żadnego z tych elementów nie można dodać do czatu.",
+  "desktopShareSheetFailed": "Nie udało się otworzyć Conduit. Spróbuj ponownie.",
+  "desktopServicesNewChat": "Nowy czat Conduit z zaznaczeniem",
+  "desktopShareSheetUnavailable": "Nie udało się otworzyć udostępnionych elementów. Udostępnij je ponownie."
 }
