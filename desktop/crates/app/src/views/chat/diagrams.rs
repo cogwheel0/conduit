@@ -207,49 +207,88 @@ enum Drawn {
     Failed,
 }
 
-/// How many pictures are kept (the oldest go first).
+/// How many drawn (or failed) pictures are kept: diagrams still on their
+/// way do not count, and are never dropped.
 const CACHE_CAP: usize = 96;
+/// A picture drawn by a message this recently is in use (on screen): it is
+/// never what goes to make room. Each frame that shows it marks it again.
+const IN_USE: Duration = Duration::from_secs(10);
 /// How long one diagram may take before it counts as failed (and the
 /// renderer, which may be stuck, is made anew).
 const RENDER_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// The diagrams asked for, by key (each once): pending, drawn or failed,
+/// and when a message last drew each.
 struct Cache {
     drawn: HashMap<Key, Drawn>,
-    order: VecDeque<Key>,
+    used: HashMap<Key, Instant>,
 }
 
 impl Cache {
+    fn new() -> Self {
+        Self {
+            drawn: HashMap::new(),
+            used: HashMap::new(),
+        }
+    }
+
+    #[cfg(test)]
     fn get(&self, key: &Key) -> Option<Drawn> {
         self.drawn.get(key).cloned()
     }
 
-    /// Keeps `value` for `key` (each key in the order once). Past the cap,
-    /// the oldest picture that is no longer on its way goes: a Pending one
-    /// stays, its job queued or in flight (dropping it would ask for it
-    /// again, over and over); with nothing else to drop the cap waits.
-    fn put(&mut self, key: Key, value: Drawn) {
-        if self.drawn.insert(key.clone(), value).is_none() {
-            self.order.push_back(key);
+    /// `key`'s entry as a message drawing it at `now` sees it, which marks
+    /// it in use.
+    fn touch(&mut self, key: &Key, now: Instant) -> Option<Drawn> {
+        let drawn = self.drawn.get(key).cloned()?;
+        self.used.insert(key.clone(), now);
+        Some(drawn)
+    }
+
+    /// Keeps `value` for `key` at `now`. A finished one (drawn or failed)
+    /// may make room: past [`CACHE_CAP`] finished pictures, the least
+    /// recently drawn one goes, but never `key` itself, one in use
+    /// ([`IN_USE`]) or one still on its way. With none to drop, the cap
+    /// waits (it is exceeded for a while), so nothing is ever drawn twice
+    /// in a loop.
+    fn put(&mut self, key: Key, value: Drawn, now: Instant) {
+        let finished = !matches!(value, Drawn::Pending);
+        self.drawn.insert(key.clone(), value);
+        self.used.insert(key.clone(), now);
+        if !finished {
+            return;
         }
-        while self.order.len() > CACHE_CAP {
-            let Some(at) = self
-                .order
+        while self.finished() > CACHE_CAP {
+            let idle = |k: &Key| {
+                self.used
+                    .get(k)
+                    .is_none_or(|at| now.saturating_duration_since(*at) >= IN_USE)
+            };
+            let Some(old) = self
+                .drawn
                 .iter()
-                .position(|k| !matches!(self.drawn.get(k), Some(Drawn::Pending)))
+                .filter(|(k, d)| !matches!(d, Drawn::Pending) && **k != key && idle(k))
+                .min_by_key(|(k, _)| self.used.get(*k).copied())
+                .map(|(k, _)| k.clone())
             else {
                 break;
             };
-            if let Some(old) = self.order.remove(at) {
-                self.drawn.remove(&old);
-            }
+            self.remove(&old);
         }
     }
 
-    /// Forgets `key`, from the order too.
+    /// How many pictures are drawn or failed (not on their way).
+    fn finished(&self) -> usize {
+        self.drawn
+            .values()
+            .filter(|d| !matches!(d, Drawn::Pending))
+            .count()
+    }
+
+    /// Forgets `key` everywhere.
     fn remove(&mut self, key: &Key) {
-        if self.drawn.remove(key).is_some() {
-            self.order.retain(|k| k != key);
-        }
+        self.drawn.remove(key);
+        self.used.remove(key);
     }
 }
 
@@ -287,10 +326,7 @@ enum Stuck {
 }
 
 thread_local! {
-    static CACHE: RefCell<Cache> = RefCell::new(Cache {
-        drawn: HashMap::new(),
-        order: VecDeque::new(),
-    });
+    static CACHE: RefCell<Cache> = RefCell::new(Cache::new());
     static RENDERERS: RefCell<HashMap<u64, Renderer>> = RefCell::new(HashMap::new());
     static NEXT_JOB: std::cell::Cell<u64> = const { std::cell::Cell::new(1) };
     /// Whether closing a window ends its renderer ([`follow_window_closes`]).
@@ -334,7 +370,8 @@ fn drawn(kind: DiagramKind, code: &str, window: &mut Window, cx: &mut App) -> Dr
         theme: hash_of(&theme),
         scale: (scale * 100.) as u32,
     };
-    if let Some(hit) = CACHE.with(|c| c.borrow().get(&key)) {
+    let now = Instant::now();
+    if let Some(hit) = CACHE.with(|c| c.borrow_mut().touch(&key, now)) {
         return hit;
     }
     let source = match kind {
@@ -342,10 +379,10 @@ fn drawn(kind: DiagramKind, code: &str, window: &mut Window, cx: &mut App) -> Dr
         DiagramKind::Chart => chart_config(code),
     };
     let Some(source) = source else {
-        CACHE.with(|c| c.borrow_mut().put(key, Drawn::Failed));
+        CACHE.with(|c| c.borrow_mut().put(key, Drawn::Failed, now));
         return Drawn::Failed;
     };
-    CACHE.with(|c| c.borrow_mut().put(key.clone(), Drawn::Pending));
+    CACHE.with(|c| c.borrow_mut().put(key.clone(), Drawn::Pending, now));
     let id = NEXT_JOB.with(|n| {
         let id = n.get();
         n.set(id + 1);
@@ -552,8 +589,8 @@ fn make_renderer(
                     },
                     _ => Drawn::Failed,
                 };
-                // Replaces the pending entry, keeping its place.
-                CACHE.with(|c| c.borrow_mut().put(job.key.clone(), value));
+                // Replaces the pending entry; never itself what makes room.
+                CACHE.with(|c| c.borrow_mut().put(job.key.clone(), value, Instant::now()));
                 pump(wk, cx);
                 let _ = handle.update(cx, |_, window, _| window.refresh());
             });
@@ -1230,35 +1267,82 @@ mod tests {
 
     /// More diagrams than the cache holds, all still on their way: none is
     /// evicted (each would be asked for again, in a loop), and each key is
-    /// in the order once. A drawn one is what goes when room is needed.
+    /// held once; taken out, a key is gone everywhere.
     #[test]
     fn diagrams_on_their_way_stay_and_each_key_is_kept_once() {
-        let mut cache = Cache {
-            drawn: HashMap::new(),
-            order: VecDeque::new(),
-        };
+        let t0 = Instant::now();
+        let mut cache = Cache::new();
         let n = CACHE_CAP as u64 + 1;
         for k in 0..n {
-            cache.put(key_n(k), Drawn::Pending);
+            cache.put(key_n(k), Drawn::Pending, t0);
         }
         assert!((0..n).all(|k| matches!(cache.get(&key_n(k)), Some(Drawn::Pending))));
-        // Asked again while pending: still once.
-        cache.put(key_n(0), Drawn::Pending);
-        assert_eq!(cache.order.len(), n as usize);
-        // One comes back drawn, then one more is asked: room is made from
-        // what is no longer on its way, never from what is.
-        cache.put(key_n(5), Drawn::Failed);
-        cache.put(key_n(n), Drawn::Pending);
-        assert!(cache.get(&key_n(5)).is_none());
-        assert!(matches!(cache.get(&key_n(0)), Some(Drawn::Pending)));
-        assert!(cache.get(&key_n(n)).is_some());
-        // Taken out (a closed window's): gone from both, and asked again
-        // it is in the order once.
+        cache.put(key_n(0), Drawn::Pending, t0);
+        assert_eq!(cache.drawn.len(), n as usize);
         cache.remove(&key_n(7));
-        cache.put(key_n(7), Drawn::Pending);
-        let sevens = cache.order.iter().filter(|k| **k == key_n(7)).count();
-        assert_eq!(sevens, 1);
-        assert_eq!(cache.order.len(), cache.drawn.len());
+        assert!(cache.get(&key_n(7)).is_none() && !cache.used.contains_key(&key_n(7)));
+        cache.put(key_n(7), Drawn::Pending, t0);
+        assert_eq!(cache.drawn.len(), cache.used.len());
+    }
+
+    /// More diagrams than the cache holds, all on screen: each is drawn
+    /// once and shown; the one that just arrived is never what goes, nor
+    /// one a message just drew, so nothing is asked for again.
+    #[test]
+    fn more_diagrams_than_the_cache_holds_each_render_once() {
+        let t0 = Instant::now();
+        let mut cache = Cache::new();
+        let n = CACHE_CAP as u64 + 1;
+        let mut renders = vec![0u32; n as usize];
+        for k in 0..n {
+            cache.put(key_n(k), Drawn::Pending, t0);
+            renders[k as usize] += 1;
+        }
+        for k in 0..n {
+            let now = t0 + Duration::from_millis(100 * (k + 1));
+            cache.put(key_n(k), Drawn::Failed, now);
+            // The window draws again: every message shows its diagram.
+            for v in 0..n {
+                if cache.touch(&key_n(v), now).is_none() {
+                    cache.put(key_n(v), Drawn::Pending, now);
+                    renders[v as usize] += 1;
+                }
+            }
+        }
+        assert!(
+            renders.iter().all(|r| *r == 1),
+            "renders per key: {renders:?}"
+        );
+        assert_eq!(
+            cache.finished(),
+            n as usize,
+            "over the cap while all are shown"
+        );
+    }
+
+    /// Room is made from pictures no message has drawn lately: the least
+    /// recently drawn one goes, never the one that just arrived.
+    #[test]
+    fn room_is_made_from_pictures_no_longer_shown() {
+        let t0 = Instant::now();
+        let mut cache = Cache::new();
+        for k in 0..CACHE_CAP as u64 {
+            cache.put(key_n(k), Drawn::Failed, t0 + Duration::from_millis(k));
+        }
+        // Long after, one is drawn again and a new one arrives.
+        let later = t0 + IN_USE + Duration::from_secs(1);
+        cache.touch(&key_n(0), later);
+        cache.put(key_n(500), Drawn::Failed, later);
+        assert!(
+            cache.get(&key_n(1)).is_none(),
+            "the least recently drawn went"
+        );
+        assert!(cache.get(&key_n(0)).is_some(), "the one just drawn stayed");
+        assert!(
+            cache.get(&key_n(500)).is_some(),
+            "the one that arrived stayed"
+        );
+        assert_eq!(cache.finished(), CACHE_CAP);
     }
 
     /// A renderer (with a diagram waiting) belongs to its window: closing
@@ -1275,7 +1359,10 @@ mod tests {
         };
         vcx.update(|_, cx| {
             follow_window_closes(cx);
-            CACHE.with(|c| c.borrow_mut().put(key.clone(), Drawn::Pending));
+            CACHE.with(|c| {
+                c.borrow_mut()
+                    .put(key.clone(), Drawn::Pending, Instant::now())
+            });
             RENDERERS.with(|r| {
                 r.borrow_mut().insert(
                     wk,
