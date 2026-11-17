@@ -166,8 +166,18 @@ Future<void> renewProxySessionInPlace(
     await ref.read(activeServerProvider.future);
     // The kept session is asked about through the renewed cookies before it
     // shows signed in, as Retry asks: a refresh trusts it at once. Refused,
-    // the connection issue stays; a newer sign-in meanwhile is left alone
-    // (the core checks it is still the kept session it signs back in).
+    // the connection issue stays. Only while that issue is still the state,
+    // with the kept session, and [canCommit] still holds after the waits
+    // above: a sign-in begun or committed meanwhile is newer, and Retry's
+    // fallback (a refresh, a new attempt) would supersede it.
+    final AsyncValue<AuthState> now = ref.read(authStateManagerProvider);
+    final current = now.value;
+    if (!mayCommit() ||
+        current == null ||
+        current.status != AuthStatus.error ||
+        current.token != kept?.token) {
+      return;
+    }
     await authManager.retryConnectionIssue();
   }
   DebugLogger.auth('Proxy session renewed in place', scope: 'auth/connection');

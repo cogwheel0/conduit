@@ -30,6 +30,9 @@ final class FakeOwuiAuthServer {
   bool proxyRefuses = false;
   String? proxyAccepts;
 
+  /// The session the last password sign-in was given.
+  String? lastIssued;
+
   /// The email of every user whose session was ended through sign-out.
   final List<String> signedOut = <String>[];
 
@@ -117,6 +120,7 @@ final class FakeOwuiAuthServer {
       }
       final token = 'fake-token-${++_issued}';
       _tokens[token] = email;
+      lastIssued = token;
       return json(<String, dynamic>{
         ..._user(email),
         'token': token,

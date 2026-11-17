@@ -7,10 +7,13 @@ import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/auth/proxy_renewal.dart';
+import 'package:conduit_core/auth/proxy_session.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:riverpod/riverpod.dart' show AsyncValue;
 import 'package:test/test.dart';
 
 import 'support/fake_owui_auth_server.dart';
@@ -307,4 +310,55 @@ void main() {
     check(renewed.user?.name).equals(name);
     check(await cookieOf(inCharge)).isNotNull().contains('renewed');
   });
+
+  test(
+    'a sign-in begun once a renewal has saved is not superseded by it',
+    () async {
+      final inCharge = (await accounts.list()).activeAccountId!;
+      final (email, password) = inCharge == robin
+          ? ('robin@example.com', 'pw-r')
+          : ('sky@example.com', 'pw-s');
+      // On the connection issue; the moment the renewal's server is in use
+      // with its cookies, the account signs in again (its check held).
+      runtime.container.read(authStateManagerProvider.notifier).onAuthIssue();
+      final active = await runtime.container.read(activeServerProvider.future);
+      final hold = Completer<void>();
+      Future<bool>? signingIn;
+      // The renewed server in use: from here the renewal only has its
+      // retry left.
+      final saved = runtime.container.listen<AsyncValue<ServerConfig?>>(
+        activeServerProvider,
+        (_, next) {
+          final server = next.value;
+          final renewed =
+              server?.id == inCharge &&
+              (server?.customHeaders['Cookie'] ?? '').contains(
+                'saved-meanwhile',
+              );
+          if (renewed && signingIn == null) {
+            owui.holdSessionCheck = hold;
+            owui.sessionChecked = Completer<void>();
+            signingIn = runtime.container
+                .read(authStateManagerProvider.notifier)
+                .login(email, password);
+          }
+        },
+      );
+      addTearDown(saved.close);
+      await renewProxySessionInPlace(
+        runtime.container,
+        activeServer: active!,
+        capture: ProxyAuthCapture(
+          cookies: const {'proxy_session': 'saved-meanwhile'},
+        ),
+      );
+      check(signingIn).isNotNull();
+      await owui.sessionChecked.future;
+      final newer = owui.lastIssued;
+      hold.complete();
+      check(await signingIn!).isTrue();
+      check(runtime.container.read(authStateManagerProvider).value?.token)
+          .equals(newer);
+    },
+  );
 }
