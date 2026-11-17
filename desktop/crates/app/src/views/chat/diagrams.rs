@@ -223,14 +223,32 @@ impl Cache {
         self.drawn.get(key).cloned()
     }
 
+    /// Keeps `value` for `key` (each key in the order once). Past the cap,
+    /// the oldest picture that is no longer on its way goes: a Pending one
+    /// stays, its job queued or in flight (dropping it would ask for it
+    /// again, over and over); with nothing else to drop the cap waits.
     fn put(&mut self, key: Key, value: Drawn) {
         if self.drawn.insert(key.clone(), value).is_none() {
             self.order.push_back(key);
-            while self.order.len() > CACHE_CAP {
-                if let Some(old) = self.order.pop_front() {
-                    self.drawn.remove(&old);
-                }
+        }
+        while self.order.len() > CACHE_CAP {
+            let Some(at) = self
+                .order
+                .iter()
+                .position(|k| !matches!(self.drawn.get(k), Some(Drawn::Pending)))
+            else {
+                break;
+            };
+            if let Some(old) = self.order.remove(at) {
+                self.drawn.remove(&old);
             }
+        }
+    }
+
+    /// Forgets `key`, from the order too.
+    fn remove(&mut self, key: &Key) {
+        if self.drawn.remove(key).is_some() {
+            self.order.retain(|k| k != key);
         }
     }
 }
@@ -367,7 +385,7 @@ fn forget_window(wk: u64) {
             .chain(renderer.in_flight.iter().map(|(job, _)| job));
         for job in waiting {
             if matches!(c.drawn.get(&job.key), Some(Drawn::Pending)) {
-                c.drawn.remove(&job.key);
+                c.remove(&job.key);
             }
         }
     });
@@ -645,7 +663,7 @@ fn pump(wk: u64, cx: &mut App) {
                 for key in waiting {
                     match stuck {
                         Stuck::Job => {
-                            c.drawn.remove(&key);
+                            c.remove(&key);
                         }
                         Stuck::Page => {
                             if let Some(slot) = c.drawn.get_mut(&key) {
@@ -1199,6 +1217,48 @@ mod tests {
         // The page bounds what it draws the same way.
         assert!(RENDERER_JS.contains("Number.isFinite(r)&&r>=0.2&&r<=10"));
         assert!(RENDERER_JS.contains(&format!("MAX_SIDE={MAX_SIDE},MAX_AREA={MAX_AREA};")));
+    }
+
+    fn key_n(n: u64) -> Key {
+        Key {
+            kind: DiagramKind::Mermaid,
+            code: n,
+            theme: 1,
+            scale: 200,
+        }
+    }
+
+    /// More diagrams than the cache holds, all still on their way: none is
+    /// evicted (each would be asked for again, in a loop), and each key is
+    /// in the order once. A drawn one is what goes when room is needed.
+    #[test]
+    fn diagrams_on_their_way_stay_and_each_key_is_kept_once() {
+        let mut cache = Cache {
+            drawn: HashMap::new(),
+            order: VecDeque::new(),
+        };
+        let n = CACHE_CAP as u64 + 1;
+        for k in 0..n {
+            cache.put(key_n(k), Drawn::Pending);
+        }
+        assert!((0..n).all(|k| matches!(cache.get(&key_n(k)), Some(Drawn::Pending))));
+        // Asked again while pending: still once.
+        cache.put(key_n(0), Drawn::Pending);
+        assert_eq!(cache.order.len(), n as usize);
+        // One comes back drawn, then one more is asked: room is made from
+        // what is no longer on its way, never from what is.
+        cache.put(key_n(5), Drawn::Failed);
+        cache.put(key_n(n), Drawn::Pending);
+        assert!(cache.get(&key_n(5)).is_none());
+        assert!(matches!(cache.get(&key_n(0)), Some(Drawn::Pending)));
+        assert!(cache.get(&key_n(n)).is_some());
+        // Taken out (a closed window's): gone from both, and asked again
+        // it is in the order once.
+        cache.remove(&key_n(7));
+        cache.put(key_n(7), Drawn::Pending);
+        let sevens = cache.order.iter().filter(|k| **k == key_n(7)).count();
+        assert_eq!(sevens, 1);
+        assert_eq!(cache.order.len(), cache.drawn.len());
     }
 
     /// A renderer (with a diagram waiting) belongs to its window: closing
