@@ -383,7 +383,10 @@ impl HermesAdminStore {
             *owner = Some(now);
         }
         if switched {
-            // Another connection's status, catalog, servers and jobs.
+            // Another connection's status, catalog, servers and jobs. Servers
+            // shown or being read are read again for it, as `hermes.changed`
+            // reads them (jobs too, while watched).
+            let mcp_shown = self.mcp.is_some();
             self.status = None;
             self.catalog = None;
             self.mcp = None;
@@ -394,6 +397,9 @@ impl HermesAdminStore {
             self.busy.clear();
             self.mcp_busy.clear();
             self.generation += 1;
+            if mcp_shown {
+                self.refresh_mcp(cx);
+            }
             if self.watching_jobs {
                 self.refresh_jobs(cx);
             }
@@ -1016,10 +1022,52 @@ mod tests {
 
     /// Reads still out when another connection comes into use answer for
     /// the connection before it: none of them lands under the new one.
+    /// MCP servers shown (or being read) when another connection comes into
+    /// use are read again for it, as `hermes.changed` reads them: the list
+    /// does not stay empty until a window happens to ask.
+    #[gpui_kit::test]
+    fn a_switch_reads_the_shown_servers_again(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let n = Arc::new(AtomicUsize::new(0));
+        let count = n.clone();
+        daemon.on::<methods::HermesMcpList>(move |_| {
+            let first = count.fetch_add(1, Ordering::SeqCst) == 0;
+            Ok(
+                serde_json::to_value(servers(if first { "shed-tools" } else { "studio-tools" }))
+                    .unwrap(),
+            )
+        });
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            s.refresh_mcp(cx);
+        });
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.adopt_connections(list("b"), cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.mcp,
+                Some(Loaded::Ready(servers("studio-tools"))),
+                "the servers were not read again for the connection in use"
+            );
+        });
+    }
+
     #[gpui_kit::test]
     fn reads_from_the_connection_before_a_switch_are_dropped(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
-        daemon.returns::<methods::HermesMcpList>(servers("seed-catalogue"));
+        let n = Arc::new(AtomicUsize::new(0));
+        let count = n.clone();
+        daemon.on::<methods::HermesMcpList>(move |_| {
+            let first = count.fetch_add(1, Ordering::SeqCst) == 0;
+            Ok(serde_json::to_value(servers(if first {
+                "seed-catalogue"
+            } else {
+                "studio-tools"
+            }))
+            .unwrap())
+        });
         daemon.returns::<methods::HermesStatus>(
             serde_json::from_value(json!({"configured": true, "reachable": true})).unwrap(),
         );
@@ -1048,7 +1096,12 @@ mod tests {
         drop(held);
         cx.run_until_parked();
         store.read_with(cx, |s, _| {
-            assert_eq!(s.mcp, None, "the last connection's servers landed");
+            // Read again for the connection in use; the last one's never land.
+            assert_eq!(
+                s.mcp,
+                Some(Loaded::Ready(servers("studio-tools"))),
+                "the last connection's servers landed"
+            );
             assert_eq!(s.status, None, "the last connection's status landed");
             assert_eq!(s.catalog, None, "the last connection's catalog landed");
             assert_eq!(s.jobs, None, "the last connection's jobs landed");
@@ -1065,8 +1118,18 @@ mod tests {
     #[gpui_kit::test]
     fn a_connection_named_anew_is_another(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
-        daemon.returns::<methods::HermesMcpList>(servers("seed-catalogue"));
-        let held = daemon.hold::<methods::HermesMcpList>();
+        let n = Arc::new(AtomicUsize::new(0));
+        let count = n.clone();
+        daemon.on::<methods::HermesMcpList>(move |_| {
+            let first = count.fetch_add(1, Ordering::SeqCst) == 0;
+            Ok(serde_json::to_value(servers(if first {
+                "seed-catalogue"
+            } else {
+                "studio-tools"
+            }))
+            .unwrap())
+        });
+        let held = daemon.hold_one::<methods::HermesMcpList>(0);
         let named = |key: &str| {
             let mut l = list("a");
             l.connection = Some(key.to_string());
@@ -1081,7 +1144,13 @@ mod tests {
         drop(held);
         cx.run_until_parked();
         store.read_with(cx, |s, _| {
-            assert_eq!(s.mcp, None, "the connection before's servers landed");
+            // Read again for the connection now named; the one before's never
+            // land.
+            assert_eq!(
+                s.mcp,
+                Some(Loaded::Ready(servers("studio-tools"))),
+                "the connection before's servers landed"
+            );
             assert_eq!(s.connection().as_deref(), Some("0a1b2c3d:2"));
         });
     }
