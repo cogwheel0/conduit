@@ -6,6 +6,7 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/auth/openwebui_two_step.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
@@ -97,6 +98,40 @@ void main() {
     final snapshot = await auth.retry();
     check(snapshot.isAuthenticated).isFalse();
     check(snapshot.phase).equals(AuthPhase.error);
+  });
+
+  test('a sign-in started while the server is still read keeps its second '
+      'step', () async {
+    // Startup: the active server is still being read when the sign-in goes.
+    final read = Completer<ServerConfig?>();
+    final starter = _Manager();
+    final starting = ProviderContainer(
+      overrides: [
+        authStateManagerProvider.overrideWith(() => starter),
+        activeServerProvider.overrideWith((ref) => read.future),
+        reviewerModeProvider.overrideWithValue(false),
+      ],
+    );
+    addTearDown(starting.dispose);
+    await starting.read(authStateManagerProvider.future);
+    final early = AuthService(starting);
+    starter.next = OpenWebUiTwoStepKind.verify;
+    final signingIn = early.loginWithPassword(
+      const PasswordLogin(username: 'robin', password: 'tide-tables'),
+    );
+    read.complete(
+      const ServerConfig(
+        id: 'account-robin',
+        name: 'Harbour',
+        url: 'https://harbour.example',
+      ),
+    );
+    check((await signingIn).twoStep).isNotNull();
+    final verifying = early.twoStepVerify(const TwoStepCode(code: '123456'));
+    await starter.asked.future;
+    starter.answer.complete(const OpenWebUiTwoStepSession(token: 'fresh'));
+    await verifying;
+    check(starter.finished).deepEquals(<String>['fresh']);
   });
 
   test('a code checked for the attempt still in charge signs in', () async {

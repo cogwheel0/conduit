@@ -125,7 +125,13 @@ final class AuthService {
     String account = '',
   }) async {
     _twoStep = null;
-    final serverId = _activeServerId();
+    // The server a second step belongs to, once it has settled: during
+    // startup it is still being read, and a step filed under none would be
+    // dropped the moment it is.
+    final serverId = (await readSettled(
+      _container,
+      activeServerProvider.future,
+    ))?.id;
     try {
       await run();
     } on OpenWebUiTwoStepRequired catch (required) {
@@ -263,11 +269,14 @@ final class AuthService {
     return _snapshot();
   }
 
-  /// The pending step, if it is still for the active server.
+  /// The pending step, if it is still for the active server. A server still
+  /// being read (no answer yet) is not another one: the step stays.
   _PendingTwoStep? _currentTwoStep() {
     final pending = _twoStep;
     if (pending == null) return null;
-    if (pending.serverId != _activeServerId()) {
+    final active = _container.read(activeServerProvider);
+    if (!active.hasValue) return pending;
+    if (pending.serverId != active.value?.id) {
       _twoStep = null;
       return null;
     }
@@ -306,9 +315,6 @@ final class AuthService {
     }
     return pending;
   }
-
-  String? _activeServerId() =>
-      _container.read(activeServerProvider).asData?.value?.id;
 
   /// A failed sign-in as a code, read from what the core threw: its words
   /// are fixed phrases and codes, never server prose.
