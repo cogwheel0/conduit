@@ -56,8 +56,11 @@ String? renewedProxyRouteId(
 /// is; otherwise the kept session is checked again.
 ///
 /// [stillWanted] is asked once the server is saved, before the session is
-/// touched: a host whose page went away stops there. Throws when a step
-/// fails; the host shows its own words for that.
+/// touched: a host whose page went away stops there. [canCommit] is asked
+/// right before each write -- the cookies saved, the session adopted or
+/// checked again -- with no wait in between: a host whose account changed
+/// meanwhile stops before it writes. Throws when a step fails; the host
+/// shows its own words for that.
 ///
 /// [ref] is a `Ref`, a `WidgetRef` or a `ProviderContainer`.
 Future<void> renewProxySessionInPlace(
@@ -65,7 +68,9 @@ Future<void> renewProxySessionInPlace(
   required ServerConfig activeServer,
   required ProxyAuthCapture capture,
   bool Function()? stillWanted,
+  bool Function()? canCommit,
 }) async {
+  bool mayCommit() => canCommit == null || canCommit();
   final updatedServer = activeServer.copyWith(
     customHeaders: mergeCapturedProxyCookiesIntoHeaders(
       headers: activeServer.customHeaders,
@@ -81,6 +86,7 @@ Future<void> renewProxySessionInPlace(
     activeServer,
     selection: storage.endpointSelection as Map<String, String>,
   );
+  if (!mayCommit()) return;
   // Same server identity: the storage layer keeps the account session when
   // only custom headers change.
   await storage.saveServerConfigs([
@@ -112,6 +118,7 @@ Future<void> renewProxySessionInPlace(
       final User user = await api.getCurrentUser(
         suppressAuthFailureNotification: true,
       );
+      if (!mayCommit()) return;
       final AuthActions actions = ref.read(authActionsProvider);
       await actions.commitPrevalidatedProxySession(
         serverConfig: updatedServer,
@@ -122,6 +129,7 @@ Future<void> renewProxySessionInPlace(
       api.dispose();
     }
   } else {
+    if (!mayCommit()) return;
     await authManager.refresh();
   }
   DebugLogger.auth('Proxy session renewed in place', scope: 'auth/connection');

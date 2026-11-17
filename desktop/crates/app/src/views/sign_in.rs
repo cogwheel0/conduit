@@ -343,6 +343,8 @@ impl SignInView {
                         origin,
                         cookies,
                         token,
+                        // A new sign-in (auth.completeExternal), not a renewal.
+                        account: None,
                     },
                     other => {
                         let _ = this.update(cx, |s, cx| {

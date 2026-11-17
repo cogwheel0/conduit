@@ -153,6 +153,9 @@ impl ConnectionIssueView {
         };
         let l10n = cx.l10n().clone();
         let id = self.begin(Busy::Renewing, cx);
+        // The account this window is for: the daemon refuses the capture
+        // for any other.
+        let account = self.scope(cx).0;
         let rpc = self.stores.connection.read(cx).rpc();
         let outcome = run_proxy_sso(&url, l10n.desktop_sso_window_title(&name), cx);
         cx.spawn_in(
@@ -167,6 +170,7 @@ impl ConnectionIssueView {
                         origin,
                         cookies,
                         token,
+                        account,
                     },
                     SsoOutcome::Cancelled => {
                         let _ = this.update(cx, |s, cx| {

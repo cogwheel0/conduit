@@ -128,6 +128,11 @@ abstract class ExternalAuthCompletion with _$ExternalAuthCompletion {
     /// Set when the provider returned a bearer token directly rather than a
     /// cookie session.
     String? token,
+
+    /// For `auth.renewProxy`: the account whose sign-in window this was
+    /// (its id, as `accounts.list` names it). Refused with
+    /// `auth.sessionExpired` once another account is in charge.
+    String? account,
   }) = _ExternalAuthCompletion;
 
   factory ExternalAuthCompletion.fromJson(Map<String, dynamic> json) =>

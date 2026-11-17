@@ -963,6 +963,11 @@ pub struct ExternalAuthCompletion {
     /// cookie session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    /// For `auth.renewProxy`: the account whose sign-in window this was
+    /// (its id, as `accounts.list` names it). Refused with
+    /// `auth.sessionExpired` once another account is in charge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
 }
 
 /// Reply to `auth.hasSavedCredentials`.

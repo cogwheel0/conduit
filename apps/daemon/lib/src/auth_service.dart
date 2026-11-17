@@ -12,6 +12,7 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'account_scope.dart';
 import 'event_bus.dart';
 import 'settled.dart';
 
@@ -392,6 +393,17 @@ final class AuthService {
         debugMessage: 'auth.renewProxy needs an active server',
       );
     }
+    // The renewal belongs to the account whose window it was: another
+    // account in charge now (on the same origin, say) is never written to,
+    // neither when it asks nor at any write after.
+    final account = AccountScope.capture(_container);
+    if (params.account case final opened? when opened != active.id) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        args: <String, String>{'reason': 'account'},
+        debugMessage: 'the proxy sign-in was opened for another account',
+      );
+    }
     if (!_sameOrigin(active.url, params.origin)) {
       throw RpcError(
         code: ConduitErrorCodes.invalidParams,
@@ -411,16 +423,25 @@ final class AuthService {
         args: <String, String>{'reason': 'nothingCaptured'},
       );
     }
+    var refused = false;
     try {
       await renewProxySessionInPlace(
         _container,
         activeServer: active,
         capture: capture,
+        canCommit: () => !(refused = !account.isCurrent),
       );
     } catch (error) {
       throw RpcError(
         code: ConduitErrorCodes.connectionFailed,
         debugMessage: error.runtimeType.toString(),
+      );
+    }
+    if (refused) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        args: <String, String>{'reason': 'account'},
+        debugMessage: 'the account changed before the proxy session was saved',
       );
     }
     return _settledSnapshot();
