@@ -42,7 +42,7 @@ use gpui_kit::{
 
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::stores::Stores;
-use crate::stores::hermes_rooms::{HermesRoomsStore, RoomKey, Unresolved, newest_seq};
+use crate::stores::hermes_rooms::{HermesRoomsStore, RoomKey, SendOutcome, newest_seq};
 use crate::views::hermes_faces::{self, Face};
 use crate::views::hermes_rooms::{self, RoomCommand};
 
@@ -513,12 +513,9 @@ impl HermesRoomPane {
             // Followed whatever the field holds (a restored draft too).
             let key = self.key.clone();
             let after = newest_seq(v);
-            self.stores.hermes_rooms.update(cx, |h, _| {
-                if h.unresolved(&key).is_none() {
-                    let text = words.trim().to_string();
-                    h.set_unresolved(&key, Some(Unresolved { text, after }));
-                }
-            });
+            self.stores
+                .hermes_rooms
+                .update(cx, |h, _| h.adopt_unsent(&key, words.trim(), after));
             if self.text(cx).is_empty() {
                 let at = words.len();
                 self.input.update(cx, |s, cx| {
@@ -541,38 +538,64 @@ impl HermesRoomPane {
             self.input.update(cx, |s, cx| s.set_value("", window, cx));
             self.text_changed(cx);
         }
-        self.give_up_posted(window, cx);
+        self.settle_by_room(window, cx);
         cx.notify();
     }
 
-    /// Words awaited leave the field once the room's log shows them posted
-    /// after they were sent -- with no send out, and only while the field
-    /// still holds exactly those words (words typed since are a message of
-    /// their own).
-    fn give_up_posted(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// The room settles this key's unresolved send once no attempt is out:
+    /// its log shows the words posted (they leave the field, if it still
+    /// holds exactly them; words typed since are a message of their own),
+    /// or it no longer holds them for a retry and its log does not show
+    /// them -- refused, or never received: the words stay, to send again.
+    fn settle_by_room(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.sending.is_some() {
             return;
         }
-        let awaiting = self
+        let Some(unresolved) = self
             .stores
             .hermes_rooms
             .read(cx)
             .unresolved(&self.key)
-            .cloned();
-        let Some(awaiting) = awaiting else {
+            .cloned()
+        else {
             return;
         };
-        if !self.view(cx).is_some_and(|v| awaiting.posted_in(v)) {
+        if unresolved.in_flight {
+            return;
+        }
+        let Some(view) = self.view(cx).filter(|v| v.loaded && !v.sending) else {
+            return;
+        };
+        let posted = unresolved.posted_in(view);
+        let held = view.unsent_text.as_deref().map(str::trim) == Some(unresolved.text.as_str());
+        if !posted && held {
             return;
         }
         let key = self.key.clone();
         self.stores
             .hermes_rooms
-            .update(cx, |h, _| h.set_unresolved(&key, None));
-        if self.text(cx).trim() == awaiting.text {
+            .update(cx, |h, _| h.settle(&key, unresolved.token));
+        if posted && self.text(cx).trim() == unresolved.text {
             self.input.update(cx, |s, cx| s.set_value("", window, cx));
             self.text_changed(cx);
         }
+    }
+
+    /// Send waits: a send for this room is unresolved, and what would go now
+    /// is not that same send again while the room still holds it (the one
+    /// retry it posts at most once).
+    pub fn send_waits(&self, cx: &App) -> bool {
+        let Some(u) = self.stores.hermes_rooms.read(cx).unresolved(&self.key) else {
+            return false;
+        };
+        let retry = !u.in_flight
+            && self.text(cx).trim() == u.text
+            && self
+                .view(cx)
+                .and_then(|v| v.unsent_text.as_deref())
+                .map(str::trim)
+                == Some(u.text.as_str());
+        !retry
     }
 
     /// The timeline's list (the perf fixture scrolls it).
@@ -714,36 +737,22 @@ impl HermesRoomPane {
         let Some(rpc) = self.stores.hermes_rooms.read(cx).rpc() else {
             return;
         };
-        // These very words went out before and their fate is not known,
-        // while the room no longer holds their retry (Hermes posted them, or
-        // will say): sending them again could post them twice.
-        let held = self
-            .stores
-            .hermes_rooms
-            .read(cx)
-            .unresolved(&self.key)
-            .is_some_and(|u| {
-                u.text == text
-                    && self
-                        .view(cx)
-                        .and_then(|v| v.unsent_text.as_deref())
-                        .map(str::trim)
-                        != Some(text.as_str())
-            });
-        if held {
+        // One send at a time per room: another message waits until the
+        // unresolved one is settled (only that same send may go again).
+        if self.send_waits(cx) {
             return;
         }
         // Sent to the room as it is shown: on the connection it was read on.
         let connection = self.view(cx).and_then(|v| v.connection.clone());
         let key = self.key.clone();
         let after = self.view(cx).map(newest_seq).unwrap_or(i64::MIN);
-        let pending = Unresolved {
-            text: text.clone(),
-            after,
-        };
-        self.stores
+        let Some(token) = self
+            .stores
             .hermes_rooms
-            .update(cx, |h, _| h.set_unresolved(&key, Some(pending)));
+            .update(cx, |h, _| h.begin_send(&key, &text, after))
+        else {
+            return;
+        };
         self.sending = Some(typed.clone());
         self.mention = None;
         cx.notify();
@@ -754,16 +763,18 @@ impl HermesRoomPane {
         });
         let handle = window.window_handle();
         let stores = self.stores.clone();
-        let sent = typed.trim().to_string();
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             // The answer is the key's, whether or not this pane is still
             // there: sent, the words are posted; refused, nothing was.
             cx.update(|cx| {
-                stores.hermes_rooms.update(cx, |h, cx| match &result {
-                    Ok(r) if r.sent => h.sent(&key, &sent, cx),
-                    Ok(r) if r.refused => h.set_unresolved(&key, None),
-                    _ => {}
+                stores.hermes_rooms.update(cx, |h, cx| {
+                    let outcome = match &result {
+                        Ok(r) if r.sent => SendOutcome::Posted,
+                        Ok(r) if r.refused => SendOutcome::Refused,
+                        _ => SendOutcome::Unclear,
+                    };
+                    h.finish_send(&key, token, outcome, cx)
                 })
             });
             let _ = handle.update(cx, |_, window, cx| {
@@ -799,7 +810,7 @@ impl HermesRoomPane {
                     }
                     // Unclear: the room's log may have shown the words posted
                     // while the answer was out.
-                    p.give_up_posted(window, cx);
+                    p.settle_by_room(window, cx);
                     cx.notify();
                 });
             });
@@ -1352,7 +1363,9 @@ impl HermesRoomPane {
                 notes.push(("refresh-failed", l.hermes_room_refresh_failed()));
             }
         }
-        if view.unsent_text.is_some() && !view.sending && self.sending.is_none() {
+        if (view.unsent_text.is_some() && !view.sending && self.sending.is_none())
+            || (self.sending.is_none() && self.send_waits(cx) && !self.text(cx).trim().is_empty())
+        {
             notes.push(("unsent", l.hermes_room_send_unclear()));
         }
         notes
@@ -1491,7 +1504,7 @@ impl HermesRoomPane {
             IconButton::new("hermes-room-send", IconName::ArrowUp, l.send())
                 .size(28., 15.)
                 .round()
-                .disabled(!typed || !enabled || sending)
+                .disabled(!typed || !enabled || sending || self.send_waits(cx))
                 .filled(
                     if typed && enabled {
                         r.text
@@ -1917,18 +1930,94 @@ mod tests {
             let daemon = FakeDaemon::new();
             daemon.returns::<methods::HermesRoomsWatch>(room(None));
             daemon.returns::<methods::HermesRoomsSend>(HermesRoomSendResult::default());
+            let held = daemon.hold::<methods::HermesRoomsSend>();
             let (stores, pane, vcx) = open(cx, &daemon, "unclear");
             pane.update_in(vcx, |p, window, cx| {
                 p.type_text("hello", window, cx);
                 p.send(window, cx);
             });
-            vcx.run_until_parked();
+            // The room holds the words (an unclear answer follows).
             changed(&stores, room(Some("hello")), vcx);
-            // Gone from the room, but not shown posted: not proof.
-            changed(&stores, room(None), vcx);
+            drop(held);
+            vcx.run_until_parked();
             pane.read_with(vcx, |p, cx| assert_eq!(p.text(cx), "hello"));
+            // Shown posted later, the words go.
             changed(&stores, posted(None, &[(4, "hello")]), vcx);
             pane.read_with(vcx, |p, cx| assert_eq!(p.text(cx), ""));
+        }
+
+        #[gpui_kit::test]
+        fn a_new_send_waits_while_an_earlier_one_is_unresolved(cx: &mut TestAppContext) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(None));
+            daemon.returns::<methods::HermesRoomsSend>(HermesRoomSendResult::default());
+            let held = daemon.hold::<methods::HermesRoomsSend>();
+            let (stores, pane, vcx) = open(cx, &daemon, "one-at-a-time");
+            let sends = || daemon.calls::<methods::HermesRoomsSend>().len();
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("plant the beans", window, cx);
+                p.send(window, cx);
+            });
+            // Unclear: the room holds the words for a retry.
+            changed(&stores, room(Some("plant the beans")), vcx);
+            drop(held);
+            vcx.run_until_parked();
+            // Another message waits until that one is settled.
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("water the peas", window, cx);
+                p.send(window, cx);
+            });
+            vcx.run_until_parked();
+            assert_eq!(
+                sends(),
+                1,
+                "a second message went out over an unresolved one"
+            );
+            pane.read_with(vcx, |p, cx| assert!(p.send_waits(cx)));
+            // The same message again is its own retry (posted at most once).
+            daemon.returns::<methods::HermesRoomsSend>(HermesRoomSendResult {
+                refused: true,
+                ..Default::default()
+            });
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("plant the beans", window, cx);
+                p.send(window, cx);
+            });
+            vcx.run_until_parked();
+            assert_eq!(sends(), 2);
+            // Refused: settled, so the next message may go.
+            changed(&stores, room(None), vcx);
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("water the peas", window, cx);
+                p.send(window, cx);
+            });
+            vcx.run_until_parked();
+            assert_eq!(sends(), 3);
+        }
+
+        #[gpui_kit::test]
+        fn a_send_refused_before_it_reached_the_room_can_go_again_unchanged(
+            cx: &mut TestAppContext,
+        ) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(None));
+            daemon.once::<methods::HermesRoomsSend>(Err(conduit_protocol::RpcError::internal(
+                "no Hermes connection",
+            )));
+            daemon.returns::<methods::HermesRoomsSend>(HermesRoomSendResult {
+                sent: true,
+                ..Default::default()
+            });
+            let (_stores, pane, vcx) = open(cx, &daemon, "predispatch");
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("hello", window, cx);
+                p.send(window, cx);
+            });
+            vcx.run_until_parked();
+            pane.read_with(vcx, |p, cx| assert_eq!(p.text(cx), "hello"));
+            pane.update_in(vcx, |p, window, cx| p.send(window, cx));
+            vcx.run_until_parked();
+            assert_eq!(daemon.calls::<methods::HermesRoomsSend>().len(), 2);
         }
 
         #[gpui_kit::test]
@@ -1984,23 +2073,28 @@ mod tests {
             let daemon = FakeDaemon::new();
             daemon.returns::<methods::HermesRoomsWatch>(room(None));
             daemon.returns::<methods::HermesRoomsSend>(HermesRoomSendResult::default());
+            let held = daemon.hold::<methods::HermesRoomsSend>();
             let (stores, pane, vcx) = open(cx, &daemon, "unclear-again");
             pane.update_in(vcx, |p, window, cx| {
                 p.type_text("hello", window, cx);
                 p.send(window, cx);
             });
-            vcx.run_until_parked();
             changed(&stores, room(Some("hello")), vcx);
-            // Another room shows, then r1 again: the words come back.
+            drop(held);
+            vcx.run_until_parked();
+            // Another room shows, then r1 again: the words come back, and
+            // another message still waits on them.
             drop(pane);
             let back = again(&stores, vcx);
             back.read_with(vcx, |p, cx| assert_eq!(p.text(cx), "hello"));
-            // The room let its retry go (the words were posted; its log is
-            // not read yet): Send would post them twice, so it waits.
-            changed(&stores, room(None), vcx);
-            back.update_in(vcx, |p, window, cx| p.send(window, cx));
+            back.update_in(vcx, |p, window, cx| {
+                p.type_text("hello there", window, cx);
+                p.send(window, cx);
+            });
             vcx.run_until_parked();
             assert_eq!(daemon.calls::<methods::HermesRoomsSend>().len(), 1);
+            back.update_in(vcx, |p, window, cx| p.type_text("hello", window, cx));
+            // The log shows them posted: they leave the reopened field.
             changed(&stores, posted(None, &[(4, "hello")]), vcx);
             back.read_with(vcx, |p, cx| assert_eq!(p.text(cx), ""));
         }
