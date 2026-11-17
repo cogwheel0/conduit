@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/features/workspace/models/workspace_model_draft.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_providers.dart';
+import 'package:conduit_core/features/workspace/providers/workspace_session.dart'
+    show WorkspaceSessionChanged;
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/attachment_upload_retry.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -222,10 +224,25 @@ final class FilesService {
       if (model != null) {
         imageUrl = WorkspaceModelDraft.fromSummary(model).profileImageUrl;
       }
+    } on WorkspaceSessionChanged {
+      // The session it was asked under ended: so does the request.
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        args: <String, String>{'reason': 'account'},
+        debugMessage: 'the session changed before the model was read',
+      );
     } on Object {
       // Unreadable here (no access, offline): the endpoint still answers.
     }
     account.require('the model was read');
+    // The credential it fetches with is still the session's own.
+    if (!identical(_container.read(apiServiceProvider), api)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        args: <String, String>{'reason': 'account'},
+        debugMessage: 'the session changed before the picture was fetched',
+      );
+    }
     final bytes = await api.getWorkspaceModelAvatar(
       modelId,
       imageUrl: imageUrl,
