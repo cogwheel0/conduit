@@ -22,7 +22,11 @@ final class WebhooksService {
 
   final ProviderContainer _container;
 
-  /// Owners handed out, newest last; the oldest go first.
+  /// Owners handed out, newest last; the oldest go first. A token names an
+  /// account's session: while it is still the signed-in one, every read
+  /// answers with the same token, holding that session's newest owner, so
+  /// list reads from other windows never push out the token an open editor
+  /// will save with. Only tokens of accounts no longer in charge pile up.
   final LinkedHashMap<String, NotificationTargetsOwner> _owners =
       LinkedHashMap<String, NotificationTargetsOwner>();
   int _nextOwner = 0;
@@ -46,6 +50,14 @@ final class WebhooksService {
   String _remember(NotificationTargetsOwner owner) {
     for (final entry in _owners.entries) {
       if (identical(entry.value, owner)) return entry.key;
+    }
+    // [owner] was just captured, so it is the signed-in account: a token
+    // still current names that same account's session.
+    for (final entry in _owners.entries) {
+      if (_targets.isCurrentOwner(entry.value)) {
+        _owners[entry.key] = owner;
+        return entry.key;
+      }
     }
     final token = 'w${++_nextOwner}';
     _owners[token] = owner;

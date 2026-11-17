@@ -907,6 +907,24 @@ void _withAnAccount() {
       expect(again.items.map((w) => w.id), <String>['pager']);
     });
 
+    test("an open editor's owner outlasts other windows' list reads", () async {
+      user = _avaAdmin;
+      api.targets = () async => const <NotificationTarget>[_pager];
+      final webhooks = WebhooksService(containerWith(extra: _webhooksOn));
+      final editor = (await webhooks.list()).owner;
+      // Other windows (and this one's Settings) read the list meanwhile.
+      for (var i = 0; i < 40; i++) {
+        await webhooks.list();
+      }
+      await expectLater(
+        webhooks.update(
+          WebhookUpdate(owner: editor, id: 'pager', enabled: false),
+        ),
+        completes,
+      );
+      expect(api.updatedTargets, <String>['pager']);
+    });
+
     test('the composer offers a personal tool server once a config cached '
         'before sign-in is read again', () async {
       user = _avaAdmin;
@@ -1355,6 +1373,7 @@ final class _Api extends ApiService {
   /// The account's webhook destinations, as the server lists them.
   Future<List<NotificationTarget>> Function() targets = () async =>
       throw StateError('no destinations in this test');
+  final updatedTargets = <String>[];
 
   @override
   Future<List<NotificationTarget>> getNotificationTargets({
@@ -1365,6 +1384,19 @@ final class _Api extends ApiService {
   Future<List<NotificationEvent>> getNotificationEvents({
     required ApiAuthSnapshot authSnapshot,
   }) async => const <NotificationEvent>[];
+
+  @override
+  Future<NotificationTarget> updateNotificationTarget(
+    String targetId, {
+    bool? enabled,
+    List<String>? events,
+    String? delivery,
+    String? replacementUrl,
+    required ApiAuthSnapshot authSnapshot,
+  }) async {
+    updatedTargets.add(targetId);
+    return _pager;
+  }
 
   @override
   Future<AccountMetadata> getAccountMetadata() => metadata();
