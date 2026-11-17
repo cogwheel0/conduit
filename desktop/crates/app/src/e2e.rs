@@ -154,12 +154,22 @@ pub struct E2eInputs {
 /// Whether env entry `key` names another machine. Every address in the
 /// env file (a `*_URL` with a host: every server a pass signs in to, or
 /// sends credentials, messages or settings to) must be this Mac's own
-/// (loopback), or the env file is not used. One that names no host (a
-/// database file) is no server.
+/// (loopback), or the env file is not used. The address checked is the
+/// one a pass would use: a bare host is read as the server form reads it,
+/// its scheme added first ([`crate::views::forms::normalize_url`]). One that
+/// names no host (a database file) is no server.
 fn names_another_machine(key: &str, value: &str) -> bool {
-    key.ends_with("_URL")
-        && url::Url::parse(value).is_ok_and(|u| u.host().is_some())
-        && !is_local_url(value)
+    if !key.ends_with("_URL") {
+        return false;
+    }
+    let value = value.trim();
+    let address = if value.contains("://") {
+        Some(value.to_string())
+    } else {
+        crate::views::forms::normalize_url(value)
+    };
+    address
+        .is_some_and(|a| url::Url::parse(&a).is_ok_and(|u| u.host().is_some()) && !is_local_url(&a))
 }
 
 /// Whether `url` is an http(s) or ws(s) address on this Mac (loopback).
@@ -2298,6 +2308,17 @@ mod tests {
             assert!(!names_another_machine(key, value), "{key}={value}");
         }
         assert!(names_another_machine("OWUI_URL", "ws://chat.example.org"));
+        // A bare host is read as the server form reads it (a scheme first).
+        assert!(names_another_machine("OWUI_URL", "chat.example.org"));
+        assert!(names_another_machine(
+            "HERMES_A_PROXY_URL",
+            "chat.example.org:8443/x"
+        ));
+        assert!(!names_another_machine(
+            "HERMES_A_PROXY_URL",
+            "127.0.0.1:20501"
+        ));
+        assert!(!names_another_machine("OWUI_URL", "localhost:20500"));
         assert!(names_another_machine("OWUI_URL", "ftp://127.0.0.1/x"));
     }
 
