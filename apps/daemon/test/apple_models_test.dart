@@ -257,7 +257,7 @@ void main() {
         () => events.whereType<DirectContentDelta>().isNotEmpty,
       );
       window.ready(supported: true, runs: <String>[run.id]);
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await pumpEventQueue();
       expect(events.whereType<DirectStreamError>(), isEmpty);
       window.finish(run.id);
       await done.timeout(const Duration(seconds: 2));
@@ -413,13 +413,13 @@ final class _Window {
     }
   }
 
+  /// Lets the event queue run until [condition] holds: a bounded number of
+  /// turns, never a clock.
   Future<void> until(bool Function() condition) async {
-    final deadline = DateTime.now().add(const Duration(seconds: 2));
-    while (!condition()) {
-      if (DateTime.now().isAfter(deadline)) {
-        throw TimeoutException('condition not met');
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 5));
+    for (var turn = 0; turn < 50; turn++) {
+      if (condition()) return;
+      await pumpEventQueue();
     }
+    if (!condition()) throw StateError('condition not met');
   }
 }

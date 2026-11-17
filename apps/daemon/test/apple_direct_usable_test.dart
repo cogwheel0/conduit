@@ -80,12 +80,9 @@ void main() {
         contextSize: 4096,
         supportsCurrentLocale: true,
       );
+      // Check Again has offered it by the time it returns.
       await apple.refresh();
-      final deadline = DateTime.now().add(const Duration(seconds: 5));
-      while (!runtime.container.read(appleOnDeviceAnswersProvider) &&
-          DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-      }
+      expect(runtime.container.read(appleOnDeviceAnswersProvider), isTrue);
       final list = await direct.list();
       expect(list.usable, isTrue);
       expect(list.connections, isEmpty);
