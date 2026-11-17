@@ -86,7 +86,6 @@ final class MediaService {
     this.maxPdfBytes = 30 * 1024 * 1024,
     Timer Function(Duration, void Function())? deadline,
   }) : _deadline = deadline ?? Timer.new,
-       _client = HttpClient(),
        _sites = VettedConnector(
          allowed: isLanOrPublicHostAddress,
          lookup: lookup,
@@ -96,14 +95,24 @@ final class MediaService {
          allowed: (_) => true,
          lookup: lookup,
          connectTimeout: connectTimeout,
-       ) {
-    _client
+       );
+
+  /// A client for one fetch, closed when it ends: no connection outlives
+  /// the fetch, so none is reused for another (the account's server and
+  /// other sites never share one), and every connection it opens is given
+  /// up once [stopped] says the fetch is over (a lookup that answers after
+  /// the time limit connects nothing).
+  HttpClient _clientFor(bool Function() stopped) {
+    final client = HttpClient()
       ..connectionTimeout = connectTimeout
       ..userAgent = userAgent
       ..autoUncompress = true
       // Straight to the vetted address: a proxy would connect elsewhere.
       ..findProxy = ((_) => 'DIRECT')
-      ..connectionFactory = (uri, proxyHost, proxyPort) => _connect(uri);
+      ..connectionFactory = (uri, proxyHost, proxyPort) =>
+          _connect(uri, stopped);
+    _open.add(client);
+    return client;
   }
 
   /// The active account's server, or null without one: its origin is
@@ -113,7 +122,8 @@ final class MediaService {
   /// Starts a fetch's time limit (a [Timer]; a test fires its own).
   final Timer Function(Duration, void Function()) _deadline;
 
-  final HttpClient _client;
+  /// The clients of fetches still going ([close] ends them).
+  final Set<HttpClient> _open = <HttpClient>{};
   final VettedConnector _sites;
   final VettedConnector _server;
   final Duration timeout;
@@ -168,12 +178,12 @@ final class MediaService {
     });
     Future<T> inTime<T>(Future<T> work) =>
         Future.any<T>(<Future<T>>[work, expired.future]);
+    final client = _clientFor(() => expired.isCompleted);
     try {
       final own = await inTime(ownServer?.call() ?? Future<Uri?>.value());
-      final pinned = own != null && sameOrigin(start, own);
       var url = start;
       for (var redirects = 0; ; redirects++) {
-        final opening = _client.getUrl(url);
+        final opening = client.getUrl(url);
         try {
           request = await inTime(opening);
         } on MediaFetchException {
@@ -212,10 +222,10 @@ final class MediaService {
               next.userInfo.isNotEmpty) {
             throw const MediaFetchException(MediaFailure.failed, 'redirect');
           }
-          if (pinned && !sameOrigin(next, own)) {
+          if (!hopAllowed(start, next, own)) {
             throw const MediaFetchException(
               MediaFailure.refused,
-              'a redirect off the account\'s server',
+              'a redirect off the host it was allowed for',
             );
           }
           url = next;
@@ -279,6 +289,8 @@ final class MediaService {
     } finally {
       deadline.cancel();
       body?.cancel().ignore();
+      _open.remove(client);
+      client.close(force: true);
     }
   }
 
@@ -295,12 +307,29 @@ final class MediaService {
 
   /// Every connection [fetch] opens, its redirects' too: to the account's
   /// own server as it is, to anywhere else only at a vetted address.
-  Future<ConnectionTask<Socket>> _connect(Uri uri) async {
+  Future<ConnectionTask<Socket>> _connect(
+    Uri uri,
+    bool Function() stopped,
+  ) async {
     final own = await ownServer?.call();
+    if (stopped()) throw const SocketException('Connection stopped');
     if (own != null && sameOrigin(uri, own)) {
-      return _server.connect(uri);
+      return _server.connect(uri, stopped: stopped);
     }
-    return _sites.connect(uri);
+    return _sites.connect(uri, stopped: stopped);
+  }
+
+  /// Whether a redirect from the fetch that started at [start] may go on to
+  /// [next]. The window loads a site only when the user allowed it, by its
+  /// host (or loads the account's server, [own], without asking, by its
+  /// exact origin), so a hop stays on that same host (any port or scheme
+  /// change on the host is still that host), or on that same origin for the
+  /// account's server. Anywhere else is refused before it is even asked.
+  static bool hopAllowed(Uri start, Uri next, Uri? own) {
+    if (own != null && sameOrigin(start, own)) return sameOrigin(next, own);
+    String host(Uri u) =>
+        u.host.toLowerCase().replaceFirst(RegExp(r'\.+$'), '');
+    return host(next) == host(start);
   }
 
   /// Whether [a] and [b] have one scheme, host and port.
@@ -369,5 +398,10 @@ final class MediaService {
         (head.startsWith('<?xml') && head.contains('<svg'));
   }
 
-  void close() => _client.close(force: true);
+  void close() {
+    for (final client in _open.toList()) {
+      client.close(force: true);
+    }
+    _open.clear();
+  }
 }

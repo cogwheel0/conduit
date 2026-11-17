@@ -373,6 +373,159 @@ void main() {
     );
   });
 
+  test('a redirect stays on the host the user allowed: another host is '
+      'refused, the same host followed', () {
+    final own = Uri.parse('https://owui.example.test:8443/');
+    Uri u(String s) => Uri.parse(s);
+    // A site the user allowed (by host).
+    expect(
+      MediaService.hopAllowed(
+        u('https://pictures.example/a.png'),
+        u('https://tracker.example/pixel.png'),
+        own,
+      ),
+      isFalse,
+    );
+    expect(
+      MediaService.hopAllowed(
+        u('http://pictures.example/a.png'),
+        u('https://pictures.example/b.png'),
+        own,
+      ),
+      isTrue,
+    );
+    expect(
+      MediaService.hopAllowed(
+        u('https://pictures.example/a.png'),
+        u('https://cdn.pictures.example/a.png'),
+        own,
+      ),
+      isFalse,
+    );
+    // The account's server: its exact origin only.
+    expect(
+      MediaService.hopAllowed(
+        u('https://owui.example.test:8443/a.png'),
+        u('https://owui.example.test:9443/a.png'),
+        own,
+      ),
+      isFalse,
+    );
+    expect(
+      MediaService.hopAllowed(
+        u('https://owui.example.test:8443/a.png'),
+        u('https://owui.example.test:8443/b.png'),
+        own,
+      ),
+      isTrue,
+    );
+  });
+
+  test('an allowed site redirecting to another host is refused before that '
+      'host is asked', () async {
+    final lan = await _lanAddress();
+    if (lan == null) {
+      markTestSkipped('no private LAN address on this machine');
+      return;
+    }
+    final lanSite = await HttpServer.bind(InternetAddress.anyIPv4, 0);
+    addTearDown(() => lanSite.close(force: true));
+    lanSite.listen((r) async {
+      r.response.redirect(
+        Uri.parse('http://tracker.example:${lanSite.port}/pixel.png'),
+      );
+      await r.response.close();
+    });
+    final looked = <String>[];
+    final media = MediaService(
+      ownServer: own,
+      lookup: (host) async {
+        looked.add(host);
+        return host == 'pictures.example' ? [lan] : <InternetAddress>[];
+      },
+    );
+    addTearDown(media.close);
+    await expectLater(
+      media.fetch(
+        'http://pictures.example:${lanSite.port}/tide.png',
+        MediaKind.image,
+      ),
+      throwsA(_failure(MediaFailure.refused)),
+    );
+    expect(looked, ['pictures.example']);
+  });
+
+  test('a lookup that answers after the time limit connects nothing', () async {
+    final accepted = <Socket>[];
+    final listening = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    listening.listen(accepted.add);
+    addTearDown(() async {
+      for (final s in accepted) {
+        s.destroy();
+      }
+      await listening.close();
+    });
+    final answer = Completer<List<InternetAddress>>();
+    addTearDown(() {
+      if (!answer.isCompleted) answer.complete(<InternetAddress>[]);
+    });
+    final asked = Completer<void>();
+    final deadline = _Deadline();
+    final ownAt = Uri.parse('http://own.example:${listening.port}/');
+    final media = MediaService(
+      ownServer: () async => ownAt,
+      deadline: deadline.start,
+      lookup: (host) {
+        if (!asked.isCompleted) asked.complete();
+        return answer.future;
+      },
+    );
+    addTearDown(media.close);
+    final fetching = media.fetch(
+      'http://own.example:${listening.port}/tide.png',
+      MediaKind.image,
+    );
+    await asked.future;
+    deadline.fire();
+    await expectLater(fetching, throwsA(_failure(MediaFailure.timedOut)));
+    // The name resolves now, after the limit: nothing may connect.
+    answer.complete([InternetAddress.loopbackIPv4]);
+    await pumpEventQueue(times: 50);
+    expect(accepted, isEmpty);
+  });
+
+  test(
+    'every fetch opens its own connection: none is kept for another',
+    () async {
+      pages['/tide.png'] = (r) => serve(r, _png, 'image/png');
+      final ports = <int?>[];
+      final watched = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => watched.close(force: true));
+      watched.listen((r) async {
+        ports.add(r.connectionInfo?.remotePort);
+        r.response.headers.contentType = ContentType('image', 'png');
+        r.response.add(_png);
+        await r.response.close();
+      });
+      final media = MediaService(
+        ownServer: () async => Uri.parse('http://127.0.0.1:${watched.port}/'),
+      );
+      addTearDown(media.close);
+      for (var i = 0; i < 2; i++) {
+        await media.fetch(
+          'http://127.0.0.1:${watched.port}/tide.png',
+          MediaKind.image,
+        );
+      }
+      expect(ports, hasLength(2));
+      expect(
+        ports.toSet(),
+        hasLength(2),
+        reason: 'a pooled connection was reused',
+      );
+    },
+  );
+
   test('redirects are followed a few times, then refused', () async {
     pages['/moved.png'] = (r) async =>
         r.response.redirect(Uri.parse(at('/tide.png')));
