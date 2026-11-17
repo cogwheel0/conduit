@@ -585,20 +585,16 @@ impl AssistantRow {
                 if pending {
                     window.request_animation_frame();
                 }
-                let streaming = self.item.streaming && !paced;
+                let (held, live) = text_mode(self.item.streaming, paced);
                 // A long answer is drawn in stable chunks, so streaming
                 // re-lays out only the last one.
                 let chunks = stable_chunks(md);
                 let last = chunks.len() - 1;
                 let views: Vec<AnyElement> = if chunks.len() == 1 {
                     let state_key = format!("text{ordinal}");
-                    let md = if streaming {
-                        self.held(&state_key, md)
-                    } else {
-                        md
-                    };
+                    let md = if held { self.held(&state_key, md) } else { md };
                     let state = self.text_state(&state_key, md, window, cx);
-                    vec![chat_text_live(&state, key.clone().into(), streaming).into_any_element()]
+                    vec![chat_text_live(&state, key.clone().into(), live).into_any_element()]
                 } else {
                     chunks
                         .iter()
@@ -607,11 +603,11 @@ impl AssistantRow {
                             let state_key = format!("text{ordinal}.{k}");
                             let mut chunk = chunk.trim_end();
                             // Earlier chunks end at a closed paragraph.
-                            if streaming && k == last {
+                            if held && k == last {
                                 chunk = self.held(&state_key, chunk);
                             }
                             let state = self.text_state(&state_key, chunk, window, cx);
-                            chat_text_live(&state, key.clone().into(), streaming && k == last)
+                            chat_text_live(&state, key.clone().into(), live && k == last)
                                 .into_any_element()
                         })
                         .collect()
@@ -1796,10 +1792,33 @@ fn image_tile(
     }
 }
 
+/// How a text block of a message (`streaming`: still being written) is
+/// drawn this frame, its text `paced` or not: `held` (an open span or a
+/// half-written fence at the end is held back, unless pacing already
+/// released only text free of them) and `live` (the message is still being
+/// written, so a diagram whose fence has not closed stays code: pacing
+/// never makes it final).
+fn text_mode(streaming: bool, paced: bool) -> (bool, bool) {
+    (streaming && !paced, streaming)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::stores::chat::empty_block;
+
+    /// A paced answer that is still streaming keeps its open diagram fence
+    /// as code; only a finished message's diagram is drawn as final.
+    #[test]
+    fn pacing_never_makes_a_streaming_answers_diagram_final() {
+        // Still streaming, paced: nothing held back, but still live.
+        assert_eq!(text_mode(true, true), (false, true));
+        // Still streaming, not paced: held back, live.
+        assert_eq!(text_mode(true, false), (true, true));
+        // Finished: final.
+        assert_eq!(text_mode(false, false), (false, false));
+        assert_eq!(text_mode(false, true), (false, false));
+    }
 
     #[test]
     fn inline_images_keep_their_proportions_and_never_grow() {
