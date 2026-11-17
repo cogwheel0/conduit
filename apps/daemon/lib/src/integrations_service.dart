@@ -243,19 +243,36 @@ final class IntegrationsService {
         PersonalKeyMode.clear => PersonalConnectionSecretMode.clear,
       };
 
-  static PersonalToolServerDraft _toolDraft(PersonalConnectionDraft d) =>
-      PersonalToolServerDraft(
-        name: d.name,
-        description: d.description,
-        url: d.url,
-        specType: d.specType == 'json' ? 'json' : 'url',
-        path: d.path,
-        spec: d.spec,
-        authType: d.authType == 'none' ? 'none' : 'bearer',
-        key: d.key,
-        keyMode: _keyMode(d.keyMode),
-        enabled: d.enabled,
+  /// A tool server form names only the modes it offers: another is refused
+  /// before anything else, never read as the default (a key meant for
+  /// another mode would otherwise go out as a bearer token).
+  static void _modes(PersonalConnectionKind kind, PersonalConnectionDraft d) {
+    if (kind != PersonalConnectionKind.toolServer) return;
+    if (!const <String>{'url', 'json'}.contains(d.specType) ||
+        !const <String>{'bearer', 'none'}.contains(d.authType)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'the form names a mode it does not offer',
+        args: <String, String>{'reason': 'unsupportedMode'},
       );
+    }
+  }
+
+  /// The tool server form as core drafts it ([_modes] checked first).
+  static PersonalToolServerDraft _toolDraft(PersonalConnectionDraft d) {
+    return PersonalToolServerDraft(
+      name: d.name,
+      description: d.description,
+      url: d.url,
+      specType: d.specType,
+      path: d.path,
+      spec: d.spec,
+      authType: d.authType,
+      key: d.key,
+      keyMode: _keyMode(d.keyMode),
+      enabled: d.enabled,
+    );
+  }
 
   static PersonalTerminalDraft _terminalDraft(PersonalConnectionDraft d) =>
       PersonalTerminalDraft(
@@ -318,8 +335,9 @@ final class IntegrationsService {
   }
 
   Future<PersonalConnections> save(PersonalConnectionSave params) async {
-    final owner = _owner(params.owner);
     final kind = _kind(params.kind);
+    if (params.draft case final draft?) _modes(kind, draft);
+    final owner = _owner(params.owner);
     final isTool = kind == PersonalConnectionKind.toolServer;
     final PersonalConnectionEdit edit;
     switch (params.op) {
@@ -397,8 +415,9 @@ final class IntegrationsService {
   Future<PersonalConnectionTestResult> test(
     PersonalConnectionTest params,
   ) async {
-    final owner = _owner(params.owner);
     final kind = _kind(params.kind);
+    _modes(kind, params.draft);
+    final owner = _owner(params.owner);
     final isTool = kind == PersonalConnectionKind.toolServer;
     _validate(kind, params.draft);
     final Map<String, dynamic> entry;

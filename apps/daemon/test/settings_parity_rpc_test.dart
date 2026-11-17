@@ -254,6 +254,47 @@ void main() {
         );
       },
     );
+
+    test('a tool server mode the form does not offer is refused, never read '
+        'as bearer', () async {
+      for (final draft in const <PersonalConnectionDraft>[
+        PersonalConnectionDraft(
+          url: 'https://tools.example.com',
+          authType: 'session',
+          key: 'seed-token',
+        ),
+        PersonalConnectionDraft(
+          url: 'https://tools.example.com',
+          specType: 'yaml',
+        ),
+      ]) {
+        await expectLater(
+          call(
+            ConduitMethods.integrationsTest,
+            PersonalConnectionTestResult.fromJson,
+            PersonalConnectionTest(
+              owner: 'p9',
+              kind: PersonalKind.toolServer,
+              draft: draft,
+            ).toJson(),
+          ),
+          rpcCode(ConduitErrorCodes.invalidParams),
+        );
+        await expectLater(
+          call(
+            ConduitMethods.integrationsSave,
+            PersonalConnections.fromJson,
+            PersonalConnectionSave(
+              owner: 'p9',
+              kind: PersonalKind.toolServer,
+              op: PersonalEditOp.add,
+              draft: draft,
+            ).toJson(),
+          ),
+          rpcCode(ConduitErrorCodes.invalidParams),
+        );
+      }
+    });
   });
 
   group('settings.get and settings.set', () {
