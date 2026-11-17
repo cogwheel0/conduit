@@ -1,7 +1,6 @@
 @TestOn('vm')
 library;
 
-
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -128,6 +127,21 @@ void main() {
           'account-sky';
       grace(async);
       expect(answered(), isEmpty, reason: "the last account's answer");
+    });
+  });
+
+  test('an answer the next socket replays is told once', () {
+    fakeAsync((async) {
+      socket.chat(frame('tides', 'reply-1'));
+      // The socket is replaced within the grace; the new one replays it.
+      final next = _Socket();
+      container.read(_socketInUse.notifier).use(next);
+      async.flushMicrotasks();
+      next.chat(frame('tides', 'reply-1'));
+      grace(async);
+      next.chat(frame('tides', 'reply-1'));
+      grace(async);
+      expectOneNotice(answered());
     });
   });
 

@@ -63,7 +63,13 @@ final class NotificationsService {
   ProviderSubscription<SocketService?>? _socket;
   SocketService? _boundSocket;
   SocketEventSubscription? _chatEvents;
-  final Set<Timer> _waiting = <Timer>{};
+
+  /// Answers heard and waiting out the grace, by dedup key: forgotten when
+  /// their socket goes, so the next socket's replay of one is heard again.
+  final Map<String, Timer> _waiting = <String, Timer>{};
+
+  /// Answers settled (told, or left to `turn.finished`): a replay of one is
+  /// a duplicate.
   final LinkedHashSet<String> _seen = LinkedHashSet<String>();
   static const _classifier = NotificationEventClassifier();
 
@@ -128,7 +134,7 @@ final class NotificationsService {
     _socket = null;
     _chatEvents?.dispose();
     _chatEvents = null;
-    for (final timer in _waiting) {
+    for (final timer in _waiting.values) {
       timer.cancel();
     }
     _waiting.clear();
@@ -140,7 +146,7 @@ final class NotificationsService {
     _chatEvents?.dispose();
     _chatEvents = null;
     // What the last socket heard belongs to the account it served.
-    for (final timer in _waiting) {
+    for (final timer in _waiting.values) {
       timer.cancel();
     }
     _waiting.clear();
@@ -172,8 +178,8 @@ final class NotificationsService {
         scope: scope,
       );
       if (notification == null) return;
-      if (!_seen.add(notification.dedupKey)) return;
-      if (_seen.length > 256) _seen.remove(_seen.first);
+      final key = notification.dedupKey;
+      if (_seen.contains(key) || _waiting.containsKey(key)) return;
       final messageId = event['message_id'] is String
           ? event['message_id'] as String
           : '';
@@ -186,21 +192,26 @@ final class NotificationsService {
       // that account (on the same socket) is still the one in charge, as a
       // click opens its chat in whichever account is.
       final heardOn = _boundSocket;
-      late final Timer timer;
-      timer = Timer(_answerGrace, () {
-        _waiting.remove(timer);
+      _waiting[key] = Timer(_answerGrace, () {
+        _waiting.remove(key);
         if (!identical(_boundSocket, heardOn) || _notificationScope != scope) {
           return;
         }
+        _settled(key);
         if (messageId.isNotEmpty && (_announced?.call(messageId) ?? false)) {
           return;
         }
         _events?.emit(ConduitEventSpecs.notificationsAnswered, notice);
       });
-      _waiting.add(timer);
     } on Object {
       // A malformed envelope is no answer: nothing to say.
     }
+  }
+
+  /// [key]'s answer is settled: a replay of it says nothing again.
+  void _settled(String key) {
+    _seen.add(key);
+    if (_seen.length > 256) _seen.remove(_seen.first);
   }
 
   /// Core's decision for one notification. The window says what only it
