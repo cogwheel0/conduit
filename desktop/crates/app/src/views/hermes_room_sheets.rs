@@ -195,6 +195,8 @@ impl CreateRoomSheet {
         self.creating = true;
         self.failure = None;
         cx.notify();
+        // Its answer is listed only for the account it was asked under.
+        let asked_in = self.stores.hermes_rooms.read(cx).generation();
         let call = rpc.call::<methods::HermesRoomsCreate>(&HermesRoomCreate {
             name: forms::text(&self.name, cx).trim().to_string(),
             bots: self.picked.clone(),
@@ -211,7 +213,7 @@ impl CreateRoomSheet {
                         Ok(room) => {
                             let id = room.id.clone();
                             stores.hermes_rooms.update(cx, |h, cx| {
-                                h.patch_listed(room, cx);
+                                h.patch_listed(room, asked_in, cx);
                                 h.refresh(cx);
                             });
                             let navigation = stores.navigation.clone();
@@ -650,6 +652,8 @@ impl RoomInfoSheet {
         self.failure = None;
         cx.notify();
         let edit = self.edit.clone();
+        // Its answer is listed only for the account it was asked under.
+        let asked_in = self.stores.hermes_rooms.read(cx).generation();
         let rename = (edit.name.trim() != initial.name.trim()).then(|| {
             rpc.call::<methods::HermesRoomsRename>(&HermesRoomRename {
                 room_id: self.room_id.clone(),
@@ -703,7 +707,7 @@ impl RoomInfoSheet {
                         if let Some(Ok(room)) = renamed {
                             stores
                                 .hermes_rooms
-                                .update(cx, |h, cx| h.patch_listed(room, cx));
+                                .update(cx, |h, cx| h.patch_listed(room, asked_in, cx));
                         }
                         cx.notify();
                         return;
@@ -711,7 +715,7 @@ impl RoomInfoSheet {
                     if let Some(Ok(room)) = renamed {
                         stores
                             .hermes_rooms
-                            .update(cx, |h, cx| h.patch_listed(room, cx));
+                            .update(cx, |h, cx| h.patch_listed(room, asked_in, cx));
                     }
                     // Words typed while it saved are still to save: the
                     // sheet stays, with what was saved as its baseline.

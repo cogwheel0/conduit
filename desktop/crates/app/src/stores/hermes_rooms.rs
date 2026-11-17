@@ -596,7 +596,18 @@ impl HermesRoomsStore {
 
     /// The room `room_id` changed outside a read (an action answered with
     /// it, a rename): the list says so until it is read again.
-    pub fn patch_listed(&mut self, room: HermesRoomDto, cx: &mut Context<Self>) {
+    /// Which account and connection the store's answers are for now: an
+    /// action captures it when asked and hands it back with its answer.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// `asked_in`: [`Self::generation`] when the action was asked; an answer
+    /// from before an account or connection change lists nothing.
+    pub fn patch_listed(&mut self, room: HermesRoomDto, asked_in: u64, cx: &mut Context<Self>) {
+        if asked_in != self.generation {
+            return;
+        }
         if let Some(rooms) = &mut self.rooms {
             match rooms.rooms.iter_mut().find(|r| r.id == room.id) {
                 Some(row) => *row = room,
@@ -1086,5 +1097,24 @@ mod tests {
             assert_eq!(s.room("r1").unwrap().name, "Seed swap");
             assert_eq!(s.bots.as_ref().unwrap().connection.as_deref(), Some("c2"));
         });
+    }
+
+    #[gpui_kit::test]
+    fn a_room_saved_before_an_account_change_is_not_listed_after(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::HermesBotsList>(bots_on("c1"));
+        daemon.returns::<methods::HermesRoomsList>(rooms_on("c1", "Greenhouse crew"));
+        let store = cx.new(|_| HermesRoomsStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.set_wanted(true, cx));
+        cx.run_until_parked();
+        // A rename asked under the last account answers after the next
+        // account's list is in.
+        let asked = store.read_with(cx, |s, _| s.generation());
+        store.update(cx, |s, cx| s.reset(cx));
+        cx.run_until_parked();
+        let renamed: HermesRoomDto =
+            serde_json::from_value(json!({"id": "r9", "name": "Last account's room"})).unwrap();
+        store.update(cx, |s, cx| s.patch_listed(renamed, asked, cx));
+        store.read_with(cx, |s, _| assert!(s.listed_room("r9").is_none()));
     }
 }
