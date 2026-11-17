@@ -11,9 +11,101 @@
 //! borrowed window fails (as a `setFrame` from inside an update does).
 
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
-use gpui_kit::{App, Task, Window};
+use futures::channel::oneshot;
+use gpui_kit::{AnyWindowHandle, App, Global, Task, Window};
+
+/// The questions [`present_sheet`] has up, by window: each lives while its
+/// token does (the task waiting for its answer), so a question dropped
+/// unanswered is gone too. With AppKit's own attached sheet, this is how
+/// [`question_up`] tells a window is asking something.
+#[derive(Default)]
+struct OpenQuestions(Vec<(AnyWindowHandle, Weak<()>)>);
+
+impl Global for OpenQuestions {}
+
+/// Records a question shown on `window` until the returned token drops.
+fn hold_question(window: AnyWindowHandle, cx: &mut App) -> Rc<()> {
+    let token = Rc::new(());
+    let open = cx.default_global::<OpenQuestions>();
+    open.0.retain(|(_, alive)| alive.strong_count() > 0);
+    open.0.push((window, Rc::downgrade(&token)));
+    token
+}
+
+/// Whether `window` has a question up: any of ours ([`present_sheet`]) or
+/// any native sheet or alert AppKit has attached to it.
+pub fn question_up(window: AnyWindowHandle, cx: &mut App) -> bool {
+    let ours = cx.try_global::<OpenQuestions>().is_some_and(|open| {
+        open.0
+            .iter()
+            .any(|(handle, alive)| *handle == window && alive.strong_count() > 0)
+    });
+    ours || native_sheet_up(window, cx)
+}
+
+#[cfg(target_os = "macos")]
+fn native_sheet_up(window: AnyWindowHandle, cx: &mut App) -> bool {
+    window
+        .update(cx, |_, w, _| {
+            crate::shell::macos::ns_window(w).is_some_and(|ns| ns.attachedSheet().is_some())
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn native_sheet_up(_: AnyWindowHandle, _: &mut App) -> bool {
+    false
+}
+
+/// Test hook: questions wait for the test's answer (each sender, in the
+/// order the questions came) instead of showing, and stay up meanwhile.
+#[derive(Default)]
+pub struct HeldAnswers(pub Vec<oneshot::Sender<bool>>);
+
+impl Global for HeldAnswers {}
+
+/// Test hook: beeps are counted here instead of sounded.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Beeps(pub u32);
+
+impl Global for Beeps {}
+
+/// The system beep, as a Mac app gives a key press it can't take now.
+pub fn beep(cx: &mut App) {
+    if cx.has_global::<Beeps>() {
+        cx.global_mut::<Beeps>().0 += 1;
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    // SAFETY: AppKit's NSBeep takes nothing and may be called any time.
+    unsafe {
+        NSBeep();
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "AppKit", kind = "framework")]
+unsafe extern "C" {
+    fn NSBeep();
+}
+
+/// A question [`HeldAnswers`] keeps up, answered by the test.
+fn held(window: AnyWindowHandle, asked: Option<u64>, cx: &mut App) -> Option<Task<bool>> {
+    if !cx.has_global::<HeldAnswers>() {
+        return None;
+    }
+    let (tx, rx) = oneshot::channel();
+    cx.global_mut::<HeldAnswers>().0.push(tx);
+    let token = hold_question(window, cx);
+    Some(cx.spawn(async move |cx| {
+        let yes = rx.await.unwrap_or(false);
+        drop(token);
+        cx.update(|cx| crate::views::sheet::question_answered(asked, yes, cx));
+        yes
+    }))
+}
 
 /// What a sheet asks.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,33 +192,44 @@ pub fn present_sheet_closable(
     cx: &mut App,
 ) -> (Task<bool>, SheetCloser) {
     let closer = SheetCloser::default();
+    let asked = crate::views::sheet::question_shown(window.window_handle(), cx);
+    if let Some(task) = held(window.window_handle(), asked, cx) {
+        return (task, closer);
+    }
     if let Some(answer) = cx.try_global::<AutoAnswer>().and_then(|a| a.0) {
         log::info!("sheet {:?} answered {answer} (auto)", spec.title);
+        crate::views::sheet::question_answered(asked, answer, cx);
         return (Task::ready(answer), closer);
     }
     #[cfg(target_os = "macos")]
     {
         let Some(ns_window) = conduit_components::window::macos::ns_window(window) else {
+            crate::views::sheet::question_answered(asked, false, cx);
             return (Task::ready(false), closer);
         };
         let state = closer.clone();
-        let task = cx.spawn(async move |_| {
-            if state.is_closed() {
-                return false;
-            }
-            let Some((rx, sheet)) = macos::begin(&ns_window, &spec) else {
-                return false;
+        let token = hold_question(window.window_handle(), cx);
+        let task = cx.spawn(async move |cx| {
+            let _token = token;
+            let yes = if state.is_closed() {
+                false
+            } else if let Some((rx, sheet)) = macos::begin(&ns_window, &spec) {
+                state.0.borrow_mut().end = Some(Box::new(move || {
+                    crate::shell::macos::end_sheet(&sheet);
+                }));
+                rx.await.unwrap_or(false)
+            } else {
+                false
             };
-            state.0.borrow_mut().end = Some(Box::new(move || {
-                crate::shell::macos::end_sheet(&sheet);
-            }));
-            rx.await.unwrap_or(false)
+            cx.update(|cx| crate::views::sheet::question_answered(asked, yes, cx));
+            yes
         });
         (task, closer)
     }
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (window, spec);
+        crate::views::sheet::question_answered(asked, false, cx);
         (Task::ready(false), closer)
     }
 }
@@ -134,26 +237,37 @@ pub fn present_sheet_closable(
 /// Shows `spec` as a sheet on `window`; resolves with `true` when the user
 /// confirmed.
 pub fn present_sheet(window: &Window, spec: SheetSpec, cx: &mut App) -> Task<bool> {
+    let asked = crate::views::sheet::question_shown(window.window_handle(), cx);
+    if let Some(task) = held(window.window_handle(), asked, cx) {
+        return task;
+    }
     if let Some(answer) = cx.try_global::<AutoAnswer>().and_then(|a| a.0) {
         log::info!("sheet {:?} answered {answer} (auto)", spec.title);
+        crate::views::sheet::question_answered(asked, answer, cx);
         return Task::ready(answer);
     }
     #[cfg(target_os = "macos")]
     {
         let Some(ns_window) = conduit_components::window::macos::ns_window(window) else {
+            crate::views::sheet::question_answered(asked, false, cx);
             return Task::ready(false);
         };
-        cx.spawn(async move |_| {
+        let token = hold_question(window.window_handle(), cx);
+        cx.spawn(async move |cx| {
+            let _token = token;
             // Outside any GPUI borrow: AppKit re-enters the window delegate.
-            match macos::begin(&ns_window, &spec) {
+            let yes = match macos::begin(&ns_window, &spec) {
                 Some((rx, _)) => rx.await.unwrap_or(false),
                 None => false,
-            }
+            };
+            cx.update(|cx| crate::views::sheet::question_answered(asked, yes, cx));
+            yes
         })
     }
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (window, spec);
+        crate::views::sheet::question_answered(asked, false, cx);
         Task::ready(false)
     }
 }

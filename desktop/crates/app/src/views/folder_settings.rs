@@ -841,6 +841,10 @@ fn failure_text(e: &conduit_protocol::RpcError, l10n: &L10n) -> String {
 }
 
 impl SheetBody for FolderSettingsSheet {
+    fn busy(&self, _: &App) -> bool {
+        self.saving
+    }
+
     fn unsaved(&self, _: &App) -> bool {
         FolderSettingsSheet::is_dirty(self)
     }
@@ -1042,6 +1046,71 @@ impl Render for FolderSettingsSheet {
 mod tests {
     use super::*;
     use crate::views::sheet::bench::bench;
+
+    /// A save is out but the fields are back as they were (A, then B, Save,
+    /// then A again): the sheet looks clean, yet it is busy. Quit beeps; it
+    /// neither quits nor asks.
+    #[gpui_kit::test]
+    fn quit_during_a_save_beeps_even_when_the_fields_look_clean(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::FoldersGet>(
+            serde_json::from_value(serde_json::json!({
+                "id": "f1", "name": "Trips", "systemPrompt": "Plan trips.",
+                "canRename": true, "canWrite": true, "canEditSystemPrompt": true
+            }))
+            .unwrap(),
+        );
+        let s = stores.clone();
+        let sheet = vcx
+            .update(|window, cx| {
+                sheet::open(window, WIDTH, cx, move |w, cx| {
+                    FolderSettingsSheet::new(s, "f1".into(), w, cx)
+                })
+            })
+            .unwrap();
+        vcx.run_until_parked();
+        let held = daemon.hold::<methods::FoldersUpdate>();
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::HeldAnswers::default()));
+        vcx.update(|window, cx| {
+            sheet.update(cx, |s, cx| {
+                s.type_prompt("Plan trips by train.", window, cx);
+                s.save(window, cx);
+                s.type_prompt("Plan trips.", window, cx);
+            })
+        });
+        vcx.run_until_parked();
+        sheet.read_with(vcx, |s, _| {
+            assert!(!s.is_dirty(), "the fields are not back")
+        });
+        let quits = std::rc::Rc::new(std::cell::Cell::new(0));
+        let counted = quits.clone();
+        vcx.update(|_, cx| {
+            sheet::quit_with(
+                cx,
+                std::rc::Rc::new(move |_| counted.set(counted.get() + 1)),
+            )
+        });
+        vcx.run_until_parked();
+        vcx.executor()
+            .advance_clock(std::time::Duration::from_secs(5));
+        vcx.run_until_parked();
+        assert_eq!(
+            vcx.update(|_, cx| cx.global::<crate::shell::sheet::Beeps>().0),
+            1,
+            "Quit during the save did not beep"
+        );
+        assert_eq!(quits.get(), 0, "Quit closed a sheet whose save was out");
+        assert!(
+            vcx.update(|_, cx| sheet::current::<FolderSettingsSheet>(cx))
+                .is_some()
+        );
+        assert_eq!(
+            vcx.update(|_, cx| cx.global::<crate::shell::sheet::HeldAnswers>().0.len()),
+            0,
+            "Quit asked during the save"
+        );
+        drop(held);
+    }
 
     #[gpui_kit::test]
     fn new_chat_asks_before_throwing_edits_away(cx: &mut gpui_kit::TestAppContext) {

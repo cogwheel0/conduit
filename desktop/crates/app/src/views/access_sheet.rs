@@ -722,6 +722,10 @@ fn failure_text(e: &conduit_protocol::RpcError, l10n: &L10n) -> String {
 }
 
 impl SheetBody for AccessSheet {
+    fn busy(&self, _: &App) -> bool {
+        self.saving
+    }
+
     fn unsaved(&self, _: &App) -> bool {
         AccessSheet::is_dirty(self)
     }
@@ -950,6 +954,190 @@ mod tests {
         });
         sheet.read_with(vcx, |s, _| assert_eq!(s.grants.len(), 1));
         drop(held);
+    }
+
+    /// Access for folder f1 open over the bench, Robin added and a save
+    /// held: the sheet and the held save.
+    fn saving_robin(
+        cx: &mut gpui_kit::TestAppContext,
+        refused: bool,
+    ) -> (
+        crate::stores::rpc::fake::FakeDaemon,
+        Entity<AccessSheet>,
+        crate::stores::rpc::fake::Hold,
+        &mut gpui_kit::VisualTestContext,
+    ) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::AccessGet>(
+            serde_json::from_value(serde_json::json!({
+                "kind": "folder", "id": "f1", "canEdit": true,
+                "allowUsers": true, "allowGroups": false
+            }))
+            .unwrap(),
+        );
+        if refused {
+            daemon.once::<methods::AccessSet>(Err(conduit_protocol::RpcError::internal("down")));
+        } else {
+            // The server keeps nobody of those asked.
+            daemon.returns::<methods::AccessSet>(
+                serde_json::from_value(serde_json::json!({
+                    "kind": "folder", "id": "f1", "canEdit": true,
+                    "allowUsers": true, "allowGroups": false, "grants": []
+                }))
+                .unwrap(),
+            );
+        }
+        let s = stores.clone();
+        let sheet = vcx
+            .update(|window, cx| {
+                sheet::open(window, WIDTH, cx, move |w, cx| {
+                    AccessSheet::new(
+                        s,
+                        AccessResourceKind::Folder,
+                        "f1".into(),
+                        "Trips".into(),
+                        w,
+                        cx,
+                    )
+                })
+            })
+            .unwrap();
+        vcx.run_until_parked();
+        let held = daemon.hold::<methods::AccessSet>();
+        vcx.update(|window, cx| {
+            sheet.update(cx, |s, cx| {
+                s.add(&principal("user", "robin"), window, cx);
+                s.save(window, cx);
+            })
+        });
+        (daemon, sheet, held, vcx)
+    }
+
+    fn quit_counted(vcx: &mut gpui_kit::VisualTestContext) -> std::rc::Rc<std::cell::Cell<u32>> {
+        let quits = std::rc::Rc::new(std::cell::Cell::new(0));
+        let counted = quits.clone();
+        vcx.update(|_, cx| {
+            sheet::quit_with(
+                cx,
+                std::rc::Rc::new(move |_| counted.set(counted.get() + 1)),
+            )
+        });
+        vcx.run_until_parked();
+        quits
+    }
+
+    fn settle(vcx: &mut gpui_kit::VisualTestContext) {
+        for _ in 0..2 {
+            vcx.run_until_parked();
+            vcx.executor()
+                .advance_clock(std::time::Duration::from_secs(5));
+        }
+        vcx.run_until_parked();
+    }
+
+    fn beeps(vcx: &mut gpui_kit::VisualTestContext) -> u32 {
+        vcx.update(|_, cx| cx.global::<crate::shell::sheet::Beeps>().0)
+    }
+
+    fn sheet_up(vcx: &mut gpui_kit::VisualTestContext) -> bool {
+        vcx.update(|_, cx| sheet::current::<AccessSheet>(cx))
+            .is_some()
+    }
+
+    /// Quit while a save is out queues nothing: a beep, and the sheet stays.
+    /// When the server keeps only part of it, the warning stays up and
+    /// nothing quits.
+    #[gpui_kit::test]
+    fn quit_during_a_save_beeps_and_stays(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, sheet, held, vcx) = saving_robin(cx, false);
+        let quits = quit_counted(vcx);
+        assert_eq!(beeps(vcx), 1, "Quit during the save did not beep");
+        assert!(sheet_up(vcx));
+        drop(held);
+        settle(vcx);
+        assert!(
+            sheet_up(vcx),
+            "the partial save's warning was dismissed unseen"
+        );
+        sheet.read_with(vcx, |s, _| {
+            assert!(s.failure.is_some(), "the partial save says nothing")
+        });
+        assert_eq!(quits.get(), 0, "a Quit waited on the save");
+    }
+
+    /// After a save fails, the sheet is idle and dirty: ⌘Q asks, and Discard
+    /// quits; answered No, the Quit is dropped and the next ⌘Q asks again.
+    #[gpui_kit::test]
+    fn after_a_failed_save_quit_asks(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, sheet, held, vcx) = saving_robin(cx, true);
+        drop(held);
+        settle(vcx);
+        sheet.read_with(vcx, |s, _| {
+            assert!(s.failure.is_some(), "the failure is hidden")
+        });
+        // The bench answers No: the sheet stays, nothing quits.
+        let kept = quit_counted(vcx);
+        settle(vcx);
+        assert!(sheet_up(vcx));
+        assert_eq!(kept.get(), 0);
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        let quits = quit_counted(vcx);
+        settle(vcx);
+        assert!(!sheet_up(vcx), "Discard left the sheet open");
+        assert_eq!(quits.get(), 1, "Discard after the failed save did not quit");
+        assert_eq!(kept.get(), 0, "the Quit answered No came back");
+    }
+
+    /// The discard question is up when another account signs in and closes
+    /// the sheet: that ends the Quit (the app stays), and a later Quit quits
+    /// as usual.
+    #[gpui_kit::test]
+    fn a_sheet_closed_for_another_account_drops_its_quit(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::AccessGet>(
+            serde_json::from_value(serde_json::json!({
+                "kind": "folder", "id": "f1", "canEdit": true,
+                "allowUsers": true, "allowGroups": false
+            }))
+            .unwrap(),
+        );
+        let s = stores.clone();
+        let sheet = vcx
+            .update(|window, cx| {
+                sheet::open(window, WIDTH, cx, move |w, cx| {
+                    AccessSheet::new(
+                        s,
+                        AccessResourceKind::Folder,
+                        "f1".into(),
+                        "Trips".into(),
+                        w,
+                        cx,
+                    )
+                })
+            })
+            .unwrap();
+        vcx.run_until_parked();
+        vcx.update(|window, cx| {
+            sheet.update(cx, |s, cx| s.add(&principal("user", "robin"), window, cx))
+        });
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::HeldAnswers::default()));
+        let first = quit_counted(vcx);
+        crate::views::sheet::bench::switch_account(&stores, vcx);
+        settle(vcx);
+        assert!(!sheet_up(vcx), "the account switch left the sheet open");
+        // The question that was up is answered late: nothing is left to quit.
+        vcx.update(|_, cx| {
+            let held = std::mem::take(&mut cx.global_mut::<crate::shell::sheet::HeldAnswers>().0);
+            for tx in held {
+                let _ = tx.send(true);
+            }
+            cx.remove_global::<crate::shell::sheet::HeldAnswers>();
+        });
+        settle(vcx);
+        assert_eq!(first.get(), 0, "the account switch quit the app");
+        let later = quit_counted(vcx);
+        settle(vcx);
+        assert_eq!(later.get(), 1, "a later Quit did nothing");
     }
 
     #[test]

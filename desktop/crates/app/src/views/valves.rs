@@ -616,6 +616,10 @@ impl ValvesSheet {
 }
 
 impl SheetBody for ValvesSheet {
+    fn busy(&self, _: &App) -> bool {
+        self.saving
+    }
+
     fn unsaved(&self, _: &App) -> bool {
         ValvesSheet::is_dirty(self)
     }

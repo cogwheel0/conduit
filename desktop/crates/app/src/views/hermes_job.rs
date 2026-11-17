@@ -622,6 +622,10 @@ impl HermesJobSheet {
 }
 
 impl SheetBody for HermesJobSheet {
+    fn busy(&self, _: &App) -> bool {
+        self.busy
+    }
+
     /// Edits not saved, or a Save still out: Quit asks first.
     fn unsaved(&self, cx: &App) -> bool {
         self.busy || self.dirty(cx)

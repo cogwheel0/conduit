@@ -20,8 +20,8 @@ use conduit_components::views::kit::{
 };
 use conduit_daemon::RpcError;
 use conduit_protocol::{
-    HermesConnectionDto, HermesConnectionEdit, HermesConnections, HermesRef, NoParams, NoticeLevel,
-    methods,
+    ErrorCode, HermesConnectionDto, HermesConnectionEdit, HermesConnections, HermesRef,
+    HermesSignInRequest, NoParams, NoticeLevel, methods,
 };
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
@@ -422,23 +422,37 @@ impl HermesConnectionSheet {
                 return;
             };
             let rpc = s.stores.connection.read(cx).rpc();
-            let activate = (list.active_id.as_deref() != Some(id.as_str()))
-                .then(|| rpc.call::<methods::HermesConnectionsActivate>(&HermesRef { id }));
+            let activate = (list.active_id.as_deref() != Some(id.as_str())).then(|| {
+                rpc.call::<methods::HermesConnectionsActivate>(&HermesRef { id: id.clone() })
+            });
+            // Already in use: the connection the save's answer named.
+            let mut connection = list.connection.clone();
             s.busy = true;
             s.note = Some(Note::SigningIn);
             cx.notify();
             let handle = window.window_handle();
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let mut failed: Option<RpcError> = None;
-                if let Some(activate) = activate
-                    && let Err(e) = activate.await
-                {
-                    failed = Some(e);
+                if let Some(activate) = activate {
+                    match activate.await {
+                        // Put in use: the connection its answer names.
+                        Ok(now) if now.active_id.as_deref() == Some(id.as_str()) => {
+                            connection = now.connection
+                        }
+                        // Another window put another connection in use while
+                        // this one was activated: not signed in to; said as
+                        // the daemon's refusal of a stale sign-in is.
+                        Ok(_) => failed = Some(RpcError::new(ErrorCode::SessionExpired)),
+                        Err(e) => failed = Some(e),
+                    }
                 }
-                // Asked only once the connection is in use: a call goes out
-                // as soon as it is made.
+                // Asked only once the connection is in use (a call goes out
+                // as soon as it is made), for that connection: another
+                // window's switch in between is refused, not signed in to.
                 if failed.is_none()
-                    && let Err(e) = rpc.call::<methods::HermesSignIn>(&NoParams).await
+                    && let Err(e) = rpc
+                        .call::<methods::HermesSignIn>(&HermesSignInRequest { connection })
+                        .await
                 {
                     failed = Some(e);
                 }
@@ -552,6 +566,12 @@ fn is_plain_http(e: &RpcError) -> bool {
 }
 
 impl SheetBody for HermesConnectionSheet {
+    /// A save, test, activation or sign-in is out: set when one starts and
+    /// cleared only when it ends (an edit clears the note, never this).
+    fn busy(&self, _: &App) -> bool {
+        self.busy
+    }
+
     fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy && self.note != Some(Note::SigningIn) {
             return;
@@ -1002,6 +1022,143 @@ mod tests {
             daemon.calls::<methods::HermesSignIn>().is_empty(),
             "sign-in was asked though the connection could not be put in use"
         );
+    }
+
+    /// Sign In names the connection its activation put in use (or the one
+    /// already in use): a switch from another window in between is refused
+    /// by conduitd rather than signed in to.
+    #[gpui_kit::test]
+    fn sign_in_names_the_connection_it_put_in_use(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsSave>(list("a", Some("b"), "nativePkce"));
+        daemon.returns::<methods::HermesConnectionsActivate>(list("b", None, "nativePkce"));
+        daemon.on::<methods::HermesSignIn>(|_| Ok(json!({})));
+        daemon.returns::<methods::HermesConnectionsList>(list("b", None, "nativePkce"));
+        let sheet = open_b(&stores, vcx, "nativePkce");
+        on_sheet(vcx, &sheet, |s, w, cx| s.sign_in(w, cx));
+        vcx.run_until_parked();
+        let asked = daemon.calls::<methods::HermesSignIn>();
+        assert_eq!(asked.len(), 1);
+        assert_eq!(
+            asked[0]["connection"],
+            json!("0a1b2c3d:b"),
+            "sign-in named no connection, or not the one put in use"
+        );
+    }
+
+    /// The activation's answer names another connection in use (another
+    /// window switched while it was out): nothing is signed in to, and the
+    /// editor says why.
+    #[gpui_kit::test]
+    fn sign_in_stops_when_another_connection_was_put_in_use(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsSave>(list("a", Some("b"), "nativePkce"));
+        daemon.returns::<methods::HermesConnectionsActivate>(list("a", None, "nativePkce"));
+        daemon.on::<methods::HermesSignIn>(|_| Ok(json!({})));
+        daemon.returns::<methods::HermesConnectionsList>(list("a", None, "nativePkce"));
+        let sheet = open_b(&stores, vcx, "nativePkce");
+        on_sheet(vcx, &sheet, |s, w, cx| s.sign_in(w, cx));
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::HermesSignIn>().is_empty(),
+            "signed in to the connection another window put in use"
+        );
+        sheet.read_with(vcx, |s, _| {
+            assert!(s.error.is_some(), "the editor did not say why");
+            assert!(!s.busy);
+        });
+    }
+
+    /// Quit while a sign-in is out beeps, and still does after a field is
+    /// edited (which clears the "Signing in" note, not the sign-in).
+    #[gpui_kit::test]
+    fn quit_during_a_sign_in_beeps_even_after_an_edit(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsSave>(list("a", Some("b"), "nativePkce"));
+        daemon.returns::<methods::HermesConnectionsActivate>(list("b", None, "nativePkce"));
+        daemon.on::<methods::HermesSignIn>(|_| Ok(json!({})));
+        daemon.returns::<methods::HermesConnectionsList>(list("b", None, "nativePkce"));
+        let held = daemon.hold::<methods::HermesSignIn>();
+        let sheet = open_b(&stores, vcx, "nativePkce");
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.name.update(cx, |i, cx| i.set_value("Cold frame", w, cx));
+            s.sign_in(w, cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::HermesSignIn>().len(), 1);
+        let quits = std::rc::Rc::new(std::cell::Cell::new(0));
+        let quit = |vcx: &mut VisualTestContext| {
+            let counted = quits.clone();
+            vcx.update(|_, cx| {
+                sheet::quit_with(
+                    cx,
+                    std::rc::Rc::new(move |_| counted.set(counted.get() + 1)),
+                )
+            });
+            vcx.run_until_parked();
+        };
+        let beeps = |vcx: &mut VisualTestContext| {
+            vcx.update(|_, cx| cx.global::<crate::shell::sheet::Beeps>().0)
+        };
+        quit(vcx);
+        assert_eq!(beeps(vcx), 1, "Quit during the sign-in did not beep");
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.name
+                .update(cx, |i, cx| i.set_value("Cold frame east", w, cx));
+        });
+        vcx.run_until_parked();
+        quit(vcx);
+        assert_eq!(beeps(vcx), 2, "an edit made the sign-in look over");
+        assert_eq!(quits.get(), 0);
+        assert!(vcx.update(|_, cx| sheet::current::<HermesConnectionSheet>(cx).is_some()));
+        drop(held);
+    }
+
+    /// Quit while the editor asks to send credentials unencrypted (its
+    /// Save's consent question is up): Quit queues nothing behind it, no
+    /// discard question comes; the sheet comes forward with a beep.
+    #[gpui_kit::test]
+    fn quit_while_the_consent_question_is_up_beeps(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.once::<methods::HermesConnectionsSave>(Err(serde_json::from_value(
+            json!({"code": "rpc.invalidParams", "args": {"reason": "plainHttpConsent"}}),
+        )
+        .unwrap()));
+        daemon.returns::<methods::HermesConnectionsSave>(list("a", Some("b"), "nativePkce"));
+        let sheet = open_b(&stores, vcx, "nativePkce");
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::HeldAnswers::default()));
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.name.update(cx, |i, cx| i.set_value("Cold frame", w, cx));
+            s.save(w, cx);
+        });
+        vcx.run_until_parked();
+        let held = |vcx: &mut VisualTestContext| {
+            vcx.update(|_, cx| cx.global::<crate::shell::sheet::HeldAnswers>().0.len())
+        };
+        assert_eq!(held(vcx), 1, "the consent question is not up");
+        let quits = std::rc::Rc::new(std::cell::Cell::new(0));
+        let counted = quits.clone();
+        vcx.update(|_, cx| {
+            sheet::quit_with(
+                cx,
+                std::rc::Rc::new(move |_| counted.set(counted.get() + 1)),
+            )
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            held(vcx),
+            1,
+            "a discard question was queued behind the consent"
+        );
+        assert_eq!(
+            vcx.update(|_, cx| cx
+                .try_global::<crate::shell::sheet::Beeps>()
+                .map_or(0, |b| b.0)),
+            1,
+            "Quit over the consent question did not beep"
+        );
+        assert_eq!(quits.get(), 0);
+        assert!(vcx.update(|_, cx| sheet::current::<HermesConnectionSheet>(cx).is_some()));
     }
 
     /// Agreeing to send credentials unencrypted carries on with what was

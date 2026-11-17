@@ -236,6 +236,10 @@ impl AddMcpSheet {
 }
 
 impl SheetBody for AddMcpSheet {
+    fn busy(&self, _: &App) -> bool {
+        self.busy
+    }
+
     /// A form typed, or an Add still out: Quit asks first.
     fn unsaved(&self, cx: &App) -> bool {
         self.busy || self.typed(cx)
@@ -485,6 +489,10 @@ impl McpKeySheet {
 }
 
 impl SheetBody for McpKeySheet {
+    fn busy(&self, _: &App) -> bool {
+        self.busy
+    }
+
     /// A key typed, or a Save still out: Quit asks first.
     fn unsaved(&self, cx: &App) -> bool {
         self.busy || !forms::raw(&self.key, cx).is_empty()

@@ -260,6 +260,35 @@ void main() {
       },
     );
 
+    test('a finished answer waits only so long for its chat\'s title', () {
+      fakeAsync((time) {
+        final intents = IntentsService(
+          send: scriptedSend(
+            events: <(String, Object)>[
+              (
+                ConduitEvents.turnFinished,
+                const TurnFinished(chatId: 'c1', messageId: 'a1', ok: true),
+              ),
+            ],
+          ),
+          list: () async => const ChatList(chats: <ChatSummary>[]),
+          search: (query) async => const ChatSearchResults(),
+          // A chat read that never answers.
+          get: (id) => Completer<ChatDetail?>().future,
+          events: bus,
+        );
+        IntentAnswer? answer;
+        intents
+            .ask(const IntentAsk(text: 'Quick one'))
+            .then((value) => answer = value);
+        time.elapse(const Duration(milliseconds: IntentsService.titleWaitMs));
+        expect(answer, isNotNull, reason: 'the title kept Shortcuts waiting');
+        expect(answer?.outcome, IntentAskOutcome.answered);
+        expect(answer?.chatId, 'c1');
+        expect(answer?.title, isNull);
+      });
+    });
+
     test(
       'stops listening once it has its answer, or its send failed',
       () async {

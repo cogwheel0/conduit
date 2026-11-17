@@ -237,6 +237,10 @@ impl FormSheet {
 }
 
 impl SheetBody for FormSheet {
+    fn busy(&self, _: &App) -> bool {
+        self.busy
+    }
+
     fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;

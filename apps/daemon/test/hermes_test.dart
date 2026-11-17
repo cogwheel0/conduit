@@ -91,6 +91,21 @@ void main() {
     expect(changed.last.connection, status.connection);
     expect(status.capabilities.jobs, isTrue);
     expect(status.capabilities.runApproval, isTrue);
+
+    // A sign-in asked for another connection than the one in use is
+    // refused.
+    await expectLater(
+      hermes.signIn(
+        HermesSignInRequest(connection: '${status.connection}-before'),
+      ),
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+    );
   });
 
   test('a conversation is a session, answered through turns', () async {
