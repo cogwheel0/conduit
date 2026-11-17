@@ -285,3 +285,54 @@ fn empty_blocks_of_every_kind_still_hold_the_caret(cx: &mut TestAppContext) {
         }
     });
 }
+
+/// A click on a control inside a file card runs that control's action
+/// once, and never the card's own (Play twice would leave a recording
+/// paused; Download would also play it).
+#[gpui_kit::test]
+fn a_cards_controls_run_their_own_action_only(cx: &mut TestAppContext) {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use super::doc::FileLink;
+    use super::editor::{EditorEvent, FileAction};
+    let ops = json!([{ "insert": "Before\n" }]);
+    let (editor, vcx) = open(cx, Doc::from_ops(ops.as_array().unwrap()));
+    vcx.update(|_, cx| {
+        editor.update(cx, |e, cx| {
+            e.append_cards(
+                &[FileLink {
+                    id: "f1".into(),
+                    name: "tide.wav".into(),
+                }],
+                cx,
+            )
+        })
+    });
+    draw(vcx);
+    let heard: Rc<RefCell<Vec<FileAction>>> = Rc::default();
+    let _listening = vcx.update(|_, cx| {
+        let heard = heard.clone();
+        cx.subscribe(&editor, move |_, e: &EditorEvent, _| {
+            if let EditorEvent::File(_, what) = e {
+                heard.borrow_mut().push(*what);
+            }
+        })
+    });
+    let card = vcx.debug_bounds("note-file-f1").expect("the card is drawn");
+    let middle = card.top() + card.size.height / 2.;
+    // Play sits first (10 pt in, 28 pt wide).
+    vcx.simulate_click(point(card.left() + px(24.), middle), Modifiers::none());
+    draw(vcx);
+    assert_eq!(*heard.borrow(), vec![FileAction::Play]);
+    heard.borrow_mut().clear();
+    // Remove sits last (10 pt in from the right, 26 pt wide).
+    vcx.simulate_click(point(card.right() - px(23.), middle), Modifiers::none());
+    draw(vcx);
+    assert_eq!(*heard.borrow(), vec![FileAction::Remove]);
+    heard.borrow_mut().clear();
+    // Elsewhere on the card: the card's own action, Play.
+    vcx.simulate_click(point(card.left() + px(80.), middle), Modifiers::none());
+    draw(vcx);
+    assert_eq!(*heard.borrow(), vec![FileAction::Play]);
+}

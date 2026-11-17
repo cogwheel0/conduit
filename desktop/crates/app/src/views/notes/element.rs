@@ -467,6 +467,17 @@ fn file_card(
             },
         )
     };
+    // A control inside the card: its own action only, never the card's
+    // too (the click would reach the card after the control).
+    let control = |what: FileAction| {
+        let run = action(what);
+        Rc::new(
+            move |e: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut App| {
+                cx.stop_propagation();
+                run(e, window, cx);
+            },
+        )
+    };
     let read_only = editor.is_read_only();
     let name: SharedString = link.name.clone().into();
     let player = if audio {
@@ -507,10 +518,14 @@ fn file_card(
             label,
         )
         .size(26., 14.)
-        .on_click(action(what))
+        .on_click(control(what))
     };
     div()
         .id(ElementId::NamedInteger("note-file".into(), id))
+        .debug_selector({
+            let id = link.id.clone();
+            move || format!("note-file-{id}")
+        })
         .role(Role::Group)
         .aria_label(SharedString::from(format!("{}, {}", link.name, kind)))
         .my(px(6.))
@@ -557,7 +572,7 @@ fn file_card(
             )
             .size(28., 14.)
             .tooltip(label)
-            .on_click(action(FileAction::Play))
+            .on_click(control(FileAction::Play))
             .into_any_element()
         } else {
             icon(IconName::FileText, 18., r.text_subtle).into_any_element()
