@@ -5,6 +5,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_http_session.dart';
+import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
@@ -590,4 +592,104 @@ void main() {
     await expectLater(completing, refusedAs(ConduitErrorCodes.sessionExpired));
     expect(runtime.dashboardCookies.cookies, isEmpty);
   });
+
+  test('a sign-in that cannot be saved says so and keeps nothing', () async {
+    final inUse = await dashboardInUse('Gateway unsaved');
+    final store = await DaemonHermesDashboardCookies.open(_FailingStore());
+    final root = Uri.parse(dashboard.baseUrl);
+    await expectLater(
+      store.adopt(root, const [
+        HermesDashboardCookie(
+          name: 'hermes_session_at',
+          value: 'good',
+          domain: '127.0.0.1',
+        ),
+      ], accessHeaders: const {}),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(store.cookies, isEmpty);
+    expect(store.hasSession(dashboard.baseUrl), isFalse);
+    await admin.deleteConnection(inUse.id);
+  });
+
+  const signedInCookie = HermesDashboardCookie(
+    name: 'hermes_session_at',
+    value: 'good',
+    domain: '127.0.0.1',
+  );
+
+  /// A cookie store of its own on [secure], signed in to the dashboard.
+  Future<DaemonHermesDashboardCookies> signedInStore(
+    SecureKeyValueStore secure,
+  ) async {
+    final store = await DaemonHermesDashboardCookies.open(secure);
+    expect(
+      await store.adopt(Uri.parse(dashboard.baseUrl), const [
+        signedInCookie,
+      ], accessHeaders: const {}),
+      isTrue,
+    );
+    return store;
+  }
+
+  test('a purge whose write fails says so, and is written later', () async {
+    final secure = _FailingStore()..failing = false;
+    final store = await signedInStore(secure);
+    secure.failing = true;
+    expect(await store.clearForOrigin(dashboard.baseUrl), isFalse);
+    // Out of the jar now, but the secure store still holds it.
+    expect(store.cookies, isEmpty);
+    expect(
+      (await DaemonHermesDashboardCookies.open(secure)).cookies,
+      isNotEmpty,
+    );
+
+    // Asked again, the purge writes again.
+    secure.failing = false;
+    expect(await store.clearForOrigin(dashboard.baseUrl), isTrue);
+    expect((await DaemonHermesDashboardCookies.open(secure)).cookies, isEmpty);
+
+    // A full purge that fails is finished by the next auth surface.
+    final again = await signedInStore(secure);
+    secure.failing = true;
+    expect(await again.clearAll(), isFalse);
+    secure.failing = false;
+    expect(await again.completePendingClear(), isTrue);
+    expect((await DaemonHermesDashboardCookies.open(secure)).cookies, isEmpty);
+  });
+
+  test(
+    'a full purge empties the jar and stops a sign-in being checked',
+    () async {
+      final secure = InMemorySecureKeyValueStore();
+      final store = await signedInStore(secure);
+      expect(await store.clearAll(), isTrue);
+      expect(store.cookies, isEmpty);
+      expect(
+        (await DaemonHermesDashboardCookies.open(secure)).cookies,
+        isEmpty,
+      );
+
+      final out = holdCheck();
+      final adopting = store.adopt(Uri.parse(dashboard.baseUrl), const [
+        signedInCookie,
+      ], accessHeaders: const {});
+      await out;
+      expect(await store.clearAll(), isTrue);
+      releaseCheck();
+      expect(await adopting, isFalse);
+      expect(store.cookies, isEmpty);
+    },
+  );
+}
+
+/// A secure store whose writes fail while [failing] (a Keychain that
+/// refuses).
+final class _FailingStore extends InMemorySecureKeyValueStore {
+  bool failing = true;
+
+  @override
+  Future<void> write({required String key, required String? value}) => failing
+      ? Future<void>.error(const FileSystemException('refused'))
+      : super.write(key: key, value: value);
 }
