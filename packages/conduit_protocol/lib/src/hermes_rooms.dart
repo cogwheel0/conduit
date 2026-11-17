@@ -213,6 +213,50 @@ abstract class HermesRoomRename with _$HermesRoomRename {
       _$HermesRoomRenameFromJson(json);
 }
 
+/// What became of a send (`hermes.rooms.sendStatus`).
+enum HermesRoomSendState {
+  /// This daemon run never received it.
+  unknown,
+
+  /// An attempt is under way.
+  pending,
+
+  /// Hermes may or may not have it; the room holds it for a retry.
+  unclear,
+
+  /// Hermes has it.
+  posted,
+
+  /// Nothing was posted.
+  refused,
+}
+
+/// Params for `hermes.rooms.sendStatus`.
+@freezed
+abstract class HermesRoomSendRef with _$HermesRoomSendRef {
+  const factory HermesRoomSendRef({
+    required String roomId,
+    required String sendId,
+
+    /// The Hermes connection this was asked under (`HermesChanged.connection`).
+    String? connection,
+  }) = _HermesRoomSendRef;
+
+  factory HermesRoomSendRef.fromJson(Map<String, dynamic> json) =>
+      _$HermesRoomSendRefFromJson(json);
+}
+
+/// Reply to `hermes.rooms.sendStatus`.
+@freezed
+abstract class HermesRoomSendStatus with _$HermesRoomSendStatus {
+  const factory HermesRoomSendStatus({
+    @Default(HermesRoomSendState.unknown) HermesRoomSendState state,
+  }) = _HermesRoomSendStatus;
+
+  factory HermesRoomSendStatus.fromJson(Map<String, dynamic> json) =>
+      _$HermesRoomSendStatusFromJson(json);
+}
+
 /// Who answers a message that names nobody.
 enum HermesRoomRouting {
   /// Every bot takes a turn.
@@ -265,6 +309,10 @@ abstract class HermesRoomMessage with _$HermesRoomMessage {
   const factory HermesRoomMessage({
     required String roomId,
     required String text,
+
+    /// The window's identity for this send, the same when the send goes
+    /// again: `hermes.rooms.sendStatus` says what became of it.
+    String? sendId,
 
     /// The Hermes connection this was asked under (`HermesChanged.connection`):
     /// refused (`sessionExpired`) once another connection is in use.

@@ -730,4 +730,69 @@ void main() {
       );
     });
   });
+
+  group('a send says what became of it, by its identity', () {
+    Future<HermesRoomSendState> status(String id) async =>
+        (await rooms.sendStatus(
+          HermesRoomSendRef(roomId: 'room-1', sendId: id),
+        )).state;
+
+    test('posted, refused, or never received by this daemon', () async {
+      await rooms.watch('w1', 'room-1');
+      await rooms.send(
+        const HermesRoomMessage(roomId: 'room-1', text: 'one', sendId: 's1'),
+      );
+      expect(await status('s1'), HermesRoomSendState.posted);
+      script.sendError = const HermesDesktopRpcException(
+        'room_busy',
+        code: 4111,
+        data: {'admitted': false},
+      );
+      await rooms.send(
+        const HermesRoomMessage(roomId: 'room-1', text: 'two', sendId: 's2'),
+      );
+      expect(await status('s2'), HermesRoomSendState.refused);
+      expect(await status('never-sent'), HermesRoomSendState.unknown);
+    });
+
+    test('refused when it failed before reaching the room', () async {
+      final last = rooms.connection.current;
+      container
+          .read(_connection.notifier)
+          .use(_gateway('https://hermes-b.example'));
+      await expectLater(
+        rooms.send(
+          HermesRoomMessage(
+            roomId: 'room-1',
+            text: 'hi',
+            sendId: 's3',
+            connection: last,
+          ),
+        ),
+        throwsA(isA<RpcError>()),
+      );
+      expect(await status('s3'), HermesRoomSendState.refused);
+    });
+
+    test('pending while out, unclear after an unclear answer, posted once the '
+        'room settles it', () async {
+      await rooms.watch('w1', 'room-1');
+      script.sendError = TimeoutException('no answer');
+      script.sendGate = Completer<void>();
+      final sending = rooms.send(
+        const HermesRoomMessage(roomId: 'room-1', text: 'hello', sendId: 's4'),
+      );
+      expect(await status('s4'), HermesRoomSendState.pending);
+      script.sendGate!.complete();
+      await sending;
+      expect(await status('s4'), HermesRoomSendState.unclear);
+      // The room's log shows it: the room lets the words go.
+      final controller = container.read(
+        core.hermesRoomProvider('room-1').notifier,
+      );
+      controller.state = controller.state.copyWith(unsentText: null);
+      await container.pump();
+      expect(await status('s4'), HermesRoomSendState.posted);
+    });
+  });
 }

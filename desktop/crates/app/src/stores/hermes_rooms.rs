@@ -18,7 +18,8 @@ use std::time::Instant;
 
 use conduit_protocol::{
     Event, HermesBotDto, HermesBotRef, HermesBots, HermesRoomDto, HermesRoomMemberDto,
-    HermesRoomRef, HermesRoomView, HermesRooms, NoParams, events, methods,
+    HermesRoomRef, HermesRoomSendRef, HermesRoomSendState, HermesRoomView, HermesRooms, NoParams,
+    events, methods,
 };
 use gpui_kit::{App, AsyncApp, Context, Image, Task, WeakEntity};
 
@@ -63,6 +64,13 @@ pub struct Unresolved {
     pub after: i64,
     /// An attempt is out (its answer not in yet).
     pub in_flight: bool,
+    /// Its identity as the daemon knows it (`hermes.rooms.sendStatus`):
+    /// None for words found held by the room with no send of ours kept,
+    /// until they go again.
+    pub send_id: Option<String>,
+    /// The store's generation when it was sent: the daemon's "never
+    /// received" counts only from the same daemon and connection.
+    pub asked_in: u64,
 }
 
 impl Unresolved {
@@ -147,6 +155,11 @@ pub struct HermesRoomsStore {
     confirmed: HashMap<RoomKey, String>,
     /// The last send identity given out.
     last_token: u64,
+    /// This app run's prefix for send identities (a daemon outliving the
+    /// app never mixes two runs' sends).
+    run: Option<String>,
+    /// Status reads under way, by key.
+    checks: HashMap<RoomKey, Task<()>>,
     revision: u64,
     fetches: Vec<Task<()>>,
     watch: Option<Task<()>>,
@@ -207,28 +220,46 @@ impl HermesRoomsStore {
     /// another send for the key is unresolved (or an attempt is out). The
     /// unresolved send's own words go again under its own identity; the
     /// caller checks the room still holds them for a retry.
-    pub fn begin_send(&mut self, key: &RoomKey, text: &str, after: i64) -> Option<u64> {
-        match self.unresolved.get_mut(key) {
-            Some(u) if u.in_flight || u.text != text => None,
-            Some(u) => {
-                u.in_flight = true;
-                Some(u.token)
+    pub fn begin_send(&mut self, key: &RoomKey, text: &str, after: i64) -> Option<(u64, String)> {
+        let generation = self.generation;
+        if let Some(u) = self.unresolved.get(key) {
+            if u.in_flight || u.text != text {
+                return None;
             }
-            None => {
-                self.last_token += 1;
-                let token = self.last_token;
-                self.unresolved.insert(
-                    key.clone(),
-                    Unresolved {
-                        token,
-                        text: text.to_string(),
-                        after,
-                        in_flight: true,
-                    },
-                );
-                Some(token)
-            }
+            let token = u.token;
+            let send_id = u.send_id.clone().unwrap_or_else(|| self.send_id(token));
+            let u = self.unresolved.get_mut(key)?;
+            u.in_flight = true;
+            u.send_id = Some(send_id.clone());
+            u.asked_in = generation;
+            return Some((token, send_id));
         }
+        self.last_token += 1;
+        let token = self.last_token;
+        let send_id = self.send_id(token);
+        self.unresolved.insert(
+            key.clone(),
+            Unresolved {
+                token,
+                text: text.to_string(),
+                after,
+                in_flight: true,
+                send_id: Some(send_id.clone()),
+                asked_in: generation,
+            },
+        );
+        Some((token, send_id))
+    }
+
+    fn send_id(&mut self, token: u64) -> String {
+        let run = self.run.get_or_insert_with(|| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default();
+            format!("{:x}{:x}", now, std::process::id())
+        });
+        format!("{run}-{token}")
     }
 
     /// A send's answer: it settles only its own send. Posted, its words are
@@ -247,20 +278,93 @@ impl HermesRoomsStore {
             return;
         };
         match outcome {
-            SendOutcome::Unclear => u.in_flight = false,
+            SendOutcome::Unclear => {
+                u.in_flight = false;
+                // The answer did not say: the daemon is asked what became of
+                // it (a later read of the room is no evidence either way).
+                self.check_send(key, cx);
+            }
             SendOutcome::Refused => {
                 self.unresolved.remove(key);
             }
-            SendOutcome::Posted => {
-                let text = u.text.clone();
-                self.unresolved.remove(key);
-                if self.drafts.get(key).is_some_and(|d| d.trim() == text) {
-                    self.drafts.remove(key);
-                }
-                self.confirmed.insert(key.clone(), text);
-            }
+            SendOutcome::Posted => self.settle_posted(key),
         }
         cx.notify();
+    }
+
+    /// The send for `key` is posted: it goes, a draft still holding exactly
+    /// its words goes, and whatever pane shows the key gives them up.
+    fn settle_posted(&mut self, key: &RoomKey) {
+        let Some(u) = self.unresolved.remove(key) else {
+            return;
+        };
+        if self.drafts.get(key).is_some_and(|d| d.trim() == u.text) {
+            self.drafts.remove(key);
+        }
+        self.confirmed.insert(key.clone(), u.text);
+    }
+
+    /// Asks the daemon what became of `key`'s unresolved send (no attempt
+    /// out, one ask at a time). Posted or refused settle it; "never received"
+    /// settles it as unposted (the words stay) only when asked of the
+    /// daemon and connection it was sent to; anything else leaves it until
+    /// the room's log shows the words, the daemon knows, or the user lets
+    /// it go.
+    pub fn check_send(&mut self, key: &RoomKey, cx: &mut Context<Self>) {
+        if self.checks.contains_key(key) {
+            return;
+        }
+        let Some(u) = self.unresolved.get(key).filter(|u| !u.in_flight) else {
+            return;
+        };
+        let (Some(send_id), Some(rpc)) = (u.send_id.clone(), self.rpc.clone()) else {
+            return;
+        };
+        let token = u.token;
+        let call = rpc.call::<methods::HermesRoomsSendStatus>(&HermesRoomSendRef {
+            room_id: key.room.clone(),
+            send_id,
+            connection: self.connection.clone(),
+        });
+        let key = key.clone();
+        let task_key = key.clone();
+        let task = cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| {
+                s.checks.remove(&key);
+                let Some(u) = s
+                    .unresolved
+                    .get(&key)
+                    .filter(|u| u.token == token && !u.in_flight)
+                else {
+                    return;
+                };
+                let unposted = match result.map(|r| r.state) {
+                    Ok(HermesRoomSendState::Posted) => {
+                        s.settle_posted(&key);
+                        cx.notify();
+                        return;
+                    }
+                    Ok(HermesRoomSendState::Refused) => true,
+                    Ok(HermesRoomSendState::Unknown) => u.asked_in == s.generation,
+                    _ => false,
+                };
+                if unposted {
+                    s.unresolved.remove(&key);
+                    cx.notify();
+                }
+            });
+        });
+        self.checks.insert(task_key, task);
+    }
+
+    /// The user lets `key`'s unresolved send go: its words stay in the
+    /// field, to send again or not.
+    pub fn discard_unresolved(&mut self, key: &RoomKey, cx: &mut Context<Self>) {
+        if self.unresolved.get(key).is_some_and(|u| !u.in_flight) {
+            self.unresolved.remove(key);
+            cx.notify();
+        }
     }
 
     /// Words the room still holds for a retry, with no send of ours kept:
@@ -277,15 +381,16 @@ impl HermesRoomsStore {
                 text: text.to_string(),
                 after,
                 in_flight: false,
+                send_id: None,
+                asked_in: self.generation,
             },
         );
     }
 
-    /// The room settled send `token` itself (its log shows it posted, or it
-    /// no longer holds it and its log does not show it).
-    pub fn settle(&mut self, key: &RoomKey, token: u64) {
+    /// The room's log shows send `token`'s words posted after it went out.
+    pub fn settle_seen_posted(&mut self, key: &RoomKey, token: u64) {
         if self.unresolved.get(key).is_some_and(|u| u.token == token) {
-            self.unresolved.remove(key);
+            self.settle_posted(key);
         }
     }
 
@@ -372,6 +477,15 @@ impl HermesRoomsStore {
         self.refresh(cx);
         self.watch_open(cx);
         self.changed(cx);
+    }
+
+    /// The open room changed: its unresolved send (if any) is asked about
+    /// again -- what the room shows is no evidence by itself.
+    fn check_open_send(&mut self, cx: &mut Context<Self>) {
+        if let Some(room) = self.room.as_ref().map(|r| r.room_id.clone()) {
+            let key = self.room_key(&room);
+            self.check_send(&key, cx);
+        }
     }
 
     /// The daemon connection was made again (a new daemon names its
@@ -719,6 +833,7 @@ impl HermesRoomsStore {
                     open.view = Some(view.clone());
                     open.received = Instant::now();
                     open.failed = false;
+                    self.check_open_send(cx);
                     self.changed(cx);
                 }
             }
@@ -1215,9 +1330,9 @@ mod tests {
         let store = cx.new(|_| HermesRoomsStore::new(daemon.rpc()));
         store.update(cx, |s, cx| {
             let key = s.room_key("r1");
-            let first = s.begin_send(&key, "plant the beans", 0).unwrap();
+            let (first, _) = s.begin_send(&key, "plant the beans", 0).unwrap();
             s.finish_send(&key, first, SendOutcome::Refused, cx);
-            let second = s.begin_send(&key, "water the peas", 0).unwrap();
+            let (second, _) = s.begin_send(&key, "water the peas", 0).unwrap();
             // The first send answers again, late (another pane's).
             s.finish_send(&key, first, SendOutcome::Refused, cx);
             assert_eq!(s.unresolved(&key).map(|u| u.token), Some(second));

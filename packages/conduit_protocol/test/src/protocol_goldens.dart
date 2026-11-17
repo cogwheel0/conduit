@@ -2990,6 +2990,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "roomId": "room-1",
   "text": "@fern how many seed trays?",
+  "sendId": "a1b2-3",
   "connection": "run1:2"
 }''',
 
@@ -2997,6 +2998,18 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "sent": true,
   "refused": false
+}''',
+
+  'hermesRoomSendRef': r'''
+{
+  "roomId": "room-1",
+  "sendId": "a1b2-3",
+  "connection": "run1:2"
+}''',
+
+  'hermesRoomSendStatus': r'''
+{
+  "state": "unclear"
 }''',
 
   'hermesRoomSendRefused': r'''

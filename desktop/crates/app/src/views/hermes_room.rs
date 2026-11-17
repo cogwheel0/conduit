@@ -542,11 +542,11 @@ impl HermesRoomPane {
         cx.notify();
     }
 
-    /// The room settles this key's unresolved send once no attempt is out:
-    /// its log shows the words posted (they leave the field, if it still
-    /// holds exactly them; words typed since are a message of their own),
-    /// or it no longer holds them for a retry and its log does not show
-    /// them -- refused, or never received: the words stay, to send again.
+    /// The room's log showing this key's unresolved send posted after it
+    /// went out settles it: the words leave the field, if it still holds
+    /// exactly them (words typed since are a message of their own). Nothing
+    /// else the room shows settles it -- an idle room, or one read before
+    /// the send, is no evidence; the daemon is asked instead.
     fn settle_by_room(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.sending.is_some() {
             return;
@@ -560,22 +560,14 @@ impl HermesRoomPane {
         else {
             return;
         };
-        if unresolved.in_flight {
-            return;
-        }
-        let Some(view) = self.view(cx).filter(|v| v.loaded && !v.sending) else {
-            return;
-        };
-        let posted = unresolved.posted_in(view);
-        let held = view.unsent_text.as_deref().map(str::trim) == Some(unresolved.text.as_str());
-        if !posted && held {
+        if unresolved.in_flight || !self.view(cx).is_some_and(|v| unresolved.posted_in(v)) {
             return;
         }
         let key = self.key.clone();
         self.stores
             .hermes_rooms
-            .update(cx, |h, _| h.settle(&key, unresolved.token));
-        if posted && self.text(cx).trim() == unresolved.text {
+            .update(cx, |h, _| h.settle_seen_posted(&key, unresolved.token));
+        if self.text(cx).trim() == unresolved.text {
             self.input.update(cx, |s, cx| s.set_value("", window, cx));
             self.text_changed(cx);
         }
@@ -746,7 +738,7 @@ impl HermesRoomPane {
         let connection = self.view(cx).and_then(|v| v.connection.clone());
         let key = self.key.clone();
         let after = self.view(cx).map(newest_seq).unwrap_or(i64::MIN);
-        let Some(token) = self
+        let Some((token, send_id)) = self
             .stores
             .hermes_rooms
             .update(cx, |h, _| h.begin_send(&key, &text, after))
@@ -759,6 +751,7 @@ impl HermesRoomPane {
         let call = rpc.call::<methods::HermesRoomsSend>(&HermesRoomMessage {
             room_id: self.room_id.clone(),
             text,
+            send_id: Some(send_id),
             connection,
         });
         let handle = window.window_handle();
@@ -1347,7 +1340,7 @@ impl HermesRoomPane {
             .into_any_element()
     }
 
-    fn banners(&self, t: &ConduitTheme, l: &L10n, cx: &App) -> Vec<AnyElement> {
+    fn banners(&self, t: &ConduitTheme, l: &L10n, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let r = t.roles;
         let Some(view) = self.view(cx) else {
             return vec![];
@@ -1363,14 +1356,36 @@ impl HermesRoomPane {
                 notes.push(("refresh-failed", l.hermes_room_refresh_failed()));
             }
         }
-        if (view.unsent_text.is_some() && !view.sending && self.sending.is_none())
-            || (self.sending.is_none() && self.send_waits(cx) && !self.text(cx).trim().is_empty())
-        {
+        // A send whose fate is unknown shows as pending until it is settled.
+        let pending = self.sending.is_none()
+            && self
+                .stores
+                .hermes_rooms
+                .read(cx)
+                .unresolved(&self.key)
+                .is_some_and(|u| !u.in_flight);
+        if (view.unsent_text.is_some() && !view.sending && self.sending.is_none()) || pending {
             notes.push(("unsent", l.hermes_room_send_unclear()));
         }
+        // The user may let an unresolved send go (its words stay): nothing
+        // else settles it without evidence.
+        let discardable = self.sending.is_none()
+            && self
+                .stores
+                .hermes_rooms
+                .read(cx)
+                .unresolved(&self.key)
+                .is_some_and(|u| !u.in_flight);
+        let (stores, key) = (self.stores.clone(), self.key.clone());
+        let discard = Rc::new(move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
+            stores
+                .hermes_rooms
+                .update(cx, |h, cx| h.discard_unresolved(&key, cx));
+        });
         notes
             .into_iter()
             .map(|(id, text)| {
+                let discard = discard.clone();
                 div()
                     .id(ElementId::Name(format!("hermes-room-banner-{id}").into()))
                     .role(Role::Status)
@@ -1383,6 +1398,12 @@ impl HermesRoomPane {
                     .text_color(r.text_subtle)
                     .child(icon(IconName::Info, 13., r.text_subtle))
                     .child(div().flex_1().child(SharedString::from(text)))
+                    .when(id == "unsent" && discardable, |d| {
+                        d.child(
+                            Button::new("hermes-room-unsent-discard", l.desktop_discard())
+                                .on_click(Rc::new(move |e, w, cx| discard(e, w, cx))),
+                        )
+                    })
                     .into_any_element()
             })
             .collect()
@@ -1772,7 +1793,9 @@ mod tests {
     }
 
     mod pane {
-        use conduit_protocol::{Event, HermesRoomSendResult, methods};
+        use conduit_protocol::{
+            Event, HermesRoomSendResult, HermesRoomSendState, HermesRoomSendStatus, methods,
+        };
         use gpui_kit::{
             AppContext as _, Entity, Focusable as _, TestAppContext, VisualTestContext,
         };
@@ -2008,6 +2031,7 @@ mod tests {
                 sent: true,
                 ..Default::default()
             });
+            status(&daemon, HermesRoomSendState::Unknown);
             let (_stores, pane, vcx) = open(cx, &daemon, "predispatch");
             pane.update_in(vcx, |p, window, cx| {
                 p.type_text("hello", window, cx);
@@ -2018,6 +2042,98 @@ mod tests {
             pane.update_in(vcx, |p, window, cx| p.send(window, cx));
             vcx.run_until_parked();
             assert_eq!(daemon.calls::<methods::HermesRoomsSend>().len(), 2);
+        }
+
+        fn status(daemon: &FakeDaemon, state: HermesRoomSendState) {
+            daemon.returns::<methods::HermesRoomsSendStatus>(HermesRoomSendStatus { state });
+        }
+
+        #[gpui_kit::test]
+        fn an_unclear_send_stays_unsettled_through_an_idle_room_until_its_words_show(
+            cx: &mut TestAppContext,
+        ) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(None));
+            daemon.returns::<methods::HermesRoomsSend>(HermesRoomSendResult::default());
+            status(&daemon, HermesRoomSendState::Unclear);
+            let held = daemon.hold::<methods::HermesRoomsSend>();
+            let (stores, pane, vcx) = open(cx, &daemon, "idle");
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("hello", window, cx);
+                p.send(window, cx);
+            });
+            changed(&stores, room(Some("hello")), vcx);
+            drop(held);
+            vcx.run_until_parked();
+            // The room goes idle without its log showing the words yet: not
+            // evidence either way.
+            changed(&stores, room(None), vcx);
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("something else", window, cx);
+                p.send(window, cx);
+            });
+            vcx.run_until_parked();
+            assert_eq!(daemon.calls::<methods::HermesRoomsSend>().len(), 1);
+            pane.update_in(vcx, |p, window, cx| p.type_text("hello", window, cx));
+            pane.read_with(vcx, |p, cx| {
+                assert!(p.send_waits(cx), "the words went sendable")
+            });
+            changed(&stores, posted(None, &[(4, "hello")]), vcx);
+            pane.read_with(vcx, |p, cx| assert_eq!(p.text(cx), ""));
+        }
+
+        #[gpui_kit::test]
+        fn an_unclear_send_is_not_settled_by_a_view_read_before_it(cx: &mut TestAppContext) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(None));
+            daemon.returns::<methods::HermesRoomsSend>(HermesRoomSendResult::default());
+            status(&daemon, HermesRoomSendState::Unclear);
+            let (_stores, pane, vcx) = open(cx, &daemon, "cached");
+            // The answer is unclear before any room event; the room shown is
+            // the one read before the send.
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("hello", window, cx);
+                p.send(window, cx);
+            });
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("another one", window, cx);
+                p.send(window, cx);
+            });
+            vcx.run_until_parked();
+            assert_eq!(daemon.calls::<methods::HermesRoomsSend>().len(), 1);
+        }
+
+        #[gpui_kit::test]
+        fn a_send_the_daemon_never_received_settles_as_unposted_with_its_words_kept(
+            cx: &mut TestAppContext,
+        ) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(None));
+            daemon.once::<methods::HermesRoomsSend>(Err(conduit_protocol::RpcError::internal(
+                "the connection dropped",
+            )));
+            daemon.returns::<methods::HermesRoomsSend>(HermesRoomSendResult {
+                sent: true,
+                ..Default::default()
+            });
+            status(&daemon, HermesRoomSendState::Unknown);
+            let (_stores, pane, vcx) = open(cx, &daemon, "never-received");
+            pane.update_in(vcx, |p, window, cx| {
+                p.type_text("hello", window, cx);
+                p.send(window, cx);
+            });
+            vcx.run_until_parked();
+            pane.read_with(vcx, |p, cx| {
+                assert_eq!(p.text(cx), "hello");
+                assert!(!p.send_waits(cx));
+            });
+            let asked = daemon.calls::<methods::HermesRoomsSendStatus>();
+            assert_eq!(asked.len(), 1);
+            assert_eq!(
+                asked[0]["sendId"],
+                daemon.calls::<methods::HermesRoomsSend>()[0]["sendId"]
+            );
         }
 
         #[gpui_kit::test]

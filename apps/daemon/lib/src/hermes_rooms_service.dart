@@ -511,6 +511,7 @@ final class HermesRoomsService implements HermesBotChats {
         if (unsettled(next)) return;
         if (identical(_unsentHolds[roomId], hold)) _unsentHolds.remove(roomId);
         hold.close();
+        _settleUnclear(roomId);
       },
     );
     _unsentHolds[roomId] = hold;
@@ -888,6 +889,40 @@ final class HermesRoomsService implements HermesBotChats {
     return _roomDto(room);
   });
 
+  /// What became of each send a window identified (`sendId`), the newest
+  /// [_kSendsKept]: what a window asks when a send's own answer did not
+  /// say. A send this daemon run never received is `unknown`.
+  final Map<String, ({String roomId, HermesRoomSendState state})> _sends =
+      <String, ({String roomId, HermesRoomSendState state})>{};
+  static const int _kSendsKept = 200;
+
+  void _noteSend(String? id, String roomId, HermesRoomSendState state) {
+    if (id == null) return;
+    _sends.remove(id);
+    _sends[id] = (roomId: roomId, state: state);
+    while (_sends.length > _kSendsKept) {
+      _sends.remove(_sends.keys.first);
+    }
+  }
+
+  /// The room settled its words (its log shows them, or a send of them
+  /// went through): every send of it left unclear was posted.
+  void _settleUnclear(String roomId) {
+    for (final MapEntry(:key, :value) in _sends.entries.toList()) {
+      if (value.roomId == roomId &&
+          value.state == HermesRoomSendState.unclear) {
+        _sends[key] = (roomId: roomId, state: HermesRoomSendState.posted);
+      }
+    }
+  }
+
+  Future<HermesRoomSendStatus> sendStatus(HermesRoomSendRef request) async {
+    connection.require(request.connection);
+    return HermesRoomSendStatus(
+      state: _sends[request.sendId]?.state ?? HermesRoomSendState.unknown,
+    );
+  }
+
   Future<HermesRoomSendResult> send(HermesRoomMessage request) {
     final text = request.text.trim();
     if (text.isEmpty) {
@@ -896,7 +931,10 @@ final class HermesRoomsService implements HermesBotChats {
         debugMessage: 'nothing to send',
       );
     }
-    return _withRoom(request.roomId, request.connection, (controller, _) async {
+    final id = request.sendId;
+    final roomId = request.roomId;
+    _noteSend(id, roomId, HermesRoomSendState.pending);
+    return _withRoom(roomId, request.connection, (controller, _) async {
       try {
         await controller.send(text);
         return const HermesRoomSendResult(sent: true);
@@ -913,7 +951,25 @@ final class HermesRoomsService implements HermesBotChats {
           detail: detail,
         );
       }
-    });
+    }).then(
+      (result) {
+        final state = result.sent
+            ? HermesRoomSendState.posted
+            : result.refused
+            ? HermesRoomSendState.refused
+            // Unclear, but the room already let the words go: posted.
+            : _unsentHolds.containsKey(roomId)
+            ? HermesRoomSendState.unclear
+            : HermesRoomSendState.posted;
+        _noteSend(id, roomId, state);
+        return result;
+      },
+      onError: (Object error, StackTrace stack) {
+        // Failed before reaching the room: nothing was posted.
+        _noteSend(id, roomId, HermesRoomSendState.refused);
+        return Future<HermesRoomSendResult>.error(error, stack);
+      },
+    );
   }
 
   Future<HermesRoomStopped> stop(String roomId, {String? connection}) =>

@@ -1121,6 +1121,9 @@ abstract final class ConduitMethods {
   /// Posts a message in a room.
   static const String hermesRoomsSend = 'hermes.rooms.send';
 
+  /// What became of a send, by the identity the window gave it.
+  static const String hermesRoomsSendStatus = 'hermes.rooms.sendStatus';
+
   /// Stops the room's work.
   static const String hermesRoomsStop = 'hermes.rooms.stop';
 

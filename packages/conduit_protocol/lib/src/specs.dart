@@ -1810,6 +1810,12 @@ abstract final class ConduitMethodSpecs {
         params: HermesRoomMessage.fromJson,
         result: HermesRoomSendResult.fromJson,
       );
+  static const hermesRoomsSendStatus =
+      ConduitMethodSpec<HermesRoomSendRef, HermesRoomSendStatus>(
+        ConduitMethods.hermesRoomsSendStatus,
+        params: HermesRoomSendRef.fromJson,
+        result: HermesRoomSendStatus.fromJson,
+      );
   static const hermesRoomsStop =
       ConduitMethodSpec<HermesRoomRef, HermesRoomStopped>(
         ConduitMethods.hermesRoomsStop,
@@ -2420,6 +2426,7 @@ abstract final class ConduitMethodSpecs {
         hermesRoomsWatch,
         hermesRoomsUnwatch,
         hermesRoomsSend,
+        hermesRoomsSendStatus,
         hermesRoomsStop,
         hermesRoomsContinue,
         hermesRoomsAnswer,
