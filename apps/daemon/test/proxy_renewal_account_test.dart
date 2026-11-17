@@ -197,4 +197,37 @@ void main() {
     check(renewed.user?.name).equals('Robin');
     check(await cookieOf(robin)).isNotNull().contains('robin-fresh');
   });
+
+  test(
+    'a renewal the proxy still turns away keeps the connection issue',
+    () async {
+      // Robin is in charge and signed in; the proxy's session expires.
+      owui.proxyRefuses = true;
+      runtime.container.read(authStateManagerProvider.notifier).onAuthIssue();
+      final renewed = await auth.renewProxy(
+        ExternalAuthCompletion(
+          origin: owui.url,
+          cookies: const {'proxy_session': 'robin-still-refused'},
+          account: robin,
+        ),
+      );
+      check(renewed.isAuthenticated).isFalse();
+      check(
+        runtime.container.read(authStateManagerProvider).value?.isAuthenticated,
+      ).equals(false);
+    },
+  );
+
+  test('once the proxy takes the session, the renewal signs back in', () async {
+    owui.proxyRefuses = false;
+    final renewed = await auth.renewProxy(
+      ExternalAuthCompletion(
+        origin: owui.url,
+        cookies: const {'proxy_session': 'robin-taken'},
+        account: robin,
+      ),
+    );
+    check(renewed.isAuthenticated).isTrue();
+    check(renewed.user?.name).equals('Robin');
+  });
 }

@@ -23,6 +23,10 @@ final class FakeOwuiAuthServer {
   Completer<void>? holdSessionCheck;
   Completer<void> sessionChecked = Completer<void>();
 
+  /// While set, a sign-in proxy in front turns every request away with its
+  /// own sign-in page (HTML), as an expired proxy session does.
+  bool proxyRefuses = false;
+
   /// The email of every user whose session was ended through sign-out.
   final List<String> signedOut = <String>[];
 
@@ -55,6 +59,14 @@ final class FakeOwuiAuthServer {
 
     final path = request.uri.path;
     requests.add('${request.method} $path');
+    if (proxyRefuses) {
+      await request.drain<void>();
+      response
+        ..statusCode = 200
+        ..headers.contentType = ContentType.html
+        ..write('<html><body>Sign in to continue</body></html>');
+      return response.close();
+    }
     if (path == '/health') return json(<String, dynamic>{'status': true});
     if (path == '/api/version') {
       return json(<String, dynamic>{'version': '0.13.1'});

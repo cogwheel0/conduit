@@ -53,7 +53,8 @@ String? renewedProxyRouteId(
 /// the route resolver forgets the refusals of the session just replaced.
 /// Then, when the proxy also completed Open WebUI's own sign-in ([capture]
 /// holds a token), that session is adopted as a first-time proxy sign-in
-/// is; otherwise the kept session is checked again.
+/// is; otherwise the kept session is checked with the server again, and
+/// shown signed in only once the server takes it.
 ///
 /// [stillWanted] is asked once the server is saved, before the session is
 /// touched: a host whose page went away stops there. [canCommit] is asked
@@ -133,7 +134,11 @@ Future<void> renewProxySessionInPlace(
     }
   } else {
     if (!mayCommit()) return;
-    await authManager.refresh();
+    // The kept session is asked about through the renewed cookies before it
+    // shows signed in, as Retry asks: a refresh trusts it at once, and a
+    // proxy still turning it away came back as signed in until its check
+    // failed. Refused, the connection issue stays.
+    await authManager.retryConnectionIssue();
   }
   DebugLogger.auth('Proxy session renewed in place', scope: 'auth/connection');
 }
