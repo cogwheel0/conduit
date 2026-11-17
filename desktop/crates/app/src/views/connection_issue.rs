@@ -37,6 +37,11 @@ pub enum Busy {
 pub struct ConnectionIssueView {
     stores: Stores,
     pub busy: Busy,
+    /// The try running now, and the account it is for: another account in
+    /// charge ends it here at once, and an answer to an older try changes
+    /// nothing.
+    try_id: u64,
+    try_scope: Option<(Option<String>, bool)>,
     /// Why the last try didn't work, when it says more than the page.
     pub error: Option<String>,
 }
@@ -44,11 +49,43 @@ pub struct ConnectionIssueView {
 impl ConnectionIssueView {
     pub fn new(stores: Stores, _: &mut Window, cx: &mut Context<Self>) -> Self {
         cx.observe(&stores.session, |_, _, cx| cx.notify()).detach();
+        cx.observe(&stores.accounts, |s: &mut Self, _, cx| s.follow_account(cx))
+            .detach();
         Self {
             stores,
             busy: Busy::Idle,
+            try_id: 0,
+            try_scope: None,
             error: None,
         }
+    }
+
+    /// Starts a try for the account in charge; its answers carry the id.
+    fn begin(&mut self, busy: Busy, cx: &mut Context<Self>) -> u64 {
+        self.try_id += 1;
+        self.try_scope = Some(self.scope(cx));
+        self.busy = busy;
+        self.error = None;
+        cx.notify();
+        self.try_id
+    }
+
+    /// Another account took over while a try ran: that try is not this
+    /// account's, so the page is free for this one's at once.
+    fn follow_account(&mut self, cx: &mut Context<Self>) {
+        if self.busy == Busy::Idle || self.try_scope == Some(self.scope(cx)) {
+            return;
+        }
+        self.try_id += 1;
+        self.try_scope = None;
+        self.busy = Busy::Idle;
+        self.error = None;
+        cx.notify();
+    }
+
+    /// An answer for try [id]: true when it is still the one running.
+    fn answers(&self, id: u64) -> bool {
+        self.try_id == id
     }
 
     /// The account's server is reached through a sign-in proxy whose
@@ -68,21 +105,9 @@ impl ConnectionIssueView {
         self.busy != Busy::Idle
     }
 
-    /// The account a try is for: an answer after another account's page
-    /// took over is dropped ([`Self::moved_on`]).
+    /// The account a try is for ([`Self::begin`]).
     fn scope(&self, cx: &App) -> (Option<String>, bool) {
         crate::views::sign_in::sign_in_scope(self.stores.accounts.read(cx))
-    }
-
-    /// A try answered after the page moved on to another account: nothing
-    /// of it is shown or adopted (true).
-    fn moved_on(&mut self, scope: &(Option<String>, bool), cx: &mut Context<Self>) -> bool {
-        if &self.scope(cx) == scope {
-            return false;
-        }
-        self.busy = Busy::Idle;
-        cx.notify();
-        true
     }
 
     fn server(&self, cx: &App) -> Option<(String, String)> {
@@ -96,22 +121,19 @@ impl ConnectionIssueView {
         if self.busy != Busy::Idle {
             return;
         }
-        self.busy = Busy::Retrying;
-        self.error = None;
-        cx.notify();
+        let id = self.begin(Busy::Retrying, cx);
         let call = self
             .stores
             .connection
             .read(cx)
             .rpc()
             .call::<methods::AuthRetry>(&NoParams);
-        let scope = self.scope(cx);
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
-                    if !s.moved_on(&scope, cx) {
+                    if s.answers(id) {
                         s.settle(result, cx)
                     }
                 });
@@ -130,11 +152,8 @@ impl ConnectionIssueView {
             return;
         };
         let l10n = cx.l10n().clone();
-        self.busy = Busy::Renewing;
-        self.error = None;
-        cx.notify();
+        let id = self.begin(Busy::Renewing, cx);
         let rpc = self.stores.connection.read(cx).rpc();
-        let scope = self.scope(cx);
         let outcome = run_proxy_sso(&url, l10n.desktop_sso_window_title(&name), cx);
         cx.spawn_in(
             window,
@@ -151,31 +170,32 @@ impl ConnectionIssueView {
                     },
                     SsoOutcome::Cancelled => {
                         let _ = this.update(cx, |s, cx| {
-                            s.busy = Busy::Idle;
-                            cx.notify();
+                            if s.answers(id) {
+                                s.busy = Busy::Idle;
+                                cx.notify();
+                            }
                         });
                         return;
                     }
                     _ => {
                         let _ = this.update(cx, |s, cx| {
-                            s.busy = Busy::Idle;
-                            s.error = Some(cx.l10n().desktop_proxy_sign_in_failed());
-                            cx.notify();
+                            if s.answers(id) {
+                                s.busy = Busy::Idle;
+                                s.error = Some(cx.l10n().desktop_proxy_sign_in_failed());
+                                cx.notify();
+                            }
                         });
                         return;
                     }
                 };
                 // The browser flow can take minutes: what it captured is
                 // never sent once the page has moved on to another account.
-                let moved_on = this
-                    .update(cx, |s, cx| s.moved_on(&scope, cx))
-                    .unwrap_or(true);
-                if moved_on {
+                if !this.update(cx, |s, _| s.answers(id)).unwrap_or(false) {
                     return;
                 }
                 let result = rpc.call::<methods::AuthRenewProxy>(&completion).await;
                 let _ = this.update(cx, |s, cx| {
-                    if !s.moved_on(&scope, cx) {
+                    if s.answers(id) {
                         s.settle(result, cx)
                     }
                 });
@@ -316,5 +336,72 @@ impl Render for ConnectionIssueView {
             )
             .child(status)
             .child(form_buttons(buttons))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui_kit::TestAppContext;
+
+    use super::*;
+    use crate::stores::accounts::tests::{account, list};
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    #[gpui_kit::test]
+    fn another_account_gets_its_own_try_while_the_last_ones_is_out(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let issue: AuthSnapshot = serde_json::from_value(serde_json::json!({
+            "phase": "error", "isAuthenticated": false, "hasToken": true, "isLoading": false
+        }))
+        .unwrap();
+        let signed_in: AuthSnapshot = serde_json::from_value(serde_json::json!({
+            "phase": "authenticated", "isAuthenticated": true, "hasToken": true,
+            "isLoading": false
+        }))
+        .unwrap();
+        // A's server takes A's session; B's still turns B's away.
+        daemon
+            .once::<methods::AuthRetry>(Ok(signed_in))
+            .returns::<methods::AuthRetry>(issue);
+        let held = daemon.hold_one::<methods::AuthRetry>(0);
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-connection-issue-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let two = |active_a: bool| {
+            list(vec![
+                account("a", "Avery", active_a, true),
+                account("b", "Blake", !active_a, true),
+            ])
+        };
+        stores.accounts.update(cx, |a, cx| a.adopt(two(true), cx));
+        let s = stores.clone();
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| ConnectionIssueView::new(s, window, cx));
+        view.update_in(vcx, |v, window, cx| v.retry(window, cx));
+        assert_eq!(view.read_with(vcx, |v, _| v.busy), Busy::Retrying);
+        // B takes over (another window switched) while A's try is out.
+        stores.accounts.update(vcx, |a, cx| a.adopt(two(false), cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            view.read_with(vcx, |v, _| v.busy),
+            Busy::Idle,
+            "A's try still held B's page"
+        );
+        view.update_in(vcx, |v, window, cx| v.retry(window, cx));
+        assert_eq!(view.read_with(vcx, |v, _| v.busy), Busy::Retrying);
+        // A's answer lands: B's try is still the one running.
+        held.release();
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::AuthRetry>().len(), 2);
+        assert!(
+            stores.session.read_with(vcx, |s, _| s
+                .auth
+                .as_ref()
+                .is_some_and(|a| !a.is_authenticated)),
+            "A's answer was adopted for B"
+        );
     }
 }
