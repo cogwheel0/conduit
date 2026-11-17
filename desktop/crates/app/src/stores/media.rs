@@ -122,32 +122,26 @@ pub fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Where `raw` points, for the account's server `server`.
+/// Where `raw` points, for the account's server `server`: decided by the
+/// origin of the address `raw` resolves to, and nothing else. A path
+/// (`/api/v1/files/…`, as Open WebUI stores an image a tool returned) is
+/// resolved against the server first, so one that resolves elsewhere
+/// (`/\\host/…`: a backslash reads as a slash) is that other site.
 pub fn classify(raw: &str, server: Option<&ServerOrigin>) -> LinkTarget {
     let raw = raw.trim();
     if raw.starts_with("data:") {
         return LinkTarget::Inline;
     }
     let base = server.and_then(|s| url::Url::parse(&s.url).ok());
-    // A path on the server (`/api/v1/files/…`), as Open WebUI stores an
-    // image a tool returned.
-    if raw.starts_with('/') && !raw.starts_with("//") {
-        let (Some(server), Some(base)) = (server, &base) else {
+    let resolved = if raw.starts_with('/') && !raw.starts_with("//") {
+        let Some(base) = &base else {
             return LinkTarget::Unsupported;
         };
-        let path = raw.split(['?', '#']).next().unwrap_or_default();
-        if let Some(id) = file_id(path) {
-            return LinkTarget::ServerFile(FileRef {
-                server_id: server.id.clone(),
-                file_id: id,
-            });
-        }
-        return match base.join(raw) {
-            Ok(url) => LinkTarget::Server(url.to_string()),
-            Err(_) => LinkTarget::Unsupported,
-        };
-    }
-    let Ok(url) = url::Url::parse(raw) else {
+        base.join(raw)
+    } else {
+        url::Url::parse(raw)
+    };
+    let Ok(url) = resolved else {
         return LinkTarget::Unsupported;
     };
     if !matches!(url.scheme(), "http" | "https") || !url.username().is_empty() {
@@ -632,6 +626,23 @@ mod tests {
         ServerOrigin {
             id: "acct-1".into(),
             url: "https://owui.example.test:8443/".into(),
+        }
+    }
+
+    /// A path that resolves to another site is that site: `/\\host/…`
+    /// (a backslash reads as a slash) never passes as the server's own.
+    #[test]
+    fn a_path_that_resolves_to_another_site_is_that_site() {
+        let s = server();
+        for raw in ["/\\pictures.example/a.png", "/\\/pictures.example/a.png"] {
+            assert_eq!(
+                classify(raw, Some(&s)),
+                LinkTarget::Remote {
+                    url: "https://pictures.example/a.png".into(),
+                    host: "pictures.example".into(),
+                },
+                "{raw}"
+            );
         }
     }
 
