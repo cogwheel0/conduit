@@ -67,6 +67,11 @@ pub struct Compose {
     pub images: Vec<gpui_kit::Image>,
     /// A web page's text or a video's transcript (Web Page's attachment).
     pub context: Vec<conduit_protocol::ContextAttachmentDto>,
+    /// The account (its scope key) the server read the content under, for
+    /// content that is that account's (Send Link's page): the new chat is
+    /// written only while that account is in charge. None: the user's own
+    /// words and files, for whichever account is in charge.
+    pub owner: Option<String>,
 }
 
 // The protocol's DTOs derive `PartialEq` only; equality here is plain

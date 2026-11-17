@@ -483,6 +483,7 @@ fn open_new_chat(
         files,
         images,
         context,
+        owner,
     } = compose;
     show_main(cx);
     let plan = open_files::plan(&files, open_files::file_size);
@@ -504,6 +505,7 @@ fn open_new_chat(
             images,
             context,
             carried,
+            owner,
         };
         // After this update: the pane follows the new selection as it ends,
         // and its draft switch empties the message box (a chat was open

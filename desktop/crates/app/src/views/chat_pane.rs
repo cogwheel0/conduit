@@ -86,6 +86,9 @@ pub struct NewChatContent {
     pub context: Vec<conduit_protocol::ContextAttachmentDto>,
     /// Attachments already uploaded (Quick Ask's Open in Conduit).
     pub carried: Vec<crate::stores::composer::Attachment>,
+    /// The account (scope key) the content was read under, when it is that
+    /// account's: written only while that account is in charge.
+    pub owner: Option<String>,
 }
 
 pub struct ChatPane {
@@ -1920,6 +1923,16 @@ impl ChatPane {
         if self.stores.navigation.read(cx).selection() != ticket {
             return false;
         }
+        // Read under one account, never written for another (a switch while
+        // it was read, or while it waited for the main window).
+        if content
+            .owner
+            .as_ref()
+            .is_some_and(|owner| self.stores.accounts.read(cx).scope_key().as_ref() != Some(owner))
+        {
+            log::info!("new chat: its content was read under another account; dropped");
+            return false;
+        }
         let NewChatContent {
             text,
             fresh,
@@ -1927,6 +1940,7 @@ impl ChatPane {
             images,
             context,
             carried,
+            owner: _,
         } = content;
         if fresh {
             let text = text.as_deref().unwrap_or_default();
@@ -3428,6 +3442,41 @@ mod tests {
             assert_eq!(
                 pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
                 "Copied packing list"
+            );
+        }
+
+        /// Send Link's page, read under one account, is never written into
+        /// a new chat once another account is in charge.
+        #[gpui_kit::test]
+        fn a_page_read_under_one_account_never_reaches_anothers_new_chat(cx: &mut TestAppContext) {
+            use crate::views::chat_pane::NewChatContent;
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+            let ticket = stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone());
+            let page = |owner: &str| NewChatContent {
+                text: Some("Summarize this page".into()),
+                fresh: true,
+                owner: Some(owner.into()),
+                ..NewChatContent::default()
+            };
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&ticket, page("b"), window, cx)
+            });
+            assert!(!wrote, "account b's page written while a is in charge");
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                ""
+            );
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&ticket, page("a"), window, cx)
+            });
+            assert!(wrote);
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                "Summarize this page"
             );
         }
 

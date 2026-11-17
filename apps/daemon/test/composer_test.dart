@@ -8,6 +8,10 @@ import 'dart:io';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart' as core;
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show PrimaryAccountKind;
+import 'package:conduit_core/providers/primary_account_providers.dart'
+    show PrimaryAccountRef, primaryAccountProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:dio/dio.dart';
@@ -41,6 +45,42 @@ void main() {
       expect(video.youtube, isTrue);
       expect(video.error, 'failed');
       expect(video.attachment, isNull);
+    },
+  );
+
+  test(
+    'Send Link never answers once another account took charge while it read',
+    () async {
+      var primary = const PrimaryAccountRef(
+        PrimaryAccountKind.openWebUi,
+        'server-ada',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          primaryAccountProvider.overrideWith((ref) => primary),
+        ],
+      );
+      addTearDown(container.dispose);
+      final composer = ComposerService(container);
+
+      final asked = composer.sendLink('https://example.org/tides');
+      // Another account takes charge before the read comes back.
+      primary = const PrimaryAccountRef(
+        PrimaryAccountKind.openWebUi,
+        'server-bo',
+      );
+      container.invalidate(primaryAccountProvider);
+      container.read(primaryAccountProvider);
+
+      await expectLater(
+        asked,
+        throwsA(
+          isA<RpcError>()
+              .having((e) => e.code, 'code', ConduitErrorCodes.sessionExpired)
+              .having((e) => e.args['reason'], 'reason', 'account'),
+        ),
+      );
     },
   );
 
@@ -154,16 +194,13 @@ void main() {
       );
       // The connection's model, once the model list has it.
       final listed = Completer<core.Model>();
-      final subscription = runtime.container.listen<AsyncValue<List<core.Model>>>(
-        modelsProvider,
-        (_, next) {
-          final model = next.value
-              ?.where((m) => m.metadata?['directProfileName'] == 'Fake')
-              .firstOrNull;
-          if (model != null && !listed.isCompleted) listed.complete(model);
-        },
-        fireImmediately: true,
-      );
+      final subscription = runtime.container
+          .listen<AsyncValue<List<core.Model>>>(modelsProvider, (_, next) {
+            final model = next.value
+                ?.where((m) => m.metadata?['directProfileName'] == 'Fake')
+                .firstOrNull;
+            if (model != null && !listed.isCompleted) listed.complete(model);
+          }, fireImmediately: true);
       modelId = (await listed.future).id;
       subscription.close();
       await ModelsService(runtime.container).select(modelId);

@@ -391,9 +391,15 @@ final class ComposerService {
   /// reads from [url], as [fetchUrl] reads it for Web Page, and whether it
   /// is a YouTube video, so the app words the new chat's message as the
   /// phone does ("this video" or "this page").
+  ///
+  /// Read for the account in charge when it was asked: never handed back
+  /// once another one took charge meanwhile (the app would open it in that
+  /// account's new chat).
   Future<IntentLinkResult> sendLink(String url) async {
+    final scope = AccountScope.capture(_container);
     final trimmed = url.trim();
     final fetched = await fetchUrl(trimmed);
+    scope.require('intents.sendLink answered');
     return IntentLinkResult(
       url: trimmed,
       youtube: isYoutubeUrl(trimmed),

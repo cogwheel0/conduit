@@ -596,25 +596,54 @@ async fn send_link(url: String, cx: &mut AsyncApp) -> Result<Response, Failure> 
     if url.is_empty() {
         return Err(Failure::NoLink);
     }
-    let rpc = cx.update(|cx| cx.global::<AppState>().connection.read(cx).rpc());
+    let in_charge = |cx: &App| cx.global::<AppState>().stores.accounts.read(cx).scope_key();
+    let (rpc, asked) = cx.update(|cx| {
+        (
+            cx.global::<AppState>().connection.read(cx).rpc(),
+            in_charge(cx),
+        )
+    });
     let read = rpc
         .call::<methods::IntentsSendLink>(&IntentLink { url: url.clone() })
         .await;
-    let result = match read {
-        Ok(result) => result,
+    let now = cx.update(|cx| in_charge(cx));
+    let result = link_read(&url, read, asked.as_deref(), now.as_deref())?;
+    let (mut compose_with, value) = cx.update(|cx| link_compose(&result, cx.l10n()));
+    // The page is the account's it was read under: the new chat is written
+    // only while that account is in charge (it may wait for the window).
+    compose_with.owner = asked;
+    compose(compose_with, cx);
+    Ok(Response::value(value))
+}
+
+/// What Send Link opens with after the server's read: the read, or (when
+/// nothing could be read) the link alone; never anything once another
+/// account took charge while it was read (`asked`, then `now`), or when the
+/// daemon refused it for that reason.
+pub fn link_read(
+    url: &str,
+    read: Result<IntentLinkResult, RpcError>,
+    asked: Option<&str>,
+    now: Option<&str>,
+) -> Result<IntentLinkResult, Failure> {
+    if asked.is_none() || asked != now {
+        return Err(Failure::Unexpected);
+    }
+    match read {
+        Ok(result) => Ok(result),
+        Err(e) if e.args.get("reason").map(String::as_str) == Some("account") => {
+            Err(Failure::Unexpected)
+        }
         Err(e) => {
             log::warn!("intents.sendLink: {e}");
-            IntentLinkResult {
-                url: url.clone(),
+            Ok(IntentLinkResult {
+                url: url.to_string(),
                 youtube: false,
                 attachment: None,
                 error: Some("failed".into()),
-            }
+            })
         }
-    };
-    let (compose_with, value) = cx.update(|cx| link_compose(&result, cx.l10n()));
-    compose(compose_with, cx);
-    Ok(Response::value(value))
+    }
 }
 
 /// What Send Link's new chat starts with, and what the shortcut is told.
@@ -1128,6 +1157,31 @@ mod tests {
             }),
             error: (!read).then(|| "noContent".into()),
         }
+    }
+
+    #[test]
+    fn send_link_never_opens_once_another_account_took_charge() {
+        let read = || Ok(link(false, true));
+        assert!(link_read("https://example.org/a", read(), Some("a"), Some("a")).is_ok());
+        assert_eq!(
+            link_read("https://example.org/a", read(), Some("a"), Some("b")).unwrap_err(),
+            Failure::Unexpected
+        );
+        assert_eq!(
+            link_read("https://example.org/a", read(), Some("a"), None).unwrap_err(),
+            Failure::Unexpected
+        );
+        // The daemon refused it: the account changed while it was read.
+        let mut refused = RpcError::new(ErrorCode::SessionExpired);
+        refused.args.insert("reason".into(), "account".into());
+        assert_eq!(
+            link_read("https://example.org/a", Err(refused), Some("a"), Some("a")).unwrap_err(),
+            Failure::Unexpected
+        );
+        // Nothing read for another reason: the chat still opens with the link.
+        let failed = RpcError::new(ErrorCode::ServerError);
+        let opened = link_read("https://example.org/a", Err(failed), Some("a"), Some("a")).unwrap();
+        assert_eq!(opened.error.as_deref(), Some("failed"));
     }
 
     #[test]
