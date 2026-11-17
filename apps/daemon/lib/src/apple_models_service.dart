@@ -63,6 +63,11 @@ final class AppleModelsService {
   final ProviderContainer _container;
   final AppleModelsBridge bridge;
 
+  /// Each ask of the on-device model's status is numbered: only the latest
+  /// decides the offer, so an answer to an older ask (asked before the
+  /// window said its Mac has no model, say) never brings it back.
+  int _asked = 0;
+
   /// Apple Intelligence as Settings shows it, asked of the engine now.
   Future<AppleModels> status() async =>
       AppleModels(models: <AppleModelStatus>[await _onDevice()]);
@@ -85,8 +90,9 @@ final class AppleModelsService {
   void forgetWindow(String session) => bridge.forgetWindow(session);
 
   /// The on-device model as the engine says it is now; what it says also
-  /// decides whether the connection is offered.
+  /// decides whether the connection is offered, unless asked again since.
   Future<AppleModelStatus> _onDevice() async {
+    final ask = ++_asked;
     final said = bridge.supported;
     if (said != true) {
       // No window has said this Mac has Apple's models yet, or it said no.
@@ -111,7 +117,7 @@ final class AppleModelsService {
           .read(applePccAdapterProvider)
           .status(PlatformAppleModel.onDevice);
     } on Object {
-      _offer(false);
+      if (ask == _asked) _offer(false);
       return const AppleModelStatus(
         model: AppleModelKind.onDevice,
         availability: AppleAvailability.unavailable,
@@ -119,7 +125,7 @@ final class AppleModelsService {
       );
     }
     final available = status.availability == PlatformPccAvailability.available;
-    _offer(available);
+    if (ask == _asked) _offer(available);
     return AppleModelStatus(
       model: AppleModelKind.onDevice,
       availability: switch (status.availability) {

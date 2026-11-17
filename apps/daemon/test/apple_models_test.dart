@@ -125,6 +125,20 @@ void main() {
     expect(await offered(), <String>[kAppleOnDeviceProfileId]);
   });
 
+  test('a status asked before the window changed its answer never offers '
+      'the model', () async {
+    final held = window.holdStatus = Completer<void>();
+    window.ready(supported: true);
+    await window.until(() => window.statusAsked > 0);
+    // Asked of the engine; meanwhile the window says this Mac has none.
+    window.ready(supported: false);
+    held.complete();
+    await window.until(() => window.statusAnswered > 0);
+    await pumpEventQueue();
+    expect(container.read(appleOnDeviceAnswersProvider), isFalse);
+    expect(await offered(), isEmpty);
+  });
+
   test('an older macOS keeps the model out and says so', () async {
     window.ready(supported: false);
     expect(await offered(), isEmpty);
@@ -482,7 +496,10 @@ final class _Window {
   bool detachAfterToolCall = false;
   AppleFailure? failure;
   int statusAsked = 0;
+  int statusAnswered = 0;
 
+  /// Holds status answers back until it completes.
+  Completer<void>? holdStatus;
   final Map<String, Completer<void>> _toolAnswered =
       <String, Completer<void>>{};
 
@@ -534,7 +551,10 @@ final class _Window {
     switch (c.kind) {
       case AppleCommandKind.status:
         statusAsked++;
-        _report(AppleReport(id: c.id, status: engine));
+        final status = engine;
+        if (holdStatus case final hold?) await hold.future;
+        statusAnswered++;
+        _report(AppleReport(id: c.id, status: status));
       case AppleCommandKind.start:
         final runId = c.request!.runId;
         _report(AppleReport(id: c.id));
