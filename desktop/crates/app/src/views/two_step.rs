@@ -46,6 +46,14 @@ use crate::views::words;
 /// the setup window without scrolling.
 pub const QR_SIDE: f32 = 132.;
 
+/// One attempt at the second step, as the window tells attempts apart: its
+/// stage and the account whose sign-in it is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Attempt {
+    stage: Option<TwoStepStage>,
+    scope: (Option<String>, bool),
+}
+
 /// Loading the enrol step's setup key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SetupState {
@@ -67,8 +75,12 @@ pub struct TwoStepView {
     pub setup_state: SetupState,
     /// The server's QR code, ready to draw.
     qr: Option<Arc<Image>>,
-    /// The stage last drawn: a new one starts with an empty field.
-    seen: Option<TwoStepStage>,
+    /// The attempt last drawn (its stage and the account it is for): a new
+    /// one starts with an empty field and no key.
+    seen: Option<Attempt>,
+    /// Counts attempts: an answer applies only to the attempt it was asked
+    /// for (a cancel, another account or a new enrolment moves it on).
+    attempt: u64,
     /// A new stage puts the cursor in its field on its first draw.
     focus_field: bool,
     _subscriptions: Vec<Subscription>,
@@ -107,6 +119,7 @@ impl TwoStepView {
             setup_state: SetupState::Idle,
             qr: None,
             seen: None,
+            attempt: 0,
             focus_field: false,
             _subscriptions: subscriptions,
         };
@@ -135,23 +148,28 @@ impl TwoStepView {
         self.challenge(cx).map(|c| c.stage)
     }
 
-    /// A new stage (or none) clears what the last one left; an enrol step
-    /// loads its setup key.
+    /// A new attempt (another stage, none, or another account's) clears
+    /// what the last one left, its key and an answer still out included; an
+    /// enrol step loads its own setup key.
     fn sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let stage = self.stage(cx);
-        if stage == self.seen {
+        let now = Attempt {
+            stage,
+            scope: self.scope(cx),
+        };
+        if self.seen.as_ref() == Some(&now) {
             return;
         }
-        self.seen = stage;
+        self.seen = Some(now);
+        self.attempt += 1;
         self.recovery = false;
         self.error = None;
-        if stage != Some(TwoStepStage::Enroll) {
-            self.setup = None;
-            self.qr = None;
-            self.setup_state = SetupState::Idle;
-        }
+        self.busy = false;
+        self.setup = None;
+        self.qr = None;
+        self.setup_state = SetupState::Idle;
         self.code.update(cx, |i, cx| i.set_value("", window, cx));
-        if stage == Some(TwoStepStage::Enroll) && self.setup.is_none() {
+        if stage == Some(TwoStepStage::Enroll) {
             self.load_setup(cx);
         }
         self.focus_field = matches!(
@@ -175,14 +193,14 @@ impl TwoStepView {
             .read(cx)
             .rpc()
             .call::<methods::AuthTwoStepSetup>(&NoParams);
-        let scope = self.scope(cx);
+        let attempt = self.attempt;
         cx.spawn(
             async move |this: WeakEntity<Self>, cx: &mut gpui_kit::AsyncApp| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
-                    if s.scope(cx) != scope {
-                        s.setup_state = SetupState::Idle;
-                        cx.notify();
+                    // Another attempt's key: the codes it makes are not the
+                    // ones the daemon would take now.
+                    if s.attempt != attempt {
                         return;
                     }
                     match result {
@@ -249,16 +267,16 @@ impl TwoStepView {
         };
         self.busy = true;
         self.error = None;
-        let scope = self.scope(cx);
+        let attempt = self.attempt;
         cx.notify();
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
                 let result = call.await;
                 let _ = this.update_in(cx, |s, window, cx| {
-                    if s.scope(cx) != scope {
-                        s.busy = false;
-                        cx.notify();
+                    // The attempt moved on meanwhile: its answer is not this
+                    // one's (and the new attempt started not busy).
+                    if s.attempt != attempt {
                         return;
                     }
                     s.finish(result, window, cx)
@@ -303,12 +321,12 @@ impl TwoStepView {
             .rpc()
             .call::<methods::AuthTwoStepCancel>(&NoParams);
         let session = self.stores.session.clone();
-        let scope = self.scope(cx);
+        let attempt = self.attempt;
         cx.spawn(
             async move |this: WeakEntity<Self>, cx: &mut gpui_kit::AsyncApp| {
                 if let Ok(snapshot) = call.await
                     && this
-                        .update(cx, |s, cx| s.scope(cx) == scope)
+                        .update(cx, |s, _| s.attempt == attempt)
                         .unwrap_or(false)
                 {
                     session.update(cx, |s, cx| s.adopt_auth(snapshot, cx));
@@ -724,6 +742,102 @@ mod tests {
         assert!(sized_svg("<svg viewBox=\"0 0 9 9\"></svg>", 90).contains("width=\"90\""));
         // Not an SVG: left alone.
         assert_eq!(sized_svg("nothing", 90), "nothing");
+    }
+
+    use gpui_kit::TestAppContext;
+
+    use crate::stores::accounts::tests::{account, list};
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    /// The daemon's sign-in at `stage` (or none), not signed in.
+    fn at(stage: Option<&str>) -> AuthSnapshot {
+        let two_step = stage.map(|stage| {
+            serde_json::json!({
+                "stage": stage, "account": "avery", "expiresInSeconds": 300,
+                "recoveryCodes": []
+            })
+        });
+        serde_json::from_value(serde_json::json!({
+            "phase": "unauthenticated", "isAuthenticated": false, "hasToken": false,
+            "isLoading": false, "twoStep": two_step
+        }))
+        .unwrap()
+    }
+
+    fn key(manual_key: &str) -> TwoStepSetup {
+        serde_json::from_value(serde_json::json!({
+            "manualKey": manual_key,
+            "authenticatorUri": format!("otpauth://totp/Demo:avery?secret={manual_key}")
+        }))
+        .unwrap()
+    }
+
+    fn view<'a>(
+        daemon: &FakeDaemon,
+        name: &str,
+        cx: &'a mut TestAppContext,
+    ) -> (
+        Stores,
+        Entity<TwoStepView>,
+        &'a mut gpui_kit::VisualTestContext,
+    ) {
+        let scratch = std::env::temp_dir().join(format!("conduit-{name}-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", true, false),
+                    account("b", "Blake", false, false),
+                ]),
+                cx,
+            )
+        });
+        let s = stores.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| TwoStepView::new(s, window, cx));
+        (stores, view, vcx)
+    }
+
+    fn shown_key(
+        view: &Entity<TwoStepView>,
+        vcx: &mut gpui_kit::VisualTestContext,
+    ) -> Option<String> {
+        view.read_with(vcx, |v, _| v.setup.as_ref().map(|s| s.manual_key.clone()))
+    }
+
+    #[gpui_kit::test]
+    fn a_key_loaded_for_an_abandoned_enrolment_never_replaces_the_next_ones(
+        cx: &mut TestAppContext,
+    ) {
+        let daemon = FakeDaemon::new();
+        daemon
+            .once::<methods::AuthTwoStepSetup>(Ok(key("OLDKEY")))
+            .once::<methods::AuthTwoStepSetup>(Ok(key("NEWKEY")));
+        let held = daemon.hold_one::<methods::AuthTwoStepSetup>(0);
+        let (stores, view, vcx) = view(&daemon, "two-step-abandoned", cx);
+        stores
+            .session
+            .update(vcx, |s, cx| s.adopt_auth(at(Some("enroll")), cx));
+        vcx.run_until_parked();
+        // Back to Sign In while the key loads, then enrolling again.
+        stores
+            .session
+            .update(vcx, |s, cx| s.adopt_auth(at(None), cx));
+        vcx.run_until_parked();
+        stores
+            .session
+            .update(vcx, |s, cx| s.adopt_auth(at(Some("enroll")), cx));
+        vcx.run_until_parked();
+        assert_eq!(shown_key(&view, vcx).as_deref(), Some("NEWKEY"));
+        held.release();
+        vcx.run_until_parked();
+        assert_eq!(
+            shown_key(&view, vcx).as_deref(),
+            Some("NEWKEY"),
+            "the abandoned enrolment's key came back"
+        );
     }
 
     #[test]
