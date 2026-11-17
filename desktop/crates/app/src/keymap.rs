@@ -679,10 +679,11 @@ pub fn keyboard_groups() -> Vec<(KeyGroup, Vec<KeyRow>)> {
             KeyGroup::Window,
             vec![QuickAsk, R(A::OpenSettings), R(A::ShowShortcuts)],
         ),
-        // The areas' own keys, in the sidebar's order (Hermes, Notes,
-        // Terminal, Workspace, Calendar, Automations).
-        (KeyGroup::HermesRooms, area_rows(KeyGroup::HermesRooms)),
+        // The areas' own keys, in the sidebar's order (Hermes: Scheduled
+        // Agents above the rooms; Notes, Terminal, Workspace, Calendar,
+        // Automations).
         (KeyGroup::HermesJobs, area_rows(KeyGroup::HermesJobs)),
+        (KeyGroup::HermesRooms, area_rows(KeyGroup::HermesRooms)),
         (KeyGroup::Notes, area_rows(KeyGroup::Notes)),
         (KeyGroup::Terminal, area_rows(KeyGroup::Terminal)),
         (KeyGroup::Workspace, area_rows(KeyGroup::Workspace)),
@@ -1267,5 +1268,31 @@ mod tests {
             );
         }
         assert_eq!(fixed_stroke(FixedCommand::ZoomIn), k("+").primary());
+    }
+
+    /// The areas' keys are listed in the sidebar's order: in Hermes,
+    /// Scheduled Agents stands under the switcher, above the rooms
+    /// (sidebar_model's Hermes rows), then Notes, Terminal, Workspace,
+    /// Calendar and Scheduled Tasks.
+    #[test]
+    fn the_areas_keys_follow_the_sidebar_order() {
+        let areas: Vec<KeyGroup> = keyboard_groups()
+            .into_iter()
+            .map(|(g, _)| g)
+            .skip_while(|g| *g != KeyGroup::Window)
+            .skip(1)
+            .collect();
+        assert_eq!(
+            areas,
+            [
+                KeyGroup::HermesJobs,
+                KeyGroup::HermesRooms,
+                KeyGroup::Notes,
+                KeyGroup::Terminal,
+                KeyGroup::Workspace,
+                KeyGroup::Calendar,
+                KeyGroup::ScheduledTasks,
+            ]
+        );
     }
 }
