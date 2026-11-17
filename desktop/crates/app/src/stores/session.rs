@@ -711,7 +711,7 @@ impl conduit_protocol::RpcMethod for OnboardingProbe {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::collections::BTreeMap;
 
     use gpui_kit::{AppContext as _, TestAppContext};
@@ -722,7 +722,7 @@ mod tests {
     use crate::stores::accounts::tests::{account, list};
     use crate::stores::rpc::fake::FakeDaemon;
 
-    fn auth(phase: AuthPhase, authenticated: bool) -> AuthSnapshot {
+    pub(crate) fn auth(phase: AuthPhase, authenticated: bool) -> AuthSnapshot {
         AuthSnapshot {
             phase,
             is_authenticated: authenticated,
@@ -824,7 +824,7 @@ mod tests {
         assert_eq!(route(Some(false), None, Some(&out)), Route::Unknown);
     }
 
-    fn handshake(needs: Option<bool>) -> Handshake {
+    pub(crate) fn handshake(needs: Option<bool>) -> Handshake {
         let mut raw = json!({
             "protocolVersion": conduit_protocol::PROTOCOL_VERSION,
             "daemonVersion": "0.1.0",
@@ -839,7 +839,7 @@ mod tests {
         Handshake::from_value(raw)
     }
 
-    fn request() -> HandshakeRequest {
+    pub(crate) fn request() -> HandshakeRequest {
         HandshakeRequest {
             protocol_version: conduit_protocol::PROTOCOL_VERSION.into(),
             client_name: "test".into(),

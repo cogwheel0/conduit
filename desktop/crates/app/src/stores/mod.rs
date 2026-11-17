@@ -315,7 +315,13 @@ impl Stores {
                 self.router.update(cx, |r, cx| r.on_remap(from, to, cx));
             }
             Event::HermesChanged(_) => self.session.update(cx, |s, cx| s.refresh(cx)),
+            // What decides the route may have changed with them: Apple's
+            // on-device model, which answers only once the window's engine
+            // says so (after launch, and after the core's first onboarding
+            // answer), makes Direct usable. The whole session is asked
+            // again, as a Hermes change does.
             Event::CapabilitiesChanged => self.session.update(cx, |s, cx| {
+                s.refresh(cx);
                 s.refresh_capabilities(cx);
                 s.refresh_server(cx);
             }),
@@ -349,6 +355,57 @@ mod event_tests {
     use super::*;
     use crate::stores::accounts::tests::{account, list};
     use crate::stores::rpc::fake::FakeDaemon;
+
+    #[gpui_kit::test]
+    fn a_model_that_answers_after_launch_takes_the_window_out_of_onboarding(
+        cx: &mut TestAppContext,
+    ) {
+        use crate::stores::session::tests::{auth, handshake, request};
+        use crate::stores::session::{Backend, Route};
+        use conduit_protocol::{AuthPhase, DirectConnectionList};
+
+        let daemon = FakeDaemon::new();
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-stores-apple-{}", std::process::id()));
+        let stores = cx.update(|cx| Stores::for_test(daemon.rpc(), &scratch, cx));
+        // A cold launch with Apple On-Device as the only Direct model,
+        // before the window's engine has said it answers: the core says
+        // onboarding.
+        daemon.returns::<methods::AccountsList>(list(vec![]));
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Unauthenticated, false));
+        daemon.on::<methods::SystemHandshake>(|_| Ok(serde_json::json!({"needsOnboarding": true})));
+        daemon.returns::<methods::DirectList>(DirectConnectionList {
+            preferred: true,
+            ..Default::default()
+        });
+        stores
+            .session
+            .update(cx, |s, cx| s.on_connected(&handshake(None), request(), cx));
+        cx.run_until_parked();
+        assert_eq!(
+            stores.session.read_with(cx, |s, cx| s.route(cx)),
+            Route::Onboarding
+        );
+
+        // The model answers: the daemon's capabilities change with it.
+        daemon
+            .on::<methods::SystemHandshake>(|_| Ok(serde_json::json!({"needsOnboarding": false})));
+        daemon.returns::<methods::DirectList>(DirectConnectionList {
+            preferred: true,
+            usable: true,
+            ..Default::default()
+        });
+        cx.update(|cx| stores.on_event(&Event::CapabilitiesChanged, cx));
+        cx.run_until_parked();
+        assert_eq!(
+            stores.session.read_with(cx, |s, cx| s.route(cx)),
+            Route::Main
+        );
+        assert_eq!(
+            stores.session.read_with(cx, |s, cx| s.backend(cx)),
+            Some(Backend::Direct)
+        );
+    }
 
     #[gpui_kit::test]
     fn an_older_session_read_never_brings_back_the_last_account(cx: &mut TestAppContext) {
