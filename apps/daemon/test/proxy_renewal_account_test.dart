@@ -248,25 +248,31 @@ void main() {
     check(await cookieOf(robin)).isNotNull().contains('robin-fresh');
   });
 
+  // The two cases below renew for whichever account is in charge, as the
+  // connection issue page does, and switch nothing: putting an account in
+  // charge takes up its session again (`switchToAccount` refreshes it and
+  // checks it with the server in the background), and that check landing
+  // while a renewal runs is a newer session the renewal rightly refuses.
   test(
     'a renewal the proxy still turns away keeps the connection issue',
     () async {
-      // Robin is in charge and signed in; the proxy's session expires.
-      await accounts.switchTo(AccountRef(accountId: robin));
+      final inCharge = (await accounts.list()).activeAccountId!;
+      // Its proxy session has expired: the proxy turns every request away.
       owui.proxyRefuses = true;
+      owui.proxyAccepts = null;
       addTearDown(() => owui.proxyRefuses = false);
       runtime.container.read(authStateManagerProvider.notifier).onAuthIssue();
-      final cookie = await cookieOf(robin);
+      final cookie = await cookieOf(inCharge);
       await check(
         auth.renewProxy(
           ExternalAuthCompletion(
             origin: owui.url,
-            cookies: const {'proxy_session': 'robin-still-refused'},
-            account: robin,
+            cookies: const {'proxy_session': 'still-refused'},
+            account: inCharge,
           ),
         ),
       ).throws<RpcError>();
-      check(await cookieOf(robin)).equals(cookie);
+      check(await cookieOf(inCharge)).equals(cookie);
       check(
         runtime.container.read(authStateManagerProvider).value?.isAuthenticated,
       ).equals(false);
@@ -274,11 +280,14 @@ void main() {
   );
 
   test('once the proxy takes the session, the renewal signs back in', () async {
-    // Robin is in charge, on the connection issue an expired proxy session
-    // showed; the proxy takes only the renewed session's cookie.
-    await accounts.switchTo(AccountRef(accountId: robin));
+    final inCharge = (await accounts.list()).activeAccountId!;
+    final name = (await auth.status()).user?.name;
+    check(name).isNotNull();
+    // On the connection issue an expired proxy session showed; the proxy
+    // takes only the renewed session's cookie, so nothing but this renewal
+    // can sign the account back in.
     owui.proxyRefuses = true;
-    owui.proxyAccepts = 'proxy_session=robin-taken';
+    owui.proxyAccepts = 'proxy_session=renewed';
     addTearDown(() {
       owui.proxyRefuses = false;
       owui.proxyAccepts = null;
@@ -290,11 +299,12 @@ void main() {
     final renewed = await auth.renewProxy(
       ExternalAuthCompletion(
         origin: owui.url,
-        cookies: const {'proxy_session': 'robin-taken'},
-        account: robin,
+        cookies: const {'proxy_session': 'renewed'},
+        account: inCharge,
       ),
     );
     check(renewed.isAuthenticated).isTrue();
-    check(renewed.user?.name).equals('Robin');
+    check(renewed.user?.name).equals(name);
+    check(await cookieOf(inCharge)).isNotNull().contains('renewed');
   });
 }
