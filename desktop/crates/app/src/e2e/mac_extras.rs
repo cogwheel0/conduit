@@ -678,16 +678,13 @@ async fn continuity_camera_items(dir: &Path, cx: &mut AsyncApp) -> bool {
         "the + menu the app builds has its entries (Attach Files… first)",
         items.first() == Some(&attach),
     );
-    // AppKit fills the placeholder with a nearby device's items (Take
-    // Photo, Scan Documents…), or leaves it, hidden, with none near.
+    // A context menu: AppKit adds a nearby device's items (Take Photo,
+    // Scan Documents…) itself, and nothing with none near; the app adds no
+    // placeholder of its own. (A nearby iPhone is checked before release.)
     let placeholder = items.iter().any(|i| i.contains("ImportFromDevice"));
-    let device_items = items.len() > 1
-        && items
-            .get(1)
-            .is_some_and(|second| !second.starts_with('\u{2014}') && second != &attach);
     pass &= ok(
-        "…with Continuity Camera's place after Attach Files… (the placeholder, or a device's items)",
-        placeholder || device_items,
+        "…and no Continuity Camera placeholder of the app's own (AppKit adds a device's items)",
+        !placeholder,
     );
 
     let ns = cx.update(|cx| crate::smoke::ns_window(handle, cx));

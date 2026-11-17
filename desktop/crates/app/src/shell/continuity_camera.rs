@@ -3,13 +3,15 @@
 //!
 //! AppKit does it all, given two things:
 //!
-//! * **A placeholder item** in the menu, identified by
-//!   `NSMenuItemImportFromDeviceIdentifier`. When the menu opens, AppKit
-//!   puts each nearby device's items in its place (Take Photo, Scan
-//!   Documents, Add Sketch), in the system's words, or nothing when no
-//!   device is near. GPUI Kit's `NativeMenu` builds its NSMenu out of
-//!   reach, so the + menu's NSMenu is built here ([`popup`]), from the same
-//!   entries, with the composer's actions.
+//! * **A context menu.** The + menu opens through
+//!   `NSMenu.popUpContextMenu(_:with:for:)`, AppKit's documented path for
+//!   a menu that is not in the menu bar: as it opens, AppKit adds each
+//!   nearby device's items (Take Photo, Scan Documents, Add Sketch), in the
+//!   system's words, when a requestor in the view's responder chain takes
+//!   what they bring, and nothing when no device is near. GPUI Kit's
+//!   `NativeMenu` builds its NSMenu out of reach, so the + menu's NSMenu is
+//!   built here ([`popup`]), from the same entries, with the composer's
+//!   actions, and opened at the + button's anchor by a synthesized event.
 //! * **A requestor** in the main window's responder chain ([`install`]): it
 //!   answers `validRequestorForSendType:returnType:` for pictures and PDFs
 //!   (the types are registered with `registerServicesMenuSendTypes`), and
@@ -17,9 +19,10 @@
 //!   What it reads goes through a channel to the app, which attaches it to
 //!   the main window's composer ([`crate::desktop`]).
 //!
-//! The items work only with a device nearby; `--e2e mac-extras-2` checks
-//! the placeholder and the chain, and hands the requestor a synthetic
-//! picture through the same callback ([`deliver`]).
+//! The items work only with a device nearby (checked on a Mac with an
+//! iPhone before release); `--e2e mac-extras-2` checks the menu and the
+//! chain, and hands the requestor a synthetic picture through the same
+//! callback ([`deliver`]).
 
 /// The folder (under the temporary directory) a device's photos and scans
 /// are saved in for the composer, one folder each; cleared with Send
@@ -78,7 +81,8 @@ pub enum Entry {
         action: Option<usize>,
     },
     Separator,
-    /// AppKit's Continuity Camera items go here.
+    /// Continuity Camera is offered: AppKit adds a nearby device's items to
+    /// the context menu itself (no item of the app's own).
     ImportFromDevice,
 }
 
@@ -97,18 +101,13 @@ mod macos {
     use objc2::rc::Retained;
     use objc2::runtime::{AnyObject, Bool, NSObject};
     use objc2::{
-        AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, class, define_class, msg_send,
-        sel,
+        AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message as _, class,
+        define_class, msg_send, sel,
     };
     use objc2_app_kit::{NSApplication, NSPasteboard, NSResponder, NSView, NSWindow};
     use objc2_foundation::{NSArray, NSPoint, NSString};
 
     use super::{Entry, Imported, RETURN_TYPES, takes};
-
-    #[link(name = "AppKit", kind = "framework")]
-    unsafe extern "C" {
-        static NSMenuItemImportFromDeviceIdentifier: &'static NSString;
-    }
 
     /// Whether the requestor answers AppKit now: only while the + menu
     /// that offers Continuity Camera is open ([`while_menu_tracks`]).
@@ -339,13 +338,10 @@ mod macos {
         read
     }
 
-    /// What [`popup`] built and what was chosen: the items as AppKit had
-    /// them while the menu was open (for the E2E pass), and the action.
+    /// What was chosen in the menu [`popup`] opened.
     #[derive(Debug, Default)]
     pub struct MenuReport {
         pub chosen: Option<usize>,
-        /// Whether the placeholder was in the menu when it opened.
-        pub had_placeholder: bool,
     }
 
     struct TargetIvars {
@@ -370,10 +366,13 @@ mod macos {
         }
     );
 
-    /// Shows the + menu over `view` with its top-left at `location` (view
-    /// coordinates, flipped as AppKit's are), runs it, and says which
-    /// action was chosen. Main thread, outside any GPUI borrow (AppKit's
-    /// tracking loop runs here).
+    /// Shows the + menu as a context menu over `view` (the window's content
+    /// view), at `location` (its coordinates, flipped as AppKit's are),
+    /// runs it, and says which action was chosen. The event AppKit is
+    /// handed is a right-click there, in the window's first responder (GPUI's
+    /// view, which the requestor follows), so AppKit finds the requestor
+    /// and adds Continuity Camera's items. Main thread, outside any GPUI
+    /// borrow (AppKit's tracking loop runs here).
     pub fn popup(view: &NSView, entries: &[Entry], location: NSPoint) -> MenuReport {
         let mut report = MenuReport::default();
         let target = {
@@ -395,18 +394,9 @@ mod macos {
                         let item: *mut AnyObject = msg_send![class!(NSMenuItem), separatorItem];
                         let _: () = msg_send![&*menu, addItem: item];
                     }
-                    Entry::ImportFromDevice => {
-                        // Hidden and untitled: AppKit shows a nearby
-                        // device's items in its place, and nothing without
-                        // one.
-                        let item: Retained<AnyObject> = msg_send![class!(NSMenuItem), new];
-                        let _: () = msg_send![&*item, setTitle: &*NSString::from_str("")];
-                        let _: () = msg_send![&*item, setHidden: true];
-                        let _: () =
-                            msg_send![&*item, setIdentifier: NSMenuItemImportFromDeviceIdentifier];
-                        let _: () = msg_send![&*menu, addItem: &*item];
-                        report.had_placeholder = true;
-                    }
+                    // AppKit adds a nearby device's items to the context
+                    // menu itself.
+                    Entry::ImportFromDevice => {}
                     Entry::Item {
                         label,
                         disabled,
@@ -428,12 +418,37 @@ mod macos {
                     }
                 }
             }
-            let _: Bool = msg_send![
-                &*menu,
-                popUpMenuPositioningItem: std::ptr::null_mut::<AnyObject>(),
-                atLocation: location,
-                inView: view
+            // The view AppKit asks for a requestor: the first responder
+            // (GPUI's view; the requestor follows it), else `view`.
+            let target: Retained<NSView> = view
+                .window()
+                .and_then(|w| w.firstResponder())
+                .and_then(|r| r.downcast::<NSView>().ok())
+                .unwrap_or_else(|| view.retain());
+            let window = view.window();
+            let at_in_window = view.convertPoint_toView(location, None);
+            let window_number: isize = window.as_ref().map_or(0, |w| w.windowNumber());
+            // NSEventTypeRightMouseDown.
+            let event: *mut AnyObject = msg_send![
+                class!(NSEvent),
+                mouseEventWithType: 3usize,
+                location: at_in_window,
+                modifierFlags: 0usize,
+                timestamp: 0f64,
+                windowNumber: window_number,
+                context: std::ptr::null_mut::<AnyObject>(),
+                eventNumber: 0isize,
+                clickCount: 1isize,
+                pressure: 1f32
             ];
+            if !event.is_null() {
+                let _: () = msg_send![
+                    class!(NSMenu),
+                    popUpContextMenu: &*menu,
+                    withEvent: event,
+                    forView: &*target
+                ];
+            }
         }
         let chosen = target.ivars().chosen.get();
         report.chosen = (chosen >= 0).then_some(chosen as usize);
