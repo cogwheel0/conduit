@@ -379,6 +379,77 @@ mod tests {
         assert_eq!(decision(false, Some("about"), true, CAMERA), DENY);
     }
 
+    /// [text] without its comments, so a comment naming the guard (a TODO)
+    /// never counts as one: line comments and block comments outside
+    /// string literals become blanks.
+    fn code_only(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut chars = text.chars().peekable();
+        let mut in_string = false;
+        while let Some(c) = chars.next() {
+            if in_string {
+                out.push(c);
+                match c {
+                    '\\' => {
+                        if let Some(next) = chars.next() {
+                            out.push(next);
+                        }
+                    }
+                    '"' => in_string = false,
+                    _ => {}
+                }
+                continue;
+            }
+            match (c, chars.peek()) {
+                ('/', Some('/')) => {
+                    for skipped in chars.by_ref() {
+                        if skipped == '\n' {
+                            out.push('\n');
+                            break;
+                        }
+                    }
+                }
+                ('/', Some('*')) => {
+                    chars.next();
+                    let mut last = ' ';
+                    for skipped in chars.by_ref() {
+                        if last == '*' && skipped == '/' {
+                            break;
+                        }
+                        last = skipped;
+                    }
+                    out.push(' ');
+                }
+                ('"', _) => {
+                    in_string = true;
+                    out.push(c);
+                }
+                // A char literal: `'"'` and `'\\"'` open no string.
+                ('\'', Some('"' | '\\')) => {
+                    out.push(c);
+                    if let Some(next) = chars.next() {
+                        out.push(next);
+                        if next == '\\'
+                            && let Some(escaped) = chars.next()
+                        {
+                            out.push(escaped);
+                        }
+                    }
+                }
+                _ => out.push(c),
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn comments_never_count_as_code() {
+        let text = "a('\"'); // web_media::guard(x)\n/* web_media::guard( */ b(\"//\");\n";
+        let code = code_only(text);
+        assert!(!code.contains("web_media::guard("), "{code}");
+        assert!(code.contains("b(\"//\")"), "{code}");
+    }
+
     /// Every place the app builds a web view puts the media policy on it.
     #[test]
     fn every_web_view_the_app_builds_is_guarded() {
@@ -400,7 +471,7 @@ mod tests {
                 {
                     continue;
                 }
-                let text = std::fs::read_to_string(&path).unwrap();
+                let text = code_only(&std::fs::read_to_string(&path).unwrap());
                 let builds = text.matches("build_as_child(").count()
                     + text.matches("WebView::build(").count();
                 let guards = text.matches("web_media::guard(").count();
