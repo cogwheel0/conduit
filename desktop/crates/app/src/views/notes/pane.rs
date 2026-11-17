@@ -330,6 +330,11 @@ impl NotePane {
             // active again.
             cx.observe(&stores.accounts, |this: &mut Self, accounts, cx| {
                 let active = accounts.read(cx).active().map(|a| a.id.clone());
+                // Another account in charge: the recording opened under the
+                // last one stops (a list being read again names nobody).
+                if this.opened_under.is_some() && active.is_some() && active != this.opened_under {
+                    this.stop_audio(cx);
+                }
                 if this.held_for_account && active.is_some() && active == this.opened_under {
                     this.held_for_account = false;
                     this.save_now(cx);
@@ -1006,6 +1011,9 @@ impl NotePane {
 
     pub fn leave(&mut self, cx: &mut Context<Self>) {
         self.leaving = true;
+        // A pane whose save is still out stays alive a while after it is
+        // left: its recording stops now, not when the pane goes.
+        self.stop_audio(cx);
         if self.dictation.read(cx).is_active() {
             self.dictation.update(cx, |d, cx| d.stop(cx));
         }
@@ -1013,6 +1021,14 @@ impl NotePane {
             recorder.update(cx, |r, cx| r.stop(cx));
         }
         self.save_now(cx);
+    }
+
+    /// The player lets go of its recording: playing stops, and a download
+    /// still out is dropped with it (its answer finds no recording held).
+    fn stop_audio(&mut self, cx: &mut Context<Self>) {
+        if self.audio.read(cx).current_key().is_some() {
+            self.audio.update(cx, |a, cx| a.stop(cx));
+        }
     }
 
     /// The user deleted this note here: what was not saved yet goes with
@@ -3487,6 +3503,85 @@ mod tests {
         );
         drop(held);
         vcx.run_until_parked();
+    }
+
+    /// The pane's player holds recording `key` (loading, as one from the
+    /// server would be).
+    fn hold_recording(pane: &Entity<NotePane>, vcx: &mut gpui_kit::VisualTestContext) {
+        let audio = pane.read_with(vcx, |p, _| p.audio.clone());
+        audio.update(vcx, |a, cx| {
+            let source = super::super::audio::AudioSource::File {
+                server_id: "server".into(),
+                file_id: "trail-sounds".into(),
+            };
+            a.toggle("trail-sounds", source, None, cx)
+        });
+        assert_eq!(
+            audio.read_with(vcx, |a, _| a.current_key().map(str::to_string)),
+            Some("trail-sounds".into())
+        );
+    }
+
+    fn held_recording(
+        pane: &Entity<NotePane>,
+        vcx: &mut gpui_kit::VisualTestContext,
+    ) -> Option<String> {
+        let audio = pane.read_with(vcx, |p, _| p.audio.clone());
+        audio.read_with(vcx, |a, _| a.current_key().map(str::to_string))
+    }
+
+    /// A note left while its save is still out stays alive a while: its
+    /// recording stops with the leaving, not when the save lands.
+    #[gpui_kit::test]
+    fn leaving_a_note_stops_its_recording(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::navigation::AreaItem;
+        let (daemon, stores, area, vcx) = bench::open(cx);
+        let pane = bench::pane(&area, vcx);
+        let held = daemon.hold::<methods::NotesSave>();
+        pane.update(vcx, |p, cx| {
+            p.editor.update(cx, |e, cx| e.insert_text("Cairn ", cx))
+        });
+        hold_recording(&pane, vcx);
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::AllNotes, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            held_recording(&pane, vcx),
+            None,
+            "the note's recording went on playing after it was left"
+        );
+        drop(held);
+        vcx.run_until_parked();
+    }
+
+    /// Another account taking charge stops a recording the note opened
+    /// under the last one was playing.
+    #[gpui_kit::test]
+    fn another_account_stops_the_notes_recording(cx: &mut gpui_kit::TestAppContext) {
+        use crate::stores::accounts::tests::{account, list};
+        let (_daemon, stores, area, vcx) = bench::open(cx);
+        let accounts = |active: &str| {
+            list(vec![
+                account("a", "Avery", active == "a", true),
+                account("b", "Blair", active == "b", true),
+            ])
+        };
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("a"), cx));
+        vcx.run_until_parked();
+        let pane = bench::pane(&area, vcx);
+        hold_recording(&pane, vcx);
+        stores
+            .accounts
+            .update(vcx, |a, cx| a.adopt(accounts("b"), cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            held_recording(&pane, vcx),
+            None,
+            "the last account's recording went on playing"
+        );
     }
 
     /// A note change heard while the next page is read does not make the
