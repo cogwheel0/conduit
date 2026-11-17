@@ -301,11 +301,11 @@ impl Asset for RemoteImage {
 /// The most pixels a picture from another site may have: a small file
 /// can unpack to gigabytes (a 30,000 × 30,000 PNG of one colour), and GPUI
 /// decodes it whole.
-const MAX_PIXELS: u64 = 40_000_000;
+pub(crate) const MAX_PIXELS: u64 = 40_000_000;
 
 /// Whether `bytes` say they unpack to more than [`MAX_PIXELS`] (read from
 /// the header alone; a format whose size is not read this way passes).
-fn too_many_pixels(bytes: &[u8]) -> bool {
+pub(crate) fn too_many_pixels(bytes: &[u8]) -> bool {
     image::ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
         .ok()

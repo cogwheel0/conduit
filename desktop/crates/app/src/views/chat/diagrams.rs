@@ -429,11 +429,34 @@ struct PageMessage {
     #[serde(default)]
     ok: bool,
     #[serde(default)]
-    png: String,
+    png: Option<String>,
+    /// Absent or null when the page had no finite size to give.
     #[serde(default)]
-    width: f32,
+    width: Option<f64>,
     #[serde(default)]
-    height: f32,
+    height: Option<f64>,
+}
+
+/// The largest side a diagram is drawn at, in points: the renderer scales
+/// a larger one down to fit (and to [`MAX_AREA`]), and a size past it is
+/// not drawn.
+const MAX_SIDE: u32 = 2400;
+/// The largest area a diagram is drawn at, in square points.
+const MAX_AREA: u32 = 4_000_000;
+/// The longest picture the renderer may send back (base64).
+const MAX_PNG_BASE64: usize = 48 * 1024 * 1024;
+
+/// The size a diagram is drawn at, from what the page sent: none unless
+/// both sides are finite, above zero and within [`MAX_SIDE`], and the area
+/// within [`MAX_AREA`] (the page rounds, so each gets a point to spare).
+fn drawable_size(width: Option<f64>, height: Option<f64>) -> Option<(f32, f32)> {
+    let fits = |v: f64| v.is_finite() && v > 0. && v <= f64::from(MAX_SIDE) + 1.;
+    match (width, height) {
+        (Some(w), Some(h)) if fits(w) && fits(h) && (w - 1.) * (h - 1.) <= f64::from(MAX_AREA) => {
+            Some((w as f32, h as f32))
+        }
+        _ => None,
+    }
 }
 
 fn make_renderer(
@@ -492,19 +515,21 @@ fn make_renderer(
             let Some(job) = job else {
                 continue;
             };
-            let decoded = if message.ok {
-                let renderer = renderer.clone();
-                cx.background_spawn(async move { decode_png(&message.png, renderer) })
-                    .await
-            } else {
-                None
+            let size = drawable_size(message.width, message.height);
+            let decoded = match (message.ok, size, message.png) {
+                (true, Some(_), Some(png)) => {
+                    let renderer = renderer.clone();
+                    cx.background_spawn(async move { decode_png(&png, renderer) })
+                        .await
+                }
+                _ => None,
             };
             cx.update(|cx| {
-                let value = match decoded {
-                    Some(image) if message.width > 0. && message.height > 0. => Drawn::Ready {
+                let value = match (decoded, size) {
+                    (Some(image), Some((width, height))) => Drawn::Ready {
                         image,
-                        width: message.width,
-                        height: message.height,
+                        width,
+                        height,
                         at: Instant::now(),
                     },
                     _ => Drawn::Failed,
@@ -520,11 +545,19 @@ fn make_renderer(
     Some(view)
 }
 
-/// A `data:image/png;base64,…` URL as frames GPUI draws.
+/// A `data:image/png;base64,…` URL as frames GPUI draws: none when it is
+/// longer than [`MAX_PNG_BASE64`] or says (in its header) it unpacks to
+/// more pixels than a picture from a site may.
 fn decode_png(data_url: &str, renderer: gpui_kit::SvgRenderer) -> Option<Arc<RenderImage>> {
     use base64::Engine as _;
     let b64 = data_url.strip_prefix("data:image/png;base64,")?;
+    if b64.len() > MAX_PNG_BASE64 {
+        return None;
+    }
     let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    if crate::stores::media::too_many_pixels(&bytes) {
+        return None;
+    }
     Image::from_bytes(ImageFormat::Png, bytes)
         .to_image_data(renderer)
         .ok()
@@ -636,6 +669,11 @@ use super::preview::{CHART_JS, MERMAID_JS};
 /// height}`; the page posts `{type:'ready'}` once loaded.
 const RENDERER_JS: &str = r#"(function(){
 const post=(m)=>window.ipc.postMessage(JSON.stringify(m));
+const MAX_SIDE=2400,MAX_AREA=4000000;
+function bound(w,h){
+if(!(Number.isFinite(w)&&Number.isFinite(h)&&w>0&&h>0))throw new Error('no size');
+const k=Math.min(1,MAX_SIDE/w,MAX_SIDE/h,Math.sqrt(MAX_AREA/(w*h)));
+return [w*k,h*k];}
 const stage=document.getElementById('stage');
 let seq=0;
 function themeVars(t){return {darkMode:!!t.dark,background:t.bg,
@@ -672,6 +710,7 @@ const vb=(el.getAttribute('viewBox')||'').split(/[\s,]+/).map(Number);
 let w=vb.length===4&&vb[2]>0?vb[2]:parseFloat(el.getAttribute('width'))||0;
 let h=vb.length===4&&vb[3]>0?vb[3]:parseFloat(el.getAttribute('height'))||0;
 if(!(w>0&&h>0))throw new Error('empty picture');
+[w,h]=bound(w,h);
 el.setAttribute('width',String(w));el.setAttribute('height',String(h));
 el.removeAttribute('style');
 const text=new XMLSerializer().serializeToString(el);
@@ -682,8 +721,9 @@ if(!cfg||typeof cfg!=='object'||!cfg.data)throw new Error('not a chart');
 const type=String(cfg.type||'');
 const round=['pie','doughnut','polarArea','radar'].includes(type);
 const o=cfg.options=(cfg.options&&typeof cfg.options==='object')?cfg.options:{};
-const ar=Number(o.aspectRatio)>0?Number(o.aspectRatio):(round?1:2);
-const w=round?420:640;const h=Math.max(120,Math.round(w/ar));
+const r=Number(o.aspectRatio);
+const ar=Number.isFinite(r)&&r>=0.2&&r<=10?r:(round?1:2);
+const [w,h]=bound(round?420:640,Math.max(120,Math.round((round?420:640)/ar)));
 o.animation=false;o.responsive=false;o.maintainAspectRatio=false;o.devicePixelRatio=scale;
 Chart.defaults.color=t.text;Chart.defaults.scale.grid.color=t.grid;
 Chart.defaults.font.family='-apple-system,BlinkMacSystemFont,sans-serif';
@@ -1133,6 +1173,33 @@ pub fn diagram_block(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A size the page could not give (an aspect ratio of almost nothing
+    /// makes a height of Infinity, which JSON sends as null) ends that
+    /// diagram as failed, never a message that cannot be read and a job
+    /// left in flight; a size past the limit is not drawn either.
+    #[test]
+    fn a_diagram_without_a_size_it_can_draw_fails() {
+        let message: PageMessage = serde_json::from_str(
+            r#"{"type":"done","id":3,"ok":true,"png":"data:image/png;base64,AA","width":640,"height":null}"#,
+        )
+        .expect("read, with no height");
+        assert_eq!(message.id, 3);
+        assert_eq!(drawable_size(message.width, message.height), None);
+        assert_eq!(drawable_size(Some(640.), Some(320.)), Some((640., 320.)));
+        assert_eq!(drawable_size(Some(640.), Some(1e9)), None);
+        assert_eq!(drawable_size(Some(f64::INFINITY), Some(10.)), None);
+        assert_eq!(drawable_size(Some(0.), Some(10.)), None);
+        // Each side within the limit, the area past it.
+        assert_eq!(drawable_size(Some(2400.), Some(2400.)), None);
+        assert_eq!(
+            drawable_size(Some(2400.), Some(1600.)),
+            Some((2400., 1600.))
+        );
+        // The page bounds what it draws the same way.
+        assert!(RENDERER_JS.contains("Number.isFinite(r)&&r>=0.2&&r<=10"));
+        assert!(RENDERER_JS.contains(&format!("MAX_SIDE={MAX_SIDE},MAX_AREA={MAX_AREA};")));
+    }
 
     /// A renderer (with a diagram waiting) belongs to its window: closing
     /// the window ends it, and the diagram is asked for again elsewhere.
