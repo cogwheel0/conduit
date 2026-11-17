@@ -33,7 +33,8 @@ import 'turns_service.dart';
 /// does when asked (`calls.command` `listen`, answered with `calls.report`),
 /// speaks the answers through the read-aloud engine ([SpeechService]'s
 /// bridge), and for a realtime voice runs one echo-cancelled audio engine
-/// over `WS /calls/{handle}` ([CallAudioLink]).
+/// over `WS /calls/{handle}` ([CallAudioLink]), or, for Hermes GPT-Live, a
+/// WebRTC peer driven over the same route ([CallPeerLink]).
 ///
 /// One call at a time, app-wide: the Mac has one microphone.
 final class CallsService {
@@ -66,6 +67,7 @@ final class CallsService {
   final List<ProviderSubscription<Object?>> _watches =
       <ProviderSubscription<Object?>>[];
   CallAudioLink? _audio;
+  CallPeerLink? _peer;
   bool _disposed = false;
 
   int _nextCommand = 0;
@@ -274,19 +276,33 @@ final class CallsService {
     return audio;
   }
 
-  /// `WS /calls/{handle}`: the window's realtime audio for the call (a
-  /// WebSocket; any channel of its frames in a test).
-  Future<void> tunnel(String handle, StreamChannel<dynamic> window) async {
-    final audio = _audio;
-    if (audio == null || audio.handle != handle || audio._stopped) {
-      await _refuse(window, 4404, 'no such call');
-      return;
-    }
-    await audio._attach(window);
+  /// What the window's WebRTC peer connects to, for the call under way.
+  CallPeerLink? _newPeer() {
+    if (_disposed) return null;
+    final previous = _peer;
+    if (previous != null) unawaited(previous.close());
+    return _peer = CallPeerLink._(this, _token());
   }
 
-  /// Whether [handle] is the call's realtime audio now.
-  bool knowsAudio(String handle) => _audio?.handle == handle;
+  /// `WS /calls/{handle}`: the window's realtime audio or WebRTC peer for
+  /// the call (a WebSocket; any channel of its frames in a test).
+  Future<void> tunnel(String handle, StreamChannel<dynamic> window) async {
+    final audio = _audio;
+    if (audio != null && audio.handle == handle && !audio._stopped) {
+      await audio._attach(window);
+      return;
+    }
+    final peer = _peer;
+    if (peer != null && peer.handle == handle && !peer._stopped) {
+      await peer._attach(window);
+      return;
+    }
+    await _refuse(window, 4404, 'no such call');
+  }
+
+  /// Whether [handle] is the call's realtime audio or WebRTC peer now.
+  bool knowsAudio(String handle) =>
+      _audio?.handle == handle || _peer?.handle == handle;
 
   void _follow(int call, ChatVoiceModeSnapshot snapshot) {
     if (call != _call || _hold == null) return;
@@ -357,6 +373,9 @@ final class CallsService {
     final audio = _audio;
     _audio = null;
     if (audio != null) unawaited(audio.stop());
+    final peer = _peer;
+    _peer = null;
+    if (peer != null) unawaited(peer.close());
     _ports.input._end();
     if (keep && _state.phase == CallPhase.error) {
       _publish(_state.copyWith(chatId: chatId, level: 0));
@@ -488,6 +507,10 @@ final class CallPorts {
   /// The window's realtime audio for a call, or null before the daemon can
   /// reach a window.
   RealtimePcmAudioPort? newRealtimeAudio() => _service?._newAudio();
+
+  /// The window's WebRTC peer for a Hermes GPT-Live call, or null before
+  /// the daemon can reach a window.
+  RealtimeWebRtcMediaPort? newWebRtcMedia() => _service?._newPeer();
 }
 
 /// The window's listening as the core's [VoiceModeInput]: each listen is a
@@ -869,6 +892,229 @@ final class CallAudioLink implements RealtimePcmAudioPort {
 
   static int _int(Object? value) => value is num ? value.toInt() : 0;
   static double _double(Object? value) => value is num ? value.toDouble() : 0.0;
+}
+
+/// The window's WebRTC peer as the core's [RealtimeWebRtcMediaPort], for a
+/// Hermes GPT-Live call: a hidden web view in the window runs the
+/// `RTCPeerConnection`, with the microphone (the system's echo cancellation
+/// on) and the voice played, and the voice's data channel. The core's
+/// GPT-Live engine signals through it; the gateway answers the offer.
+///
+/// Over `WS /calls/{handle}`, text frames of JSON: from the daemon `offer`
+/// (`dataChannel`), `answer` (`sdp`), `send` (`text`), `mic` (`enabled`)
+/// and `stop`; from the window `ready`, `offer` (`sdp`), `answered`,
+/// `message` (`text`), `state` (`connecting`, `connected`, `failed`,
+/// `closed`), `levels` (`input`, `output`, 0 to 1) and `failure`
+/// (`reason`: `microphone` or another; `message` for the log).
+final class CallPeerLink implements RealtimeWebRtcMediaPort {
+  CallPeerLink._(this._service, this.handle);
+
+  final CallsService _service;
+  final String handle;
+
+  StreamChannel<dynamic>? _socket;
+  StreamSubscription<Object?>? _socketSubscription;
+  final Completer<void> _ready = Completer<void>();
+  Completer<String>? _offer;
+  Completer<void>? _answered;
+  bool _stopped = false;
+
+  /// Completed by [close]: every wait of the link ends with it (the
+  /// window's answer to `webRtcStart`, its `ready`, its socket).
+  final Completer<void> _closing = Completer<void>();
+  final StreamController<String> _messages =
+      StreamController<String>.broadcast();
+  final StreamController<RealtimeMediaState> _states =
+      StreamController<RealtimeMediaState>.broadcast();
+  final StreamController<RealtimeMediaLevels> _levels =
+      StreamController<RealtimeMediaLevels>.broadcast();
+
+  String get path => '/calls/$handle';
+
+  @override
+  Stream<String> get messages => _messages.stream;
+
+  @override
+  Stream<RealtimeMediaState> get states => _states.stream;
+
+  @override
+  Stream<RealtimeMediaLevels> get levels => _levels.stream;
+
+  @override
+  Future<String> createOffer({String dataChannel = 'oai-events'}) async {
+    if (_stopped) throw StateError('The voice call ended.');
+    final report = await _untilClosed(
+      _service._command(
+        (id) =>
+            CallCommand(id: id, kind: CallCommandKind.webRtcStart, path: path),
+        // The system may ask the user for the microphone first.
+        timeout: const Duration(minutes: 2),
+      ),
+    );
+    if (!report.ok) throw _PeerFailed(report.error ?? 'the peer did not start');
+    await _untilClosed(_ready.future.timeout(const Duration(seconds: 10)));
+    if (_stopped) throw StateError('The voice call ended.');
+    final offer = _offer = Completer<String>();
+    _send(<String, Object?>{'type': 'offer', 'dataChannel': dataChannel});
+    // The page waits for every ICE candidate (at most 10 s) before it
+    // answers, as the offer is sent once, whole.
+    return offer.future.timeout(const Duration(seconds: 30));
+  }
+
+  @override
+  Future<void> acceptAnswer(String sdp) async {
+    if (_stopped) throw StateError('The voice call ended.');
+    final answered = _answered = Completer<void>();
+    _send(<String, Object?>{'type': 'answer', 'sdp': sdp});
+    await answered.future.timeout(const Duration(seconds: 10));
+  }
+
+  Future<void> _attach(StreamChannel<dynamic> socket) async {
+    if (_socket != null) {
+      await _refuse(socket, 4409, 'already connected');
+      return;
+    }
+    _socket = socket;
+    final done = Completer<void>();
+    _socketSubscription = socket.stream.listen(
+      _frame,
+      onError: (Object _) => _lost(),
+      onDone: () {
+        _lost();
+        if (!done.isCompleted) done.complete();
+      },
+    );
+    // Closed while the window's socket is open: the cancelled listener
+    // hears no end of it, so the close ends this wait.
+    await Future.any<void>(<Future<void>>[done.future, _closing.future]);
+  }
+
+  /// [wait], unless [close] comes first: then the call's end.
+  Future<T> _untilClosed<T>(Future<T> wait) => Future.any<T>(<Future<T>>[
+    wait,
+    _closing.future.then<T>((_) => throw StateError('The voice call ended.')),
+  ]);
+
+  void _frame(Object? data) {
+    if (data is! String) return;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(data);
+    } on FormatException {
+      return;
+    }
+    if (decoded is! Map<String, Object?>) return;
+    switch (decoded['type']) {
+      case 'ready':
+        if (!_ready.isCompleted) _ready.complete();
+      case 'offer':
+        final sdp = decoded['sdp'];
+        final offer = _offer;
+        if (offer == null || offer.isCompleted) return;
+        if (sdp is String && sdp.trim().isNotEmpty) {
+          offer.complete(sdp);
+        } else {
+          offer.completeError(StateError('Could not prepare the voice call.'));
+        }
+      case 'answered':
+        final answered = _answered;
+        if (answered != null && !answered.isCompleted) answered.complete();
+      case 'message':
+        final text = decoded['text'];
+        if (text is String && !_messages.isClosed) _messages.add(text);
+      case 'state':
+        final state = switch (decoded['state']) {
+          'connected' => RealtimeMediaState.connected,
+          'failed' => RealtimeMediaState.failed,
+          'closed' => RealtimeMediaState.closed,
+          _ => RealtimeMediaState.connecting,
+        };
+        if (!_states.isClosed) _states.add(state);
+      case 'levels':
+        if (_levels.isClosed) return;
+        _levels.add((
+          input: CallAudioLink._double(decoded['input']).clamp(0.0, 1.0),
+          output: CallAudioLink._double(decoded['output']).clamp(0.0, 1.0),
+        ));
+      case 'failure':
+        _failed(
+          decoded['reason'] == 'microphone'
+              ? StateError('The microphone could not be opened.')
+              : _PeerFailed('${decoded['message'] ?? 'the peer failed'}'),
+        );
+    }
+  }
+
+  /// What the window could not do: the step waiting for it fails, or, once
+  /// the call is up, the call does.
+  void _failed(Object error) {
+    DebugLogger.warning(
+      'call-peer-failed',
+      scope: 'daemon/calls',
+      data: {'error': error.toString()},
+    );
+    final offer = _offer;
+    final answered = _answered;
+    if (offer != null && !offer.isCompleted) {
+      offer.completeError(error);
+    } else if (answered != null && !answered.isCompleted) {
+      answered.completeError(error);
+    } else if (!_states.isClosed) {
+      _states.add(RealtimeMediaState.failed);
+    }
+  }
+
+  void _lost() {
+    if (_stopped) return;
+    _failed(_PeerFailed('the window closed the peer'));
+  }
+
+  void _send(Map<String, Object?> message) {
+    if (_stopped) return;
+    _socket?.sink.add(jsonEncode(message));
+  }
+
+  @override
+  void send(String message) =>
+      _send(<String, Object?>{'type': 'send', 'text': message});
+
+  @override
+  void setMicrophoneEnabled(bool enabled) =>
+      _send(<String, Object?>{'type': 'mic', 'enabled': enabled});
+
+  @override
+  Future<void> close() async {
+    if (_stopped) return;
+    _send(<String, Object?>{'type': 'stop'});
+    _stopped = true;
+    _closing.complete();
+    _service._tell(
+      (id) => CallCommand(id: id, kind: CallCommandKind.audioStop, path: path),
+    );
+    final ended = StateError('The voice call ended.');
+    final offer = _offer;
+    if (offer != null && !offer.isCompleted) offer.completeError(ended);
+    final answered = _answered;
+    if (answered != null && !answered.isCompleted) {
+      answered.completeError(ended);
+    }
+    await _socketSubscription?.cancel();
+    await _socket?.sink.close();
+    await _messages.close();
+    await _states.close();
+    await _levels.close();
+  }
+}
+
+/// What the window's peer could not do, for the log; the call says only
+/// that it could not start.
+final class _PeerFailed implements Exception {
+  const _PeerFailed(this.detail);
+
+  final String detail;
+
+  @override
+  String toString() => 'The WebRTC peer failed: $detail';
 }
 
 /// Closes [channel], with [code] and [reason] when it is a WebSocket.

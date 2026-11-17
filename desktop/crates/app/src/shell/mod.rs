@@ -44,4 +44,5 @@ pub mod sso;
 pub mod tray;
 #[cfg(target_os = "macos")]
 pub mod updater;
+pub mod web_media;
 pub mod widget;

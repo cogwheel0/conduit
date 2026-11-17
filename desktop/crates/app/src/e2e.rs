@@ -115,6 +115,7 @@ pub mod shell;
 mod tasks;
 mod terminal;
 mod voice_call;
+mod voice_call_hermes;
 mod widget;
 mod workspace;
 
@@ -801,6 +802,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "notes" => notes::run(&inputs, &dir, cx).await,
         "dictation-recovered" => dictation::recovered(&inputs, &dir, cx).await,
         "voice-call" => voice_call::run(&inputs, &dir, cx).await,
+        "voice-call-hermes" => voice_call_hermes::run(&inputs, &dir, cx).await,
         "workspace" => workspace::run(&inputs, &dir, cx).await,
         "calendar" => calendar::run(&inputs, &dir, cx).await,
         "tasks" => tasks::run(&inputs, &dir, cx).await,

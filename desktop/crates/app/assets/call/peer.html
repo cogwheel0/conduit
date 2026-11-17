@@ -1,0 +1,288 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Conduit voice call</title>
+</head>
+<body>
+<script>
+// A Hermes GPT-Live call's WebRTC peer, in a hidden web view of the
+// desktop app (voice/peer.rs). The daemon's GPT-Live engine (the core's)
+// signals through the app: it asks for the offer, hands over the gateway's
+// answer, and talks to the voice over the data channel. This page owns the
+// media: the microphone with the system's echo cancellation (or a dev
+// build's stand-in samples), the voice played, and both sides' loudness.
+//
+// From the app (`conduitPeer.receive`): offer {dataChannel}, answer {sdp},
+// send {text}, mic {enabled}, stop. To the app (`window.ipc`): ready,
+// offer {sdp, visible}, answered, message {text}, state {state}, channel
+// {open}, levels {input, output}, stats {sent, received}, failure {reason,
+// message}.
+(function () {
+  'use strict';
+  const options = window.conduitPeerOptions || {};
+  const post = (message) => {
+    try {
+      window.ipc.postMessage(JSON.stringify(message));
+    } catch (_) {}
+  };
+
+  let ctx = null;
+  let peer = null;
+  let channel = null;
+  let microphone = null;
+  let player = null;
+  let source = null;
+  let statsTimer = null;
+  let closed = false;
+  // The microphone as the app last asked (mic {enabled}): a mute that
+  // comes while the microphone is still opening holds once it opens.
+  let micEnabled = true;
+  let lastState = '';
+  const levels = { input: 0, output: 0 };
+
+  function context() {
+    if (!ctx) ctx = new AudioContext({ latencyHint: 'interactive' });
+    if (ctx.state !== 'running') ctx.resume().catch(() => {});
+    return ctx;
+  }
+
+  // A dev build's stand-in: the samples looped, as the microphone's track.
+  function standIn() {
+    const audio = context();
+    const bytes = Uint8Array.from(atob(options.pcm || ''), (c) => c.charCodeAt(0));
+    const count = Math.max(1, bytes.length >> 1);
+    const view = new DataView(bytes.buffer);
+    const samples = new Float32Array(count);
+    for (let i = 0; i + 1 < bytes.length; i += 2) {
+      samples[i >> 1] = view.getInt16(i, true) / 32768;
+    }
+    const buffer = audio.createBuffer(1, count, options.rate || 16000);
+    buffer.copyToChannel(samples, 0);
+    source = audio.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    const out = audio.createMediaStreamDestination();
+    source.connect(out);
+    source.start();
+    return out.stream;
+  }
+
+  async function openMicrophone() {
+    if (options.source === 'samples') return standIn();
+    return navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: false,
+    });
+  }
+
+  // Loudness (RMS, 0 to 1) of each side, measured on the audio thread so a
+  // hidden page's throttled timers do not slow the meter.
+  const meterSource = `
+    class ConduitMeter extends AudioWorkletProcessor {
+      constructor() { super(); this.sum = [0, 0]; this.count = [0, 0]; this.frames = 0; }
+      process(inputs) {
+        for (let side = 0; side < 2; side++) {
+          const channel = inputs[side] && inputs[side][0];
+          if (!channel) continue;
+          for (let i = 0; i < channel.length; i++) this.sum[side] += channel[i] * channel[i];
+          this.count[side] += channel.length;
+        }
+        this.frames += 128;
+        if (this.frames >= sampleRate / 10) {
+          const rms = (side) => this.count[side] ? Math.sqrt(this.sum[side] / this.count[side]) : 0;
+          this.port.postMessage([rms(0), rms(1)]);
+          this.sum = [0, 0]; this.count = [0, 0]; this.frames = 0;
+        }
+        return true;
+      }
+    }
+    registerProcessor('conduit-meter', ConduitMeter);`;
+  let meter = null;
+  let meterReady = null;
+
+  function ensureMeter() {
+    if (meterReady) return meterReady;
+    const audio = context();
+    meterReady = (async () => {
+      try {
+        const url = URL.createObjectURL(new Blob([meterSource], { type: 'text/javascript' }));
+        await audio.audioWorklet.addModule(url);
+        meter = new AudioWorkletNode(audio, 'conduit-meter', {
+          numberOfInputs: 2, numberOfOutputs: 1, outputChannelCount: [1],
+        });
+        meter.port.onmessage = (event) => {
+          levels.input = event.data[0];
+          levels.output = event.data[1];
+          post({ type: 'levels', input: levels.input, output: levels.output });
+        };
+        // Pulled by the output, which hears nothing from it.
+        const mute = audio.createGain();
+        mute.gain.value = 0;
+        meter.connect(mute).connect(audio.destination);
+      } catch (_) {
+        meter = null;
+      }
+    })();
+    return meterReady;
+  }
+
+  async function measure(stream, side) {
+    await ensureMeter();
+    if (!meter || closed) return;
+    try {
+      context().createMediaStreamSource(stream).connect(meter, 0, side);
+    } catch (_) {}
+  }
+
+  function play(stream) {
+    measure(stream, 1);
+    // A null speaker (the E2E pass) plays nothing aloud.
+    if (!options.play) return;
+    player = new Audio();
+    player.autoplay = true;
+    player.srcObject = stream;
+    player.play().catch(() => {});
+  }
+
+  function stateOf(value) {
+    switch (value) {
+      case 'connected': return 'connected';
+      case 'failed': return 'failed';
+      case 'closed': return 'closed';
+      default: return 'connecting';
+    }
+  }
+
+  async function stats() {
+    if (!peer) return;
+    try {
+      const report = await peer.getStats();
+      let sent = 0;
+      let received = 0;
+      report.forEach((entry) => {
+        if (entry.type === 'outbound-rtp' && entry.kind === 'audio') sent += entry.bytesSent || 0;
+        if (entry.type === 'inbound-rtp' && entry.kind === 'audio') received += entry.bytesReceived || 0;
+      });
+      post({ type: 'stats', sent, received });
+    } catch (_) {}
+  }
+
+  async function offer(dataChannel) {
+    try {
+      let stream;
+      try {
+        stream = await openMicrophone();
+      } catch (error) {
+        post({ type: 'failure', reason: 'microphone', message: String((error && error.name) || error) });
+        return;
+      }
+      if (closed) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      microphone = stream;
+      for (const track of stream.getAudioTracks()) track.enabled = micEnabled;
+      measure(stream, 0);
+      // A stand-in call (the E2E pass) uses only the loopback relay it is
+      // given; a call with the microphone, the default.
+      peer = new RTCPeerConnection(options.ice || undefined);
+      peer.onconnectionstatechange = () => {
+        const state = stateOf(peer.connectionState);
+        if (state !== lastState) {
+          lastState = state;
+          post({ type: 'state', state });
+        }
+      };
+      peer.ontrack = (event) => play(event.streams[0] || new MediaStream([event.track]));
+      for (const track of stream.getAudioTracks()) peer.addTrack(track, stream);
+      // Made before the offer, so the offer carries it.
+      channel = peer.createDataChannel(dataChannel || 'oai-events');
+      channel.onopen = () => post({ type: 'channel', open: true });
+      channel.onclose = () => post({ type: 'channel', open: false });
+      channel.onmessage = (event) => {
+        if (typeof event.data === 'string') post({ type: 'message', text: event.data });
+      };
+      // The offer is sent once, whole: every candidate must be in it.
+      const gathered = new Promise((resolve) => {
+        const done = () => peer.iceGatheringState === 'complete' && resolve();
+        peer.addEventListener('icegatheringstatechange', done);
+        setTimeout(resolve, 10000);
+      });
+      await peer.setLocalDescription(await peer.createOffer());
+      await gathered;
+      const sdp = peer.localDescription && peer.localDescription.sdp;
+      if (closed) return;
+      if (!sdp) {
+        post({ type: 'failure', reason: 'offer', message: 'no local description' });
+        return;
+      }
+      statsTimer = setInterval(stats, 1000);
+      post({ type: 'offer', sdp, visible: document.visibilityState });
+    } catch (error) {
+      post({ type: 'failure', reason: 'offer', message: String(error) });
+    }
+  }
+
+  async function answer(sdp) {
+    try {
+      await peer.setRemoteDescription({ type: 'answer', sdp });
+      post({ type: 'answered' });
+    } catch (error) {
+      post({ type: 'failure', reason: 'answer', message: String(error) });
+    }
+  }
+
+  function stop() {
+    if (closed) return;
+    closed = true;
+    clearInterval(statsTimer);
+    try { channel && channel.close(); } catch (_) {}
+    try { peer && peer.close(); } catch (_) {}
+    (microphone ? microphone.getTracks() : []).forEach((track) => track.stop());
+    try { source && source.stop(); } catch (_) {}
+    if (player) {
+      player.srcObject = null;
+      player = null;
+    }
+    try { ctx && ctx.close(); } catch (_) {}
+  }
+
+  window.conduitPeer = {
+    receive(message) {
+      if (closed || !message) return;
+      switch (message.type) {
+        case 'offer':
+          offer(message.dataChannel);
+          break;
+        case 'answer':
+          answer(message.sdp);
+          break;
+        case 'send':
+          if (channel && channel.readyState === 'open') channel.send(message.text);
+          break;
+        case 'mic':
+          micEnabled = !!message.enabled;
+          (microphone ? microphone.getAudioTracks() : []).forEach((track) => {
+            track.enabled = micEnabled;
+          });
+          break;
+        case 'stop':
+          stop();
+          break;
+      }
+    },
+  };
+
+  post({
+    type: 'ready',
+    secure: window.isSecureContext === true,
+    visible: document.visibilityState,
+    getUserMedia: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+    webrtc: typeof RTCPeerConnection === 'function',
+    worklet: !!(window.AudioWorkletNode),
+  });
+})();
+</script>
+</body>
+</html>

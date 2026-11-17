@@ -8315,6 +8315,15 @@ const Map<String, String> protocolGoldens = <String, String>{
   "path": "/calls/call-7"
 }''',
 
+  'callCommandWebRtc': r'''
+{
+  "id": 6,
+  "kind": "webRtcStart",
+  "listen": 0,
+  "continuous": false,
+  "path": "/calls/call-8"
+}''',
+
   'callReportWords': r'''
 {
   "ok": true,

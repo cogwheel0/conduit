@@ -48,6 +48,8 @@ pub mod terminal_fixture;
 pub mod updates;
 pub mod views;
 pub mod voice;
+#[cfg(all(target_os = "macos", feature = "harness"))]
+pub mod web_media_fixture;
 pub mod windows;
 #[cfg(all(target_os = "macos", feature = "harness"))]
 pub mod workspace_fixture;
@@ -219,6 +221,12 @@ pub fn run() {
     // The smoke wrapper launches through `open`, which starts apps in `/`.
     if let Some(dir) = arg(&args, "--cwd") {
         std::env::set_current_dir(dir).ok();
+    }
+    // The web views' media policy in real web views (tests/web_media.rs).
+    #[cfg(all(target_os = "macos", feature = "harness"))]
+    if web_media_fixture::requested(&args) {
+        web_media_fixture::run();
+        return;
     }
     // The sidebar and palette over canned data (tests/a11y.rs, perf).
     #[cfg(all(target_os = "macos", feature = "harness"))]

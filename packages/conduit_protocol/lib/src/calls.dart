@@ -144,8 +144,14 @@ enum CallCommandKind {
   /// the audio runs, or with why it cannot.
   audioStart,
 
-  /// Close the realtime audio.
+  /// Close the realtime audio, or the WebRTC peer, at [CallCommand.path].
   audioStop,
+
+  /// Open the realtime voice's WebRTC peer (Hermes GPT-Live): the
+  /// microphone with echo cancellation, the voice played, and a data channel
+  /// for the voice's events, driven over `WS` [CallCommand.path]. Answered
+  /// once the peer is ready to make its offer, or with why it cannot.
+  webRtcStart,
 }
 
 /// Payload of `calls.command`. Answered with `calls.report` naming [id].
@@ -163,7 +169,7 @@ abstract class CallCommand with _$CallCommand {
     /// The model whose backend transcribes (server speech).
     String? modelId,
 
-    /// The realtime audio's WebSocket path on the daemon.
+    /// The realtime audio's (or WebRTC peer's) WebSocket path on the daemon.
     String? path,
   }) = _CallCommand;
 

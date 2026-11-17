@@ -1,0 +1,207 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Fake GPT-Live peer</title></head>
+<body>
+<script>
+// The fake GPT-Live voice's side of a call (fake_gpt_live.py hands it each
+// offer). It answers the offer, plays a 330 Hz tone back as the voice,
+// measures what it hears from the app, and speaks GPT-Live's data-channel
+// events, all invented:
+//   - session.started once the channel opens;
+//   - once it has heard the app for a second: the user's words (two
+//     deltas), the voice's reply, then a delegation of the request;
+//   - the chat's answer (session.commentary.append) said back as the
+//     voice's words;
+//   - session.closed when asked to close.
+// It reports what it heard (RMS, now and at its loudest) and the events it
+// got to the server, for the E2E pass. With the vendor's TURN relay, it uses
+// only that relay (127.0.0.1), as the app's page does in the E2E pass.
+(function () {
+  'use strict';
+  const USER_WORDS = ['Ask the chat for ', 'the harbour opening hours.'];
+  const VOICE_WORDS = 'Let me check with the chat.';
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  let events = [];
+  let call = null;
+
+  function event(kind, detail) {
+    events.push(Object.assign({ at: Date.now(), kind }, detail || {}));
+  }
+
+  async function report() {
+    const body = { events, at: Date.now() };
+    events = [];
+    if (call) {
+      body.heard = call.heard;
+      body.heardPeak = call.peak;
+      body.connection = call.pc.connectionState;
+      body.channel = call.channel ? call.channel.readyState : 'none';
+      body.session = call.session;
+    }
+    try {
+      await fetch('/peer/report', { method: 'POST', body: JSON.stringify(body) });
+    } catch (_) {}
+  }
+  setInterval(report, 250);
+
+  function send(type, fields) {
+    if (!call || !call.channel || call.channel.readyState !== 'open') return;
+    call.channel.send(JSON.stringify(Object.assign({ type, event_id: 'evt_' + Math.random().toString(16).slice(2) }, fields || {})));
+  }
+
+  async function script(current) {
+    // Wait to hear the app (its stand-in tone), for a second in a row.
+    let loud = 0;
+    while (current === call && loud < 10) {
+      loud = call.heard > 0.01 ? loud + 1 : 0;
+      await sleep(100);
+    }
+    if (current !== call) return;
+    event('heard-app', { level: call.heard });
+    for (const words of USER_WORDS) {
+      send('session.input_transcript.delta', { delta: words });
+      await sleep(300);
+    }
+    await sleep(400);
+    send('session.output_transcript.delta', { delta: VOICE_WORDS });
+    // Longer than the app's pause that ends a stretch of speech.
+    await sleep(1600);
+    send('session.delegation.created', {
+      delegation: { id: 'del_harbour', type: 'delegation', target: 'client' },
+    });
+    event('delegated', { id: 'del_harbour' });
+  }
+
+  function onMessage(current, raw) {
+    let message;
+    try { message = JSON.parse(raw); } catch (_) { return; }
+    const type = message.type || '';
+    switch (type) {
+      case 'session.commentary.append':
+        event(type, { delegation: message.delegation_id, content: message.content });
+        // The voice says the chat's answer, word by word as it would.
+        (async () => {
+          for (const word of String(message.content || '').split(' ')) {
+            send('session.output_transcript.delta', { delta: ' ' + word });
+            await sleep(250);
+          }
+        })();
+        break;
+      case 'session.thinking.append':
+      case 'session.instructions.append':
+        event(type, { delegation: message.delegation_id, content: message.content });
+        break;
+      case 'session.input_audio.mute':
+      case 'session.input_audio.unmute':
+        event(type, { heard: current.heard });
+        break;
+      case 'session.close':
+        event(type);
+        send('session.closed', { reason: 'close_requested' });
+        setTimeout(() => {
+          try { current.pc.close(); } catch (_) {}
+          event('closed');
+        }, 300);
+        break;
+      default:
+        event(type || 'unknown');
+    }
+  }
+
+  async function answer(job) {
+    const ctx = new AudioContext();
+    await ctx.resume().catch(() => {});
+    // Only the loopback relay when the vendor names one: nothing on the
+    // local network.
+    const pc = new RTCPeerConnection(job.turn
+      ? { iceServers: [job.turn], iceTransportPolicy: 'relay' }
+      : undefined);
+    const current = { pc, ctx, channel: null, heard: 0, peak: 0, session: job.session };
+    if (call) {
+      try { call.pc.close(); } catch (_) {}
+    }
+    call = current;
+    event('offer', { session: job.session });
+    // The voice: a steady tone.
+    const tone = ctx.createOscillator();
+    tone.frequency.value = 330;
+    const gain = ctx.createGain();
+    gain.gain.value = 0.3;
+    const out = ctx.createMediaStreamDestination();
+    tone.connect(gain).connect(out);
+    tone.start();
+    // What it hears from the app.
+    pc.ontrack = (e) => {
+      const stream = e.streams[0] || new MediaStream([e.track]);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      const mute = ctx.createGain();
+      mute.gain.value = 0;
+      analyser.connect(mute).connect(ctx.destination);
+      const samples = new Float32Array(analyser.fftSize);
+      // The loudest of the last second: a momentary dip is not silence.
+      const recent = [];
+      setInterval(() => {
+        analyser.getFloatTimeDomainData(samples);
+        let sum = 0;
+        for (const v of samples) sum += v * v;
+        recent.push(Math.sqrt(sum / samples.length));
+        if (recent.length > 10) recent.shift();
+        current.heard = Math.max(...recent);
+        current.peak = Math.max(current.peak, current.heard);
+      }, 100);
+    };
+    pc.onconnectionstatechange = () => event('connection', { state: pc.connectionState });
+    pc.ondatachannel = (e) => {
+      current.channel = e.channel;
+      e.channel.onopen = () => {
+        event('channel-open', { label: e.channel.label });
+        send('session.started', { session: { id: job.session } });
+        script(current);
+      };
+      e.channel.onmessage = (m) => onMessage(current, m.data);
+    };
+    await pc.setRemoteDescription({ type: 'offer', sdp: job.offer });
+    // The offer's audio transceiver carries the voice back.
+    for (const track of out.stream.getAudioTracks()) pc.addTrack(track, out.stream);
+    await pc.setLocalDescription(await pc.createAnswer());
+    await new Promise((resolve) => {
+      if (pc.iceGatheringState === 'complete') return resolve();
+      pc.addEventListener('icegatheringstatechange', () => {
+        if (pc.iceGatheringState === 'complete') resolve();
+      });
+      setTimeout(resolve, 5000);
+    });
+    await fetch('/peer/answer', {
+      method: 'POST',
+      body: JSON.stringify({ id: job.id, sdp: pc.localDescription.sdp }),
+    });
+    event('answered', { session: job.session });
+  }
+
+  async function loop() {
+    event('page-ready', { secure: window.isSecureContext, visible: document.visibilityState });
+    for (;;) {
+      try {
+        const response = await fetch('/peer/next', { cache: 'no-store' });
+        if (response.status === 200) {
+          const job = await response.json();
+          answer(job).catch((e) => {
+            event('answer-failed', { error: String(e) });
+            // No answer: the session request fails at once.
+            fetch('/peer/answer', { method: 'POST', body: JSON.stringify({ id: job.id, sdp: '' }) });
+          });
+        } else if (response.status !== 204) {
+          await sleep(1000);
+        }
+      } catch (_) {
+        await sleep(1000);
+      }
+    }
+  }
+  loop();
+})();
+</script>
+</body>
+</html>

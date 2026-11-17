@@ -4187,6 +4187,11 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     kind: CallCommandKind.audioStart,
     path: '/calls/call-7',
   ),
+  'callCommandWebRtc': const CallCommand(
+    id: 6,
+    kind: CallCommandKind.webRtcStart,
+    path: '/calls/call-8',
+  ),
   'callReportWords': const CallReport(
     kind: CallReportKind.words,
     listen: 2,
@@ -5146,6 +5151,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'callStartNew': CallStart.fromJson,
       'callCommandListen': CallCommand.fromJson,
       'callCommandAudio': CallCommand.fromJson,
+      'callCommandWebRtc': CallCommand.fromJson,
       'callReportWords': CallReport.fromJson,
       'callReportAnswer': CallReport.fromJson,
       'callReportFailed': CallReport.fromJson,
