@@ -88,6 +88,7 @@ mod chat_settings;
 mod composer;
 mod dictation;
 mod direct;
+mod hermes_admin;
 mod hermes_cards;
 mod hermes_rooms;
 mod hermes_sessions;
@@ -138,17 +139,19 @@ pub struct E2eInputs {
     pub env: BTreeMap<String, String>,
 }
 
-/// Whether `url` is an http(s) address on this Mac (loopback).
 /// The env file's server addresses: every server a pass signs in to, or
 /// sends credentials, messages or settings to. Each must be this Mac's own
 /// (loopback), or the env file is not used.
-const SERVER_URLS: [&str; 4] = [
+const SERVER_URLS: [&str; 6] = [
     "OWUI_URL",
     "LIBRECHAT_URL",
     "HERMES_GATEWAY_URL",
     "HERMES_DESKTOP_URL",
+    "HERMES_A_URL",
+    "HERMES_B_URL",
 ];
 
+/// Whether `url` is an http(s) address on this Mac (loopback).
 pub(crate) fn is_local_url(url: &str) -> bool {
     url::Url::parse(url).is_ok_and(|u| {
         matches!(u.scheme(), "http" | "https")
@@ -765,6 +768,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "hermes-sessions" => hermes_sessions::run_scenario(&inputs, &dir, cx).await,
         "hermes-rooms" => hermes_rooms::run_scenario(&inputs, &dir, cx).await,
         "hermes-cards" => hermes_cards::run(&inputs, &dir, cx).await,
+        "hermes-admin" => hermes_admin::run(&inputs, &dir, cx).await,
         "sidebar" => sidebar(&inputs, &dir, cx).await,
         "chat" | "chat-direct" | "chat-smoke" | "chat-read-only" => {
             chat::run(&inputs, &dir, cx).await

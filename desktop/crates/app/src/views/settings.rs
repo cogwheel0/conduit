@@ -37,6 +37,7 @@ pub mod chats;
 pub mod connection;
 pub mod controls;
 pub mod data_controls;
+pub mod hermes;
 pub mod librechat_memories;
 pub mod personalization;
 pub mod profile;
@@ -82,7 +83,6 @@ use crate::views::accounts::{accounts_sections, remove_account};
 use crate::views::add_account::{self, AddAccountSheet};
 use crate::views::direct::pane::DirectPane;
 use crate::views::forms;
-use crate::views::hermes::HermesView;
 use crate::views::privacy;
 use crate::views::server_form::{ServerForm, ServerFormEvent};
 use crate::views::status::diagnostics_state;
@@ -397,7 +397,6 @@ pub struct SettingsView {
     connection: Entity<ConnectionStore>,
     stores: Stores,
     pub direct: Option<Entity<DirectPane>>,
-    hermes: Option<Entity<HermesView>>,
     pub profile: Option<Entity<profile::ProfilePane>>,
     pub personalization: Option<Entity<personalization::PersonalizationPane>>,
     pub chats: Option<Entity<chats::ChatsPane>>,
@@ -450,6 +449,7 @@ impl SettingsView {
             }),
             cx.observe(&stores.session, |_, _, cx| cx.notify()),
             cx.observe(&stores.app_settings, |_, _, cx| cx.notify()),
+            cx.observe(&stores.hermes_admin, |_, _, cx| cx.notify()),
         ];
         if let Some(shell) = cx.try_global::<Desktop>().map(|d| d.shell.clone()) {
             subscriptions.push(cx.observe(&shell, |_, _, cx| cx.notify()));
@@ -476,7 +476,6 @@ impl SettingsView {
             connection,
             stores,
             direct: None,
-            hermes: None,
             profile: None,
             personalization: None,
             chats: None,
@@ -692,6 +691,9 @@ impl SettingsView {
                 if let Some(p) = &self.direct {
                     p.update(cx, |p, cx| p.choose(menu, value, window, cx));
                 }
+            }
+            hermes::MCP_MENU | hermes::CATALOG_MENU => {
+                hermes::choose(&self.stores, menu, value, window, cx)
             }
             menu if menu.starts_with("audio-") => {
                 if let Some(p) = &self.audio {
@@ -1618,13 +1620,10 @@ impl SettingsView {
             .clone()
     }
 
+    /// Settings › Hermes ([`hermes`]): the switch, the connections, and
+    /// the connection in use's status, schedules, catalog and MCP servers.
     fn hermes(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let stores = self.stores.clone();
-        let hermes = self
-            .hermes
-            .get_or_insert_with(|| cx.new(|cx| HermesView::new(stores, false, window, cx)))
-            .clone();
-        vec![hermes.into_any_element()]
+        hermes::sections(&self.stores, window, cx)
     }
 
     fn desktop(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {

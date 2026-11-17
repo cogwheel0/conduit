@@ -11,5 +11,11 @@
       "enabled": true,
       "tools": []
     }
+  ],
+  "commands": [
+    {
+      "name": "packing-list",
+      "description": "Packs a bag"
+    }
   ]
 }

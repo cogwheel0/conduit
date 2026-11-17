@@ -30,6 +30,15 @@ final class FakeHermesServer {
   Completer<void>? holdMessages;
   Completer<void> messagesAsked = Completer<void>();
 
+  /// While true, the jobs list is refused (409, an answer the daemon does
+  /// not retry), as a server that made a job but fails the read after it.
+  bool refuseJobList = false;
+
+  /// While set, the skills are listed only once it completes;
+  /// [skillsAsked] completes when such a request has come in.
+  Completer<void>? holdSkills;
+  Completer<void> skillsAsked = Completer<void>();
+
   /// Run (once) when `/v1/capabilities` is asked, before it is answered.
   Future<void> Function()? onCapabilities;
 
@@ -139,6 +148,10 @@ final class FakeHermesServer {
           ],
         });
       case ('GET', '/v1/skills'):
+        if (holdSkills case final hold?) {
+          if (!skillsAsked.isCompleted) skillsAsked.complete();
+          await hold.future;
+        }
         return json(<String, dynamic>{
           'skills': <Map<String, dynamic>>[
             <String, dynamic>{'name': 'review', 'description': 'Reviews code'},
@@ -201,6 +214,9 @@ final class FakeHermesServer {
         _runs[id] = run;
         return json(<String, dynamic>{'run_id': id, 'status': 'queued'});
       case ('GET', '/api/jobs'):
+        if (refuseJobList) {
+          return json(<String, dynamic>{'error': 'busy'}, 409);
+        }
         return json(<String, dynamic>{'jobs': jobs.values.toList()});
       case ('POST', '/api/jobs'):
         final job = await body();

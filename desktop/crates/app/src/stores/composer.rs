@@ -427,6 +427,12 @@ pub struct ComposerStore {
     /// (`librechat.composer`): chosen in `tool_ids`, as Open WebUI's are.
     pub librechat: LibreChatComposer,
     pub prompts: Option<Vec<PromptSummary>>,
+    /// `prompts` are a Hermes chat's `/` commands (the agent's skills, as
+    /// on a phone), inserted as typed rather than rendered.
+    pub prompts_hermes: bool,
+    /// The Hermes connection a Hermes chat's commands were read from (the
+    /// daemon's name for it): another one reads its own.
+    prompts_connection: Option<String>,
     /// `@`: the server's users and channels for the query typed.
     pub mention_results: MentionList,
     /// A channel's composer: `@` lists the channel's members (and models,
@@ -520,6 +526,8 @@ impl ComposerStore {
             options: ComposerOptions::default(),
             librechat: LibreChatComposer::default(),
             prompts: None,
+            prompts_hermes: false,
+            prompts_connection: None,
             mention_results: MentionList::default(),
             channel: None,
             context_results: vec![],
@@ -983,19 +991,65 @@ impl ComposerStore {
 
     // ── Prompts and knowledge ───────────────────────────────────────────
 
-    /// `prompts.list`, once (and again after `reset`).
-    pub fn load_prompts(&mut self, cx: &mut Context<Self>) {
-        if self.prompts.is_some() {
+    /// Whether the composer writes to Hermes: a Hermes session's chat, or
+    /// the Hermes model chosen for a new one.
+    pub fn is_hermes(&self) -> bool {
+        self.chat_id()
+            .is_some_and(|id| id.starts_with("local:hermes_"))
+            || self
+                .selected_model()
+                .is_some_and(|m| m.id.starts_with("hermes:"))
+    }
+
+    /// What `/` lists, once (and again after `reset`, or when the chat
+    /// moves between Hermes and the rest): saved prompts (`prompts.list`),
+    /// or in a Hermes chat the agent's commands (`hermes.catalog`), as
+    /// mobile's composer sources its `/` overlay.
+    pub fn load_prompts(&mut self, hermes_connection: Option<String>, cx: &mut Context<Self>) {
+        let hermes = self.is_hermes();
+        if self.prompts.is_some()
+            && self.prompts_hermes == hermes
+            && (!hermes || self.prompts_connection == hermes_connection)
+        {
             return;
         }
         self.prompts = Some(vec![]);
-        let call = self.rpc.call::<methods::PromptsList>(&NoParams);
+        self.prompts_hermes = hermes;
+        self.prompts_connection = hermes.then(|| hermes_connection.clone()).flatten();
         let scope = self.scope;
+        if hermes {
+            let call = self.rpc.call::<methods::HermesCatalog>(&NoParams);
+            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                let result = call.await;
+                let _ = this.update(cx, |s, cx| {
+                    // Another account's, the chat left Hermes since, or
+                    // another connection's commands were asked for since.
+                    if s.scope != scope
+                        || !s.prompts_hermes
+                        || s.prompts_connection != hermes_connection
+                    {
+                        return;
+                    }
+                    match result {
+                        Ok(catalog) => s.prompts = Some(hermes_prompts(&catalog)),
+                        Err(e) => {
+                            log::info!("hermes.catalog: {e}");
+                            s.prompts = None;
+                        }
+                    }
+                    cx.notify();
+                });
+            })
+            .detach();
+            return;
+        }
+        let call = self.rpc.call::<methods::PromptsList>(&NoParams);
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
-                // Another account's list never fills this one's.
-                if s.scope != scope {
+                // Another account's list never fills this one's, nor a
+                // Hermes chat's (moved there since).
+                if s.scope != scope || s.prompts_hermes {
                     return;
                 }
                 match result {
@@ -2276,6 +2330,29 @@ pub fn match_models<'a>(
     starts
 }
 
+/// A Hermes catalog's `/` commands as the menu lists prompts: `/name`,
+/// titled by what it does (its name when Hermes says nothing).
+pub fn hermes_prompts(catalog: &conduit_protocol::HermesCatalog) -> Vec<PromptSummary> {
+    catalog
+        .commands
+        .iter()
+        .map(|c| {
+            let description = c
+                .description
+                .as_deref()
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+                .map(String::from);
+            PromptSummary {
+                command: format!("/{}", c.name),
+                title: description.clone().unwrap_or_else(|| c.name.clone()),
+                description,
+                uses_clipboard: false,
+            }
+        })
+        .collect()
+}
+
 /// Prompts whose command starts with `query`, then those whose title
 /// contains it.
 pub fn match_prompts<'a>(
@@ -3030,6 +3107,49 @@ mod tests {
         });
     }
 
+    /// A Hermes chat's `/` list is the connection in use now's: another
+    /// connection reads its own, and the last one's answer never fills it.
+    #[gpui_kit::test]
+    fn another_hermes_connection_reads_its_own_commands(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::DraftsGet>(Draft::default());
+        let n = Arc::new(Mutex::new(0usize));
+        let count = n.clone();
+        daemon.on::<methods::HermesCatalog>(move |_| {
+            let mut n = count.lock().unwrap();
+            *n += 1;
+            let name = if *n == 1 { "prune-roses" } else { "sow-beans" };
+            Ok(json!({"commands": [{"name": name}]}))
+        });
+        let first = daemon.hold_one::<methods::HermesCatalog>(0);
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| {
+            s.switch_draft(Some(key(Some("local:hermes_s1"))), "", cx)
+        });
+        cx.run_until_parked();
+        store.update(cx, |s, cx| {
+            s.load_prompts(Some("0a1b2c3d:1".into()), cx);
+            s.load_prompts(Some("0a1b2c3d:2".into()), cx);
+        });
+        cx.run_until_parked();
+        drop(first);
+        cx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::HermesCatalog>().len(), 2);
+        store.read_with(cx, |s, _| {
+            let commands: Vec<&str> = s
+                .prompts
+                .iter()
+                .flatten()
+                .map(|p| p.command.as_str())
+                .collect();
+            assert_eq!(
+                commands,
+                vec!["/sow-beans"],
+                "the last connection's commands are shown"
+            );
+        });
+    }
+
     #[gpui_kit::test]
     fn an_old_accounts_answers_never_fill_the_new_ones(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
@@ -3043,7 +3163,7 @@ mod tests {
         let store = store(&daemon, Arc::default(), cx);
         store.update(cx, |s, cx| {
             s.code_interpreter = true;
-            s.load_prompts(cx);
+            s.load_prompts(None, cx);
             s.reset(cx);
         });
         held.release();

@@ -1,0 +1,6 @@
+{
+  "target": "telegram",
+  "kind": "platform",
+  "name": "Telegram",
+  "available": false
+}

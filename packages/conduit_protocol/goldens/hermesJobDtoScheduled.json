@@ -1,0 +1,28 @@
+{
+  "id": "j3",
+  "name": "Standup",
+  "prompt": "Write a standup summary",
+  "schedule": "0 9 * * 1-5",
+  "enabled": true,
+  "state": "scheduled",
+  "deliver": [
+    {
+      "target": "local",
+      "kind": "local",
+      "name": "",
+      "available": true
+    },
+    {
+      "target": "bot-chat:helper",
+      "kind": "botChat",
+      "name": "Helper",
+      "available": true
+    }
+  ],
+  "lastDeliveryError": "no home channel",
+  "catchUp": "runOnce",
+  "running": true,
+  "stopping": true,
+  "lastCancelReason": "Stopped by the user",
+  "deliveryKnown": true
+}

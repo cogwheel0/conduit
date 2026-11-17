@@ -17,6 +17,7 @@ import 'events.dart';
 import 'handoff.dart';
 import 'handshake.dart';
 import 'hermes.dart';
+import 'hermes_admin.dart';
 import 'hermes_rooms.dart';
 import 'hermes_work.dart';
 import 'intents.dart';
@@ -1702,20 +1703,126 @@ abstract final class ConduitMethodSpecs {
         params: HermesJobToggle.fromJson,
         result: HermesJobs.fromJson,
       );
-  static const hermesRunJob = ConduitMethodSpec<HermesRef, HermesJobs>(
+  static const hermesRunJob = ConduitMethodSpec<HermesJobRef, HermesJobs>(
     ConduitMethods.hermesRunJob,
-    params: HermesRef.fromJson,
+    params: HermesJobRef.fromJson,
     result: HermesJobs.fromJson,
   );
-  static const hermesDeleteJob = ConduitMethodSpec<HermesRef, HermesJobs>(
+  static const hermesDeleteJob = ConduitMethodSpec<HermesJobRef, HermesJobs>(
     ConduitMethods.hermesDeleteJob,
-    params: HermesRef.fromJson,
+    params: HermesJobRef.fromJson,
     result: HermesJobs.fromJson,
   );
   static const hermesCatalog = ConduitMethodSpec<void, HermesCatalog>(
     ConduitMethods.hermesCatalog,
     result: HermesCatalog.fromJson,
   );
+  static const hermesJobsRuns = ConduitMethodSpec<HermesJobRef, HermesSessions>(
+    ConduitMethods.hermesJobsRuns,
+    params: HermesJobRef.fromJson,
+    result: HermesSessions.fromJson,
+  );
+  static const hermesJobsStop = ConduitMethodSpec<HermesJobRef, HermesJobs>(
+    ConduitMethods.hermesJobsStop,
+    params: HermesJobRef.fromJson,
+    result: HermesJobs.fromJson,
+  );
+  static const hermesJobsDelivery =
+      ConduitMethodSpec<void, HermesDeliveryOptions>(
+        ConduitMethods.hermesJobsDelivery,
+        result: HermesDeliveryOptions.fromJson,
+      );
+
+  // hermes.connections.*
+
+  static const hermesConnectionsList =
+      ConduitMethodSpec<void, HermesConnections>(
+        ConduitMethods.hermesConnectionsList,
+        result: HermesConnections.fromJson,
+      );
+  static const hermesConnectionsSave =
+      ConduitMethodSpec<HermesConnectionEdit, HermesConnections>(
+        ConduitMethods.hermesConnectionsSave,
+        params: HermesConnectionEdit.fromJson,
+        result: HermesConnections.fromJson,
+      );
+  static const hermesConnectionsTest =
+      ConduitMethodSpec<HermesConnectionEdit, HermesConnectionTestResult>(
+        ConduitMethods.hermesConnectionsTest,
+        params: HermesConnectionEdit.fromJson,
+        result: HermesConnectionTestResult.fromJson,
+      );
+  static const hermesConnectionsActivate =
+      ConduitMethodSpec<HermesRef, HermesConnections>(
+        ConduitMethods.hermesConnectionsActivate,
+        params: HermesRef.fromJson,
+        result: HermesConnections.fromJson,
+      );
+  static const hermesConnectionsDelete =
+      ConduitMethodSpec<HermesRef, HermesConnections>(
+        ConduitMethods.hermesConnectionsDelete,
+        params: HermesRef.fromJson,
+        result: HermesConnections.fromJson,
+      );
+  static const hermesConnectionsSetEnabled =
+      ConduitMethodSpec<HermesToggle, HermesConnections>(
+        ConduitMethods.hermesConnectionsSetEnabled,
+        params: HermesToggle.fromJson,
+        result: HermesConnections.fromJson,
+      );
+
+  // hermes.mcp.*
+
+  static const hermesMcpList = ConduitMethodSpec<void, HermesMcpServers>(
+    ConduitMethods.hermesMcpList,
+    result: HermesMcpServers.fromJson,
+  );
+  static const hermesMcpCatalog = ConduitMethodSpec<void, HermesMcpCatalog>(
+    ConduitMethods.hermesMcpCatalog,
+    result: HermesMcpCatalog.fromJson,
+  );
+  static const hermesMcpAdd =
+      ConduitMethodSpec<HermesMcpAdd, HermesMcpServers>(
+        ConduitMethods.hermesMcpAdd,
+        params: HermesMcpAdd.fromJson,
+        result: HermesMcpServers.fromJson,
+      );
+  static const hermesMcpAddFromCatalog =
+      ConduitMethodSpec<HermesMcpRef, HermesMcpServers>(
+        ConduitMethods.hermesMcpAddFromCatalog,
+        params: HermesMcpRef.fromJson,
+        result: HermesMcpServers.fromJson,
+      );
+  static const hermesMcpSetApiKey =
+      ConduitMethodSpec<HermesMcpApiKey, HermesMcpServers>(
+        ConduitMethods.hermesMcpSetApiKey,
+        params: HermesMcpApiKey.fromJson,
+        result: HermesMcpServers.fromJson,
+      );
+  static const hermesMcpRemove =
+      ConduitMethodSpec<HermesMcpRef, HermesMcpServers>(
+        ConduitMethods.hermesMcpRemove,
+        params: HermesMcpRef.fromJson,
+        result: HermesMcpServers.fromJson,
+      );
+  static const hermesMcpTest =
+      ConduitMethodSpec<HermesMcpRef, HermesMcpTestResultDto>(
+        ConduitMethods.hermesMcpTest,
+        params: HermesMcpRef.fromJson,
+        result: HermesMcpTestResultDto.fromJson,
+      );
+  static const hermesMcpSetEnabled =
+      ConduitMethodSpec<HermesMcpToggle, HermesMcpServers>(
+        ConduitMethods.hermesMcpSetEnabled,
+        params: HermesMcpToggle.fromJson,
+        result: HermesMcpServers.fromJson,
+      );
+  static const hermesMcpAuthenticate =
+      ConduitMethodSpec<HermesMcpRef, HermesMcpServers>(
+        ConduitMethods.hermesMcpAuthenticate,
+        params: HermesMcpRef.fromJson,
+        result: HermesMcpServers.fromJson,
+      );
 
   // hermes.work.*, hermes.context.*, hermes.decisions.*
 
@@ -2404,6 +2511,24 @@ abstract final class ConduitMethodSpecs {
         hermesRunJob,
         hermesDeleteJob,
         hermesCatalog,
+        hermesJobsRuns,
+        hermesJobsStop,
+        hermesJobsDelivery,
+        hermesConnectionsList,
+        hermesConnectionsSave,
+        hermesConnectionsTest,
+        hermesConnectionsActivate,
+        hermesConnectionsDelete,
+        hermesConnectionsSetEnabled,
+        hermesMcpList,
+        hermesMcpCatalog,
+        hermesMcpAdd,
+        hermesMcpAddFromCatalog,
+        hermesMcpSetApiKey,
+        hermesMcpRemove,
+        hermesMcpTest,
+        hermesMcpSetEnabled,
+        hermesMcpAuthenticate,
         hermesWorkWatch,
         hermesWorkUnwatch,
         hermesWorkSteer,

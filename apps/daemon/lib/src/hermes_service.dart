@@ -3,8 +3,6 @@ import 'dart:async';
 import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_contract.dart';
-import 'package:conduit_core/features/hermes/models/hermes_job.dart';
-import 'package:conduit_core/features/hermes/models/hermes_toolset.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
@@ -16,7 +14,6 @@ import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart
 import 'package:conduit_core/features/hermes/services/hermes_session_open.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
-import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/providers/app_providers.dart'
     show activeServerProvider;
@@ -93,6 +90,11 @@ final class HermesService {
   /// Bumped when the connection or the account's server changes: a read
   /// begun before is the last server's.
   var _serverGeneration = 0;
+
+  /// [_serverGeneration], for another service's reads of this server's
+  /// sessions (a job's runs): one answered under another value is the last
+  /// server's, never kept or shown for this one.
+  int get serverGeneration => _serverGeneration;
 
   /// Another connection, or another account's server: nothing one server
   /// said of its sessions, or their messages, is kept for the next.
@@ -394,6 +396,12 @@ final class HermesService {
       archivedFailed: archivedFailed,
     );
   });
+
+  /// Tells the windows' sessions of [session], one no list shows (a
+  /// scheduled agent's run), so it opens as any other: its owner decides
+  /// whether it opens read-only.
+  HermesSessionDto remember(HermesSessionSummary session) =>
+      _sessionDto(_known[session.id] = session);
 
   HermesSessionDto _sessionDto(HermesSessionSummary session) =>
       HermesSessionDto(
@@ -882,109 +890,6 @@ final class HermesService {
     _container.invalidate(hermesSessionsProvider);
     _announce();
   }
-
-  // ---------------------------------------------------------------------------
-  // Jobs and catalog
-  // ---------------------------------------------------------------------------
-
-  Future<HermesJobs> jobs() => _guard(() async {
-    if (_container.read(hermesApiServiceProvider) == null) {
-      return const HermesJobs();
-    }
-    _container.invalidate(hermesJobsProvider);
-    final jobs = await readSettled(_container, hermesJobsProvider.future);
-    return HermesJobs(jobs: jobs.map(_job).toList(growable: false));
-  });
-
-  Future<HermesJobs> saveJob(HermesJobEdit edit) => _guard(() async {
-    final prompt = edit.prompt.trim();
-    final schedule = edit.schedule.trim();
-    if (prompt.isEmpty || schedule.isEmpty) {
-      throw const RpcError(
-        code: ConduitErrorCodes.invalidParams,
-        debugMessage: 'a job needs a prompt and a schedule',
-      );
-    }
-    final name = edit.name?.trim();
-    final jobs = _container.read(hermesJobsProvider.notifier);
-    if (edit.id == null) {
-      await jobs.create(
-        name: name == null || name.isEmpty ? prompt : name,
-        prompt: prompt,
-        schedule: schedule,
-      );
-    } else {
-      await jobs.edit(edit.id!, name: name, prompt: prompt, schedule: schedule);
-    }
-    _announce();
-    return this.jobs();
-  });
-
-  Future<HermesJobs> setJobEnabled(HermesJobToggle toggle) => _guard(() async {
-    await _container
-        .read(hermesJobsProvider.notifier)
-        .setEnabled(toggle.id, toggle.enabled);
-    _announce();
-    return jobs();
-  });
-
-  Future<HermesJobs> runJob(String id) => _guard(() async {
-    await _container.read(hermesJobsProvider.notifier).runNow(id);
-    return jobs();
-  });
-
-  Future<HermesJobs> deleteJob(String id) => _guard(() async {
-    await _container.read(hermesJobsProvider.notifier).delete(id);
-    _announce();
-    return jobs();
-  });
-
-  Future<HermesCatalog> catalog() => _guard(() async {
-    final service = _container.read(hermesApiServiceProvider);
-    if (service == null) return const HermesCatalog();
-    final skills = await service.listSkills().catchError(
-      (Object _) => const <Map<String, dynamic>>[],
-    );
-    _container.invalidate(hermesToolsetsProvider);
-    final toolsets = await readSettled(
-      _container,
-      hermesToolsetsProvider.future,
-    ).catchError((Object _) => <HermesToolset>[]);
-    return HermesCatalog(
-      skills: <HermesSkillDto>[
-        for (final skill in skills)
-          if ((skill['name'] ?? skill['id'])?.toString() case final name?
-              when name.trim().isNotEmpty)
-            HermesSkillDto(
-              name: name,
-              description: skill['description']?.toString(),
-            ),
-      ],
-      toolsets: <HermesToolsetDto>[
-        for (final toolset in toolsets)
-          HermesToolsetDto(
-            name: toolset.name,
-            label: toolset.label,
-            description: toolset.description,
-            enabled: toolset.enabled,
-            tools: toolset.tools,
-          ),
-      ],
-    );
-  });
-
-  static HermesJobDto _job(HermesJob job) => HermesJobDto(
-    id: job.id,
-    name: job.name,
-    prompt: job.prompt,
-    schedule: job.schedule,
-    scheduleText: describeHermesCronSchedule(job.schedule),
-    enabled: job.enabled,
-    lastStatus: job.lastStatus,
-    lastError: job.lastError,
-    lastRunAtMs: job.lastRun?.millisecondsSinceEpoch,
-    nextRunAtMs: job.nextRun?.millisecondsSinceEpoch,
-  );
 
   // ---------------------------------------------------------------------------
   // Plumbing

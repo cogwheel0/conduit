@@ -1043,7 +1043,11 @@ impl ChatComposer {
         });
         match &trigger {
             Some(t) if t.kind == TriggerKind::Prompt => {
-                self.composer.update(cx, |c, cx| c.load_prompts(cx));
+                // A Hermes chat's commands are the connection in use's.
+                let hermes = cx
+                    .try_global::<crate::AppState>()
+                    .and_then(|s| s.stores.hermes_admin.read(cx).connection());
+                self.composer.update(cx, |c, cx| c.load_prompts(hermes, cx));
             }
             Some(t) if t.kind == TriggerKind::Knowledge => {
                 let q = t.query.clone();
@@ -1360,6 +1364,12 @@ impl ChatComposer {
                 let Some(at) = self.take_trigger(window, cx) else {
                     return;
                 };
+                // A Hermes command goes as typed: the agent runs it.
+                if self.composer.read(cx).prompts_hermes {
+                    let text = format!("{} ", prompt.command);
+                    self.insert_at(at, &text, window, cx);
+                    return;
+                }
                 self.render_prompt(prompt, at, BTreeMap::new(), window, cx);
             }
             Pick::Model(model) if self.channel_mode => {
@@ -2715,13 +2725,17 @@ impl ChatComposer {
         let l10n = cx.l10n().clone();
         let r = t.roles;
         let m = t.metrics;
+        // A Hermes chat's `/` lists the agent's skills, as on a phone.
+        let hermes = self.composer.read(cx).prompts_hermes;
         let label = match menu.trigger.kind {
+            TriggerKind::Prompt if hermes => l10n.hermes_capability_skills(),
             TriggerKind::Prompt => l10n.desktop_prompt_menu(),
             TriggerKind::Model => l10n.desktop_mention_menu(),
             TriggerKind::Knowledge => l10n.desktop_knowledge_menu(),
             TriggerKind::Skill => l10n.workspace_skills(),
         };
         let empty = match menu.trigger.kind {
+            TriggerKind::Prompt if hermes => l10n.desktop_no_skills_match(),
             TriggerKind::Prompt => l10n.desktop_no_prompts_match(),
             TriggerKind::Model => l10n.desktop_no_models_available(),
             TriggerKind::Knowledge => l10n.desktop_no_knowledge_match(),

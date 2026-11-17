@@ -32,6 +32,7 @@ import 'computer_rpc_service.dart';
 import 'handoff_service.dart';
 import 'automations_service.dart';
 import 'calendar_service.dart';
+import 'hermes_admin_service.dart';
 import 'hermes_cards_service.dart';
 import 'hermes_rooms_service.dart';
 import 'hermes_service.dart';
@@ -77,6 +78,7 @@ final class CoreServices {
     this.terminals,
     this.computer,
     this.hermes,
+    this.hermesAdmin,
     this.voice,
     this.dictation,
     this.recordings,
@@ -121,6 +123,9 @@ final class CoreServices {
   final TerminalsService? terminals;
   final ComputerRpcService? computer;
   final HermesService? hermes;
+
+  /// Hermes's connections, MCP servers, scheduled agents and catalog.
+  final HermesAdminService? hermesAdmin;
   final VoiceService? voice;
 
   /// The rest of `settings.*` (core's `AppSettings` and the account's own).
@@ -225,6 +230,7 @@ class RpcSession {
   TerminalsService? get _terminals => _services().terminals;
   ComputerRpcService? get _computer => _services().computer;
   HermesService? get _hermes => _services().hermes;
+  HermesAdminService? get _hermesAdmin => _services().hermesAdmin;
   VoiceService? get _voice => _services().voice;
   DictationService? get _dictation => _services().dictation;
   RecordingsService? get _recordings => _services().recordings;
@@ -1068,18 +1074,94 @@ class RpcSession {
       ConduitMethodSpecs.hermesHistoryUndo,
       (p) => _requireTurns().undoHermes(p),
     );
-    _on(ConduitMethodSpecs.hermesJobs, (_) => _requireHermes().jobs());
-    _on(ConduitMethodSpecs.hermesSaveJob, (p) => _requireHermes().saveJob(p));
+    // Scheduled agents, the catalog, connections and MCP servers.
+    _on(ConduitMethodSpecs.hermesJobs, (_) => _need(_hermesAdmin).jobs());
+    _on(
+      ConduitMethodSpecs.hermesSaveJob,
+      (p) => _need(_hermesAdmin).saveJob(p),
+    );
     _on(
       ConduitMethodSpecs.hermesSetJobEnabled,
-      (p) => _requireHermes().setJobEnabled(p),
+      (p) => _need(_hermesAdmin).setJobEnabled(p),
     );
-    _on(ConduitMethodSpecs.hermesRunJob, (p) => _requireHermes().runJob(p.id));
+    _on(
+      ConduitMethodSpecs.hermesRunJob,
+      (p) => _need(_hermesAdmin).runJob(p.id, connection: p.connection),
+    );
     _on(
       ConduitMethodSpecs.hermesDeleteJob,
-      (p) => _requireHermes().deleteJob(p.id),
+      (p) => _need(_hermesAdmin).deleteJob(p.id, connection: p.connection),
     );
-    _on(ConduitMethodSpecs.hermesCatalog, (_) => _requireHermes().catalog());
+    _on(ConduitMethodSpecs.hermesCatalog, (_) => _need(_hermesAdmin).catalog());
+    _on(
+      ConduitMethodSpecs.hermesJobsRuns,
+      (p) => _need(_hermesAdmin).jobRuns(p.id, connection: p.connection),
+    );
+    _on(
+      ConduitMethodSpecs.hermesJobsStop,
+      (p) => _need(_hermesAdmin).stopJob(p.id, connection: p.connection),
+    );
+    _on(
+      ConduitMethodSpecs.hermesJobsDelivery,
+      (_) => _need(_hermesAdmin).deliveryOptions(),
+    );
+    _on(
+      ConduitMethodSpecs.hermesConnectionsList,
+      (_) => _need(_hermesAdmin).connections(),
+    );
+    _on(
+      ConduitMethodSpecs.hermesConnectionsSave,
+      (p) => _need(_hermesAdmin).saveConnection(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesConnectionsTest,
+      (p) => _need(_hermesAdmin).testConnection(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesConnectionsActivate,
+      (p) => _need(_hermesAdmin).activate(p.id),
+    );
+    _on(
+      ConduitMethodSpecs.hermesConnectionsDelete,
+      (p) => _need(_hermesAdmin).deleteConnection(p.id),
+    );
+    _on(
+      ConduitMethodSpecs.hermesConnectionsSetEnabled,
+      (p) => _need(_hermesAdmin).setEnabled(p.enabled),
+    );
+    _on(
+      ConduitMethodSpecs.hermesMcpList,
+      (_) => _need(_hermesAdmin).mcpServers(),
+    );
+    _on(
+      ConduitMethodSpecs.hermesMcpCatalog,
+      (_) => _need(_hermesAdmin).mcpCatalog(),
+    );
+    _on(ConduitMethodSpecs.hermesMcpAdd, (p) => _need(_hermesAdmin).addMcp(p));
+    _on(
+      ConduitMethodSpecs.hermesMcpAddFromCatalog,
+      (p) => _need(_hermesAdmin).addMcpFromCatalog(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesMcpSetApiKey,
+      (p) => _need(_hermesAdmin).setMcpApiKey(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesMcpRemove,
+      (p) => _need(_hermesAdmin).removeMcp(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesMcpTest,
+      (p) => _need(_hermesAdmin).testMcp(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesMcpSetEnabled,
+      (p) => _need(_hermesAdmin).setMcpEnabled(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesMcpAuthenticate,
+      (p) => _need(_hermesAdmin).authenticateMcp(p),
+    );
 
     // hermes.work.*, hermes.context.*, hermes.decisions.*: a Hermes chat's
     // agent at work, its context window, and what it asks.

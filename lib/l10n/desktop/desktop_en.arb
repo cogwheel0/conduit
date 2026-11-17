@@ -5512,5 +5512,349 @@
   "desktopShareSheetUnavailable": "The shared items couldn't be opened. Share them again.",
   "@desktopShareSheetUnavailable": {
     "description": "Toast when Conduit was asked to open items from the Share menu that are no longer there."
+  },
+  "desktopHermesConnectionsFooter": "Click a connection to use it. Hermes's chats, scheduled agents and MCP servers follow the one in use.",
+  "@desktopHermesConnectionsFooter": {
+    "description": "Footer under Settings › Hermes › Connections."
+  },
+  "desktopHermesEditConnectionNamed": "Edit {name}",
+  "@desktopHermesEditConnectionNamed": {
+    "description": "VoiceOver label of a connection row's Edit… button.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesUsingConnection": "Now using {name}.",
+  "@desktopHermesUsingConnection": {
+    "description": "Toast after switching Hermes connections.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesStatus": "Status",
+  "@desktopHermesStatus": {
+    "description": "Row title for the Hermes server's reachability."
+  },
+  "desktopHermesUnreachable": "Not reachable",
+  "@desktopHermesUnreachable": {
+    "description": "The Hermes server did not answer."
+  },
+  "desktopHermesRefresh": "Refresh",
+  "@desktopHermesRefresh": {
+    "description": "Button that reads the Hermes server's status again."
+  },
+  "desktopHermesStatusFailed": "Couldn't read the server's status.",
+  "@desktopHermesStatusFailed": {
+    "description": "Shown when the Hermes status could not be read."
+  },
+  "desktopHermesReviewSchedules": "Review Schedules",
+  "@desktopHermesReviewSchedules": {
+    "description": "Button that opens the Scheduled Agents list in the main window."
+  },
+  "desktopHermesScheduledAgentsFooter": "Prompts the agent runs on a schedule. They're also in the Hermes section of the sidebar.",
+  "@desktopHermesScheduledAgentsFooter": {
+    "description": "Footer under Settings › Hermes › Scheduled Agents."
+  },
+  "desktopHermesSkillsFooter": "Type / in a Hermes chat to use one.",
+  "@desktopHermesSkillsFooter": {
+    "description": "Footer under the agent's skills list."
+  },
+  "desktopHermesSkillsMore": "{count, plural, =1{and 1 more} other{and {count} more}}",
+  "@desktopHermesSkillsMore": {
+    "description": "After a shortened list of skills.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopHermesCatalogFailed": "Couldn't load the agent's skills and toolsets.",
+  "@desktopHermesCatalogFailed": {
+    "description": "Shown when the Hermes catalog could not be read."
+  },
+  "desktopHermesMcpFooter": "Servers whose tools the agent can use. Changes apply to new Hermes chats.",
+  "@desktopHermesMcpFooter": {
+    "description": "Footer under Settings › Hermes › MCP Servers."
+  },
+  "desktopHermesMcpUnavailable": "MCP servers are managed on a Desktop Gateway connection.",
+  "@desktopHermesMcpUnavailable": {
+    "description": "Shown when the connection in use is an API server."
+  },
+  "desktopHermesMcpEmpty": "No MCP servers yet.",
+  "@desktopHermesMcpEmpty": {
+    "description": "Empty MCP server list."
+  },
+  "desktopHermesMcpLoadFailed": "Couldn't load the MCP servers.",
+  "@desktopHermesMcpLoadFailed": {
+    "description": "Shown when the MCP server list could not be read."
+  },
+  "desktopHermesMcpAddEllipsis": "Add Server…",
+  "@desktopHermesMcpAddEllipsis": {
+    "description": "Button that opens the Add MCP Server sheet."
+  },
+  "desktopHermesMcpAddFromCatalog": "Add from Catalog",
+  "@desktopHermesMcpAddFromCatalog": {
+    "description": "Pop-up button listing Hermes's ready-made MCP servers."
+  },
+  "desktopHermesMcpCatalogEmpty": "Nothing more to add from the catalog.",
+  "@desktopHermesMcpCatalogEmpty": {
+    "description": "Shown when every catalog server is already added."
+  },
+  "desktopHermesMcpCatalogFailed": "Couldn't load the catalog.",
+  "@desktopHermesMcpCatalogFailed": {
+    "description": "Shown when the MCP catalog could not be read."
+  },
+  "desktopHermesMcpActionsNamed": "Actions for {name}",
+  "@desktopHermesMcpActionsNamed": {
+    "description": "VoiceOver label and tooltip of an MCP server row's menu button.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesMcpSignIn": "Sign In…",
+  "@desktopHermesMcpSignIn": {
+    "description": "MCP server menu item: sign in with OAuth in the browser."
+  },
+  "desktopHermesMcpSetApiKey": "Set API Key…",
+  "@desktopHermesMcpSetApiKey": {
+    "description": "MCP server menu item."
+  },
+  "desktopHermesMcpEnableTools": "Enable Tools",
+  "@desktopHermesMcpEnableTools": {
+    "description": "MCP server menu item."
+  },
+  "desktopHermesMcpDisableTools": "Disable Tools",
+  "@desktopHermesMcpDisableTools": {
+    "description": "MCP server menu item."
+  },
+  "desktopHermesMcpRemoveEllipsis": "Remove…",
+  "@desktopHermesMcpRemoveEllipsis": {
+    "description": "MCP server menu item; asks first."
+  },
+  "desktopHermesMcpRemoveTitle": "Remove {name}?",
+  "@desktopHermesMcpRemoveTitle": {
+    "description": "Alert title before removing an MCP server.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesMcpRemoveMessage": "Hermes stops using this server. Its tools leave new chats.",
+  "@desktopHermesMcpRemoveMessage": {
+    "description": "Alert message before removing an MCP server."
+  },
+  "desktopHermesMcpToolsOn": "Tools on",
+  "@desktopHermesMcpToolsOn": {
+    "description": "An MCP server whose tools the agent can use."
+  },
+  "desktopHermesMcpToolsOff": "Tools off",
+  "@desktopHermesMcpToolsOff": {
+    "description": "An MCP server whose tools are turned off."
+  },
+  "desktopHermesMcpToolsList": "Tools: {tools}",
+  "@desktopHermesMcpToolsList": {
+    "description": "An MCP server's tools, comma-separated.",
+    "placeholders": {
+      "tools": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesMcpTestOk": "{name} is working.",
+  "@desktopHermesMcpTestOk": {
+    "description": "Toast after an MCP server test succeeded.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesMcpTestFailed": "Couldn't connect to {name}.",
+  "@desktopHermesMcpTestFailed": {
+    "description": "Toast after an MCP server test failed.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesMcpActionFailed": "Couldn't change the MCP server.",
+  "@desktopHermesMcpActionFailed": {
+    "description": "Toast when an MCP server action failed."
+  },
+  "desktopHermesMcpAdded": "Added {name}.",
+  "@desktopHermesMcpAdded": {
+    "description": "Toast after adding an MCP server.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesMcpRemoved": "Removed {name}.",
+  "@desktopHermesMcpRemoved": {
+    "description": "Toast after removing an MCP server.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesMcpKeySaved": "Saved the API key for {name}.",
+  "@desktopHermesMcpKeySaved": {
+    "description": "Toast after setting an MCP server's API key.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesMcpSignedIn": "Signed in to {name}.",
+  "@desktopHermesMcpSignedIn": {
+    "description": "Toast after an MCP server's OAuth sign-in.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesMcpSignInFailed": "Couldn't sign in to {name}.",
+  "@desktopHermesMcpSignInFailed": {
+    "description": "Toast when an MCP server's sign-in failed.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesMcpSigningIn": "Finish signing in to {name} in your browser…",
+  "@desktopHermesMcpSigningIn": {
+    "description": "Toast while an MCP server's sign-in waits on the browser.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesMcpAddTitle": "Add MCP Server",
+  "@desktopHermesMcpAddTitle": {
+    "description": "Title of the Add MCP Server sheet."
+  },
+  "desktopHermesMcpConnectsBy": "Connects By",
+  "@desktopHermesMcpConnectsBy": {
+    "description": "Label of the choice between a web address and a command."
+  },
+  "desktopHermesMcpByUrl": "Web Address",
+  "@desktopHermesMcpByUrl": {
+    "description": "An MCP server reached at an HTTP address."
+  },
+  "desktopHermesMcpByCommand": "Command",
+  "@desktopHermesMcpByCommand": {
+    "description": "An MCP server Hermes runs as a command."
+  },
+  "desktopHermesMcpUrl": "URL",
+  "@desktopHermesMcpUrl": {
+    "description": "Field label: the MCP server's address."
+  },
+  "desktopHermesMcpArguments": "Arguments",
+  "@desktopHermesMcpArguments": {
+    "description": "Field label: the command's arguments."
+  },
+  "desktopHermesMcpArgumentsHelp": "One argument per line.",
+  "@desktopHermesMcpArgumentsHelp": {
+    "description": "Help under the MCP command's arguments."
+  },
+  "desktopHermesMcpKeyHelp": "Sent to the server as a bearer token. Hermes keeps it, not this Mac.",
+  "@desktopHermesMcpKeyHelp": {
+    "description": "Help under an MCP server's API key field."
+  },
+  "desktopHermesMcpApiKeyTitle": "API Key for {name}",
+  "@desktopHermesMcpApiKeyTitle": {
+    "description": "Title of the sheet that sets an MCP server's API key.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesSignInWith": "Sign In With",
+  "@desktopHermesSignInWith": {
+    "description": "Label of a Desktop Gateway's authentication choice."
+  },
+  "desktopHermesAuthNative": "Hermes Sign-In",
+  "@desktopHermesAuthNative": {
+    "description": "Desktop Gateway authentication: sign in through the browser."
+  },
+  "desktopHermesAuthToken": "Session Token",
+  "@desktopHermesAuthToken": {
+    "description": "Desktop Gateway authentication: the gateway's legacy session token."
+  },
+  "desktopHermesAuthTokenHelp": "The session token your Hermes gateway gives you. Kept in this Mac's keychain.",
+  "@desktopHermesAuthTokenHelp": {
+    "description": "Help under the legacy session token field."
+  },
+  "desktopHermesTestKeyRequired": "Enter the API key to test this connection.",
+  "@desktopHermesTestKeyRequired": {
+    "description": "Shown when Test is pressed on an API server without a key."
+  },
+  "desktopHermesSettingsEllipsis": "Hermes Settings…",
+  "@desktopHermesSettingsEllipsis": {
+    "description": "Menu item that opens Settings › Hermes."
+  },
+  "desktopHermesJobNewEllipsis": "New Scheduled Job…",
+  "@desktopHermesJobNewEllipsis": {
+    "description": "Button that opens the scheduled job editor."
+  },
+  "desktopHermesJobDeliveryError": "Delivery failed: {error}",
+  "@desktopHermesJobDeliveryError": {
+    "description": "A job's last delivery error, as Hermes reports it.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopHermesJobNoRuns": "No runs yet.",
+  "@desktopHermesJobNoRuns": {
+    "description": "Empty run history of a scheduled job."
+  },
+  "desktopHermesJobRunsFailed": "Couldn't load the run history.",
+  "@desktopHermesJobRunsFailed": {
+    "description": "Shown when a job's run history could not be read."
+  },
+  "desktopHermesJobStateScheduled": "Scheduled",
+  "@desktopHermesJobStateScheduled": {
+    "description": "A job waiting for its next run."
+  },
+  "desktopHermesJobStateCompleted": "Completed",
+  "@desktopHermesJobStateCompleted": {
+    "description": "A job that has no runs left."
+  },
+  "desktopHermesJobLastOk": "Last run succeeded",
+  "@desktopHermesJobLastOk": {
+    "description": "A job's last run finished without an error."
+  },
+  "desktopHermesJobLastFailed": "Last run failed",
+  "@desktopHermesJobLastFailed": {
+    "description": "A job's last run ended with an error."
+  },
+  "desktopHermesJobOpenRun": "Open Result",
+  "@desktopHermesJobOpenRun": {
+    "description": "Tooltip of a run in a job's run history; opens its chat."
+  },
+  "desktopHermesJobsNote": "Each run is saved as a Hermes chat. Open one from a job's run history.",
+  "@desktopHermesJobsNote": {
+    "description": "Note under the Scheduled Agents list."
+  },
+  "desktopHermesJobHideRuns": "Hide Run History",
+  "@desktopHermesJobHideRuns": {
+    "description": "Disclosure button when a job's run history is open."
   }
 }

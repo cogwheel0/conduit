@@ -52,6 +52,7 @@ import 'computer_rpc_service.dart';
 import 'handoff_service.dart';
 import 'automations_service.dart';
 import 'calendar_service.dart';
+import 'hermes_admin_service.dart';
 import 'hermes_cards_service.dart';
 import 'hermes_rooms_service.dart';
 import 'hermes_service.dart';
@@ -139,6 +140,7 @@ class DaemonServer {
   TerminalsService? _terminals;
   ComputerRpcService? _computer;
   HermesService? _hermes;
+  HermesAdminService? _hermesAdmin;
   VoiceService? _voice;
   DictationService? _dictation;
   RecordingsService? _recordings;
@@ -219,6 +221,11 @@ class DaemonServer {
       connection: _hermes!.connection,
     );
     _hermes!.botChats = _hermesRooms;
+    _hermesAdmin = HermesAdminService(
+      core.container,
+      events: events,
+      hermes: _hermes,
+    );
     _chats = ChatsService(
       core.container,
       events: events,
@@ -352,6 +359,7 @@ class DaemonServer {
       terminals: _terminals,
       computer: _computer,
       hermes: _hermes,
+      hermesAdmin: _hermesAdmin,
       voice: _voice,
       dictation: _dictation,
       recordings: _recordings,
@@ -1110,6 +1118,8 @@ class DaemonServer {
     _hermesCards?.dispose();
     _hermesRooms?.dispose();
     _hermesRooms = null;
+    _hermesAdmin?.dispose();
+    _hermesAdmin = null;
     _turns = null;
     _chats?.dispose();
     _chats = null;

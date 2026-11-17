@@ -43,6 +43,7 @@ pub mod composer;
 pub mod connection;
 pub mod dictation;
 pub mod files;
+pub mod hermes_admin;
 pub mod hermes_rooms;
 pub mod hermes_work;
 pub mod layout;
@@ -87,6 +88,8 @@ pub struct Stores {
     pub chat_list: Entity<ChatListStore>,
     pub palette: Entity<PaletteStore>,
     pub areas: Entity<AreasStore>,
+    /// Hermes's connections, status, catalog, MCP servers and jobs.
+    pub hermes_admin: Entity<hermes_admin::HermesAdminStore>,
     pub sections: Entity<SectionsStore>,
     /// Core's `AppSettings` and the socket's health (Settings, composer).
     pub app_settings: Entity<app_settings::AppSettingsStore>,
@@ -156,7 +159,8 @@ impl Stores {
             call: cx.new(|cx| call::CallStore::new(rpc.clone(), connection, cx)),
             calendar: cx.new(|_| calendar::CalendarStore::new(rpc.clone())),
             tasks: cx.new(|_| tasks::TasksStore::new(rpc.clone())),
-            hermes_rooms: cx.new(|_| hermes_rooms::HermesRoomsStore::new(rpc)),
+            hermes_rooms: cx.new(|_| hermes_rooms::HermesRoomsStore::new(rpc.clone())),
+            hermes_admin: cx.new(|_| hermes_admin::HermesAdminStore::new(rpc)),
         }
     }
 
@@ -176,6 +180,7 @@ impl Stores {
         let chat_list = cx.new(|_| ChatListStore::new(rpc.clone()));
         let palette = cx.new(|_| PaletteStore::new(rpc.clone()));
         let areas = cx.new(|_| AreasStore::new(rpc.clone()));
+        let hermes_admin = cx.new(|_| hermes_admin::HermesAdminStore::new(rpc.clone()));
         let sections_file = connection
             .read(cx)
             .paths()
@@ -207,6 +212,7 @@ impl Stores {
             chat_list,
             palette,
             areas,
+            hermes_admin,
             sections,
             app_settings,
             speech,
@@ -218,6 +224,7 @@ impl Stores {
         connection.update(cx, |c, _| c.subscribe("session", SESSION_EVENTS, vec![]));
         chat_list::wire(&stores, cx);
         areas::wire(&stores, cx);
+        hermes_admin::wire(&stores, cx);
         app_settings::wire(&stores, cx);
         speech::wire(&stores, cx);
         call::wire(&stores, cx);

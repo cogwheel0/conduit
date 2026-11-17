@@ -1468,18 +1468,108 @@
     },
     {
       "name": "hermes.runJob",
-      "params": "HermesRef",
+      "params": "HermesJobRef",
       "result": "HermesJobs"
     },
     {
       "name": "hermes.deleteJob",
-      "params": "HermesRef",
+      "params": "HermesJobRef",
       "result": "HermesJobs"
     },
     {
       "name": "hermes.catalog",
       "params": null,
       "result": "HermesCatalog"
+    },
+    {
+      "name": "hermes.jobs.runs",
+      "params": "HermesJobRef",
+      "result": "HermesSessions"
+    },
+    {
+      "name": "hermes.jobs.stop",
+      "params": "HermesJobRef",
+      "result": "HermesJobs"
+    },
+    {
+      "name": "hermes.jobs.delivery",
+      "params": null,
+      "result": "HermesDeliveryOptions"
+    },
+    {
+      "name": "hermes.connections.list",
+      "params": null,
+      "result": "HermesConnections"
+    },
+    {
+      "name": "hermes.connections.save",
+      "params": "HermesConnectionEdit",
+      "result": "HermesConnections"
+    },
+    {
+      "name": "hermes.connections.test",
+      "params": "HermesConnectionEdit",
+      "result": "HermesConnectionTestResult"
+    },
+    {
+      "name": "hermes.connections.activate",
+      "params": "HermesRef",
+      "result": "HermesConnections"
+    },
+    {
+      "name": "hermes.connections.delete",
+      "params": "HermesRef",
+      "result": "HermesConnections"
+    },
+    {
+      "name": "hermes.connections.setEnabled",
+      "params": "HermesToggle",
+      "result": "HermesConnections"
+    },
+    {
+      "name": "hermes.mcp.list",
+      "params": null,
+      "result": "HermesMcpServers"
+    },
+    {
+      "name": "hermes.mcp.catalog",
+      "params": null,
+      "result": "HermesMcpCatalog"
+    },
+    {
+      "name": "hermes.mcp.add",
+      "params": "HermesMcpAdd",
+      "result": "HermesMcpServers"
+    },
+    {
+      "name": "hermes.mcp.addFromCatalog",
+      "params": "HermesMcpRef",
+      "result": "HermesMcpServers"
+    },
+    {
+      "name": "hermes.mcp.setApiKey",
+      "params": "HermesMcpApiKey",
+      "result": "HermesMcpServers"
+    },
+    {
+      "name": "hermes.mcp.remove",
+      "params": "HermesMcpRef",
+      "result": "HermesMcpServers"
+    },
+    {
+      "name": "hermes.mcp.test",
+      "params": "HermesMcpRef",
+      "result": "HermesMcpTestResultDto"
+    },
+    {
+      "name": "hermes.mcp.setEnabled",
+      "params": "HermesMcpToggle",
+      "result": "HermesMcpServers"
+    },
+    {
+      "name": "hermes.mcp.authenticate",
+      "params": "HermesMcpRef",
+      "result": "HermesMcpServers"
     },
     {
       "name": "hermes.work.watch",

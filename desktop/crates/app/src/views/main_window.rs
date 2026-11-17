@@ -674,6 +674,31 @@ impl Render for MainWindow {
                 this.sidebar
                     .update(cx, |s, cx| s.run(&id, command, window, cx));
             }))
+            .on_action(
+                cx.listener(|this, a: &crate::actions::HermesSwitchConnection, _, cx| {
+                    let id = a.connection_id.clone();
+                    let name = this
+                        .stores
+                        .hermes_admin
+                        .read(cx)
+                        .connections
+                        .as_ref()
+                        .and_then(|l| l.connections.iter().find(|c| c.id == id))
+                        .map(|c| c.name.clone());
+                    crate::stores::hermes_admin::activate(&this.stores, &id, cx);
+                    if let Some(name) = name {
+                        let text = cx.l10n().desktop_hermes_using_connection(&name);
+                        this.stores.toasts.update(cx, |t, cx| {
+                            t.show(conduit_protocol::NoticeLevel::Success, text, cx)
+                        });
+                    }
+                }),
+            )
+            .on_action(
+                cx.listener(|_, _: &crate::actions::OpenHermesSettings, _, cx| {
+                    crate::open_settings(Some(crate::views::settings::Tab::Hermes), cx);
+                }),
+            )
             .on_action(cx.listener(|this, a: &HermesMenu, window, cx| {
                 let (id, command) = (a.session_id.clone(), a.command);
                 this.run_hermes(&id, command, window, cx);

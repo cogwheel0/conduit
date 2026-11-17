@@ -8,5 +8,10 @@
   "lastStatus": "ok",
   "lastError": "none",
   "lastRunAtMs": 1767225600000,
-  "nextRunAtMs": 1767312000000
+  "nextRunAtMs": 1767312000000,
+  "deliver": [],
+  "catchUp": "default",
+  "running": false,
+  "stopping": false,
+  "deliveryKnown": true
 }

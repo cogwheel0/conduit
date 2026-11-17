@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "tools": 2,
+  "resources": 1,
+  "prompts": 3,
+  "error": "none",
+  "toolNames": [
+    "search",
+    "fetch"
+  ]
+}

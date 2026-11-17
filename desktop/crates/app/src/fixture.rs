@@ -455,6 +455,7 @@ pub(crate) fn stores(rpc: Rpc, scratch: &std::path::Path, cx: &mut App) -> Store
         chat_list: cx.new(|_| ChatListStore::new(rpc.clone())),
         palette: cx.new(|_| PaletteStore::new(rpc.clone())),
         areas: cx.new(|_| crate::stores::areas::AreasStore::new(rpc.clone())),
+        hermes_admin: cx.new(|_| crate::stores::hermes_admin::HermesAdminStore::new(rpc.clone())),
         sections: cx.new(|_| crate::stores::sections::SectionsStore::load(None)),
         app_settings: cx.new(|_| crate::stores::app_settings::AppSettingsStore::new(rpc.clone())),
         calendar: cx.new(|_| crate::stores::calendar::CalendarStore::new(rpc.clone())),
