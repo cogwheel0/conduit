@@ -444,10 +444,15 @@ pub(crate) fn stores(rpc: Rpc, scratch: &std::path::Path, cx: &mut App) -> Store
         let rpc = rpc.clone();
         cx.new(|cx| crate::stores::call::CallStore::new(rpc, connection, cx))
     };
+    let apple = {
+        let rpc = rpc.clone();
+        cx.new(|cx| crate::stores::apple_models::AppleModelsStore::new(rpc, cx))
+    };
     Stores {
         connection,
         speech,
         call,
+        apple,
         ui_requests: cx.new(|_| UiRequestsStore::new(rpc.clone())),
         router: cx.new(|_| RouterStore::new()),
         toasts: cx.new(|_| ToastStore::new()),

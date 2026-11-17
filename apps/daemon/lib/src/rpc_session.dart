@@ -36,6 +36,7 @@ import 'hermes_admin_service.dart';
 import 'hermes_cards_service.dart';
 import 'hermes_rooms_service.dart';
 import 'hermes_service.dart';
+import 'apple_models_service.dart';
 import 'calls_service.dart';
 import 'librechat_service.dart';
 import 'intents_service.dart';
@@ -95,6 +96,7 @@ final class CoreServices {
     this.folderSettings,
     this.speech,
     this.calls,
+    this.apple,
     this.handoff,
     this.calendar,
     this.automations,
@@ -148,6 +150,9 @@ final class CoreServices {
 
   /// `calls.*`: voice calls.
   final CallsService? calls;
+
+  /// `apple.*`: Apple's on-device model, run in the window.
+  final AppleModelsService? apple;
 
   /// A server's `chat:handoff`, put to the windows.
   final HandoffService? handoff;
@@ -243,6 +248,7 @@ class RpcSession {
   HermesCardsService? get _hermesCards => _services().hermesCards;
   SpeechService? get _speech => _services().speech;
   CallsService? get _calls => _services().calls;
+  AppleModelsService? get _apple => _services().apple;
   ReleaseNotesRpcService? get _releaseNotes => _services().releaseNotes;
   DataService? get _data => _services().data;
   ChatSettingsService? get _chatSettings => _services().chatSettings;
@@ -258,9 +264,24 @@ class RpcSession {
   /// which then tells every window. Null before the core is up.
   final void Function(bool online)? _reportNetwork;
 
-  Future<void> listen() => _peer.listen();
+  /// Serves the window until its socket ends, however it ends (the window
+  /// closed it, it dropped, or it failed), then [close]s: a window gone is
+  /// cleaned up as one closed.
+  Future<void> listen() async {
+    try {
+      await _peer.listen();
+    } finally {
+      await close();
+    }
+  }
 
-  Future<void> close() async {
+  /// Ends the session and lets go of what it held: the one way out for
+  /// every end ([listen] done or failed, the daemon stopping), once however
+  /// often it is called.
+  Future<void> close() => _closing ??= _close();
+  Future<void>? _closing;
+
+  Future<void> _close() async {
     _events.detach(sessionId);
     // If that was the last window, nobody is left to answer: questions
     // still waiting take their conservative default now rather than hang
@@ -271,6 +292,8 @@ class RpcSession {
     _hermesCards?.forgetWindow(sessionId);
     // And the rooms it showed or listed.
     _hermesRooms?.forgetWindow(sessionId);
+    // Its Apple engine runs nothing more; its commands are not answered.
+    _apple?.forgetWindow(sessionId);
     // What this window was recording is kept for its next launch.
     await _recordings?.closeOwnedBy(sessionId);
     await _peer.close();
@@ -1314,6 +1337,15 @@ class RpcSession {
     _on(ConduitMethodSpecs.callsSkip, (_) => _need(_calls).skip());
     _on(ConduitMethodSpecs.callsReport, (p) async {
       _need(_calls).report(p);
+      return const OkResult(ok: true);
+    });
+
+    // apple.*: Apple's on-device model; the chat runs here, the model in
+    // the window.
+    _on(ConduitMethodSpecs.appleStatus, (_) => _need(_apple).status());
+    _on(ConduitMethodSpecs.appleRefresh, (_) => _need(_apple).refresh());
+    _on(ConduitMethodSpecs.appleReport, (p) async {
+      _need(_apple).report(p, from: sessionId);
       return const OkResult(ok: true);
     });
 

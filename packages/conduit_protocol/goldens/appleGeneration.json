@@ -1,0 +1,17 @@
+{
+  "runId": "run-5c1e",
+  "model": "onDevice",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Answer briefly."
+    },
+    {
+      "role": "user",
+      "content": "Name three hardy herbs for a windowsill."
+    }
+  ],
+  "tools": [],
+  "temperature": 0.4,
+  "maximumResponseTokens": 512
+}

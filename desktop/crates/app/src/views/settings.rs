@@ -330,6 +330,13 @@ pub fn area_key_label(key: keymap::AreaKey, l10n: &L10n) -> String {
         K::CalendarLater => l10n.desktop_keyboard_calendar_later(),
         K::CalendarToday => l10n.calendar_today(),
         K::DeleteCalendarItem | K::DeleteScheduledTask => l10n.desktop_delete_ellipsis(),
+        K::TerminalFind => l10n.desktop_menu_find(),
+        K::TerminalCopy => l10n.copy(),
+        K::TerminalPaste => l10n.terminal_paste_action(),
+        K::TerminalSelectAll => l10n.desktop_menu_select_all(),
+        K::TerminalClearScrollback => l10n.desktop_terminal_clear_scrollback(),
+        K::SendInRoom => l10n.send(),
+        K::SaveHermesJob => l10n.save(),
     }
 }
 
@@ -1020,6 +1027,9 @@ impl SettingsView {
                 KeyGroup::Workspace => l10n.workspace_title(),
                 KeyGroup::Calendar => l10n.calendar_title(),
                 KeyGroup::ScheduledTasks => l10n.scheduled_tasks_title(),
+                KeyGroup::Terminal => l10n.terminal(),
+                KeyGroup::HermesRooms => l10n.hermes_rooms_title(),
+                KeyGroup::HermesJobs => l10n.hermes_scheduled_agents_title(),
             };
             // Where these keys work, under the areas' own groups.
             let footer = footer.or_else(|| match group {
@@ -1027,6 +1037,9 @@ impl SettingsView {
                 KeyGroup::Workspace => Some(l10n.desktop_keyboard_workspace_footer().into()),
                 KeyGroup::Calendar => Some(l10n.desktop_keyboard_calendar_footer().into()),
                 KeyGroup::ScheduledTasks => Some(l10n.desktop_keyboard_tasks_footer().into()),
+                KeyGroup::Terminal => Some(l10n.desktop_keyboard_terminal_footer().into()),
+                KeyGroup::HermesRooms => Some(l10n.desktop_keyboard_rooms_footer().into()),
+                KeyGroup::HermesJobs => Some(l10n.desktop_keyboard_hermes_jobs_footer().into()),
                 _ => None,
             });
             sections.push(settings_section(title, footer, rows, cx).into_any_element());

@@ -7,7 +7,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.64.0",
+  "protocolVersion": "1.65.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -16,7 +16,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.64.0",
+  "protocolVersion": "1.65.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -7405,6 +7405,146 @@ const Map<String, String> protocolGoldens = <String, String>{
   "state": "ready",
   "index": 1,
   "positionMs": 800
+}''',
+
+  'appleEngineStatus': r'''
+{
+  "availability": "available",
+  "contextSize": 4096,
+  "supportsCurrentLocale": true
+}''',
+
+  'appleModelStatus': r'''
+{
+  "model": "onDevice",
+  "availability": "unavailable",
+  "reason": "modelNotReady",
+  "supportsCurrentLocale": true
+}''',
+
+  'appleModels': r'''
+{
+  "models": [
+    {
+      "model": "onDevice",
+      "availability": "available",
+      "contextSize": 4096,
+      "supportsCurrentLocale": true
+    }
+  ]
+}''',
+
+  'appleMessage': r'''
+{
+  "role": "user",
+  "content": "Name three hardy herbs for a windowsill."
+}''',
+
+  'appleToolDefinition': r'''
+{
+  "name": "garden_lookup",
+  "description": "Looks up a plant in the garden notebook.",
+  "inputSchemaJson": "{}"
+}''',
+
+  'appleGeneration': r'''
+{
+  "runId": "run-5c1e",
+  "model": "onDevice",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Answer briefly."
+    },
+    {
+      "role": "user",
+      "content": "Name three hardy herbs for a windowsill."
+    }
+  ],
+  "tools": [],
+  "temperature": 0.4,
+  "maximumResponseTokens": 512
+}''',
+
+  'appleCommandStart': r'''
+{
+  "id": 3,
+  "kind": "start",
+  "request": {
+    "runId": "run-5c1e",
+    "model": "onDevice",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Is thyme hardy?"
+      }
+    ],
+    "tools": []
+  },
+  "toolCancelled": false
+}''',
+
+  'appleCommandToolResult': r'''
+{
+  "id": 4,
+  "kind": "toolResult",
+  "runId": "run-5c1e",
+  "callId": "call-1",
+  "toolContent": "Thyme survives frost.",
+  "toolCancelled": false
+}''',
+
+  'appleReportStatus': r'''
+{
+  "id": 2,
+  "ok": true,
+  "runs": [],
+  "status": {
+    "availability": "unavailable",
+    "reason": "appleIntelligenceNotEnabled"
+  }
+}''',
+
+  'appleReportReady': r'''
+{
+  "ok": true,
+  "kind": "ready",
+  "supported": true,
+  "runs": [
+    "run-5c1e"
+  ]
+}''',
+
+  'appleReportContent': r'''
+{
+  "ok": true,
+  "kind": "content",
+  "runs": [],
+  "runId": "run-5c1e",
+  "seq": 1,
+  "content": "Thyme, rosemary and sage."
+}''',
+
+  'appleReportFailed': r'''
+{
+  "ok": true,
+  "kind": "failed",
+  "runs": [],
+  "runId": "run-5c1e",
+  "seq": 2,
+  "failure": "contextExceeded"
+}''',
+
+  'appleReportToolCall': r'''
+{
+  "ok": true,
+  "kind": "toolCall",
+  "runs": [],
+  "runId": "run-5c1e",
+  "seq": 1,
+  "callId": "call-1",
+  "toolName": "garden_lookup",
+  "argumentsJson": "{}"
 }''',
 
   'hermesWorkWatch': r'''

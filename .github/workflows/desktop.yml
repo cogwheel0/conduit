@@ -164,6 +164,10 @@ jobs:
           fi
           xcodebuild -version
           df -h / | tail -1
+      # Xcode 26 builds the Apple models engine without its macOS 27 parts
+      # (apple_models.sh sdk-gaps): named on the run, never silent.
+      - name: Name what this Xcode's SDK leaves out
+        run: packaging/macos/apple_models.sh sdk-gaps --github
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install && rustup show active-toolchain
       # GPUI compiles its Metal shaders at build time. Xcode 26 ships the
@@ -235,6 +239,8 @@ jobs:
           fi
           xcodebuild -version
           df -h / | tail -1
+      - name: Name what this Xcode's SDK leaves out
+        run: desktop/packaging/macos/apple_models.sh sdk-gaps --github
       - name: Fetch third_party submodules
         run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2

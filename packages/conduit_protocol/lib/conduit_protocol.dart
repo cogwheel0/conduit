@@ -29,6 +29,7 @@ export 'src/events.dart';
 export 'src/files.dart';
 export 'src/handoff.dart';
 export 'src/speech.dart';
+export 'src/apple.dart';
 export 'src/handshake.dart';
 export 'src/hermes.dart';
 export 'src/hermes_admin.dart';

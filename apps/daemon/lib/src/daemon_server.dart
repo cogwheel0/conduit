@@ -56,6 +56,7 @@ import 'hermes_admin_service.dart';
 import 'hermes_cards_service.dart';
 import 'hermes_rooms_service.dart';
 import 'hermes_service.dart';
+import 'apple_models_service.dart';
 import 'calls_service.dart';
 import 'speech_service.dart';
 import 'voice_service.dart';
@@ -155,6 +156,7 @@ class DaemonServer {
   FolderSettingsService? _folderSettings;
   SpeechService? _readAloud;
   CallsService? _calls;
+  AppleModelsService? _apple;
   ReleaseNotesRpcService? _releaseNotes;
   DataService? _data;
 
@@ -329,6 +331,9 @@ class DaemonServer {
       ports: core.calls,
       speech: _readAloud,
     );
+    // Apple's on-device model: the chat runs here, the model in the window.
+    core.apple.bind(events);
+    _apple = AppleModelsService(core.container, bridge: core.apple);
     if (chats != null) {
       _voice!.speechOfChat = (chatId) async => SpeechService.speechForModel(
         core.container,
@@ -376,6 +381,7 @@ class DaemonServer {
       folderSettings: _folderSettings,
       speech: _readAloud,
       calls: _calls,
+      apple: _apple,
       handoff: _handoff,
       calendar: _calendar,
       automations: _automations,
@@ -963,11 +969,9 @@ class DaemonServer {
               _log.error('session $sessionId failed', error, stack);
             })
             .whenComplete(() {
+              // listen() has closed the session (whatever ended it), which
+              // let go of everything it held; only the list is left.
               _sessions.remove(sessionId);
-              events.detach(sessionId);
-              // A window that dropped is gone as surely as one that closed:
-              // if it was the last, waiting questions take their default.
-              _uiRequests?.onWindowsChanged();
               _log.debug('session $sessionId closed');
             }),
       );

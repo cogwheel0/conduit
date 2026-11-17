@@ -240,6 +240,13 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
         KeyBinding::new("cmd-+", ZoomIn, None),
         KeyBinding::new("cmd-=", ZoomIn, None),
         KeyBinding::new("cmd--", ZoomOut, None),
+        // Edit › Clear Scrollback in a terminal's console: Terminal's own
+        // ⌥⌘K (its ⌘K, Clear to Start, stays the palette here).
+        KeyBinding::new(
+            "alt-cmd-k",
+            crate::views::terminal::console::ClearScrollback,
+            Some(crate::views::terminal::console::CONSOLE_CONTEXT),
+        ),
         // Chat › Delete…, from the sidebar's list (a text field keeps ⌘⌫
         // for deleting to the start of the line).
         KeyBinding::new("cmd-backspace", DeleteChat, Some(SIDEBAR_LIST_CONTEXT)),
@@ -716,6 +723,12 @@ pub fn build_menus(l10n: &L10n, state: &MenuState) -> Vec<Menu> {
                 l10n.desktop_menu_select_all(),
                 SelectAll,
                 OsAction::SelectAll,
+            ),
+            // Terminal's Clear Scrollback, greyed where no console has the
+            // keys (no handler answers it then).
+            MenuItem::action(
+                l10n.desktop_terminal_clear_scrollback(),
+                crate::views::terminal::console::ClearScrollback,
             ),
             MenuItem::separator(),
             // Mail's Find submenu: find in what is open, then search the
@@ -1719,8 +1732,14 @@ mod tests {
                     K::MarkChecked => Box::new(e::ToggleChecked),
                     K::Quote => Box::new(e::QuoteBlock),
                     K::CodeBlock => Box::new(e::CodeBlock),
-                    // The Workspace editor, the Calendar and Scheduled
-                    // Tasks take theirs in their own key handlers.
+                    K::TerminalFind => Box::new(FindInChat),
+                    K::TerminalClearScrollback => {
+                        Box::new(crate::views::terminal::console::ClearScrollback)
+                    }
+                    // The Workspace editor, the Calendar, Scheduled Tasks,
+                    // a room's field and the scheduled agent sheet take
+                    // theirs in their own key handlers; the console answers
+                    // the Edit menu's Copy, Paste and Select All.
                     K::SaveWorkspaceItem
                     | K::CalendarEarlier
                     | K::CalendarLater
@@ -1728,7 +1747,12 @@ mod tests {
                     | K::DeleteCalendarItem
                     | K::SaveCalendarEvent
                     | K::DeleteScheduledTask
-                    | K::SaveScheduledTask => continue,
+                    | K::SaveScheduledTask
+                    | K::TerminalCopy
+                    | K::TerminalPaste
+                    | K::TerminalSelectAll
+                    | K::SendInRoom
+                    | K::SaveHermesJob => continue,
                 };
                 let bound = cx
                     .key_bindings()

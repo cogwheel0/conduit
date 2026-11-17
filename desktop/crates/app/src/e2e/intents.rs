@@ -56,14 +56,14 @@ fn quick_ask_text(cx: &mut App) -> Option<String> {
 }
 
 /// Runs one intent or query, as the App Intents runtime would.
-async fn step(step: Value) -> Value {
+pub(super) async fn step(step: Value) -> Value {
     crate::intents::self_test(&json!({ "steps": [step] }))
         .await
         .and_then(|out| out.get(0).cloned())
         .unwrap_or(Value::Null)
 }
 
-fn succeeded(out: &Value) -> bool {
+pub(super) fn succeeded(out: &Value) -> bool {
     out["ok"].as_bool() == Some(true)
 }
 
@@ -89,7 +89,7 @@ fn chats_of(out: &Value) -> Vec<(String, String)> {
 }
 
 /// A short form of an outcome for the log: never the answer itself.
-fn brief(out: &Value) -> String {
+pub(super) fn brief(out: &Value) -> String {
     format!(
         "ok={} error={:?} chats={}",
         out["ok"],

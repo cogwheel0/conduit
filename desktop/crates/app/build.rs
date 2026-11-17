@@ -13,7 +13,9 @@
 //! Messages stay ICU strings; `src/l10n/icu.rs` formats them (placeholders,
 //! `plural` with `=n`/CLDR categories/`#`, and `select`).
 //!
-//! On macOS it also compiles the App Intents' Swift ([`app_intents`]).
+//! On macOS it also compiles the App Intents' Swift ([`app_intents`]) and the
+//! Swift engine for Apple's on-device model ([`apple_models`]), both linked
+//! against the system's Swift runtime ([`swift_runtime`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -28,6 +30,8 @@ mod icu;
 fn main() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     app_intents(&manifest);
+    apple_models(&manifest);
+    swift_runtime();
     let l10n = manifest.join("../../../lib/l10n");
     let desktop = l10n.join("desktop");
     println!("cargo:rerun-if-changed={}", l10n.display());
@@ -265,6 +269,61 @@ fn app_intents(manifest: &Path) {
     println!("cargo:rustc-link-lib=static:+whole-archive=conduit_intents");
     println!("cargo:rustc-link-lib=framework=AppIntents");
     println!("cargo:rustc-link-lib=framework=Foundation");
+}
+
+/// Apple's on-device Foundation Models on macOS: the Swift in `apple/`,
+/// compiled by `packaging/macos/apple_models.sh compile` into a static
+/// library that `shell::apple_models` calls (`conduit_apple_*`).
+/// FoundationModels exists from macOS 26 and the app runs from 14, so the
+/// framework is linked weakly: on an older macOS it is absent and the
+/// engine says so.
+fn apple_models(manifest: &Path) {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
+        return;
+    }
+    let dir = manifest.join("apple");
+    let script = manifest.join("../../packaging/macos/apple_models.sh");
+    println!("cargo:rerun-if-changed={}", dir.display());
+    println!("cargo:rerun-if-changed={}", script.display());
+    println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        println!("cargo:rerun-if-changed={}", entry.unwrap().path().display());
+    }
+    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("apple_models");
+    let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
+        Ok("aarch64") | Err(_) => "arm64".to_string(),
+        Ok(other) => other.to_string(),
+    };
+    let status = std::process::Command::new("/bin/bash")
+        .arg(&script)
+        .arg("compile")
+        .arg(&out)
+        .env("CONDUIT_APPLE_ARCH", &arch)
+        .status()
+        .unwrap_or_else(|e| panic!("{}: {e}", script.display()));
+    assert!(
+        status.success(),
+        "the Apple models engine (apple/*.swift) did not compile"
+    );
+    // What an SDK older than macOS 27's (Xcode 26) leaves out of the engine
+    // (`apple_models.sh sdk-gaps`): said on every build, never silent.
+    if let Ok(gaps) = std::fs::read_to_string(out.join("sdk-gaps.txt")) {
+        for gap in gaps.lines().filter(|l| !l.trim().is_empty()) {
+            println!("cargo:warning=Apple models: {gap}");
+        }
+    }
+    println!("cargo:rustc-link-search=native={}", out.display());
+    println!("cargo:rustc-link-lib=static=conduit_apple_models");
+    println!("cargo:rustc-link-arg=-Wl,-weak_framework,FoundationModels");
+    println!("cargo:rustc-link-lib=framework=Foundation");
+}
+
+/// Where the Swift libraries ([`app_intents`], [`apple_models`]) find
+/// their runtime, said once for both.
+fn swift_runtime() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
+        return;
+    }
     // The Swift runtime is the system's (/usr/lib/swift); the toolchain's
     // folder has the back-deployment shims the object may ask for. Below
     // macOS 12 as the deployment target (cargo's default, 11.0, for dev

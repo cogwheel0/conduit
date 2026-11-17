@@ -70,6 +70,12 @@
 //!   new chat, the language, sign-out) and its links ([`widget`]).
 //! * `intents`: Shortcuts' actions (App Intents) through the Swift
 //!   intents' own `perform()` and chat query ([`intents`]).
+//! * `apple`: Apple's on-device model: this Mac's real status in Settings ›
+//!   Direct Connections, then the engine's scripted model checked ready, in
+//!   the model picker, a chat streamed, stopped and failed ([`apple`]).
+//! * `apple-only`: Apple On-Device as the only model (Open WebUI signed
+//!   out, the engine's scripted model answering): Ask Conduit, Quick Ask and
+//!   the widget's links answer through it, or say why not ([`apple::only`]).
 //! * `offline-setup`, `offline`: a signed-in account whose server is out of
 //!   reach at launch, with conduitd restarted once while the window opens;
 //!   two launches, run by `crates/app/e2e-offline.sh` ([`offline`]).
@@ -81,6 +87,7 @@
 //! typed.
 
 mod actions;
+mod apple;
 mod calendar;
 mod channels;
 mod chat;
@@ -764,6 +771,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "sso" => sso(&inputs, &dir, cx).await,
         "direct" => direct(&inputs, &dir, cx).await,
         "direct-advanced" => direct::run(&inputs, &dir, cx).await,
+        "apple" => apple::run(&inputs, &dir, cx).await,
         "hermes" => hermes(&inputs, &dir, cx).await,
         "hermes-sessions" => hermes_sessions::run_scenario(&inputs, &dir, cx).await,
         "hermes-rooms" => hermes_rooms::run_scenario(&inputs, &dir, cx).await,
@@ -797,6 +805,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "widget" => widget::run(&inputs, &dir, cx).await,
         "intents" => intents::run(&inputs, &dir, cx).await,
         "terminal" => terminal::run(&inputs, &dir, cx).await,
+        "apple-only" => apple::only(&inputs, &dir, cx).await,
         other => ok(&format!("unknown scenario {other}"), false),
     }
 }

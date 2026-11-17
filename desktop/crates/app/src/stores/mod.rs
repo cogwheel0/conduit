@@ -20,6 +20,8 @@
 //! * [`files`]: `/files` images (bearer token added) and attachment opening.
 //! * [`settings`] and [`layout`]: preferences and window geometry.
 //! * [`speech`]: read aloud, which the daemon runs and this window speaks.
+//! * [`apple_models`]: Apple's on-device model, which the daemon's chats
+//!   use and this window runs.
 //! * [`call`]: a voice call, which the daemon runs and this window hears
 //!   and, for a realtime voice, plays.
 //! * [`calendar`] and [`tasks`]: the calendar's agenda and the scheduled
@@ -33,6 +35,7 @@
 
 pub mod accounts;
 pub mod app_settings;
+pub mod apple_models;
 pub mod areas;
 pub mod calendar;
 pub mod call;
@@ -102,6 +105,8 @@ pub struct Stores {
     pub tasks: Entity<tasks::TasksStore>,
     /// Hermes's bots and Group Chats, and the room the main window shows.
     pub hermes_rooms: Entity<hermes_rooms::HermesRoomsStore>,
+    /// Apple's on-device model: the Swift engine the daemon's chats use.
+    pub apple: Entity<apple_models::AppleModelsStore>,
 }
 
 /// The session-wide events the stores follow (the views add their own scopes
@@ -160,7 +165,8 @@ impl Stores {
             calendar: cx.new(|_| calendar::CalendarStore::new(rpc.clone())),
             tasks: cx.new(|_| tasks::TasksStore::new(rpc.clone())),
             hermes_rooms: cx.new(|_| hermes_rooms::HermesRoomsStore::new(rpc.clone())),
-            hermes_admin: cx.new(|_| hermes_admin::HermesAdminStore::new(rpc)),
+            hermes_admin: cx.new(|_| hermes_admin::HermesAdminStore::new(rpc.clone())),
+            apple: cx.new(|_| apple_models::AppleModelsStore::for_test(rpc)),
         }
     }
 
@@ -201,6 +207,10 @@ impl Stores {
         let calendar = cx.new(|_| calendar::CalendarStore::new(rpc.clone()));
         let tasks = cx.new(|_| tasks::TasksStore::new(rpc.clone()));
         let hermes_rooms = cx.new(|_| hermes_rooms::HermesRoomsStore::new(rpc.clone()));
+        let apple = {
+            let rpc = rpc.clone();
+            cx.new(|cx| apple_models::AppleModelsStore::new(rpc, cx))
+        };
         let stores = Self {
             connection: connection.clone(),
             accounts,
@@ -220,6 +230,7 @@ impl Stores {
             calendar,
             tasks,
             hermes_rooms,
+            apple,
         };
         connection.update(cx, |c, _| c.subscribe("session", SESSION_EVENTS, vec![]));
         chat_list::wire(&stores, cx);
@@ -231,6 +242,7 @@ impl Stores {
         calendar::wire(&stores, cx);
         tasks::wire(&stores, cx);
         hermes_rooms::wire(&stores, cx);
+        apple_models::wire(&stores, cx);
         {
             // The server answers again after the window opened without it:
             // the session (a token may have lapsed meanwhile) and the chat
@@ -303,7 +315,13 @@ impl Stores {
                 self.router.update(cx, |r, cx| r.on_remap(from, to, cx));
             }
             Event::HermesChanged(_) => self.session.update(cx, |s, cx| s.refresh(cx)),
+            // What decides the route may have changed with them: Apple's
+            // on-device model, which answers only once the window's engine
+            // says so (after launch, and after the core's first onboarding
+            // answer), makes Direct usable. The whole session is asked
+            // again, as a Hermes change does.
             Event::CapabilitiesChanged => self.session.update(cx, |s, cx| {
+                s.refresh(cx);
                 s.refresh_capabilities(cx);
                 s.refresh_server(cx);
             }),
@@ -337,6 +355,57 @@ mod event_tests {
     use super::*;
     use crate::stores::accounts::tests::{account, list};
     use crate::stores::rpc::fake::FakeDaemon;
+
+    #[gpui_kit::test]
+    fn a_model_that_answers_after_launch_takes_the_window_out_of_onboarding(
+        cx: &mut TestAppContext,
+    ) {
+        use crate::stores::session::tests::{auth, handshake, request};
+        use crate::stores::session::{Backend, Route};
+        use conduit_protocol::{AuthPhase, DirectConnectionList};
+
+        let daemon = FakeDaemon::new();
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-stores-apple-{}", std::process::id()));
+        let stores = cx.update(|cx| Stores::for_test(daemon.rpc(), &scratch, cx));
+        // A cold launch with Apple On-Device as the only Direct model,
+        // before the window's engine has said it answers: the core says
+        // onboarding.
+        daemon.returns::<methods::AccountsList>(list(vec![]));
+        daemon.returns::<methods::AuthStatus>(auth(AuthPhase::Unauthenticated, false));
+        daemon.on::<methods::SystemHandshake>(|_| Ok(serde_json::json!({"needsOnboarding": true})));
+        daemon.returns::<methods::DirectList>(DirectConnectionList {
+            preferred: true,
+            ..Default::default()
+        });
+        stores
+            .session
+            .update(cx, |s, cx| s.on_connected(&handshake(None), request(), cx));
+        cx.run_until_parked();
+        assert_eq!(
+            stores.session.read_with(cx, |s, cx| s.route(cx)),
+            Route::Onboarding
+        );
+
+        // The model answers: the daemon's capabilities change with it.
+        daemon
+            .on::<methods::SystemHandshake>(|_| Ok(serde_json::json!({"needsOnboarding": false})));
+        daemon.returns::<methods::DirectList>(DirectConnectionList {
+            preferred: true,
+            usable: true,
+            ..Default::default()
+        });
+        cx.update(|cx| stores.on_event(&Event::CapabilitiesChanged, cx));
+        cx.run_until_parked();
+        assert_eq!(
+            stores.session.read_with(cx, |s, cx| s.route(cx)),
+            Route::Main
+        );
+        assert_eq!(
+            stores.session.read_with(cx, |s, cx| s.backend(cx)),
+            Some(Backend::Direct)
+        );
+    }
 
     #[gpui_kit::test]
     fn an_older_session_read_never_brings_back_the_last_account(cx: &mut TestAppContext) {

@@ -172,6 +172,11 @@ abstract final class ConduitEvents {
   /// A Run Now moved on. Payload [AutomationRunProgress].
   static const String automationsRunProgress = 'automations.runProgress';
 
+  /// The daemon asks the window's Foundation Models engine for a model's
+  /// status, to start or stop a run, or answers a tool call. Payload
+  /// [AppleCommand]; answered with `apple.report`.
+  static const String appleCommand = 'apple.command';
+
   /// Every event name, for subscription validation and tests.
   static const Set<String> all = {
     turnStarted,
@@ -219,6 +224,7 @@ abstract final class ConduitEvents {
     automationsRunProgress,
     hermesRoomsChanged,
     hermesRoomsListChanged,
+    appleCommand,
   };
 }
 
