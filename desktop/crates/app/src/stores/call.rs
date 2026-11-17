@@ -1082,16 +1082,34 @@ async fn relay_peer(
 }
 
 /// The WebRTC peer's link to the daemon: the page's messages out, the
-/// daemon's in, until the daemon says stop.
+/// daemon's in, until the daemon says stop or its socket ends.
 async fn run_peer_link(
     socket: conduit_daemon::http::DaemonSocket,
-    mut to_daemon: mpsc::UnboundedReceiver<String>,
+    to_daemon: mpsc::UnboundedReceiver<String>,
     from_daemon: mpsc::UnboundedSender<String>,
 ) {
+    let (sink, stream) = socket.split();
+    peer_link(sink, stream, to_daemon, from_daemon).await;
+}
+
+/// [`run_peer_link`] over any socket halves. When the link ends, the
+/// daemon's side of the relay closes FIRST: the relay hears
+/// [`PeerEvent::LinkEnded`] and the peer's page (its microphone, its
+/// connection to the voice) closes at once, by its ticket. Only then is the
+/// socket closed, with nothing waiting on it: dropping the peer aborts this
+/// task, so a close that never completes is cancelled with it.
+async fn peer_link<S, R, E>(
+    mut sink: S,
+    mut stream: R,
+    mut to_daemon: mpsc::UnboundedReceiver<String>,
+    from_daemon: mpsc::UnboundedSender<String>,
+) where
+    S: futures::Sink<conduit_daemon::http::SocketMessage> + Unpin,
+    R: futures::Stream<Item = Result<conduit_daemon::http::SocketMessage, E>> + Unpin,
+{
     use conduit_daemon::http::SocketMessage as Message;
     use futures::SinkExt as _;
 
-    let (mut sink, mut stream) = socket.split();
     loop {
         tokio::select! {
             next = to_daemon.next() => {
@@ -1112,6 +1130,7 @@ async fn run_peer_link(
             }
         }
     }
+    drop(from_daemon);
     let _ = sink.close().await;
 }
 
@@ -1436,6 +1455,91 @@ mod tests {
         );
         assert!(!slot.end(PeerOwner::Path("/calls/a")));
         assert_eq!(slot.get().map(|p| p.0), Some("b"));
+    }
+
+    /// A socket half whose close never completes (a gateway that never
+    /// answers the close).
+    struct NeverCloses;
+
+    impl futures::Sink<conduit_daemon::http::SocketMessage> for NeverCloses {
+        type Error = ();
+
+        fn poll_ready(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), ()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn start_send(
+            self: std::pin::Pin<&mut Self>,
+            _: conduit_daemon::http::SocketMessage,
+        ) -> Result<(), ()> {
+            Ok(())
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), ()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), ()>> {
+            std::task::Poll::Pending
+        }
+    }
+
+    /// The daemon's socket ends but closing it never completes: the peer is
+    /// still torn down (its page closes, which stops the microphone) and
+    /// its slot freed, never waiting on the close. A later start on the same
+    /// call still opens.
+    #[test]
+    fn a_link_whose_close_hangs_still_ends_its_peer() {
+        let (page_tx, page_rx) = mpsc::unbounded::<String>();
+        let (_to_daemon_tx, to_daemon_rx) = mpsc::unbounded::<String>();
+        let (daemon_tx, daemon_rx) = mpsc::unbounded::<String>();
+        let ended =
+            futures::stream::iter(Vec::<Result<conduit_daemon::http::SocketMessage, ()>>::new());
+        let mut pool = futures::executor::LocalPool::new();
+        futures::task::LocalSpawnExt::spawn_local(
+            &pool.spawner(),
+            peer_link(NeverCloses, ended, to_daemon_rx, daemon_tx),
+        )
+        .unwrap();
+        // The link task is now stuck in the close, for good.
+        pool.run_until_stalled();
+        let mut events = peer_events(page_rx, daemon_rx);
+        let mut heard = Vec::new();
+        while let Some(Some(e)) = futures::FutureExt::now_or_never(events.next()) {
+            heard.push(e);
+        }
+        assert_eq!(
+            heard,
+            [PeerEvent::LinkEnded],
+            "the peer waited on the socket's close"
+        );
+        let closed = Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut slot = PeerSlot::default();
+        let first = slot.begin("/calls/a");
+        assert!(slot.install(first, Page("a", closed.clone()), true).is_ok());
+        assert!(slot.end(PeerOwner::Ticket(first)));
+        assert_eq!(
+            *closed.borrow(),
+            ["a"],
+            "the page (and microphone) stayed on"
+        );
+        assert!(slot.get().is_none(), "the peer's slot was not freed");
+        let again = slot.begin("/calls/a");
+        assert!(
+            slot.install(again, Page("a2", closed.clone()), true)
+                .is_ok()
+        );
+        assert_eq!(slot.get().map(|p| p.0), Some("a2"));
+        drop(page_tx);
     }
 
     #[test]
