@@ -296,6 +296,101 @@ void main() {
     );
   });
 
+  test(
+    'a queued batch waits for a delete begun after it was admitted',
+    () async {
+      final hold = await turns.holdForCall(model: model);
+      addTearDown(hold.release);
+      final scope = hold.scope.container;
+      await scope.read(chatVoiceSendProvider)(null, 'drop this one');
+      await pumpEventQueue(times: 2000);
+      final chatId = hold.scope.conversation!.id;
+      final dropped = hold.scope.messages
+          .lastWhere((m) => m.role == 'assistant')
+          .id;
+      // The chat is quiet, so the core has admitted the batch; a delete
+      // begins before the batch is sent.
+      final deleting = turns.deleteMessages(
+        DeleteMessages(chatId: chatId, messageIds: <String>[dropped]),
+      );
+      final batch = scope.read(chatDraftQueueSendProvider)(
+        null,
+        'and the beans',
+        null,
+      );
+      await deleting;
+      await batch;
+      await pumpEventQueue(times: 2000);
+      expect(
+        [
+          for (final m in hold.scope.messages)
+            if (m.role == 'user') m.content,
+        ],
+        contains('and the beans'),
+        reason: 'the delete dropped the queued batch',
+      );
+      expect(hold.scope.messages.last.role, 'assistant');
+    },
+  );
+
+  test(
+    'words said while a queued batch waits are not held behind it',
+    () async {
+      final hold = await turns.holdForCall(model: model);
+      addTearDown(hold.release);
+      addTearDown(() => provider.release('soil'));
+      addTearDown(() => provider.release('tide'));
+      addTearDown(() => provider.release('moon'));
+      final scope = hold.scope.container;
+      final send = scope.read(chatVoiceSendProvider);
+      // An answer runs; the queue's batch comes and waits for it.
+      final soil = provider.asked('hold:soil');
+      unawaited(
+        send(null, 'hold:soil is the soil warm yet', isVoiceMode: true),
+      );
+      await soil;
+      final batch = scope.read(chatDraftQueueSendProvider)(
+        null,
+        'and the beans',
+        null,
+      );
+      // Words talk over that answer, and theirs runs in turn.
+      final tide = provider.asked('hold:tide');
+      final second = send(
+        null,
+        'hold:tide when is high tide',
+        isVoiceMode: true,
+      );
+      await tide;
+      await pumpEventQueue(times: 2000);
+      var secondEnded = false;
+      unawaited(
+        second.then(
+          (_) => secondEnded = true,
+          onError: (Object _) => secondEnded = true,
+        ),
+      );
+      // More words, while the batch waits: they are admitted at once and
+      // reach the model while the answer before them is still held (were
+      // they behind the batch, this would wait until that answer ended).
+      final moon = provider.asked('hold:moon');
+      final third = send(null, 'hold:moon and the moon', isVoiceMode: true);
+      await moon;
+      expect(
+        [
+          for (final m in hold.scope.messages)
+            if (m.role == 'assistant' && m.isStreaming) m,
+        ],
+        hasLength(lessThanOrEqualTo(1)),
+        reason: 'the answer talked over still streams',
+      );
+      provider.release('moon');
+      await third;
+      await batch;
+      expect(secondEnded, isTrue);
+    },
+  );
+
   test('words said over an answer stop it before they go out', () async {
     final hold = await turns.holdForCall(model: model);
     addTearDown(hold.release);
