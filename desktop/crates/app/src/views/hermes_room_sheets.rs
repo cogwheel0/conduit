@@ -48,6 +48,12 @@ const MAX_NAME: usize = 200;
 const MAX_PURPOSE: usize = 500;
 const MAX_NOTES_BYTES: usize = 4096;
 
+/// A length as conduitd and Hermes count it (UTF-16 units): an emoji is
+/// two.
+fn units(text: &str) -> usize {
+    text.encode_utf16().count()
+}
+
 fn sheet_title(id: &'static str, text: String, cx: &App) -> AnyElement {
     let t = cx.conduit();
     div()
@@ -188,7 +194,7 @@ impl CreateRoomSheet {
         let name = forms::text(&self.name, cx);
         !self.creating
             && !name.trim().is_empty()
-            && name.trim().chars().count() <= MAX_NAME
+            && units(name.trim()) <= MAX_NAME
             && (MIN_SEATS..=MAX_SEATS).contains(&self.picked.len())
     }
 
@@ -651,8 +657,8 @@ impl RoomInfoSheet {
     fn valid(&self) -> bool {
         let name = self.edit.name.trim();
         !name.is_empty()
-            && name.chars().count() <= MAX_NAME
-            && self.edit.purpose.trim().chars().count() <= MAX_PURPOSE
+            && units(name) <= MAX_NAME
+            && units(self.edit.purpose.trim()) <= MAX_PURPOSE
             && !self.notes_too_long()
             && (self.edit.routing != Some(HermesRoomRouting::Lead) || self.edit.lead.is_some())
     }
@@ -1433,6 +1439,39 @@ mod tests {
             .navigation
             .read_with(vcx, |n, _| n.selection().clone());
         (open, shown)
+    }
+
+    /// Hermes counts a name's length as conduitd does, in UTF-16 units: a
+    /// name of emoji within 200 characters but over 200 units is refused
+    /// by both sheets before it is sent.
+    #[gpui_kit::test]
+    fn an_emoji_name_too_long_for_hermes_is_not_sent(cx: &mut TestAppContext) {
+        let long = "\u{1F331}".repeat(150);
+        let daemon = FakeDaemon::new();
+        let (info, vcx) = open(cx, &daemon, "emoji");
+        info.update_in(vcx, |s, window, cx| s.type_into("name", &long, window, cx));
+        info.read_with(vcx, |s, _| assert!(!s.valid(), "Room Info would save it"));
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        creatable(&daemon);
+        stores
+            .hermes_rooms
+            .update(vcx, |h, cx| h.set_wanted(true, cx));
+        vcx.run_until_parked();
+        let sheet_stores = stores.clone();
+        let sheet = vcx
+            .update(|window, cx| {
+                crate::views::sheet::open(window, super::WIDTH, cx, move |w, cx| {
+                    CreateRoomSheet::new(sheet_stores, w, cx)
+                })
+            })
+            .unwrap();
+        vcx.run_until_parked();
+        sheet.update_in(vcx, |s, window, cx| {
+            s.set_name(&long, window, cx);
+            s.toggle("fern", cx);
+            s.toggle("moss", cx);
+        });
+        sheet.read_with(vcx, |s, cx| assert!(!s.ready(cx), "New Room would send it"));
     }
 
     /// A room name typed or bots picked and not made yet: Quit and Cancel
