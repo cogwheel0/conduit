@@ -248,6 +248,12 @@ impl CreateRoomSheet {
                         }
                         Err(e) => {
                             log::warn!("hermes.rooms.create: {e}");
+                            // The sheet stays up with the failure: a Quit
+                            // that waited for the create is dropped.
+                            let this = cx.entity();
+                            if sheet::current::<Self>(cx).is_some_and(|open| open == this) {
+                                sheet::keep_open(cx);
+                            }
                             let l = cx.l10n().clone();
                             s.failure = Some(match e.args.get("detail") {
                                 Some(d) if !d.trim().is_empty() => l.hermes_room_refused(d),
@@ -1258,6 +1264,10 @@ impl Render for RoomInfoSheet {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    use std::time::Duration;
+
     use conduit_protocol::{Event, HermesRoomDto, HermesRoomView, RpcError, methods};
     use gpui_kit::{Entity, TestAppContext, VisualTestContext};
     use serde_json::json;
@@ -1474,10 +1484,10 @@ mod tests {
         sheet.read_with(vcx, |s, cx| assert!(!s.ready(cx), "New Room would send it"));
     }
 
-    /// A room name typed or bots picked and not made yet: Quit and Cancel
-    /// ask before dropping them, as the other sheets' edits.
-    #[gpui_kit::test]
-    fn quit_asks_before_dropping_a_new_room_not_made(cx: &mut TestAppContext) {
+    /// New Room open over the bench's main window, "Seed swap" typed.
+    fn new_room_typed(
+        cx: &mut TestAppContext,
+    ) -> (FakeDaemon, Entity<CreateRoomSheet>, &mut VisualTestContext) {
         let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
         creatable(&daemon);
         stores
@@ -1495,6 +1505,44 @@ mod tests {
         vcx.run_until_parked();
         assert!(!vcx.update(|_, cx| crate::views::sheet::has_unsaved(cx)));
         sheet.update_in(vcx, |s, window, cx| s.set_name("Seed swap", window, cx));
+        (daemon, sheet, vcx)
+    }
+
+    /// Quit through the sheets' own path, with a counter for the app's quit.
+    fn quit(vcx: &mut VisualTestContext) -> Rc<Cell<u32>> {
+        let quits = Rc::new(Cell::new(0));
+        let counted = quits.clone();
+        vcx.update(|_, cx| {
+            crate::views::sheet::quit_with(cx, Rc::new(move |_| counted.set(counted.get() + 1)))
+        });
+        settle(vcx);
+        quits
+    }
+
+    fn answer(vcx: &mut VisualTestContext, yes: bool) {
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(yes))));
+    }
+
+    fn sheet_open(vcx: &mut VisualTestContext) -> bool {
+        vcx.update(|_, cx| crate::views::sheet::current::<CreateRoomSheet>(cx))
+            .is_some()
+    }
+
+    /// Lets the sheet's slide and the saves Quit waits for run out.
+    fn settle(vcx: &mut VisualTestContext) {
+        for _ in 0..2 {
+            vcx.run_until_parked();
+            vcx.executor().advance_clock(Duration::from_secs(5));
+        }
+        vcx.run_until_parked();
+    }
+
+    /// A room name typed or bots picked and not made yet: Quit and Cancel
+    /// ask before dropping them, as the other sheets' edits. Kept editing,
+    /// Quit is dropped: a later Discard closes the sheet, not the app.
+    #[gpui_kit::test]
+    fn quit_asks_before_dropping_a_new_room_not_made(cx: &mut TestAppContext) {
+        let (_daemon, sheet, vcx) = new_room_typed(cx);
         assert!(
             vcx.update(|_, cx| crate::views::sheet::has_unsaved(cx)),
             "Quit would drop the room name typed"
@@ -1502,9 +1550,100 @@ mod tests {
         sheet.update_in(vcx, |s, window, cx| s.cancel(window, cx));
         vcx.run_until_parked();
         assert!(
-            vcx.update(|_, cx| crate::views::sheet::current::<CreateRoomSheet>(cx))
-                .is_some(),
+            sheet_open(vcx),
             "Cancel dropped the room name without asking"
+        );
+        let quits = quit(vcx);
+        assert!(sheet_open(vcx), "Quit dropped the room name without asking");
+        assert_eq!(
+            quits.get(),
+            0,
+            "Quit went on although the user kept editing"
+        );
+        answer(vcx, true);
+        sheet.update_in(vcx, |s, window, cx| s.cancel(window, cx));
+        settle(vcx);
+        assert!(
+            !sheet_open(vcx),
+            "a confirmed Cancel left the room sheet open"
+        );
+        assert_eq!(
+            quits.get(),
+            0,
+            "a Discard after keeping on editing quit the app"
+        );
+    }
+
+    /// Discard, asked by Quit: the sheet closes and the app quits, once.
+    #[gpui_kit::test]
+    fn quit_goes_on_once_a_new_room_is_discarded(cx: &mut TestAppContext) {
+        let (_daemon, _sheet, vcx) = new_room_typed(cx);
+        answer(vcx, true);
+        let quits = quit(vcx);
+        assert!(!sheet_open(vcx), "Discard left the room sheet open");
+        assert_eq!(
+            quits.get(),
+            1,
+            "Discard closed the sheet but the app stayed"
+        );
+    }
+
+    /// Quit while the room is being made: the made room closes the sheet
+    /// and the app quits; a refused create keeps the sheet and its error up
+    /// and drops the Quit (a later Discard does not quit).
+    #[gpui_kit::test]
+    fn quit_during_a_create_waits_for_its_answer(cx: &mut TestAppContext) {
+        let (daemon, sheet, vcx) = new_room_typed(cx);
+        let held = daemon.hold::<methods::HermesRoomsCreate>();
+        sheet.update_in(vcx, |s, window, cx| {
+            s.toggle("fern", cx);
+            s.toggle("moss", cx);
+            s.create(window, cx);
+        });
+        assert_eq!(daemon.calls::<methods::HermesRoomsCreate>().len(), 1);
+        let quits = quit(vcx);
+        assert!(
+            sheet_open(vcx),
+            "Quit closed the sheet while its room was being made"
+        );
+        assert_eq!(quits.get(), 0);
+        drop(held);
+        settle(vcx);
+        assert!(!sheet_open(vcx), "the made room left its sheet open");
+        assert_eq!(
+            quits.get(),
+            1,
+            "Quit was dropped while the room was being made"
+        );
+    }
+
+    #[gpui_kit::test]
+    fn a_refused_create_drops_the_quit_that_waited_for_it(cx: &mut TestAppContext) {
+        let (daemon, sheet, vcx) = new_room_typed(cx);
+        daemon.once::<methods::HermesRoomsCreate>(Err(RpcError::internal("no room")));
+        let held = daemon.hold::<methods::HermesRoomsCreate>();
+        sheet.update_in(vcx, |s, window, cx| {
+            s.toggle("fern", cx);
+            s.toggle("moss", cx);
+            s.create(window, cx);
+        });
+        assert_eq!(daemon.calls::<methods::HermesRoomsCreate>().len(), 1);
+        let quits = quit(vcx);
+        drop(held);
+        settle(vcx);
+        assert!(sheet_open(vcx), "a refused create closed its sheet");
+        sheet.read_with(vcx, |s, _| {
+            assert!(s.failure.is_some(), "the refusal is not shown")
+        });
+        assert_eq!(quits.get(), 0, "a refused create quit the app");
+        answer(vcx, true);
+        sheet.update_in(vcx, |s, window, cx| s.cancel(window, cx));
+        settle(vcx);
+        assert!(!sheet_open(vcx));
+        assert_eq!(
+            quits.get(),
+            0,
+            "the dropped Quit came back on a later Discard"
         );
     }
 

@@ -79,6 +79,23 @@ type AfterDismiss = Box<dyn FnOnce(&mut App)>;
 struct Unsaved {
     edits: Rc<dyn Fn(&App) -> bool>,
     ask: Rc<dyn Fn(&mut App)>,
+    /// Calls [`ask_again`] whenever the body changes (a save or create it
+    /// was busy with has settled), for a Quit waiting on it.
+    watch: Watch,
+}
+
+/// Starts watching the sheet's body for a waiting Quit ([`Unsaved::watch`]).
+type Watch = Rc<dyn Fn(&mut App) -> Option<Subscription>>;
+
+/// A Quit the sheet down now asked about (unsaved edits): it goes on once
+/// that sheet is dismissed, and is dropped when the user keeps editing or
+/// another sheet takes over.
+struct PendingQuit {
+    sheet: AnyWindowHandle,
+    then: Rc<dyn Fn(&mut App)>,
+    /// The discard question is up (or was answered yes): not asked again.
+    asked: bool,
+    _watch: Option<Subscription>,
 }
 
 /// The sheet on the main window now, if any, and what runs once it has
@@ -88,6 +105,7 @@ struct OpenSheet {
     current: Option<(AnyWindowHandle, AnyEntity)>,
     after: Option<AfterDismiss>,
     unsaved: Option<Unsaved>,
+    quit: Option<PendingQuit>,
 }
 
 impl Global for OpenSheet {}
@@ -150,7 +168,7 @@ pub fn open<V: SheetBody>(
     };
     let body = host.read(cx).body.clone();
     adopt(handle, body.clone().into_any(), cx);
-    let (weak, asked) = (body.downgrade(), body.downgrade());
+    let (weak, asked, watched) = (body.downgrade(), body.downgrade(), body.downgrade());
     cx.default_global::<OpenSheet>().unsaved = Some(Unsaved {
         edits: Rc::new(move |cx: &App| weak.upgrade().is_some_and(|b| b.read(cx).unsaved(cx))),
         ask: Rc::new(move |cx: &mut App| {
@@ -159,6 +177,10 @@ pub fn open<V: SheetBody>(
                 window.activate_window();
                 body.update(cx, |b, cx| b.cancel(window, cx));
             });
+        }),
+        watch: Rc::new(move |cx: &mut App| {
+            let body = watched.upgrade()?;
+            Some(cx.observe(&body, |_, cx| cx.defer(ask_again)))
         }),
     });
     begin(parent, handle, cx);
@@ -184,6 +206,7 @@ pub fn adopt(handle: AnyWindowHandle, body: AnyEntity, cx: &mut App) {
     open.current = Some((handle, body));
     open.after = None;
     open.unsaved = None;
+    open.quit = None;
 }
 
 /// Hangs the sheet window `handle` from `parent` with `beginSheet:`, once
@@ -236,6 +259,7 @@ pub fn forget(handle: AnyWindowHandle, cx: &mut App) {
         open.current = None;
         open.after = None;
         open.unsaved = None;
+        open.quit = None;
     }
 }
 
@@ -293,16 +317,33 @@ pub(crate) fn quit_with(cx: &mut App, then: Rc<dyn Fn(&mut App)>) {
         after_saves(cx, then);
         return;
     }
-    // Unsaved edits: the sheet comes forward and asks, as Esc does; Quit
-    // again once it has gone.
+    // Unsaved edits: the sheet comes forward and asks, as Esc does. Quit
+    // goes on once that sheet has gone (Discard), and is dropped when the
+    // user keeps editing. A sheet busy saving or creating asks once its
+    // work settles; the work's own success dismisses it and quits.
     if has_unsaved(cx) {
-        if let Some(unsaved) = cx.try_global::<OpenSheet>().and_then(|s| s.unsaved.clone()) {
-            cx.defer(move |cx| (unsaved.ask)(cx));
-        }
+        let open = cx.default_global::<OpenSheet>();
+        let (Some((sheet, _)), Some(unsaved)) = (open.current.clone(), open.unsaved.clone()) else {
+            return;
+        };
+        let watch = (unsaved.watch)(cx);
+        cx.default_global::<OpenSheet>().quit = Some(PendingQuit {
+            sheet,
+            then,
+            asked: false,
+            _watch: watch,
+        });
+        cx.defer(ask_again);
         return;
     }
     cx.default_global::<OpenSheet>().after = None;
     dismiss(cx);
+    quit_once_gone(cx, then);
+}
+
+/// The sheet has gone: the app quits once AppKit has ended it and the
+/// saves Quit waits for have landed.
+fn quit_once_gone(cx: &mut App, then: Rc<dyn Fn(&mut App)>) {
     cx.spawn(async move |cx| {
         cx.background_executor()
             .timer(std::time::Duration::from_millis(250))
@@ -310,6 +351,48 @@ pub(crate) fn quit_with(cx: &mut App, then: Rc<dyn Fn(&mut App)>) {
         cx.update(|cx| after_saves(cx, then));
     })
     .detach();
+}
+
+/// A waiting Quit asks the sheet to close (its body's [`SheetBody::cancel`])
+/// unless the discard question is up already: a body busy saving refuses
+/// and is asked again once it changes.
+fn ask_again(cx: &mut App) {
+    let open = cx.default_global::<OpenSheet>();
+    let Some(pending) = open.quit.as_ref() else {
+        return;
+    };
+    if pending.asked {
+        return;
+    }
+    if open.current.as_ref().map(|(h, _)| *h) != Some(pending.sheet) {
+        open.quit = None;
+        return;
+    }
+    if let Some(unsaved) = open.unsaved.clone() {
+        (unsaved.ask)(cx);
+    }
+}
+
+/// A question is up ([`crate::shell::sheet::present_sheet`]): a waiting
+/// Quit waits for its answer instead of asking again.
+pub(crate) fn question_shown(cx: &mut App) {
+    if let Some(pending) = cx.default_global::<OpenSheet>().quit.as_mut() {
+        pending.asked = true;
+    }
+}
+
+/// A question was answered: no (keep editing) drops a waiting Quit, so a
+/// later dismissal never quits the app.
+pub(crate) fn question_answered(yes: bool, cx: &mut App) {
+    if !yes {
+        cx.default_global::<OpenSheet>().quit = None;
+    }
+}
+
+/// The sheet stays up after the work it was busy with failed (its error
+/// shows): a Quit waiting on it is dropped; the user can quit again.
+pub fn keep_open(cx: &mut App) {
+    cx.default_global::<OpenSheet>().quit = None;
 }
 
 /// The longest Quit waits for saves still going (a daemon that does not
@@ -415,12 +498,23 @@ pub fn dismiss(cx: &mut App) {
         return;
     };
     open.unsaved = None;
-    let after = open.after.take();
+    let quit = open.quit.take().filter(|q| q.sheet == handle);
+    let after = if quit.is_some() {
+        None
+    } else {
+        open.after.take()
+    };
+    open.after = None;
     // The main window takes the keyboard back as AppKit ends the sheet, its
     // focus where it was.
     crate::views::settings::end_sheet_window(handle, cx);
     if let Some(after) = after {
         cx.defer(after);
+    }
+    // Quit asked about this sheet and it has gone (Discard, or the save it
+    // was busy with closed it): the app quits now.
+    if let Some(quit) = quit {
+        quit_once_gone(cx, quit.then);
     }
 }
 
