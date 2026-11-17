@@ -568,6 +568,7 @@ impl NotePane {
         };
         self.follow_id(&detail.summary.id, cx);
         self.detail = Some(detail);
+        self.playable_changed(cx);
         self.load = Load::Ready;
         self.save = SaveState::Saved;
         if fresh {
@@ -670,6 +671,7 @@ impl NotePane {
             .update(cx, |e, cx| e.set_read_only(read_only, cx));
         self.follow_id(&detail.summary.id, cx);
         self.detail = Some(detail);
+        self.playable_changed(cx);
         cx.notify();
     }
 
@@ -693,6 +695,8 @@ impl NotePane {
     fn on_editor(&mut self, e: &EditorEvent, window: &mut Window, cx: &mut Context<Self>) {
         match e {
             EditorEvent::Edited => {
+                // A card removed (Remove, ⌫, undo or redo) takes its Play with it.
+                self.playable_changed(cx);
                 // Typed while dictating: the dictation ends, keeping the words
                 // it put in, and its later words never land over the typing.
                 if self
@@ -847,6 +851,7 @@ impl NotePane {
                     .filter(|f| !sent.contains(&f.id))
                     .collect();
                 self.detail = Some(detail);
+                self.playable_changed(cx);
                 self.save = SaveState::Saved;
                 if !gained.is_empty() {
                     self.editor.update(cx, |e, cx| e.append_cards(&gained, cx));
@@ -1494,21 +1499,51 @@ impl NotePane {
         .detach();
     }
 
-    /// The one place the waiting recordings are replaced. The player plays
-    /// only what has a Play/Pause to stop it with: a waiting recording that
-    /// is gone from the new list, or uploading (its row offers no Play),
-    /// stops; one that stays playable plays on.
+    /// The one place the waiting recordings are replaced.
     fn adopt_recordings(&mut self, recordings: Vec<NoteRecordingDto>, cx: &mut Context<Self>) {
-        let held = self.audio.read(cx).current_key().map(str::to_string);
-        if let Some(id) = held.as_deref().and_then(|k| k.strip_prefix("waiting:")) {
-            let playable = recordings
-                .iter()
-                .any(|r| r.id == id && r.state != NoteRecordingState::Uploading);
-            if !playable {
-                self.stop_audio(cx);
-            }
-        }
         self.recordings = recordings;
+        self.playable_changed(cx);
+    }
+
+    /// What the note offers Play/Pause for now, by the player's key: its
+    /// recording cards, recordings among the files listed under it, and the
+    /// waiting recordings not uploading.
+    fn playable_keys(&self, cx: &App) -> Vec<String> {
+        let cards: Vec<FileLink> = self.editor.read(cx).cards();
+        let mut keys: Vec<String> = cards
+            .iter()
+            .filter(|c| is_audio(&c.name))
+            .map(|c| c.id.clone())
+            .collect();
+        if let Some(detail) = &self.detail {
+            keys.extend(
+                detail
+                    .files
+                    .iter()
+                    .filter(|f| is_audio(&f.name) && !cards.iter().any(|c| c.id == f.id))
+                    .map(|f| f.id.clone()),
+            );
+        }
+        keys.extend(
+            self.recordings
+                .iter()
+                .filter(|r| r.state != NoteRecordingState::Uploading)
+                .map(|r| format!("waiting:{}", r.id)),
+        );
+        keys
+    }
+
+    /// Called after every change of what the note can play (its cards,
+    /// listed files, waiting recordings, the page shown): the player plays
+    /// only what still has a Play/Pause to stop it with, so a recording
+    /// removed, uploading or on another page stops; any other plays on.
+    fn playable_changed(&mut self, cx: &mut Context<Self>) {
+        let Some(held) = self.audio.read(cx).current_key().map(str::to_string) else {
+            return;
+        };
+        if !self.playable_keys(cx).contains(&held) {
+            self.stop_audio(cx);
+        }
     }
 
     fn refresh_recordings(&mut self, cx: &mut Context<Self>) {
@@ -1756,6 +1791,13 @@ impl NotePane {
         if let Some(block) = self.editor.read(cx).card_block(&link.id) {
             self.editor.update(cx, |e, cx| e.remove_block(block, cx));
         }
+        // Gone from the files listed under the note too (not shown there
+        // while the server detaches it); back if the server refuses.
+        let removed = self.detail.as_mut().and_then(|d| {
+            let at = d.files.iter().position(|f| f.id == link.id)?;
+            Some(d.files.remove(at))
+        });
+        self.playable_changed(cx);
         let flushed = self.flush(cx);
         let call_for = {
             let rpc = self.rpc.clone();
@@ -1777,9 +1819,19 @@ impl NotePane {
                     if let Some(d) = &mut this.detail {
                         d.files = detail.files;
                     }
+                    this.playable_changed(cx);
                     cx.notify();
                 }
-                Err(e) => log::warn!("notes.detach: {e}"),
+                Err(e) => {
+                    log::warn!("notes.detach: {e}");
+                    if this.page_asked == asked
+                        && let (Some(d), Some(file)) = (&mut this.detail, removed)
+                        && !d.files.iter().any(|f| f.id == file.id)
+                    {
+                        d.files.push(file);
+                        cx.notify();
+                    }
+                }
             });
         })
         .detach();
@@ -1863,6 +1915,7 @@ impl NotePane {
                         d.files = detail.files.clone();
                     }
                     this.editor.update(cx, |e, cx| e.append_cards(&links, cx));
+                    this.playable_changed(cx);
                 }
                 for name in failed {
                     let text = this.l(cx).desktop_attachment_failed(&name);
@@ -3570,6 +3623,81 @@ mod tests {
         );
         drop(held);
         vcx.run_until_parked();
+    }
+
+    /// An attachment plays only while the note offers Play for it: removing
+    /// the one playing stops it; removing another leaves it playing.
+    #[gpui_kit::test]
+    fn removing_the_playing_attachment_stops_it(cx: &mut gpui_kit::TestAppContext) {
+        use std::sync::{Arc, Mutex};
+
+        use conduit_protocol::NoteFile;
+        let file = |id: &str, name: &str| NoteFile {
+            id: id.into(),
+            name: name.into(),
+            size: None,
+            content_type: None,
+        };
+        let (daemon, _stores, area, vcx) = bench::open(cx);
+        let attached = Arc::new(Mutex::new(vec![
+            file("f1", "tide.wav"),
+            file("f2", "gull.wav"),
+        ]));
+        {
+            let attached = attached.clone();
+            daemon.on::<methods::NotesDetach>(move |p| {
+                let gone = p["fileId"].as_str().unwrap_or_default().to_string();
+                let mut files = attached.lock().unwrap();
+                files.retain(|f| f.id != gone);
+                let mut detail = bench::detail("n1", "main", "kept");
+                detail.files = files.clone();
+                Ok(serde_json::to_value(detail).unwrap())
+            });
+        }
+        daemon.on::<methods::NotesSave>(|_| {
+            Ok(serde_json::to_value(bench::detail("n1", "main", "kept")).unwrap())
+        });
+        let pane = bench::pane(&area, vcx);
+        let links = [
+            FileLink {
+                id: "f1".into(),
+                name: "tide.wav".into(),
+            },
+            FileLink {
+                id: "f2".into(),
+                name: "gull.wav".into(),
+            },
+        ];
+        pane.update(vcx, |p, cx| {
+            if let Some(d) = &mut p.detail {
+                d.files = attached.lock().unwrap().clone();
+            }
+            p.editor.update(cx, |e, cx| e.append_cards(&links, cx));
+        });
+        vcx.run_until_parked();
+        let audio = pane.read_with(vcx, |p, _| p.audio.clone());
+        audio.update(vcx, |a, cx| {
+            let source = super::super::audio::AudioSource::File {
+                server_id: "server".into(),
+                file_id: "f1".into(),
+            };
+            a.toggle("f1", source, None, cx)
+        });
+        pane.update(vcx, |p, cx| p.remove_file(links[1].clone(), cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            held_recording(&pane, vcx),
+            Some("f1".into()),
+            "removing another attachment stopped this one"
+        );
+        pane.update(vcx, |p, cx| p.remove_file(links[0].clone(), cx));
+        assert_eq!(
+            held_recording(&pane, vcx),
+            None,
+            "a removed attachment went on playing with no control"
+        );
+        vcx.run_until_parked();
+        assert_eq!(held_recording(&pane, vcx), None);
     }
 
     /// A waiting recording plays only while its row offers Play: the list
