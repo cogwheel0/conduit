@@ -2053,7 +2053,15 @@ pub fn install_continuity_camera(
             let (sender, mut imports) = mpsc::unbounded();
             cx.spawn(async move |cx| {
                 while let Some(imported) = imports.next().await {
-                    cx.update(|cx| on_continuity_import(imported, cx));
+                    // Written off the main thread (a scan can be large), then
+                    // attached on it, its ticket checked there.
+                    let staged = cx
+                        .background_executor()
+                        .spawn(async move { stage_import(imported) })
+                        .await;
+                    if let Some(staged) = staged {
+                        cx.update(|cx| attach_staged_import(staged, cx));
+                    }
                 }
             })
             .detach();
@@ -2064,17 +2072,22 @@ pub fn install_continuity_camera(
     crate::shell::continuity_camera::install(window, sender, target);
 }
 
-/// A photo or scan from Continuity Camera: saved where the composer reads
-/// files from, and attached to the main window's composer only while its
-/// own ticket ([`Imported::target`], taken by the + menu session it was
-/// asked in) still matches it (a HEIC or TIFF photo goes as a JPEG, as a
-/// dropped one does).
-///
-/// [`Imported::target`]: crate::shell::continuity_camera::Imported::target
-#[cfg(target_os = "macos")]
-fn on_continuity_import(imported: crate::shell::continuity_camera::Imported, cx: &mut App) {
-    // One folder each, named by the time it came (nanoseconds), so a second
-    // photo never replaces the first before the composer read it.
+/// A photo or scan from Continuity Camera, staged where the composer reads
+/// files from: its file, its name and the ticket of the + menu session it
+/// was asked in.
+pub(crate) struct StagedImport {
+    pub path: std::path::PathBuf,
+    pub name: String,
+    pub target: crate::shell::continuity_camera::ImportTarget,
+}
+
+/// Saves `imported` where the composer reads files from (on the background
+/// executor: a scan can be large), one folder each, named by the time it
+/// came (nanoseconds), so a second photo never replaces the first before
+/// the composer read it. `None` when it could not be saved.
+pub(crate) fn stage_import(
+    imported: crate::shell::continuity_camera::Imported,
+) -> Option<StagedImport> {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
@@ -2082,19 +2095,33 @@ fn on_continuity_import(imported: crate::shell::continuity_camera::Imported, cx:
     let folder = std::env::temp_dir()
         .join(crate::shell::continuity_camera::IMPORT_FOLDER)
         .join(stamp.to_string());
-    let path = folder.join(imported.file_name());
+    let name = imported.file_name();
+    let path = folder.join(&name);
     if let Err(e) =
         std::fs::create_dir_all(&folder).and_then(|()| std::fs::write(&path, &imported.bytes))
     {
         log::warn!("continuity camera: not saved ({e})");
-        return;
+        return None;
     }
-    let name = imported.file_name();
-    let asked = imported.target;
+    Some(StagedImport {
+        path,
+        name,
+        target: imported.target,
+    })
+}
+
+/// A staged photo or scan, attached to the main window's composer only
+/// while its own ticket ([`Imported::target`], taken by the + menu session
+/// it was asked in) still matches it, checked now, after staging (a HEIC or
+/// TIFF photo goes as a JPEG, as a dropped one does).
+///
+/// [`Imported::target`]: crate::shell::continuity_camera::Imported::target
+#[cfg(target_os = "macos")]
+fn attach_staged_import(staged: StagedImport, cx: &mut App) {
     show_main(cx);
     crate::with_main_view(cx, move |view, window, cx| {
         view.chat_pane.update(cx, |p, cx| {
-            p.attach_import(&asked, &path, &name, window, cx);
+            p.attach_import(&staged.target, &staged.path, &staged.name, window, cx);
         })
     });
 }
@@ -2597,6 +2624,30 @@ mod tests {
         assert_eq!(
             cut.text.map(|t| t.chars().count()),
             Some(deep_link::MAX_TEXT)
+        );
+    }
+
+    /// A photo is staged (off the main thread) with its own ticket, to be
+    /// checked when it is attached.
+    #[test]
+    fn a_continuity_photo_is_staged_with_its_ticket() {
+        use crate::shell::continuity_camera::{ImportTarget, Imported};
+        let target = ImportTarget {
+            scope: Some("a".into()),
+            draft: None,
+            round: 3,
+        };
+        let staged = stage_import(Imported {
+            bytes: vec![0x89, b'P', b'N', b'G'],
+            extension: "png",
+            target: target.clone(),
+        })
+        .expect("staged");
+        assert_eq!(staged.name, "Photo.png");
+        assert_eq!(staged.target, target);
+        assert_eq!(
+            std::fs::read(&staged.path).unwrap(),
+            vec![0x89, b'P', b'N', b'G']
         );
     }
 
