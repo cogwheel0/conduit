@@ -359,18 +359,7 @@ fn open_new_chat(
         view.new_chat(false, window, cx);
         let pane = view.chat_pane.clone();
         pane.update(cx, |p, cx| {
-            if let Some(text) = &text {
-                p.composer.update(cx, |c, cx| c.set_text(text, window, cx));
-            }
-            if !plan.accepted.is_empty() {
-                p.composer_store
-                    .update(cx, |c, cx| c.add_paths(&plan.accepted, cx));
-            }
-            if !carried.is_empty() {
-                p.composer_store
-                    .update(cx, |c, cx| c.adopt_attachments(carried, cx));
-            }
-            p.focus_composer(window, cx);
+            p.hand_to_new_chat(text, plan.accepted, carried, window, cx);
         });
     });
     refused_files(plan.too_many, &plan.too_large, cx);

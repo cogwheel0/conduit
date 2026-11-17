@@ -1782,6 +1782,36 @@ impl ChatPane {
         self.composer.update(cx, |c, cx| c.focus_input(window, cx));
     }
 
+    /// What is handed to the new chat just selected (a share's words and
+    /// files, Open With, a Services selection, Quick Ask's Open in
+    /// Conduit): the pane moves to that chat's draft now, and the words and
+    /// files go in once the composer has switched to it (it clears for a
+    /// new draft as the switch lands), so they never end up in the draft of
+    /// the chat shown before, or cleared.
+    pub fn hand_to_new_chat(
+        &mut self,
+        text: Option<String>,
+        paths: Vec<std::path::PathBuf>,
+        carried: Vec<crate::stores::composer::Attachment>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.sync_selection(cx);
+        cx.defer_in(window, move |p, window, cx| {
+            if let Some(text) = &text {
+                p.composer.update(cx, |c, cx| c.set_text(text, window, cx));
+            }
+            if !paths.is_empty() {
+                p.composer_store.update(cx, |c, cx| c.add_paths(&paths, cx));
+            }
+            if !carried.is_empty() {
+                p.composer_store
+                    .update(cx, |c, cx| c.adopt_attachments(carried, cx));
+            }
+            p.focus_composer(window, cx);
+        });
+    }
+
     pub fn open_model_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.composer.update(cx, |c, cx| c.open_picker(window, cx));
     }
@@ -3886,6 +3916,50 @@ mod tests {
                 let text = drafts.lock().unwrap().get(key).cloned().unwrap_or_default();
                 Ok(serde_json::json!({"text": text, "stored": true}))
             });
+        }
+
+        /// Words handed to a new chat opened from another chat land in the
+        /// new chat, not in the draft of the chat shown before.
+        #[gpui_kit::test]
+        fn words_handed_to_a_new_chat_land_in_it(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            keep_drafts(&daemon);
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.stores
+                    .navigation
+                    .update(cx, |n, cx| n.new_chat(false, cx));
+                p.hand_to_new_chat(
+                    Some("> Moss on a north wall\n\n".into()),
+                    vec![],
+                    vec![],
+                    window,
+                    cx,
+                );
+            });
+            vcx.executor()
+                .advance_clock(std::time::Duration::from_millis(450));
+            vcx.run_until_parked();
+            assert!(matches!(
+                stores
+                    .navigation
+                    .read_with(vcx, |n, _| n.selection().clone()),
+                crate::stores::navigation::Selection::New { .. }
+            ));
+            pane.read_with(vcx, |p, cx| {
+                assert_eq!(p.composer.read(cx).text(cx), "> Moss on a north wall\n\n");
+            });
+            let saved: Vec<String> = daemon
+                .calls::<methods::DraftsSave>()
+                .iter()
+                .filter(|c| c["chatId"] == "c1")
+                .map(|c| c["text"].as_str().unwrap_or_default().to_string())
+                .collect();
+            assert!(
+                saved.iter().all(|t| !t.contains("Moss")),
+                "the words went to the last chat's draft: {saved:?}"
+            );
         }
 
         #[gpui_kit::test]
