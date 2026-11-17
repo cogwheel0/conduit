@@ -334,10 +334,34 @@ fn sanitize_svg_with(
             db.load_system_fonts();
             Arc::new(db)
         });
+    let refused = Arc::new(refused);
+    let refused_data = refused.clone();
     let options = usvg::Options {
         resources_dir: None,
         image_href_resolver: usvg::ImageHrefResolver {
-            resolve_data: usvg::ImageHrefResolver::default_data_resolver(),
+            // Only pictures it carries: an SVG inside it (marked as one, or
+            // plain data that reads as one) is refused outright, since it
+            // could be compressed without limit and nest again.
+            resolve_data: Box::new(move |mime: &str, data: Arc<Vec<u8>>, _: &usvg::Options| {
+                let raster = match mime {
+                    "image/jpg" | "image/jpeg" => Some(usvg::ImageKind::JPEG(data)),
+                    "image/png" => Some(usvg::ImageKind::PNG(data)),
+                    "image/gif" => Some(usvg::ImageKind::GIF(data)),
+                    "image/webp" => Some(usvg::ImageKind::WEBP(data)),
+                    "text/plain" => match image::guess_format(&data) {
+                        Ok(image::ImageFormat::Jpeg) => Some(usvg::ImageKind::JPEG(data)),
+                        Ok(image::ImageFormat::Png) => Some(usvg::ImageKind::PNG(data)),
+                        Ok(image::ImageFormat::Gif) => Some(usvg::ImageKind::GIF(data)),
+                        Ok(image::ImageFormat::WebP) => Some(usvg::ImageKind::WEBP(data)),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if raster.is_none() {
+                    refused_data(&format!("data:{mime}"));
+                }
+                raster
+            }),
             resolve_string: Box::new(move |href: &str, _: &usvg::Options| {
                 refused(href);
                 None
@@ -346,8 +370,36 @@ fn sanitize_svg_with(
         fontdb: SYSTEM_FONTS.clone(),
         ..usvg::Options::default()
     };
-    let tree = usvg::Tree::from_data(bytes, &options).ok()?;
+    // Compressed (svgz): inflated here within the limit, never by usvg.
+    let inflated;
+    let text = if bytes.starts_with(&[0x1f, 0x8b]) {
+        inflated = inflate_svgz(bytes)?;
+        inflated.as_slice()
+    } else {
+        bytes
+    };
+    if text.len() > MAX_SVG_BYTES {
+        return None;
+    }
+    let tree = usvg::Tree::from_str(std::str::from_utf8(text).ok()?, &options).ok()?;
     Some(tree.to_string(&usvg::WriteOptions::default()).into_bytes())
+}
+
+/// The most an untrusted SVG may be, unpacked (as much as the daemon
+/// fetches for a picture, and a little more).
+const MAX_SVG_BYTES: usize = 16 * 1024 * 1024;
+
+/// A compressed SVG (svgz) unpacked, reading no more than
+/// [`MAX_SVG_BYTES`] and one byte: `None` past that, or when it is not
+/// gzip. A few kilobytes that unpack to gigabytes stop at the limit.
+fn inflate_svgz(bytes: &[u8]) -> Option<Vec<u8>> {
+    use std::io::Read as _;
+    let mut out = Vec::new();
+    flate2::read::GzDecoder::new(bytes)
+        .take(MAX_SVG_BYTES as u64 + 1)
+        .read_to_end(&mut out)
+        .ok()?;
+    (out.len() <= MAX_SVG_BYTES).then_some(out)
 }
 
 /// The most pixels a picture from another site may have: a small file
@@ -929,6 +981,65 @@ mod tests {
             let _ = std::fs::remove_file(&pipe);
             assert!(!read, "{href}: the picture opened a file of this Mac");
             assert!(drawn.is_ok(), "{href}: the rest of the picture still draws");
+        }
+    }
+
+    /// `svg` gzip-compressed.
+    fn gzip(svg: &[u8]) -> Vec<u8> {
+        use std::io::Write as _;
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+        gz.write_all(svg).unwrap();
+        gz.finish().unwrap()
+    }
+
+    /// An SVG that unpacks past [`MAX_SVG_BYTES`]: a few kilobytes of gzip.
+    fn svg_bomb() -> Vec<u8> {
+        let mut svg =
+            br#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><!--"#.to_vec();
+        svg.resize(svg.len() + MAX_SVG_BYTES + 1024, b' ');
+        svg.extend_from_slice(br#"--><rect width="2" height="2" fill="red"/></svg>"#);
+        gzip(&svg)
+    }
+
+    /// A compressed SVG is inflated only up to the limit: one that unpacks
+    /// past it is refused (counted in bytes); a normal one still draws.
+    #[test]
+    fn a_compressed_svg_is_unpacked_only_up_to_the_limit() {
+        let bomb = svg_bomb();
+        assert!(bomb.len() < 64 * 1024, "a small file: {} bytes", bomb.len());
+        assert_eq!(inflate_svgz(&bomb), None);
+        assert_eq!(sanitize_svg(&bomb), None, "an SVG bomb was unpacked");
+        let small = gzip(&svg_with_image("data:,"));
+        let drawn = sanitize_svg(&small).expect("a normal compressed SVG draws");
+        assert!(String::from_utf8(drawn).unwrap().contains("fill"));
+    }
+
+    /// An SVG carried inside another (`data:image/svg+xml`, or plain data
+    /// that reads as SVG) is refused outright: it could unpack without
+    /// limit and nest again. A picture it carries is kept.
+    #[test]
+    fn an_svg_inside_an_svg_is_refused() {
+        use base64::Engine as _;
+        let b64 = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
+        let inner = br#"<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2"/></svg>"#;
+        for href in [
+            format!("data:image/svg+xml;base64,{}", b64(&svg_bomb())),
+            format!("data:image/svg+xml;base64,{}", b64(inner)),
+            format!("data:text/plain;base64,{}", b64(inner)),
+        ] {
+            let refused = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+            let log = refused.clone();
+            let safe = sanitize_svg_with(&svg_with_image(&href), move |h| {
+                log.lock().unwrap().push(h.to_string())
+            })
+            .expect("the rest of the picture still draws");
+            let text = String::from_utf8(safe).unwrap();
+            assert!(
+                !text.contains("<image"),
+                "a nested SVG kept: {}",
+                &text[..text.len().min(200)]
+            );
+            assert_eq!(refused.lock().unwrap().len(), 1, "{}", &href[..40]);
         }
     }
 
