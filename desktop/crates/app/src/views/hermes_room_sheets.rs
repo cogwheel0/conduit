@@ -1617,6 +1617,41 @@ mod tests {
         );
     }
 
+    /// A question in another window answered No (a Settings confirmation)
+    /// is not this sheet's: the Quit waiting on the room being made still
+    /// goes on once the made room closes the sheet.
+    #[gpui_kit::test]
+    fn another_windows_question_leaves_the_quit_waiting(cx: &mut TestAppContext) {
+        let (daemon, sheet, vcx) = new_room_typed(cx);
+        let held = daemon.hold::<methods::HermesRoomsCreate>();
+        sheet.update_in(vcx, |s, window, cx| {
+            s.toggle("fern", cx);
+            s.toggle("moss", cx);
+            s.create(window, cx);
+        });
+        let quits = quit(vcx);
+        // The main window (not the sheet) asks something; the user says No.
+        vcx.update(|window, cx| {
+            let spec = crate::shell::sheet::SheetSpec::new(
+                "Sign Out?".to_string(),
+                "You can sign in again later.".to_string(),
+                "Sign Out".to_string(),
+                "Cancel".to_string(),
+            );
+            crate::shell::sheet::present_sheet(window, spec, cx).detach();
+        });
+        settle(vcx);
+        assert_eq!(quits.get(), 0);
+        drop(held);
+        settle(vcx);
+        assert!(!sheet_open(vcx), "the made room left its sheet open");
+        assert_eq!(
+            quits.get(),
+            1,
+            "another window's question dropped the sheet's Quit"
+        );
+    }
+
     #[gpui_kit::test]
     fn a_refused_create_drops_the_quit_that_waited_for_it(cx: &mut TestAppContext) {
         let (daemon, sheet, vcx) = new_room_typed(cx);

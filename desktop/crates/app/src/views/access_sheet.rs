@@ -952,6 +952,77 @@ mod tests {
         drop(held);
     }
 
+    /// Quit while a save is out that the server keeps only part of: the
+    /// sheet stays up with its warning, unseen warnings are never dismissed
+    /// behind the user's back, and the app does not quit over them.
+    #[gpui_kit::test]
+    fn quit_during_a_partial_save_keeps_its_warning_up(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::AccessGet>(
+            serde_json::from_value(serde_json::json!({
+                "kind": "folder", "id": "f1", "canEdit": true,
+                "allowUsers": true, "allowGroups": false
+            }))
+            .unwrap(),
+        );
+        // The server keeps nobody of those asked.
+        daemon.returns::<methods::AccessSet>(
+            serde_json::from_value(serde_json::json!({
+                "kind": "folder", "id": "f1", "canEdit": true,
+                "allowUsers": true, "allowGroups": false, "grants": []
+            }))
+            .unwrap(),
+        );
+        let s = stores.clone();
+        let sheet = vcx
+            .update(|window, cx| {
+                sheet::open(window, WIDTH, cx, move |w, cx| {
+                    AccessSheet::new(
+                        s,
+                        AccessResourceKind::Folder,
+                        "f1".into(),
+                        "Trips".into(),
+                        w,
+                        cx,
+                    )
+                })
+            })
+            .unwrap();
+        vcx.run_until_parked();
+        let held = daemon.hold::<methods::AccessSet>();
+        vcx.update(|window, cx| {
+            sheet.update(cx, |s, cx| {
+                s.add(&principal("user", "robin"), window, cx);
+                s.save(window, cx);
+            })
+        });
+        let quits = std::rc::Rc::new(std::cell::Cell::new(0));
+        let counted = quits.clone();
+        vcx.update(|_, cx| {
+            sheet::quit_with(
+                cx,
+                std::rc::Rc::new(move |_| counted.set(counted.get() + 1)),
+            )
+        });
+        vcx.run_until_parked();
+        drop(held);
+        for _ in 0..2 {
+            vcx.run_until_parked();
+            vcx.executor()
+                .advance_clock(std::time::Duration::from_secs(5));
+        }
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<AccessSheet>(cx))
+                .is_some(),
+            "the partial save's warning was dismissed unseen"
+        );
+        sheet.read_with(vcx, |s, _| {
+            assert!(s.failure.is_some(), "the partial save says nothing")
+        });
+        assert_eq!(quits.get(), 0, "Quit went on over an unseen warning");
+    }
+
     #[test]
     fn each_kind_is_titled_for_what_it_shares() {
         let l = L10n::new("en");

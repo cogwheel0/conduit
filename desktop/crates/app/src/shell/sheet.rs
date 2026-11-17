@@ -100,16 +100,16 @@ pub fn present_sheet_closable(
     cx: &mut App,
 ) -> (Task<bool>, SheetCloser) {
     let closer = SheetCloser::default();
-    crate::views::sheet::question_shown(cx);
+    let asked = crate::views::sheet::question_shown(window.window_handle(), cx);
     if let Some(answer) = cx.try_global::<AutoAnswer>().and_then(|a| a.0) {
         log::info!("sheet {:?} answered {answer} (auto)", spec.title);
-        crate::views::sheet::question_answered(answer, cx);
+        crate::views::sheet::question_answered(asked, answer, cx);
         return (Task::ready(answer), closer);
     }
     #[cfg(target_os = "macos")]
     {
         let Some(ns_window) = conduit_components::window::macos::ns_window(window) else {
-            crate::views::sheet::question_answered(false, cx);
+            crate::views::sheet::question_answered(asked, false, cx);
             return (Task::ready(false), closer);
         };
         let state = closer.clone();
@@ -124,7 +124,7 @@ pub fn present_sheet_closable(
             } else {
                 false
             };
-            cx.update(|cx| crate::views::sheet::question_answered(yes, cx));
+            cx.update(|cx| crate::views::sheet::question_answered(asked, yes, cx));
             yes
         });
         (task, closer)
@@ -132,7 +132,7 @@ pub fn present_sheet_closable(
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (window, spec);
-        crate::views::sheet::question_answered(false, cx);
+        crate::views::sheet::question_answered(asked, false, cx);
         (Task::ready(false), closer)
     }
 }
@@ -140,16 +140,16 @@ pub fn present_sheet_closable(
 /// Shows `spec` as a sheet on `window`; resolves with `true` when the user
 /// confirmed.
 pub fn present_sheet(window: &Window, spec: SheetSpec, cx: &mut App) -> Task<bool> {
-    crate::views::sheet::question_shown(cx);
+    let asked = crate::views::sheet::question_shown(window.window_handle(), cx);
     if let Some(answer) = cx.try_global::<AutoAnswer>().and_then(|a| a.0) {
         log::info!("sheet {:?} answered {answer} (auto)", spec.title);
-        crate::views::sheet::question_answered(answer, cx);
+        crate::views::sheet::question_answered(asked, answer, cx);
         return Task::ready(answer);
     }
     #[cfg(target_os = "macos")]
     {
         let Some(ns_window) = conduit_components::window::macos::ns_window(window) else {
-            crate::views::sheet::question_answered(false, cx);
+            crate::views::sheet::question_answered(asked, false, cx);
             return Task::ready(false);
         };
         cx.spawn(async move |cx| {
@@ -158,14 +158,14 @@ pub fn present_sheet(window: &Window, spec: SheetSpec, cx: &mut App) -> Task<boo
                 Some((rx, _)) => rx.await.unwrap_or(false),
                 None => false,
             };
-            cx.update(|cx| crate::views::sheet::question_answered(yes, cx));
+            cx.update(|cx| crate::views::sheet::question_answered(asked, yes, cx));
             yes
         })
     }
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (window, spec);
-        crate::views::sheet::question_answered(false, cx);
+        crate::views::sheet::question_answered(asked, false, cx);
         Task::ready(false)
     }
 }

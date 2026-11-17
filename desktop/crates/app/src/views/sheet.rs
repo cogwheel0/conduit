@@ -79,23 +79,19 @@ type AfterDismiss = Box<dyn FnOnce(&mut App)>;
 struct Unsaved {
     edits: Rc<dyn Fn(&App) -> bool>,
     ask: Rc<dyn Fn(&mut App)>,
-    /// Calls [`ask_again`] whenever the body changes (a save or create it
-    /// was busy with has settled), for a Quit waiting on it.
-    watch: Watch,
 }
 
-/// Starts watching the sheet's body for a waiting Quit ([`Unsaved::watch`]).
-type Watch = Rc<dyn Fn(&mut App) -> Option<Subscription>>;
-
-/// A Quit the sheet down now asked about (unsaved edits): it goes on once
-/// that sheet is dismissed, and is dropped when the user keeps editing or
-/// another sheet takes over.
+/// A Quit the sheet down now asked about (unsaved edits), owned by that
+/// sheet: it goes on once that sheet is dismissed, and is dropped when the
+/// user answers that sheet's own question No for this Quit ([`ticket`]),
+/// when the sheet keeps its failure up ([`keep_open`]), or when another
+/// sheet takes over. Questions in other windows never touch it.
+///
+/// [`ticket`]: PendingQuit::ticket
 struct PendingQuit {
+    ticket: u64,
     sheet: AnyWindowHandle,
     then: Rc<dyn Fn(&mut App)>,
-    /// The discard question is up (or was answered yes): not asked again.
-    asked: bool,
-    _watch: Option<Subscription>,
 }
 
 /// The sheet on the main window now, if any, and what runs once it has
@@ -106,6 +102,8 @@ struct OpenSheet {
     after: Option<AfterDismiss>,
     unsaved: Option<Unsaved>,
     quit: Option<PendingQuit>,
+    /// The last [`PendingQuit::ticket`] given.
+    quit_tickets: u64,
 }
 
 impl Global for OpenSheet {}
@@ -168,7 +166,7 @@ pub fn open<V: SheetBody>(
     };
     let body = host.read(cx).body.clone();
     adopt(handle, body.clone().into_any(), cx);
-    let (weak, asked, watched) = (body.downgrade(), body.downgrade(), body.downgrade());
+    let (weak, asked) = (body.downgrade(), body.downgrade());
     cx.default_global::<OpenSheet>().unsaved = Some(Unsaved {
         edits: Rc::new(move |cx: &App| weak.upgrade().is_some_and(|b| b.read(cx).unsaved(cx))),
         ask: Rc::new(move |cx: &mut App| {
@@ -177,10 +175,6 @@ pub fn open<V: SheetBody>(
                 window.activate_window();
                 body.update(cx, |b, cx| b.cancel(window, cx));
             });
-        }),
-        watch: Rc::new(move |cx: &mut App| {
-            let body = watched.upgrade()?;
-            Some(cx.observe(&body, |_, cx| cx.defer(ask_again)))
         }),
     });
     begin(parent, handle, cx);
@@ -319,21 +313,28 @@ pub(crate) fn quit_with(cx: &mut App, then: Rc<dyn Fn(&mut App)>) {
     }
     // Unsaved edits: the sheet comes forward and asks, as Esc does. Quit
     // goes on once that sheet has gone (Discard), and is dropped when the
-    // user keeps editing. A sheet busy saving or creating asks once its
-    // work settles; the work's own success dismisses it and quits.
+    // user keeps editing. A sheet busy saving or creating does not ask: its
+    // work's own success dismisses it and quits; if it stays up (a failure,
+    // or a warning the user must see), Quit waits for its dismissal and is
+    // never asked again behind the user's back.
     if has_unsaved(cx) {
         let open = cx.default_global::<OpenSheet>();
-        let (Some((sheet, _)), Some(unsaved)) = (open.current.clone(), open.unsaved.clone()) else {
+        let Some((sheet, _)) = open.current.clone() else {
             return;
         };
-        let watch = (unsaved.watch)(cx);
-        cx.default_global::<OpenSheet>().quit = Some(PendingQuit {
+        // Quit again while this sheet's Quit waits: the same Quit, asked
+        // once; the first answer decides.
+        if open.quit.as_ref().is_some_and(|q| q.sheet == sheet) {
+            return;
+        }
+        open.quit_tickets += 1;
+        let ticket = open.quit_tickets;
+        open.quit = Some(PendingQuit {
+            ticket,
             sheet,
             then,
-            asked: false,
-            _watch: watch,
         });
-        cx.defer(ask_again);
+        cx.defer(move |cx| ask_for(ticket, cx));
         return;
     }
     cx.default_global::<OpenSheet>().after = None;
@@ -353,17 +354,13 @@ fn quit_once_gone(cx: &mut App, then: Rc<dyn Fn(&mut App)>) {
     .detach();
 }
 
-/// A waiting Quit asks the sheet to close (its body's [`SheetBody::cancel`])
-/// unless the discard question is up already: a body busy saving refuses
-/// and is asked again once it changes.
-fn ask_again(cx: &mut App) {
+/// Quit `ticket` asks its sheet to close, once (its body's
+/// [`SheetBody::cancel`]: the discard question, or nothing while it is busy).
+fn ask_for(ticket: u64, cx: &mut App) {
     let open = cx.default_global::<OpenSheet>();
-    let Some(pending) = open.quit.as_ref() else {
+    let Some(pending) = open.quit.as_ref().filter(|q| q.ticket == ticket) else {
         return;
     };
-    if pending.asked {
-        return;
-    }
     if open.current.as_ref().map(|(h, _)| *h) != Some(pending.sheet) {
         open.quit = None;
         return;
@@ -373,19 +370,28 @@ fn ask_again(cx: &mut App) {
     }
 }
 
-/// A question is up ([`crate::shell::sheet::present_sheet`]): a waiting
-/// Quit waits for its answer instead of asking again.
-pub(crate) fn question_shown(cx: &mut App) {
-    if let Some(pending) = cx.default_global::<OpenSheet>().quit.as_mut() {
-        pending.asked = true;
-    }
+/// A question is about to show on `window`
+/// ([`crate::shell::sheet::present_sheet`]): the waiting Quit it may answer,
+/// when it shows on that Quit's own sheet.
+pub(crate) fn question_shown(window: AnyWindowHandle, cx: &mut App) -> Option<u64> {
+    cx.try_global::<OpenSheet>()?
+        .quit
+        .as_ref()
+        .filter(|q| q.sheet == window)
+        .map(|q| q.ticket)
 }
 
-/// A question was answered: no (keep editing) drops a waiting Quit, so a
-/// later dismissal never quits the app.
-pub(crate) fn question_answered(yes: bool, cx: &mut App) {
-    if !yes {
-        cx.default_global::<OpenSheet>().quit = None;
+/// The question [`question_shown`] tied to Quit `asked` was answered: No
+/// (keep editing) drops that Quit, so a later dismissal never quits the app.
+/// Yes leaves it to the sheet's dismissal. Any other question does nothing.
+pub(crate) fn question_answered(asked: Option<u64>, yes: bool, cx: &mut App) {
+    let Some(ticket) = asked else { return };
+    if yes {
+        return;
+    }
+    let open = cx.default_global::<OpenSheet>();
+    if open.quit.as_ref().is_some_and(|q| q.ticket == ticket) {
+        open.quit = None;
     }
 }
 
@@ -663,6 +669,67 @@ mod tests {
             Some(WindowBounds::Windowed(b)) => assert_eq!(f32::from(b.size.width), 520.),
             other => panic!("{other:?}"),
         }
+    }
+
+    /// A sheet body that counts how often it is asked to close.
+    struct Probe(Rc<Cell<u32>>);
+
+    impl Render for Probe {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    impl SheetBody for Probe {
+        fn cancel(&mut self, _: &mut Window, _: &mut Context<Self>) {
+            self.0.set(self.0.get() + 1);
+        }
+
+        fn label(&self, _: &App) -> SharedString {
+            "Probe".into()
+        }
+
+        fn unsaved(&self, _: &App) -> bool {
+            true
+        }
+    }
+
+    /// Quit again while the discard question of the first is up: no second
+    /// question, and Discard quits once.
+    #[gpui_kit::test]
+    fn a_second_quit_waits_on_the_first_question(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, _stores, vcx) = bench::bench(cx);
+        let asks = Rc::new(Cell::new(0));
+        let probe = asks.clone();
+        vcx.update(|window, cx| open(window, 400., cx, move |_, _| Probe(probe)))
+            .expect("the sheet opens");
+        vcx.run_until_parked();
+        let quits = Rc::new(Cell::new(0));
+        let quit = |vcx: &mut gpui_kit::VisualTestContext| {
+            let counted = quits.clone();
+            vcx.update(|_, cx| quit_with(cx, Rc::new(move |_| counted.set(counted.get() + 1))));
+            vcx.run_until_parked();
+        };
+        quit(vcx);
+        assert_eq!(asks.get(), 1, "Quit did not ask the sheet");
+        // The sheet's discard question is up (as present_sheet shows it).
+        let sheet = vcx.update(|_, cx| current_window(cx)).expect("the sheet");
+        let asked = vcx.update(|_, cx| question_shown(sheet, cx));
+        assert!(asked.is_some());
+        quit(vcx);
+        assert_eq!(asks.get(), 1, "a second Quit asked again");
+        // Discard.
+        vcx.update(|_, cx| {
+            question_answered(asked, true, cx);
+            dismiss(cx);
+        });
+        for _ in 0..2 {
+            vcx.run_until_parked();
+            vcx.executor()
+                .advance_clock(std::time::Duration::from_secs(5));
+        }
+        vcx.run_until_parked();
+        assert_eq!(quits.get(), 1, "Discard did not quit once");
     }
 
     #[test]
