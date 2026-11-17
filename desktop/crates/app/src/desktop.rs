@@ -14,10 +14,14 @@
 //!   selected text quoted (a new chat when Quick Ask is off or not ready);
 //!   "New Conduit Chat With Selection" opens a new chat with it
 //!   ([`crate::shell::services`]).
-//! * **Answer notifications** on `turn.finished`, unless the chat is in
-//!   front of the user ([`notify::decide`]). Permission is asked the first
-//!   time the setting is turned on or a notification would go out. A
-//!   click shows the main window on that chat.
+//! * **Notifications** on `turn.finished` and `channels.posted`, as the
+//!   core decides them (`notifications.route`, Settings › Notifications):
+//!   an in-app banner while the app is in front, a system notification
+//!   behind it, with the cue or the system's sound, or nothing for what is
+//!   on screen. An answer a shortcut waits for gets none. Permission is
+//!   asked the first time notifications are turned on or a system
+//!   notification would go out. A click on either shows the main window on
+//!   that chat or channel.
 //! * **Quick Ask**: a `PopUp` window ([`QuickAskView`]) placed on the
 //!   display under the pointer, shown by the global shortcut, the menu-bar
 //!   item or Window › Quick Ask, hidden on Esc or when it loses focus to
@@ -39,7 +43,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use conduit_components::window as cw;
-use conduit_protocol::{Event, NoticeLevel, TurnFinished, events};
+use conduit_protocol::{
+    ChannelKind, Event, NoticeLevel, NotificationRoute, NotificationRouteParams,
+    NotificationSettingsPatch, NotifyKind, NotifySurface, TurnFinished, events, methods,
+};
 use futures::StreamExt as _;
 use futures::channel::mpsc;
 use gpui_kit::{AnyWindowHandle, App, AppContext as _, Bounds, Entity, Global, px, size};
@@ -52,7 +59,7 @@ use crate::shell::open_files;
 use crate::shell::services::{self, ServiceRequest};
 use crate::shell::share_inbox;
 use crate::shell::widget::{self, Snapshot};
-use crate::stores::connection::ConnectionEvent;
+use crate::stores::connection::{ConnectionEvent, ConnectionStore};
 use crate::stores::navigation::{Area, AreaItem};
 use crate::stores::session::Route;
 use crate::stores::settings::SettingsEvent;
@@ -78,9 +85,14 @@ pub fn url_channel() -> (UrlSender, UrlReceiver) {
 pub struct Desktop {
     pub shell: Entity<ShellStore>,
     pub quick_ask: Option<(AnyWindowHandle, Entity<QuickAskView>)>,
-    /// "Notify when an answer finishes" as last applied: permission is
-    /// asked when it turns on, not on every Settings › Desktop change.
-    notify_answers: bool,
+    /// The notifications switch as last seen: permission is asked when it
+    /// turns on, not on every change in Settings › Notifications.
+    notifications_on: bool,
+    /// E2E: the app counts as behind other apps, so the core picks system
+    /// notifications (a run can't send the app to the back reliably).
+    e2e_background: bool,
+    /// E2E: what each notification did, newest last.
+    routed: Vec<Routed>,
     pub widget: WidgetFeed,
     #[cfg(target_os = "macos")]
     platform: Platform,
@@ -109,7 +121,9 @@ pub fn install_without_services(cx: &mut App) {
     cx.set_global(Desktop {
         shell,
         quick_ask: None,
-        notify_answers: false,
+        notifications_on: false,
+        e2e_background: false,
+        routed: vec![],
         widget: WidgetFeed::default(),
         #[cfg(target_os = "macos")]
         platform: Platform::default(),
@@ -124,13 +138,15 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
         s.hidden_start = hidden;
         s
     });
-    let notify_answers = cx
+    let notifications_on = cx
         .try_global::<AppState>()
-        .is_some_and(|s| s.settings.read(cx).prefs.desktop.notify_answers);
+        .is_some_and(|s| s.stores.notifications.read(cx).settings().enabled);
     cx.set_global(Desktop {
         shell: shell.clone(),
         quick_ask: None,
-        notify_answers,
+        notifications_on,
+        e2e_background: false,
+        routed: vec![],
         widget: WidgetFeed::open(),
         #[cfg(target_os = "macos")]
         platform: Platform::default(),
@@ -149,16 +165,10 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
     );
     cx.subscribe(&settings, |settings, event, cx| match event {
         SettingsEvent::DesktopChanged => {
+            let _ = &settings;
             apply_settings(cx);
             // The Quick Ask chord beside its item.
             relabel_tray(cx);
-            // Turning notifications on asks for permission (if the system
-            // hasn't asked yet); other changes don't.
-            let now = settings.read(cx).prefs.desktop.notify_answers;
-            let before = std::mem::replace(&mut cx.global_mut::<Desktop>().notify_answers, now);
-            if now && !before {
-                ensure_permission(false, cx);
-            }
         }
         // New words, or new chords beside New Chat.
         SettingsEvent::LocaleChanged | SettingsEvent::KeymapChanged => {
@@ -183,15 +193,25 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
         .detach();
     cx.observe(&stores.chat_list, |_, cx| schedule_widget(cx))
         .detach();
-    // `turn.finished` is unscoped: it comes for chats that are not open.
-    // `channels.posted` too: someone else posted in a channel not in front.
-    connection.update(cx, |c, _| {
-        c.subscribe(
-            NOTIFICATIONS_KEY,
-            &[events::TURN_FINISHED, events::CHANNELS_POSTED],
-            vec![],
-        )
-    });
+    // Turning notifications on asks for permission (if the system hasn't
+    // asked yet); other changes don't.
+    cx.observe(&stores.notifications, |store, cx| {
+        let now = store.read(cx).settings().enabled;
+        let before = std::mem::replace(&mut cx.global_mut::<Desktop>().notifications_on, now);
+        if now && !before && store.read(cx).loaded {
+            ensure_permission(false, cx);
+        }
+    })
+    .detach();
+    // The two switches Settings › General had before Settings ›
+    // Notifications: a choice turned off there moves to the core once.
+    cx.subscribe(&connection, |_, event, cx| {
+        if matches!(event, ConnectionEvent::Connected { .. }) {
+            move_old_switches(cx);
+        }
+    })
+    .detach();
+    follow_alerts(&connection, cx);
     cx.subscribe(&connection, |_, event, cx| {
         let ConnectionEvent::Daemon(event) = event else {
             return;
@@ -1006,6 +1026,61 @@ pub fn open_notification_settings(cx: &mut App) {
 
 // ── Notifications ──────────────────────────────────────────────────────────
 
+/// What notifies: `turn.finished` is unscoped (it comes for chats that are
+/// not open), `channels.posted` too (someone else posted in a channel not in
+/// front).
+pub(crate) fn follow_alerts(connection: &Entity<ConnectionStore>, cx: &mut App) {
+    connection.update(cx, |c, _| {
+        c.subscribe(
+            NOTIFICATIONS_KEY,
+            &[events::TURN_FINISHED, events::CHANNELS_POSTED],
+            vec![],
+        )
+    });
+}
+
+/// Settings › General's "Notify When an Answer Finishes" and "Notify About
+/// Channel Messages" (before the Notifications pane): one turned off there
+/// is turned off in the core's settings, once.
+fn move_old_switches(cx: &mut App) {
+    let Some(state) = cx.try_global::<AppState>() else {
+        return;
+    };
+    let desktop = state.settings.read(cx).prefs.desktop.clone();
+    if desktop.notifications_moved {
+        return;
+    }
+    let patch = NotificationSettingsPatch {
+        answers: (!desktop.notify_answers).then_some(false),
+        channels: (!desktop.notify_channels).then_some(false),
+        ..Default::default()
+    };
+    let settings = state.settings.clone();
+    if patch == NotificationSettingsPatch::default() {
+        settings.update(cx, |s, cx| {
+            s.set_desktop(|d| d.notifications_moved = true, cx)
+        });
+        return;
+    }
+    let notifications = state.stores.notifications.clone();
+    let rpc = state.connection.read(cx).rpc();
+    let call = rpc.call::<methods::NotificationsSet>(&patch);
+    cx.spawn(async move |cx| {
+        if let Err(e) = call.await {
+            log::warn!("moving the old notification switches: {e}");
+            return;
+        }
+        log::info!("notifications: the old General switches moved to the core");
+        cx.update(|cx| {
+            settings.update(cx, |s, cx| {
+                s.set_desktop(|d| d.notifications_moved = true, cx)
+            });
+            notifications.update(cx, |s, cx| s.refresh(cx));
+        });
+    })
+    .detach();
+}
+
 fn on_turn_finished(finished: &TurnFinished, cx: &mut App) {
     // An answer Shortcuts is waiting for gets no notification: the shortcut
     // has it (crate::intents holds it until the shortcut's question ends).
@@ -1015,21 +1090,12 @@ fn on_turn_finished(finished: &TurnFinished, cx: &mut App) {
     notify_turn_finished(finished, cx);
 }
 
-/// The answer notification for `finished`, when one is due.
+/// The answer notification for `finished`, as the core routes it.
 pub(crate) fn notify_turn_finished(finished: &TurnFinished, cx: &mut App) {
-    let Some(state) = cx.try_global::<AppState>() else {
+    let Some(kind) = notify::kind_for(notify::Outcome::of(finished.ok, finished.queued)) else {
         return;
     };
-    let enabled = state.settings.read(cx).prefs.desktop.notify_answers;
     let on_screen = on_screen(cx);
-    let Some(kind) = notify::decide(
-        enabled,
-        &finished.chat_id,
-        notify::Outcome::of(finished.ok, finished.queued),
-        &on_screen,
-    ) else {
-        return;
-    };
     let title = chat_title(&finished.chat_id, cx);
     let l10n = cx.l10n().clone();
     let (untitled, ready, failed) = (
@@ -1047,27 +1113,32 @@ pub(crate) fn notify_turn_finished(finished: &TurnFinished, cx: &mut App) {
             failed: &failed,
         },
     );
-    log::info!(
-        "notification: {}",
-        match kind {
-            NotificationKind::Ready => "answer ready",
-            NotificationKind::Failed => "answer failed",
-        }
+    let level = match kind {
+        NotificationKind::Ready => NoticeLevel::Info,
+        NotificationKind::Failed => NoticeLevel::Warning,
+    };
+    route(
+        NotificationRouteParams {
+            kind: NotifyKind::Answer,
+            foreground: on_screen.app_active,
+            viewing: on_screen.shows(&finished.chat_id),
+            alert: true,
+            mention: false,
+            direct: false,
+        },
+        n,
+        level,
+        OpenRequest::Chat {
+            id: finished.chat_id.clone(),
+        },
+        cx,
     );
-    post(n, cx);
 }
 
-/// Someone else posted in a channel not in front of the user: a
-/// notification, by mobile's rules (the daemon's `alert`) and the setting.
+/// Someone else posted in a channel: the core decides by the settings and
+/// the channel's own (the daemon's `alert`), mobile's rules.
 fn on_channel_posted(posted: &conduit_protocol::ChannelPosted, cx: &mut App) {
-    let Some(state) = cx.try_global::<AppState>() else {
-        return;
-    };
-    let enabled = state.settings.read(cx).prefs.desktop.notify_channels;
     let on_screen = on_screen(cx);
-    if !notify::decide_channel(enabled, posted.alert, &posted.channel_id, &on_screen) {
-        return;
-    }
     let l10n = cx.l10n().clone();
     let title_in =
         |author: &str, channel: &str| l10n.desktop_channel_notification_title(author, channel);
@@ -1088,20 +1159,161 @@ fn on_channel_posted(posted: &conduit_protocol::ChannelPosted, cx: &mut App) {
             unknown: &unknown,
         },
     );
-    log::info!("notification: channel message");
-    post(n, cx);
+    route(
+        NotificationRouteParams {
+            kind: NotifyKind::ChannelMessage,
+            foreground: on_screen.app_active,
+            viewing: on_screen.shows_channel(&posted.channel_id),
+            alert: posted.alert,
+            mention: posted.mention,
+            direct: posted.kind == ChannelKind::Dm,
+        },
+        n,
+        NoticeLevel::Info,
+        OpenRequest::Channel {
+            id: posted.channel_id.clone(),
+        },
+        cx,
+    );
 }
 
-/// What the user can see now, for [`notify::decide`].
+/// Asks the core what `n` does, then does it.
+fn route(
+    params: NotificationRouteParams,
+    n: notify::Notification,
+    level: NoticeLevel,
+    open: OpenRequest,
+    cx: &mut App,
+) {
+    let Some(state) = cx.try_global::<AppState>() else {
+        return;
+    };
+    let call = state
+        .connection
+        .read(cx)
+        .rpc()
+        .call::<methods::NotificationsRoute>(&params);
+    cx.spawn(async move |cx| match call.await {
+        Ok(route) => cx.update(|cx| present(route, n, level, open, cx)),
+        Err(e) => log::warn!("notifications.route: {e}"),
+    })
+    .detach();
+}
+
+fn present(
+    route: NotificationRoute,
+    mut n: notify::Notification,
+    level: NoticeLevel,
+    open: OpenRequest,
+    cx: &mut App,
+) {
+    log::info!(
+        "notification: {}{}",
+        match route.surface {
+            NotifySurface::Banner => "banner",
+            NotifySurface::System => "system",
+            NotifySurface::Silent => "silent",
+            NotifySurface::Suppressed | NotifySurface::Unknown => "none",
+        },
+        if route.cue { " with the cue" } else { "" }
+    );
+    if cx.has_global::<Desktop>() {
+        let routed = &mut cx.global_mut::<Desktop>().routed;
+        routed.push(Routed {
+            id: n.id.clone(),
+            surface: route.surface,
+            cue: route.cue,
+            system_sound: route.system_sound,
+        });
+        let excess = routed.len().saturating_sub(64);
+        routed.drain(..excess);
+    }
+    match route.surface {
+        NotifySurface::Banner => {
+            if route.cue {
+                play_cue();
+            }
+            banner(&n, level, open, cx);
+        }
+        // The system notification makes its own sound.
+        NotifySurface::System => {
+            n.sound = route.system_sound;
+            post(n, cx);
+        }
+        NotifySurface::Silent => {
+            if route.cue {
+                play_cue();
+            }
+        }
+        NotifySurface::Suppressed | NotifySurface::Unknown => {}
+    }
+}
+
+/// The in-app banner: a toast with the notification's words and Open.
+fn banner(n: &notify::Notification, level: NoticeLevel, open: OpenRequest, cx: &mut App) {
+    let Some(state) = cx.try_global::<AppState>() else {
+        return;
+    };
+    let toasts = state.stores.toasts.clone();
+    let l10n = cx.l10n().clone();
+    let message = format!("{} \u{2014} {}", n.title, n.body);
+    let run = crate::stores::toasts::Retry::new(move |cx| {
+        log::info!("banner: opening its {}", describe(&open));
+        if let Some(shell) = shell(cx) {
+            shell.update(cx, |s, cx| s.push(open.clone(), cx));
+        }
+        show_main(cx);
+        drain(cx);
+    });
+    toasts.update(cx, |t, cx| {
+        t.show_with_action(level, message, l10n.notification_view_action(), run, cx)
+    });
+}
+
+/// The notification cue ("Sound Always"): the system's Glass sound.
+fn play_cue() {
+    #[cfg(target_os = "macos")]
+    crate::shell::macos::play_sound("Glass");
+}
+
+/// E2E: the app counts as behind other apps (true) or as it is (false).
+pub fn set_e2e_background(on: bool, cx: &mut App) {
+    if cx.has_global::<Desktop>() {
+        cx.global_mut::<Desktop>().e2e_background = on;
+    }
+}
+
+/// What one notification did (E2E).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Routed {
+    /// The notification's identifier (`chat:…`, `channel:…`).
+    pub id: String,
+    pub surface: NotifySurface,
+    pub cue: bool,
+    pub system_sound: bool,
+}
+
+/// E2E: what each notification did, newest last.
+pub fn routed_notifications(cx: &App) -> Vec<Routed> {
+    cx.try_global::<Desktop>()
+        .map(|d| d.routed.clone())
+        .unwrap_or_default()
+}
+
+/// What the user can see now, for the core's decision.
 pub fn on_screen(cx: &mut App) -> OnScreen {
     let mut out = OnScreen::default();
     let Some(state) = cx.try_global::<AppState>() else {
         return out;
     };
+    if cx.try_global::<Desktop>().is_some_and(|d| d.e2e_background) {
+        return out;
+    }
     let navigation = state.stores.navigation.clone();
     #[cfg(target_os = "macos")]
     {
         let active = crate::shell::macos::app_is_active();
+        out.app_active = active;
         out.main_key = active
             && main_ready(cx)
             && main_ns_window(cx).is_some_and(|w| crate::shell::macos::is_key(&w));

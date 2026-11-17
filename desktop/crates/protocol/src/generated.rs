@@ -8063,6 +8063,293 @@ pub struct HermesModelChoiceDto {
     pub label: String,
 }
 
+/// A personal connection's kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PersonalKind {
+    #[serde(rename = "toolServer")]
+    ToolServer,
+    #[serde(rename = "terminal")]
+    Terminal,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Whether the account may keep personal connections, by Open WebUI's rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PersonalAccess {
+    #[serde(rename = "allowed")]
+    Allowed,
+    /// No Open WebUI account is signed in.
+    #[serde(rename = "noAccount")]
+    NoAccount,
+    /// The server has not switched on direct integrations.
+    #[serde(rename = "serverDisabled")]
+    ServerDisabled,
+    /// The account is neither an admin nor granted `direct_tool_servers`.
+    #[serde(rename = "noPermission")]
+    NoPermission,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// One personal tool server (OpenAPI) or terminal, with what its editor
+/// fills in. Never its key: `hasKey` says whether one is stored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalConnectionDto {
+    pub kind: PersonalKind,
+    /// Names the entry across list changes.
+    pub identity: String,
+    #[serde(default)]
+    pub name: String,
+    /// The URL without user info, query or fragment, for the list.
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default = "default_personal_connection_dto_enabled")]
+    pub enabled: bool,
+    /// The editor understands it; one it does not can still be switched
+    /// and deleted.
+    #[serde(default = "default_personal_connection_dto_editable")]
+    pub editable: bool,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub url: String,
+    /// `url` (the document at `path`) or `json` (`spec` inline).
+    #[serde(default = "default_personal_connection_dto_spec_type")]
+    pub spec_type: String,
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub spec: String,
+    /// `bearer` or `none`.
+    #[serde(default = "default_personal_connection_dto_auth_type")]
+    pub auth_type: String,
+    #[serde(default)]
+    pub has_key: bool,
+}
+
+fn default_personal_connection_dto_enabled() -> bool {
+    true
+}
+
+fn default_personal_connection_dto_editable() -> bool {
+    true
+}
+
+fn default_personal_connection_dto_spec_type() -> String {
+    "url".to_owned()
+}
+
+fn default_personal_connection_dto_auth_type() -> String {
+    "bearer".to_owned()
+}
+
+/// Reply to `integrations.list` and `integrations.save`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalConnections {
+    #[serde(default = "default_personal_connections_access")]
+    pub access: PersonalAccess,
+    /// Names the account the list was read for; every change sends it back
+    /// and is refused once another account is signed in.
+    #[serde(default)]
+    pub owner: String,
+    #[serde(default)]
+    pub account_name: String,
+    #[serde(default)]
+    pub server_name: String,
+    #[serde(default)]
+    pub tool_servers: Vec<PersonalConnectionDto>,
+    #[serde(default)]
+    pub terminals: Vec<PersonalConnectionDto>,
+    /// Chat selections cleared because their connection went.
+    #[serde(default)]
+    pub cleared: Vec<String>,
+    /// The list could not be read.
+    #[serde(default)]
+    pub failed: bool,
+    /// A save reached the account that asked, which is no longer signed in.
+    #[serde(default)]
+    pub saved_for_previous_account: bool,
+}
+
+impl Default for PersonalConnections {
+    fn default() -> Self {
+        Self {
+            access: default_personal_connections_access(),
+            owner: Default::default(),
+            account_name: Default::default(),
+            server_name: Default::default(),
+            tool_servers: Default::default(),
+            terminals: Default::default(),
+            cleared: Default::default(),
+            failed: Default::default(),
+            saved_for_previous_account: Default::default(),
+        }
+    }
+}
+
+fn default_personal_connections_access() -> PersonalAccess {
+    PersonalAccess::NoAccount
+}
+
+/// What a form does to the stored key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PersonalKeyMode {
+    #[serde(rename = "keep")]
+    Keep,
+    #[serde(rename = "replace")]
+    Replace,
+    #[serde(rename = "clear")]
+    Clear,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// An editor's fields.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalConnectionDraft {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default = "default_personal_connection_draft_spec_type")]
+    pub spec_type: String,
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub spec: String,
+    #[serde(default = "default_personal_connection_draft_auth_type")]
+    pub auth_type: String,
+    #[serde(default)]
+    pub key: String,
+    #[serde(default = "default_personal_connection_draft_key_mode")]
+    pub key_mode: PersonalKeyMode,
+    #[serde(default = "default_personal_connection_draft_enabled")]
+    pub enabled: bool,
+}
+
+impl Default for PersonalConnectionDraft {
+    fn default() -> Self {
+        Self {
+            name: Default::default(),
+            description: Default::default(),
+            url: Default::default(),
+            spec_type: default_personal_connection_draft_spec_type(),
+            path: Default::default(),
+            spec: Default::default(),
+            auth_type: default_personal_connection_draft_auth_type(),
+            key: Default::default(),
+            key_mode: default_personal_connection_draft_key_mode(),
+            enabled: default_personal_connection_draft_enabled(),
+        }
+    }
+}
+
+fn default_personal_connection_draft_spec_type() -> String {
+    "url".to_owned()
+}
+
+fn default_personal_connection_draft_auth_type() -> String {
+    "bearer".to_owned()
+}
+
+fn default_personal_connection_draft_key_mode() -> PersonalKeyMode {
+    PersonalKeyMode::Replace
+}
+
+fn default_personal_connection_draft_enabled() -> bool {
+    true
+}
+
+/// What `integrations.save` does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PersonalEditOp {
+    #[serde(rename = "add")]
+    Add,
+    #[serde(rename = "patch")]
+    Patch,
+    #[serde(rename = "remove")]
+    Remove,
+    #[serde(rename = "setEnabled")]
+    SetEnabled,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Params for `integrations.save`. `identity` names the entry for every
+/// `op` but `add`; `draft` carries the fields for `add` and `patch`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalConnectionSave {
+    pub owner: String,
+    pub kind: PersonalKind,
+    pub op: PersonalEditOp,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft: Option<PersonalConnectionDraft>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
+/// Params for `integrations.test`: the form as it stands, for the entry
+/// `identity` names (its stored key is used when the form keeps it) or a
+/// new one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalConnectionTest {
+    pub owner: String,
+    pub kind: PersonalKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<String>,
+    pub draft: PersonalConnectionDraft,
+}
+
+/// Why a test failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PersonalProbeFailure {
+    #[serde(rename = "invalidTarget")]
+    InvalidTarget,
+    #[serde(rename = "unsupportedAuth")]
+    UnsupportedAuth,
+    #[serde(rename = "unauthorized")]
+    Unauthorized,
+    #[serde(rename = "unreachable")]
+    Unreachable,
+    #[serde(rename = "invalidSpec")]
+    InvalidSpec,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Reply to `integrations.test`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalConnectionTestResult {
+    #[serde(default)]
+    pub ok: bool,
+    /// Operations a tool server exposes; null for a terminal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_count: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<PersonalProbeFailure>,
+}
+
 /// Params for `intents.ask`: Shortcuts' Ask Conduit, a question whose answer
 /// goes back to the shortcut as text.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -9570,6 +9857,185 @@ pub struct NoteResult {
 #[serde(rename_all = "camelCase")]
 pub struct DeletedResult {
     pub deleted: bool,
+}
+
+/// The notification settings (`notifications.get`, `notifications.set`), as
+/// the phone's Notifications page shows them. `enabled`, `sound` and
+/// `soundAlways` are mirrored to the Open WebUI account when one is signed
+/// in (`synced`); the rest stay on this Mac.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSettingsDto {
+    /// The master toggle.
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_notification_settings_dto_sound")]
+    pub sound: bool,
+    /// The cue plays for every alert, the in-app banner's too.
+    #[serde(default)]
+    pub sound_always: bool,
+    #[serde(default = "default_notification_settings_dto_in_app_banner")]
+    pub in_app_banner: bool,
+    #[serde(default = "default_notification_settings_dto_system")]
+    pub system: bool,
+    /// An answer finished in a chat the user is not looking at.
+    #[serde(default = "default_notification_settings_dto_answers")]
+    pub answers: bool,
+    /// Someone else posted in a channel or a direct message.
+    #[serde(default = "default_notification_settings_dto_channels")]
+    pub channels: bool,
+    /// With `channels`, only mentions and direct messages alert.
+    #[serde(default)]
+    pub mentions_only: bool,
+    /// The first three are mirrored to an Open WebUI account.
+    #[serde(default)]
+    pub synced: bool,
+}
+
+impl Default for NotificationSettingsDto {
+    fn default() -> Self {
+        Self {
+            enabled: Default::default(),
+            sound: default_notification_settings_dto_sound(),
+            sound_always: Default::default(),
+            in_app_banner: default_notification_settings_dto_in_app_banner(),
+            system: default_notification_settings_dto_system(),
+            answers: default_notification_settings_dto_answers(),
+            channels: default_notification_settings_dto_channels(),
+            mentions_only: Default::default(),
+            synced: Default::default(),
+        }
+    }
+}
+
+fn default_notification_settings_dto_sound() -> bool {
+    true
+}
+
+fn default_notification_settings_dto_in_app_banner() -> bool {
+    true
+}
+
+fn default_notification_settings_dto_system() -> bool {
+    true
+}
+
+fn default_notification_settings_dto_answers() -> bool {
+    true
+}
+
+fn default_notification_settings_dto_channels() -> bool {
+    true
+}
+
+/// Params for `notifications.set`: only the fields given change.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSettingsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound_always: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_app_banner: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answers: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channels: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mentions_only: Option<bool>,
+}
+
+/// What a notification is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum NotifyKind {
+    /// An answer finished (or failed).
+    #[serde(rename = "answer")]
+    Answer,
+    /// Someone else posted in a channel or a direct message.
+    #[serde(rename = "channelMessage")]
+    ChannelMessage,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Where a notification goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum NotifySurface {
+    #[serde(rename = "banner")]
+    Banner,
+    #[serde(rename = "system")]
+    System,
+    #[serde(rename = "silent")]
+    Silent,
+    #[serde(rename = "suppressed")]
+    Suppressed,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Params for `notifications.route`: one notification and what the window
+/// knows about it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationRouteParams {
+    pub kind: NotifyKind,
+    /// The app is in front (active).
+    #[serde(default)]
+    pub foreground: bool,
+    /// The user is looking at the notification's chat or channel.
+    #[serde(default)]
+    pub viewing: bool,
+    /// A channel message alerts by its channel's own setting
+    /// (`ChannelPosted.alert`).
+    #[serde(default = "default_notification_route_params_alert")]
+    pub alert: bool,
+    /// A channel message mentions the user.
+    #[serde(default)]
+    pub mention: bool,
+    /// A channel message is a direct message.
+    #[serde(default)]
+    pub direct: bool,
+}
+
+fn default_notification_route_params_alert() -> bool {
+    true
+}
+
+/// Reply to `notifications.route`: the core's decision.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationRoute {
+    #[serde(default = "default_notification_route_surface")]
+    pub surface: NotifySurface,
+    /// Play the notification cue.
+    #[serde(default)]
+    pub cue: bool,
+    /// The system notification makes its sound.
+    #[serde(default)]
+    pub system_sound: bool,
+}
+
+impl Default for NotificationRoute {
+    fn default() -> Self {
+        Self {
+            surface: default_notification_route_surface(),
+            cue: Default::default(),
+            system_sound: Default::default(),
+        }
+    }
+}
+
+fn default_notification_route_surface() -> NotifySurface {
+    NotifySurface::Suppressed
 }
 
 /// The signed-in Open WebUI account's profile, as Settings › Profile shows
@@ -12420,6 +12886,119 @@ pub struct WebSearchSettingsPatch {
     pub region: Option<String>,
 }
 
+/// One webhook destination of the account, as Open WebUI lists it. The
+/// server never returns the URL; `maskedUrl` is for display only.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookDto {
+    pub id: String,
+    #[serde(default = "default_webhook_dto_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub is_default: bool,
+    /// Subscribed event ids, kept verbatim.
+    #[serde(default)]
+    pub events: Vec<String>,
+    /// `away` or `always`, as the server sent it.
+    #[serde(default = "default_webhook_dto_delivery")]
+    pub delivery: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub masked_url: Option<String>,
+}
+
+fn default_webhook_dto_enabled() -> bool {
+    true
+}
+
+fn default_webhook_dto_delivery() -> String {
+    "away".to_owned()
+}
+
+/// One event a destination can subscribe to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookEventDto {
+    pub event: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Reply to `webhooks.list` and every change: the destinations and the
+/// events they can subscribe to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookList {
+    /// The account may manage destinations (the server has them on and the
+    /// account is an admin or holds `features.webhooks`).
+    #[serde(default)]
+    pub available: bool,
+    /// Names the account the list was read for. Every change sends it back,
+    /// and is refused once another account is signed in.
+    #[serde(default)]
+    pub owner: String,
+    #[serde(default)]
+    pub items: Vec<WebhookDto>,
+    #[serde(default)]
+    pub events: Vec<WebhookEventDto>,
+    /// A change went through, but reading the list back failed.
+    #[serde(default)]
+    pub stale: bool,
+    /// The list could not be read.
+    #[serde(default)]
+    pub failed: bool,
+}
+
+/// Params for `webhooks.create`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookCreate {
+    pub owner: String,
+    pub url: String,
+    /// The destination's name (its id); the server derives one when empty.
+    #[serde(default)]
+    pub name: String,
+    #[serde(default = "default_webhook_create_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub events: Vec<String>,
+    #[serde(default = "default_webhook_create_delivery")]
+    pub delivery: String,
+}
+
+fn default_webhook_create_enabled() -> bool {
+    true
+}
+
+fn default_webhook_create_delivery() -> String {
+    "away".to_owned()
+}
+
+/// Params for `webhooks.update`: only what changed. A URL goes out only as
+/// a replacement the user typed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookUpdate {
+    pub owner: String,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub events: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+/// Params for `webhooks.makeDefault`, `webhooks.test` and `webhooks.delete`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookRef {
+    pub owner: String,
+    pub id: String,
+}
+
 /// The five sections of the workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum WorkspaceKind {
@@ -13970,6 +14549,155 @@ pub mod methods {
         const NAME: &'static str = "memories.setEnabled";
         type Params = super::MemoryToggle;
         type Result = super::MemoryList;
+    }
+
+    /// The settings (`NotificationSettingsDto`).
+    ///
+    /// `notifications.get`: no params -> NotificationSettingsDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct NotificationsGet;
+
+    impl RpcMethod for NotificationsGet {
+        const NAME: &'static str = "notifications.get";
+        type Params = NoParams;
+        type Result = super::NotificationSettingsDto;
+    }
+
+    /// Changes them (`NotificationSettingsPatch`); replies with all of them.
+    ///
+    /// `notifications.set`: NotificationSettingsPatch -> NotificationSettingsDto.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct NotificationsSet;
+
+    impl RpcMethod for NotificationsSet {
+        const NAME: &'static str = "notifications.set";
+        type Params = super::NotificationSettingsPatch;
+        type Result = super::NotificationSettingsDto;
+    }
+
+    /// What one notification does (`NotificationRouteParams` →
+    /// `NotificationRoute`): the core's gating chain, given what the window
+    /// knows (in front, looking at it).
+    ///
+    /// `notifications.route`: NotificationRouteParams -> NotificationRoute.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct NotificationsRoute;
+
+    impl RpcMethod for NotificationsRoute {
+        const NAME: &'static str = "notifications.route";
+        type Params = super::NotificationRouteParams;
+        type Result = super::NotificationRoute;
+    }
+
+    /// `webhooks.list`: no params -> WebhookList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct WebhooksList;
+
+    impl RpcMethod for WebhooksList {
+        const NAME: &'static str = "webhooks.list";
+        type Params = NoParams;
+        type Result = super::WebhookList;
+    }
+
+    /// `webhooks.create`: WebhookCreate -> WebhookList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct WebhooksCreate;
+
+    impl RpcMethod for WebhooksCreate {
+        const NAME: &'static str = "webhooks.create";
+        type Params = super::WebhookCreate;
+        type Result = super::WebhookList;
+    }
+
+    /// `webhooks.update`: WebhookUpdate -> WebhookList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct WebhooksUpdate;
+
+    impl RpcMethod for WebhooksUpdate {
+        const NAME: &'static str = "webhooks.update";
+        type Params = super::WebhookUpdate;
+        type Result = super::WebhookList;
+    }
+
+    /// `webhooks.makeDefault`: WebhookRef -> WebhookList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct WebhooksMakeDefault;
+
+    impl RpcMethod for WebhooksMakeDefault {
+        const NAME: &'static str = "webhooks.makeDefault";
+        type Params = super::WebhookRef;
+        type Result = super::WebhookList;
+    }
+
+    /// Asks the server to deliver one real test notification.
+    ///
+    /// `webhooks.test`: WebhookRef -> WebhookList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct WebhooksTest;
+
+    impl RpcMethod for WebhooksTest {
+        const NAME: &'static str = "webhooks.test";
+        type Params = super::WebhookRef;
+        type Result = super::WebhookList;
+    }
+
+    /// `webhooks.delete`: WebhookRef -> WebhookList.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct WebhooksDelete;
+
+    impl RpcMethod for WebhooksDelete {
+        const NAME: &'static str = "webhooks.delete";
+        type Params = super::WebhookRef;
+        type Result = super::WebhookList;
+    }
+
+    /// The connections (`PersonalConnections`).
+    ///
+    /// `integrations.list`: no params -> PersonalConnections.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct IntegrationsList;
+
+    impl RpcMethod for IntegrationsList {
+        const NAME: &'static str = "integrations.list";
+        type Params = NoParams;
+        type Result = super::PersonalConnections;
+    }
+
+    /// Adds, changes, switches or deletes one (`PersonalConnectionSave`).
+    ///
+    /// `integrations.save`: PersonalConnectionSave -> PersonalConnections.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct IntegrationsSave;
+
+    impl RpcMethod for IntegrationsSave {
+        const NAME: &'static str = "integrations.save";
+        type Params = super::PersonalConnectionSave;
+        type Result = super::PersonalConnections;
+    }
+
+    /// Reads the OpenAPI document, or checks the terminal, without saving
+    /// (`PersonalConnectionTest`).
+    ///
+    /// `integrations.test`: PersonalConnectionTest -> PersonalConnectionTestResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct IntegrationsTest;
+
+    impl RpcMethod for IntegrationsTest {
+        const NAME: &'static str = "integrations.test";
+        type Params = super::PersonalConnectionTest;
+        type Result = super::PersonalConnectionTestResult;
+    }
+
+    /// The cleared-selection notice was read.
+    ///
+    /// `integrations.clearNotice`: no params -> PersonalConnections.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct IntegrationsClearNotice;
+
+    impl RpcMethod for IntegrationsClearNotice {
+        const NAME: &'static str = "integrations.clearNotice";
+        type Params = NoParams;
+        type Result = super::PersonalConnections;
     }
 
     /// At launch: whether the after-update banner shows, and its notes. Marks
@@ -18183,6 +18911,71 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("MemoryList"),
     },
     MethodSpec {
+        name: "notifications.get",
+        params: None,
+        result: Some("NotificationSettingsDto"),
+    },
+    MethodSpec {
+        name: "notifications.set",
+        params: Some("NotificationSettingsPatch"),
+        result: Some("NotificationSettingsDto"),
+    },
+    MethodSpec {
+        name: "notifications.route",
+        params: Some("NotificationRouteParams"),
+        result: Some("NotificationRoute"),
+    },
+    MethodSpec {
+        name: "webhooks.list",
+        params: None,
+        result: Some("WebhookList"),
+    },
+    MethodSpec {
+        name: "webhooks.create",
+        params: Some("WebhookCreate"),
+        result: Some("WebhookList"),
+    },
+    MethodSpec {
+        name: "webhooks.update",
+        params: Some("WebhookUpdate"),
+        result: Some("WebhookList"),
+    },
+    MethodSpec {
+        name: "webhooks.makeDefault",
+        params: Some("WebhookRef"),
+        result: Some("WebhookList"),
+    },
+    MethodSpec {
+        name: "webhooks.test",
+        params: Some("WebhookRef"),
+        result: Some("WebhookList"),
+    },
+    MethodSpec {
+        name: "webhooks.delete",
+        params: Some("WebhookRef"),
+        result: Some("WebhookList"),
+    },
+    MethodSpec {
+        name: "integrations.list",
+        params: None,
+        result: Some("PersonalConnections"),
+    },
+    MethodSpec {
+        name: "integrations.save",
+        params: Some("PersonalConnectionSave"),
+        result: Some("PersonalConnections"),
+    },
+    MethodSpec {
+        name: "integrations.test",
+        params: Some("PersonalConnectionTest"),
+        result: Some("PersonalConnectionTestResult"),
+    },
+    MethodSpec {
+        name: "integrations.clearNotice",
+        params: None,
+        result: Some("PersonalConnections"),
+    },
+    MethodSpec {
         name: "releaseNotes.check",
         params: Some("ReleaseNotesQuery"),
         result: Some("ReleaseNotesState"),
@@ -19927,6 +20720,9 @@ pub mod events {
     /// Core's `AppSettings` changed, from any window or the daemon itself.
     /// No payload; `settings.get` says what they are now.
     pub const SETTINGS_CHANGED: &str = "settings.changed";
+    /// The notification settings changed (`notifications.get` says how), from
+    /// any window, the server's mirror or the daemon itself. No payload.
+    pub const NOTIFICATIONS_CHANGED: &str = "notifications.changed";
     /// A chat's queued messages changed. Payload `QueueState`, scoped to the
     /// chat.
     pub const QUEUE_CHANGED: &str = "queue.changed";
@@ -20126,6 +20922,11 @@ pub const EVENTS: &[EventSpec] = &[
     },
     EventSpec {
         name: "settings.changed",
+        payload: None,
+        scoped: false,
+    },
+    EventSpec {
+        name: "notifications.changed",
         payload: None,
         scoped: false,
     },
@@ -20353,6 +21154,11 @@ pub enum Event {
     ///
     /// `settings.changed`.
     SettingsChanged,
+    /// The notification settings changed (`notifications.get` says how), from
+    /// any window, the server's mirror or the daemon itself. No payload.
+    ///
+    /// `notifications.changed`.
+    NotificationsChanged,
     /// A chat's queued messages changed. Payload `QueueState`, scoped to the
     /// chat.
     ///
@@ -20486,6 +21292,7 @@ impl Event {
             }
             events::TERMINAL_CHANGED => Self::TerminalChanged(serde_json::from_value(payload)?),
             events::SETTINGS_CHANGED => Self::SettingsChanged,
+            events::NOTIFICATIONS_CHANGED => Self::NotificationsChanged,
             events::QUEUE_CHANGED => Self::QueueChanged(serde_json::from_value(payload)?),
             events::MESSAGES_MERGE => Self::MessagesMerge(serde_json::from_value(payload)?),
             events::HANDOFF_REQUESTED => Self::HandoffRequested(serde_json::from_value(payload)?),
@@ -20552,6 +21359,7 @@ impl Event {
             Self::TerminalDisplayFile(_) => events::TERMINAL_DISPLAY_FILE,
             Self::TerminalChanged(_) => events::TERMINAL_CHANGED,
             Self::SettingsChanged => events::SETTINGS_CHANGED,
+            Self::NotificationsChanged => events::NOTIFICATIONS_CHANGED,
             Self::QueueChanged(_) => events::QUEUE_CHANGED,
             Self::MessagesMerge(_) => events::MESSAGES_MERGE,
             Self::HandoffRequested(_) => events::HANDOFF_REQUESTED,
@@ -20620,6 +21428,7 @@ impl Event {
             | Self::CapabilitiesChanged
             | Self::ModelsChanged
             | Self::SettingsChanged
+            | Self::NotificationsChanged
             | Self::CalendarChanged
             | Self::AutomationsChanged => Ok(serde_json::Value::Object(serde_json::Map::new())),
             Self::Unknown { payload, .. } => Ok(payload.clone()),
@@ -21054,6 +21863,10 @@ pub mod conformance {
         "NoteTitle",
         "NotesChanged",
         "Notice",
+        "NotificationRoute",
+        "NotificationRouteParams",
+        "NotificationSettingsDto",
+        "NotificationSettingsPatch",
         "OkResult",
         "OllamaModelAction",
         "OllamaModelList",
@@ -21062,6 +21875,12 @@ pub mod conformance {
         "PasswordChange",
         "PasswordChangeResult",
         "PasswordLogin",
+        "PersonalConnectionDraft",
+        "PersonalConnectionDto",
+        "PersonalConnectionSave",
+        "PersonalConnectionTest",
+        "PersonalConnectionTestResult",
+        "PersonalConnections",
         "PongResult",
         "ProfileDto",
         "ProfileEdit",
@@ -21192,6 +22011,12 @@ pub mod conformance {
         "WebSearchRegionDto",
         "WebSearchSettings",
         "WebSearchSettingsPatch",
+        "WebhookCreate",
+        "WebhookDto",
+        "WebhookEventDto",
+        "WebhookList",
+        "WebhookRef",
+        "WebhookUpdate",
         "WorkspaceAccess",
         "WorkspaceAccessEdit",
         "WorkspaceChanged",
@@ -21668,6 +22493,10 @@ pub mod conformance {
             "NoteTitle" => roundtrip::<super::NoteTitle>(json),
             "NotesChanged" => roundtrip::<super::NotesChanged>(json),
             "Notice" => roundtrip::<super::Notice>(json),
+            "NotificationRoute" => roundtrip::<super::NotificationRoute>(json),
+            "NotificationRouteParams" => roundtrip::<super::NotificationRouteParams>(json),
+            "NotificationSettingsDto" => roundtrip::<super::NotificationSettingsDto>(json),
+            "NotificationSettingsPatch" => roundtrip::<super::NotificationSettingsPatch>(json),
             "OkResult" => roundtrip::<super::OkResult>(json),
             "OllamaModelAction" => roundtrip::<super::OllamaModelAction>(json),
             "OllamaModelList" => roundtrip::<super::OllamaModelList>(json),
@@ -21676,6 +22505,14 @@ pub mod conformance {
             "PasswordChange" => roundtrip::<super::PasswordChange>(json),
             "PasswordChangeResult" => roundtrip::<super::PasswordChangeResult>(json),
             "PasswordLogin" => roundtrip::<super::PasswordLogin>(json),
+            "PersonalConnectionDraft" => roundtrip::<super::PersonalConnectionDraft>(json),
+            "PersonalConnectionDto" => roundtrip::<super::PersonalConnectionDto>(json),
+            "PersonalConnectionSave" => roundtrip::<super::PersonalConnectionSave>(json),
+            "PersonalConnectionTest" => roundtrip::<super::PersonalConnectionTest>(json),
+            "PersonalConnectionTestResult" => {
+                roundtrip::<super::PersonalConnectionTestResult>(json)
+            }
+            "PersonalConnections" => roundtrip::<super::PersonalConnections>(json),
             "PongResult" => roundtrip::<super::PongResult>(json),
             "ProfileDto" => roundtrip::<super::ProfileDto>(json),
             "ProfileEdit" => roundtrip::<super::ProfileEdit>(json),
@@ -21806,6 +22643,12 @@ pub mod conformance {
             "WebSearchRegionDto" => roundtrip::<super::WebSearchRegionDto>(json),
             "WebSearchSettings" => roundtrip::<super::WebSearchSettings>(json),
             "WebSearchSettingsPatch" => roundtrip::<super::WebSearchSettingsPatch>(json),
+            "WebhookCreate" => roundtrip::<super::WebhookCreate>(json),
+            "WebhookDto" => roundtrip::<super::WebhookDto>(json),
+            "WebhookEventDto" => roundtrip::<super::WebhookEventDto>(json),
+            "WebhookList" => roundtrip::<super::WebhookList>(json),
+            "WebhookRef" => roundtrip::<super::WebhookRef>(json),
+            "WebhookUpdate" => roundtrip::<super::WebhookUpdate>(json),
             "WorkspaceAccess" => roundtrip::<super::WorkspaceAccess>(json),
             "WorkspaceAccessEdit" => roundtrip::<super::WorkspaceAccessEdit>(json),
             "WorkspaceChanged" => roundtrip::<super::WorkspaceChanged>(json),

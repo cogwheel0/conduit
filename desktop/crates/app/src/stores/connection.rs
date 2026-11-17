@@ -357,6 +357,15 @@ impl ConnectionStore {
     /// Registers what `key` wants delivered; the union of every key's events
     /// and scopes is subscribed (now, and after each reconnect).
     pub fn subscribe(&mut self, key: &'static str, events: &[&'static str], scopes: Vec<String>) {
+        // A key is one follower's: it may change its scopes, but another
+        // follower's events under the same key would replace these (the
+        // union is built from one entry per key).
+        debug_assert!(
+            self.subscriptions
+                .get(key)
+                .is_none_or(|(held, _)| held.as_slice() == events),
+            "two followers share the event subscription key {key:?}"
+        );
         self.subscriptions.insert(key, (events.to_vec(), scopes));
         let mut names: BTreeSet<&'static str> = WINDOW_EVENTS.iter().copied().collect();
         let mut all_scopes: BTreeSet<String> = BTreeSet::new();

@@ -203,6 +203,9 @@ pub struct DesktopPrefs {
     /// "Notify About Channel Messages": someone else posted in a channel
     /// that is not in front of the user (by the channel's own setting).
     pub notify_channels: bool,
+    /// The two switches above moved to the core's notification settings
+    /// (Settings › Notifications); they are read once more, never written.
+    pub notifications_moved: bool,
     /// Settings › About › "Receive beta updates": Sparkle may offer items
     /// on the appcast's `beta` channel too.
     pub beta_updates: bool,
@@ -220,6 +223,7 @@ impl Default for DesktopPrefs {
             quick_ask_shortcut: DEFAULT_QUICK_ASK_SHORTCUT.into(),
             notify_answers: true,
             notify_channels: true,
+            notifications_moved: false,
             beta_updates: false,
             terminal_option_as_meta: false,
         }

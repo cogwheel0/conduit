@@ -21,6 +21,7 @@ import 'hermes_admin.dart';
 import 'hermes_rooms.dart';
 import 'hermes_work.dart';
 import 'intents.dart';
+import 'integrations.dart';
 import 'librechat.dart';
 import 'mcp.dart';
 import 'mcp_apps.dart';
@@ -29,6 +30,7 @@ import 'messages.dart';
 import 'methods.dart';
 import 'models.dart';
 import 'notes.dart';
+import 'notifications.dart';
 import 'profile.dart';
 import 'prompts.dart';
 import 'release_notes.dart';
@@ -45,6 +47,7 @@ import 'apple.dart';
 import 'calls.dart';
 import 'voice.dart';
 import 'web_search.dart';
+import 'webhooks.dart';
 import 'workspace.dart';
 
 /// Decodes a JSON object into a DTO: a `fromJson` factory.
@@ -364,6 +367,83 @@ abstract final class ConduitMethodSpecs {
     params: MemoryToggle.fromJson,
     result: MemoryList.fromJson,
   );
+
+  // notifications.*
+
+  static const notificationsGet =
+      ConduitMethodSpec<void, NotificationSettingsDto>(
+        ConduitMethods.notificationsGet,
+        result: NotificationSettingsDto.fromJson,
+      );
+  static const notificationsSet =
+      ConduitMethodSpec<NotificationSettingsPatch, NotificationSettingsDto>(
+        ConduitMethods.notificationsSet,
+        params: NotificationSettingsPatch.fromJson,
+        result: NotificationSettingsDto.fromJson,
+      );
+  static const notificationsRoute =
+      ConduitMethodSpec<NotificationRouteParams, NotificationRoute>(
+        ConduitMethods.notificationsRoute,
+        params: NotificationRouteParams.fromJson,
+        result: NotificationRoute.fromJson,
+      );
+
+  // webhooks.*
+
+  static const webhooksList = ConduitMethodSpec<void, WebhookList>(
+    ConduitMethods.webhooksList,
+    result: WebhookList.fromJson,
+  );
+  static const webhooksCreate = ConduitMethodSpec<WebhookCreate, WebhookList>(
+    ConduitMethods.webhooksCreate,
+    params: WebhookCreate.fromJson,
+    result: WebhookList.fromJson,
+  );
+  static const webhooksUpdate = ConduitMethodSpec<WebhookUpdate, WebhookList>(
+    ConduitMethods.webhooksUpdate,
+    params: WebhookUpdate.fromJson,
+    result: WebhookList.fromJson,
+  );
+  static const webhooksMakeDefault =
+      ConduitMethodSpec<WebhookRef, WebhookList>(
+        ConduitMethods.webhooksMakeDefault,
+        params: WebhookRef.fromJson,
+        result: WebhookList.fromJson,
+      );
+  static const webhooksTest = ConduitMethodSpec<WebhookRef, WebhookList>(
+    ConduitMethods.webhooksTest,
+    params: WebhookRef.fromJson,
+    result: WebhookList.fromJson,
+  );
+  static const webhooksDelete = ConduitMethodSpec<WebhookRef, WebhookList>(
+    ConduitMethods.webhooksDelete,
+    params: WebhookRef.fromJson,
+    result: WebhookList.fromJson,
+  );
+
+  // integrations.*
+
+  static const integrationsList = ConduitMethodSpec<void, PersonalConnections>(
+    ConduitMethods.integrationsList,
+    result: PersonalConnections.fromJson,
+  );
+  static const integrationsSave =
+      ConduitMethodSpec<PersonalConnectionSave, PersonalConnections>(
+        ConduitMethods.integrationsSave,
+        params: PersonalConnectionSave.fromJson,
+        result: PersonalConnections.fromJson,
+      );
+  static const integrationsTest =
+      ConduitMethodSpec<PersonalConnectionTest, PersonalConnectionTestResult>(
+        ConduitMethods.integrationsTest,
+        params: PersonalConnectionTest.fromJson,
+        result: PersonalConnectionTestResult.fromJson,
+      );
+  static const integrationsClearNotice =
+      ConduitMethodSpec<void, PersonalConnections>(
+        ConduitMethods.integrationsClearNotice,
+        result: PersonalConnections.fromJson,
+      );
 
   // releaseNotes.*
 
@@ -2285,6 +2365,19 @@ abstract final class ConduitMethodSpecs {
         memoriesDelete,
         memoriesClear,
         memoriesSetEnabled,
+        notificationsGet,
+        notificationsSet,
+        notificationsRoute,
+        webhooksList,
+        webhooksCreate,
+        webhooksUpdate,
+        webhooksMakeDefault,
+        webhooksTest,
+        webhooksDelete,
+        integrationsList,
+        integrationsSave,
+        integrationsTest,
+        integrationsClearNotice,
         releaseNotesCheck,
         releaseNotesLatest,
         releaseNotesDismiss,
@@ -2781,6 +2874,10 @@ abstract final class ConduitEventSpecs {
     ConduitEvents.settingsChanged,
     scoped: false,
   );
+  static const notificationsChanged = ConduitEventSpec<void>(
+    ConduitEvents.notificationsChanged,
+    scoped: false,
+  );
 
   static const queueChanged = ConduitEventSpec<QueueState>(
     ConduitEvents.queueChanged,
@@ -2904,6 +3001,7 @@ abstract final class ConduitEventSpecs {
         terminalDisplayFile,
         terminalChanged,
         settingsChanged,
+        notificationsChanged,
         queueChanged,
         messagesMerge,
         handoffRequested,

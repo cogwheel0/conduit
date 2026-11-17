@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "sound": true,
+  "soundAlways": true,
+  "inAppBanner": true,
+  "system": true,
+  "answers": true,
+  "channels": true,
+  "mentionsOnly": true,
+  "synced": true
+}

@@ -100,9 +100,11 @@ mod hermes_cards;
 mod hermes_rooms;
 mod hermes_sessions;
 mod integration;
+mod integrations;
 mod intents;
 mod librechat;
 mod notes;
+mod notifications;
 mod offline;
 mod read_aloud;
 mod rendering;
@@ -806,6 +808,8 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "intents" => intents::run(&inputs, &dir, cx).await,
         "terminal" => terminal::run(&inputs, &dir, cx).await,
         "apple-only" => apple::only(&inputs, &dir, cx).await,
+        "notifications" => notifications::run(&inputs, &dir, cx).await,
+        "integrations" => integrations::run(&inputs, &dir, cx).await,
         other => ok(&format!("unknown scenario {other}"), false),
     }
 }

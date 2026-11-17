@@ -56,17 +56,18 @@ fn settings_desktop_and_quick_ask_are_voiceover_operable() {
         )
     };
 
-    // Settings › Desktop: the four switches and the shortcut's button.
+    // Settings › Desktop: the three switches and the shortcut's button;
+    // notifications have their own tab.
     for label in [
         "Close to the Menu Bar",
         "Open at Login",
         "Open Quick Ask from Anywhere",
-        "Notify When an Answer Finishes",
     ] {
         missing("settings-desktop", "Switch", label);
     }
     missing("settings-desktop", "Button", "Change");
     missing("settings-desktop", "Tab", "General");
+    missing("settings-desktop", "Tab", "Notifications");
 
     // Quick Ask: its actions and the composer.
     // Nothing typed: the call button stands where Send is, as on the phone.

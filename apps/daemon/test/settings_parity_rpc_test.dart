@@ -8,6 +8,12 @@ import 'dart:io';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/integrations/personal_connection_settings.dart'
+    show PersonalConnectionKind;
+import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart'
+    hide PersonalConnectionTestResult;
+import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart';
+import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -27,6 +33,7 @@ import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 import 'package:web_socket_channel/io.dart';
@@ -112,7 +119,10 @@ void main() {
       peer,
       ConduitMethods.eventsSubscribe,
       params: const EventSubscription(
-        events: <String>[ConduitEvents.settingsChanged],
+        events: <String>[
+          ConduitEvents.settingsChanged,
+          ConduitEvents.notificationsChanged,
+        ],
       ).toJson(),
       decodeResult: EventSubscription.fromJson,
     );
@@ -138,6 +148,157 @@ void main() {
 
   Matcher rpcCode(String code) =>
       throwsA(isA<RpcError>().having((e) => e.code, 'code', code));
+
+  group('notifications.*, webhooks.* and integrations.*', () {
+    test(
+      'notifications start on here, change, persist and announce it',
+      () async {
+        final start = await call(
+          ConduitMethods.notificationsGet,
+          NotificationSettingsDto.fromJson,
+        );
+        // The desktop's host default (the phone's stays off).
+        expect(start.enabled, isTrue);
+        expect(start.answers, isTrue);
+        expect(start.channels, isTrue);
+        expect(start.mentionsOnly, isFalse);
+        // Nothing to mirror to without an account.
+        expect(start.synced, isFalse);
+        // The shared daemon gets its start values back, pass or fail.
+        addTearDown(
+          () => call(
+            ConduitMethods.notificationsSet,
+            NotificationSettingsDto.fromJson,
+            NotificationSettingsPatch(
+              inAppBanner: start.inAppBanner,
+              answers: start.answers,
+            ).toJson(),
+          ),
+        );
+
+        final announced = next(ConduitEvents.notificationsChanged);
+        final after = await call(
+          ConduitMethods.notificationsSet,
+          NotificationSettingsDto.fromJson,
+          const NotificationSettingsPatch(
+            inAppBanner: false,
+            answers: false,
+          ).toJson(),
+        );
+        expect(after.inAppBanner, isFalse);
+        expect(after.answers, isFalse);
+        expect(after.system, isTrue);
+        await announced;
+
+        Future<NotificationRoute> route(NotificationRouteParams p) => call(
+          ConduitMethods.notificationsRoute,
+          NotificationRoute.fromJson,
+          p.toJson(),
+        );
+        // Answers are off now.
+        expect(
+          (await route(const NotificationRouteParams(kind: NotifyKind.answer)))
+              .surface,
+          NotifySurface.suppressed,
+        );
+        // A channel message in front with the banner off: silent.
+        expect(
+          (await route(
+            const NotificationRouteParams(
+              kind: NotifyKind.channelMessage,
+              foreground: true,
+            ),
+          )).surface,
+          NotifySurface.silent,
+        );
+        // Behind: a system notification with its sound.
+        final behind = await route(
+          const NotificationRouteParams(kind: NotifyKind.channelMessage),
+        );
+        expect(behind.surface, NotifySurface.system);
+        expect(behind.systemSound, isTrue);
+      },
+    );
+
+    test(
+      'webhooks and personal connections need an Open WebUI account',
+      () async {
+        final hooks = await call(
+          ConduitMethods.webhooksList,
+          WebhookList.fromJson,
+        );
+        expect(hooks.available, isFalse);
+        final connections = await call(
+          ConduitMethods.integrationsList,
+          PersonalConnections.fromJson,
+        );
+        expect(connections.access, PersonalAccess.noAccount);
+        // An owner no list handed out is refused before anything is sent.
+        await expectLater(
+          call(
+            ConduitMethods.webhooksDelete,
+            WebhookList.fromJson,
+            const WebhookRef(owner: 'w9', id: 'x').toJson(),
+          ),
+          rpcCode(ConduitErrorCodes.conflict),
+        );
+        await expectLater(
+          call(
+            ConduitMethods.integrationsSave,
+            PersonalConnections.fromJson,
+            const PersonalConnectionSave(
+              owner: 'p9',
+              kind: PersonalKind.toolServer,
+              op: PersonalEditOp.remove,
+              identity: 'x',
+            ).toJson(),
+          ),
+          rpcCode(ConduitErrorCodes.conflict),
+        );
+      },
+    );
+
+    test('a tool server mode the form does not offer is refused, never read '
+        'as bearer', () async {
+      for (final draft in const <PersonalConnectionDraft>[
+        PersonalConnectionDraft(
+          url: 'https://tools.example.com',
+          authType: 'session',
+          key: 'seed-token',
+        ),
+        PersonalConnectionDraft(
+          url: 'https://tools.example.com',
+          specType: 'yaml',
+        ),
+      ]) {
+        await expectLater(
+          call(
+            ConduitMethods.integrationsTest,
+            PersonalConnectionTestResult.fromJson,
+            PersonalConnectionTest(
+              owner: 'p9',
+              kind: PersonalKind.toolServer,
+              draft: draft,
+            ).toJson(),
+          ),
+          rpcCode(ConduitErrorCodes.invalidParams),
+        );
+        await expectLater(
+          call(
+            ConduitMethods.integrationsSave,
+            PersonalConnections.fromJson,
+            PersonalConnectionSave(
+              owner: 'p9',
+              kind: PersonalKind.toolServer,
+              op: PersonalEditOp.add,
+              draft: draft,
+            ).toJson(),
+          ),
+          rpcCode(ConduitErrorCodes.invalidParams),
+        );
+      }
+    });
+  });
 
   group('settings.get and settings.set', () {
     test("start at core's defaults, with the message action catalog", () async {
@@ -568,9 +729,10 @@ void _withAnAccount() {
     Completer<void>? aboutHeld;
     Completer<void>? aboutAsked;
 
-    ProviderContainer containerWith() {
+    ProviderContainer containerWith({List<Override> extra = const []}) {
       final container = ProviderContainer(
         overrides: [
+          ...extra,
           ...openWebUiStorageOpenOverrides(database: db),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           apiServiceProvider.overrideWith((ref) => api),
@@ -687,6 +849,80 @@ void _withAnAccount() {
       settings.written.complete();
       await expectLater(saving, refused(ConduitErrorCodes.sessionExpired));
       expect(settings.calls, <String>['computerEnabled']);
+    });
+
+    test('notification settings asked under one account are never written '
+        'for the next', () async {
+      final settings = _Settings();
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWith(() => settings),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+          apiServiceProvider.overrideWith((ref) => null),
+        ],
+      );
+      addTearDown(container.dispose);
+      final saving = NotificationsService(container)
+          .set(const NotificationSettingsPatch(enabled: false, sound: false));
+      // Another account signs in while the first setting is written.
+      epoch = Object();
+      container.invalidate(openWebUiAuthSessionEpochProvider);
+      settings.written.complete();
+      await expectLater(saving, refused(ConduitErrorCodes.sessionExpired));
+      expect(settings.calls, <String>['notificationsEnabled']);
+    });
+
+    test("a webhook list read under one account is never answered with the "
+        "next one's under the first one's owner", () async {
+      final targets = _Targets();
+      final container = containerWith(
+        extra: [
+          notificationTargetsProvider.overrideWith(() => targets),
+          notificationTargetsAvailableProvider.overrideWithValue(true),
+          authTokenProvider3.overrideWithValue('token-a'),
+        ],
+      );
+      final reading = WebhooksService(container).list();
+      await targets.asked.future;
+      // Another account signs in while the destinations are read.
+      switchAccount(container);
+      targets.held.complete();
+      await expectLater(reading, refused(ConduitErrorCodes.sessionExpired));
+    });
+
+    test('the composer offers a personal tool server once a config cached '
+        'before sign-in is read again', () async {
+      user = _avaAdmin;
+      final container = containerWith(
+        extra: [
+          backendConfigProvider.overrideWith(_PreSignInConfig.new),
+          personalConnectionsProvider.overrideWith(
+            () => _Connections(() => api),
+          ),
+        ],
+      );
+      final options = await ComposerService(container).options();
+      expect(options.tools.map((t) => t.name), contains('Seed catalogue'));
+    });
+
+    test('an account switch while the composer reads the config again is '
+        'refused', () async {
+      user = _avaAdmin;
+      final config = _PreSignInConfig()..held = Completer<void>();
+      final container = containerWith(
+        extra: [
+          backendConfigProvider.overrideWith(() => config),
+          personalConnectionsProvider.overrideWith(
+            () => _Connections(() => api),
+          ),
+        ],
+      );
+      final reading = ComposerService(container).options();
+      await config.asked.future;
+      // Another account signs in while the config is read again.
+      switchAccount(container);
+      config.held!.complete();
+      await expectLater(reading, refused(ConduitErrorCodes.sessionExpired));
     });
 
     test('a birth date past its month is refused', () async {
@@ -930,6 +1166,99 @@ final class _Settings extends AppSettingsNotifier {
   @override
   Future<void> setSendOnEnter(bool value) async {
     calls.add('sendOnEnter');
+  }
+
+  @override
+  Future<void> setNotificationsEnabled(bool value) async {
+    calls.add('notificationsEnabled');
+    await written.future;
+  }
+
+  @override
+  Future<void> setNotificationSound(bool value) async {
+    calls.add('notificationSound');
+  }
+}
+
+const _avaAdmin = User(
+  id: 'user-1',
+  username: 'ava',
+  email: 'ava@example.com',
+  name: 'Ava',
+  role: 'admin',
+);
+
+/// The config as read before sign-in (no feature flags); read again, it
+/// offers personal connections. [held] holds that second read.
+final class _PreSignInConfig extends BackendConfigNotifier {
+  final asked = Completer<void>();
+  Completer<void>? held;
+
+  @override
+  Future<BackendConfig?> build() async =>
+      BackendConfig(serverId: _server.id, enableDirectIntegrations: false);
+
+  @override
+  Future<void> refresh() async {
+    if (!asked.isCompleted) asked.complete();
+    await held?.future;
+    state = AsyncData(
+      BackendConfig(serverId: _server.id, enableDirectIntegrations: true),
+    );
+  }
+}
+
+/// The account's personal connections: one enabled tool server.
+final class _Connections extends PersonalConnectionsController {
+  _Connections(this._api);
+
+  final ApiService Function() _api;
+
+  @override
+  Future<PersonalConnectionsSnapshot?> build() async {
+    final api = _api();
+    final raw = <String, dynamic>{
+      'url': 'https://tools.example.com',
+      'path': 'openapi.json',
+      'auth_type': 'none',
+      'key': '',
+      'config': <String, dynamic>{'enable': true},
+      'info': <String, dynamic>{'name': 'Seed catalogue'},
+    };
+    final list = <dynamic>[raw];
+    return PersonalConnectionsSnapshot(
+      session: PersonalConnectionsSession(
+        api: api,
+        authSnapshot: api.captureAuthSnapshot(),
+        accountName: 'Ava',
+        isCurrent: () => true,
+      ),
+      serverId: _server.id,
+      accountName: 'Ava',
+      toolServers: <PersonalConnectionEntry>[
+        PersonalConnectionEntry(
+          kind: PersonalConnectionKind.toolServer,
+          index: 0,
+          identity: 'seed',
+          raw: raw,
+          list: list,
+        ),
+      ],
+      terminals: const <PersonalConnectionEntry>[],
+    );
+  }
+}
+
+/// Webhook destinations whose first read waits for [held].
+final class _Targets extends NotificationTargets {
+  final asked = Completer<void>();
+  final held = Completer<void>();
+
+  @override
+  Future<NotificationTargetsData> build() async {
+    if (!asked.isCompleted) asked.complete();
+    await held.future;
+    return const NotificationTargetsData();
   }
 }
 

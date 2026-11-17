@@ -47,7 +47,12 @@ offline, with direct connections and channels on, retrieval bypassed, and
 one OpenAI connection, `fake_model.py`, which also does its speech-to-text,
 text-to-speech and embeddings (saving a memory needs one), and is the voice
 behind the server's realtime calls (a scripted exchange over its
-`/v1/realtime` WebSocket). `seed.py` then makes:
+`/v1/realtime` WebSocket). The fake model also serves a personal tool
+server (OpenAPI, `/personal/openapi.json`, one operation `read_buoy`) for
+the app to add and run client-side (direct integrations are on), and
+takes webhook deliveries on any `/webhook/...` path (user webhooks are
+on), logging both. `seed.py` then
+makes:
 
 - an admin, Avery Tester (`avery@example.test`), and a second user, Riley
   Example (`riley@example.test`), each with a random password;

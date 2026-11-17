@@ -51,6 +51,7 @@ pub mod hermes_rooms;
 pub mod hermes_work;
 pub mod layout;
 pub mod navigation;
+pub mod notifications;
 pub mod palette;
 pub mod router;
 pub mod rpc;
@@ -96,6 +97,8 @@ pub struct Stores {
     pub sections: Entity<SectionsStore>,
     /// Core's `AppSettings` and the socket's health (Settings, composer).
     pub app_settings: Entity<app_settings::AppSettingsStore>,
+    /// Settings › Notifications.
+    pub notifications: Entity<notifications::NotificationsStore>,
     /// Read aloud: the reading, and this window's voice and player.
     pub speech: Entity<speech::SpeechStore>,
     /// A voice call: the call the daemon runs, and this window's ears and
@@ -166,7 +169,8 @@ impl Stores {
             tasks: cx.new(|_| tasks::TasksStore::new(rpc.clone())),
             hermes_rooms: cx.new(|_| hermes_rooms::HermesRoomsStore::new(rpc.clone())),
             hermes_admin: cx.new(|_| hermes_admin::HermesAdminStore::new(rpc.clone())),
-            apple: cx.new(|_| apple_models::AppleModelsStore::for_test(rpc)),
+            apple: cx.new(|_| apple_models::AppleModelsStore::for_test(rpc.clone())),
+            notifications: cx.new(|_| notifications::NotificationsStore::new(rpc)),
         }
     }
 
@@ -194,6 +198,7 @@ impl Stores {
             .join("sidebar-sections.json");
         let sections = cx.new(|_| SectionsStore::load(Some(sections_file)));
         let app_settings = cx.new(|_| app_settings::AppSettingsStore::new(rpc.clone()));
+        let notifications = cx.new(|_| notifications::NotificationsStore::new(rpc.clone()));
         let speech = {
             let connection = connection.clone();
             let rpc = rpc.clone();
@@ -225,6 +230,7 @@ impl Stores {
             hermes_admin,
             sections,
             app_settings,
+            notifications,
             speech,
             call,
             calendar,
@@ -237,6 +243,7 @@ impl Stores {
         areas::wire(&stores, cx);
         hermes_admin::wire(&stores, cx);
         app_settings::wire(&stores, cx);
+        notifications::wire(&stores, cx);
         speech::wire(&stores, cx);
         call::wire(&stores, cx);
         calendar::wire(&stores, cx);

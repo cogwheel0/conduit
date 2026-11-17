@@ -5934,6 +5934,206 @@ const Map<String, String> protocolGoldens = <String, String>{
   "enabled": false
 }''',
 
+  'notificationSettingsDto': r'''
+{
+  "enabled": true,
+  "sound": true,
+  "soundAlways": true,
+  "inAppBanner": true,
+  "system": true,
+  "answers": true,
+  "channels": true,
+  "mentionsOnly": true,
+  "synced": true
+}''',
+
+  'notificationSettingsPatch': r'''
+{
+  "inAppBanner": false,
+  "channels": true
+}''',
+
+  'notificationRouteParams': r'''
+{
+  "kind": "channelMessage",
+  "foreground": true,
+  "viewing": false,
+  "alert": true,
+  "mention": true,
+  "direct": false
+}''',
+
+  'notificationRoute': r'''
+{
+  "surface": "banner",
+  "cue": true,
+  "systemSound": false
+}''',
+
+  'webhookDto': r'''
+{
+  "id": "harbour-hooks",
+  "enabled": true,
+  "isDefault": true,
+  "events": [
+    "chat.finished",
+    "channel.message"
+  ],
+  "delivery": "always",
+  "maskedUrl": "http://127.0.0.1:19341/...ook"
+}''',
+
+  'webhookEventDto': r'''
+{
+  "event": "chat.finished",
+  "label": "Chat finished",
+  "description": "A response finished."
+}''',
+
+  'webhookList': r'''
+{
+  "available": true,
+  "owner": "w1",
+  "items": [
+    {
+      "id": "ferry-desk",
+      "enabled": false,
+      "isDefault": false,
+      "events": [],
+      "delivery": "away"
+    }
+  ],
+  "events": [
+    {
+      "event": "channel.message",
+      "label": "Channel message"
+    }
+  ],
+  "stale": true,
+  "failed": false
+}''',
+
+  'webhookCreate': r'''
+{
+  "owner": "w1",
+  "url": "https://hooks.example.org/tide",
+  "name": "tide-board",
+  "enabled": true,
+  "events": [
+    "chat.finished"
+  ],
+  "delivery": "away"
+}''',
+
+  'webhookUpdate': r'''
+{
+  "owner": "w1",
+  "id": "tide-board",
+  "enabled": false,
+  "delivery": "always"
+}''',
+
+  'webhookRef': r'''
+{
+  "owner": "w1",
+  "id": "tide-board"
+}''',
+
+  'personalConnectionDto': r'''
+{
+  "kind": "toolServer",
+  "identity": "conduit-0a1b",
+  "name": "Buoy Readings",
+  "endpoint": "http://127.0.0.1:19341/personal",
+  "enabled": true,
+  "editable": true,
+  "description": "Synthetic buoy data.",
+  "url": "http://127.0.0.1:19341/personal",
+  "specType": "url",
+  "path": "openapi.json",
+  "spec": "",
+  "authType": "bearer",
+  "hasKey": true
+}''',
+
+  'personalConnections': r'''
+{
+  "access": "allowed",
+  "owner": "p1",
+  "accountName": "Harbour Admin",
+  "serverName": "Local",
+  "toolServers": [],
+  "terminals": [
+    {
+      "kind": "terminal",
+      "identity": "http://127.0.0.1:9100",
+      "name": "Dock Shell",
+      "endpoint": "",
+      "enabled": false,
+      "editable": true,
+      "description": "",
+      "url": "",
+      "specType": "url",
+      "path": "",
+      "spec": "",
+      "authType": "bearer",
+      "hasKey": false
+    }
+  ],
+  "cleared": [
+    "Old Gauge"
+  ],
+  "failed": false,
+  "savedForPreviousAccount": false
+}''',
+
+  'personalConnectionDraft': r'''
+{
+  "name": "Buoy Readings",
+  "description": "",
+  "url": "http://127.0.0.1:19341/personal",
+  "specType": "url",
+  "path": "openapi.json",
+  "spec": "",
+  "authType": "none",
+  "key": "",
+  "keyMode": "keep",
+  "enabled": true
+}''',
+
+  'personalConnectionSave': r'''
+{
+  "owner": "p1",
+  "kind": "toolServer",
+  "op": "setEnabled",
+  "identity": "conduit-0a1b",
+  "enabled": false
+}''',
+
+  'personalConnectionTest': r'''
+{
+  "owner": "p1",
+  "kind": "terminal",
+  "draft": {
+    "name": "",
+    "description": "",
+    "url": "http://127.0.0.1:9100",
+    "specType": "url",
+    "path": "",
+    "spec": "",
+    "authType": "bearer",
+    "key": "",
+    "keyMode": "replace",
+    "enabled": true
+  }
+}''',
+
+  'personalConnectionTestResult': r'''
+{
+  "ok": false,
+  "failure": "unauthorized"
+}''',
+
   'releaseNoteBullet': r'''
 {
   "text": "Settings has every page the phone has.",

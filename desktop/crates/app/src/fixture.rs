@@ -466,6 +466,8 @@ pub(crate) fn stores(rpc: Rpc, scratch: &std::path::Path, cx: &mut App) -> Store
         calendar: cx.new(|_| crate::stores::calendar::CalendarStore::new(rpc.clone())),
         tasks: cx.new(|_| crate::stores::tasks::TasksStore::new(rpc.clone())),
         hermes_rooms: cx.new(|_| crate::stores::hermes_rooms::HermesRoomsStore::new(rpc.clone())),
+        notifications: cx
+            .new(|_| crate::stores::notifications::NotificationsStore::new(rpc.clone())),
         accounts,
         session,
     }

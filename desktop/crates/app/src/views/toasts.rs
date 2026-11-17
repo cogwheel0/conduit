@@ -196,7 +196,10 @@ fn toast_column(
                             div().mt(px(-3.)).flex_none().child(
                                 Button::new(
                                     ElementId::NamedInteger("toast-retry".into(), id),
-                                    try_again.clone(),
+                                    toast
+                                        .action_label
+                                        .clone()
+                                        .unwrap_or_else(|| try_again.clone()),
                                 )
                                 .on_click(Rc::new(
                                     move |_, _, cx| {

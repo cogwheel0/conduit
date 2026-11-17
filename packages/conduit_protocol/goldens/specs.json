@@ -257,6 +257,71 @@
       "result": "MemoryList"
     },
     {
+      "name": "notifications.get",
+      "params": null,
+      "result": "NotificationSettingsDto"
+    },
+    {
+      "name": "notifications.set",
+      "params": "NotificationSettingsPatch",
+      "result": "NotificationSettingsDto"
+    },
+    {
+      "name": "notifications.route",
+      "params": "NotificationRouteParams",
+      "result": "NotificationRoute"
+    },
+    {
+      "name": "webhooks.list",
+      "params": null,
+      "result": "WebhookList"
+    },
+    {
+      "name": "webhooks.create",
+      "params": "WebhookCreate",
+      "result": "WebhookList"
+    },
+    {
+      "name": "webhooks.update",
+      "params": "WebhookUpdate",
+      "result": "WebhookList"
+    },
+    {
+      "name": "webhooks.makeDefault",
+      "params": "WebhookRef",
+      "result": "WebhookList"
+    },
+    {
+      "name": "webhooks.test",
+      "params": "WebhookRef",
+      "result": "WebhookList"
+    },
+    {
+      "name": "webhooks.delete",
+      "params": "WebhookRef",
+      "result": "WebhookList"
+    },
+    {
+      "name": "integrations.list",
+      "params": null,
+      "result": "PersonalConnections"
+    },
+    {
+      "name": "integrations.save",
+      "params": "PersonalConnectionSave",
+      "result": "PersonalConnections"
+    },
+    {
+      "name": "integrations.test",
+      "params": "PersonalConnectionTest",
+      "result": "PersonalConnectionTestResult"
+    },
+    {
+      "name": "integrations.clearNotice",
+      "params": null,
+      "result": "PersonalConnections"
+    },
+    {
       "name": "releaseNotes.check",
       "params": "ReleaseNotesQuery",
       "result": "ReleaseNotesState"
@@ -2060,6 +2125,11 @@
     },
     {
       "name": "settings.changed",
+      "payload": null,
+      "scoped": false
+    },
+    {
+      "name": "notifications.changed",
       "payload": null,
       "scoped": false
     },

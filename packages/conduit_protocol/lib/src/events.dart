@@ -59,6 +59,10 @@ abstract final class ConduitEvents {
   /// No payload; `settings.get` says what they are now.
   static const String settingsChanged = 'settings.changed';
 
+  /// The notification settings changed (`notifications.get` says how), from
+  /// any window, the server's mirror or the daemon itself. No payload.
+  static const String notificationsChanged = 'notifications.changed';
+
   /// Ask the shell to raise an OS notification.
   static const String notifyShow = 'notify.show';
 
@@ -208,6 +212,7 @@ abstract final class ConduitEvents {
     terminalDisplayFile,
     terminalChanged,
     settingsChanged,
+    notificationsChanged,
     queueChanged,
     messagesMerge,
     handoffRequested,

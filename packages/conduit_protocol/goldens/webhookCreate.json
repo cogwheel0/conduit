@@ -1,0 +1,10 @@
+{
+  "owner": "w1",
+  "url": "https://hooks.example.org/tide",
+  "name": "tide-board",
+  "enabled": true,
+  "events": [
+    "chat.finished"
+  ],
+  "delivery": "away"
+}

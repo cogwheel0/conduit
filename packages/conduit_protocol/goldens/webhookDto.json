@@ -1,0 +1,11 @@
+{
+  "id": "harbour-hooks",
+  "enabled": true,
+  "isDefault": true,
+  "events": [
+    "chat.finished",
+    "channel.message"
+  ],
+  "delivery": "always",
+  "maskedUrl": "http://127.0.0.1:19341/...ook"
+}

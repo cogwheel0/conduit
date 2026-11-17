@@ -68,7 +68,10 @@ import 'access_service.dart';
 import 'chat_settings_service.dart';
 import 'folder_settings_service.dart';
 import 'librechat_service.dart';
+import 'integrations_service.dart';
 import 'memories_service.dart';
+import 'notifications_service.dart';
+import 'webhooks_service.dart';
 import 'profile_service.dart';
 import 'release_notes_rpc_service.dart';
 
@@ -149,6 +152,9 @@ class DaemonServer {
   CoreSettingsService? _coreSettings;
   ProfileService? _profile;
   MemoriesService? _memories;
+  NotificationsService? _notifications;
+  WebhooksService? _webhooks;
+  IntegrationsService? _integrations;
   LibreChatService? _libreChat;
   ChatSettingsService? _chatSettings;
   ValvesService? _valves;
@@ -300,6 +306,9 @@ class DaemonServer {
     _coreSettings = CoreSettingsService(core.container, events: events);
     _profile = ProfileService(core.container, accounts: _accounts);
     _memories = MemoriesService(core.container);
+    _notifications = NotificationsService(core.container, events: events);
+    _webhooks = WebhooksService(core.container);
+    _integrations = IntegrationsService(core.container);
     _libreChat = LibreChatService(
       core.container,
       events: events,
@@ -371,6 +380,9 @@ class DaemonServer {
       coreSettings: _coreSettings,
       profile: _profile,
       memories: _memories,
+      notifications: _notifications,
+      webhooks: _webhooks,
+      integrations: _integrations,
       libreChat: _libreChat,
       releaseNotes: _releaseNotes,
       data: _data,
