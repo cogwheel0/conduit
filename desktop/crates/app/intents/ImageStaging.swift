@@ -1,5 +1,6 @@
 import AppIntents
 import Foundation
+import ImageIO
 import UniformTypeIdentifiers
 
 /// Send Image to Conduit's image, copied where the app takes it from: a
@@ -53,7 +54,20 @@ enum ImageStaging {
         } else {
             try file.data.write(to: target, options: .atomic)
         }
+        // A type or a name only says what the file claims to be (a renamed
+        // file passes both): the copy must read as an image too.
+        guard readsAsImage(target) else {
+            try? FileManager.default.removeItem(at: folder)
+            return Staged(path: nil, filename: name, isImage: false, byteCount: byteCount)
+        }
         return Staged(path: target.path, filename: safeName, isImage: true, byteCount: byteCount)
+    }
+
+    /// Whether the bytes at `url` are a picture ImageIO can read: a known
+    /// image format with at least one image in it.
+    static func readsAsImage(_ url: URL) -> Bool {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return false }
+        return CGImageSourceGetType(source) != nil && CGImageSourceGetCount(source) > 0
     }
 
     /// The staged copy's name: the image's own, or "Image" when it has none,

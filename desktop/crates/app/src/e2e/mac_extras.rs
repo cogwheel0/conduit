@@ -338,6 +338,17 @@ async fn shortcuts(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         "Send Image refuses a file that is not an image",
         error_is(&not_image, &l10n.desktop_intent_send_image_not_image()),
     );
+    // A file named and left untyped as a picture is still read: not one.
+    let renamed = step(json!({
+        "intent": "sendImage",
+        "path": text_file.to_string_lossy(),
+        "filename": "notes.png",
+    }))
+    .await;
+    pass &= ok(
+        "Send Image refuses a renamed file that is not an image",
+        error_is(&renamed, &l10n.desktop_intent_send_image_not_image()),
+    );
     let big = dir.join("x4-big.png");
     let sized = std::fs::File::create(&big)
         .and_then(|f| f.set_len(crate::intents::MAX_IMAGE_BYTES + 1))
