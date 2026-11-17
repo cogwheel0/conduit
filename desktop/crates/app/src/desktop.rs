@@ -1026,9 +1026,6 @@ pub fn open_notification_settings(cx: &mut App) {
 
 // ── Notifications ──────────────────────────────────────────────────────────
 
-/// Settings › General's "Notify When an Answer Finishes" and "Notify About
-/// Channel Messages" (before the Notifications pane): one turned off there
-/// is turned off in the core's settings, once.
 /// What notifies: `turn.finished` is unscoped (it comes for chats that are
 /// not open), `channels.posted` too (someone else posted in a channel not in
 /// front).
@@ -1042,6 +1039,9 @@ pub(crate) fn follow_alerts(connection: &Entity<ConnectionStore>, cx: &mut App) 
     });
 }
 
+/// Settings › General's "Notify When an Answer Finishes" and "Notify About
+/// Channel Messages" (before the Notifications pane): one turned off there
+/// is turned off in the core's settings, once.
 fn move_old_switches(cx: &mut App) {
     let Some(state) = cx.try_global::<AppState>() else {
         return;
