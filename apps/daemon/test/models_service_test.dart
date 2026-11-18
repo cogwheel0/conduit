@@ -4,7 +4,8 @@ library;
 import 'dart:async';
 import 'dart:io';
 
-import 'package:conduit_core/auth/api_auth_interceptor.dart' show ApiAuthSnapshot;
+import 'package:conduit_core/auth/api_auth_interceptor.dart'
+    show ApiAuthSnapshot;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show openWebUiChatSettingsAccessProvider;
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
@@ -173,6 +174,9 @@ final class _AgentsApi extends ApiService {
   bool failing = false;
   final asked = <String>[];
 
+  /// North's answers wait for this while it is set.
+  Completer<void>? held;
+
   @override
   Future<List<core.Model>> getTerminalAgentModels({
     required String terminalId,
@@ -184,6 +188,7 @@ final class _AgentsApi extends ApiService {
     ApiAuthSnapshot? authSnapshot,
   }) async {
     asked.add(terminalId);
+    if (terminalId == 'north') await held?.future;
     if (failing) throw const SocketException('No route to host');
     return terminalId == 'north'
         ? const [core.Model(id: _northAgent, name: 'Codex · gpt-test')]
@@ -205,10 +210,15 @@ Conversation _conversation(String id) => Conversation(
   model: id == 'agent-chat' ? _northAgent : 'first-model',
 );
 
+/// The session the agent tests' container reads; another sign-in replaces it.
+Object _session = Object();
+
 /// A container for the agent tests: [api]'s terminals, with south selected.
 ProviderContainer _agentContainer(_AgentsApi api) {
+  _session = Object();
   final container = ProviderContainer(
     overrides: [
+      openWebUiAuthSessionEpochProvider.overrideWith((ref) => _session),
       modelsProvider.overrideWith(_Listed.new),
       apiServiceProvider.overrideWithValue(api),
       reviewerModeProvider.overrideWith(_ReviewerOff.new),
@@ -223,58 +233,88 @@ ProviderContainer _agentContainer(_AgentsApi api) {
   );
   addTearDown(container.dispose);
   container.read(selectedTerminalIdProvider.notifier).set('south');
-  container.read(selectedModelProvider.notifier).set(
-    const core.Model(id: 'first-model', name: 'First model'),
-  );
+  container
+      .read(selectedModelProvider.notifier)
+      .set(const core.Model(id: 'first-model', name: 'First model'));
   return container;
 }
 
 void main() {
   group('a chat started with a coding agent', () {
-    test('reopens on its own terminal, whichever terminal is selected',
-        () async {
-      final api = _AgentsApi();
-      final container = _agentContainer(api);
-      final list = await ModelsService(container).list(
-        const ModelListQuery(chatId: 'agent-chat'),
-      );
-      expect(list.selectedId, _northAgent);
-      expect(container.read(selectedTerminalIdProvider), 'north');
-      expect(list.agents.map((m) => m.id), <String>[_northAgent]);
-    });
+    const opening = ModelListQuery(chatId: 'agent-chat', opening: true);
+    const again = ModelListQuery(chatId: 'agent-chat');
 
-    test('whose terminal could not be asked reopens on a later list',
-        () async {
+    test(
+      'reopens on its own terminal, whichever terminal is selected',
+      () async {
+        final api = _AgentsApi();
+        final container = _agentContainer(api);
+        final list = await ModelsService(container).list(opening);
+        expect(list.selectedId, _northAgent);
+        expect(container.read(selectedTerminalIdProvider), 'north');
+        expect(list.agents.map((m) => m.id), <String>[_northAgent]);
+      },
+    );
+
+    test('whose terminal could not be asked reopens on a later list', () async {
       final api = _AgentsApi()..failing = true;
       final container = _agentContainer(api);
       final models = ModelsService(container);
-      final first = await models.list(
-        const ModelListQuery(chatId: 'agent-chat'),
-      );
-      expect(first.selectedId, 'first-model');
+      expect((await models.list(opening)).selectedId, 'first-model');
       api.failing = false;
-      final second = await models.list(
-        const ModelListQuery(chatId: 'agent-chat'),
-      );
-      expect(second.selectedId, _northAgent);
+      expect((await models.list(again)).selectedId, _northAgent);
     });
 
-    test('keeps a model picked there when another chat lists in between',
-        () async {
-      final api = _AgentsApi();
+    test(
+      'keeps a model picked there when another chat lists in between',
+      () async {
+        final api = _AgentsApi();
+        final container = _agentContainer(api);
+        container.read(selectedTerminalIdProvider.notifier).set('north');
+        final models = ModelsService(container);
+        expect((await models.list(opening)).selectedId, _northAgent);
+        await models.select('first-model', chatId: 'agent-chat');
+        await models.list(
+          const ModelListQuery(chatId: 'plain-chat', opening: true),
+        );
+        expect((await models.list(again)).selectedId, 'first-model');
+      },
+    );
+
+    test('keeps a model picked there before its agent was found', () async {
+      final api = _AgentsApi()..held = Completer<void>();
       final container = _agentContainer(api);
-      container.read(selectedTerminalIdProvider.notifier).set('north');
       final models = ModelsService(container);
-      final opened = await models.list(
-        const ModelListQuery(chatId: 'agent-chat'),
-      );
-      expect(opened.selectedId, _northAgent);
+      final listing = models.list(opening);
+      await pumpEventQueue();
+      expect(api.asked, <String>['north']);
       await models.select('first-model', chatId: 'agent-chat');
-      await models.list(const ModelListQuery(chatId: 'plain-chat'));
-      final again = await models.list(
-        const ModelListQuery(chatId: 'agent-chat'),
-      );
-      expect(again.selectedId, 'first-model');
+      api.held!.complete();
+      await listing;
+      expect(container.read(selectedModelProvider)?.id, 'first-model');
+    });
+
+    test('puts nothing back once another account signed in', () async {
+      final api = _AgentsApi()..held = Completer<void>();
+      final container = _agentContainer(api);
+      final models = ModelsService(container);
+      final listing = models.list(opening);
+      await pumpEventQueue();
+      expect(api.asked, <String>['north']);
+      _session = Object();
+      container.invalidate(openWebUiAuthSessionEpochProvider);
+      api.held!.complete();
+      // The list is the next account's, with nothing put back for it.
+      expect((await listing).selectedId, 'first-model');
+      expect(container.read(selectedModelProvider)?.id, 'first-model');
+      expect(container.read(selectedTerminalIdProvider), 'south');
+    });
+
+    test('is not reopened by a list that does not open it', () async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final list = await ModelsService(container).list(again);
+      expect(list.selectedId, 'first-model');
     });
   });
 
@@ -346,27 +386,29 @@ void main() {
   Matcher refused(String code) =>
       throwsA(isA<RpcError>().having((e) => e.code, 'code', code));
 
-  test('a reasoning pick asked under one account is not made under the next',
-      () async {
-    var account = Object();
-    final listed = Completer<void>();
-    final container = ProviderContainer(
-      overrides: [
-        modelsProvider.overrideWith(() => _Held(listed.future)),
-        openWebUiAuthSessionEpochProvider.overrideWith((ref) => account),
-      ],
-      retry: (_, _) => null,
-    );
-    addTearDown(container.dispose);
-    final picking = ModelsService(container).setReasoningEffort(
-      const SetReasoningEffort(modelId: 'first-model', effort: 'high'),
-    );
-    // Another account signs in while the model is looked up.
-    account = Object();
-    container.invalidate(openWebUiAuthSessionEpochProvider);
-    listed.complete();
-    await expectLater(picking, refused(ConduitErrorCodes.sessionExpired));
-  });
+  test(
+    'a reasoning pick asked under one account is not made under the next',
+    () async {
+      var account = Object();
+      final listed = Completer<void>();
+      final container = ProviderContainer(
+        overrides: [
+          modelsProvider.overrideWith(() => _Held(listed.future)),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => account),
+        ],
+        retry: (_, _) => null,
+      );
+      addTearDown(container.dispose);
+      final picking = ModelsService(container).setReasoningEffort(
+        const SetReasoningEffort(modelId: 'first-model', effort: 'high'),
+      );
+      // Another account signs in while the model is looked up.
+      account = Object();
+      container.invalidate(openWebUiAuthSessionEpochProvider);
+      listed.complete();
+      await expectLater(picking, refused(ConduitErrorCodes.sessionExpired));
+    },
+  );
 
   test('a pick for a chat that cannot be read is refused', () async {
     final container = ProviderContainer(
@@ -424,49 +466,51 @@ void main() {
 
   // A server's own connection is still the server's chat: its settings
   // keep to the account's rights as any Open WebUI chat's do.
-  test("a new chat on a server connection's model keeps to the rights",
-      () async {
-    final registry = DirectModelRegistry();
-    final served = registry
-        .replaceProfileModels(
-          DirectConnectionProfile(
-            id: 'server-connection',
-            name: 'Server connection',
-            adapterKey: kOpenAiCompatibleAdapterKey,
-            baseUrl: 'https://models.invalid/v1',
+  test(
+    "a new chat on a server connection's model keeps to the rights",
+    () async {
+      final registry = DirectModelRegistry();
+      final served = registry
+          .replaceProfileModels(
+            DirectConnectionProfile(
+              id: 'server-connection',
+              name: 'Server connection',
+              adapterKey: kOpenAiCompatibleAdapterKey,
+              baseUrl: 'https://models.invalid/v1',
+            ),
+            [DirectRemoteModel(id: 'served-model')],
+            source: DirectModelSource.openWebUi,
+            openWebUiUrlIndex: 0,
+          )
+          .single;
+      final container = ProviderContainer(
+        overrides: [
+          directModelRegistryProvider.overrideWithValue(registry),
+          modelsProvider.overrideWith(() => _These(<core.Model>[served])),
+          openWebUiChatSettingsAccessProvider.overrideWith(
+            (ref) async => const OpenWebUiChatSettingsAccess(
+              canEditSystemPrompt: false,
+              canEditParameters: true,
+            ),
           ),
-          [DirectRemoteModel(id: 'served-model')],
-          source: DirectModelSource.openWebUi,
-          openWebUiUrlIndex: 0,
-        )
-        .single;
-    final container = ProviderContainer(
-      overrides: [
-        directModelRegistryProvider.overrideWithValue(registry),
-        modelsProvider.overrideWith(() => _These(<core.Model>[served])),
-        openWebUiChatSettingsAccessProvider.overrideWith(
-          (ref) async => const OpenWebUiChatSettingsAccess(
-            canEditSystemPrompt: false,
-            canEditParameters: true,
+        ],
+        retry: (_, _) => null,
+      );
+      addTearDown(container.dispose);
+      final turns = TurnsService(container, EventBus());
+      addTearDown(turns.dispose);
+      await expectLater(
+        turns.send(
+          SendTurn(
+            model: served.id,
+            text: 'Hello',
+            chatParams: const <String, dynamic>{'system': 'Answer in riddles.'},
           ),
         ),
-      ],
-      retry: (_, _) => null,
-    );
-    addTearDown(container.dispose);
-    final turns = TurnsService(container, EventBus());
-    addTearDown(turns.dispose);
-    await expectLater(
-      turns.send(
-        SendTurn(
-          model: served.id,
-          text: 'Hello',
-          chatParams: const <String, dynamic>{'system': 'Answer in riddles.'},
-        ),
-      ),
-      refused(ConduitErrorCodes.unauthorized),
-    );
-  });
+        refused(ConduitErrorCodes.unauthorized),
+      );
+    },
+  );
 
   test("a new chat's settings checked for one account are never sent under "
       'the next', () async {
@@ -550,43 +594,44 @@ void main() {
     expect(list.models.map((m) => m.id), <String>['b-model']);
   });
 
-  test('a pin asked for under one account is not made under the next',
-      () async {
-    var account = Object();
-    final loaded = Completer<void>();
-    final settings = _Personal(loaded.future);
-    final container = ProviderContainer(
-      overrides: [
-        modelsProvider.overrideWith(_Listed.new),
-        apiServiceProvider.overrideWithValue(
-          ApiService(
-            serverConfig: const ServerConfig(
-              id: 'server',
-              name: 'Home server',
-              url: 'https://home.invalid',
+  test(
+    'a pin asked for under one account is not made under the next',
+    () async {
+      var account = Object();
+      final loaded = Completer<void>();
+      final settings = _Personal(loaded.future);
+      final container = ProviderContainer(
+        overrides: [
+          modelsProvider.overrideWith(_Listed.new),
+          apiServiceProvider.overrideWithValue(
+            ApiService(
+              serverConfig: const ServerConfig(
+                id: 'server',
+                name: 'Home server',
+                url: 'https://home.invalid',
+              ),
+              workerManager: WorkerManager(),
             ),
-            workerManager: WorkerManager(),
           ),
-        ),
-        openWebUiAuthSessionEpochProvider.overrideWith((ref) => account),
-        personalizationSettingsProvider.overrideWith(() => settings),
-        effectivePinnedModelIdsProvider.overrideWithValue(const <String>[]),
-        canTogglePinnedModelsProvider.overrideWithValue(true),
-      ],
-      retry: (_, _) => null,
-    );
-    addTearDown(container.dispose);
-    container.listen(personalizationSettingsProvider, (_, _) {});
-    final pinning = ModelsService(
-      container,
-    ).setPinned(const SetModelPinned(id: 'first-model', pinned: true));
-    // Another account signs in while the account's settings load.
-    account = Object();
-    container.invalidate(openWebUiAuthSessionEpochProvider);
-    loaded.complete();
-    await expectLater(pinning, refused(ConduitErrorCodes.sessionExpired));
-    expect(settings.toggled, isEmpty);
-  });
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => account),
+          personalizationSettingsProvider.overrideWith(() => settings),
+          effectivePinnedModelIdsProvider.overrideWithValue(const <String>[]),
+          canTogglePinnedModelsProvider.overrideWithValue(true),
+        ],
+        retry: (_, _) => null,
+      );
+      addTearDown(container.dispose);
+      container.listen(personalizationSettingsProvider, (_, _) {});
+      final pinning = ModelsService(container)
+          .setPinned(const SetModelPinned(id: 'first-model', pinned: true));
+      // Another account signs in while the account's settings load.
+      account = Object();
+      container.invalidate(openWebUiAuthSessionEpochProvider);
+      loaded.complete();
+      await expectLater(pinning, refused(ConduitErrorCodes.sessionExpired));
+      expect(settings.toggled, isEmpty);
+    },
+  );
 
   test("another model's Fast tier request changes nothing", () async {
     final container = ProviderContainer(
