@@ -4467,6 +4467,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
       'model': 'Heron Large',
       'reason': 'Heron Large costs more per message.',
     },
+    detail: <String, dynamic>{'chatId': 'local:hermes_s-1'},
     timeoutMs: 300000,
     defaultChoice: 'cancel',
   ),
